@@ -46,7 +46,19 @@
 #else
 #define EPD_UPDATE_SEQ      0xF7   /* full update with the OTP waveform */
 #endif
-#define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first (the stock firmware on 154 uses Y-) */
+#if MODEL == 154
+/*
+ * On this panel a RAM line (Y) is a screen row, so one layout column cannot be
+ * one RAM line: that gave a transposed image (rotated and mirrored, seen on the
+ * tag 2026-10-14). Instead 8 layout columns are transposed into one RAM byte
+ * column (X), and the counter runs down Y first.
+ */
+#define EPD_TRANSPOSE       1
+#define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
+#else
+#define EPD_TRANSPOSE       0
+#define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first */
+#endif
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
 static uint8_t __xdata col_red[DRAW_COL_BYTES];
@@ -90,18 +102,26 @@ static bool wait_busy(uint16_t timeout_ms)
     return true;
 }
 
+#if EPD_TRANSPOSE
+#define RAM_X_BYTES     ((DRAW_W + 7) / 8)   /* RAM X = layout x, 8 pixels per byte */
+#define RAM_Y_LINES     DRAW_H               /* RAM Y = layout y */
+#else
+#define RAM_X_BYTES     DRAW_COL_BYTES       /* RAM X = layout y, one column per line */
+#define RAM_Y_LINES     DRAW_W               /* RAM Y = layout x */
+#endif
+
 static void set_window(void)
 {
     cmd(CMD_DATA_ENTRY);
     data(EPD_DATA_ENTRY);
-    cmd(CMD_RAM_X_RANGE);              /* X in bytes: one column, DRAW_COL_BYTES */
+    cmd(CMD_RAM_X_RANGE);              /* X in bytes */
     data(0);
-    data(DRAW_COL_BYTES - 1);
-    cmd(CMD_RAM_Y_RANGE);              /* Y: one line per column, 0 .. DRAW_W - 1 */
+    data(RAM_X_BYTES - 1);
+    cmd(CMD_RAM_Y_RANGE);              /* Y in lines */
     data(0);
     data(0);
-    data((uint8_t)(DRAW_W - 1));
-    data((uint8_t)((DRAW_W - 1) >> 8));
+    data((uint8_t)(RAM_Y_LINES - 1));
+    data((uint8_t)((RAM_Y_LINES - 1) >> 8));
 }
 
 static void set_cursor(void)
@@ -113,6 +133,42 @@ static void set_cursor(void)
     data(0);
 }
 
+#if EPD_TRANSPOSE
+static uint8_t __xdata rows[DRAW_H];    /* 8 layout columns, one byte per row */
+
+/* Streams one plane: red = 0 gives the black plane, 1 gives the red plane. */
+static void stream_plane(draw_scene_t *s, uint8_t red)
+{
+    uint16_t x;
+    uint8_t y, k, m, b;
+    const uint8_t *col = red ? col_red : col_black;
+
+    set_cursor();
+    cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
+    hal_epd_dc(1);
+    hal_epd_cs(0);
+    draw_begin(s);
+    for (x = 0; x < DRAW_W; x += 8) {
+        for (y = 0; y < DRAW_H; y++)
+            rows[y] = 0;
+        for (k = 0; k < 8 && x + k < DRAW_W; k++) {
+            draw_column(s, x + k, col_black, col_red);
+            m = (uint8_t)(0x80 >> k);
+            for (y = 0; y < DRAW_H; y++)
+                if (col[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
+                    rows[y] |= m;
+        }
+        for (y = 0; y < DRAW_H; y++) {
+            b = rows[y];
+            if (!red && EPD_BW_INVERT)
+                b = (uint8_t)~b;
+            spi_byte(b);
+        }
+        hal_wdt_kick();
+    }
+    hal_epd_cs(1);
+}
+#else
 /* Streams one plane: red = 0 gives the black plane, 1 gives the red plane. */
 static void stream_plane(draw_scene_t *s, uint8_t red)
 {
@@ -137,6 +193,7 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     }
     hal_epd_cs(1);
 }
+#endif
 
 static void init_panel(void)
 {

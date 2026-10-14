@@ -150,11 +150,13 @@ static uint8_t __xdata rx[127];
 static void put_frame(const uint8_t *f, int8_t n)
 {
     int8_t i;
-    hal_uart_puts("RX ");
-    put_hex((uint8_t)n);
-    hal_uart_puts(":");
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
         put_hex(f[i]);
+        if ((i & 7) == 7) {
+            hal_uart_puts("\r\n");
+            hal_delay_ms(5);    /* the D1 mini's software UART drops long bursts */
+        }
+    }
     hal_uart_puts("\r\n");
 }
 
@@ -189,30 +191,40 @@ static uint8_t build_checkin(const uint8_t *mac, uint8_t seq)
     for (i = 1; i < 21; i++)
         sum += req[i];
     req[0] = sum;
-    return n + 21;
+    frame[n + 21] = 0;          /* OEPL sends one extra byte after the struct */
+    return n + 22;
+}
+
+/* Received frame: an AvailDataInfo reply is checked with OEPL's byte-sum checksum. */
+static void show_rx(int8_t r)
+{
+    uint8_t j, sum = 0;
+
+    hal_uart_puts("RX");
+    hal_uart_puts(" n=");
+    put_hex((uint8_t)r);
+    if (r == 39 && rx[21] == 0xE6) {       /* MacFrameNormal (21) + type + 17 bytes */
+        for (j = 23; j < 39; j++)
+            sum += rx[j];
+        hal_uart_puts(sum == rx[22] ? " AvailDataInfo checksum OK" : " AvailDataInfo checksum BAD");
+    }
+    hal_uart_puts("\r\n");
+    hal_delay_ms(5);
+    put_frame(rx, r);
 }
 
 static void radio_test(const uint8_t *mac, uint8_t seq)
 {
     int8_t r;
-    uint8_t k, len = build_checkin(mac, seq);
+    uint8_t k;
 
-    r = radio_tx(frame, len);
-    hal_uart_puts(r ? "TX ok " : "TX fail ");
-    put_hex(radio_dbg_tx);
-    hal_uart_puts("\r\n");
-    radio_dbg_rx = 0;
-    radio_dbg_len = 0;
+    r = radio_tx(frame, build_checkin(mac, seq));
+    hal_uart_puts(r ? "TX ok\r\n" : "TX fail\r\n");
     for (k = 0; k < 4; k++) {
         r = radio_rx(rx, sizeof(rx), 25);
         if (r >= 0)
-            put_frame(rx, r);
+            show_rx(r);
     }
-    hal_uart_puts("rx causes ");
-    put_hex(radio_dbg_rx);
-    hal_uart_puts(" len ");
-    put_hex(radio_dbg_len);
-    hal_uart_puts("\r\n");
 }
 
 void main(void)
@@ -239,25 +251,10 @@ void main(void)
     for (;;) {
         if ((n % 5) == 0)
             radio_test(mac, (uint8_t)n);
-        int8_t r;
-        radio_dbg_rx = 0;
-        radio_dbg_len = 0;
-        r = radio_rx(rx, sizeof(rx), 250);
-        if (r >= 0)
-            put_frame(rx, r);
-        r = radio_rx(rx, sizeof(rx), 250);
-        if (r >= 0)
-            put_frame(rx, r);
-        r = radio_rx(rx, sizeof(rx), 250);
-        if (r >= 0)
-            put_frame(rx, r);
-        r = radio_rx(rx, sizeof(rx), 250);
-        if (r >= 0)
-            put_frame(rx, r);
-        if (radio_dbg_rx) {
-            hal_uart_puts("bg causes ");
-            put_hex(radio_dbg_rx);
-            hal_uart_puts("\r\n");
+        for (i = 0; i < 4; i++) {           /* listen for the rest of the second */
+            int8_t r = radio_rx(rx, sizeof(rx), 250);
+            if (r >= 0)
+                show_rx(r);
         }
         hal_uart_puts("t ");
         put_hex((uint8_t)(n >> 8));

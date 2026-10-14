@@ -157,6 +157,5 @@ __sfr __at (0xFA) RADIO_GOTLEN;   /* any page: length of the frame in the RX FIF
 
 /* Radio extra (radio_zbs243.c): the PAN ID for the frame filter. Default CFG_PAN_ID. */
 void radio_set_pan(uint16_t pan);
-extern uint8_t radio_dbg_tx, radio_dbg_rx, radio_dbg_len;   /* bring-up only */
 
 #endif /* ZBS243_H */

@@ -24,7 +24,6 @@ static __xdata uint8_t rxbuf[1 + FRAME_MAX + 2];
 static uint8_t cur_channel = 11;
 static uint16_t cur_pan = CFG_PAN_ID;
 static bool radio_up;
-uint8_t radio_dbg_tx, radio_dbg_rx, radio_dbg_len;
 
 /* Up to max_ms milliseconds measured with timer 0 (16 MHz / 12): ms_start, then ms_tick. */
 static void ms_start(void)
@@ -72,18 +71,18 @@ static void set_channel(uint8_t ch)
 }
 
 /* Frame filter: our extended address and PAN. No short address (0xFFFF). */
+static uint8_t mac[8];
+
 static void set_filter(void)
 {
-    uint8_t mac[8];
     uint8_t i;
 
-    hal_mac_read(mac);
     for (i = 0; i < 8; i++)
         RADIO_OWN_MAC[i] = mac[7 - i];
     RADIO_PAN_HI = (uint8_t)(cur_pan >> 8);
     RADIO_PAN_LO = (uint8_t)cur_pan;
-    RADIO_SHORT_HI = 0xFF;
-    RADIO_SHORT_LO = 0xFF;
+    RADIO_SHORT_HI = 0x00;
+    RADIO_SHORT_LO = 0x00;
 }
 
 void radio_set_pan(uint16_t pan)
@@ -101,6 +100,11 @@ void radio_init(uint8_t channel)
 
 void radio_on(void)
 {
+    /*
+     * Read the MAC before the radio init: the flash DMA in hal_mac_read writes
+     * SETTINGS, which would clear the radio bits the init sets there.
+     */
+    hal_mac_read(mac);
     hal_delay_ms(1);
     RADIO_UNK_F0 |= 0x80;
     hal_delay_ms(1);
@@ -196,7 +200,7 @@ void radio_off(void)
 
 bool radio_tx(const uint8_t *frame, uint8_t len)
 {
-    uint8_t i;
+    uint8_t i, cause;
     uint16_t wait;
 
     if (!radio_up || len > FRAME_MAX - 2)
@@ -223,9 +227,9 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
     /* The radio raises 0x40 when the frame (and the ACK window) is over. */
     ms_start();
     i = 10;
-    radio_dbg_tx = 0;
-    while (!(radio_dbg_tx & 0x40)) {
-        radio_dbg_tx |= RADIO_IRQ_PENDING;
+    cause = 0;
+    while (!(cause & 0x40)) {
+        cause |= RADIO_IRQ_PENDING;
         if (ms_tick() && !i--) {
             TCON &= (uint8_t)~0x30;
             return false;
@@ -241,36 +245,58 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
 }
 
 /*
- * Copies one frame from the RX FIFO with DMA. rxbuf[0] = RADIO_GOTLEN, then the
- * frame; the last two bytes are the radio's status bytes in place of the FCS
- * (the last one has 0x80 = FCS correct). Returns the length without FCS, or -1.
+ * Copies one frame from the RX FIFO with DMA into rxbuf + 1. Returns the length
+ * without FCS, or -1.
  */
+static __xdata uint8_t rx_len;
+
+/* Starts the RX DMA of rx_len + 1 bytes into rxbuf + 1. No locals: see fetch_frame. */
+static void rx_dma_start(void)
+{
+    CFGPAGE = 4;
+    RADIO_RXLEN = rx_len - 1;
+    RADIO_RXPTRL = (uint8_t)(uint16_t)(rxbuf + 1);
+    RADIO_RXPTRH = (uint8_t)((uint16_t)(rxbuf + 1) >> 8);
+    TRIGGER |= 0x04;
+    TCON2 &= (uint8_t)~0x04;
+    CFGPAGE = 0;
+}
+
 static int8_t fetch_frame(uint8_t *buf, uint8_t maxlen)
 {
-    uint8_t len = RADIO_GOTLEN;
     uint8_t i, n;
 
-    if (len < 3 || len >= 0x80 || (uint8_t)(RADIO_RX_FIRST + 1) != len) {
+    /*
+     * RADIO_GOTLEN is a read port on the RX FIFO: the first read gives the PHY
+     * length byte (frame + 2), and every further read pops the next frame byte
+     * (seen on the tag: 0x29, then 0x41 = the first frame byte). So read it once,
+     * first thing, and never poll it.
+     */
+    rx_len = RADIO_GOTLEN;
+    if (rx_len < 3 || rx_len >= 0x80 || (uint8_t)(RADIO_RX_FIRST + 1) != rx_len) {
         RADIO_COMMAND = RADIO_CMD_FLUSH_RX;
         return -1;
     }
-    rxbuf[0] = len;
-    CFGPAGE = 4;
-    RADIO_RXLEN = len - 1;
-    RADIO_RXPTRL = (uint8_t)(uint16_t)(rxbuf + 1);
-    RADIO_RXPTRH = (uint8_t)((uint16_t)(rxbuf + 1) >> 8);
-    TRIGGER |= 0x04;             /* RX DMA */
-    TCON2 &= (uint8_t)~0x04;
-    CFGPAGE = 0;
+    /*
+     * Keep register variables out of code that runs with CFGPAGE = 4: with the
+     * length in a register across that section, the frame came out one byte short
+     * (the length read was right, the computed size was one less). Not understood;
+     * the length now lives in xdata.
+     */
+    rx_dma_start();
     wait_ms_flag_tcon2(0x04, 2);
     CFGPAGE = 4;
     TCON2 &= (uint8_t)~0x04;
     CFGPAGE = 0;
     RADIO_COMMAND = RADIO_CMD_FLUSH_RX;
 
-    if (!(rxbuf[len] & 0x80))
+    /*
+     * Measured on the tag: rxbuf[1 .. len - 2] is the frame without FCS, then
+     * rxbuf[len - 1] is the RSSI and rxbuf[len] has 0x80 = FCS correct | LQI.
+     */
+    if (!(rxbuf[rx_len] & 0x80))
         return -1;               /* FCS wrong */
-    n = len - 2;
+    n = rx_len - 2;
     if (n > maxlen)
         return -1;
     for (i = 0; i < n; i++)
@@ -287,12 +313,9 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
         return -1;
     ms_start();
     for (;;) {
-        if (RADIO_GOTLEN > radio_dbg_len)
-            radio_dbg_len = RADIO_GOTLEN;
         cause = RADIO_IRQ_PENDING;
         if (cause) {
             RADIO_IRQ_PENDING = 0;
-            radio_dbg_rx |= cause;
             if (cause & 0x20) {
                 n = fetch_frame(buf, maxlen);
                 if (n >= 0) {
