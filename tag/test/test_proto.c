@@ -32,13 +32,13 @@ static void test_parse_content(void)
     static const char *const f[] = { "Lettmelk 1 L", "24,90", "kr/l 24,90" };
     uint8_t p[ESL_MAX_PAYLOAD];
     proto_reply_t r;
-    uint8_t n = make_content(p, 0, 0xADB75201ul, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, f);
+    uint8_t n = make_content(p, 0, 0xADB75201ul, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, f);
 
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
     CHECK_EQ(r.type, ESL_MSG_CONTENT);
     CHECK_EQ(r.content_id, 0xADB75201ul);
     CHECK_EQ(r.layout, ESL_LAYOUT_PRICE);
-    CHECK_EQ(r.flags, ESL_CF_PRICE_RED);
+    CHECK_EQ(r.flags, ESL_CF_PRICE_HIGHLIGHT);
     CHECK_EQ(r.nfields, 3);
     CHECK_EQ(r.field_len[0], 12);
     CHECK(memcmp(p + r.field_off[0], "Lettmelk 1 L", 12) == 0);

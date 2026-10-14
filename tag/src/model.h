@@ -7,11 +7,10 @@
  * left to right, each DRAW_H pixels tall. draw.c computes one column at a time and
  * epd.c streams the columns to the display controller.
  *
- * MODEL_HAS_RED = 0 means a black/white-only panel: everything the layouts would draw
- * in red is drawn in black instead (draw.c), and epd.c sends only the black plane.
- *
- * The small tag is the SoluM ST-GM16XX2, 1.54", 200 x 200, black/white only (no red),
- * as reported from hardware inspection. The 2.9" is black/white/red (docs/krav.md G6).
+ * Both supported tags are black/white only (no red): the SoluM ST-GM29XX2, 2.9",
+ * 296 x 128, and the SoluM ST-GM16XX2, 1.54", 200 x 200 (docs/krav.md G6).
+ * MODEL_HAS_RED = 0 for both: draw.c only fills the black plane (highlighting is an
+ * inverted field, white on black) and epd.c sends only the black plane.
  * Which controller the small tag has is not confirmed yet (phase 0).
  */
 #ifndef MODEL_H
@@ -22,10 +21,10 @@
 #endif
 
 #if MODEL == 29
-/* SoluM ST-GM29XX2, 2.9", black/white/red */
+/* SoluM ST-GM29XX2, 2.9", black/white */
 #define MODEL_CODE       1          /* model byte in POLL (requirement T18), = ESL_MODEL_29 */
 #define MODEL_NAME       "2.9"
-#define MODEL_HAS_RED    1
+#define MODEL_HAS_RED    0
 #define DRAW_W           296
 #define DRAW_H           128
 #elif MODEL == 154

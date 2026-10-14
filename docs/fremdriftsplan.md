@@ -10,7 +10,7 @@ The order is **risk first**: the hardest and most uncertain part (the tag's radi
 |---|---|---|---|
 | 0 | Preparation | 2–3 evenings | An empty firmware builds and flashes; the tag starts and does not hang |
 | 1 | Signs of life on the tag | 3–8 evenings | The tag writes "hello" on UART and can wait a known number of ms |
-| 2 | Display | 4–8 evenings | The tag draws "24.90" in red and one line of text in black |
+| 2 | Display | 4–8 evenings | The tag draws "24,90" white on a black box and one line of text in black |
 | 3 | Radio (gate) | 5–12 evenings | The tag sends a frame that the C6 sniffer sees, and receives a frame from the C6 |
 | 4 | AP foundation | 3–5 evenings | The C6 with WiFi answers a fake tag with IDLE/CONTENT in under 5 ms |
 | 5 | End to end | 3–5 evenings | `curl -X PUT …/api/tags/{mac}` → the right tag shows the new price |
@@ -35,7 +35,7 @@ The order is **risk first**: the hardest and most uncertain part (the tag's radi
 
 ## Phase 2: Display
 - Bit-bang SPI on the pins from phase 0. Reset, wait for BUSY, read a status register to confirm contact.
-- Init according to the datasheet, fill white, then black, then red. Use the OTP waveform.
+- Init according to the datasheet, fill white, then black. Use the OTP waveform.
 - Write the font generator and `draw`/`layout`. Test layouts 1 and 2 with fixed strings, including æøå and text that is too long.
 - Put the display into deep sleep after drawing.
 

@@ -11,8 +11,8 @@
 /* ESL_LAYOUT_PRICE: [name, price, subtitle]
  * ESL_LAYOUT_TEXT:  [line1, line2, line3, line4] */
 
-#define ESL_CFLAG_PRICE_RED ESL_CF_PRICE_RED
-#define ESL_CFLAG_FRAME_RED ESL_CF_RED_FRAME
+#define ESL_CFLAG_PRICE_HIGHLIGHT ESL_CF_PRICE_HIGHLIGHT
+#define ESL_CFLAG_FRAME ESL_CF_FRAME
 
 /* Total text bytes (after Latin-1 conversion): what fits in the 110-byte
  * radio payload with all four length bytes and the reserved 4-byte MIC. */

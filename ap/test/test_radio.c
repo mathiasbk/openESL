@@ -149,7 +149,7 @@ static void test_fake_tag_filters(void)
 static void test_end_to_end(void)
 {
     esl_faketag_t t;
-    const char *body = "{\"layout\":\"price\",\"fields\":[\"Gr\\u00f8nnsaker\",\"19,90\",\"kr/kg\"],\"price_red\":true}";
+    const char *body = "{\"layout\":\"price\",\"fields\":[\"Gr\\u00f8nnsaker\",\"19,90\",\"kr/kg\"],\"price_highlight\":true}";
 
     memset(&nvs, 0, sizeof(nvs));
     ap_boot();
@@ -166,7 +166,7 @@ static void test_end_to_end(void)
     CHECK(HAS(resp, "\"pending\":true"));
     CHECK_INT(air(&t, 61000, false), ESL_MSG_CONTENT);
     CHECK_INT(t.content.layout, ESL_LAYOUT_PRICE);
-    CHECK_INT(t.content.flags, ESL_CF_PRICE_RED);
+    CHECK_INT(t.content.flags, ESL_CF_PRICE_HIGHLIGHT);
     uint8_t len;
     const uint8_t *f = esl_content_field(&t.content, 0, &len);
     CHECK_INT(len, 10);

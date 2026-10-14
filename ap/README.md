@@ -43,7 +43,7 @@ See [docs/protokoll.md](../docs/protokoll.md) part 2. Every call requires `Autho
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"layout":"price","fields":["Milk 1 L","24.90","per litre 24.90"],"price_red":true}'
+  -d '{"layout":"price","fields":["Milk 1 L","24.90","per litre 24.90"],"price_highlight":true}'
 
 curl -H "Authorization: Bearer $TOKEN" http://openesl.local/api/tags
 ```
@@ -103,7 +103,6 @@ Covers CRC32, text conversion, content, messages and frames, the NVS format, JSO
 
 - **Not built:** ESP-IDF is not installed on the development PC, so `main/` has never been compiled for real. Check on the first build: the `esp_ieee802154` callback names, `partitions.csv`, the `../../../shared` include path in `components/esl_core/CMakeLists.txt`, and `dependencies.lock` (commit it, G5).
 - **Model in POLL:** the AP reads byte 11 as the model, with the same codes as `MODEL_CODE` in `tag/src/model.h` (1 = 2.9", 2 = 1.54"), but the tag firmware still sends 0. protokoll.md part 1 should say so once tag and AP agree. Another model only needs a new `ESL_MODEL_*` value and a name in `esl_model_name()`.
-- **Colours per model:** the 1.54" (ST-GM16XX2) is black/white only, so `price_red`/`frame_red` are drawn in black there. The AP accepts them for every model; whether it should reject or flag them for a black/white tag is not decided.
 - **Validation per model (A13):** the AP knows the model of each tag but has nothing model-specific to check yet: the 92-byte radio limit is the same for both sizes, and per-model limits (characters per line, which layout names exist) come with the layout file format.
 - **Layout files (A12, G7):** stored per model and versioned, but not sent to tags. Waiting for the file format, the radio block transfer and the field that tells a tag its layout is out of date (protokoll.md part 3). `layout` in `PUT /api/tags` is still `price` or `text`.
 - **next_poll_s** is set in menuconfig only; there is no API to change it at run time.

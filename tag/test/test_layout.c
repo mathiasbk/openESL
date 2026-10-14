@@ -120,23 +120,80 @@ static void test_price_layout(void)
     static const char *const f[] = { "Lettmelk 1 L", "24.90", "kr 24,90/l" };
     int price;
 
-    build(ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, f);
+    build(ESL_LAYOUT_PRICE, 0, 3, f);
     CHECK_EQ(sc.nruns, 3);
     CHECK_EQ(sc.nrects, 0);
     price = find_font(FONT_LARGE);
     CHECK(price >= 0);
     if (price >= 0) {
-        CHECK_EQ(sc.run[price].color, MODEL_HAS_RED ? DRAW_RED : DRAW_BLACK);
+        CHECK_EQ(sc.run[price].color, DRAW_BLACK);
         CHECK_EQ(sc.run[price].x + sc.run[price].w, DRAW_W - LAYOUT_MARGIN);   /* right-aligned */
         CHECK(strcmp(run_text(price), "24.90") == 0);
     }
     check_inside();
     check_no_overlap();
     fake_render(&sc);
-    CHECK(fake_ink_count(FAKE_RED) > 200);
-#if MODEL_HAS_RED
     CHECK(fake_ink_count(1) > 200);
-#endif
+}
+
+/* The index of the run with this text, or -1. */
+static int find_text(const char *s)
+{
+    int i;
+    for (i = 0; i < sc.nruns; i++)
+        if (strcmp(run_text(i), s) == 0)
+            return i;
+    return -1;
+}
+
+static void test_price_highlight(void)
+{
+    /* Flag bit0: white price in a black box with LAYOUT_INVERT_PAD around the font cell */
+    static const char *const f[] = { "Lettmelk 1 L", "24,90", "kr 24,90/l" };
+    const draw_rect_t *b;
+    const font_t *pf;
+    int p, sub, i, x, y, white = 0;
+
+    build(ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, f);
+    CHECK_EQ(sc.nruns, 3);
+    CHECK_EQ(sc.nrects, 1);
+    p = find_text("24,90");
+    sub = find_text("kr 24,90/l");
+    CHECK(p >= 0 && sub >= 0);
+    if (p < 0 || sub < 0)
+        return;
+    pf = font_get(sc.run[p].font);
+    b = &sc.rect[0];
+    CHECK_EQ(sc.run[p].color, DRAW_WHITE);
+    CHECK_EQ(b->color, DRAW_BLACK);
+    CHECK(sc.run[p].font == FONT_LARGE || sc.run[p].font == FONT_MID);
+    /* the box hugs the text, right-aligned at the margin */
+    CHECK_EQ(b->x0, sc.run[p].x - LAYOUT_INVERT_PAD);
+    CHECK_EQ(b->x1, sc.run[p].x + sc.run[p].w - 1 + LAYOUT_INVERT_PAD);
+    CHECK_EQ(b->x1, DRAW_W - LAYOUT_MARGIN - 1);
+    CHECK_EQ(b->y0, sc.run[p].y - LAYOUT_INVERT_PAD);
+    CHECK_EQ(b->y1, sc.run[p].y + pf->height - 1 + LAYOUT_INVERT_PAD);
+    /* it stays clear of the name and the subtitle */
+    for (i = 0; i < sc.nruns; i++)
+        if (i != p)
+            CHECK(sc.run[i].y + font_get(sc.run[i].font)->height <= b->y0 || sc.run[i].y > b->y1);
+    check_inside();
+    check_no_overlap();
+
+    /* The digits are white inside the black box */
+    fake_render(&sc);
+    for (y = b->y0; y <= b->y1; y++)
+        for (x = b->x0; x <= b->x1; x++)
+            white += fake_fb[y][x] == 0;
+    CHECK(white > 100);
+    CHECK_EQ(fake_fb[b->y0][b->x0], 1);
+    CHECK_EQ(fake_fb[b->y1][b->x1], 1);
+
+    /* The same price without the flag: black text, no box */
+    build(ESL_LAYOUT_PRICE, 0, 3, f);
+    CHECK_EQ(sc.nrects, 0);
+    p = find_text("24,90");
+    CHECK(p >= 0 && sc.run[p].color == DRAW_BLACK);
 }
 
 static void test_long_name_shrinks(void)
@@ -262,14 +319,14 @@ static void test_text_line_shrinks(void)
     check_no_overlap();
 }
 
-static void test_red_frame(void)
+static void test_frame(void)
 {
     static const char *const f[] = { "Tilbud", "", "", "" };
-    build(ESL_LAYOUT_TEXT, ESL_CF_RED_FRAME, 4, f);
+    build(ESL_LAYOUT_TEXT, ESL_CF_FRAME, 4, f);
     CHECK_EQ(sc.nrects, 4);
     fake_render(&sc);
-    CHECK_EQ(fake_fb[0][0], FAKE_RED);
-    CHECK_EQ(fake_fb[DRAW_H - 1][DRAW_W - 1], FAKE_RED);
+    CHECK_EQ(fake_fb[0][0], 1);
+    CHECK_EQ(fake_fb[DRAW_H - 1][DRAW_W - 1], 1);
     CHECK_EQ(fake_fb[LAYOUT_FRAME_W][LAYOUT_FRAME_W], 0);
     CHECK_EQ(fake_fb[DRAW_H / 2][DRAW_W / 2], 0);
     check_inside();
@@ -283,7 +340,8 @@ static void test_max_length_fields(void)
     memset(a, 'W', sizeof(a) - 1);
     memset(b, '8', sizeof(b) - 1);
     memset(c, 'm', sizeof(c) - 1);
-    build(ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED | ESL_CF_RED_FRAME, 3, f);
+    build(ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT | ESL_CF_FRAME, 3, f);
+    CHECK_EQ(sc.nrects, 5);         /* frame + price box: every rectangle is used */
     check_inside();
     check_no_overlap();
     fake_render(&sc);
@@ -293,10 +351,10 @@ static void test_custom_elements(void)
 {
     /* layout_apply with an element list in RAM (as a layout from the AP would be) */
     static const layout_elem_t e[] = {
-        { LE_TEXT, 1, { FONT_MEDIUM, LE_NO_FONT, LE_NO_FONT }, LE_CENTER | LE_MIDDLE, 1, LE_RED,
+        { LE_TEXT, 1, { FONT_MEDIUM, LE_NO_FONT, LE_NO_FONT }, LE_CENTER | LE_MIDDLE, 1, LE_INVERT,
           10, 10, 100, 40 },
         { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_BLACK, 0, 60, 20, 5 },
-        { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_RED_FRAME, 0, 70, 20, 5 },
+        { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_FRAME, 0, 70, 20, 5 },
         { LE_TEXT, 3, { FONT_MEDIUM, LE_NO_FONT, LE_NO_FONT }, 0, 1, LE_BLACK, 10, 80, 100, 30 },
         { LE_END, 0, { 0, 0, 0 }, 0, 0, 0, 0, 0, 0, 0 }
     };
@@ -308,13 +366,23 @@ static void test_custom_elements(void)
     t[1] = L("Hei", &len[1]);
     layout_apply(&sc, e, t, len, 2, 0);
     CHECK_EQ(sc.nruns, 1);          /* field 3 does not exist */
-    CHECK_EQ(sc.nrects, 1);         /* the frame rectangle needs flag bit1 */
+    CHECK_EQ(sc.nrects, 2);         /* the inverted box and one rectangle; the frame needs flag bit1 */
     w = font_text_width(&font_medium, t[1], len[1]);
-    CHECK_EQ(sc.run[0].x, 10 + (100 - w) / 2);
-    CHECK_EQ(sc.run[0].y, 10 + (40 - font_medium.height) / 2);
-    CHECK_EQ(sc.run[0].color, MODEL_HAS_RED ? DRAW_RED : DRAW_BLACK);
-    CHECK_EQ(sc.rect[0].x1, 19);
-    CHECK_EQ(sc.rect[0].y1, 64);
+    /* LE_INVERT: centred in the box made LAYOUT_INVERT_PAD smaller on each side */
+    CHECK_EQ(sc.run[0].x, 10 + LAYOUT_INVERT_PAD + (100 - 2 * LAYOUT_INVERT_PAD - w) / 2);
+    CHECK_EQ(sc.run[0].y, 10 + LAYOUT_INVERT_PAD + (40 - 2 * LAYOUT_INVERT_PAD - font_medium.height) / 2);
+    CHECK_EQ(sc.run[0].color, DRAW_WHITE);
+    CHECK_EQ(sc.rect[0].x0, sc.run[0].x - LAYOUT_INVERT_PAD);   /* the box, added with the text */
+    CHECK_EQ(sc.rect[0].y0, sc.run[0].y - LAYOUT_INVERT_PAD);
+    CHECK_EQ(sc.rect[0].color, DRAW_BLACK);
+    CHECK_EQ(sc.rect[1].x1, 19);
+    CHECK_EQ(sc.rect[1].y1, 64);
+
+    /* With flag bit1 the frame rectangle is drawn in black */
+    layout_apply(&sc, e, t, len, 2, ESL_CF_FRAME);
+    CHECK_EQ(sc.nrects, 3);
+    CHECK_EQ(sc.rect[2].color, DRAW_BLACK);
+    CHECK_EQ(sc.rect[2].y0, 70);
 }
 
 static void test_status_lines(void)
@@ -339,6 +407,7 @@ void test_layout(void)
     RUN(test_fit);
     RUN(test_wrap);
     RUN(test_price_layout);
+    RUN(test_price_highlight);
     RUN(test_long_name_shrinks);
     RUN(test_too_long_name_truncated);
     RUN(test_price_font_chain);
@@ -346,7 +415,7 @@ void test_layout(void)
     RUN(test_norwegian);
     RUN(test_text_layout);
     RUN(test_text_line_shrinks);
-    RUN(test_red_frame);
+    RUN(test_frame);
     RUN(test_max_length_fields);
     RUN(test_custom_elements);
     RUN(test_status_lines);

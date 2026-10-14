@@ -7,7 +7,7 @@
 | R3 | Sleep current becomes too high | Medium | Short battery life | Phase 6 with proper measuring equipment; a longer interval (e.g. 5 min) is an acceptable emergency solution for prices that change daily |
 | R4 | WiFi and 802.15.4 on the same C6 interfere with each other | Low–medium | Lost POLLs | Retry on the tag; otherwise the second C6 as a separate radio over UART |
 | R5 | Code from other projects for the same hardware ends up in OpenESL by mistake, and brings its licence with it | Low | The project cannot be used freely | Write all code for this project, and record where each hardware fact comes from in [kildelogg.md](kildelogg.md) |
-| R6 | Fault in the display controller version or OTP waveform gives poor red | Low–medium | Faded or murky red | Try the update modes in the datasheet; in the worst case black/white in version 1 |
+| R6 | Fault in the display controller version or OTP waveform gives poor contrast or ghosting | Low–medium | Faded or murky black, traces of the old image | Try the update modes in the datasheet |
 | R7 | Motivation and time: the project takes longer than estimated | Medium | Never finished | Risk first (phase 3 early), small visible milestones |
 
 ## Plan B if the gate in phase 3 is not passed

@@ -18,8 +18,10 @@ Design file (JSON; the // comments below are only explanations, not part of the 
     "price": "{price}",
     "subtitle": "{unit_price}"
   },
-  "style": { "price_red": true, "frame_red": false }
-}
+  "style": { "price_highlight": true, "frame": false }
+}                                          // price_highlight: white price in a black box
+                                           // (price layout only); frame: black frame.
+                                           // The tags are black/white, there is no red.
 
 Values can contain placeholders like {key}. The client's data gives the value for each key.
 Unknown placeholders, and text that cannot be written as Latin-1, are errors. The characters
@@ -41,7 +43,7 @@ LAYOUTS = {
     "price": ["name", "price", "subtitle"],   # same order as the CONTENT packet
     "text": ["line1", "line2", "line3", "line4"],
 }
-STYLE_KEYS = {"price_red", "frame_red"}
+STYLE_KEYS = {"price_highlight", "frame"}
 MAX_TEXT_BYTES = 92        # ESL_MAX_TEXT_BYTES in shared/proto.h
 MAX_FIELD_BYTES = 255      # the length is one byte in the packet
 PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
@@ -111,8 +113,8 @@ def validate(d):
     for k, v in style.items():
         if not isinstance(v, bool):
             raise DesignError("style.%s must be true or false" % k)
-    if layout == "text" and style.get("price_red"):
-        raise DesignError("price_red only applies to layout price")
+    if layout == "text" and style.get("price_highlight"):
+        raise DesignError("price_highlight only applies to layout price")
     return d
 
 
@@ -128,7 +130,7 @@ def _fill(template, data, where):
 def render(d, data):
     """
     Gives the fields for one piece of content, in the same form as PUT /api/tags/{mac}:
-    {"layout": ..., "fields": [...], "price_red": bool, "frame_red": bool}
+    {"layout": ..., "fields": [...], "price_highlight": bool, "frame": bool}
     Empty text gives an empty string. Text that cannot be written as Latin-1 is an error.
     """
     validate(d)
@@ -146,8 +148,8 @@ def render(d, data):
     style = d.get("style", {})
     out = {"layout": layout, "fields": fields}
     if layout == "price":
-        out["price_red"] = bool(style.get("price_red", False))
-    out["frame_red"] = bool(style.get("frame_red", False))
+        out["price_highlight"] = bool(style.get("price_highlight", False))
+    out["frame"] = bool(style.get("frame", False))
     return out
 
 

@@ -68,15 +68,15 @@ static void test_next_poll_from_ap(void)
 static void test_content_draws_once(void)
 {
     fresh();
-    push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, price);
+    push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, price);
     app_poll_once();
     CHECK_EQ(fake_draw_count, 2);
-    CHECK(fake_ink_count(FAKE_RED) > 100);            /* red price */
+    CHECK(fake_ink_count(1) > 1000);                 /* name, subtitle and the black price box */
     CHECK_EQ(app.shown_id, 1111);
 
     /* The next POLL reports the new content_id and no longer 'just booted' */
     fake_radio_reset();
-    push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, price);
+    push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, price);
     app_poll_once();
     CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_CID), 1111);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_FLAGS], 0);
@@ -86,7 +86,7 @@ static void test_content_draws_once(void)
     push_content(2222, ESL_LAYOUT_PRICE, 0, 3, price2);
     app_poll_once();
     CHECK_EQ(fake_draw_count, 3);
-    CHECK_EQ(fake_ink_count(2), 0);
+    CHECK(fake_ink_count(1) > 100);
     CHECK_EQ(app.shown_id, 2222);
 }
 

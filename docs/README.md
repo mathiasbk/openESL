@@ -1,6 +1,6 @@
 # OpenESL: open firmware for the tag (ZBS243) and the AP (ESP32-C6)
 
-Goal: show **price and text** on SoluM ST-GM29XX2 tags (2.9", 296×128, black/white/red), sent from any software through a small HTTP API on the AP. All code is written from scratch for this project.
+Goal: show **price and text** on SoluM ST-GM29XX2 tags (2.9", 296×128, black/white) and ST-GM16XX2 tags (1.54", 200×200, black/white), sent from any software through a small HTTP API on the AP. All code is written from scratch for this project.
 
 Principle: **as simple as possible, but finished and reliable in operation.** Everything not needed for "price and text through the API" is deferred to version 2.
 

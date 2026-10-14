@@ -7,12 +7,14 @@
  * received over radio into the same layout_apply(); the format below is a proposal
  * for that, the radio message is not agreed yet (docs/protokoll.md part 3).
  *
- * Built-in layouts (2.9", the 1.54" has the same elements in a 152 x 152 box):
+ * Built-in layouts (2.9", the 1.54" has the same elements in a 200 x 200 box):
  *   1 "price": name (medium font, 2 lines; small font, 3 lines, if it does not fit),
- *              price right-aligned (large font, then mid, then medium; red if flag bit0),
- *              one subtitle (small font, bottom left).
+ *              price right-aligned (large font, then mid, then medium), one subtitle
+ *              (small font, bottom left). Flag bit0 highlights the price: white digits
+ *              in a filled black box (an inverted field).
  *   2 "text":  4 lines, each in the medium font, or the small font if it does not fit.
- * Flag bit1 gives a red frame around the whole screen.
+ * Flag bit1 gives a black frame around the whole screen.
+ * Both panels are black/white, so all highlighting is black/white (model.h).
  * Text that does not fit even in the last font is truncated with "…".
  * The text pointed to must live until drawing is done.
  */
@@ -23,7 +25,8 @@
 #include "draw.h"
 #include "proto_tag.h"
 
-#define LAYOUT_FRAME_W    3    /* thickness of the red frame (flag bit1) */
+#define LAYOUT_FRAME_W    3    /* thickness of the frame (flag bit1) */
+#define LAYOUT_INVERT_PAD 4    /* black around the text of an inverted field, each side */
 #if DRAW_W >= 200
 #define LAYOUT_MARGIN     6    /* left/right margin */
 #else
@@ -53,9 +56,10 @@
 
 /* color */
 #define LE_BLACK      0
-#define LE_RED        1
-#define LE_RED_PRICE  2        /* red if flag bit0 (ESL_CF_PRICE_RED) is set, else black */
-#define LE_RED_FRAME  3        /* red if flag bit1 (ESL_CF_RED_FRAME) is set, else not drawn */
+#define LE_WHITE      1        /* white text or rectangle, on top of an LE_RECT in black */
+#define LE_INVERT     2        /* LE_TEXT: white text in a black box around it */
+#define LE_PRICE_HL   3        /* LE_INVERT if flag bit0 (ESL_CF_PRICE_HIGHLIGHT) is set, else black */
+#define LE_FRAME      4        /* black if flag bit1 (ESL_CF_FRAME) is set, else not drawn */
 
 /*
  * One element. LE_TEXT puts text field `field` inside the box x, y, w, h:
@@ -64,6 +68,11 @@
  *     If no font passes, the last one is used, with wrapping and "…".
  *   - lines = maximum number of lines; 0 = as many as the box height holds (at least 1,
  *     at most LAYOUT_MAX_LINES). Lines are one font height apart.
+ *   - LE_INVERT (and LE_PRICE_HL when highlighted): the text is placed in the box made
+ *     LAYOUT_INVERT_PAD smaller on every side, a font must also fit its height, and a
+ *     black rectangle covers the font cells of the lines plus LAYOUT_INVERT_PAD. The
+ *     rectangle hugs the text (right-aligned text gets a right-aligned box) and stays
+ *     inside x, y, w, h. It uses one of the DRAW_MAX_RECTS rectangles.
  * LE_RECT fills the box x, y, w, h (field, font, opts and lines are unused).
  */
 typedef struct {

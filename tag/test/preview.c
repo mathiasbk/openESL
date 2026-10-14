@@ -64,21 +64,21 @@ static int status(const char *path)
 
 #define P ESL_LAYOUT_PRICE
 #define T ESL_LAYOUT_TEXT
-#define RED ESL_CF_PRICE_RED
-#define FRAME ESL_CF_RED_FRAME
+#define HL ESL_CF_PRICE_HIGHLIGHT
+#define FRAME ESL_CF_FRAME
 
 static const struct {
     const char *file;
     uint8_t layout, flags;
     const char *f[4];
 } examples[] = {
-    { "pris_rod",        P, RED,         { "Lettmelk 1 L", "24.90", "kr 24,90/l" } },
+    { "pris_framhevet",  P, HL,          { "Lettmelk 1 L", "24.90", "kr 24,90/l" } },
     { "pris_komma",      P, 0,           { "Brunost Gudbrandsdalsost", "89,-", "kr/kg 178,00" } },
     { "pris_langt_navn", P, 0,           { "Kjøttdeig av storfe 14 % fett, ekstra stor familiepakning", "129,90", "kr/kg 108,25" } },
-    { "pris_for_langt",  P, RED,         { "Grovbrød med solsikkekjerner, havre og knekt rug, oppskåret og pakket i papirpose 750 g", "39,90", "" } },
-    { "pris_bred",       P, RED,         { "Kaffemaskin", "12 499,00", "Spar kr 2 500" } },
+    { "pris_for_langt",  P, HL,          { "Grovbrød med solsikkekjerner, havre og knekt rug, oppskåret og pakket i papirpose 750 g", "39,90", "" } },
+    { "pris_bred",       P, HL,          { "Kaffemaskin", "12 499,00", "Spar kr 2 500" } },
     { "pris_tekst",      P, FRAME,       { "Appelsiner", "3 for 30", "Gjelder til søndag" } },
-    { "pris_ramme",      P, RED | FRAME, { "Rømme lett 18 % Tine", "19,90", "Ærlig økologisk – kr 66,33/l" } },
+    { "pris_ramme",      P, HL | FRAME,  { "Rømme lett 18 % Tine", "19,90", "Ærlig økologisk – kr 66,33/l" } },
     { "tekst",           T, 0,           { "Åpningstider", "Man–fre 9–21", "Lørdag 9–18", "Søndag stengt" } },
     { "tekst_lang",      T, FRAME,       { "Velkommen!", "Denne linjen er altfor lang til å få plass", "", "ÆØÅ æøå é ü ß ©" } },
 };

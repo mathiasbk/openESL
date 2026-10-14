@@ -1,6 +1,6 @@
 # Tag firmware (ZBS243 / SEM9110)
 
-Own firmware for the SoluM ST-GM29XX2 (2.9", 296×128, black/white/red) and the ST-GM16XX2 (1.54", 200×200, black/white), one build per model (`src/model.h`). The tag asks the AP for new content, receives name, price and text in one radio packet, and draws the screen itself with built-in fonts.
+Own firmware for the SoluM ST-GM29XX2 (2.9", 296×128, black/white) and the ST-GM16XX2 (1.54", 200×200, black/white), one build per model (`src/model.h`). The tag asks the AP for new content, receives name, price and text in one radio packet, and draws the screen itself with built-in fonts.
 
 Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [docs/protokoll.md](../docs/protokoll.md), [docs/krav.md](../docs/krav.md). All code here is written for this project; the hardware facts it relies on are listed with their sources in [docs/kildelogg.md](../docs/kildelogg.md).
 
@@ -27,9 +27,9 @@ tag/
     main.c              start-up and main loop (ZBS243 only)
     app.c/.h            the state machine, with no hardware code
     proto.c, proto_tag.h  build POLL and the frame, parse IDLE/CONTENT
-    model.h             screen size and colours per tag model (MODEL=29 or 154)
+    model.h             screen size per tag model (MODEL=29 or 154)
     layout.c/.h         layout elements, font fallback, line wrapping, truncation with "…"
-    draw.c/.h           computes one screen column (DRAW_H/8 bytes per colour) at a time
+    draw.c/.h           computes one screen column (DRAW_H/8 bytes) at a time
     font.c/.h           lookup in the font tables
     epd.c/.h            SSD16xx over bit-banged SPI
     config.h            intervals, channel, PAN ID, version
@@ -86,28 +86,28 @@ python tools/label_design.py render designs/pris-standard.json data.json
 python -m unittest discover -s test -p "test_label_*.py"
 ```
 
-The design does not change the firmware. The tag still only knows the layouts "price" and "text". The styles `price_red` and `frame_red` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
+The design does not change the firmware. The tag still only knows the layouts "price" and "text". The styles `price_highlight` and `frame` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
 
 `make host` draws every design with the data in `designs/examples/<id>.json` to `build/preview/<model>/design-<id>-<n>.png`.
 
 ## How the drawing works
 
-ZBS243 does not have RAM for a whole image (296 × 128 × 2 colours = 9472 bytes). The display controller has its own image memory, so `epd.c` asks `draw_column(x)` for one column at a time (128 pixels = 16 bytes per colour on the 2.9") and writes it straight in. The black plane is sent first, then red, which means everything is computed twice. That costs some CPU, but no RAM. On a black/white model only the black plane is sent.
+ZBS243 does not have RAM for a whole image (296 × 128 = 4736 bytes on the 2.9", 5000 on the 1.54"). The display controller has its own image memory, so `epd.c` asks `draw_column(x)` for one column at a time (128 pixels = 16 bytes on the 2.9") and writes it straight in. Both tags are black/white, so only the black plane is sent (`MODEL_HAS_RED` = 0 for both).
 
-- `layout.c` turns a CONTENT packet into a list of text runs (font, colour, position, pointer to the text) and filled rectangles (the red frame). It does this by going through a list of layout elements (`layout_elem_t`): a text element puts one field in a box, a rectangle element fills a box.
+- `layout.c` turns a CONTENT packet into a list of text runs (font, colour, position, pointer to the text) and filled rectangles (the frame, the black box behind an inverted field). It does this by going through a list of layout elements (`layout_elem_t`): a text element puts one field in a box, a rectangle element fills a box.
 - `draw.c` goes through the runs for each column. Each text run has a cursor that moves forward as x increases, so it does not search the text for every column.
 - The fonts are stored column by column, so one font column can be ORed straight into the screen column.
-- Where black and red overlap, red wins. On a model without red, red is drawn in black.
+- Highlighting is black/white: rectangles are filled first, then the text runs; a white run clears pixels, so white text on a black rectangle gives an inverted field.
 
 **Text that is too long.** Each text element has a list of up to three fonts. The first font in which every character exists and the text fits on the element's lines, without truncation and without breaking a word, is used. If none fits, the last font is used, wrapped, and the last line ends with "…". Lines break at the last space that fits; a lone unit like "g" at the end goes down together with the number before it.
 
-Layout 1, "price": the name at the top, in the medium font on up to two lines (three on the 1.54"), or in the small font on up to three lines. The price right-aligned in the large font, then the mid font, then the medium font (e.g. "2 for 30", which the price fonts lack); all three sit on the same baseline. Red if flag bit 0 is set. The subtitle in the small font at the bottom.
+Layout 1, "price": the name at the top, in the medium font on up to two lines (three on the 1.54"), or in the small font on up to three lines. The price right-aligned in the large font, then the mid font, then the medium font (e.g. "2 for 30", which the price fonts lack); all three sit on the same baseline. If flag bit 0 is set the price is inverted: white digits in a black box, `LAYOUT_INVERT_PAD` pixels around the font cell, right-aligned at the margin. The box must hold the whole font cell, so on the 2.9" a highlighted price uses the mid font; the 1.54" has room for the large one. The subtitle in the small font at the bottom.
 Layout 2, "text": four lines in the medium font, or the small font for a line that does not fit. On the 1.54" each line may use two text lines.
-Flag bit 1 gives a red frame around the whole screen (black on the 1.54").
+Flag bit 1 gives a black frame around the whole screen.
 
 The element format is meant to also carry layouts from the AP later (G7/T17); `layout_apply()` takes the list from RAM as well as from flash. The format is documented in `src/layout.h` and is a proposal until the radio message is agreed.
 
-**Models.** `src/model.h` holds the screen size and whether the panel has red. The 2.9" is 296 × 128 black/white/red; the 1.54" (ST-GM16XX2) is 200 × 200 black/white. The built-in layouts use the same elements on both, with box sizes taken from the model.
+**Models.** `src/model.h` holds the screen size. The 2.9" is 296 × 128 and the 1.54" (ST-GM16XX2) is 200 × 200, both black/white. The built-in layouts use the same elements on both, with box sizes taken from the model.
 
 `make host` checks all of this on the PC and draws the results; `build/preview/<model>/epd_path.png` is rebuilt from a model of the controller RAM after `epd.c` has written it, so it also shows that the SPI stream, RAM window and address order fit together.
 
@@ -118,7 +118,7 @@ The element format is meant to also carry layouts from the AP later (G7/T17); `l
 - **Retry:** once, after a random pause of 2-10 ms, as the protocol says. Within each listening window up to three frames are read, so a reply to another tag does not count as a miss.
 - **No acknowledgement:** follows [protokoll.md](../docs/protokoll.md). The next POLL with the new `content_id` is the acknowledgement.
 - **Ellipsis:** character `0x7F` in the fonts is "…", because Latin-1 does not have it. The AP sends "…" in content as "...", so 0x7F is only drawn by the tag itself.
-- **Price on a black/white tag:** `price_red` and `frame_red` are drawn in black on the 1.54". An inverted price (white on black) would stand out more, but needs inverted text in `draw.c`.
+- **Highlighted price:** `price_highlight` gives white digits in a black box (like the stock SoluM firmware), not just bold black. On the 2.9" the box only fits the mid font (36 px), so a highlighted price is smaller than a plain one.
 - **Shrinking text:** a long name or text line changes to the small font before it is truncated. This shows more of the text, but labels side by side can end up with different font sizes.
 
 ## Missing hardware facts

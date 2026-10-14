@@ -95,7 +95,7 @@ static int parse_bool(const json_t *j, int obj, const char *key, bool *out)
     return -1;
 }
 
-/* Fills c from {layout, fields, price_red, frame_red}. Returns 0 or an HTTP
+/* Fills c from {layout, fields, price_highlight, frame}. Returns 0 or an HTTP
  * status with *msg set. */
 static int parse_content(const json_t *j, int obj, esl_content_t *c, const char **msg)
 {
@@ -110,12 +110,12 @@ static int parse_content(const json_t *j, int obj, esl_content_t *c, const char 
         return 422;
     }
 
-    bool price_red, frame_red;
-    if (parse_bool(j, obj, "price_red", &price_red) < 0 || parse_bool(j, obj, "frame_red", &frame_red) < 0) {
-        *msg = "price_red and frame_red must be true or false";
+    bool price_highlight, frame;
+    if (parse_bool(j, obj, "price_highlight", &price_highlight) < 0 || parse_bool(j, obj, "frame", &frame) < 0) {
+        *msg = "price_highlight and frame must be true or false";
         return 422;
     }
-    esl_content_init(c, layout, (uint8_t)((price_red ? ESL_CFLAG_PRICE_RED : 0) | (frame_red ? ESL_CFLAG_FRAME_RED : 0)));
+    esl_content_init(c, layout, (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0)));
 
     int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
     if (arr < 0 || j->tok[arr].type != ESL_JSON_ARRAY) {
@@ -222,9 +222,9 @@ static void write_tag(esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool w
                 esl_sb_putc(out, ',');
             esl_sb_json_latin1(out, f, len);
         }
-        esl_sb_printf(out, "],\"price_red\":%s,\"frame_red\":%s",
-                      (t->content.flags & ESL_CFLAG_PRICE_RED) ? "true" : "false",
-                      (t->content.flags & ESL_CFLAG_FRAME_RED) ? "true" : "false");
+        esl_sb_printf(out, "],\"price_highlight\":%s,\"frame\":%s",
+                      (t->content.flags & ESL_CFLAG_PRICE_HIGHLIGHT) ? "true" : "false",
+                      (t->content.flags & ESL_CFLAG_FRAME) ? "true" : "false");
     }
     esl_sb_putc(out, '}');
 }

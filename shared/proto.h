@@ -56,8 +56,8 @@
 #define ESL_LAYOUT_PRICE     1      /* felt: navn, pris, undertekst */
 #define ESL_LAYOUT_TEXT      2      /* felt: linje1..linje4 */
 
-#define ESL_CF_PRICE_RED     0x01   /* rød pris */
-#define ESL_CF_RED_FRAME     0x02   /* rød ramme/stripe */
+#define ESL_CF_PRICE_HIGHLIGHT 0x01 /* framhevet pris: hvite siffer i svart felt (invertert) */
+#define ESL_CF_FRAME         0x02   /* svart ramme rundt skjermen */
 
 #define ESL_MAX_FIELDS       4
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */

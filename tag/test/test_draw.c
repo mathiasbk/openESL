@@ -26,7 +26,6 @@ static void test_empty(void)
     draw_clear(&sc);
     fake_render(&sc);
     CHECK_EQ(fake_ink_count(1), 0);
-    CHECK_EQ(fake_ink_count(2), 0);
 }
 
 static void test_rect_exact(void)
@@ -41,21 +40,53 @@ static void test_rect_exact(void)
     CHECK_EQ(y0, 3);  CHECK_EQ(y1, 13);
 }
 
-static void test_red_wins(void)
+static void test_white_rect(void)
 {
+    /* A white rectangle clears what black rectangles added before it filled */
     draw_clear(&sc);
     draw_add_rect(&sc, 0, 0, 99, 99, DRAW_BLACK);
-    draw_add_rect(&sc, 50, 50, 149, 127, DRAW_RED);
+    draw_add_rect(&sc, 50, 50, 149, 127, DRAW_WHITE);
     fake_render(&sc);
-#if MODEL_HAS_RED
-    CHECK_EQ(fake_ink_count(2), 100 * 78);
     CHECK_EQ(fake_ink_count(1), 100 * 100 - 50 * 50);
-    CHECK_EQ(fake_fb[60][60], 2);
-#else
-    /* black/white model: red is drawn in black, and the union of both is black */
-    CHECK_EQ(fake_ink_count(2), 0);
-    CHECK_EQ(fake_ink_count(1), 100 * 100 + 100 * 78 - 50 * 50);
-#endif
+    CHECK_EQ(fake_fb[60][60], 0);
+    CHECK_EQ(fake_fb[10][60], 1);
+}
+
+static void test_inverted_text(void)
+{
+    /* White text on a black rectangle: the glyph is the mirror image of black text */
+    static uint8_t a[DRAW_H][DRAW_W];
+    uint8_t s[] = "24,90";
+    int x, y, same = 1, black_in_box = 0;
+
+    draw_clear(&sc);
+    draw_add_text(&sc, FONT_MID, DRAW_BLACK, 20, 9, s, 5, 0);
+    fake_render(&sc);
+    memcpy(a, fake_fb, sizeof(a));
+
+    /* the text is added before the rectangle: rectangles are still drawn first */
+    draw_clear(&sc);
+    draw_add_text(&sc, FONT_MID, DRAW_WHITE, 20, 9, s, 5, 0);
+    draw_add_rect(&sc, 16, 5, (uint16_t)(20 + sc.run[0].w + 3), 9 + 36 + 3, DRAW_BLACK);
+    fake_render(&sc);
+    for (y = 0; y < DRAW_H; y++)
+        for (x = 0; x < DRAW_W; x++) {
+            int in = x >= 16 && x <= 20 + sc.run[0].w + 3 && y >= 5 && y <= 9 + 36 + 3;
+            if (in && fake_fb[y][x] != !a[y][x])
+                same = 0;
+            if (!in && fake_fb[y][x])
+                same = 0;
+            black_in_box += in && fake_fb[y][x];
+        }
+    CHECK(same);
+    CHECK(black_in_box > 0);
+    CHECK(fake_ink_count(1) < (sc.run[0].w + 8) * 44);      /* the digits are white */
+
+    /* White text on white paper leaves nothing */
+    draw_clear(&sc);
+    draw_add_text(&sc, FONT_MID, DRAW_WHITE, 20, 9, s, 5, 0);
+    fake_render(&sc);
+    CHECK_EQ(fake_ink_count(1), 0);
 }
 
 static void test_text_bounds(void)
@@ -104,10 +135,12 @@ static void test_clip_bottom_right(void)
 {
     uint8_t s[] = "Clip at the bottom and right edge of the screen";
     draw_clear(&sc);
-    draw_add_text(&sc, FONT_LARGE, DRAW_RED, DRAW_W - 46, DRAW_H - 18, (const uint8_t *)"88", 2, 0);
+    draw_add_rect(&sc, DRAW_W - 50, DRAW_H - 20, DRAW_W + 10, DRAW_H + 10, DRAW_BLACK);
+    draw_add_text(&sc, FONT_LARGE, DRAW_WHITE, DRAW_W - 46, DRAW_H - 18, (const uint8_t *)"88", 2, 0);
     draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, DRAW_W - 96, DRAW_H - 8, s, (uint8_t)(sizeof(s) - 1), 0);
     fake_render(&sc);   /* must not write outside the buffers */
-    CHECK(fake_ink_count(FAKE_RED) > 0);
+    CHECK(fake_ink_count(1) > 0);
+    CHECK_EQ(fake_fb[DRAW_H - 20][DRAW_W - 50], 1);
 }
 
 static void test_order_independent(void)
@@ -121,15 +154,16 @@ static void test_order_independent(void)
 
     draw_clear(&sc);
     draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, 6, 4, s, (uint8_t)(sizeof(s) - 1), 1);
-    draw_add_text(&sc, FONT_LARGE, DRAW_RED, DRAW_W - 146, 56, (const uint8_t *)"59,90", 5, 0);
+    draw_add_rect(&sc, DRAW_W - 150, 52, DRAW_W - 4, 56 + 52, DRAW_BLACK);
+    draw_add_text(&sc, FONT_LARGE, DRAW_WHITE, DRAW_W - 146, 56, (const uint8_t *)"59,90", 5, 0);
     fake_render(&sc);
     for (i = 0; i < sizeof(xs) / sizeof(xs[0]); i++) {
         int y;
         draw_column(&sc, xs[i], b1, r1);
         for (y = 0; y < DRAW_H; y++) {
             uint8_t m = (uint8_t)(0x80 >> (y & 7));
-            int v = (r1[y >> 3] & m) ? 2 : (b1[y >> 3] & m) ? 1 : 0;
-            if (v != fake_fb[y][xs[i]])
+            int v = (b1[y >> 3] & m) ? 1 : 0;
+            if (v != fake_fb[y][xs[i]] || r1[y >> 3])
                 ok = 0;
         }
     }
@@ -144,15 +178,16 @@ static void test_scene_limits(void)
         CHECK(draw_add_text(&sc, FONT_SMALL, DRAW_BLACK, 0, 0, (const uint8_t *)"x", 1, 0));
     CHECK(!draw_add_text(&sc, FONT_SMALL, DRAW_BLACK, 0, 0, (const uint8_t *)"x", 1, 0));
     for (i = 0; i < DRAW_MAX_RECTS; i++)
-        CHECK(draw_add_rect(&sc, 0, 0, 1, 1, DRAW_RED));
-    CHECK(!draw_add_rect(&sc, 0, 0, 1, 1, DRAW_RED));
+        CHECK(draw_add_rect(&sc, 0, 0, 1, 1, DRAW_BLACK));
+    CHECK(!draw_add_rect(&sc, 0, 0, 1, 1, DRAW_WHITE));
 }
 
 void test_draw(void)
 {
     RUN(test_empty);
     RUN(test_rect_exact);
-    RUN(test_red_wins);
+    RUN(test_white_rect);
+    RUN(test_inverted_text);
     RUN(test_text_bounds);
     RUN(test_shift_alignment);
     RUN(test_clip_bottom_right);

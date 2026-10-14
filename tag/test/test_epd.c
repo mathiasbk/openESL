@@ -4,6 +4,8 @@
  * mode, RAM window and address counters, and writes the bytes into two RAM planes like
  * the datasheet describes. The image is then rebuilt from controller RAM and compared
  * pixel for pixel with draw_column, so the whole path above the HAL is checked.
+ * Both panels are black/white: if epd.c writes the second RAM (0x26) at all, it must
+ * write all of it with zeros.
  *
  * What the model can not check: whether the real panel shows RAM in this orientation
  * (mirroring/rotation) and the polarity; both must be confirmed on a display (phase 2).
@@ -113,24 +115,33 @@ bool hal_epd_busy(void) { return busy_stuck || ++busy_polls % 50 != 0; }   /* bu
 static void reset_model(void)
 {
     memset(ram, 0, sizeof(ram));
+    memset(ram[1], 0xA5, sizeof(ram[1]));     /* the second RAM holds noise after power-up */
     n_written[0] = n_written[1] = n_out_of_window = 0;
     first_cmd = last_cmd = cur_cmd = 0xFF;
     gate_lines = 0;
 }
 
-/* Pixel (x, y) of the screen as the controller holds it: 0 white, 1 black, 2 red.
+/* Pixel (x, y) of the screen as the controller holds it: 0 white, 1 black.
    Screen column x = gate line x; row y = bit y of the source direction, MSB first. */
 static int ram_pixel(int x, int y)
 {
     uint8_t m = (uint8_t)(0x80 >> (y & 7));
-    if (ram[1][x][y >> 3] & m)
-        return 2;
     return (ram[0][x][y >> 3] & m) ? 0 : 1;      /* black plane: 1 = white */
+}
+
+/* Bytes of the screen window in the second RAM (0x26) that are not zero */
+static int ram2_nonzero(void)
+{
+    int x, i, n = 0;
+    for (x = 0; x < DRAW_W; x++)
+        for (i = 0; i < DRAW_COL_BYTES; i++)
+            n += ram[1][x][i] != 0;
+    return n;
 }
 
 static void save_ppm(const char *path)
 {
-    static const unsigned char rgb[3][3] = { { 255, 255, 255 }, { 0, 0, 0 }, { 200, 0, 0 } };
+    static const unsigned char rgb[2][3] = { { 255, 255, 255 }, { 0, 0, 0 } };
     FILE *f = fopen(path, "wb");
     int x, y;
     if (!f)
@@ -150,7 +161,7 @@ static void test_epd_stream(const char *out)
     proto_reply_t rep;
     int x, y, bad = 0, ink = 0;
 
-    uint8_t len = make_content(buf, 0, 1, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED | ESL_CF_RED_FRAME, 3, f);
+    uint8_t len = make_content(buf, 0, 1, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT | ESL_CF_FRAME, 3, f);
     proto_parse_reply(buf, len, &rep);
     layout_build(&sc, &rep, buf);
 
@@ -164,7 +175,7 @@ static void test_epd_stream(const char *out)
     CHECK_EQ(ye, DRAW_W - 1);
     CHECK_EQ(n_out_of_window, 0);
     CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);
-    CHECK_EQ(n_written[1], MODEL_HAS_RED ? DRAW_W * DRAW_COL_BYTES : 0);
+    CHECK(n_written[1] == 0 || n_written[1] == DRAW_W * DRAW_COL_BYTES);
     CHECK_EQ(last_cmd, 0x10);                    /* deep sleep last */
     CHECK(asleep);
     CHECK(!powered);
@@ -175,7 +186,7 @@ static void test_epd_stream(const char *out)
         draw_column(&sc, (uint16_t)x, b, r);
         for (y = 0; y < DRAW_H; y++) {
             uint8_t m = (uint8_t)(0x80 >> (y & 7));
-            int want = (r[y >> 3] & m) ? 2 : (b[y >> 3] & m) ? 1 : 0;
+            int want = (b[y >> 3] & m) ? 1 : 0;
             if (ram_pixel(x, y) != want)
                 bad++;
             if (want)
@@ -184,6 +195,7 @@ static void test_epd_stream(const char *out)
     }
     CHECK_EQ(bad, 0);
     CHECK(ink > 500);
+    CHECK(n_written[1] == 0 || ram2_nonzero() == 0);   /* never red */
     if (out)
         save_ppm(out);
 }

@@ -1,15 +1,20 @@
 /*
  * draw.h - draws the screen one column at a time.
  *
- * The screen size comes from model.h (296 x 128 on the 2.9", 152 x 152 on the 1.54").
- * ZBS243 does not have RAM for a whole image, so the epd layer asks for one column (x)
- * at a time: DRAW_H pixels = DRAW_COL_BYTES bytes per colour plane (16 on the 2.9").
+ * The screen size comes from model.h (296 x 128 on the 2.9", 200 x 200 on the 1.54").
+ * Both panels are black/white only. ZBS243 does not have RAM for a whole image, so the
+ * epd layer asks for one column (x) at a time: DRAW_H pixels = DRAW_COL_BYTES bytes
+ * (16 on the 2.9", 25 on the 1.54").
  * This fits the display controller's memory, where one line is one column here.
  *
  * Bit order in a column: byte 0 MSB = y 0 (top), then downwards. Unused bits at the
  * end of the last byte (when DRAW_H is not a multiple of 8) are always 0.
- * Bit = 1 means ink (black in black, red in red). The epd layer flips polarity and
- * direction if the controller needs something different.
+ * Bit = 1 means black. The epd layer flips polarity and direction if the controller
+ * needs something different.
+ *
+ * Highlighting is black/white too: white text on a filled black rectangle (an inverted
+ * field, like the price box of the stock firmware). Rectangles are drawn first, in the
+ * order they were added, then text runs in order; DRAW_WHITE clears pixels.
  */
 #ifndef DRAW_H_INCLUDED
 #define DRAW_H_INCLUDED
@@ -20,10 +25,10 @@
 #define DRAW_COL_BYTES   ((DRAW_H + 7) / 8)
 
 #define DRAW_MAX_RUNS    8      /* text runs (one per line), 15 bytes each in XRAM */
-#define DRAW_MAX_RECTS   4
+#define DRAW_MAX_RECTS   5      /* frame (4) + one inverted field */
 
 #define DRAW_BLACK       0
-#define DRAW_RED         1
+#define DRAW_WHITE       1      /* clears: white text or a white rectangle on black */
 
 /* One text run on one line. text points at Latin-1 bytes that must live until drawing is done. */
 typedef struct {
@@ -67,10 +72,10 @@ bool draw_add_rect(draw_scene_t *s, uint16_t x0, uint8_t y0, uint16_t x1, uint8_
 void draw_begin(draw_scene_t *s);
 
 /*
- * Computes column x (0..DRAW_W-1) into black and red (DRAW_COL_BYTES each).
+ * Computes column x (0..DRAW_W-1) into black (DRAW_COL_BYTES, bit = 1 is black).
  * Fastest when x increases by 1 per call; if x goes backwards, the cursors start over.
- * Where both planes have ink, red wins. On a model without red (MODEL_HAS_RED = 0)
- * draw_add_text/draw_add_rect turn red into black, so the red plane stays empty.
+ * red (DRAW_COL_BYTES) is always cleared: no supported panel has red (MODEL_HAS_RED = 0).
+ * It stays in the signature because epd.c streams two planes on a model with red.
  */
 void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red);
 

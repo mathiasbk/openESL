@@ -32,7 +32,7 @@ import label_design  # noqa: E402
 
 MODELS = ["29", "154"]
 LAYOUT_IDS = {"price": 1, "text": 2}
-FLAG_BITS = {"price_red": 0x01, "frame_red": 0x02}
+FLAG_BITS = {"price_highlight": 0x01, "frame": 0x02}
 
 
 def compile_host(name, model):

@@ -11,14 +11,14 @@
 | G3 | At least 20 tags per AP. | MUST |
 | G4 | The system tolerates power loss on the AP without losing content or requiring tags to be set up again. | MUST |
 | G5 | Builds of tag and AP firmware are reproducible from git (pinned SDCC and ESP-IDF versions). | MUST |
-| G6 | Supports both SoluM 2.9" (ST-GM29XX2, 296×128) and SoluM 1.54" (152×152). Screen size is a per-tag parameter, not an assumption in the code. Model and colours of the 1.54" are confirmed in phase 0. | MUST |
+| G6 | Supports both SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white). Neither has red: emphasis is black/white (an inverted field, white on black, and a black frame). Screen size is a per-tag parameter, not an assumption in the code. The display controller of the 1.54" is confirmed in phase 0. | MUST |
 | G7 | The screen design (layout) is made in a separate design tool (not built yet) and stored as a JSON file: fields, positions, fonts, colours. The firmware reads the layout from the file instead of having it fixed in the code. The fixed layouts ("Price", "Text") are the first step until the file format exists. | MUST |
 
 ## Tag (ZBS243)
 
 | ID | Requirement | Level |
 |---|---|---|
-| T1 | Shows layout "Price": product name (1–2 lines), price in large font (black or red), one subtitle. | MUST |
+| T1 | Shows layout "Price": product name (1–2 lines), price in large font (black, or white in a black box when highlighted), one subtitle. | MUST |
 | T2 | Shows layout "Text": up to 4 lines of free text. | MUST |
 | T3 | Supports æ, ø, å, Æ, Ø, Å and common characters (Latin-1). | MUST |
 | T4 | Asks the AP for new content at a fixed interval (default 60 s, the AP can change it). | MUST |

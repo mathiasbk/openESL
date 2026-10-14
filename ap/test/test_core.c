@@ -89,7 +89,7 @@ void test_content(void)
     memset(big, 'x', sizeof(big));
 
     CHECK_INT(esl_content_init(&a, 3, 0), ESL_CONTENT_ERR_LAYOUT);
-    CHECK_INT(esl_content_init(&a, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_init(&a, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("Lettmelk 1 L")), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("24,90")), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("kr/l 24,90")), ESL_CONTENT_OK);
@@ -196,7 +196,7 @@ void test_proto(void)
     CHECK_MEM(buf, "\x02\x01\x3C\x00", 4);
 
     esl_content_t c;
-    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED);
+    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
     esl_content_add_field(&c, S("Melk"));
     esl_content_add_field(&c, S("9,90"));
     size_t n = esl_content_msg_build(buf, 300, 0xAABBCCDD, &c);
@@ -258,7 +258,7 @@ void test_persist(void)
     uint8_t blob[ESL_PERSIST_BLOB_MAX];
     uint64_t mac;
 
-    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED);
+    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
     esl_content_add_field(&c, S("Br\xF8" "d"));
     esl_content_add_field(&c, S(""));
     esl_content_add_field(&c, S("39,90"));

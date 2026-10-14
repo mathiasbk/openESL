@@ -61,7 +61,7 @@ static void test_auth_and_routing(void)
 
 static void test_put_one(void)
 {
-    const char *body = "{ \"layout\": \"price\", \"fields\": [\"Lettmelk 1 L\", \"24,90\", \"kr/l 24,90\"], \"price_red\": true }";
+    const char *body = "{ \"layout\": \"price\", \"fields\": [\"Lettmelk 1 L\", \"24,90\", \"kr/l 24,90\"], \"price_highlight\": true }";
 
     CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH, body, 1000), 200);
     CHECK(HAS(resp, "\"mac\":\"" MAC1 "\""));
@@ -87,11 +87,11 @@ static void test_put_one(void)
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
              "\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
-             "\"price_red\":true,\"frame_red\":false}",
+             "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id);
     CHECK_STR(resp, expect);
 
-    /* price_red is part of the content */
+    /* price_highlight is part of the content */
     CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
                   "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"]}", 18000), 200);
     CHECK(HAS(resp, "\"changed\":true"));
@@ -137,7 +137,7 @@ static void test_put_errors(void)
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[1]}", 0), 422);
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\",\"b\",\"c\",\"d\"]}", 0), 422);
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", 0), 422);
-    CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\"],\"price_red\":\"yes\"}", 0), 422);
+    CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\"],\"price_highlight\":\"yes\"}", 0), 422);
 
     /* 92 bytes of Latin-1 is the limit; each Latin-1 character (e.g. æ) is one byte */
     char body[512];
@@ -178,7 +178,7 @@ static void test_batch_and_list(void)
 
     CHECK_INT(req("PUT", "/api/tags", AUTH,
                   "{\"tags\":[{\"mac\":\"0000000000000001\",\"layout\":\"price\",\"fields\":[\"A\",\"1,00\"]},"
-                  "{\"mac\":\"0000000000000002\",\"layout\":\"text\",\"fields\":[\"B\"],\"frame_red\":true}]}", 0), 200);
+                  "{\"mac\":\"0000000000000002\",\"layout\":\"text\",\"fields\":[\"B\"],\"frame\":true}]}", 0), 200);
     CHECK(HAS(resp, "{\"tags\":[{\"mac\":\"0000000000000001\",\"content_id\":"));
     CHECK(HAS(resp, "},{\"mac\":\"0000000000000002\",\"content_id\":"));
     CHECK_INT(esl_store_count(&st), 2);
@@ -227,7 +227,7 @@ static void test_batch_and_list(void)
     esl_sb_init(&sb, body, sizeof(body));
     esl_sb_puts(&sb, "{\"tags\":[");
     for (int i = 0; i < ESL_API_MAX_BATCH; i++)
-        esl_sb_printf(&sb, "%s{\"mac\":\"0000000000000001\",\"layout\":\"price\",\"fields\":[\"Navn %d\",\"%d,90\",\"kr/kg\"],\"price_red\":false}",
+        esl_sb_printf(&sb, "%s{\"mac\":\"0000000000000001\",\"layout\":\"price\",\"fields\":[\"Navn %d\",\"%d,90\",\"kr/kg\"],\"price_highlight\":false}",
                       i ? "," : "", i, i);
     esl_sb_puts(&sb, "]}");
     CHECK(!sb.overflow);
