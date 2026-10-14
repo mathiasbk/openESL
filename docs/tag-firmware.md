@@ -46,13 +46,14 @@
 - The display must be put into deep sleep after drawing, or it will drain the battery.
 
 ## Multiple tag sizes: 2.9" and 1.54" (requirements G6, T19)
-- The 1.54" is 152×152. The display controller, colours and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [kildelogg.md](kildelogg.md).
+- The 1.54" (ST-GM16XX2) is 200×200, black/white only (reported from hardware inspection; the requirement G6 text said 152×152). The display controller and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [kildelogg.md](kildelogg.md). Without red, the firmware draws everything that would be red in black and sends only the black plane.
 - Everything that depends on the display is collected in one model description: width, height, column height in bytes, controller type, init sequence, default layouts. `epd`, `draw` and `layout` read the values from there and have no fixed numbers for 296×128.
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
 ## Layout from file (requirements G7, T17)
 - The layouts must come from a file created in the design tool, not be fixed in the code. The file format is JSON. Whether the AP converts it to a compact binary format, or whether the tag reads JSON directly, is open (see [arkitektur.md](arkitektur.md)).
 - The `layout` module changes from fixed layouts to an interpreter for this format: a list of elements (text field, filled rectangle) with position, font, colour, alignment and maximum width.
+  Done on the tag side: `layout_apply()` in `tag/src/layout.c` runs such a list (14-byte elements, format in `tag/src/layout.h`), and "Price" and "Text" are now lists in flash. The binary format is a proposal for what the AP would send; it is not agreed yet.
 - The tag stores the last layout in flash together with its version, and fetches a new one only when the AP reports that the version has changed.
 - The format and the radio message are not specified yet. "Price" and "Text" are kept as built-in fallback layouts.
 

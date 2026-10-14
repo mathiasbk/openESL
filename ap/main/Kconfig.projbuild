@@ -24,6 +24,14 @@ menu "OpenESL AP"
         string "mDNS hostname"
         default "openesl"
 
+    config ESL_STATUS_PAGE
+        bool "Status page at / (no token)"
+        default y
+        help
+            A read-only HTML table of all tags (MAC, model, last seen,
+            battery, content). It needs no token, so anyone on the network
+            can read it. The /api/ endpoints always need the token.
+
     config ESL_CHANNEL
         int "802.15.4 channel"
         range 11 26

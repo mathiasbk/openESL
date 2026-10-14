@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "app.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
@@ -44,6 +45,11 @@ void app_main(void)
     api.token = token;
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
+    /* About 16 KB, so from the heap rather than .bss of every build. */
+    api.layouts = calloc(1, sizeof(esl_layouts_t));
+    if (!api.layouts)
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
     ESP_ERROR_CHECK(http_api_start(&api));
 
     ESP_ERROR_CHECK(radio_start(&store, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));

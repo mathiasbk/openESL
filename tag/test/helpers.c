@@ -10,6 +10,31 @@ uint8_t make_idle(uint8_t *out, uint16_t next_poll_s)
     return ESL_IDLE_LEN;
 }
 
+/* The same mapping as the AP (ap/components/esl_core/esl_text.c, map_codepoint). */
+static uint8_t map_cp(unsigned cp)
+{
+    if (cp >= 0x20 && cp < 0x7F)
+        return (uint8_t)cp;
+    if (cp == 0xA0)
+        return ' ';
+    if (cp > 0xA0 && cp <= 0xFF)
+        return (uint8_t)cp;
+    switch (cp) {
+    case 0x2002: case 0x2003: case 0x2009: case 0x200A: case 0x202F:
+        return ' ';
+    case 0x2010: case 0x2011: case 0x2012: case 0x2013: case 0x2014: case 0x2015: case 0x2212:
+        return '-';
+    case 0x2018: case 0x2019: case 0x201A: case 0x2032:
+        return '\'';
+    case 0x201C: case 0x201D: case 0x201E: case 0x2033:
+        return '"';
+    case 0x2022:
+        return 0xB7;
+    default:
+        return '?';
+    }
+}
+
 uint8_t to_latin1(uint8_t *out, const char *utf8)
 {
     const unsigned char *s = (const unsigned char *)utf8;
@@ -24,7 +49,13 @@ uint8_t to_latin1(uint8_t *out, const char *utf8)
         else { cp = *s++ & 0x07; extra = 3; }
         while (extra-- && (*s & 0xC0) == 0x80)
             cp = (cp << 6) | (*s++ & 0x3F);
-        out[n++] = cp <= 0xFF ? (uint8_t)cp : '?';
+        if (cp == 0x2026) {          /* the AP sends "…" as "..." */
+            out[n++] = '.';
+            out[n++] = '.';
+            out[n++] = '.';
+        } else {
+            out[n++] = map_cp(cp);
+        }
     }
     return n;
 }

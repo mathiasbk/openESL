@@ -73,6 +73,17 @@ class RenderTests(unittest.TestCase):
         out = ld.render(PRICE, {"name": "Grøt æøå", "price": "9,90", "unit_price": ""})
         self.assertEqual(out["fields"][0], "Grøt æøå")
 
+    def test_ap_replacements_allowed_and_counted(self):
+        # The AP turns "–" into "-" and "…" into "..." (esl_text.c); the limit counts the result
+        out = ld.render(PRICE, {"name": "Man–fre 9–21", "price": "9,90", "unit_price": "Mer…"})
+        self.assertEqual(out["fields"][0], "Man–fre 9–21")
+        self.assertEqual(ld.to_latin1("Mer…"), b"Mer...")
+        self.assertEqual(ld.to_latin1("Søn – stengt"), "Søn - stengt".encode("latin-1"))
+        d = copy.deepcopy(PRICE)
+        d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
+        with self.assertRaises(ld.DesignError):
+            ld.render(d, {})  # 93 bytes after "…" becomes "..."
+
     def test_too_many_bytes(self):
         d = copy.deepcopy(PRICE)
         d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 20}

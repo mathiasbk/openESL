@@ -1,0 +1,7 @@
+# OpenESL AP partition table (2 MB flash).
+# NVS is larger than the default 24 KB: it holds the content of every tag
+# (one ~120-byte blob each) and up to two 8 KB layout files (krav A4, A12).
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  0x15000
+phy_init, data, phy,     0x1E000, 0x1000
+factory,  app,  factory, 0x20000, 0x1E0000

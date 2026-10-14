@@ -22,7 +22,9 @@ Design file (JSON; the // comments below are only explanations, not part of the 
 }
 
 Values can contain placeholders like {key}. The client's data gives the value for each key.
-Unknown placeholders, and text that cannot be written as Latin-1, are errors.
+Unknown placeholders, and text that cannot be written as Latin-1, are errors. The characters
+the AP itself replaces (dashes, curly quotes, special spaces, "…"; see AP_REPLACE) are allowed,
+and the text limit is counted after that replacement, as the AP does.
 
 Usage:
   python tools/label_design.py check designs/*.json
@@ -46,13 +48,29 @@ PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
 
+# Characters outside Latin-1 that the AP replaces before sending
+# (ap/components/esl_core/esl_text.c). Keep the two in step.
+AP_REPLACE = {}
+AP_REPLACE.update({c: " " for c in "\u2002\u2003\u2009\u200a\u202f"})
+AP_REPLACE.update({c: "-" for c in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"})
+AP_REPLACE.update({c: "'" for c in "\u2018\u2019\u201a\u2032"})
+AP_REPLACE.update({c: '"' for c in "\u201c\u201d\u201e\u2033"})
+AP_REPLACE["\u2022"] = "\u00b7"
+AP_REPLACE["\u2026"] = "..."
+
+
 class DesignError(ValueError):
     pass
 
 
+def to_latin1(text):
+    """The bytes the tag receives for text (after the AP's replacements)."""
+    return "".join(AP_REPLACE.get(c, c) for c in text).replace("\u00a0", " ").encode("latin-1")
+
+
 def _check_latin1(text, where):
     try:
-        text.encode("latin-1")
+        to_latin1(text)
     except UnicodeEncodeError as e:
         raise DesignError("%s: the character %r cannot be written as Latin-1" % (where, e.object[e.start]))
 
@@ -119,10 +137,10 @@ def render(d, data):
     for key in LAYOUTS[layout]:
         value = _fill(d["fields"].get(key, ""), data, "%s.%s" % (d["id"], key))
         _check_latin1(value, "field %s" % key)
-        if len(value.encode("latin-1")) > MAX_FIELD_BYTES:
+        if len(to_latin1(value)) > MAX_FIELD_BYTES:
             raise DesignError("field %s is too long" % key)
         fields.append(value)
-    total = sum(len(f.encode("latin-1")) for f in fields)
+    total = sum(len(to_latin1(f)) for f in fields)
     if total > MAX_TEXT_BYTES:
         raise DesignError("the text is %d bytes, maximum %d (requirement in protokoll.md)" % (total, MAX_TEXT_BYTES))
     style = d.get("style", {})

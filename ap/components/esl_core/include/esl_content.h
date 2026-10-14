@@ -6,16 +6,17 @@
 /* What one tag should show: layout, flags and up to four Latin-1 text fields.
  * See docs/protokoll.md, CONTENT message. */
 
-#define ESL_LAYOUT_PRICE 1 /* [name, price, subtitle] */
-#define ESL_LAYOUT_TEXT  2 /* [line1, line2, line3, line4] */
+#include "proto.h" /* shared/proto.h */
 
-#define ESL_CFLAG_PRICE_RED 0x01
-#define ESL_CFLAG_FRAME_RED 0x02
+/* ESL_LAYOUT_PRICE: [name, price, subtitle]
+ * ESL_LAYOUT_TEXT:  [line1, line2, line3, line4] */
 
-#define ESL_MAX_FIELDS 4
-/* Total text bytes (after Latin-1 conversion). Leaves room for the length
- * bytes and a future 4-byte MIC inside the 110-byte radio payload. */
-#define ESL_MAX_TEXT 90
+#define ESL_CFLAG_PRICE_RED ESL_CF_PRICE_RED
+#define ESL_CFLAG_FRAME_RED ESL_CF_RED_FRAME
+
+/* Total text bytes (after Latin-1 conversion): what fits in the 110-byte
+ * radio payload with all four length bytes and the reserved 4-byte MIC. */
+#define ESL_MAX_TEXT ESL_MAX_TEXT_BYTES
 /* layout + flags + (len + text) per field */
 #define ESL_CONTENT_BODY_MAX (2 + ESL_MAX_FIELDS + ESL_MAX_TEXT)
 

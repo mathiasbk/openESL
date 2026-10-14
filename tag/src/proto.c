@@ -1,4 +1,9 @@
 #include "proto_tag.h"
+#include "model.h"
+
+#if (MODEL == 29 && MODEL_CODE != ESL_MODEL_29) || (MODEL == 154 && MODEL_CODE != ESL_MODEL_154)
+#error "MODEL_CODE in model.h does not match ESL_MODEL_* in shared/proto.h"
+#endif
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
                          uint32_t content_id, uint8_t flags)
@@ -9,7 +14,7 @@ uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
     ESL_PUT_U16(out + ESL_POLL_OFF_BATT, battery_mv);
     ESL_PUT_U32(out + ESL_POLL_OFF_CID, content_id);
     out[ESL_POLL_OFF_FLAGS] = flags;
-    out[ESL_POLL_OFF_RSVD] = 0;
+    out[ESL_POLL_OFF_MODEL] = MODEL_CODE;     /* requirement T18 */
     return ESL_POLL_LEN;
 }
 

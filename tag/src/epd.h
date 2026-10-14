@@ -1,9 +1,9 @@
 /*
- * epd.h - the display (SSD16xx family, 296 x 128, black/white/red).
+ * epd.h - the display (SSD16xx family; size and colours from model.h).
  *
  * epd_draw: wakes the display, streams all columns from draw_column into the
- * controller's black and red planes, starts an update with the OTP waveform,
- * waits for BUSY and puts the display into deep sleep.
+ * controller's black and red planes (only black on a black/white model), starts an
+ * update with the OTP waveform, waits for BUSY and puts the display into deep sleep.
  *
  * It is not yet confirmed which controller it is, or which ZBS243 pins it is
  * connected to (phase 0). See epd.c.

@@ -5,6 +5,7 @@ const font_t __code *font_get(uint8_t id)
     switch (id) {
     case FONT_SMALL:  return &font_small;
     case FONT_LARGE:  return &font_large;
+    case FONT_MID:    return &font_mid;
     default:          return &font_medium;
     }
 }

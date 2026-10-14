@@ -1,11 +1,13 @@
 /*
  * draw.h - draws the screen one column at a time.
  *
- * The screen is 296 x 128 in landscape. ZBS243 does not have RAM for a whole image,
- * so the epd layer asks for one column (x) at a time: 128 pixels = 16 bytes per colour plane.
- * This fits the display controller's memory, where one line is 128 pixels along the short side.
+ * The screen size comes from model.h (296 x 128 on the 2.9", 152 x 152 on the 1.54").
+ * ZBS243 does not have RAM for a whole image, so the epd layer asks for one column (x)
+ * at a time: DRAW_H pixels = DRAW_COL_BYTES bytes per colour plane (16 on the 2.9").
+ * This fits the display controller's memory, where one line is one column here.
  *
- * Bit order in a column: byte 0 MSB = y 0 (top), byte 15 LSB = y 127.
+ * Bit order in a column: byte 0 MSB = y 0 (top), then downwards. Unused bits at the
+ * end of the last byte (when DRAW_H is not a multiple of 8) are always 0.
  * Bit = 1 means ink (black in black, red in red). The epd layer flips polarity and
  * direction if the controller needs something different.
  */
@@ -13,12 +15,11 @@
 #define DRAW_H_INCLUDED
 
 #include "compat.h"
+#include "model.h"
 
-#define DRAW_W           296
-#define DRAW_H           128
-#define DRAW_COL_BYTES   (DRAW_H / 8)
+#define DRAW_COL_BYTES   ((DRAW_H + 7) / 8)
 
-#define DRAW_MAX_RUNS    6
+#define DRAW_MAX_RUNS    8      /* text runs (one per line), 15 bytes each in XRAM */
 #define DRAW_MAX_RECTS   4
 
 #define DRAW_BLACK       0
@@ -68,7 +69,8 @@ void draw_begin(draw_scene_t *s);
 /*
  * Computes column x (0..DRAW_W-1) into black and red (DRAW_COL_BYTES each).
  * Fastest when x increases by 1 per call; if x goes backwards, the cursors start over.
- * Where both planes have ink, red wins.
+ * Where both planes have ink, red wins. On a model without red (MODEL_HAS_RED = 0)
+ * draw_add_text/draw_add_rect turn red into black, so the red plane stays empty.
  */
 void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red);
 

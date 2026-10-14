@@ -7,6 +7,11 @@
  * in docs/kildelogg.md. The same applies to polarity (EPD_BW_INVERT) and RAM
  * direction (EPD_DATA_ENTRY).
  * No custom waveform: the update uses the display's OTP waveform.
+ *
+ * The window and line count come from model.h (DRAW_W lines of DRAW_H pixels). On a
+ * black/white-only model (MODEL_HAS_RED = 0) only the black plane is written.
+ * UNCONFIRMED for the 1.54" (ST-GM16XX2, 200 x 200): that it is an SSD16xx at all,
+ * and whether its controller wants the second RAM (0x26) written too before a full update.
  */
 #include "epd.h"
 #include "hal/hal.h"
@@ -152,7 +157,9 @@ bool epd_draw(draw_scene_t *s)
     set_window();
 
     stream_plane(s, 0);
+#if MODEL_HAS_RED
     stream_plane(s, 1);
+#endif
 
     cmd(CMD_UPDATE_CTRL2);
     data(EPD_UPDATE_SEQ);

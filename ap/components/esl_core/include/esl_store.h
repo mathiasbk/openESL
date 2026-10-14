@@ -37,6 +37,7 @@ typedef struct {
     uint32_t shown_content_id;
     uint16_t battery_mv;
     uint16_t fw;
+    uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
     uint32_t polls;

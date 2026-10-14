@@ -50,6 +50,7 @@ static void test_boot(void)
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_BATT), fake_batt_mv);
     CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_CID), 0);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_FLAGS], ESL_POLL_F_BOOTED);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_MODEL], MODEL_CODE);   /* T18 */
     CHECK(memcmp(fake_tx[0] + ESL_TA_OFF_SRC, fake_mac, 8) == 0);
     CHECK_EQ(fake_draw_count, 1);              /* IDLE: nothing drawn */
     CHECK_EQ(fake_radio_on, 0);                /* radio is off afterwards */
@@ -70,7 +71,7 @@ static void test_content_draws_once(void)
     push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, price);
     app_poll_once();
     CHECK_EQ(fake_draw_count, 2);
-    CHECK(fake_ink_count(2) > 100);            /* red price */
+    CHECK(fake_ink_count(FAKE_RED) > 100);            /* red price */
     CHECK_EQ(app.shown_id, 1111);
 
     /* The next POLL reports the new content_id and no longer 'just booted' */

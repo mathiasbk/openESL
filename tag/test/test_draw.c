@@ -47,9 +47,15 @@ static void test_red_wins(void)
     draw_add_rect(&sc, 0, 0, 99, 99, DRAW_BLACK);
     draw_add_rect(&sc, 50, 50, 149, 127, DRAW_RED);
     fake_render(&sc);
+#if MODEL_HAS_RED
     CHECK_EQ(fake_ink_count(2), 100 * 78);
     CHECK_EQ(fake_ink_count(1), 100 * 100 - 50 * 50);
     CHECK_EQ(fake_fb[60][60], 2);
+#else
+    /* black/white model: red is drawn in black, and the union of both is black */
+    CHECK_EQ(fake_ink_count(2), 0);
+    CHECK_EQ(fake_ink_count(1), 100 * 100 + 100 * 78 - 50 * 50);
+#endif
 }
 
 static void test_text_bounds(void)
@@ -98,24 +104,24 @@ static void test_clip_bottom_right(void)
 {
     uint8_t s[] = "Clip at the bottom and right edge of the screen";
     draw_clear(&sc);
-    draw_add_text(&sc, FONT_LARGE, DRAW_RED, 250, 110, (const uint8_t *)"88", 2, 0);
-    draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, 200, 120, s, (uint8_t)(sizeof(s) - 1), 0);
+    draw_add_text(&sc, FONT_LARGE, DRAW_RED, DRAW_W - 46, DRAW_H - 18, (const uint8_t *)"88", 2, 0);
+    draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, DRAW_W - 96, DRAW_H - 8, s, (uint8_t)(sizeof(s) - 1), 0);
     fake_render(&sc);   /* must not write outside the buffers */
-    CHECK(fake_ink_count(2) > 0);
+    CHECK(fake_ink_count(FAKE_RED) > 0);
 }
 
 static void test_order_independent(void)
 {
     /* Columns in random order give the same result as left to right */
     uint8_t b1[DRAW_COL_BYTES], r1[DRAW_COL_BYTES];
-    static const uint16_t xs[] = { 200, 7, 50, 51, 52, 295, 0, 120, 119, 121 };
+    static const uint16_t xs[] = { DRAW_W - 96, 7, 50, 51, 52, DRAW_W - 1, 0, 120, 119, 121 };
     uint8_t s[] = "Brunost 500 g";
     unsigned i;
     int ok = 1;
 
     draw_clear(&sc);
     draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, 6, 4, s, (uint8_t)(sizeof(s) - 1), 1);
-    draw_add_text(&sc, FONT_LARGE, DRAW_RED, 150, 56, (const uint8_t *)"59,90", 5, 0);
+    draw_add_text(&sc, FONT_LARGE, DRAW_RED, DRAW_W - 146, 56, (const uint8_t *)"59,90", 5, 0);
     fake_render(&sc);
     for (i = 0; i < sizeof(xs) / sizeof(xs[0]); i++) {
         int y;

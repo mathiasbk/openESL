@@ -16,6 +16,9 @@ bool draw_add_text(draw_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uin
 
     if (s->nruns >= DRAW_MAX_RUNS)
         return false;
+#if !MODEL_HAS_RED
+    color = DRAW_BLACK;     /* black/white panel: red is drawn in black */
+#endif
     r = &s->run[s->nruns++];
     r->text = text;
     r->len = len;
@@ -37,6 +40,9 @@ bool draw_add_rect(draw_scene_t *s, uint16_t x0, uint8_t y0, uint16_t x1, uint8_
     draw_rect_t *r;
     if (s->nrects >= DRAW_MAX_RECTS)
         return false;
+#if !MODEL_HAS_RED
+    color = DRAW_BLACK;
+#endif
     r = &s->rect[s->nrects++];
     r->x0 = x0;
     r->x1 = x1;
@@ -139,4 +145,9 @@ void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
 
     for (i = 0; i < DRAW_COL_BYTES; i++)
         black[i] &= (uint8_t)~red[i];
+#if DRAW_H % 8
+    /* text is clipped per byte; clear the bits below the last row */
+    black[DRAW_COL_BYTES - 1] &= (uint8_t)(0xFF << (8 - DRAW_H % 8));
+    red[DRAW_COL_BYTES - 1] &= (uint8_t)(0xFF << (8 - DRAW_H % 8));
+#endif
 }

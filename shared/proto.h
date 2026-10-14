@@ -30,10 +30,17 @@
 #define ESL_POLL_OFF_BATT    4      /* u16 batterispenning i mV */
 #define ESL_POLL_OFF_CID     6      /* u32 content_id som vises nå (0 = ingenting) */
 #define ESL_POLL_OFF_FLAGS   10     /* u8 */
-#define ESL_POLL_OFF_RSVD    11     /* u8, alltid 0 */
+#define ESL_POLL_OFF_RSVD    11     /* u8, tidligere reservert (alltid 0), nå modellfeltet under */
+#define ESL_POLL_OFF_MODEL   11     /* u8 tagmodell (krav T18), samme byte som ESL_POLL_OFF_RSVD */
 
 #define ESL_POLL_F_BOOTED    0x01   /* nettopp startet */
 #define ESL_POLL_F_DRAWFAIL  0x02   /* forrige tegning feilet */
+
+/* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
+ * så AP-en leser den som "ukjent" og alt virker som før. */
+#define ESL_MODEL_UNKNOWN    0
+#define ESL_MODEL_29         1      /* SoluM 2.9" (ST-GM29XX2), = MODEL_CODE i tag/src/model.h */
+#define ESL_MODEL_154        2      /* SoluM 1.54" (ST-GM16XX2), = MODEL_CODE i tag/src/model.h */
 
 /* IDLE, 4 byte */
 #define ESL_IDLE_LEN         4
