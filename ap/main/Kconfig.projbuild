@@ -43,9 +43,14 @@ menu "OpenESL AP"
         default 0x4553
 
     config ESL_NEXT_POLL_S
-        int "next_poll_s sent to tags (0 = tag keeps its own interval)"
-        range 0 65535
+        int "Default poll interval in s sent to tags (0 = tag keeps its own)"
+        range 0 3600
         default 0
+        help
+            Built-in default for tags without their own poll_s. PUT /api/config
+            overrides it at run time (stored in NVS cfg/poll_s), and
+            PUT /api/tags/{mac}/config sets it per tag. Values other than 0
+            should be 10..3600, the range the API accepts.
 
     config ESL_MAX_TAGS
         int "Max tags per AP"

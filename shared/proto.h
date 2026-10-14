@@ -19,6 +19,7 @@
 #define ESL_MSG_POLL         0x01   /* tag -> AP */
 #define ESL_MSG_IDLE         0x02   /* AP -> tag: ingenting nytt */
 #define ESL_MSG_CONTENT      0x03   /* AP -> tag: nytt innhold */
+#define ESL_MSG_CONFIG       0x08   /* AP -> tag: taginnstillinger (se CONFIG under) */
 
 /* Felles start på alle meldinger */
 #define ESL_OFF_TYPE         0
@@ -37,10 +38,17 @@
 #define ESL_POLL_F_DRAWFAIL  0x02   /* forrige tegning feilet */
 #define ESL_POLL_F_LAYOUTFAIL 0x04  /* tagen avviste layoutfila AP-en tilbød sist (for stor, feil CRC, ugyldig) */
 
-/* POLL med layoutversjon, 18 byte (krav T17). Byte 12-13 er holdt av til cfg_ver
- * (konfigurasjon, egen gren); tagen sender 0 der til den kjenner feltet. Firmware uten
- * layoutnedlasting sender færre enn 18 byte; AP-en ser da på tagen som "kan ikke laste
- * ned layout". */
+/* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
+ * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
+ * så eldre tager (12 byte) aldri får en meldingstype de ikke kjenner. */
+#define ESL_POLL_OFF_CFG_VER 12     /* u16 cfg_ver tagen bruker nå (0 = innebygde standardverdier) */
+#define ESL_POLL_LEN_CFG     14     /* POLL med cfg_ver */
+
+/* POLL med layoutversjon, 18 byte (krav T17): cfg_ver på byte 12-13 som over, så
+ * layoutversjonen på 14-17. Dagens tagfirmware sender alltid hele POLL-en på 18 byte.
+ * Firmware uten layoutnedlasting sender færre enn 18 byte; AP-en ser da på tagen som
+ * "kan ikke laste ned layout". Lengden avgjør hva AP-en kan sende:
+ *   12 byte: bare IDLE/CONTENT,  14: også CONFIG,  18: også CONFIG og LAYOUT. */
 #define ESL_POLL_LEN_LAYOUT  18
 #define ESL_POLL_OFF_LAYOUT_VER 14  /* u32 versjon av layoutfila tagen har (0 = ingen, bare innebygde) */
 
@@ -68,6 +76,21 @@
 
 #define ESL_CF_PRICE_HIGHLIGHT 0x01 /* framhevet pris: hvite siffer i svart felt (invertert) */
 #define ESL_CF_FRAME         0x02   /* svart ramme rundt skjermen */
+
+/* CONFIG, 12 byte: taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
+ * Hver innstilling er u16, 0 = tagens innebygde standardverdi (tag/src/config.h).
+ * Nye innstillinger legges bare til på slutten: tagen leser feltene den kjenner
+ * og hopper over resten, og et felt som mangler i en kortere melding er 0. */
+#define ESL_CONFIG_LEN       12
+#define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; tagen sender den tilbake i POLL som kvittering */
+#define ESL_CONFIG_OFF_POLL  6      /* u16 vanlig intervall i sekunder (krav T4) */
+#define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 lengste intervall uten svar fra AP-en (krav T11) */
+#define ESL_CONFIG_OFF_LOST_AP 10   /* u16 sekunder uten svar før "No AP found" (krav T9) */
+
+#define ESL_CFG_POLL_MIN_S   10     /* grenser for poll_s og max_poll_s */
+#define ESL_CFG_POLL_MAX_S   3600
+#define ESL_CFG_LOST_AP_MIN_S 60    /* grenser for lost_ap_s */
+#define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: vis aldri "No AP found" */
 
 #define ESL_MAX_FIELDS       4
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */

@@ -7,8 +7,11 @@
 
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
+#define PATH_CONFIG "/api/config"
 
 _Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
+_Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
+               "update the config error messages");
 _Static_assert(ESL_API_MAX_BODY > ESL_LAYOUT_MAX_SIZE && ESL_API_RESP_SIZE(0) > ESL_LAYOUT_MAX_SIZE,
                "a layout file must fit in a request and a response");
 
@@ -144,6 +147,43 @@ static int check_named(const esl_api_t *api, uint64_t mac, const char *name, siz
     return 0;
 }
 
+/* An optional whole number in [min, max]: missing or null gives 0. */
+static int parse_uint(const json_t *j, int obj, const char *key, unsigned min, unsigned max, uint16_t *out)
+{
+    int v = esl_json_obj_get(j->js, j->tok, obj, key);
+    *out = 0;
+    if (v < 0 || j->tok[v].type == ESL_JSON_NULL)
+        return 0;
+    if (j->tok[v].type != ESL_JSON_NUMBER)
+        return -1;
+    unsigned long n = 0;
+    for (int i = j->tok[v].start; i < j->tok[v].end; i++) {
+        char c = j->js[i];
+        if (c < '0' || c > '9' || n > max)
+            return -1; /* negative, fraction or exponent, or far too large */
+        n = n * 10 + (unsigned long)(c - '0');
+    }
+    if (n < min || n > max)
+        return -1;
+    *out = (uint16_t)n;
+    return 0;
+}
+
+/* Fills cfg from {poll_s, max_poll_s, lost_ap_s}; missing or null = default. */
+static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
+{
+    if (parse_uint(j, obj, "poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->poll_s) < 0 ||
+        parse_uint(j, obj, "max_poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->max_poll_s) < 0) {
+        *msg = "poll_s and max_poll_s must be null or a whole number of seconds from 10 to 3600";
+        return 422;
+    }
+    if (parse_uint(j, obj, "lost_ap_s", ESL_CFG_LOST_AP_MIN_S, ESL_CFG_LOST_AP_NEVER, &cfg->lost_ap_s) < 0) {
+        *msg = "lost_ap_s must be null or a whole number of seconds from 60 to 65535 (65535 = never)";
+        return 422;
+    }
+    return 0;
+}
+
 /* Fills c from {layout, fields, price_highlight, frame} for the tag mac.
  * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
 static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
@@ -255,6 +295,29 @@ static void write_set_result(esl_sb_t *out, uint64_t mac, const esl_set_result_t
                   m, r->content_id, r->changed ? "true" : "false", r->pending ? "true" : "false");
 }
 
+static void write_opt_u16(esl_sb_t *out, const char *key, uint16_t v)
+{
+    if (v)
+        esl_sb_printf(out, "\"%s\":%u", key, (unsigned)v);
+    else
+        esl_sb_printf(out, "\"%s\":null", key);
+}
+
+/* "poll_s":<effective>,"config":{<the tag's own settings>},"config_pending":<bool> */
+static void write_tag_cfg(esl_sb_t *out, const esl_tag_t *t, uint16_t default_poll_s)
+{
+    esl_tag_cfg_t eff;
+    esl_tag_effective_cfg(t, default_poll_s, &eff);
+    write_opt_u16(out, "poll_s", eff.poll_s);
+    esl_sb_puts(out, ",\"config\":{");
+    write_opt_u16(out, "poll_s", t->cfg.poll_s);
+    esl_sb_putc(out, ',');
+    write_opt_u16(out, "max_poll_s", t->cfg.max_poll_s);
+    esl_sb_putc(out, ',');
+    write_opt_u16(out, "lost_ap_s", t->cfg.lost_ap_s);
+    esl_sb_printf(out, "},\"config_pending\":%s", esl_tag_cfg_pending(t, default_poll_s) ? "true" : "false");
+}
+
 static const char *layout_name(const esl_content_t *c)
 {
     if (c->layout == ESL_LAYOUT_NAMED)
@@ -262,7 +325,8 @@ static const char *layout_name(const esl_content_t *c)
     return c->layout == ESL_LAYOUT_PRICE ? "price" : "text";
 }
 
-static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool with_content)
+static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
+                      uint16_t default_poll_s, bool with_content)
 {
     char m[17];
     esl_mac_format(t->mac, m);
@@ -285,7 +349,8 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", t->shown_content_id);
     else
         esl_sb_puts(out, "\"shown_content_id\":null,");
-    esl_sb_printf(out, "\"pending\":%s", esl_tag_pending(t) ? "true" : "false");
+    esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
+    write_tag_cfg(out, t, default_poll_s);
 
     /* layout file: the version the tag reported (null for firmware without
      * layout files), whether it still has to download the AP's file for its
@@ -397,7 +462,7 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
         bool dup = false;
         for (unsigned d = 0; d < k; d++)
             dup |= macs[d] == macs[k];
-        if (!dup && (!esl_store_get(api->store, macs[k], &existing) || !existing.has_content))
+        if (!dup && (!esl_store_get(api->store, macs[k], &existing) || !esl_tag_holds_data(&existing)))
             new_macs++;
         i = tok[i].next;
     }
@@ -433,8 +498,9 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
 {
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
-    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u},\"tags\":[",
-                  now_ms / 1000, (unsigned)api->channel, api->store->cap);
+    uint16_t def_poll = esl_store_get_next_poll(api->store);
+    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"poll_s\":%u},\"tags\":[",
+                  now_ms / 1000, (unsigned)api->channel, api->store->cap, (unsigned)def_poll);
     bool first = true;
     for (unsigned s = 0; s < api->store->cap; s++) {
         esl_tag_t t;
@@ -443,9 +509,87 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         if (!first)
             esl_sb_putc(out, ',');
         first = false;
-        write_tag(api, out, &t, now_ms, false);
+        write_tag(api, out, &t, now_ms, def_poll, false);
     }
     esl_sb_puts(out, "]}");
+    return 200;
+}
+
+/* ---- settings ------------------------------------------------------------------ */
+
+/* PUT/GET /api/tags/{mac}/config */
+static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, const char *body, size_t len,
+                      esl_sb_t *out)
+{
+    char m[17];
+    esl_tag_t t;
+    esl_mac_format(mac, m);
+    if (strcmp(method, "GET") == 0) {
+        if (!esl_store_get(api->store, mac, &t))
+            return api_error(out, 404, "unknown tag");
+        esl_sb_printf(out, "{\"mac\":\"%s\",", m);
+        write_tag_cfg(out, &t, esl_store_get_next_poll(api->store));
+        esl_sb_putc(out, '}');
+        return 200;
+    }
+    if (strcmp(method, "PUT") != 0)
+        return api_error(out, 405, "method not allowed");
+
+    esl_jtok_t *tok = NULL;
+    int status = parse_json(body, len, &tok, out);
+    if (status == 0) {
+        json_t j = {body, tok};
+        esl_tag_cfg_t cfg;
+        esl_cfg_result_t r;
+        const char *msg;
+        status = parse_cfg(&j, 0, &cfg, &msg);
+        if (status)
+            api_error(out, status, msg);
+        else if (esl_store_set_cfg(api->store, mac, &cfg, &r) != ESL_STORE_OK)
+            status = api_error(out, 507, "tag table full");
+        else if (!esl_store_get(api->store, mac, &t))
+            status = api_error(out, 500, "tag vanished");
+        else {
+            esl_sb_printf(out, "{\"mac\":\"%s\",", m);
+            write_tag_cfg(out, &t, esl_store_get_next_poll(api->store));
+            esl_sb_printf(out, ",\"changed\":%s}", r.changed ? "true" : "false");
+            status = 200;
+        }
+    }
+    free(tok);
+    return status;
+}
+
+/* PUT/GET /api/config: AP-wide default interval. poll_s 0 = tags keep their
+ * built-in interval, null = back to the AP's built-in default (menuconfig). */
+static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
+{
+    bool put = strcmp(method, "PUT") == 0;
+    if (put) {
+        esl_jtok_t *tok = NULL;
+        int status = parse_json(body, len, &tok, out);
+        if (status == 0) {
+            json_t j = {body, tok};
+            int v = esl_json_obj_get(body, tok, 0, "poll_s");
+            uint16_t poll_s;
+            if (v < 0)
+                status = api_error(out, 422, "poll_s is required (null resets it to the built-in default)");
+            else if (tok[v].type == ESL_JSON_NULL)
+                esl_store_reset_next_poll(api->store);
+            else if (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
+                     (poll_s && poll_s < ESL_CFG_POLL_MIN_S))
+                status = api_error(out, 422, "poll_s must be null, 0 or a whole number of seconds from 10 to 3600");
+            else
+                esl_store_set_next_poll(api->store, poll_s);
+        }
+        free(tok);
+        if (status)
+            return status;
+    } else if (strcmp(method, "GET") != 0) {
+        return api_error(out, 405, "method not allowed");
+    }
+    esl_sb_printf(out, "{\"poll_s\":%u,\"builtin_poll_s\":%u}", (unsigned)esl_store_get_next_poll(api->store),
+                  (unsigned)api->store->next_poll_builtin);
     return 200;
 }
 
@@ -704,23 +848,38 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return status;
     }
 
-    bool collection = false, item = false;
+    const size_t cbase = sizeof(PATH_CONFIG) - 1;
+    if ((plen == cbase || (plen == cbase + 1 && uri[cbase] == '/')) && memcmp(uri, PATH_CONFIG, cbase) == 0) {
+        int status = ap_config(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    bool collection = false, item = false, item_cfg = false;
     uint64_t mac = 0;
     if (plen >= base && memcmp(uri, PATH_TAGS, base) == 0) {
         if (plen == base || (plen == base + 1 && uri[base] == '/'))
             collection = true;
         else if (uri[base] == '/') {
+            static const char cfg_suffix[] = "/config";
+            const size_t sl = sizeof(cfg_suffix) - 1;
             size_t ml = plen - base - 1;
             if (ml == 17 && uri[base + 17] == '/')
                 ml = 16;
+            else if ((ml == 16 + sl || ml == 17 + sl) && memcmp(&uri[base + 17], cfg_suffix, sl) == 0 &&
+                     (ml == 16 + sl || uri[base + 17 + sl] == '/')) {
+                ml = 16;
+                item_cfg = true;
+            }
             if (!esl_mac_parse(&uri[base + 1], ml, &mac))
                 return api_error(out, 400, "mac must be 16 hex digits");
-            item = true;
+            item = !item_cfg;
         }
     }
 
     int status;
-    if (collection && strcmp(method, "GET") == 0)
+    if (item_cfg)
+        status = tag_config(api, method, mac, body, body_len, out);
+    else if (collection && strcmp(method, "GET") == 0)
         status = get_all(api, now_ms, out);
     else if (collection && strcmp(method, "PUT") == 0)
         status = put_batch(api, body, body_len, out);
@@ -730,7 +889,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         esl_tag_t t;
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
-        write_tag(api, out, &t, now_ms, true);
+        write_tag(api, out, &t, now_ms, esl_store_get_next_poll(api->store), true);
         status = 200;
     } else if (item && strcmp(method, "DELETE") == 0) {
         char m[17];

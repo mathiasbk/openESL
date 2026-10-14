@@ -17,6 +17,10 @@ typedef struct {
     uint8_t blob[CAP][ESL_PERSIST_BLOB_MAX];
     size_t len[CAP];
     int writes;
+    bool cfg_used[CAP];
+    uint8_t cfg[CAP][ESL_PERSIST_CFG_LEN];
+    bool has_next_poll;
+    uint16_t next_poll_s;
 } nvs_t;
 
 static void nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
@@ -33,6 +37,21 @@ static void nvs_erase(void *ctx, unsigned slot)
     n->used[slot] = false;
 }
 
+static void nvs_cfg(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
+{
+    nvs_t *n = ctx;
+    n->cfg_used[slot] = cfg != NULL;
+    if (cfg)
+        esl_persist_cfg_encode(mac, cfg, n->cfg[slot]);
+}
+
+static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
+{
+    nvs_t *n = ctx;
+    n->has_next_poll = next_poll_s != NULL;
+    n->next_poll_s = next_poll_s ? *next_poll_s : 0;
+}
+
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_tag_t tags[CAP];
@@ -44,13 +63,18 @@ static esl_sb_t out;
 /* AP boot: empty table, then everything from fake NVS. */
 static void ap_boot(void)
 {
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
     esl_store_init(&st, tags, CAP, &ops, 0);
+    if (nvs.has_next_poll)
+        esl_store_restore_next_poll(&st, nvs.next_poll_s);
     for (unsigned s = 0; s < CAP; s++) {
         uint64_t mac;
         esl_content_t c;
+        esl_tag_cfg_t cfg;
         if (nvs.used[s] && esl_persist_decode(nvs.blob[s], nvs.len[s], &mac, &c))
             esl_store_restore(&st, s, mac, &c);
+        if (nvs.cfg_used[s] && esl_persist_cfg_decode(nvs.cfg[s], ESL_PERSIST_CFG_LEN, &mac, &cfg))
+            esl_store_restore_cfg(&st, s, mac, &cfg);
     }
 }
 
@@ -81,7 +105,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -214,10 +238,120 @@ static void test_end_to_end(void)
     CHECK_INT(air(&again, 2000, false), ESL_MSG_CONTENT);
     CHECK_INT(again.shown, t.shown);
 
-    /* next_poll_s reaches the tag in both IDLE and CONTENT */
+    /* next_poll_s reaches the tag in every reply; a tag that understands
+     * CONFIG also gets it once as its base interval */
     esl_store_set_next_poll(&st, 300);
-    CHECK_INT(air(&again, 3000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&again, 3000, false), ESL_MSG_CONFIG);
     CHECK_INT(again.next_poll_s, 300);
+    CHECK_INT(again.cfg.poll_s, 300);
+    CHECK_INT(air(&again, 4000, false), ESL_MSG_IDLE);
+    CHECK_INT(again.interval_s, 300);
+}
+
+static int put_cfg(const char *mac, const char *body)
+{
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/api/tags/%s/config", mac);
+    return esl_api_handle(&api, "PUT", uri, AUTH, body, strlen(body), 0, &out);
+}
+
+static void test_config(void)
+{
+    esl_faketag_t t, old;
+    const char *body = "{\"layout\":\"text\",\"fields\":[\"Hei\"]}";
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_faketag_init(&t, 0xC0FFEE01, 2, 3000, ESL_MODEL_154);
+    esl_faketag_init(&old, 0xC0FFEE02, 1, 3000, ESL_MODEL_29);
+    old.legacy = true;
+
+    /* nothing set: no CONFIG, the tag keeps its built-in 60 s */
+    CHECK_INT(air(&t, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&old, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(t.interval_s, ESL_FAKETAG_POLL_S);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000C0FFEE01", AUTH, NULL, 0, 2000, &out), 200);
+    CHECK(HAS(resp, "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+                    "\"config_pending\":false"));
+
+    /* per-tag settings: the tag gets CONFIG, uses the new interval and confirms */
+    CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":120,\"lost_ap_s\":65535}"), 200);
+    CHECK(HAS(resp, "\"poll_s\":120,\"config\":{\"poll_s\":120,\"max_poll_s\":null,\"lost_ap_s\":65535}"));
+    CHECK(HAS(resp, "\"config_pending\":true,\"changed\":true"));
+    CHECK_INT(air(&t, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(t.interval_s, 120);
+    CHECK_INT(t.cfg.poll_s, 120);
+    CHECK_INT(t.cfg.max_poll_s, 0);
+    CHECK_INT(t.cfg.lost_ap_s, ESL_CFG_LOST_AP_NEVER);
+    CHECK(t.cfg_ver != 0);
+    CHECK_INT(air(&t, 181000, false), ESL_MSG_IDLE); /* confirmed by cfg_ver in POLL */
+    CHECK_INT(t.configs, 1);
+    CHECK_INT(t.interval_s, 120);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000C0FFEE01/config", AUTH, NULL, 0, 2000, &out), 200);
+    CHECK(HAS(resp, "\"config_pending\":false"));
+    CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":120,\"lost_ap_s\":65535}"), 200);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(air(&t, 301000, false), ESL_MSG_IDLE);
+
+    /* content goes first, the settings on the next poll; next_poll_s in CONTENT is the tag's own */
+    CHECK_INT(put("00000000C0FFEE01", body), 200);
+    CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":30}"), 200);
+    CHECK_INT(air(&t, 331000, false), ESL_MSG_CONTENT);
+    CHECK_INT(t.interval_s, 30);
+    CHECK_INT(air(&t, 361000, false), ESL_MSG_CONFIG);
+    CHECK_INT(t.cfg.lost_ap_s, 0);
+    CHECK_INT(air(&t, 391000, false), ESL_MSG_IDLE);
+    CHECK_INT(t.contents, 1);
+
+    /* old firmware: never gets CONFIG, but next_poll_s still carries its interval */
+    CHECK_INT(put_cfg("00000000C0FFEE02", "{\"poll_s\":900}"), 200);
+    CHECK(HAS(resp, "\"config_pending\":false"));
+    CHECK_INT(air(&old, 2000, false), ESL_MSG_IDLE);
+    CHECK_INT(old.interval_s, 900);
+    CHECK_INT(old.rejected, 0);
+
+    /* the AP restarts: settings come back from NVS, no new CONFIG for a tag that has them */
+    ap_boot();
+    CHECK_INT(air(&t, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(t.interval_s, 30);
+    CHECK_INT(air(&old, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(old.interval_s, 900);
+
+    /* the tag restarts with built-in settings: gets them again */
+    esl_faketag_t again;
+    esl_faketag_init(&again, t.mac, 2, 3000, ESL_MODEL_154);
+    CHECK_INT(air(&again, 2000, false), ESL_MSG_CONTENT);
+    CHECK_INT(air(&again, 3000, false), ESL_MSG_CONFIG);
+    CHECK_INT(again.cfg_ver, t.cfg_ver);
+
+    /* a run-time default reaches tags without their own poll_s, is persisted, and null resets it */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"poll_s\":240}", 14, 0, &out), 200);
+    CHECK_STR(resp, "{\"poll_s\":240,\"builtin_poll_s\":0}");
+    CHECK(nvs.has_next_poll);
+    CHECK_INT(air(&again, 4000, false), ESL_MSG_IDLE);       /* has its own poll_s */
+    CHECK_INT(again.interval_s, 30);
+    CHECK_INT(put_cfg("00000000C0FFEE01", "{}"), 200);       /* back to defaults */
+    CHECK(!nvs.cfg_used[0] && nvs.cfg_used[1]);      /* slot 0 erased, the old tag keeps its own */
+    CHECK_INT(air(&again, 5000, false), ESL_MSG_CONFIG);
+    CHECK_INT(again.interval_s, 240);
+    CHECK_INT(again.cfg.poll_s, 240);
+    ap_boot();
+    CHECK_INT(esl_store_get_next_poll(&st), 240);
+    CHECK_INT(air(&again, 6000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"poll_s\":null}", 15, 0, &out), 200);
+    CHECK(!nvs.has_next_poll);
+    CHECK_INT(air(&again, 7000, false), ESL_MSG_CONFIG);     /* back to all defaults: cfg_ver 0 */
+    CHECK_INT(again.cfg_ver, 0);
+    CHECK_INT(again.interval_s, ESL_FAKETAG_POLL_S);
+    CHECK_INT(air(&again, 8000, false), ESL_MSG_IDLE);
+
+    /* DELETE forgets the stored settings */
+    CHECK_INT(put_cfg("00000000C0FFEE02", "{\"poll_s\":900}"), 200);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/tags/00000000C0FFEE02", AUTH, NULL, 0, 0, &out), 200);
+    bool any = false;
+    for (unsigned i = 0; i < CAP; i++)
+        any |= nvs.cfg_used[i];
+    CHECK(!any);
 }
 
 static void test_many_tags(void)
@@ -490,7 +624,8 @@ static void test_layout_rejected_and_old_firmware(void)
     CHECK_INT(put_layout("2.9", f29, l29), 200);
     uint32_t v1 = version_of(ESL_MODEL_29);
 
-    /* firmware without layout files: 12-byte POLL, never a LAYOUT, built-in content as before */
+    /* firmware without layout files (POLL without the layout version): never a LAYOUT,
+     * built-in content as before */
     esl_faketag_init(&old, 0x01D, 1, 3000, ESL_MODEL_29);
     old.layouts = false;
     CHECK_INT(put("000000000000001D", SHELF), 200); /* model unknown yet: accepted */
@@ -572,15 +707,131 @@ static void test_layout_many_tags(void)
     free(f154);
 }
 
+/* Layout, content and CONFIG for the same tag (docs/protokoll.md part 1,
+ * "Priority"): the AP sends the layout file first (the content may use it),
+ * then the content, then the settings, one message per POLL. After a layout
+ * download the tag polls again at once, so the next item follows in the same
+ * wake-up. */
+static void test_layout_content_config(void)
+{
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+    esl_faketag_t t, cfgonly;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    esl_faketag_init(&t, 0xA11, 1, 3000, ESL_MODEL_29);
+
+    /* everything waiting before the tag is ever seen */
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put("0000000000000A11", SHELF), 200);
+    uint32_t id = json_u32(resp, "\"content_id\":");
+    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":120,\"lost_ap_s\":600}"), 200);
+
+    /* round 1: LAYOUT blocks, then the extra POLL gets CONTENT; every reply,
+     * the LAYOUT blocks too, already carries the tag's own interval */
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONTENT);
+    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(t.layout_blocks, 2);
+    CHECK_INT(t.shown, id);
+    CHECK_INT(t.drawn_elements, 5);
+    CHECK_INT(t.configs, 0);
+    CHECK_INT(t.interval_s, 120);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000A11", AUTH, NULL, 0, 1000, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true,")); /* confirmed by the next POLL */
+    CHECK(HAS(resp, "\"config_pending\":true,\"layout_version\":"));
+    CHECK(HAS(resp, "\"layout_pending\":false,"));
+
+    /* round 2: CONFIG; round 3: nothing left */
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 121000), ESL_MSG_CONFIG);
+    CHECK_INT(t.cfg.poll_s, 120);
+    CHECK_INT(t.cfg.lost_ap_s, 600);
+    CHECK(t.cfg_ver != 0);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 241000), ESL_MSG_IDLE);
+    CHECK_INT(t.configs, 1);
+    CHECK_INT(t.contents, 1);
+    CHECK_INT(t.layout_installs, 1);
+    CHECK_INT(t.rejected, 0);
+
+    /* all three change at once: layout + content in one wake-up, CONFIG in the next */
+    char *f2 = malloc(l29);
+    memcpy(f2, f29, l29);
+    char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
+    CHECK(band != NULL);
+    if (band)
+        band[6] = '2';
+    CHECK_INT(put_layout("2.9", f2, l29), 200);
+    CHECK_INT(put("0000000000000A11", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Hei\"]}"), 200);
+    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":45}"), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 300000), ESL_MSG_CONTENT);
+    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(t.layout_installs, 2);
+    CHECK_INT(t.content.layout, ESL_LAYOUT_FILE + 1);
+    CHECK_INT(t.interval_s, 45);
+    CHECK_INT(t.configs, 1);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 345000), ESL_MSG_CONFIG);
+    CHECK_INT(t.cfg.poll_s, 45);
+    CHECK_INT(t.cfg.lost_ap_s, 0);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 390000), ESL_MSG_IDLE);
+
+    /* layout and settings, content unchanged (built-in layout): the extra POLL
+     * after the download gets CONFIG in the same wake-up */
+    CHECK_INT(put("0000000000000A11", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 400000), ESL_MSG_CONTENT);
+    uint32_t contents = t.contents;
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":300}"), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 450000), ESL_MSG_CONFIG);
+    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(t.contents, contents);
+    CHECK_INT(t.interval_s, 300);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 750000), ESL_MSG_IDLE);
+
+    /* content and settings, no layout change: CONTENT first, CONFIG next */
+    CHECK_INT(put("0000000000000A11", SHELF), 200);
+    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":60}"), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 800000), ESL_MSG_CONTENT);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 860000), ESL_MSG_CONFIG);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 920000), ESL_MSG_IDLE);
+    CHECK_INT(t.rejected, 0);
+
+    /* firmware with CONFIG but without layout files (14-byte POLL): CONFIG, never LAYOUT */
+    esl_faketag_init(&cfgonly, 0xC0F, 1, 3000, ESL_MODEL_29);
+    cfgonly.layouts = false;
+    CHECK_INT(put_cfg("0000000000000C0F", "{\"poll_s\":90}"), 200);
+    CHECK_INT(esl_faketag_round(&cfgonly, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONFIG);
+    CHECK_INT(esl_faketag_round(&cfgonly, &st, &layouts, PAN, -60, 91000), ESL_MSG_IDLE);
+    CHECK_INT(cfgonly.layout_blocks, 0);
+    CHECK_INT(cfgonly.interval_s, 90);
+    CHECK_INT(cfgonly.rejected, 0);
+
+    /* the AP restarts: content and settings come back from NVS, the layout file
+     * is uploaded again; a tag that has everything gets IDLE */
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
+    CHECK_INT(t.interval_s, 60);
+
+    free(f2);
+    free(f29);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
     test_handle_filters();
     test_fake_tag_filters();
     test_end_to_end();
+    test_config();
     test_many_tags();
     test_layout_download();
     test_layout_lost_and_changed();
     test_layout_rejected_and_old_firmware();
     test_layout_many_tags();
+    test_layout_content_config();
 }

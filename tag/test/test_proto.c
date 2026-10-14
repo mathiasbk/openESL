@@ -11,9 +11,12 @@ static void test_build_poll(void)
     uint8_t p[ESL_POLL_LEN_LAYOUT];
     static const uint8_t expect[ESL_POLL_LEN_LAYOUT] = {
         0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE,
-        0x00, 0x00, 0x44, 0x33, 0x22, 0x11
+        0x34, 0x12, 0x44, 0x33, 0x22, 0x11
     };
-    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x11223344ul), ESL_POLL_LEN_LAYOUT);
+    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0x11223344ul),
+             ESL_POLL_LEN_LAYOUT);
+    CHECK_EQ(ESL_POLL_OFF_CFG_VER + 2, ESL_POLL_OFF_LAYOUT_VER);   /* the fields do not overlap */
+    CHECK_EQ(ESL_POLL_LEN_CFG, ESL_POLL_OFF_LAYOUT_VER);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
 }
 
@@ -151,6 +154,36 @@ static void test_parse_errors(void)
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
 }
 
+static void test_parse_config(void)
+{
+    uint8_t p[ESL_MAX_PAYLOAD + 1];
+    proto_reply_t r;
+    uint8_t n = make_config(p, 120, 0xBEEF, 120, 900, ESL_CFG_LOST_AP_NEVER);
+
+    CHECK_EQ(n, ESL_CONFIG_LEN);
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK_EQ(r.type, ESL_MSG_CONFIG);
+    CHECK_EQ(r.next_poll_s, 120);
+    CHECK_EQ(r.cfg_ver, 0xBEEF);
+    CHECK_EQ(r.cfg_poll_s, 120);
+    CHECK_EQ(r.cfg_max_poll_s, 900);
+    CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
+    CHECK_EQ(r.nfields, 0);
+
+    /* settings a newer AP appends are skipped; a cut message is not accepted */
+    memset(p + n, 0xEE, 6);
+    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n + 6), &r), PROTO_OK);
+    CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
+    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_E_SHORT);
+    CHECK_EQ(proto_parse_reply(p, ESL_MAX_PAYLOAD + 1, &r), PROTO_E_LONG);
+
+    /* an IDLE afterwards leaves no settings behind in r */
+    n = make_idle(p, 0);
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK_EQ(r.cfg_ver, 0);
+    CHECK_EQ(r.cfg_poll_s, 0);
+}
+
 static void test_build_frame(void)
 {
     uint8_t payload[ESL_POLL_LEN_LAYOUT];
@@ -159,11 +192,11 @@ static void test_build_frame(void)
         0x41, 0xC8, 0x07, 0x53, 0x45, 0x00, 0x00,
         0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00
     };
-    proto_build_poll(payload, 1, 3000, 0, 0, 0);
-    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN),
-             ESL_MAC_HDR_LEN + ESL_POLL_LEN);
+    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0);
+    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_LAYOUT),
+             ESL_MAC_HDR_LEN + ESL_POLL_LEN_LAYOUT);
     CHECK(memcmp(f, hdr, sizeof(hdr)) == 0);
-    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN) == 0);
+    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN_LAYOUT) == 0);
     CHECK_EQ(proto_build_frame(f, 0, ESL_DEFAULT_PAN_ID, mac, payload, ESL_MAX_PAYLOAD + 1), 0);
 }
 
@@ -210,6 +243,7 @@ void test_proto(void)
     RUN(test_parse_content);
     RUN(test_parse_content_empty_fields_and_mic);
     RUN(test_parse_errors);
+    RUN(test_parse_config);
     RUN(test_build_frame);
     RUN(test_check_frame);
     RUN(test_fcs);

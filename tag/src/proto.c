@@ -6,7 +6,8 @@
 #endif
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
-                         uint32_t content_id, uint8_t flags, uint32_t layout_ver)
+                         uint32_t content_id, uint8_t flags, uint16_t cfg_ver,
+                         uint32_t layout_ver)
 {
     out[ESL_OFF_TYPE] = ESL_MSG_POLL;
     out[ESL_OFF_VER] = ESL_PROTO_VER;
@@ -15,8 +16,7 @@ uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
     ESL_PUT_U32(out + ESL_POLL_OFF_CID, content_id);
     out[ESL_POLL_OFF_FLAGS] = flags;
     out[ESL_POLL_OFF_MODEL] = MODEL_CODE;     /* requirement T18 */
-    out[ESL_POLL_LEN] = 0;                    /* bytes 12-13: reserved for cfg_ver */
-    out[ESL_POLL_LEN + 1] = 0;
+    ESL_PUT_U16(out + ESL_POLL_OFF_CFG_VER, cfg_ver);   /* also says: this tag understands CONFIG */
     ESL_PUT_U32(out + ESL_POLL_OFF_LAYOUT_VER, layout_ver);
     return ESL_POLL_LEN_LAYOUT;
 }
@@ -46,6 +46,10 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
     r->flags = 0;
     r->lay_size = 0;
     r->lay_pos = 0;
+    r->cfg_ver = 0;
+    r->cfg_poll_s = 0;
+    r->cfg_max_poll_s = 0;
+    r->cfg_lost_ap_s = 0;
 
     if (len < ESL_IDLE_LEN)
         return PROTO_E_SHORT;
@@ -68,6 +72,15 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
         r->field_len[0] = len - ESL_LAYOUT_OFF_DATA;
         if (r->lay_pos > r->lay_size || r->field_len[0] > r->lay_size - r->lay_pos)
             return PROTO_E_FIELD;
+        return PROTO_OK;
+    }
+    if (r->type == ESL_MSG_CONFIG) {
+        if (len < ESL_CONFIG_LEN)
+            return PROTO_E_SHORT;
+        r->cfg_ver = ESL_GET_U16(p + ESL_CONFIG_OFF_VER);
+        r->cfg_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_POLL);
+        r->cfg_max_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_MAX_POLL);
+        r->cfg_lost_ap_s = ESL_GET_U16(p + ESL_CONFIG_OFF_LOST_AP);
         return PROTO_OK;
     }
     if (r->type != ESL_MSG_CONTENT)

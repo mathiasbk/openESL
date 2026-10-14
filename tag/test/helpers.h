@@ -7,6 +7,10 @@
 /* IDLE payload. Returns the length. */
 uint8_t make_idle(uint8_t *out, uint16_t next_poll_s);
 
+/* CONFIG payload (settings in the order of shared/proto.h). Returns the length. */
+uint8_t make_config(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t poll_s,
+                    uint16_t max_poll_s, uint16_t lost_ap_s);
+
 /* UTF-8 -> Latin-1 the way the AP does it (dashes become '-', curly quotes straight,
    "…" becomes "...", other unknown characters '?'). Returns the length. */
 uint8_t to_latin1(uint8_t *out, const char *utf8);

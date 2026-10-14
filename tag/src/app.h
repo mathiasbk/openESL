@@ -2,7 +2,7 @@
  * app.h - the tag's state machine, with no hardware code.
  *
  *   app_init()      read the MAC, draw the start screen
- *   app_poll_once() one round: POLL -> IDLE/CONTENT -> draw on new content.
+ *   app_poll_once() one round: POLL -> IDLE/CONTENT/CONFIG -> draw on new content.
  *                   A LAYOUT reply starts (or continues) the layout download in the
  *                   same round: LAYOUT_REQ -> LAYOUT until the file is complete.
  *                   Returns how many seconds the tag should sleep.
@@ -15,6 +15,14 @@
 
 #include "compat.h"
 #include "proto_tag.h"
+
+/* Settings from the AP's CONFIG message. 0 = the built-in value in config.h. */
+typedef struct {
+    uint16_t ver;             /* cfg_ver from CONFIG, sent back in every POLL */
+    uint16_t poll_s;          /* normal interval (CFG_POLL_S) */
+    uint16_t max_poll_s;      /* longest interval without an answer (CFG_MAX_POLL_S) */
+    uint16_t lost_ap_s;       /* "No AP found" after this long (CFG_LOST_AP_S), ESL_CFG_LOST_AP_NEVER = never */
+} app_cfg_t;
 
 typedef struct {
     uint8_t mac[MAC_ADDR_LEN];
@@ -32,6 +40,7 @@ typedef struct {
     uint16_t dl_size;
     uint16_t dl_got;
     uint32_t lay_rejected;    /* version the tag could not use (reported with ESL_POLL_F_LAYOUTFAIL) */
+    app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */
 } app_state_t;
 
 extern app_state_t __xdata app;
@@ -39,7 +48,8 @@ extern app_state_t __xdata app;
 void app_init(void);
 uint16_t app_poll_once(void);
 
-/* Interval after misses in a row (requirement T11). Exported for the tests. */
+/* Interval after misses in a row (requirement T11), capped at the configured
+   max_poll_s (CFG_MAX_POLL_S by default). Exported for the tests. */
 uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses);
 
 #endif /* APP_H */

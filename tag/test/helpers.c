@@ -12,6 +12,19 @@ uint8_t make_idle(uint8_t *out, uint16_t next_poll_s)
     return ESL_IDLE_LEN;
 }
 
+uint8_t make_config(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t poll_s,
+                    uint16_t max_poll_s, uint16_t lost_ap_s)
+{
+    out[0] = ESL_MSG_CONFIG;
+    out[1] = ESL_PROTO_VER;
+    ESL_PUT_U16(out + ESL_OFF_NEXT_POLL, next_poll_s);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_VER, ver);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_POLL, poll_s);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_MAX_POLL, max_poll_s);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_LOST_AP, lost_ap_s);
+    return ESL_CONFIG_LEN;
+}
+
 /* The same mapping as the AP (ap/components/esl_core/esl_text.c, map_codepoint). */
 static uint8_t map_cp(unsigned cp)
 {

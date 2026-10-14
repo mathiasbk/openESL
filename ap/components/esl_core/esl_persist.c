@@ -59,3 +59,31 @@ bool esl_persist_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_conten
     *mac = m;
     return true;
 }
+
+size_t esl_persist_cfg_encode(uint64_t mac, const esl_tag_cfg_t *cfg, uint8_t *out)
+{
+    const uint16_t v[3] = {cfg->poll_s, cfg->max_poll_s, cfg->lost_ap_s};
+    size_t o = 0;
+    out[o++] = ESL_PERSIST_CFG_VER;
+    for (int i = 0; i < 8; i++)
+        out[o++] = (uint8_t)(mac >> (8 * i));
+    for (int i = 0; i < 3; i++) {
+        out[o++] = (uint8_t)v[i];
+        out[o++] = (uint8_t)(v[i] >> 8);
+    }
+    return o;
+}
+
+bool esl_persist_cfg_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_tag_cfg_t *cfg)
+{
+    if (len != ESL_PERSIST_CFG_LEN || in[0] != ESL_PERSIST_CFG_VER)
+        return false;
+    uint64_t m = 0;
+    for (int i = 8; i >= 1; i--)
+        m = (m << 8) | in[i];
+    *mac = m;
+    cfg->poll_s = (uint16_t)(in[9] | (in[10] << 8));
+    cfg->max_poll_s = (uint16_t)(in[11] | (in[12] << 8));
+    cfg->lost_ap_s = (uint16_t)(in[13] | (in[14] << 8));
+    return true;
+}

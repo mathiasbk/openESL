@@ -14,6 +14,12 @@ static void push_idle(uint16_t next)
     fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
 }
 
+static void push_config(uint16_t next, uint16_t ver, uint16_t poll, uint16_t max_poll, uint16_t lost)
+{
+    uint8_t n = make_config(pl, next, ver, poll, max_poll, lost);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
+}
+
 static void push_content(uint32_t cid, uint8_t layout, uint8_t flags, int nf, const char *const *f)
 {
     uint8_t n = make_content(pl, 0, cid, layout, flags, nf, f);
@@ -28,6 +34,7 @@ static const uint8_t *sent_poll(int i)
 
 static void fresh(void)
 {
+    fake_store_clear();       /* a new tag: nothing in flash */
     fake_radio_reset();
     fake_draw_count = 0;
     fake_epd_ok = true;
@@ -46,6 +53,7 @@ static void test_boot(void)
     CHECK_EQ(app_poll_once(), CFG_POLL_S);
     CHECK_EQ(fake_tx_count, 1);
     CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_LAYOUT);
+    CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 0);      /* built-in settings */
     CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_LAYOUT_VER), 0);   /* no layout file yet */
     CHECK_EQ(sent_poll(0)[0], ESL_MSG_POLL);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_FW), FW_VERSION);
@@ -414,6 +422,157 @@ static void test_file_layout_without_file(void)
     CHECK(fake_ink_count(1) > 100);
 }
 
+static void test_config_from_ap(void)
+{
+    fresh();
+    push_config(120, 0x5A5A, 120, 0, 0);
+    CHECK_EQ(app_poll_once(), 120);            /* uses the new interval at once */
+    CHECK_EQ(app.cfg.ver, 0x5A5A);
+    CHECK_EQ(fake_draw_count, 1);              /* settings draw nothing */
+
+    /* the next POLL confirms it with cfg_ver; IDLE keeps the interval */
+    fake_radio_reset();
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), 120);
+    CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 0x5A5A);
+
+    /* next_poll_s in a later reply still wins for that round, as before */
+    fake_radio_reset();
+    push_idle(300);
+    CHECK_EQ(app_poll_once(), 300);
+
+    /* poll_s 0 = back to the built-in interval; next_poll_s 0 = keep that */
+    fake_radio_reset();
+    push_config(0, 0, 0, 0, 0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(app.cfg.ver, 0);
+
+    /* values below the minimum are raised to it */
+    fake_radio_reset();
+    push_config(0, 7, 1, 2, 3);
+    CHECK_EQ(app_poll_once(), ESL_CFG_POLL_MIN_S);
+    CHECK_EQ(app.cfg.max_poll_s, ESL_CFG_POLL_MIN_S);
+    CHECK_EQ(app.cfg.lost_ap_s, ESL_CFG_LOST_AP_MIN_S);
+
+    /* kept in flash (T12): written once per change, never with the radio on */
+    CHECK_EQ(fake_store_writes, 3);            /* 0x5A5A, then 0, then 7 (IDLE/300 wrote nothing) */
+    CHECK(!fake_store_radio_on_write);
+    fake_radio_reset();
+    push_config(0, 7, 1, 2, 3);                /* the same settings again: no write */
+    app_poll_once();
+    CHECK_EQ(fake_store_writes, 3);
+
+    /* a restart keeps them: the first POLL already reports cfg_ver and uses the interval */
+    fake_radio_reset();
+    app_init();
+    CHECK_EQ(app.cfg.ver, 7);
+    CHECK_EQ(app.cfg.lost_ap_s, ESL_CFG_LOST_AP_MIN_S);
+    CHECK_EQ(app.interval_s, ESL_CFG_POLL_MIN_S);
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), ESL_CFG_POLL_MIN_S);
+    CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 7);
+
+    /* a damaged or foreign record (other format) is ignored */
+    fake_store[0] = 0x55;
+    fake_radio_reset();
+    app_init();
+    CHECK_EQ(app.cfg.ver, 0);
+    CHECK_EQ(app.interval_s, CFG_POLL_S);
+    fake_store_len = 1;                        /* e.g. the HAL test counter (hwtest.c) */
+    app_init();
+    CHECK_EQ(app.cfg.ver, 0);
+
+    /* a new tag has nothing in flash */
+    fresh();
+    CHECK_EQ(app.cfg.ver, 0);
+    CHECK_EQ(app.interval_s, CFG_POLL_S);
+}
+
+static void test_config_backoff_and_lost(void)
+{
+    unsigned total = 0;
+    int rounds = 0, draws;
+
+    /* max_poll_s caps the backoff instead of CFG_MAX_POLL_S */
+    fresh();
+    push_config(30, 1, 30, 120, 0);
+    app_poll_once();
+    CHECK_EQ(app_backoff_s(30, CFG_BACKOFF_AFTER + 5), 120);
+    CHECK_EQ(app_backoff_s(60, 255), 120);
+
+    /* lost_ap_s = never: no "No AP found" screen however long the AP is gone */
+    fake_radio_reset();
+    push_config(0, 2, 60, 0, ESL_CFG_LOST_AP_NEVER);
+    app_poll_once();
+    draws = fake_draw_count;
+    while (total < 4 * CFG_LOST_AP_S && rounds < 1000) {
+        fake_radio_reset();
+        total += app_poll_once();
+        rounds++;
+    }
+    CHECK_EQ(fake_draw_count, draws);
+
+    /* a short lost_ap_s shows it sooner */
+    fresh();
+    push_config(0, 3, 60, 0, 600);
+    app_poll_once();
+    draws = fake_draw_count;
+    total = 0;
+    rounds = 0;
+    while (total < 600 && rounds < 1000) {
+        fake_radio_reset();
+        total += app_poll_once();
+        rounds++;
+    }
+    CHECK_EQ(fake_draw_count, draws + 1);
+    CHECK(rounds < 10);
+}
+
+/* Layout, content and CONFIG together: the AP sends them in that order
+   (docs/protokoll.md part 1, "Priority"), and the POLL carries both cfg_ver and
+   the layout version so the AP can tell what the tag already has. */
+static void test_layout_content_config(void)
+{
+    fresh();
+    lsize = make_test_layout_file(lfile, &lver);
+
+    /* Round 1: layout download, then the extra POLL gets the content */
+    push_all_blocks();
+    push_content(500, ESL_LAYOUT_FILE + 0, 0, 2, shelf);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(app.shown_id, 500);
+    CHECK_EQ(ESL_GET_U16(sent(2) + ESL_POLL_OFF_CFG_VER), 0);
+
+    /* Round 2: CONFIG; the POLL already reports the layout version */
+    fake_radio_reset();
+    push_config(0, 0x1357, 90, 0, 0);
+    CHECK_EQ(app_poll_once(), 90);
+    CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_LAYOUT);
+    CHECK(ESL_GET_U32(sent(0) + ESL_POLL_OFF_LAYOUT_VER) == lver);
+    CHECK_EQ(ESL_GET_U32(sent(0) + ESL_POLL_OFF_CID), 500);
+    CHECK_EQ(app.cfg.ver, 0x1357);
+    CHECK_EQ(fake_draw_count, 2);              /* CONFIG draws nothing */
+
+    /* Round 3: both versions go back in the same POLL */
+    fake_radio_reset();
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), 90);
+    CHECK_EQ(ESL_GET_U16(sent(0) + ESL_POLL_OFF_CFG_VER), 0x1357);
+    CHECK(ESL_GET_U32(sent(0) + ESL_POLL_OFF_LAYOUT_VER) == lver);
+
+    /* A new layout file whose extra POLL is answered with CONFIG (no content
+       uses the file): the settings are applied in the same round */
+    fresh();
+    lsize = make_test_layout_file(lfile, &lver);
+    push_all_blocks();
+    push_config(0, 0x2468, 45, 0, 0);
+    CHECK_EQ(app_poll_once(), 45);
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(app.cfg.ver, 0x2468);
+    CHECK_EQ(fake_tx_count, 3);
+}
+
 void test_app(void)
 {
     RUN(test_boot);
@@ -430,4 +589,7 @@ void test_app(void)
     RUN(test_layout_rejected);
     RUN(test_layout_new_version_redraws);
     RUN(test_file_layout_without_file);
+    RUN(test_config_from_ap);
+    RUN(test_config_backoff_and_lost);
+    RUN(test_layout_content_config);
 }

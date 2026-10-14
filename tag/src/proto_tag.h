@@ -1,7 +1,7 @@
 /*
  * proto_tag.h - the tag's side of the radio protocol (docs/protokoll.md part 1).
  * Builds POLL, LAYOUT_REQ and the surrounding 802.15.4 frame, and parses
- * IDLE/CONTENT/LAYOUT from the AP.
+ * IDLE/CONTENT/LAYOUT/CONFIG from the AP.
  * The packet definitions are in shared/proto.h.
  */
 #ifndef PROTO_TAG_H
@@ -30,7 +30,7 @@
  * for the data block.
  */
 typedef struct {
-    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONTENT or ESL_MSG_LAYOUT */
+    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT or ESL_MSG_CONFIG */
     uint16_t next_poll_s;    /* 0 = keep the interval */
     uint32_t content_id;     /* CONTENT: content_id; LAYOUT: layout version (0 = none) */
     uint8_t layout;          /* CONTENT only */
@@ -40,18 +40,25 @@ typedef struct {
     uint8_t field_len[ESL_MAX_FIELDS];
     uint16_t lay_size;       /* LAYOUT only: size of the whole file */
     uint16_t lay_pos;        /* LAYOUT only: where in the file the block starts */
+    uint16_t cfg_ver;        /* CONFIG only, the rest of the settings as in shared/proto.h */
+    uint16_t cfg_poll_s;
+    uint16_t cfg_max_poll_s;
+    uint16_t cfg_lost_ap_s;
 } proto_reply_t;
 
-/* Writes POLL (ESL_POLL_LEN_LAYOUT bytes, with the layout version) to out. Returns the length. */
+/* Writes POLL (ESL_POLL_LEN_LAYOUT bytes: cfg_ver at 12, layout version at 14) to out.
+   Returns the length. */
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
-                         uint32_t content_id, uint8_t flags, uint32_t layout_ver);
+                         uint32_t content_id, uint8_t flags, uint16_t cfg_ver,
+                         uint32_t layout_ver);
 
 /* Writes LAYOUT_REQ (ESL_LREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_layout_req(uint8_t *out, uint32_t layout_ver, uint16_t pos, uint8_t max);
 
 /*
- * Parses an IDLE, CONTENT or LAYOUT payload. Fields that are missing get length 0.
- * Bytes after the fourth field are ignored (room for a future MIC). A LAYOUT block
+ * Parses an IDLE, CONTENT, LAYOUT or CONFIG payload. Fields that are missing get length 0.
+ * Bytes after the fourth field are ignored (room for a future MIC), and so are
+ * bytes after the settings in CONFIG (settings a newer AP may add). A LAYOUT block
  * must lie inside the file it belongs to.
  */
 int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r);

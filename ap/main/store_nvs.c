@@ -8,7 +8,10 @@
 #include "nvs.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
- * (key "t<slot>"), so a tag keeps its slot across reboots (krav A4, G4).
+ * (key "t<slot>"), so a tag keeps its slot across reboots (krav A4, G4). A
+ * tag's own settings (poll_s etc.) are a second blob in the same slot (key
+ * "c<slot>"), and the run-time default interval is "poll_s" (u16) in namespace
+ * "cfg", next to ssid/pass/token; without it the menuconfig value is used.
  * Layout files live in namespace "esl_layouts", one blob per model (key
  * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex.
  *
@@ -36,6 +39,11 @@ static void unlock(void *ctx)
 static void slot_key(unsigned slot, char key[8])
 {
     snprintf(key, 8, "t%u", slot);
+}
+
+static void cfg_key(unsigned slot, char key[8])
+{
+    snprintf(key, 8, "c%u", slot);
 }
 
 static void blob_write(const char *ns, const char *key, const void *data, size_t len)
@@ -72,6 +80,35 @@ static void persist_erase(void *ctx, unsigned slot)
     blob_write(NS_TAGS, key, NULL, 0);
 }
 
+static void persist_cfg(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
+{
+    (void)ctx;
+    uint8_t blob[ESL_PERSIST_CFG_LEN];
+    char key[8];
+    cfg_key(slot, key);
+    if (cfg)
+        blob_write(NS_TAGS, key, blob, esl_persist_cfg_encode(mac, cfg, blob));
+    else
+        blob_write(NS_TAGS, key, NULL, 0);
+}
+
+static void persist_next_poll(void *ctx, const uint16_t *next_poll_s)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = next_poll_s ? nvs_set_u16(h, "poll_s", *next_poll_s) : nvs_erase_key(h, "poll_s");
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/poll_s failed: %s", esp_err_to_name(err));
+}
+
 static void layout_key(uint8_t model, char key[8])
 {
     snprintf(key, 8, "m%u", (unsigned)model);
@@ -95,7 +132,8 @@ static void layout_erase(void *ctx, uint8_t model)
 
 esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
 {
-    static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase};
+    static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
+                                        persist_next_poll};
     esl_tag_t *tags = calloc(cap, sizeof(esl_tag_t));
     mutex = xSemaphoreCreateMutex();
     if (!tags || !mutex)
@@ -103,7 +141,15 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
     esl_store_init(st, tags, cap, &ops, next_poll_s);
 
     nvs_handle_t h;
-    unsigned loaded = 0;
+    unsigned loaded = 0, configs = 0;
+    if (nvs_open("cfg", NVS_READONLY, &h) == ESP_OK) {
+        uint16_t v;
+        if (nvs_get_u16(h, "poll_s", &v) == ESP_OK) {
+            esl_store_restore_next_poll(st, v);
+            ESP_LOGI(TAG, "default poll interval %u s (from NVS)", (unsigned)v);
+        }
+        nvs_close(h);
+    }
     if (nvs_open(NS_TAGS, NVS_READONLY, &h) != ESP_OK) {
         ESP_LOGI(TAG, "no stored tags yet");
         return ESP_OK;
@@ -115,16 +161,25 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
         uint64_t mac;
         esl_content_t c;
         slot_key(slot, key);
-        if (nvs_get_blob(h, key, blob, &len) != ESP_OK)
-            continue;
-        if (!esl_persist_decode(blob, len, &mac, &c) || !esl_store_restore(st, slot, mac, &c)) {
-            ESP_LOGW(TAG, "ignoring bad stored entry in slot %u", slot);
-            continue;
+        if (nvs_get_blob(h, key, blob, &len) == ESP_OK) {
+            if (esl_persist_decode(blob, len, &mac, &c) && esl_store_restore(st, slot, mac, &c))
+                loaded++;
+            else
+                ESP_LOGW(TAG, "ignoring bad stored entry in slot %u", slot);
         }
-        loaded++;
+
+        esl_tag_cfg_t cfg;
+        len = sizeof(blob);
+        cfg_key(slot, key);
+        if (nvs_get_blob(h, key, blob, &len) == ESP_OK) {
+            if (esl_persist_cfg_decode(blob, len, &mac, &cfg) && esl_store_restore_cfg(st, slot, mac, &cfg))
+                configs++;
+            else
+                ESP_LOGW(TAG, "ignoring bad stored settings in slot %u", slot);
+        }
     }
     nvs_close(h);
-    ESP_LOGI(TAG, "loaded %u tags from NVS", loaded);
+    ESP_LOGI(TAG, "loaded %u tags and %u tag settings from NVS", loaded, configs);
     return ESP_OK;
 }
 

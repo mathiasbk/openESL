@@ -227,7 +227,44 @@ void test_proto(void)
     CHECK(!esl_poll_parse(buf, 12, &p));
     uint8_t longer[16] = {0};
     memcpy(longer, poll_bytes, 12);
+    CHECK(esl_poll_parse(longer, 13, &p));
+    CHECK(!p.has_cfg_ver); /* 13 bytes: no complete cfg_ver */
+    longer[12] = 0x34;
+    longer[13] = 0x12;
     CHECK(esl_poll_parse(longer, sizeof(longer), &p));
+    CHECK(p.has_cfg_ver);
+    CHECK_INT(p.cfg_ver, 0x1234);
+    CHECK_INT(esl_poll_build(buf, &p), ESL_POLL_LEN_CFG);
+    CHECK_MEM(buf, longer, ESL_POLL_LEN_CFG);
+
+    /* CONFIG: version 0 for all defaults, nonzero and value-derived otherwise */
+    esl_tag_cfg_t cfg = {0, 0, 0}, cfg2;
+    CHECK_INT(esl_tag_cfg_version(&cfg), 0);
+    cfg.poll_s = 120;
+    uint16_t v = esl_tag_cfg_version(&cfg);
+    CHECK(v != 0);
+    cfg2 = cfg;
+    CHECK_INT(esl_tag_cfg_version(&cfg2), v);
+    cfg2.lost_ap_s = ESL_CFG_LOST_AP_NEVER;
+    CHECK(esl_tag_cfg_version(&cfg2) != v);
+    cfg.max_poll_s = 900;
+    cfg.lost_ap_s = 0x1234;
+    CHECK_INT(esl_config_msg_build(buf, 120, &cfg), ESL_CONFIG_LEN);
+    v = esl_tag_cfg_version(&cfg);
+    uint8_t expect_cfg[ESL_CONFIG_LEN] = {0x08, 0x01, 0x78, 0x00, (uint8_t)v, (uint8_t)(v >> 8),
+                                          0x78, 0x00, 0x84, 0x03, 0x34, 0x12};
+    CHECK_MEM(buf, expect_cfg, ESL_CONFIG_LEN);
+    esl_reply_t r;
+    CHECK(esl_reply_parse(buf, ESL_CONFIG_LEN, &r));
+    CHECK_INT(r.type, ESL_MSG_CONFIG);
+    CHECK_INT(r.next_poll_s, 120);
+    CHECK_INT(r.cfg_ver, v);
+    CHECK_INT(r.cfg.poll_s, 120);
+    CHECK_INT(r.cfg.max_poll_s, 900);
+    CHECK_INT(r.cfg.lost_ap_s, 0x1234);
+    CHECK(!esl_reply_parse(buf, ESL_CONFIG_LEN - 1, &r));
+    buf[ESL_CONFIG_LEN] = 0xEE; /* a newer AP may append settings */
+    CHECK(esl_reply_parse(buf, ESL_CONFIG_LEN + 1, &r));
 
     CHECK_INT(esl_idle_build(buf, 60), 4);
     CHECK_MEM(buf, "\x02\x01\x3C\x00", 4);
@@ -240,8 +277,9 @@ void test_proto(void)
     CHECK_INT(n, 8 + 2 + 5 + 5);
     CHECK_MEM(buf, "\x03\x01\x2C\x01\xDD\xCC\xBB\xAA\x01\x01\x04Melk\x04" "9,90", n);
 
-    /* POLL with the layout version (18 bytes; 12-13 reserved for cfg_ver) */
-    esl_poll_t p2 = {1, 3000, 5, ESL_POLL_FLAG_LAYOUT_FAILED, ESL_MODEL_29, true, 0xA1B2C3D4u};
+    /* POLL with the layout version (18 bytes; cfg_ver 0 at 12-13 when has_cfg_ver is false) */
+    esl_poll_t p2 = {1, 3000, 5, ESL_POLL_FLAG_LAYOUT_FAILED, ESL_MODEL_29, .has_layout_ver = true,
+                     .layout_ver = 0xA1B2C3D4u};
     CHECK_INT(esl_poll_build(buf, &p2), ESL_POLL_LEN_LAYOUT);
     CHECK_MEM(&buf[12], "\x00\x00\xD4\xC3\xB2\xA1", 6);
     CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LAYOUT, &p));
@@ -251,6 +289,23 @@ void test_proto(void)
     CHECK(esl_poll_parse(buf, 17, &p)); /* 13..17 bytes: no layout version */
     CHECK(!p.has_layout_ver);
     CHECK_INT(p.layout_ver, 0);
+
+    /* Both: cfg_ver at 12-13 and the layout version at 14-17, as the tag sends it */
+    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0x11223344u};
+    CHECK_INT(esl_poll_build(buf, &p3), ESL_POLL_LEN_LAYOUT);
+    CHECK_MEM(&buf[12], "\xEF\xBE\x44\x33\x22\x11", 6);
+    CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LAYOUT, &p));
+    CHECK(p.has_cfg_ver && p.has_layout_ver);
+    CHECK_INT(p.cfg_ver, 0xBEEF);
+    CHECK_INT(p.layout_ver, 0x11223344u);
+    CHECK(esl_poll_parse(buf, ESL_POLL_LEN_CFG, &p)); /* firmware with CONFIG only */
+    CHECK(p.has_cfg_ver && !p.has_layout_ver);
+    CHECK_INT(p.cfg_ver, 0xBEEF);
+    /* the flag bits do not overlap */
+    CHECK_INT(ESL_POLL_F_BOOTED & ESL_POLL_F_DRAWFAIL, 0);
+    CHECK_INT((ESL_POLL_F_BOOTED | ESL_POLL_F_DRAWFAIL) & ESL_POLL_F_LAYOUTFAIL, 0);
+    /* message types are distinct */
+    CHECK(ESL_MSG_CONFIG != ESL_MSG_LAYOUT && ESL_MSG_CONFIG != ESL_MSG_LAYOUT_REQ);
 
     /* LAYOUT_REQ */
     esl_layout_req_t rq = {ESL_MODEL_154, 94, 0x01020304, 300}, rq2;
@@ -274,7 +329,6 @@ void test_proto(void)
     CHECK_INT(n, ESL_LAYOUT_HDR_LEN + ESL_LAYOUT_CHUNK_MAX);
     CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
     CHECK_MEM(buf, "\x04\x01\x3C\x00\xFE\xCA\x00\x00\xC8\x00\x64\x00", 12);
-    esl_reply_t r;
     n = esl_layout_msg_build(buf, 60, 0xCAFE, 200, 100, data, 94);
     CHECK(esl_reply_parse(buf, n, &r));
     CHECK_INT(r.type, ESL_MSG_LAYOUT);
@@ -301,7 +355,7 @@ void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);
@@ -397,4 +451,14 @@ void test_persist(void)
     blob[10] = 31;
     blob[11] = 'A'; /* not a valid name */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
+    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER}, cfg2;
+    n = esl_persist_cfg_encode(0x1122334455667788ull, &cfg, blob);
+    CHECK_INT(n, ESL_PERSIST_CFG_LEN);
+    CHECK_MEM(blob, "\x01\x88\x77\x66\x55\x44\x33\x22\x11\x78\x00\x84\x03\xFF\xFF", n);
+    CHECK(esl_persist_cfg_decode(blob, n, &mac, &cfg2));
+    CHECK(mac == 0x1122334455667788ull);
+    CHECK(memcmp(&cfg, &cfg2, sizeof(cfg)) == 0);
+    CHECK(!esl_persist_cfg_decode(blob, n - 1, &mac, &cfg2));
+    blob[0] = 2;
+    CHECK(!esl_persist_cfg_decode(blob, n, &mac, &cfg2));
 }

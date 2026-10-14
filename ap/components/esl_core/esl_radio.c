@@ -17,7 +17,8 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
     memset(&req, 0, sizeof(req));
 
     if (esl_layout_req_parse(f.payload, f.payload_len, &req)) {
-        n = esl_layouts_block(ls, req.model, req.layout_ver, req.pos, req.max, esl_store_next_poll(st), reply);
+        n = esl_layouts_block(ls, req.model, req.layout_ver, req.pos, req.max, esl_store_tag_poll_s(st, f.src_mac),
+                              reply);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
@@ -25,7 +26,8 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         esl_layouts_env(ls, poll.model, &env);
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
         if (n == 0)
-            n = esl_layouts_block(ls, poll.model, 0, 0, ESL_LAYOUT_CHUNK_MAX, esl_store_next_poll(st), reply);
+            n = esl_layouts_block(ls, poll.model, 0, 0, ESL_LAYOUT_CHUNK_MAX, esl_store_tag_poll_s(st, f.src_mac),
+                                  reply);
     } else {
         return 0;
     }
@@ -52,6 +54,7 @@ void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t batt
     t->model = model;
     t->flags = ESL_POLL_F_BOOTED;
     t->layouts = true;
+    t->interval_s = ESL_FAKETAG_POLL_S;
 }
 
 size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
@@ -60,7 +63,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
     uint8_t flags = t->flags;
     if (t->layouts && t->layout_rejected)
         flags |= ESL_POLL_F_LAYOUTFAIL;
-    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, t->layouts, t->layout_ver};
+    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model,
+                    !t->legacy, t->cfg_ver, t->layouts && !t->legacy, t->layout_ver};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     t->poll_again = false;
@@ -172,14 +176,18 @@ uint8_t esl_faketag_receive(esl_faketag_t *t, const uint8_t *psdu, size_t psdu_l
     esl_reply_t r;
     if (!esl_frame_parse_to_tag(psdu, psdu_len, &f) || f.dst_mac != t->mac || f.seq != t->seq ||
         f.src_short != ESL_AP_SHORT_ADDR || !esl_reply_parse(f.payload, f.payload_len, &r) ||
-        (r.type == ESL_MSG_LAYOUT && !t->layouts)) {
+        (r.type == ESL_MSG_LAYOUT && (!t->layouts || t->legacy)) || (t->legacy && r.type == ESL_MSG_CONFIG)) {
         t->rejected++;
         return 0;
     }
     t->flags = 0;
-    if (r.next_poll_s)
-        t->next_poll_s = r.next_poll_s;
-    if (r.type == ESL_MSG_CONTENT) {
+    if (r.type == ESL_MSG_CONFIG) {
+        /* new base settings first, then next_poll_s as for any reply */
+        t->cfg = r.cfg;
+        t->cfg_ver = r.cfg_ver;
+        t->interval_s = r.cfg.poll_s ? r.cfg.poll_s : ESL_FAKETAG_POLL_S;
+        t->configs++;
+    } else if (r.type == ESL_MSG_CONTENT) {
         t->content = r.content;
         t->shown = r.content_id;
         t->contents++;
@@ -195,6 +203,10 @@ uint8_t esl_faketag_receive(esl_faketag_t *t, const uint8_t *psdu, size_t psdu_l
         on_layout(t, &r);
     } else {
         t->idles++;
+    }
+    if (r.next_poll_s) {
+        t->next_poll_s = r.next_poll_s;
+        t->interval_s = r.next_poll_s;
     }
     return r.type;
 }

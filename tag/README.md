@@ -8,7 +8,8 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 
 | Part | Status |
 |---|---|
-| Packets: POLL (with the model byte, T18, and the layout version, T17), IDLE, CONTENT, LAYOUT, LAYOUT_REQ and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
+| Packets: POLL (with the model byte, T18, `cfg_ver`, and the layout version, T17), IDLE, CONTENT, LAYOUT, LAYOUT_REQ, CONFIG and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
+| Settings from the AP (CONFIG: interval, backoff cap, "No AP found" delay), kept in flash through `hal_store_*` (`app.c`) | Done, tested on PC (fake flash); the flash store itself is tested on the tag by `hwtest`, not yet with CONFIG on the air |
 | Fonts: small (17 px), medium (24 px), price fonts large (52 px) and mid (36 px) with digits and ` ,-.:` only | Done, generated from Inter (OFL) |
 | Column-by-column drawing (`draw.c`), layout interpreter with built-in layouts "price" and "text" (`layout.c`) for both models | Done, tested on PC for both models, previews in `build/preview/<model>/` |
 | Layouts sent from the AP (G7/T17): block download, CRC-32 and structure check, drawing from XRAM (`app.c`, `layout.c`, [protokoll.md](../docs/protokoll.md) part 1 "Layout transfer") | Done, tested on PC for both models (fake radio); not tried on the air yet. Kept in XRAM only, fetched again after a restart |
@@ -26,7 +27,7 @@ tag/
   src/
     main.c              start-up and main loop (ZBS243 only)
     app.c/.h            the state machine, with no hardware code
-    proto.c, proto_tag.h  build POLL and the frame, parse IDLE/CONTENT
+    proto.c, proto_tag.h  build POLL and the frame, parse IDLE/CONTENT/CONFIG
     model.h             screen size per tag model (MODEL=29 or 154)
     layout.c/.h         layout elements, font fallback, line wrapping, truncation with "…"
     draw.c/.h           computes one screen column (DRAW_H/8 bytes) at a time
@@ -117,10 +118,11 @@ Layouts from the AP (G7/T17) use the same elements, 14 bytes each in the wire fo
 
 ## Choices I have made (can be changed)
 
-- **The "No AP found" screen** (requirement T9) is drawn after `CFG_LOST_AP_S` = 2 hours without an answer. The price then disappears from the screen. This is a deliberate choice so that faults are visible, but in some uses it is better to leave the price up. Raise `CFG_LOST_AP_S` to delay it.
-- **Longer interval without AP** (T11): the first two misses keep the interval, then it doubles up to 10 minutes.
+- **The "No AP found" screen** (requirement T9) is drawn after `CFG_LOST_AP_S` = 2 hours without an answer. The price then disappears from the screen. This is a deliberate choice so that faults are visible, but in some uses it is better to leave the price up. Raise `CFG_LOST_AP_S` to delay it, or set `lost_ap_s` per tag through the AP (65535 = never).
+- **Longer interval without AP** (T11): the first two misses keep the interval, then it doubles up to 10 minutes (`CFG_MAX_POLL_S`, or `max_poll_s` from the AP).
 - **One layout buffer:** the download overwrites the installed layout file, so while a download is unfinished the tag has no file (it reports version 0) and content for a file layout waits. Two buffers would keep the old file usable, at the cost of another 768 bytes of XRAM.
 - **A rejected layout file** (bad CRC, wrong model, an element the tag cannot draw) is not tried again until the AP offers another version; the tag reports it with POLL flag bit2 and keeps drawing built-in layouts.
+- **Settings from the AP:** `config.h` holds the built-in values. A CONFIG message from the AP (protokoll.md part 1) replaces `poll_s`, `max_poll_s` and `lost_ap_s` (0 = built-in), and the tag sends the message's `cfg_ver` back in every POLL as the acknowledgement. Values below the minimum (10 s, 60 s for `lost_ap_s`) are raised to it. The settings live in `app.cfg` and are kept in flash (T12) as one 9-byte record through `hal_store_write()`/`hal_store_read()`: `app_cfg_load()` at start-up, `app_cfg_save()` after a CONFIG that changes them (with the radio off). A missing or foreign record means the built-in values. The record is the only one in the store page, so `hwtest` (which keeps a counter there) overwrites it. `next_poll_s` in a reply still sets the interval as before.
 - **Retry:** once, after a random pause of 2-10 ms, as the protocol says. Within each listening window up to three frames are read, so a reply to another tag does not count as a miss.
 - **No acknowledgement:** follows [protokoll.md](../docs/protokoll.md). The next POLL with the new `content_id` is the acknowledgement.
 - **Ellipsis:** character `0x7F` in the fonts is "…", because Latin-1 does not have it. The AP sends "…" in content as "...", so 0x7F is only drawn by the tag itself.

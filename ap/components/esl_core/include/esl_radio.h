@@ -17,7 +17,7 @@ typedef struct {
     uint8_t msg_type;   /* ESL_MSG_POLL or ESL_MSG_LAYOUT_REQ */
     esl_poll_t poll;    /* POLL only */
     esl_layout_req_t req; /* LAYOUT_REQ only */
-    uint8_t reply_type; /* ESL_MSG_IDLE, ESL_MSG_CONTENT or ESL_MSG_LAYOUT */
+    uint8_t reply_type; /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT or ESL_MSG_CONFIG */
 } esl_radio_event_t;
 
 /* Handles one received PSDU (psdu_len includes the FCS). If it is a POLL or a
@@ -25,19 +25,27 @@ typedef struct {
  * reply frame into tx (ESL_PSDU_MAX bytes) and returns its PSDU length
  * including the FCS. Returns 0 for anything else. ls (layout files) and ev may
  * be NULL.
- *   POLL       -> the store records the status and answers IDLE or CONTENT, or
- *                 the first LAYOUT block when the tag's layout file is out of date
- *   LAYOUT_REQ -> the LAYOUT block the tag asks for (docs/protokoll.md part 1) */
+ *   POLL       -> the store records the status and answers with the first LAYOUT
+ *                 block when the tag's layout file is out of date, else CONTENT,
+ *                 else CONFIG, else IDLE (esl_store_on_poll)
+ *   LAYOUT_REQ -> the LAYOUT block the tag asks for (docs/protokoll.md part 1)
+ * next_poll_s in every reply is the tag's own interval (esl_store_tag_poll_s). */
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev);
 
 /* ---- fake tag ------------------------------------------------------------
  * Behaves like the tag firmware on the air (tag/src/app.c): sends POLL with the
- * content_id it shows and its layout file version, accepts only replies
- * addressed to it with its own sequence number, downloads the layout file
- * block by block when the AP offers a new one, and "draws" every CONTENT it
- * gets (the next POLL reports the new id). Drawing with a file layout looks
- * the layout up in the downloaded file, as the tag does. */
+ * content_id it shows, its cfg_ver and its layout file version, accepts only
+ * replies addressed to it with its own sequence number, downloads the layout
+ * file block by block when the AP offers a new one, and "draws" every CONTENT
+ * it gets (the next POLL reports the new id). Drawing with a file layout looks
+ * the layout up in the downloaded file, as the tag does. It applies CONFIG like
+ * tag/src/app.c and reports cfg_ver in the next POLL.
+ * Older firmware: layouts = false sends the 14-byte POLL (cfg_ver, no layout
+ * version) and drops LAYOUT; legacy sends the old 12-byte POLL and drops both
+ * LAYOUT and CONFIG. */
+
+#define ESL_FAKETAG_POLL_S 60 /* built-in interval, = CFG_POLL_S in tag/src/config.h */
 
 typedef struct {
     uint64_t mac;
@@ -49,9 +57,14 @@ typedef struct {
     uint32_t shown;       /* content_id on the "screen" */
     esl_content_t content;
     uint16_t next_poll_s; /* last value from the AP (0 = keep) */
-    uint32_t idles, contents, rejected;
+    uint32_t idles, contents, configs, rejected;
 
-    /* layout files; layouts = false behaves like firmware without them (12-byte POLL) */
+    bool legacy;          /* firmware without CONFIG or layouts: 12-byte POLL */
+    uint16_t cfg_ver;     /* from the last CONFIG, sent in POLL */
+    esl_tag_cfg_t cfg;    /* settings from the last CONFIG */
+    uint16_t interval_s;  /* the interval the tag would sleep now */
+
+    /* layout files; layouts = false behaves like firmware without them */
     bool layouts;
     uint32_t layout_ver;       /* installed file, 0 = none */
     uint16_t layout_size;
@@ -70,8 +83,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu);
 /* Builds the LAYOUT_REQ for the next missing block of a download in progress
  * into psdu. Returns its length, 0 if there is nothing to ask for. */
 size_t esl_faketag_request(esl_faketag_t *t, uint16_t pan, uint8_t *psdu);
-/* Handles a received frame. Returns ESL_MSG_IDLE, ESL_MSG_CONTENT or
- * ESL_MSG_LAYOUT if it was a valid reply for this tag, 0 if it was ignored. */
+/* Handles a received frame. Returns ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT
+ * or ESL_MSG_CONFIG if it was a valid reply for this tag, 0 if it was ignored. */
 uint8_t esl_faketag_receive(esl_faketag_t *t, const uint8_t *psdu, size_t psdu_len);
 /* Elements of layout n of the installed file, or NULL. */
 const uint8_t *esl_faketag_layout(const esl_faketag_t *t, uint8_t n, uint8_t *nelem);

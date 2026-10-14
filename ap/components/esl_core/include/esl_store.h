@@ -6,10 +6,11 @@
 #include "esl_layout.h"
 #include "esl_proto.h"
 
-/* Table of tags: MAC -> content + last reported status.
+/* Table of tags: MAC -> content + settings + last reported status.
  *
- * Content is persisted through the persist hooks (NVS on the device) when it
- * changes; status lives in RAM only. Answering a POLL builds one short
+ * Content, per-tag settings (esl_tag_cfg_t) and the AP-wide default interval
+ * are persisted through the persist hooks (NVS on the device) when they
+ * change; status lives in RAM only. Answering a POLL builds one short
  * message from the table (krav A3: microseconds, well inside the 5 ms).
  *
  * HTTP and radio run in different tasks, so every public function takes the
@@ -21,6 +22,11 @@ typedef struct {
     void (*unlock)(void *ctx);
     void (*persist_save)(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c);
     void (*persist_erase)(void *ctx, unsigned slot);
+    /* Per-tag settings; cfg NULL = back to defaults, erase the stored entry. */
+    void (*persist_cfg)(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg);
+    /* The default interval set at run time; NULL = back to the built-in one
+     * from esl_store_init(), erase the stored value. */
+    void (*persist_next_poll)(void *ctx, const uint16_t *next_poll_s);
 } esl_store_ops_t;
 
 typedef struct {
@@ -32,6 +38,8 @@ typedef struct {
     uint32_t content_id;      /* 0 when no content is set */
     uint8_t content_err;      /* ESL_CERR_*: why named content is not sent (from the last POLL) */
 
+    esl_tag_cfg_t cfg;        /* settings for this tag; 0 fields = default */
+
     bool seen;                /* has polled since boot */
     uint64_t last_seen_ms;
     uint32_t shown_content_id;
@@ -40,6 +48,8 @@ typedef struct {
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
+    bool cfg_capable;         /* the last POLL carried cfg_ver (tag understands CONFIG) */
+    uint16_t shown_cfg_ver;   /* cfg_ver from the last POLL */
     uint32_t polls;
     bool layout_capable;      /* its POLL has the layout version (18 bytes) */
     uint32_t layout_ver;      /* layout file version from the last POLL */
@@ -60,7 +70,8 @@ const char *esl_content_err_text(uint8_t err);
 typedef struct {
     esl_tag_t *tags;
     unsigned cap;
-    uint16_t next_poll_s;
+    uint16_t next_poll_s;     /* default interval for tags without their own poll_s (0 = tag keeps its own) */
+    uint16_t next_poll_builtin; /* next_poll_s from esl_store_init (menuconfig on the device) */
     esl_store_ops_t ops;
 } esl_store_t;
 
@@ -81,30 +92,59 @@ void esl_store_init(esl_store_t *st, esl_tag_t *tags, unsigned cap, const esl_st
 /* Loads persisted content at boot. Does not call persist_save. */
 bool esl_store_restore(esl_store_t *st, unsigned slot, uint64_t mac, const esl_content_t *c);
 
+/* Loads persisted settings at boot, into the slot's tag if esl_store_restore
+ * already put the same MAC there. Does not call persist_cfg. */
+bool esl_store_restore_cfg(esl_store_t *st, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg);
+
 /* Sets content for a tag, creating it if needed. If the table is full, the
  * longest-unseen tag without content is replaced. */
 esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t *c, esl_set_result_t *res);
 
-/* Handles a POLL: records status and writes IDLE or CONTENT into reply
+/* Handles a POLL: records status and writes IDLE, CONTENT or CONFIG into reply
  * (ESL_MAX_PAYLOAD bytes). Unknown tags are added without content if there is
  * room. Returns the reply length.
  *
  * env describes the layout file for the tag's model (esl_layouts_env; NULL =
  * none). Returns 0 and writes nothing when the tag must get the layout file
  * first (its POLL reports another version, and it has not rejected this one):
- * the caller then answers with the first LAYOUT block (esl_layouts_block). */
+ * the caller then answers with the first LAYOUT block (esl_layouts_block).
+ * Priority: LAYOUT, then CONTENT, then CONFIG, then IDLE (one per POLL). */
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply);
+
+typedef struct {
+    bool changed;
+    bool pending; /* the tag understands CONFIG and has not confirmed these settings yet */
+} esl_cfg_result_t;
+
+/* Replaces a tag's settings (all fields 0 = defaults), creating the tag if
+ * needed, like esl_store_set. Values are not range-checked here. */
+esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_cfg_t *cfg, esl_cfg_result_t *res);
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac);
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out);
 /* Copies the tag in a slot; false if the slot is unused. */
 bool esl_store_get_slot(esl_store_t *st, unsigned slot, esl_tag_t *out);
 unsigned esl_store_count(esl_store_t *st);
-/* Slots a new MAC could take (free, or held by a tag without content). */
+/* Slots a new MAC could take (free, or held by a tag without content or settings). */
 unsigned esl_store_available(esl_store_t *st);
+/* Sets the default interval and persists it (persist_next_poll). */
 void esl_store_set_next_poll(esl_store_t *st, uint16_t next_poll_s);
-uint16_t esl_store_next_poll(esl_store_t *st);
+/* Back to the built-in default from esl_store_init(); erases the stored value. */
+void esl_store_reset_next_poll(esl_store_t *st);
+/* Loads a persisted default interval at boot. Does not call persist_next_poll. */
+void esl_store_restore_next_poll(esl_store_t *st, uint16_t next_poll_s);
+uint16_t esl_store_get_next_poll(esl_store_t *st);
+/* The interval a tag is told (next_poll_s): its own poll_s, else the default.
+ * The default for a MAC not in the table. Used for LAYOUT blocks. */
+uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
 
 /* Content is set and the tag has not reported showing it yet. */
 bool esl_tag_pending(const esl_tag_t *t);
+/* The tag has content or its own settings (so it is kept when the table is full). */
+bool esl_tag_holds_data(const esl_tag_t *t);
+/* The settings the AP sends this tag: its own, with poll_s from the default
+ * when the tag has none. next_poll_s in IDLE/CONTENT is out->poll_s. */
+void esl_tag_effective_cfg(const esl_tag_t *t, uint16_t default_poll_s, esl_tag_cfg_t *out);
+/* The tag understands CONFIG and has not reported the current settings yet. */
+bool esl_tag_cfg_pending(const esl_tag_t *t, uint16_t default_poll_s);

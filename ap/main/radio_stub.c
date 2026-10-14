@@ -48,6 +48,9 @@ static void stub_task(void *arg)
             if (type == ESL_MSG_CONTENT)
                 ESP_LOGI(TAG, "%s got CONTENT id=%08lX layout %u, now showing it", mac, (unsigned long)t->shown,
                          (unsigned)t->content.layout);
+            else if (type == ESL_MSG_CONFIG)
+                ESP_LOGI(TAG, "%s got CONFIG ver=%04X, interval now %u s", mac, (unsigned)t->cfg_ver,
+                         (unsigned)t->interval_s);
         }
         vTaskDelay(pdMS_TO_TICKS(CONFIG_ESL_STUB_INTERVAL_S * 1000));
     }

@@ -18,7 +18,7 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 
-**POLL** (tag → AP), `type = 0x01`, 18 bytes (12 from firmware without layout files)
+**POLL** (tag → AP), `type = 0x01`, 18 bytes (12 or 14 from older firmware, see below)
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
@@ -27,10 +27,18 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer") |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
-| (reserved) | 2 | bytes 12–13, reserved for a configuration version (`cfg_ver`, specified separately); sent as 0 by the layout firmware until then |
+| cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
 | layout_ver | 4 | bytes 14–17: version of the layout file the tag has (0 = none, built-in layouts only). Requirement T17 |
 
-The AP accepts a POLL of 12 bytes or more. A POLL of 12–17 bytes comes from firmware that cannot download layout files: the AP never sends it LAYOUT, and never content with a layout from a layout file. Fields added later go after byte 18, and the AP ignores bytes it does not know.
+The AP accepts a POLL of 12 bytes or more, and the length says what the firmware can take:
+
+| Length | Firmware | The AP may send |
+|---|---|---|
+| 12–13 | old | IDLE, CONTENT (built-in layouts) |
+| 14–17 | with CONFIG | also CONFIG |
+| 18 or more | current (`tag/src`) | also CONFIG and LAYOUT, and content with a layout from the layout file |
+
+So older tags never get a message type they do not know. Fields added later go after byte 18, and the AP ignores bytes it does not know. The flag bits are separate (bit0, bit1, bit2); CONFIG adds no flag.
 
 **IDLE** (AP → tag), `type = 0x02`, 4 bytes: "nothing new"
 | Field | Bytes | Description |
@@ -51,6 +59,20 @@ The AP accepts a POLL of 12 bytes or more. A POLL of 12–17 bytes comes from fi
 Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`; a file layout = the `fields` of that layout in the layout file (part 3), in that order. The text is at most about 96 bytes in total. Reserve 4 bytes for a future MIC (requirement T16), so the AP rejects anything over **about 90 bytes of text** (after conversion to Latin-1; exactly 92, `ESL_MAX_TEXT_BYTES`).
 
 The AP only sends layout 0x10 + n to a tag that reports the AP's current layout file version in its POLL. A tag that gets a layout number it does not have (should not happen) shows the fields with the built-in Text layout.
+
+**CONFIG** (AP → tag), `type = 0x08`, 12 bytes: settings for this tag
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x08, 0x01 |
+| next_poll_s | 2 | as in IDLE |
+| cfg_ver | 2 | version of these settings; the tag sends it back in every POLL |
+| poll_s | 2 | normal interval in seconds (T4) |
+| max_poll_s | 2 | longest interval while the AP does not answer (T11) |
+| lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
+
+Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field missing from a shorter message counts as 0.
+
+`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
 
 **LAYOUT** (AP → tag), `type = 0x04`, 12-byte header + up to 94 bytes of data
 | Field | Bytes | Description |
@@ -114,6 +136,8 @@ Tag                                      AP
 ```
 - If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses).
 - The tag sends no separate acknowledgement. The next POLL carries the new `content_id`, and that is the acknowledgement. If CONTENT is lost, the AP sends it again at the next POLL.
+- Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG instead of IDLE. A new layout file and new content go first (see "Priority" below): CONFIG comes on the poll after they are done. The next POLL with the new `cfg_ver` is the acknowledgement, exactly as for content. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
+- `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG.
 - Unknown MAC: the AP replies IDLE and adds the tag to the table with `content_id: 0`, so the client sees it in `GET /api/tags` and can give it content.
 
 ### Layout transfer (requirements G7, T17, A12)
@@ -127,7 +151,7 @@ Tag                                          AP
  | POLL(layout_ver=B) ----------------------->|
  |<---------------------- IDLE or CONTENT ---|
 ```
-- **When the AP sends it.** The AP answers a POLL with the first LAYOUT block instead of IDLE/CONTENT when the POLL has `layout_ver` (18 bytes or more) and it differs from the AP's version for the tag's model, also when the AP has no file (version 0: the tag drops its file). Content waits until the tag has the file; content with a built-in layout as well, so a new file always reaches the tags first. Old firmware (12-byte POLL) never gets LAYOUT.
+- **When the AP sends it.** The AP answers a POLL with the first LAYOUT block instead of IDLE/CONTENT when the POLL has `layout_ver` (18 bytes or more) and it differs from the AP's version for the tag's model, also when the AP has no file (version 0: the tag drops its file). Content waits until the tag has the file; content with a built-in layout as well, so a new file always reaches the tags first. Firmware whose POLL is shorter than 18 bytes never gets LAYOUT.
 - **Blocks.** The tag asks for the next missing byte with LAYOUT_REQ and the AP answers with the block from `pos`, at most `max` and 94 bytes. The tag sends each LAYOUT_REQ in the same awake period as the POLL, with the same listening window (20 ms, up to 3 frames) and the same single retry after 2–10 ms. A 768-byte file takes 9 blocks, about 30–100 ms of radio time once per file. The tag asks for at most 16 blocks per round.
 - **Lost blocks.** If a block does not come (after the retry), the tag ends the round and keeps what it has. At the next POLL the AP offers block 0 again; if the version and size are the same, the tag goes on from where it stopped. Bytes the tag already has are not taken again. Blocks are matched by `pos`, so a late or repeated answer does no harm.
 - **The file changes during the transfer.** Every LAYOUT carries the version. If the tag asks for a version the AP no longer has, the AP answers with block 0 of its current file; the tag sees the new version (or size) and starts over.
@@ -135,6 +159,16 @@ Tag                                          AP
 - **Old drawing.** The tag downloads into the buffer it draws from, so it has no file while a download is in progress and reports `layout_ver` 0. When its file changes (installed, dropped or overwritten) and the screen shows content drawn with a file layout, it reports `content_id` 0 in the next POLL, so the AP sends that content again, resolved against the new file. After a finished download the tag sends that POLL at once, in the same round.
 - **Storage on the tag.** The file is kept in XRAM only for now; flash writing is not done yet (requirement T12 is open), so after a restart the tag reports 0 and fetches the file again before it gets content.
 - **Unknown messages.** The tag ignores LAYOUT if it is too short, too long or reaches past `size`. The AP ignores LAYOUT_REQ shorter than 10 bytes.
+
+### Priority: layout, content, settings
+The AP answers each POLL with one message. When several things are waiting for a tag, it sends them in this order:
+
+1. **LAYOUT**: the layout file, when the tag's `layout_ver` differs from the AP's version for its model (and the tag has not rejected that version). It goes first because the content may use a layout from the file.
+2. **CONTENT**: when the tag's `content_id` differs from the AP's. Content with a file layout the tag cannot use (old firmware, not in the file, file rejected) is held back (`content_error` in the API), and the AP goes on to 3.
+3. **CONFIG**: when the tag sends `cfg_ver` and it differs from the version of its settings on the AP.
+4. **IDLE**.
+
+After a finished layout download the tag sends a new POLL at once, so content (or CONFIG) follows in the same wake-up; otherwise the next item goes out at the next POLL. `next_poll_s` in every reply, LAYOUT blocks included, is the tag's own interval (its `poll_s`, or the AP default).
 
 ### Listening window and battery
 The tag is awake for about 5–25 ms per round. Adjust the window from measurements in phases 5–6; it is the most important power parameter after sleep current.
@@ -160,7 +194,7 @@ Text is sent as UTF-8 JSON. The AP converts it to Latin-1 (unknown characters be
 - `layout` is `price`, `text` (the built-in layouts) or the **name of a layout in a layout file** (part 3, requirement A14), e.g. `shelf`. `fields` are then that layout's fields, in the order its `fields` list gives, and `price_highlight` drives its `highlight` elements. `422` if:
   - the name is in no layout file (`layout "x" is not in any layout file`), or, once the tag has polled and its model is known, not in the file for that model (`... is not in the layout file for model 1.54`);
   - there are more fields than the layout has (`layout sign takes at most 2 fields`);
-  - the tag's firmware cannot download layout files (its POLL is 12 bytes).
+  - the tag's firmware cannot download layout files (its POLL is shorter than 18 bytes).
 
   The same name may be used in both models' files (the tags get layout number n of their own file), so a client can send one body to every tag. Content with a named layout is stored by name; the AP looks the name up in the tag's file each time it sends it, and only sends it when the tag has the current file. If the file no longer has the name, the content stays `pending` and `content_error` says why.
 
@@ -200,8 +234,31 @@ Reply `200` with one line per tag as above. Practical for the daily price job: o
 - `layout_version` is the layout file version the tag reported (`null` for firmware without layout files). `layout_pending` is true while it differs from the AP's version for the tag's model (the tag is downloading the file), `layout_failed` when the tag rejected the AP's current file.
 - `content_error` is `null`, or why pending content with a named layout cannot be sent: the tag's firmware cannot download layout files, the layout is not in the file for the tag's model, or the tag rejected the file.
 
+- Every tag object also has `model`, `draw_failed`, and the settings: `poll_s` (the interval the AP sends this tag, `null` = the tag's built-in one), `config` (the tag's own settings, `null` = default), and `config_pending` (`true` while a tag that understands CONFIG has not confirmed the current settings; always `false` for older firmware):
+  ```json
+  "poll_s": 120, "config": { "poll_s": 120, "max_poll_s": null, "lost_ap_s": null }, "config_pending": false
+  ```
+- `ap.poll_s` is the AP-wide default interval (0 = tags keep their built-in interval).
+
 ### `GET /api/tags/{mac}`: status for one tag
 The same object as one line in the list above, plus the content (`layout`, `fields`, `price_highlight`, `frame`).
+
+### `PUT /api/tags/{mac}/config`: settings for one tag
+```json
+{ "poll_s": 120, "max_poll_s": 900, "lost_ap_s": null }
+```
+- Replaces the tag's settings. A missing or `null` field means the default: `poll_s` falls back to the AP default (`PUT /api/config`), the others to the tag's built-in values. `{}` resets everything.
+- `poll_s` and `max_poll_s`: whole seconds, 10–3600. `lost_ap_s`: 60–65535, where 65535 = never show "No AP found". Anything else gives `422`.
+- Kept in NVS, so they survive an AP restart. A tag with its own settings is not replaced when the table is full, like a tag with content. An unknown MAC is accepted.
+- Reply `200`: `{"mac":"…","poll_s":120,"config":{…},"config_pending":true,"changed":true}`. `GET /api/tags/{mac}/config` returns the same without `changed` (`404` for an unknown tag).
+- Interval and requirement G1: with `poll_s` above 120 s new content can take longer than 2 minutes to show.
+
+### `GET /api/config`, `PUT /api/config`: AP-wide default interval
+```json
+{ "poll_s": 120 }
+```
+- The interval for tags without their own `poll_s`. `0` = tags keep their built-in interval (60 s), `10`–`3600` = that many seconds, `null` = back to the value set in `menuconfig` (`ESL_NEXT_POLL_S`, default 0). Stored in NVS (`cfg/poll_s`).
+- Reply `200` (both methods): `{"poll_s":120,"builtin_poll_s":0}`.
 
 ### `DELETE /api/tags/{mac}`
 Removes the tag from the AP. The tag keeps what it shows until it gets new content.

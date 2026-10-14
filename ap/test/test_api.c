@@ -27,7 +27,7 @@ static uint32_t json_u32(const char *s, const char *key)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {2, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -82,10 +82,11 @@ static void test_put_one(void)
     CHECK(HAS(resp, "\"changed\":false,\"pending\":false"));
 
     CHECK_INT(req("GET", "/api/tags/" MAC1 "/", AUTH, NULL, 17000), 200);
-    char expect[640];
+    char expect[768];
     snprintf(expect, sizeof(expect),
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
+             "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
              "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,"
              "\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
@@ -114,7 +115,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -238,9 +239,11 @@ static void test_batch_and_list(void)
     esl_store_delete(&st, 0x105);
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8},\"tags\":["));
+    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"poll_s\":0},\"tags\":["));
     CHECK(HAS(resp, "{\"mac\":\"0000000000ABCDEF\",\"seen_s_ago\":86399,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
+                    "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+                    "\"config_pending\":false,"
                     "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
@@ -264,7 +267,7 @@ static void poll_model(uint64_t mac, uint8_t model, bool capable, uint32_t layou
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, flags, model, capable, layout_ver};
+    esl_poll_t p = {2, 2950, 0, flags, model, .has_layout_ver = capable, .layout_ver = layout_ver};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -483,7 +486,7 @@ static void test_status_page(void)
         snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                  i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
         CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0};
+        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0};
         uint8_t reply[ESL_MAX_PAYLOAD];
         esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
     }
@@ -500,6 +503,84 @@ static void test_status_page(void)
     CHECK_INT(esl_api_status_page(&api, 0, &sb), 500);
 }
 
+static void test_config_api(void)
+{
+    esl_store_init(&st, tags, CAP, NULL, 0);
+
+    /* AP-wide default */
+    CHECK_INT(req("GET", "/api/config", NULL, NULL, 0), 401);
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0}");
+    CHECK_INT(req("PUT", "/api/config/", AUTH, "{\"poll_s\":3600}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":3600,\"builtin_poll_s\":0}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":0}", 0), 200);
+    CHECK_INT(esl_store_get_next_poll(&st), 0);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":9}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":3601}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":\"60\"}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "[]", 0), 400);
+    CHECK_INT(req("DELETE", "/api/config", AUTH, NULL, 0), 405);
+    CHECK_INT(req("GET", "/api/configX", AUTH, NULL, 0), 404);
+    CHECK_INT(esl_store_get_next_poll(&st), 0);
+
+    /* per tag: validation */
+    static const char *const bad[] = {
+        "{\"poll_s\":9}", "{\"poll_s\":3601}", "{\"poll_s\":-60}", "{\"poll_s\":60.5}", "{\"poll_s\":6e1}",
+        "{\"poll_s\":true}", "{\"poll_s\":99999999999999999999}", "{\"max_poll_s\":0}",
+        "{\"lost_ap_s\":59}", "{\"lost_ap_s\":65536}",
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK_INT(req("PUT", "/api/tags/" MAC1 "/config", AUTH, bad[i], 0), 422);
+    CHECK_INT(esl_store_count(&st), 0); /* nothing created by a bad request */
+    CHECK_INT(req("PUT", "/api/tags/" MAC1 "/config", AUTH, "nope", 0), 400);
+    CHECK_INT(req("GET", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 404);
+    CHECK_INT(req("DELETE", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 405);
+    CHECK_INT(req("GET", "/api/tags/" MAC1 "/configs", AUTH, NULL, 0), 400);
+    CHECK_INT(req("GET", "/api/tags/" MAC1 "/x", AUTH, NULL, 0), 400);
+
+    /* per tag: set, read back, unknown MAC accepted */
+    CHECK_INT(req("PUT", "/api/tags/" MAC1 "/config/", AUTH,
+                  "{\"poll_s\":10,\"max_poll_s\":3600,\"lost_ap_s\":60,\"other\":1}", 0), 200);
+    CHECK_STR(resp, "{\"mac\":\"" MAC1 "\",\"poll_s\":10,\"config\":{\"poll_s\":10,\"max_poll_s\":3600,"
+                    "\"lost_ap_s\":60},\"config_pending\":false,\"changed\":true}");
+    CHECK_INT(req("GET", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"lost_ap_s\":60}"));
+    CHECK_INT(req("GET", "/api/tags/" MAC1, AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_id\":0,"));
+    CHECK(HAS(resp, "\"poll_s\":10,"));
+
+    /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
+    CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
+    CHECK_INT(reply[0], ESL_MSG_CONFIG);
+    CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
+    CHECK_INT(req("GET", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"config_pending\":true"));
+
+    /* a tag with settings is kept like a tag with content when the table fills up */
+    CHECK_INT(esl_store_available(&st), CAP - 1);
+
+    /* worst case GET /api/tags: every slot with the longest numbers fits the buffer */
+    esl_store_init(&st, tags, CAP, NULL, 3600);
+    for (unsigned i = 0; i < CAP; i++) {
+        char u[64];
+        snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
+        CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535}", 0), 200);
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 4294967295u};
+        esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
+        esl_content_t c;
+        esl_set_result_t r;
+        esl_content_init(&c, ESL_LAYOUT_TEXT, 0);
+        esl_store_set(&st, 0xFFFFFFF0u + i, &c, &r);
+    }
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, UINT64_C(1) << 60), 200);
+    CHECK(!out.overflow);
+    CHECK(HAS(resp, "\"draw_failed\":true"));
+    CHECK(HAS(resp, "\"config_pending\":true,\"layout_version\":4294967295,"));
+}
+
 void test_api(void)
 {
     esl_store_init(&st, tags, CAP, NULL, 0);
@@ -511,4 +592,5 @@ void test_api(void)
     test_batch_and_list();
     test_layouts();
     test_status_page();
+    test_config_api();
 }

@@ -71,16 +71,91 @@ static bool draw_status(const char *status)
 static const char __code msg_waiting[] = "Waiting for content";
 static const char __code msg_lost[] = "No AP found";
 
+/* ---- Settings from the AP (CONFIG) ---- */
+
+static uint16_t max_poll_s(void)
+{
+    return app.cfg.max_poll_s ? app.cfg.max_poll_s : CFG_MAX_POLL_S;
+}
+
+static uint16_t base_poll_s(void)
+{
+    return app.cfg.poll_s ? app.cfg.poll_s : CFG_POLL_S;
+}
+
+/*
+ * app.cfg in flash (requirement T12), so a restarted tag uses the AP's settings
+ * even before it reaches the AP. One record through hal_store_* (hal.h):
+ *   0 CFG_STORE_FORMAT   1-2 ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
+ * all of app_cfg_t, ver included: the tag reports ver in POLL, so a stale or
+ * missing copy only costs one extra CONFIG from the AP. Written only when the
+ * settings change (the AP sends CONFIG only then), and with the radio off.
+ * The layout file is not kept here (768 bytes > HAL_STORE_MAX).
+ */
+#define CFG_STORE_FORMAT 1
+#define CFG_STORE_LEN    9
+
+static uint8_t __xdata cfg_rec[CFG_STORE_LEN];
+
+static void app_cfg_load(void)
+{
+    if (hal_store_read(cfg_rec, CFG_STORE_LEN) == CFG_STORE_LEN && cfg_rec[0] == CFG_STORE_FORMAT) {
+        app.cfg.ver = ESL_GET_U16(cfg_rec + 1);
+        app.cfg.poll_s = ESL_GET_U16(cfg_rec + 3);
+        app.cfg.max_poll_s = ESL_GET_U16(cfg_rec + 5);
+        app.cfg.lost_ap_s = ESL_GET_U16(cfg_rec + 7);
+    } else {
+        app.cfg.ver = 0;
+        app.cfg.poll_s = 0;
+        app.cfg.max_poll_s = 0;
+        app.cfg.lost_ap_s = 0;
+    }
+}
+
+static void app_cfg_save(void)
+{
+    cfg_rec[0] = CFG_STORE_FORMAT;
+    ESL_PUT_U16(cfg_rec + 1, app.cfg.ver);
+    ESL_PUT_U16(cfg_rec + 3, app.cfg.poll_s);
+    ESL_PUT_U16(cfg_rec + 5, app.cfg.max_poll_s);
+    ESL_PUT_U16(cfg_rec + 7, app.cfg.lost_ap_s);
+    hal_store_write(cfg_rec, CFG_STORE_LEN);   /* a failed write only costs a CONFIG after a restart */
+}
+
+static uint16_t at_least(uint16_t v, uint16_t min)
+{
+    return (v && v < min) ? min : v;
+}
+
+/* Called with the radio off (hal_store_write needs that). */
+static void apply_config(void)
+{
+    uint16_t poll = at_least(reply.cfg_poll_s, ESL_CFG_POLL_MIN_S);
+    uint16_t max = at_least(reply.cfg_max_poll_s, ESL_CFG_POLL_MIN_S);
+    uint16_t lost = at_least(reply.cfg_lost_ap_s, ESL_CFG_LOST_AP_MIN_S);
+    bool changed = app.cfg.ver != reply.cfg_ver || app.cfg.poll_s != poll ||
+                   app.cfg.max_poll_s != max || app.cfg.lost_ap_s != lost;
+
+    app.cfg.ver = reply.cfg_ver;
+    app.cfg.poll_s = poll;
+    app.cfg.max_poll_s = max;
+    app.cfg.lost_ap_s = lost;
+    app.interval_s = base_poll_s();
+    if (changed)
+        app_cfg_save();
+}
+
 uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses)
 {
     uint16_t s = interval_s;
+    uint16_t max = max_poll_s();
     uint8_t i;
 
-    if (misses < CFG_BACKOFF_AFTER || s >= CFG_MAX_POLL_S)
+    if (misses < CFG_BACKOFF_AFTER || s >= max)
         return s;
     for (i = CFG_BACKOFF_AFTER; i <= misses; i++) {
-        if (s >= CFG_MAX_POLL_S / 2)
-            return CFG_MAX_POLL_S;
+        if (s >= max / 2)
+            return max;
         s <<= 1;
     }
     return s;
@@ -127,7 +202,8 @@ static uint8_t build_poll_frame(void)
 
     if (app.lay_rejected)
         flags |= ESL_POLL_F_LAYOUTFAIL;
-    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, layout_file_ver);
+    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags,
+                     app.cfg.ver, layout_file_ver);
     return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LAYOUT);
 }
 
@@ -206,13 +282,14 @@ static bool layout_transfer(void)
 static uint16_t on_miss(void)
 {
     uint16_t sleep;
+    uint16_t lost = app.cfg.lost_ap_s ? app.cfg.lost_ap_s : CFG_LOST_AP_S;
 
     if (app.misses < 255)
         app.misses++;
     sleep = app_backoff_s(app.interval_s, app.misses);
     if (app.lost_s < 0xFFFF0000ul)
         app.lost_s += sleep;
-    if (app.lost_s >= CFG_LOST_AP_S && !app.lost_shown) {
+    if (lost != ESL_CFG_LOST_AP_NEVER && app.lost_s >= lost && !app.lost_shown) {
         draw_status(msg_lost);
         app.shown_id = 0;     /* the AP resends the content when it is back */
         app.lost_shown = 1;
@@ -244,8 +321,9 @@ void app_init(void)
     uint8_t i;
 
     hal_mac_read(app.mac);
+    app_cfg_load();
     app.shown_id = 0;
-    app.interval_s = CFG_POLL_S;
+    app.interval_s = base_poll_s();
     app.misses = 0;
     app.lost_s = 0;
     app.lost_shown = 0;
@@ -294,6 +372,8 @@ uint16_t app_poll_once(void)
     app.misses = 0;
     app.lost_s = 0;
     app.poll_flags &= (uint8_t)~ESL_POLL_F_BOOTED;
+    if (reply.type == ESL_MSG_CONFIG)
+        apply_config();              /* new base settings first, next_poll_s below as for any reply */
     if (reply.next_poll_s)
         app.interval_s = reply.next_poll_s;
 

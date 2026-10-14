@@ -43,6 +43,26 @@ static void f_erase(void *ctx, unsigned slot)
     f->last_slot = slot;
 }
 
+static void f_cfg(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
+{
+    fake_t *f = ctx;
+    CHECK_INT(f->depth, 0);
+    if (cfg)
+        f->saves++;
+    else
+        f->erases++;
+    f->last_slot = slot;
+    f->last_mac = mac;
+}
+
+static void f_next_poll(void *ctx, const uint16_t *next_poll_s)
+{
+    fake_t *f = ctx;
+    CHECK_INT(f->depth, 0);
+    f->saves += next_poll_s != NULL;
+    f->erases += next_poll_s == NULL;
+}
+
 static esl_content_t price(const char *name, const char *p)
 {
     esl_content_t c;
@@ -54,7 +74,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -64,7 +84,7 @@ void test_store(void)
     esl_tag_t tags[CAP];
     esl_store_t st;
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
@@ -198,4 +218,80 @@ void test_store(void)
     esl_store_init(&st, tags, CAP, NULL, 0);
     CHECK_INT(esl_store_set(&st, A, &milk, &r), ESL_STORE_OK);
     CHECK(esl_store_delete(&st, A));
+
+    /* ---- per-tag settings and the default interval ---- */
+    fake_t g = {0};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll};
+    esl_cfg_result_t cr;
+    esl_store_init(&st, tags, CAP, &cops, 0);
+    esl_tag_cfg_t c120 = {120, 0, 0}, none = {0, 0, 0};
+    CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
+    CHECK(cr.changed);
+    CHECK(!cr.pending); /* not seen yet */
+    CHECK_INT(g.saves, 1);
+    CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
+    CHECK(!cr.changed);
+    CHECK_INT(g.saves, 1);
+    CHECK_INT(esl_store_available(&st), CAP - 1);
+
+    /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
+    n = poll(&st, A, 0, 100, reply);
+    CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
+    esl_poll_t np = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
+    n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
+    CHECK_INT(n, ESL_CONFIG_LEN);
+    CHECK_INT(reply[0], ESL_MSG_CONFIG);
+    esl_store_get(&st, A, &t);
+    CHECK(esl_tag_cfg_pending(&t, 0));
+    np.cfg_ver = esl_tag_cfg_version(&c120);
+    n = esl_store_on_poll(&st, A, &np, -61, 300, NULL, reply);
+    CHECK_INT(reply[0], ESL_MSG_IDLE);
+    esl_store_get(&st, A, &t);
+    CHECK(!esl_tag_cfg_pending(&t, 0));
+
+    /* own poll_s goes into the prebuilt CONTENT; the default does not override it */
+    esl_store_set(&st, A, &milk, &r);
+    esl_store_set_next_poll(&st, 300);
+    CHECK_INT(g.saves, 3); /* content + default */
+    n = esl_store_on_poll(&st, A, &np, -61, 400, NULL, reply);
+    CHECK_INT(reply[0], ESL_MSG_CONTENT);
+    CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 120);
+    esl_store_set_cfg(&st, A, &none, &cr); /* back to defaults: stored entry erased */
+    CHECK_INT(g.erases, 1);
+    n = esl_store_on_poll(&st, A, &np, -61, 500, NULL, reply);
+    CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 300);
+    np.content_id = esl_content_id(&milk);
+    n = esl_store_on_poll(&st, A, &np, -61, 600, NULL, reply);
+    CHECK_INT(reply[0], ESL_MSG_CONFIG); /* {300,0,0} differs from what the tag has */
+    CHECK_INT(ESL_GET_U16(&reply[ESL_CONFIG_OFF_POLL]), 300);
+    esl_store_reset_next_poll(&st);
+    CHECK_INT(esl_store_get_next_poll(&st), 0);
+    CHECK_INT(g.erases, 2);
+
+    /* settings without content keep the tag from eviction; delete erases them */
+    esl_store_set_cfg(&st, B, &c120, &cr);
+    erases = g.erases;
+    CHECK(esl_store_delete(&st, B));
+    CHECK_INT(g.erases, erases + 1);
+
+    /* restore: settings and content land in the same slot, in either order */
+    esl_store_init(&st, tags, CAP, &cops, 60);
+    saves = g.saves;
+    CHECK(esl_store_restore_cfg(&st, 1, A, &c120));
+    CHECK(esl_store_restore(&st, 1, A, &milk));
+    CHECK(esl_store_restore(&st, 2, B, &milk));
+    CHECK(esl_store_restore_cfg(&st, 2, B, &c120));
+    CHECK(!esl_store_restore_cfg(&st, 2, A, &c120)); /* slot held by another MAC */
+    CHECK(!esl_store_restore_cfg(&st, 3, A, &c120)); /* MAC already present */
+    esl_store_restore_next_poll(&st, 90);
+    CHECK_INT(g.saves, saves);
+    CHECK_INT(esl_store_count(&st), 2);
+    esl_store_get_slot(&st, 1, &t);
+    CHECK_INT(t.cfg.poll_s, 120);
+    uint8_t rb[ESL_MAX_PAYLOAD];
+    CHECK(poll(&st, A, 0, 0, rb) > 0); /* its own interval goes out with the content */
+    CHECK_INT(rb[ESL_OFF_TYPE], ESL_MSG_CONTENT);
+    CHECK_INT(ESL_GET_U16(&rb[ESL_OFF_NEXT_POLL]), 120);
+    CHECK_INT(st.next_poll_builtin, 60);
+    CHECK_INT(g.locks, g.unlocks);
 }
