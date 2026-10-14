@@ -13,7 +13,7 @@ import label_design as ld  # noqa: E402
 PRICE = {
     "format": "esl-label", "version": 1, "id": "pris-standard", "layout": "price",
     "fields": {"name": "{name}", "price": "{price}", "subtitle": "{unit_price}"},
-    "style": {"price_red": True, "frame_red": False},
+    "style": {"price_highlight": True, "frame": False},
 }
 TEXT = {
     "format": "esl-label", "version": 1, "id": "tekst", "layout": "text",
@@ -34,8 +34,8 @@ class ValidateTests(unittest.TestCase):
             "layout": lambda d: d.update(layout="image"),
             "unknown field": lambda d: d["fields"].update(extra="x"),
             "unknown style": lambda d: d["style"].update(blink=True),
-            "style not bool": lambda d: d["style"].update(price_red="yes"),
-            "price_red on text": lambda d: (d.update(layout="text", fields={"line1": "x"})),
+            "style not bool": lambda d: d["style"].update(price_highlight="yes"),
+            "price_highlight on text": lambda d: (d.update(layout="text", fields={"line1": "x"})),
         }
         for label, change in cases.items():
             d = copy.deepcopy(PRICE)
@@ -56,14 +56,14 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(out, {
             "layout": "price",
             "fields": ["Milk 1 L", "24,90", "per l 24,90"],
-            "price_red": True,
-            "frame_red": False,
+            "price_highlight": True,
+            "frame": False,
         })
 
-    def test_text_has_four_fields_and_no_price_red(self):
+    def test_text_has_four_fields_and_no_price_highlight(self):
         out = ld.render(TEXT, {"a": "Welcome"})
         self.assertEqual(out["fields"], ["Welcome", "", "", ""])
-        self.assertNotIn("price_red", out)
+        self.assertNotIn("price_highlight", out)
 
     def test_missing_placeholder(self):
         with self.assertRaises(ld.DesignError):
@@ -72,6 +72,17 @@ class RenderTests(unittest.TestCase):
     def test_norwegian_letters_kept(self):
         out = ld.render(PRICE, {"name": "Grøt æøå", "price": "9,90", "unit_price": ""})
         self.assertEqual(out["fields"][0], "Grøt æøå")
+
+    def test_ap_replacements_allowed_and_counted(self):
+        # The AP turns "–" into "-" and "…" into "..." (esl_text.c); the limit counts the result
+        out = ld.render(PRICE, {"name": "Man–fre 9–21", "price": "9,90", "unit_price": "Mer…"})
+        self.assertEqual(out["fields"][0], "Man–fre 9–21")
+        self.assertEqual(ld.to_latin1("Mer…"), b"Mer...")
+        self.assertEqual(ld.to_latin1("Søn – stengt"), "Søn - stengt".encode("latin-1"))
+        d = copy.deepcopy(PRICE)
+        d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
+        with self.assertRaises(ld.DesignError):
+            ld.render(d, {})  # 93 bytes after "…" becomes "..."
 
     def test_too_many_bytes(self):
         d = copy.deepcopy(PRICE)

@@ -2,6 +2,7 @@
 #include "test.h"
 #include "helpers.h"
 #include "proto_tag.h"
+#include "model.h"
 
 static const uint8_t mac[8] = { 0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00 };
 
@@ -9,7 +10,7 @@ static void test_build_poll(void)
 {
     uint8_t p[ESL_POLL_LEN];
     static const uint8_t expect[ESL_POLL_LEN] = {
-        0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, 0x00
+        0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE
     };
     CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03), ESL_POLL_LEN);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
@@ -31,13 +32,13 @@ static void test_parse_content(void)
     static const char *const f[] = { "Lettmelk 1 L", "24,90", "kr/l 24,90" };
     uint8_t p[ESL_MAX_PAYLOAD];
     proto_reply_t r;
-    uint8_t n = make_content(p, 0, 0xADB75201ul, ESL_LAYOUT_PRICE, ESL_CF_PRICE_RED, 3, f);
+    uint8_t n = make_content(p, 0, 0xADB75201ul, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, f);
 
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
     CHECK_EQ(r.type, ESL_MSG_CONTENT);
     CHECK_EQ(r.content_id, 0xADB75201ul);
     CHECK_EQ(r.layout, ESL_LAYOUT_PRICE);
-    CHECK_EQ(r.flags, ESL_CF_PRICE_RED);
+    CHECK_EQ(r.flags, ESL_CF_PRICE_HIGHLIGHT);
     CHECK_EQ(r.nfields, 3);
     CHECK_EQ(r.field_len[0], 12);
     CHECK(memcmp(p + r.field_off[0], "Lettmelk 1 L", 12) == 0);

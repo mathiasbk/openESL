@@ -21,7 +21,7 @@
 
 ## Simplifications for version 1
 - **SPI to the display can be bit-banged** with GPIO. Then you only need to know the GPIO registers to get the display running. The display is slow anyway, so speed does not matter.
-- **Use the display's built-in OTP waveform** (update mode from the datasheet). Then you avoid your own LUTs, which are the hardest part of a colour display.
+- **Use the display's built-in OTP waveform** (update mode from the datasheet). Then you avoid your own LUTs, which are the hardest part of an e-paper display.
 - **No external EEPROM in version 1.** The last content (max ~110 bytes) can be stored in a flash page in the ZBS243 (requirement T12) once flash writing is understood. Until then: blank screen with "waiting for AP" after a restart.
 - **No interrupt-driven radio at first.** Send, poll the status register in a loop with a timeout, read the packet. Simple to debug.
 
@@ -31,7 +31,7 @@
 |---|---|---|
 | `hal_gpio`, `hal_clock`, `hal_uart` | Clock, pins, debug output | Register findings |
 | `hal_timer`, `power` | Delays, deep sleep, wake after N seconds, watchdog | Register findings |
-| `epd` | SSD16xx: reset, init, write black and red planes, update, wait for BUSY, sleep | GPIO, datasheet |
+| `epd` | SSD16xx: reset, init, write the black/white plane, update, wait for BUSY, sleep | GPIO, datasheet |
 | `font` | Generated table: small (~16 px), medium (~24 px), large digits only, comma and «,-» (~56 px) | Font generator |
 | `draw` | Calculates one pixel column at a time from layout + text and streams it to `epd` | `font` |
 | `layout` | Layout 1 "Price" and layout 2 "Text": positions, line wrapping, truncation with «…» | `draw` |
@@ -40,19 +40,21 @@
 | `battery` | Read voltage (ADC or internal reference) | Register findings |
 | `main` | State machine: start-up → start-up screen → loop {wake, POLL, handle, sleep} | Everything |
 
-## Display 2.9": 296×128, three colours
-- The display controller has its own memory for the black and red planes (2 × 4736 bytes). The ZBS243 has too little RAM for a whole image, so `draw` makes one column at a time (16 bytes per plane) and writes it straight in.
-- A full update with red typically takes 15–20 s and draws a few mA. That is why the tag only draws when `content_id` changes (requirement T5).
+## Display 2.9": 296×128, black/white
+- Both tags are black/white only; there is no red. Emphasis is done in black/white, as the stock SoluM firmware does: an inverted field (white text on a black box, e.g. the price) and a black frame.
+- The display controller has its own image memory (4736 bytes for the black/white plane). The ZBS243 has too little RAM for a whole image, so `draw` makes one column at a time (16 bytes) and writes it straight in.
+- A full update takes a few seconds and draws a few mA. That is why the tag only draws when `content_id` changes (requirement T5).
 - The display must be put into deep sleep after drawing, or it will drain the battery.
 
 ## Multiple tag sizes: 2.9" and 1.54" (requirements G6, T19)
-- The 1.54" is 152×152. The display controller, colours and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [kildelogg.md](kildelogg.md).
+- The 1.54" (ST-GM16XX2) is 200×200, black/white only (reported from hardware inspection). The display controller and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [kildelogg.md](kildelogg.md). Like the 2.9" it has no red, so only the black/white plane is sent.
 - Everything that depends on the display is collected in one model description: width, height, column height in bytes, controller type, init sequence, default layouts. `epd`, `draw` and `layout` read the values from there and have no fixed numbers for 296×128.
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
 ## Layout from file (requirements G7, T17)
 - The layouts must come from a file created in the design tool, not be fixed in the code. The file format is JSON. Whether the AP converts it to a compact binary format, or whether the tag reads JSON directly, is open (see [arkitektur.md](arkitektur.md)).
 - The `layout` module changes from fixed layouts to an interpreter for this format: a list of elements (text field, filled rectangle) with position, font, colour, alignment and maximum width.
+  Done on the tag side: `layout_apply()` in `tag/src/layout.c` runs such a list (14-byte elements, format in `tag/src/layout.h`), and "Price" and "Text" are now lists in flash. The binary format is a proposal for what the AP would send; it is not agreed yet.
 - The tag stores the last layout in flash together with its version, and fetches a new one only when the AP reports that the version has changed.
 - The format and the radio message are not specified yet. "Price" and "Text" are kept as built-in fallback layouts.
 

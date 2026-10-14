@@ -54,7 +54,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, 0};
+    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29};
     return esl_store_on_poll(st, mac, &p, -61, now, reply);
 }
 

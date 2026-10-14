@@ -16,7 +16,7 @@
 2. The AP calculates a new `content_id` (CRC32 of the content), stores it in NVS and replies immediately.
 3. The next time the tag wakes (within 60 s) it sends `POLL` with its current `content_id`.
 4. The AP sees that it is out of date and replies with `CONTENT` (all text fields in one packet).
-5. The tag draws the screen (about 15–20 s for black/white/red) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new `content_id` is the acknowledgement (see [protokoll.md](protokoll.md)).
+5. The tag draws the screen (a few seconds for a black/white full update; measured in phase 2) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new `content_id` is the acknowledgement (see [protokoll.md](protokoll.md)).
 6. The next time the client reads `GET /api/tags`, `shown_content_id` shows that the tag has the new content.
 
 Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawing), within requirement G1.
@@ -39,10 +39,10 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 - The layout file belongs to the tag model, not to the individual tag. All tags of the same model use the same layout file, with content from the client.
 
 ### Two tag sizes: 2.9" and 1.54" (requirement G6)
-- SoluM 2.9" (296×128, black/white/red) and SoluM 1.54" (152×152, black/white, red not confirmed) are both supported by the same AP, the same radio protocol, the same API and the same code.
+- SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white) are both supported by the same AP, the same radio protocol, the same API and the same code.
 - Tag: display driver, resolution, font choice and default layouts are parameterised per model. One firmware is built per size from the same source code (build option, e.g. `make fw MODEL=154`).
 - AP: stores the model per tag and selects layout file and text limits by model. The model comes from the tag (field in POLL, requirement T18).
-- Which display controller and colours the 1.54" tag has must be confirmed in phase 0, as for the 2.9".
+- Which display controller the 1.54" tag has must be confirmed in phase 0, as for the 2.9". Neither tag has red.
 
 ### The tag initiates all communication
 - The tag has its radio off almost all the time. It can only receive for the few milliseconds after it has sent something itself.

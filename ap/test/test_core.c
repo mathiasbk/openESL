@@ -89,7 +89,7 @@ void test_content(void)
     memset(big, 'x', sizeof(big));
 
     CHECK_INT(esl_content_init(&a, 3, 0), ESL_CONTENT_ERR_LAYOUT);
-    CHECK_INT(esl_content_init(&a, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_init(&a, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("Lettmelk 1 L")), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("24,90")), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("kr/l 24,90")), ESL_CONTENT_OK);
@@ -119,8 +119,8 @@ void test_content(void)
     esl_content_init(&a, ESL_LAYOUT_TEXT, 0);
     CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT + 1), ESL_CONTENT_ERR_TOO_LONG);
     CHECK_INT(esl_content_add_field(&a, big, 50), ESL_CONTENT_OK);
-    CHECK_INT(esl_content_add_field(&a, big, 41), ESL_CONTENT_ERR_TOO_LONG);
-    CHECK_INT(esl_content_add_field(&a, big, 40), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT - 49), ESL_CONTENT_ERR_TOO_LONG);
+    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT - 50), ESL_CONTENT_OK);
     CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT);
 
     /* trailing empty fields do not change the id */
@@ -141,11 +141,12 @@ void test_content(void)
     uint8_t msg[ESL_MAX_PAYLOAD];
     esl_content_init(&a, ESL_LAYOUT_TEXT, 3);
     for (int i = 0; i < 4; i++)
-        esl_content_add_field(&a, big, i < 2 ? 23 : 22);
+        esl_content_add_field(&a, big, ESL_MAX_TEXT / 4);
     CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT);
+    CHECK_INT(ESL_MAX_TEXT, 92);
     n = esl_content_msg_build(msg, 0, 1, &a);
-    CHECK_INT(n, 8 + 2 + 4 + 90);
-    CHECK(n + 4 <= ESL_MAX_PAYLOAD);
+    CHECK_INT(n, 8 + 2 + 4 + 92);
+    CHECK(n + ESL_MIC_RESERVE == ESL_MAX_PAYLOAD);
 }
 
 void test_proto(void)
@@ -159,8 +160,26 @@ void test_proto(void)
     CHECK_INT(p.battery_mv, 3000);
     CHECK_INT(p.content_id, 0x12345678);
     CHECK_INT(p.flags, ESL_POLL_FLAG_BOOT);
+    CHECK_INT(p.model, ESL_MODEL_UNKNOWN); /* old firmware: reserved byte is 0 */
     CHECK_INT(esl_poll_build(buf, &p), 12);
     CHECK_MEM(buf, poll_bytes, 12);
+
+    /* the model byte (formerly reserved) */
+    memcpy(buf, poll_bytes, 12);
+    buf[11] = ESL_MODEL_154;
+    CHECK(esl_poll_parse(buf, 12, &p));
+    CHECK_INT(p.model, ESL_MODEL_154);
+    CHECK_INT(esl_poll_build(buf, &p), 12);
+    CHECK_INT(buf[ESL_POLL_OFF_MODEL], ESL_MODEL_154);
+
+    CHECK_STR(esl_model_name(ESL_MODEL_29), "2.9");
+    CHECK_STR(esl_model_name(ESL_MODEL_154), "1.54");
+    CHECK(esl_model_name(ESL_MODEL_UNKNOWN) == NULL);
+    CHECK(esl_model_name(7) == NULL);
+    CHECK_INT(esl_model_parse("1.54", 4), ESL_MODEL_154);
+    CHECK_INT(esl_model_parse("2.9", 3), ESL_MODEL_29);
+    CHECK_INT(esl_model_parse("2.90", 4), ESL_MODEL_UNKNOWN);
+    CHECK_INT(esl_model_parse("2.", 2), ESL_MODEL_UNKNOWN);
 
     CHECK(!esl_poll_parse(poll_bytes, 11, &p));
     memcpy(buf, poll_bytes, 12);
@@ -177,7 +196,7 @@ void test_proto(void)
     CHECK_MEM(buf, "\x02\x01\x3C\x00", 4);
 
     esl_content_t c;
-    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED);
+    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
     esl_content_add_field(&c, S("Melk"));
     esl_content_add_field(&c, S("9,90"));
     size_t n = esl_content_msg_build(buf, 300, 0xAABBCCDD, &c);
@@ -189,7 +208,7 @@ void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);
@@ -239,7 +258,7 @@ void test_persist(void)
     uint8_t blob[ESL_PERSIST_BLOB_MAX];
     uint64_t mac;
 
-    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_RED);
+    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
     esl_content_add_field(&c, S("Br\xF8" "d"));
     esl_content_add_field(&c, S(""));
     esl_content_add_field(&c, S("39,90"));

@@ -8,5 +8,5 @@
     "price": "{price}",
     "subtitle": "{unit_price}"
   },
-  "style": { "price_red": true, "frame_red": false }
+  "style": { "price_highlight": true, "frame": false }
 }

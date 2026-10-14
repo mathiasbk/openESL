@@ -9,7 +9,7 @@ Wiring:
 | D5      | debug pad 4 (UART TX) |
 | GND     | GND |
 
-The board only listens; nothing drives the tag. Tag UART is 9600 baud, USB serial is 115200.
+The board only listens; nothing drives the tag. Tag UART and USB serial are both 115200 baud.
 
 ```sh
 cd tools/wemos-debug

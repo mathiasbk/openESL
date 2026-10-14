@@ -144,6 +144,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->shown_content_id = poll->content_id;
         t->battery_mv = poll->battery_mv;
         t->fw = poll->fw_ver;
+        t->model = poll->model;
         t->rssi = rssi;
         t->poll_flags = poll->flags;
         t->polls++;

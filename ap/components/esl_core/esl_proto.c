@@ -1,6 +1,11 @@
 #include "esl_proto.h"
 #include <string.h>
 
+/* The CONTENT header in shared/proto.h counts layout and flags; the AP builds
+ * up to content_id and lets esl_content_body() add the rest. */
+_Static_assert(ESL_CONTENT_OFF_LAYOUT + 2 == ESL_CONTENT_HDR_LEN, "CONTENT layout");
+_Static_assert(ESL_MHR_LEN == 15 && ESL_PSDU_MAX == 127, "802.15.4 frame");
+
 static void put16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)v;
@@ -41,10 +46,11 @@ bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out)
 {
     if (len < ESL_POLL_LEN || p[0] != ESL_MSG_POLL || p[1] != ESL_PROTO_VER)
         return false;
-    out->fw_ver = get16(&p[2]);
-    out->battery_mv = get16(&p[4]);
-    out->content_id = get32(&p[6]);
-    out->flags = p[10];
+    out->fw_ver = get16(&p[ESL_POLL_OFF_FW]);
+    out->battery_mv = get16(&p[ESL_POLL_OFF_BATT]);
+    out->content_id = get32(&p[ESL_POLL_OFF_CID]);
+    out->flags = p[ESL_POLL_OFF_FLAGS];
+    out->model = p[ESL_POLL_OFF_MODEL];
     return true;
 }
 
@@ -52,11 +58,11 @@ size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll)
 {
     out[0] = ESL_MSG_POLL;
     out[1] = ESL_PROTO_VER;
-    put16(&out[2], poll->fw_ver);
-    put16(&out[4], poll->battery_mv);
-    put32(&out[6], poll->content_id);
-    out[10] = poll->flags;
-    out[11] = 0;
+    put16(&out[ESL_POLL_OFF_FW], poll->fw_ver);
+    put16(&out[ESL_POLL_OFF_BATT], poll->battery_mv);
+    put32(&out[ESL_POLL_OFF_CID], poll->content_id);
+    out[ESL_POLL_OFF_FLAGS] = poll->flags;
+    out[ESL_POLL_OFF_MODEL] = poll->model;
     return ESL_POLL_LEN;
 }
 
@@ -64,7 +70,7 @@ size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s)
 {
     out[0] = ESL_MSG_IDLE;
     out[1] = ESL_PROTO_VER;
-    put16(&out[2], next_poll_s);
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
     return ESL_IDLE_LEN;
 }
 
@@ -72,18 +78,46 @@ size_t esl_content_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t conten
 {
     out[0] = ESL_MSG_CONTENT;
     out[1] = ESL_PROTO_VER;
-    put16(&out[2], next_poll_s);
-    put32(&out[4], content_id);
-    return ESL_CONTENT_HDR_LEN + esl_content_body(c, &out[ESL_CONTENT_HDR_LEN]);
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put32(&out[ESL_CONTENT_OFF_CID], content_id);
+    return ESL_CONTENT_OFF_LAYOUT + esl_content_body(c, &out[ESL_CONTENT_OFF_LAYOUT]);
+}
+
+bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (len < ESL_IDLE_LEN || p[ESL_OFF_VER] != ESL_PROTO_VER)
+        return false;
+    out->type = p[ESL_OFF_TYPE];
+    out->next_poll_s = get16(&p[ESL_OFF_NEXT_POLL]);
+    if (out->type == ESL_MSG_IDLE)
+        return len == ESL_IDLE_LEN;
+    if (out->type != ESL_MSG_CONTENT || len < ESL_CONTENT_HDR_LEN)
+        return false;
+    out->content_id = get32(&p[ESL_CONTENT_OFF_CID]);
+    if (esl_content_init(&out->content, p[ESL_CONTENT_OFF_LAYOUT], p[ESL_CONTENT_OFF_FLAGS]) != ESL_CONTENT_OK)
+        return false;
+    size_t o = ESL_CONTENT_OFF_FIELDS;
+    while (o < len) {
+        uint8_t fl = p[o++];
+        if (fl > len - o || esl_content_add_field(&out->content, &p[o], fl) != ESL_CONTENT_OK)
+            return false;
+        o += fl;
+    }
+    return true;
+}
+
+static bool fcf_matches(uint16_t fcf, uint16_t want)
+{
+    /* Ignore frame pending, ACK request and frame version bits. */
+    return (fcf & ~(uint16_t)0x3030) == (want & ~(uint16_t)0x3030);
 }
 
 bool esl_frame_parse_from_tag(const uint8_t *psdu, size_t psdu_len, esl_rx_frame_t *out)
 {
     if (psdu_len < ESL_MHR_LEN + ESL_FCS_LEN || psdu_len > ESL_PSDU_MAX)
         return false;
-    uint16_t fcf = get16(psdu);
-    /* Ignore frame pending, ACK request and frame version bits. */
-    if ((fcf & ~(uint16_t)0x3030) != (ESL_FCF_TAG_TO_AP & ~(uint16_t)0x3030))
+    if (!fcf_matches(get16(psdu), ESL_FCF_TAG_TO_AP))
         return false;
     out->seq = psdu[2];
     out->dst_pan = get16(&psdu[3]);
@@ -124,6 +158,21 @@ size_t esl_frame_build_from_tag(uint8_t *out, uint8_t seq, uint16_t pan, uint16_
     return ESL_MHR_LEN + payload_len + ESL_FCS_LEN;
 }
 
+bool esl_frame_parse_to_tag(const uint8_t *psdu, size_t psdu_len, esl_ap_frame_t *out)
+{
+    if (psdu_len < ESL_MHR_LEN + ESL_FCS_LEN || psdu_len > ESL_PSDU_MAX)
+        return false;
+    if (!fcf_matches(get16(psdu), ESL_FCF_AP_TO_TAG))
+        return false;
+    out->seq = psdu[ESL_AT_OFF_SEQ];
+    out->dst_pan = get16(&psdu[ESL_AT_OFF_PAN]);
+    out->dst_mac = get64(&psdu[ESL_AT_OFF_DST]);
+    out->src_short = get16(&psdu[ESL_AT_OFF_SRC]);
+    out->payload = &psdu[ESL_MHR_LEN];
+    out->payload_len = psdu_len - ESL_MHR_LEN - ESL_FCS_LEN;
+    return true;
+}
+
 bool esl_mac_parse(const char *s, size_t len, uint64_t *out)
 {
     uint64_t v = 0;
@@ -154,4 +203,23 @@ void esl_mac_format(uint64_t mac, char out[17])
         mac >>= 4;
     }
     out[16] = '\0';
+}
+
+const char *esl_model_name(uint8_t model)
+{
+    switch (model) {
+    case ESL_MODEL_29:  return "2.9";
+    case ESL_MODEL_154: return "1.54";
+    default:            return NULL;
+    }
+}
+
+uint8_t esl_model_parse(const char *s, size_t len)
+{
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+        const char *name = esl_model_name(m);
+        if (strlen(name) == len && memcmp(name, s, len) == 0)
+            return m;
+    }
+    return ESL_MODEL_UNKNOWN;
 }

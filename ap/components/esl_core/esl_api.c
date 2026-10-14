@@ -5,6 +5,11 @@
 #include <string.h>
 
 #define PATH_TAGS "/api/tags"
+#define PATH_LAYOUTS "/api/layouts"
+
+_Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
+_Static_assert(ESL_API_MAX_BODY > ESL_LAYOUT_MAX_SIZE && ESL_API_RESP_SIZE(0) > ESL_LAYOUT_MAX_SIZE,
+               "a layout file must fit in a request and a response");
 
 typedef struct {
     const char *js;
@@ -90,7 +95,7 @@ static int parse_bool(const json_t *j, int obj, const char *key, bool *out)
     return -1;
 }
 
-/* Fills c from {layout, fields, price_red, frame_red}. Returns 0 or an HTTP
+/* Fills c from {layout, fields, price_highlight, frame}. Returns 0 or an HTTP
  * status with *msg set. */
 static int parse_content(const json_t *j, int obj, esl_content_t *c, const char **msg)
 {
@@ -105,12 +110,12 @@ static int parse_content(const json_t *j, int obj, esl_content_t *c, const char 
         return 422;
     }
 
-    bool price_red, frame_red;
-    if (parse_bool(j, obj, "price_red", &price_red) < 0 || parse_bool(j, obj, "frame_red", &frame_red) < 0) {
-        *msg = "price_red and frame_red must be true or false";
+    bool price_highlight, frame;
+    if (parse_bool(j, obj, "price_highlight", &price_highlight) < 0 || parse_bool(j, obj, "frame", &frame) < 0) {
+        *msg = "price_highlight and frame must be true or false";
         return 422;
     }
-    esl_content_init(c, layout, (uint8_t)((price_red ? ESL_CFLAG_PRICE_RED : 0) | (frame_red ? ESL_CFLAG_FRAME_RED : 0)));
+    esl_content_init(c, layout, (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0)));
 
     int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
     if (arr < 0 || j->tok[arr].type != ESL_JSON_ARRAY) {
@@ -145,7 +150,7 @@ static int parse_content(const json_t *j, int obj, esl_content_t *c, const char 
             return 422;
         }
         if (overflow || esl_content_add_field(c, latin1, n) != ESL_CONTENT_OK) {
-            *msg = "text too long (max 90 bytes after Latin-1 conversion)";
+            *msg = "text too long (max 92 bytes after Latin-1 conversion)";
             return 422;
         }
         i = t->next;
@@ -193,6 +198,14 @@ static void write_tag(esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool w
                       (now_ms - t->last_seen_ms) / 1000, (unsigned)t->battery_mv, (int)t->rssi, (unsigned)t->fw);
     else
         esl_sb_puts(out, "\"seen_s_ago\":null,\"battery_mv\":null,\"rssi\":null,\"fw\":null,");
+    /* model: null until the tag has polled, and for firmware that does not
+     * send it; draw_failed: the tag's last POLL said its last drawing failed */
+    const char *model = t->seen ? esl_model_name(t->model) : NULL;
+    if (model)
+        esl_sb_printf(out, "\"model\":\"%s\",", model);
+    else
+        esl_sb_puts(out, "\"model\":null,");
+    esl_sb_printf(out, "\"draw_failed\":%s,", (t->seen && (t->poll_flags & ESL_POLL_FLAG_DRAW_FAILED)) ? "true" : "false");
     esl_sb_printf(out, "\"content_id\":%" PRIu32 ",", t->has_content ? t->content_id : 0);
     if (t->seen)
         esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", t->shown_content_id);
@@ -209,9 +222,9 @@ static void write_tag(esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool w
                 esl_sb_putc(out, ',');
             esl_sb_json_latin1(out, f, len);
         }
-        esl_sb_printf(out, "],\"price_red\":%s,\"frame_red\":%s",
-                      (t->content.flags & ESL_CFLAG_PRICE_RED) ? "true" : "false",
-                      (t->content.flags & ESL_CFLAG_FRAME_RED) ? "true" : "false");
+        esl_sb_printf(out, "],\"price_highlight\":%s,\"frame\":%s",
+                      (t->content.flags & ESL_CFLAG_PRICE_HIGHLIGHT) ? "true" : "false",
+                      (t->content.flags & ESL_CFLAG_FRAME) ? "true" : "false");
     }
     esl_sb_putc(out, '}');
 }
@@ -340,6 +353,195 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     return 200;
 }
 
+/* ---- layouts ------------------------------------------------------------------- */
+
+static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
+{
+    uint32_t version;
+    size_t len;
+    esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
+    if (esl_layouts_info(ls, model, &version, &len))
+        esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u}", version, (unsigned)len);
+    else
+        esl_sb_puts(out, "\"version\":null,\"size\":0}");
+}
+
+static int put_layout(const esl_api_t *api, uint8_t model, const char *body, size_t len, esl_sb_t *out)
+{
+    if (!body || len == 0)
+        return api_error(out, 400, "missing JSON body");
+    if (len > ESL_LAYOUT_MAX_SIZE)
+        return api_error(out, 413, "layout file too large (max 8192 bytes)");
+
+    /* Any JSON object for now; the file format is not specified yet. Every
+     * token takes at least two bytes of input except the last, so len/2 + 2
+     * tokens always suffice. */
+    unsigned max_tok = (unsigned)(len / 2 + 2);
+    esl_jtok_t *tok = malloc(sizeof(esl_jtok_t) * max_tok);
+    if (!tok)
+        return api_error(out, 500, "out of memory");
+    int n = esl_json_parse(body, len, tok, max_tok);
+    bool object = n > 0 && tok[0].type == ESL_JSON_OBJECT;
+    free(tok);
+    if (n < 0)
+        return api_error(out, 400, "invalid JSON");
+    if (!object)
+        return api_error(out, 400, "layout file must be a JSON object");
+
+    bool changed;
+    uint32_t version = esl_layouts_set(api->layouts, model, body, len, &changed);
+    if (!version)
+        return api_error(out, 500, "could not store layout");
+    esl_sb_printf(out, "{\"model\":\"%s\",\"version\":%" PRIu32 ",\"size\":%u,\"changed\":%s}",
+                  esl_model_name(model), version, (unsigned)len, changed ? "true" : "false");
+    return 200;
+}
+
+static int handle_layouts(const esl_api_t *api, const char *method, const char *uri, size_t plen,
+                          const char *body, size_t body_len, esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_LAYOUTS) - 1;
+    esl_layouts_t *ls = api->layouts;
+
+    if (plen == base || (plen == base + 1 && uri[base] == '/')) {
+        if (strcmp(method, "GET") != 0)
+            return api_error(out, 405, "method not allowed");
+        esl_sb_puts(out, "{\"max_size\":");
+        esl_sb_printf(out, "%u,\"layouts\":[", (unsigned)ESL_LAYOUT_MAX_SIZE);
+        for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+            if (m > 1)
+                esl_sb_putc(out, ',');
+            write_layout_info(out, ls, m);
+        }
+        esl_sb_puts(out, "]}");
+        return 200;
+    }
+    if (uri[base] != '/')
+        return api_error(out, 404, "not found");
+
+    size_t ml = plen - base - 1;
+    if (ml > 0 && uri[base + ml] == '/')
+        ml--;
+    uint8_t model = esl_model_parse(&uri[base + 1], ml);
+    if (model == ESL_MODEL_UNKNOWN)
+        return api_error(out, 404, "unknown model (use 2.9 or 1.54)");
+
+    if (strcmp(method, "PUT") == 0)
+        return put_layout(api, model, body, body_len, out);
+    if (strcmp(method, "GET") == 0) {
+        if (!esl_layouts_write(ls, model, out))
+            return api_error(out, 404, "no layout for this model");
+        return 200;
+    }
+    if (strcmp(method, "DELETE") == 0) {
+        if (!esl_layouts_delete(ls, model))
+            return api_error(out, 404, "no layout for this model");
+        esl_sb_printf(out, "{\"model\":\"%s\",\"deleted\":true}", esl_model_name(model));
+        return 200;
+    }
+    return api_error(out, 405, "method not allowed");
+}
+
+/* ---- status page ------------------------------------------------------------------ */
+
+/* Latin-1 to UTF-8, escaped for HTML text and attribute values. */
+static void html_latin1(esl_sb_t *out, const uint8_t *s, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        uint8_t c = s[i];
+        if (c == '&')
+            esl_sb_puts(out, "&amp;");
+        else if (c == '<')
+            esl_sb_puts(out, "&lt;");
+        else if (c == '>')
+            esl_sb_puts(out, "&gt;");
+        else if (c == '"')
+            esl_sb_puts(out, "&#34;");
+        else if (c >= 0x80) {
+            esl_sb_putc(out, (char)(0xC0 | (c >> 6)));
+            esl_sb_putc(out, (char)(0x80 | (c & 0x3F)));
+        } else
+            esl_sb_putc(out, (char)c);
+    }
+}
+
+static void html_ago(esl_sb_t *out, uint64_t s)
+{
+    if (s < 120)
+        esl_sb_printf(out, "%" PRIu64 " s", s);
+    else if (s < 7200)
+        esl_sb_printf(out, "%" PRIu64 " min", s / 60);
+    else if (s < 172800)
+        esl_sb_printf(out, "%" PRIu64 " h", s / 3600);
+    else
+        esl_sb_printf(out, "%" PRIu64 " d", s / 86400);
+}
+
+int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
+{
+    sb_reset(out);
+    esl_sb_puts(out,
+                "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                "<meta http-equiv=\"refresh\" content=\"30\"><title>OpenESL AP</title><style>"
+                "body{font-family:sans-serif;margin:16px}table{border-collapse:collapse}"
+                "td,th{border:1px solid #999;padding:4px 8px;text-align:left}"
+                ".p{color:#b00}</style></head><body><h1>OpenESL AP</h1><p>Firmware ");
+    html_latin1(out, (const uint8_t *)(api->fw_version ? api->fw_version : ""),
+                api->fw_version ? strlen(api->fw_version) : 0);
+    esl_sb_puts(out, ", up ");
+    html_ago(out, now_ms / 1000);
+    esl_sb_printf(out, ", channel %u, %u of %u tags.</p>", (unsigned)api->channel,
+                  esl_store_count(api->store), api->store->cap);
+    esl_sb_puts(out, "<table><tr><th>MAC</th><th>Model</th><th>Seen</th><th>Battery</th><th>RSSI</th>"
+                     "<th>FW</th><th>Content</th><th>State</th></tr>");
+
+    for (unsigned s = 0; s < api->store->cap; s++) {
+        esl_tag_t t;
+        char m[17];
+        if (!esl_store_get_slot(api->store, s, &t))
+            continue;
+        esl_mac_format(t.mac, m);
+        const char *model = t.seen ? esl_model_name(t.model) : NULL;
+        esl_sb_printf(out, "<tr><td>%s</td><td>%s</td><td>", m, model ? model : "-");
+        if (t.seen) {
+            html_ago(out, (now_ms - t.last_seen_ms) / 1000);
+            esl_sb_printf(out, " ago</td><td>%u mV</td><td>%d</td><td>%u</td><td>", (unsigned)t.battery_mv,
+                          (int)t.rssi, (unsigned)t.fw);
+        } else {
+            esl_sb_puts(out, "-</td><td>-</td><td>-</td><td>-</td><td>");
+        }
+        if (t.has_content) {
+            esl_sb_puts(out, t.content.layout == ESL_LAYOUT_PRICE ? "price: " : "text: ");
+            for (unsigned i = 0; i < t.content.nfields; i++) {
+                uint8_t len;
+                const uint8_t *f = esl_content_field(&t.content, i, &len);
+                if (i)
+                    esl_sb_puts(out, " | ");
+                html_latin1(out, f, len);
+            }
+        } else {
+            esl_sb_puts(out, "-");
+        }
+        if (esl_tag_pending(&t))
+            esl_sb_puts(out, "</td><td class=\"p\">pending");
+        else if (t.has_content)
+            esl_sb_puts(out, "</td><td>shown");
+        else
+            esl_sb_puts(out, "</td><td>no content");
+        if (t.seen && (t.poll_flags & ESL_POLL_FLAG_DRAW_FAILED))
+            esl_sb_puts(out, ", draw failed");
+        esl_sb_puts(out, "</td></tr>");
+    }
+    esl_sb_puts(out, "</table></body></html>");
+    if (out->overflow) {
+        sb_reset(out);
+        esl_sb_puts(out, "status page too large");
+        return 500;
+    }
+    return 200;
+}
+
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out)
 {
@@ -351,6 +553,15 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return api_error(out, 404, "not found");
     if (!auth_ok(api->token, auth))
         return api_error(out, 401, "unauthorized");
+
+    const size_t lbase = sizeof(PATH_LAYOUTS) - 1;
+    if (api->layouts && plen >= lbase && memcmp(uri, PATH_LAYOUTS, lbase) == 0 &&
+        (plen == lbase || uri[lbase] == '/')) {
+        int status = handle_layouts(api, method, uri, plen, body, body_len, out);
+        if (out->overflow)
+            return api_error(out, 500, "response too large");
+        return status;
+    }
 
     bool collection = false, item = false;
     uint64_t mac = 0;

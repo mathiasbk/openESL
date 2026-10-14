@@ -5,7 +5,7 @@
 #include <SoftwareSerial.h>
 
 static const uint8_t TAG_RX_PIN = D5;
-static const uint32_t TAG_BAUD = 9600;
+static const uint32_t TAG_BAUD = 115200;
 static const uint32_t USB_BAUD = 115200;
 
 // TX pin -1: receive only
@@ -16,7 +16,7 @@ void setup() {
   tag.begin(TAG_BAUD);
   delay(100);
   Serial.println();
-  Serial.println("[wemos-debug] listening on D5 at 9600 baud");
+  Serial.println("[wemos-debug] listening on D5 at 115200 baud");
 }
 
 void loop() {

@@ -92,6 +92,28 @@ done:
     return ret;
 }
 
+#if CONFIG_ESL_STATUS_PAGE
+/* GET /: the status page (krav A6). Read-only and without a token. */
+static esp_err_t page_handler(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    size_t cap = ESL_API_PAGE_SIZE(CONFIG_ESL_MAX_TAGS);
+    char *page = malloc(cap);
+    if (!page) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return httpd_resp_sendstr(req, "out of memory");
+    }
+    esl_sb_t out;
+    esl_sb_init(&out, page, cap);
+    int status = esl_api_status_page(api, (uint64_t)esp_timer_get_time() / 1000, &out);
+    httpd_resp_set_status(req, esl_api_status_line(status));
+    httpd_resp_set_type(req, status == 200 ? "text/html; charset=utf-8" : "text/plain");
+    esp_err_t ret = httpd_resp_send(req, out.buf, (ssize_t)out.len);
+    free(page);
+    return ret;
+}
+#endif
+
 esp_err_t http_api_start(const esl_api_t *api)
 {
     httpd_handle_t server = NULL;
@@ -115,6 +137,17 @@ esp_err_t http_api_start(const esl_api_t *api)
         if (err != ESP_OK)
             return err;
     }
+#if CONFIG_ESL_STATUS_PAGE
+    httpd_uri_t page = {
+        .uri = "/",
+        .method = HTTP_GET,
+        .handler = page_handler,
+        .user_ctx = (void *)api,
+    };
+    err = httpd_register_uri_handler(server, &page);
+    if (err != ESP_OK)
+        return err;
+#endif
     ESP_LOGI(TAG, "HTTP API on port %d", cfg.server_port);
     return ESP_OK;
 }

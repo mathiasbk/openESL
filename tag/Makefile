@@ -3,7 +3,7 @@
 
 PYTHON ?= python
 
-.PHONY: all fw test preview fonts clean
+.PHONY: all fw test preview host fonts clean
 
 all: test fw
 
@@ -15,6 +15,10 @@ test:
 
 preview:
 	$(PYTHON) tools/build.py preview
+
+# Tests and previews for every tag model (2.9" and 1.54"), see tools/render_host.py
+host:
+	$(PYTHON) tools/render_host.py
 
 fonts:
 	$(PYTHON) tools/build.py fonts

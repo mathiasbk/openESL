@@ -11,6 +11,8 @@ void test_persist(void);
 void test_json(void);
 void test_store(void);
 void test_api(void);
+void test_layout(void);
+void test_radio(void);
 
 static const struct {
     const char *name;
@@ -25,6 +27,8 @@ static const struct {
     {"json", test_json},
     {"store", test_store},
     {"api", test_api},
+    {"layout", test_layout},
+    {"radio", test_radio},
 };
 
 int main(void)

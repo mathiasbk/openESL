@@ -18,11 +18,15 @@ Design file (JSON; the // comments below are only explanations, not part of the 
     "price": "{price}",
     "subtitle": "{unit_price}"
   },
-  "style": { "price_red": true, "frame_red": false }
-}
+  "style": { "price_highlight": true, "frame": false }
+}                                          // price_highlight: white price in a black box
+                                           // (price layout only); frame: black frame.
+                                           // The tags are black/white, there is no red.
 
 Values can contain placeholders like {key}. The client's data gives the value for each key.
-Unknown placeholders, and text that cannot be written as Latin-1, are errors.
+Unknown placeholders, and text that cannot be written as Latin-1, are errors. The characters
+the AP itself replaces (dashes, curly quotes, special spaces, "…"; see AP_REPLACE) are allowed,
+and the text limit is counted after that replacement, as the AP does.
 
 Usage:
   python tools/label_design.py check designs/*.json
@@ -39,20 +43,36 @@ LAYOUTS = {
     "price": ["name", "price", "subtitle"],   # same order as the CONTENT packet
     "text": ["line1", "line2", "line3", "line4"],
 }
-STYLE_KEYS = {"price_red", "frame_red"}
+STYLE_KEYS = {"price_highlight", "frame"}
 MAX_TEXT_BYTES = 92        # ESL_MAX_TEXT_BYTES in shared/proto.h
 MAX_FIELD_BYTES = 255      # the length is one byte in the packet
 PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
 
+# Characters outside Latin-1 that the AP replaces before sending
+# (ap/components/esl_core/esl_text.c). Keep the two in step.
+AP_REPLACE = {}
+AP_REPLACE.update({c: " " for c in "\u2002\u2003\u2009\u200a\u202f"})
+AP_REPLACE.update({c: "-" for c in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"})
+AP_REPLACE.update({c: "'" for c in "\u2018\u2019\u201a\u2032"})
+AP_REPLACE.update({c: '"' for c in "\u201c\u201d\u201e\u2033"})
+AP_REPLACE["\u2022"] = "\u00b7"
+AP_REPLACE["\u2026"] = "..."
+
+
 class DesignError(ValueError):
     pass
 
 
+def to_latin1(text):
+    """The bytes the tag receives for text (after the AP's replacements)."""
+    return "".join(AP_REPLACE.get(c, c) for c in text).replace("\u00a0", " ").encode("latin-1")
+
+
 def _check_latin1(text, where):
     try:
-        text.encode("latin-1")
+        to_latin1(text)
     except UnicodeEncodeError as e:
         raise DesignError("%s: the character %r cannot be written as Latin-1" % (where, e.object[e.start]))
 
@@ -93,8 +113,8 @@ def validate(d):
     for k, v in style.items():
         if not isinstance(v, bool):
             raise DesignError("style.%s must be true or false" % k)
-    if layout == "text" and style.get("price_red"):
-        raise DesignError("price_red only applies to layout price")
+    if layout == "text" and style.get("price_highlight"):
+        raise DesignError("price_highlight only applies to layout price")
     return d
 
 
@@ -110,7 +130,7 @@ def _fill(template, data, where):
 def render(d, data):
     """
     Gives the fields for one piece of content, in the same form as PUT /api/tags/{mac}:
-    {"layout": ..., "fields": [...], "price_red": bool, "frame_red": bool}
+    {"layout": ..., "fields": [...], "price_highlight": bool, "frame": bool}
     Empty text gives an empty string. Text that cannot be written as Latin-1 is an error.
     """
     validate(d)
@@ -119,17 +139,17 @@ def render(d, data):
     for key in LAYOUTS[layout]:
         value = _fill(d["fields"].get(key, ""), data, "%s.%s" % (d["id"], key))
         _check_latin1(value, "field %s" % key)
-        if len(value.encode("latin-1")) > MAX_FIELD_BYTES:
+        if len(to_latin1(value)) > MAX_FIELD_BYTES:
             raise DesignError("field %s is too long" % key)
         fields.append(value)
-    total = sum(len(f.encode("latin-1")) for f in fields)
+    total = sum(len(to_latin1(f)) for f in fields)
     if total > MAX_TEXT_BYTES:
         raise DesignError("the text is %d bytes, maximum %d (requirement in protokoll.md)" % (total, MAX_TEXT_BYTES))
     style = d.get("style", {})
     out = {"layout": layout, "fields": fields}
     if layout == "price":
-        out["price_red"] = bool(style.get("price_red", False))
-    out["frame_red"] = bool(style.get("frame_red", False))
+        out["price_highlight"] = bool(style.get("price_highlight", False))
+    out["frame"] = bool(style.get("frame", False))
     return out
 
 

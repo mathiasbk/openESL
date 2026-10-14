@@ -41,7 +41,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | next_poll_s | 2 | as in IDLE |
 | content_id | 4 | new ID |
 | layout | 1 | 1 = Price, 2 = Text |
-| flags | 1 | bit0 = red price, bit1 = red frame/stripe |
+| flags | 1 | bit0 = highlighted price (white digits in a black box), bit1 = black frame around the screen |
 | fields | rest | up to 4 text fields, each as `length (1 byte)` + Latin-1 text |
 
 Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`. The text is at most about 96 bytes in total. Reserve 4 bytes for a future MIC (requirement T16), so the AP rejects anything over **about 90 bytes of text** (after conversion to Latin-1).
@@ -74,12 +74,12 @@ Text is sent as UTF-8 JSON. The AP converts it to Latin-1 (unknown characters be
 
 ### `PUT /api/tags/{mac}`: set content for one tag
 ```json
-{ "layout": "price", "fields": ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], "price_red": true }
+{ "layout": "price", "fields": ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], "price_highlight": true }
 ```
 ```json
-{ "layout": "text", "fields": ["Welcome", "Open 9–21", "", ""], "frame_red": true }
+{ "layout": "text", "fields": ["Welcome", "Open 9–21", "", ""], "frame": true }
 ```
-- `price_red` (bool) gives a red price (flag bit0 in CONTENT). `frame_red` (bool) gives a red frame around the screen (flag bit1). Both are optional and default to `false`.
+- `price_highlight` (bool) highlights the price: white digits in a filled black box, as the stock firmware does (flag bit0 in CONTENT, only used by layout `price`). `frame` (bool) gives a black frame around the screen (flag bit1). Both are optional and default to `false`. The tags are black/white only; there is no red.
 - `layout` is `price` or `text` today. When layout files arrive (part 3), it becomes a layout name from the file (requirement A14).
 
 Reply `200`:
@@ -92,7 +92,7 @@ Reply `200`:
 
 ### `PUT /api/tags`: set content for many tags (batch)
 ```json
-{ "tags": [ { "mac": "00000123456789A8", "layout": "price", "fields": ["…","…","…"], "price_red": false }, … ] }
+{ "tags": [ { "mac": "00000123456789A8", "layout": "price", "fields": ["…","…","…"], "price_highlight": false }, … ] }
 ```
 Reply `200` with one line per tag as above. Practical for the daily price job: one call instead of one per tag. Max 50 tags per call (limited by RAM on the AP). The batch is all-or-nothing: one invalid row gives `422` with `index` pointing at the row, and no tag is changed. `507` if the table becomes full.
 
@@ -113,7 +113,7 @@ Reply `200` with one line per tag as above. Practical for the daily price job: o
 - `seen_s_ago`, `battery_mv`, `rssi` and `fw` are `null` for tags not seen since the AP started.
 
 ### `GET /api/tags/{mac}`: status for one tag
-The same object as one line in the list above, plus the content (`layout`, `fields`, `price_red`, `frame_red`).
+The same object as one line in the list above, plus the content (`layout`, `fields`, `price_highlight`, `frame`).
 
 ### `DELETE /api/tags/{mac}`
 Removes the tag from the AP. The tag keeps what it shows until it gets new content.

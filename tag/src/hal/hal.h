@@ -24,6 +24,16 @@ void hal_uart_puts(const char *s);
 /* The tag's 64-bit MAC in the order it is sent over the air (least significant byte first). */
 void hal_mac_read(uint8_t *mac8);
 uint16_t battery_read_mv(void);
+/* Chip temperature in whole degrees C (factory calibrated; 20 if no calibration). */
+int8_t hal_temp_c(void);
+
+/* ---- Persistent store: one small record in flash (requirement T12, settings) ----
+ * hal_store_write erases and rewrites the whole record (max HAL_STORE_MAX bytes);
+ * the radio must be off. hal_store_read returns its length, or 0 if there is none
+ * or it is damaged. */
+#define HAL_STORE_MAX 200
+bool hal_store_write(const uint8_t *data, uint8_t len);
+uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 
 /* ---- Radio (802.15.4) ---- */
 void radio_init(uint8_t channel);

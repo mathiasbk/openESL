@@ -7,7 +7,8 @@
 /* IDLE payload. Returns the length. */
 uint8_t make_idle(uint8_t *out, uint16_t next_poll_s);
 
-/* UTF-8 -> Latin-1 the way the AP does it (unknown characters become '?'). Returns the length. */
+/* UTF-8 -> Latin-1 the way the AP does it (dashes become '-', curly quotes straight,
+   "…" becomes "...", other unknown characters '?'). Returns the length. */
 uint8_t to_latin1(uint8_t *out, const char *utf8);
 
 /* Like to_latin1, but in one of four rotating static buffers. len may be NULL. */
