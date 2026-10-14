@@ -16,6 +16,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [fremdriftsplan.md](fremdriftsplan.md) | Phases, milestones, estimates and checkpoints |
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
+| [st-gm16xx2.md](st-gm16xx2.md) | The 1.6" ST-GM16XX2 (200×200 BW): panel detection, init and refresh, and what its controller does not do |
 
 ## The main choices (short version)
 
