@@ -23,7 +23,7 @@ typedef struct {
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a
  * layout file. */
-#define ESL_API_RESP_SIZE_(n) (512 + 352 * (n))
+#define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
 #define ESL_API_RESP_SIZE(max_tags) \
     ESL_API_RESP_SIZE_((max_tags) > ESL_API_MAX_BATCH ? (max_tags) : ESL_API_MAX_BATCH)
 
@@ -37,7 +37,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
 /* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (1024 + 768 * (max_tags))
+#define ESL_API_PAGE_SIZE(max_tags) (2560 + 896 * (max_tags))
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);

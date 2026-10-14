@@ -2,7 +2,7 @@
 
 One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
-**Status:** the core, the HTTP API (including layout files and the status page) and the radio receive path are written, and the host tests pass: 698 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.875 MB app slot. It has **not been flashed** yet.
+**Status:** the core, the HTTP API (including layout files and the status page), the radio receive path and the layout transfer to the tags are written, and the host tests pass: 1284 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS and layout files downloaded block by block. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.875 MB app slot. It has **not been flashed** yet.
 
 ## Layout
 
@@ -11,11 +11,13 @@ ap/
   components/esl_core/    plain C, no ESP-IDF dependency, tested on the PC
     esl_content   content model, serialisation, content_id (CRC32)
     esl_text      UTF-8 -> Latin-1 (æøå, dashes, curly quotes; unknown -> '?')
-    esl_proto     POLL/IDLE/CONTENT and the 802.15.4 frame (15-byte header), MAC and model as text;
-                  constants from shared/proto.h
-    esl_radio     receive path: frame -> POLL -> store -> reply frame; fake tag for the stub and tests
-    esl_store     table MAC -> content + status, diffing, prebuilt replies
-    esl_layout    layout file per tag model, with version
+    esl_proto     POLL/IDLE/CONTENT/LAYOUT/LAYOUT_REQ and the 802.15.4 frame (15-byte header),
+                  MAC and model as text; constants from shared/proto.h
+    esl_radio     receive path: frame -> POLL or LAYOUT_REQ -> store/layouts -> reply frame;
+                  fake tag (with layout download) for the stub and tests
+    esl_store     table MAC -> content + status, diffing, the answer to a POLL
+    esl_layout    layout files per tag model: storage, version, blocks for the radio
+    esl_layout_compile  layout file (JSON) -> the binary the tags download, checked per model
     esl_persist   blob format for NVS
     esl_json      small JSON parser and writer
     esl_api       HTTP API (routes, token, validation) and the status page, independent of the HTTP server
@@ -32,6 +34,7 @@ ap/
 
 - `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag.
 - Trailing empty fields are removed before the id is computed, so `["a",""]` and `["a"]` are the same content.
+- Content with a layout from a layout file is stored by name; the id covers the name, so it is the same on both models. The store turns the name into "layout n of the file" for the tag's model each time it answers a POLL.
 - Text is converted to Latin-1 and rejected with `422` above 92 bytes in total (`ESL_MAX_TEXT_BYTES` in `shared/proto.h`: what fits in the 110-byte payload with four length bytes and the 4 bytes reserved for a MIC; the same limit as `tag/tools/label_design.py`).
 - A tag is `pending` until it has reported the correct `content_id` in a POLL. After an AP restart the content is read from NVS; a tag that already shows it gets IDLE, not a redraw.
 - Unknown tags that send POLL are added to the table without content (`content_id:0`). If the table is full, the tag that was seen longest ago and has no content is replaced when a client sends content for a new MAC.
@@ -48,33 +51,37 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
 curl -H "Authorization: Bearer $TOKEN" http://openesl.local/api/tags
 ```
 
-Additions to protokoll.md part 2 (not yet written into docs/):
+Every tag object also has `"model"`, `"draw_failed"`, `"layout_version"`, `"layout_pending"`, `"layout_failed"` and `"content_error"` (protokoll.md part 2).
 
-- Every tag object has `"model"` (`"2.9"`, `"1.54"`, or `null` when the tag has not polled since boot or does not send a model) and `"draw_failed"` (bit1 of the flags in the tag's last POLL).
-- Layout files per model (part 3, requirement A12). The file format is not specified yet, so the AP accepts any JSON object up to 8192 bytes and stores it as it is. The version is the CRC32 of the file. Model names in the URL: `2.9`, `1.54`.
+### Layout files (krav A12-A14)
 
-| Request | Reply |
-|---|---|
-| `PUT /api/layouts/{model}` with the file as body | `{"model":"2.9","version":123,"size":456,"changed":true}`. `400` if not a JSON object, `413` above 8192 bytes, `404` for an unknown model. The same file again gives `changed:false` and no NVS write. |
-| `GET /api/layouts` | `{"max_size":8192,"layouts":[{"model":"2.9","version":123,"size":456},{"model":"1.54","version":null,"size":0}]}` |
-| `GET /api/layouts/{model}` | the file as uploaded, `404` if none |
-| `DELETE /api/layouts/{model}` | `{"model":"2.9","deleted":true}`, `404` if none |
+The file format, the checks and the endpoints are in [docs/protokoll.md](../docs/protokoll.md) part 3 and part 2; the radio transfer in part 1. In short:
 
-The layouts are stored and survive a restart, but are **not yet sent to the tags**: that needs the block transfer in protokoll.md part 3.
+```bash
+curl -X PUT http://openesl.local/api/layouts/2.9 -H "Authorization: Bearer $TOKEN" \
+  --data-binary @../tag/designs/layouts/2.9.json
+curl -X PUT http://openesl.local/api/tags/00000123456789A8 -H "Authorization: Bearer $TOKEN" \
+  -d '{"layout":"shelf","fields":["Kaffe 500 g","49,90","kr 99,80/kg","Tilbud"],"price_highlight":true}'
+```
+
+- `PUT /api/layouts/{model}` compiles the file for that model (`esl_layout_compile`) and answers `422` with the place and reason if it would not work on the tag (outside the screen, unknown font, box lower than its font, more than 8 text lines or 5 rectangles per layout, more than 768 bytes for the tag, ...). The JSON is stored in NVS (namespace `esl_layouts`) and compiled again at boot.
+- The version is the CRC-32 of the compiled binary. A tag whose POLL reports another version gets the first LAYOUT block instead of IDLE/CONTENT, and fetches the rest with LAYOUT_REQ in the same wake-up (94 bytes per block).
+- `layout` in `PUT /api/tags` may name a layout in the file (A14). It must be in the file for the tag's model once the model is known, or in either file before that, and the tag's firmware must be able to download layouts (18-byte POLL); otherwise `422`.
+- Firmware that sends the old 12-byte POLL never gets a LAYOUT and keeps working with `price` and `text`.
 
 ## Status page
 
-`http://openesl.local/` shows a table of all tags (MAC, model, last seen, battery, RSSI, firmware, content, pending/shown, draw failed) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
+`http://openesl.local/` shows the layout files per model (version, size for the tags, layout names) and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
 
 ## Tag model in POLL
 
-Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF_MODEL` in `shared/proto.h`): 0 = unknown, 1 = 2.9", 2 = 1.54". Firmware that still sends 0 works as before and shows `"model":null`. The tag firmware does not send the model yet.
+Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF_MODEL` in `shared/proto.h`): 0 = unknown, 1 = 2.9", 2 = 1.54". Firmware that still sends 0 works as before and shows `"model":null`. Bytes 12-13 are reserved for a configuration version (another branch), bytes 14-17 are the tag's layout file version (protokoll.md part 1).
 
 ## Configuration
 
 `idf.py menuconfig` -> «OpenESL AP»: WiFi, token, mDNS name (`openesl`), status page, channel (25), PAN ID (0x4553), next_poll_s, max tags, TX power, radio mode. SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`).
 
-Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel, does not answer, no WiFi), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones).
+Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel, does not answer, no WiFi), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download layout files like the tag firmware does).
 
 ## Build and flash
 
@@ -97,13 +104,13 @@ make SAN=1    # with AddressSanitizer and UBSan (needs libasan/libubsan; on Fedo
 
 Without gcc/clang on Windows: `pip install ziglang`, then build for Linux with `python -m ziglang cc -target x86_64-linux-musl ...` (zig's native Windows target fails in its mingw libc). Run the binary in WSL.
 
-Covers CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence), layout files, the whole API (auth, validation, batches, limits, layouts, status page), and the radio path end to end with fake tags: new tag, same content (no redraw), new content, lost CONTENT, AP restart, tag restart, next_poll_s, 24 tags in one batch (G3), and frames that must be ignored. Not yet covered: the ESP-IDF glue in `main/` (not built), radio timing (must be measured on hardware, requirement A3), WiFi coexistence (phase 4) and NVS on real flash.
+Covers CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence), layout files (the compiler with the example files in `tag/designs/layouts/` and every error message, storage, blocks), the whole API (auth, validation, batches, limits, layouts and named content, status page), and the radio path end to end with fake tags: new tag, same content (no redraw), new content, lost CONTENT, AP restart, tag restart, next_poll_s, 24 tags in one batch (G3), frames that must be ignored, and layout files over the air: download in blocks then content drawn with the downloaded layout in the same round, no second download of the same version, a lost block resumed in the next round, the file changed during a download, a rejected file, a deleted file, firmware without layout files, 24 tags of both models. The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`. Not yet covered: the ESP-IDF glue in `main/` (built, not run), radio timing (must be measured on hardware, requirement A3), WiFi coexistence (phase 4) and NVS on real flash.
 
 ## Open points
 
-- **Not built:** ESP-IDF is not installed on the development PC, so `main/` has never been compiled for real. Check on the first build: the `esp_ieee802154` callback names, `partitions.csv`, the `../../../shared` include path in `components/esl_core/CMakeLists.txt`, and `dependencies.lock` (commit it, G5).
-- **Model in POLL:** the AP reads byte 11 as the model, with the same codes as `MODEL_CODE` in `tag/src/model.h` (1 = 2.9", 2 = 1.54"), but the tag firmware still sends 0. protokoll.md part 1 should say so once tag and AP agree. Another model only needs a new `ESL_MODEL_*` value and a name in `esl_model_name()`.
-- **Validation per model (A13):** the AP knows the model of each tag but has nothing model-specific to check yet: the 92-byte radio limit is the same for both sizes, and per-model limits (characters per line, which layout names exist) come with the layout file format.
-- **Layout files (A12, G7):** stored per model and versioned, but not sent to tags. Waiting for the file format, the radio block transfer and the field that tells a tag its layout is out of date (protokoll.md part 3). `layout` in `PUT /api/tags` is still `price` or `text`.
+- **Not run on hardware yet:** `main/` builds without warnings with ESP-IDF v5.5.5 (AP and stub modes checked after the layout transfer was added). Commit `dependencies.lock` (G5).
+- **Another model** only needs a new `ESL_MODEL_*` value and screen size in `shared/proto.h`, and a name in `esl_model_name()` / `esl_model_size()`.
+- **Validation per model (A13):** layout files are checked against the model's screen and what the tag can draw, and named content against the tag's model. The 92-byte text limit is the same for both sizes; there is no per-field or per-line length check (the tag shrinks and truncates text that does not fit).
+- **Layout transfer timing:** the block exchange (a LAYOUT_REQ answered within the tag's 20 ms window) is tested on the PC only; check on hardware with the sniffer that 9 blocks in a row arrive, and how long a round takes.
 - **next_poll_s** is set in menuconfig only; there is no API to change it at run time.
 - OTA (A10) and a WiFi setup portal are not started.

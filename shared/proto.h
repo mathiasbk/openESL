@@ -35,6 +35,14 @@
 
 #define ESL_POLL_F_BOOTED    0x01   /* nettopp startet */
 #define ESL_POLL_F_DRAWFAIL  0x02   /* forrige tegning feilet */
+#define ESL_POLL_F_LAYOUTFAIL 0x04  /* tagen avviste layoutfila AP-en tilbød sist (for stor, feil CRC, ugyldig) */
+
+/* POLL med layoutversjon, 18 byte (krav T17). Byte 12-13 er holdt av til cfg_ver
+ * (konfigurasjon, egen gren); tagen sender 0 der til den kjenner feltet. Firmware uten
+ * layoutnedlasting sender færre enn 18 byte; AP-en ser da på tagen som "kan ikke laste
+ * ned layout". */
+#define ESL_POLL_LEN_LAYOUT  18
+#define ESL_POLL_OFF_LAYOUT_VER 14  /* u32 versjon av layoutfila tagen har (0 = ingen, bare innebygde) */
 
 /* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
  * så AP-en leser den som "ukjent" og alt virker som før. */
@@ -55,6 +63,8 @@
 
 #define ESL_LAYOUT_PRICE     1      /* felt: navn, pris, undertekst */
 #define ESL_LAYOUT_TEXT      2      /* felt: linje1..linje4 */
+#define ESL_LAYOUT_FILE      0x10   /* 0x10 + n = layout nr. n i den nedlastede layoutfila */
+#define ESL_LAYOUT_FILE_MAX  16     /* høyst 16 layouter i en fil: 0x10..0x1F */
 
 #define ESL_CF_PRICE_HIGHLIGHT 0x01 /* framhevet pris: hvite siffer i svart felt (invertert) */
 #define ESL_CF_FRAME         0x02   /* svart ramme rundt skjermen */
@@ -64,6 +74,85 @@
 #define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
 /* Største sum av tekstbytes AP-en kan sende når alle fire felt er med: 92 */
 #define ESL_MAX_TEXT_BYTES   (ESL_MAX_PAYLOAD - ESL_CONTENT_HDR_LEN - ESL_MAX_FIELDS - ESL_MIC_RESERVE)
+
+/* ---- Layoutoverføring (docs/protokoll.md del 1, "Layout transfer") ---- */
+
+#define ESL_MSG_LAYOUT       0x04   /* AP -> tag: én blokk av layoutfila */
+#define ESL_MSG_LAYOUT_REQ   0x05   /* tag -> AP: be om neste blokk */
+
+/* LAYOUT, 12 byte hode + inntil ESL_LAYOUT_CHUNK_MAX byte data.
+ * next_poll_s ligger på ESL_OFF_NEXT_POLL som i IDLE og CONTENT. */
+#define ESL_LAYOUT_HDR_LEN   12
+#define ESL_LAYOUT_OFF_VER   4      /* u32 versjonen AP-en har for tagmodellen (0 = ingen: bruk innebygde) */
+#define ESL_LAYOUT_OFF_SIZE  8      /* u16 hele layoutfila i byte */
+#define ESL_LAYOUT_OFF_POS   10     /* u16 hvor i fila dataene starter */
+#define ESL_LAYOUT_OFF_DATA  12
+#define ESL_LAYOUT_CHUNK_MAX (ESL_MAX_PAYLOAD - ESL_LAYOUT_HDR_LEN - ESL_MIC_RESERVE)   /* 94 */
+
+/* LAYOUT_REQ, 10 byte */
+#define ESL_LREQ_LEN         10
+#define ESL_LREQ_OFF_MODEL   2      /* u8 tagmodell, som i POLL */
+#define ESL_LREQ_OFF_MAX     3      /* u8 største antall databyte tagen vil ha (1..ESL_LAYOUT_CHUNK_MAX) */
+#define ESL_LREQ_OFF_VER     4      /* u32 versjonen tagen laster ned */
+#define ESL_LREQ_OFF_POS     8      /* u16 første byte tagen mangler */
+
+/*
+ * Layoutfila slik tagen får den (binær, laget av AP-en fra JSON-fila):
+ *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)   3 0
+ *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver.
+ * Versjonen er CRC32 (IEEE, som esl_crc32 på AP-en) av hele fila, 0 regnes som 1.
+ */
+#define ESL_LBIN_FORMAT      1
+#define ESL_LBIN_HDR_LEN     4
+#define ESL_LBIN_MAX         768    /* største fil tagen tar imot (XRAM-buffer på tagen) */
+
+/* Ett element, 14 byte, i samme rekkefølge som layout_elem_t i tag/src/layout.h */
+#define ESL_LE_SIZE          14
+#define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
+#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..3 */
+#define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
+#define ESL_LE_OFF_OPTS      5      /* u8 justering */
+#define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3) */
+#define ESL_LE_OFF_COLOR     7      /* u8 */
+#define ESL_LE_OFF_X         8      /* u16 */
+#define ESL_LE_OFF_Y         10     /* u8 */
+#define ESL_LE_OFF_W         11     /* u16 */
+#define ESL_LE_OFF_H         13     /* u8 */
+
+#define ESL_LE_TEXT          1
+#define ESL_LE_RECT          2
+#define ESL_LE_LEFT          0x00   /* opts: vannrett | loddrett */
+#define ESL_LE_CENTER        0x01
+#define ESL_LE_RIGHT         0x02
+#define ESL_LE_MIDDLE        0x04
+#define ESL_LE_BOTTOM        0x08
+#define ESL_LE_BLACK         0      /* farger */
+#define ESL_LE_WHITE         1
+#define ESL_LE_INVERT        2      /* hvit tekst i svart boks */
+#define ESL_LE_PRICE_HL      3      /* som ESL_LE_INVERT hvis ESL_CF_PRICE_HIGHLIGHT, ellers svart */
+#define ESL_LE_FRAME         4      /* svart hvis ESL_CF_FRAME, ellers ikke tegnet */
+
+#define ESL_FONT_SMALL       0      /* 17 px, Latin-1 */
+#define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */
+#define ESL_FONT_LARGE       2      /* 52 px, bare siffer og " ,-.:" */
+#define ESL_FONT_MID         3      /* 36 px, samme tegn som LARGE */
+#define ESL_FONT_COUNT       4
+#define ESL_FONT_NONE        0xFF
+/* Fonthøyder i piksler (= height i tag/fonts/font_*.c), brukt av AP-en når den sjekker layouter */
+#define ESL_FONT_SMALL_H     17
+#define ESL_FONT_MEDIUM_H    24
+#define ESL_FONT_LARGE_H     52
+#define ESL_FONT_MID_H       36
+#define ESL_INVERT_PAD       4      /* = LAYOUT_INVERT_PAD i tag/src/layout.h */
+#define ESL_DRAW_MAX_RUNS    8      /* = DRAW_MAX_RUNS i tag/src/draw.h: tekstlinjer per skjerm */
+#define ESL_DRAW_MAX_RECTS   5      /* = DRAW_MAX_RECTS: rektangler og inverterte felt per skjerm */
+#define ESL_LE_MAX_LINES     3      /* = LAYOUT_MAX_LINES */
+
+/* Skjermstørrelse per modell (= DRAW_W/DRAW_H i tag/src/model.h) */
+#define ESL_MODEL_29_W       296
+#define ESL_MODEL_29_H       128
+#define ESL_MODEL_154_W      200
+#define ESL_MODEL_154_H      200
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
 

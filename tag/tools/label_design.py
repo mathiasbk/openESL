@@ -4,24 +4,31 @@ Label design in JSON (PC side). A design file says which layout a label uses,
 which fields it fills, and which styles apply. It is run against data from the client and
 gives the fields in the same form as the body of PUT /api/tags/{mac} (docs/protokoll.md).
 
-The tag only knows the two layouts "price" and "text" (see src/layout.c). The design
-therefore does not change the firmware; it is a PC tool that produces the content.
+The layout is either one of the tag's built-in layouts, "price" and "text" (src/layout.c),
+or the name of a layout in a layout file (designs/layouts/<model>.json, uploaded with
+PUT /api/layouts/<model>, docs/protokoll.md part 3). The design does not change the
+firmware; it is a PC tool that produces the content.
 
 Design file (JSON; the // comments below are only explanations, not part of the file):
 {
   "format": "esl-label",
   "version": 1,
   "id": "pris-standard",
-  "layout": "price",                       // "price" or "text"
+  "layout": "price",                       // "price", "text", or a layout name from a layout file
   "fields": {                              // price: name, price, subtitle
     "name": "{name}",                      // text: line1 .. line4
-    "price": "{price}",
+    "price": "{price}",                    // a file layout: the names in its "fields"
     "subtitle": "{unit_price}"
   },
   "style": { "price_highlight": true, "frame": false }
 }                                          // price_highlight: white price in a black box
-                                           // (price layout only); frame: black frame.
-                                           // The tags are black/white, there is no red.
+                                           // (price layout, and "highlight" elements of a file
+                                           // layout); frame: black frame. The tags are
+                                           // black/white, there is no red.
+
+Layout file (format "esl-layouts"): see docs/protokoll.md part 3. check_layout_file() only
+checks the outline here (names and fields); the AP checks positions, fonts and sizes against
+the model when the file is uploaded, and tools/render_host.py runs the AP's own check.
 
 Values can contain placeholders like {key}. The client's data gives the value for each key.
 Unknown placeholders, and text that cannot be written as Latin-1, are errors. The characters
@@ -29,8 +36,9 @@ the AP itself replaces (dashes, curly quotes, special spaces, "…"; see AP_REPL
 and the text limit is counted after that replacement, as the AP does.
 
 Usage:
-  python tools/label_design.py check designs/*.json
+  python tools/label_design.py check designs/*.json designs/layouts/*.json
   python tools/label_design.py render designs/pris-standard.json data.json
+  python tools/label_design.py render designs/hylle-tilbud.json data.json designs/layouts/2.9.json
 """
 import json
 import re
@@ -44,6 +52,10 @@ LAYOUTS = {
     "text": ["line1", "line2", "line3", "line4"],
 }
 STYLE_KEYS = {"price_highlight", "frame"}
+LAYOUT_FILE_FORMAT = "esl-layouts"
+LAYOUT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,30}$")    # esl_layout_name_valid on the AP
+FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
+MODELS = ("2.9", "1.54")
 MAX_TEXT_BYTES = 92        # ESL_MAX_TEXT_BYTES in shared/proto.h
 MAX_FIELD_BYTES = 255      # the length is one byte in the packet
 PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
@@ -88,18 +100,18 @@ def validate(d):
     if not isinstance(d.get("id"), str) or not ID_RE.match(d["id"]):
         raise DesignError("id must be lowercase letters, digits and hyphens (at most 40 characters)")
     layout = d.get("layout")
-    if layout not in LAYOUTS:
-        raise DesignError("layout must be one of %s" % ", ".join(sorted(LAYOUTS)))
+    if not isinstance(layout, str) or (layout not in LAYOUTS and not LAYOUT_NAME_RE.match(layout)):
+        raise DesignError("layout must be price, text or the name of a layout in a layout file "
+                          "(a-z 0-9 . _ -, at most 31 characters)")
 
     fields = d.get("fields")
     if not isinstance(fields, dict):
         raise DesignError("fields must be an object")
-    expected = set(LAYOUTS[layout])
-    unknown = set(fields) - expected
-    if unknown:
-        raise DesignError("unknown fields for layout %s: %s" % (layout, ", ".join(sorted(unknown))))
-    for key in LAYOUTS[layout]:
-        value = fields.get(key, "")
+    if layout in LAYOUTS:
+        unknown = set(fields) - set(LAYOUTS[layout])
+        if unknown:
+            raise DesignError("unknown fields for layout %s: %s" % (layout, ", ".join(sorted(unknown))))
+    for key, value in fields.items():
         if not isinstance(value, str):
             raise DesignError("field %s must be text" % key)
         _check_latin1(value, "field %s" % key)
@@ -114,7 +126,7 @@ def validate(d):
         if not isinstance(v, bool):
             raise DesignError("style.%s must be true or false" % k)
     if layout == "text" and style.get("price_highlight"):
-        raise DesignError("price_highlight only applies to layout price")
+        raise DesignError("price_highlight does not apply to layout text")
     return d
 
 
@@ -127,16 +139,63 @@ def _fill(template, data, where):
     return PLACEHOLDER.sub(sub, template)
 
 
-def render(d, data):
+def check_layout_file(f):
+    """Outline of a layout file: format, model, unique layout names and their field names."""
+    if not isinstance(f, dict) or f.get("format") != LAYOUT_FILE_FORMAT:
+        raise DesignError("format must be %r" % LAYOUT_FILE_FORMAT)
+    if f.get("version") != 1:
+        raise DesignError("only version 1 is supported")
+    if f.get("model") not in MODELS:
+        raise DesignError("model must be one of %s" % ", ".join(MODELS))
+    layouts = f.get("layouts")
+    if not isinstance(layouts, list) or not 1 <= len(layouts) <= 16:
+        raise DesignError("layouts must be a list of 1 to 16 layouts")
+    names = set()
+    for i, lay in enumerate(layouts):
+        name = lay.get("name") if isinstance(lay, dict) else None
+        if not isinstance(name, str) or not LAYOUT_NAME_RE.match(name) or name in LAYOUTS:
+            raise DesignError("layouts[%d]: bad name %r" % (i, name))
+        if name in names:
+            raise DesignError("layouts[%d]: the name %r is used twice" % (i, name))
+        names.add(name)
+        flds = lay.get("fields")
+        if (not isinstance(flds, list) or not 1 <= len(flds) <= 4 or len(set(flds)) != len(flds)
+                or not all(isinstance(x, str) and FIELD_NAME_RE.match(x) for x in flds)):
+            raise DesignError("layouts[%d]: fields must list 1 to 4 field names" % i)
+        if not isinstance(lay.get("elements"), list) or not lay["elements"]:
+            raise DesignError("layouts[%d]: elements must be a list of at least one element" % i)
+    return f
+
+
+def layout_fields(layout, layout_file=None):
+    """The field names of a layout, in the order they are sent. None if the file lacks it."""
+    if layout in LAYOUTS:
+        return LAYOUTS[layout]
+    for lay in (layout_file or {}).get("layouts", []):
+        if lay.get("name") == layout:
+            return lay["fields"]
+    return None
+
+
+def render(d, data, layout_file=None):
     """
     Gives the fields for one piece of content, in the same form as PUT /api/tags/{mac}:
     {"layout": ..., "fields": [...], "price_highlight": bool, "frame": bool}
     Empty text gives an empty string. Text that cannot be written as Latin-1 is an error.
+    A design for a layout from a layout file needs that file (layout_file, parsed JSON),
+    for the order of the fields.
     """
     validate(d)
     layout = d["layout"]
+    order = layout_fields(layout, layout_file)
+    if order is None:
+        raise DesignError("layout %r is not in the layout file%s" % (
+            layout, " for model %s" % layout_file.get("model") if layout_file else " (none given)"))
+    unknown = set(d["fields"]) - set(order)
+    if unknown:
+        raise DesignError("unknown fields for layout %s: %s" % (layout, ", ".join(sorted(unknown))))
     fields = []
-    for key in LAYOUTS[layout]:
+    for key in order:
         value = _fill(d["fields"].get(key, ""), data, "%s.%s" % (d["id"], key))
         _check_latin1(value, "field %s" % key)
         if len(to_latin1(value)) > MAX_FIELD_BYTES:
@@ -147,7 +206,7 @@ def render(d, data):
         raise DesignError("the text is %d bytes, maximum %d (requirement in protokoll.md)" % (total, MAX_TEXT_BYTES))
     style = d.get("style", {})
     out = {"layout": layout, "fields": fields}
-    if layout == "price":
+    if layout != "text":
         out["price_highlight"] = bool(style.get("price_highlight", False))
     out["frame"] = bool(style.get("frame", False))
     return out
@@ -163,15 +222,20 @@ def main(argv):
         bad = 0
         for p in argv[2:]:
             try:
-                validate(load(p))
+                d = load(p)
+                if isinstance(d, dict) and d.get("format") == LAYOUT_FILE_FORMAT:
+                    check_layout_file(d)
+                    print("OK   ", p, "(outline only; the AP checks positions and fonts)")
+                    continue
+                validate(d)
                 print("OK   ", p)
             except (DesignError, ValueError) as e:
                 bad += 1
                 print("ERROR", p, "-", e)
         return 1 if bad else 0
-    if len(argv) == 4 and argv[1] == "render":
+    if len(argv) in (4, 5) and argv[1] == "render":
         try:
-            out = render(load(argv[2]), load(argv[3]))
+            out = render(load(argv[2]), load(argv[3]), load(argv[4]) if len(argv) == 5 else None)
         except (DesignError, ValueError) as e:
             print("ERROR", e)
             return 1

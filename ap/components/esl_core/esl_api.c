@@ -1,6 +1,7 @@
 #include "esl_api.h"
 #include "esl_text.h"
 #include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,35 +96,101 @@ static int parse_bool(const json_t *j, int obj, const char *key, bool *out)
     return -1;
 }
 
-/* Fills c from {layout, fields, price_highlight, frame}. Returns 0 or an HTTP
- * status with *msg set. */
-static int parse_content(const json_t *j, int obj, esl_content_t *c, const char **msg)
+#define MSG_MAX 192
+
+/* A layout name from the layout files (krav A13, A14): it must be in the file
+ * for the tag's model, or, while the model is not known yet, in some model's
+ * file. *max_fields gets how many fields it takes. Returns 0 or 422 with msg. */
+static int check_named(const esl_api_t *api, uint64_t mac, const char *name, size_t nl, unsigned *max_fields,
+                       char *msg)
+{
+    char n[ESL_LAYOUT_NAME_MAX + 1];
+    if (!api->layouts || !esl_layout_name_valid(name, nl)) {
+        snprintf(msg, MSG_MAX, "layout must be \"price\", \"text\" or the name of a layout in a layout file");
+        return 422;
+    }
+    memcpy(n, name, nl);
+    n[nl] = '\0';
+
+    esl_tag_t t;
+    uint8_t nf = 0, model = ESL_MODEL_UNKNOWN;
+    if (esl_store_get(api->store, mac, &t) && t.seen && esl_model_name(t.model))
+        model = t.model;
+    if (model != ESL_MODEL_UNKNOWN) {
+        if (esl_layouts_find(api->layouts, model, name, nl, &nf) < 0) {
+            snprintf(msg, MSG_MAX, "layout \"%s\" is not in the layout file for model %s", n, esl_model_name(model));
+            return 422;
+        }
+        if (!t.layout_capable) {
+            snprintf(msg, MSG_MAX, "the tag's firmware cannot download layout files: use \"price\" or \"text\"");
+            return 422;
+        }
+        *max_fields = nf;
+        return 0;
+    }
+    bool found = false;
+    *max_fields = 0;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+        if (esl_layouts_find(api->layouts, m, name, nl, &nf) >= 0) {
+            found = true;
+            if (nf > *max_fields)
+                *max_fields = nf;
+        }
+    }
+    if (!found) {
+        snprintf(msg, MSG_MAX, "layout \"%s\" is not in any layout file", n);
+        return 422;
+    }
+    return 0;
+}
+
+/* Fills c from {layout, fields, price_highlight, frame} for the tag mac.
+ * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
+static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
 {
     int lt = esl_json_obj_get(j->js, j->tok, obj, "layout");
-    uint8_t layout;
-    if (lt >= 0 && esl_json_str_eq(j->js, &j->tok[lt], "price"))
+    uint8_t layout = ESL_LAYOUT_NAMED;
+    unsigned max_fields = ESL_MAX_FIELDS;
+    if (lt < 0 || j->tok[lt].type != ESL_JSON_STRING) {
+        snprintf(msg, MSG_MAX, "layout must be \"price\", \"text\" or the name of a layout in a layout file");
+        return 422;
+    }
+    const char *name = &j->js[j->tok[lt].start];
+    size_t nl = (size_t)(j->tok[lt].end - j->tok[lt].start);
+    if (esl_json_str_eq(j->js, &j->tok[lt], "price"))
         layout = ESL_LAYOUT_PRICE;
-    else if (lt >= 0 && esl_json_str_eq(j->js, &j->tok[lt], "text"))
+    else if (esl_json_str_eq(j->js, &j->tok[lt], "text"))
         layout = ESL_LAYOUT_TEXT;
     else {
-        *msg = "layout must be \"price\" or \"text\"";
-        return 422;
+        int st = check_named(api, mac, name, nl, &max_fields, msg);
+        if (st)
+            return st;
     }
 
     bool price_highlight, frame;
     if (parse_bool(j, obj, "price_highlight", &price_highlight) < 0 || parse_bool(j, obj, "frame", &frame) < 0) {
-        *msg = "price_highlight and frame must be true or false";
+        snprintf(msg, MSG_MAX, "price_highlight and frame must be true or false");
         return 422;
     }
-    esl_content_init(c, layout, (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0)));
+    uint8_t flags = (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0));
+    if (layout == ESL_LAYOUT_NAMED)
+        esl_content_init_named(c, name, nl, flags);
+    else {
+        esl_content_init(c, layout, flags);
+        max_fields = (unsigned)esl_content_max_fields(layout);
+    }
 
     int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
     if (arr < 0 || j->tok[arr].type != ESL_JSON_ARRAY) {
-        *msg = "fields must be an array of strings";
+        snprintf(msg, MSG_MAX, "fields must be an array of strings");
         return 422;
     }
-    if (j->tok[arr].size > esl_content_max_fields(layout)) {
-        *msg = layout == ESL_LAYOUT_PRICE ? "layout price takes at most 3 fields" : "layout text takes at most 4 fields";
+    if (j->tok[arr].size > max_fields) {
+        if (layout == ESL_LAYOUT_NAMED)
+            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", c->name, max_fields);
+        else
+            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", layout == ESL_LAYOUT_PRICE ? "price" : "text",
+                     max_fields);
         return 422;
     }
 
@@ -138,7 +205,7 @@ static int parse_content(const json_t *j, int obj, esl_content_t *c, const char 
         if (t->type == ESL_JSON_STRING) {
             int ul = esl_json_str_decode(j->js, t, utf8, sizeof(utf8));
             if (ul == -1) {
-                *msg = "invalid string escape";
+                snprintf(msg, MSG_MAX, "invalid string escape");
                 return 400;
             }
             if (ul >= 0)
@@ -146,11 +213,11 @@ static int parse_content(const json_t *j, int obj, esl_content_t *c, const char 
             else
                 overflow = true;
         } else if (t->type != ESL_JSON_NULL) {
-            *msg = "fields must be an array of strings";
+            snprintf(msg, MSG_MAX, "fields must be an array of strings");
             return 422;
         }
         if (overflow || esl_content_add_field(c, latin1, n) != ESL_CONTENT_OK) {
-            *msg = "text too long (max 92 bytes after Latin-1 conversion)";
+            snprintf(msg, MSG_MAX, "text too long (max 92 bytes after Latin-1 conversion)");
             return 422;
         }
         i = t->next;
@@ -188,7 +255,14 @@ static void write_set_result(esl_sb_t *out, uint64_t mac, const esl_set_result_t
                   m, r->content_id, r->changed ? "true" : "false", r->pending ? "true" : "false");
 }
 
-static void write_tag(esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool with_content)
+static const char *layout_name(const esl_content_t *c)
+{
+    if (c->layout == ESL_LAYOUT_NAMED)
+        return c->name;
+    return c->layout == ESL_LAYOUT_PRICE ? "price" : "text";
+}
+
+static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool with_content)
 {
     char m[17];
     esl_mac_format(t->mac, m);
@@ -213,8 +287,30 @@ static void write_tag(esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms, bool w
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s", esl_tag_pending(t) ? "true" : "false");
 
+    /* layout file: the version the tag reported (null for firmware without
+     * layout files), whether it still has to download the AP's file for its
+     * model, and whether it rejected that file */
+    uint32_t v = 0;
+    if (model && api->layouts)
+        esl_layouts_info(api->layouts, t->model, &v, NULL, NULL);
+    bool capable = t->seen && t->layout_capable;
+    if (capable)
+        esl_sb_printf(out, ",\"layout_version\":%" PRIu32 ",", t->layout_ver);
+    else
+        esl_sb_puts(out, ",\"layout_version\":null,");
+    esl_sb_printf(out, "\"layout_pending\":%s,\"layout_failed\":%s,\"content_error\":",
+                  capable && t->layout_ver != v ? "true" : "false",
+                  capable && v && t->layout_failed == v ? "true" : "false");
+    const char *err = t->has_content && esl_tag_pending(t) ? esl_content_err_text(t->content_err) : NULL;
+    if (err)
+        esl_sb_json_str(out, err);
+    else
+        esl_sb_puts(out, "null");
+
     if (with_content && t->has_content) {
-        esl_sb_printf(out, ",\"layout\":\"%s\",\"fields\":[", t->content.layout == ESL_LAYOUT_PRICE ? "price" : "text");
+        esl_sb_puts(out, ",\"layout\":");
+        esl_sb_json_str(out, layout_name(&t->content));
+        esl_sb_puts(out, ",\"fields\":[");
         for (unsigned i = 0; i < t->content.nfields; i++) {
             uint8_t len;
             const uint8_t *f = esl_content_field(&t->content, i, &len);
@@ -238,9 +334,9 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
     if (status == 0) {
         json_t j = {body, tok};
         esl_content_t c;
-        const char *msg;
+        char msg[MSG_MAX];
         esl_set_result_t r;
-        status = parse_content(&j, 0, &c, &msg);
+        status = parse_content(api, &j, 0, mac, &c, msg);
         if (status)
             api_error(out, status, msg);
         else if (esl_store_set(api->store, mac, &c, &r) != ESL_STORE_OK)
@@ -285,14 +381,14 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
     int i = arr + 1;
     unsigned new_macs = 0;
     for (unsigned k = 0; k < n; k++) {
-        const char *msg;
+        char msg[MSG_MAX];
         int mt = esl_json_obj_get(body, tok, i, "mac");
         if (tok[i].type != ESL_JSON_OBJECT || mt < 0 || tok[mt].type != ESL_JSON_STRING ||
             !esl_mac_parse(&body[tok[mt].start], (size_t)(tok[mt].end - tok[mt].start), &macs[k])) {
             status = api_error_at(out, 422, "mac must be 16 hex digits", (int)k);
             goto done;
         }
-        int st = parse_content(&j, i, &contents[k], &msg);
+        int st = parse_content(api, &j, i, macs[k], &contents[k], msg);
         if (st) {
             status = api_error_at(out, st, msg, (int)k);
             goto done;
@@ -347,7 +443,7 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         if (!first)
             esl_sb_putc(out, ',');
         first = false;
-        write_tag(out, &t, now_ms, false);
+        write_tag(api, out, &t, now_ms, false);
     }
     esl_sb_puts(out, "]}");
     return 200;
@@ -358,12 +454,15 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
 static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
 {
     uint32_t version;
-    size_t len;
+    size_t len, bin;
     esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
-    if (esl_layouts_info(ls, model, &version, &len))
-        esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u}", version, (unsigned)len);
+    if (esl_layouts_info(ls, model, &version, &len, &bin))
+        esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u,\"binary_size\":%u,\"layouts\":", version,
+                      (unsigned)len, (unsigned)bin);
     else
-        esl_sb_puts(out, "\"version\":null,\"size\":0}");
+        esl_sb_puts(out, "\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":");
+    esl_layouts_write_names(ls, model, out);
+    esl_sb_putc(out, '}');
 }
 
 static int put_layout(const esl_api_t *api, uint8_t model, const char *body, size_t len, esl_sb_t *out)
@@ -373,9 +472,9 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     if (len > ESL_LAYOUT_MAX_SIZE)
         return api_error(out, 413, "layout file too large (max 8192 bytes)");
 
-    /* Any JSON object for now; the file format is not specified yet. Every
-     * token takes at least two bytes of input except the last, so len/2 + 2
-     * tokens always suffice. */
+    /* Not JSON or not an object: 400, as for the other endpoints. Every token
+     * takes at least two bytes of input except the last, so len/2 + 2 tokens
+     * always suffice. */
     unsigned max_tok = (unsigned)(len / 2 + 2);
     esl_jtok_t *tok = malloc(sizeof(esl_jtok_t) * max_tok);
     if (!tok)
@@ -388,12 +487,27 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     if (!object)
         return api_error(out, 400, "layout file must be a JSON object");
 
+    /* The file must work on this model's tags (krav A13): 422 with where and why. */
+    esl_layout_bin_t *bin = malloc(sizeof(*bin));
+    char err[ESL_LAYOUT_ERR_MAX];
+    if (!bin)
+        return api_error(out, 500, "out of memory");
+    if (!esl_layout_compile(body, len, model, bin, err, sizeof(err))) {
+        free(bin);
+        return api_error(out, 422, err);
+    }
     bool changed;
-    uint32_t version = esl_layouts_set(api->layouts, model, body, len, &changed);
+    uint32_t version = esl_layouts_set(api->layouts, model, body, len, bin, &changed);
+    free(bin);
     if (!version)
         return api_error(out, 500, "could not store layout");
-    esl_sb_printf(out, "{\"model\":\"%s\",\"version\":%" PRIu32 ",\"size\":%u,\"changed\":%s}",
-                  esl_model_name(model), version, (unsigned)len, changed ? "true" : "false");
+    esl_sb_printf(out, "{\"model\":\"%s\",\"version\":%" PRIu32 ",\"size\":%u,", esl_model_name(model), version,
+                  (unsigned)len);
+    size_t bsize;
+    esl_layouts_info(api->layouts, model, NULL, NULL, &bsize);
+    esl_sb_printf(out, "\"binary_size\":%u,\"layouts\":", (unsigned)bsize);
+    esl_layouts_write_names(api->layouts, model, out);
+    esl_sb_printf(out, ",\"changed\":%s}", changed ? "true" : "false");
     return 200;
 }
 
@@ -406,8 +520,8 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
     if (plen == base || (plen == base + 1 && uri[base] == '/')) {
         if (strcmp(method, "GET") != 0)
             return api_error(out, 405, "method not allowed");
-        esl_sb_puts(out, "{\"max_size\":");
-        esl_sb_printf(out, "%u,\"layouts\":[", (unsigned)ESL_LAYOUT_MAX_SIZE);
+        esl_sb_printf(out, "{\"max_size\":%u,\"max_binary_size\":%u,\"layouts\":[", (unsigned)ESL_LAYOUT_MAX_SIZE,
+                      (unsigned)ESL_LBIN_MAX);
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
             if (m > 1)
                 esl_sb_putc(out, ',');
@@ -493,6 +607,21 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     html_ago(out, now_ms / 1000);
     esl_sb_printf(out, ", channel %u, %u of %u tags.</p>", (unsigned)api->channel,
                   esl_store_count(api->store), api->store->cap);
+    if (api->layouts) {
+        esl_sb_puts(out, "<p>Layout files:");
+        for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+            uint32_t v;
+            size_t bin;
+            esl_sb_printf(out, "%s %s ", m > 1 ? ";" : "", esl_model_name(m));
+            if (esl_layouts_info(api->layouts, m, &v, NULL, &bin)) {
+                esl_sb_printf(out, "version %" PRIu32 " (%u bytes for the tags): ", v, (unsigned)bin);
+                esl_layouts_write_names(api->layouts, m, out); /* plain ASCII names */
+            } else {
+                esl_sb_puts(out, "none (built-in price and text only)");
+            }
+        }
+        esl_sb_puts(out, ".</p>");
+    }
     esl_sb_puts(out, "<table><tr><th>MAC</th><th>Model</th><th>Seen</th><th>Battery</th><th>RSSI</th>"
                      "<th>FW</th><th>Content</th><th>State</th></tr>");
 
@@ -512,7 +641,8 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             esl_sb_puts(out, "-</td><td>-</td><td>-</td><td>-</td><td>");
         }
         if (t.has_content) {
-            esl_sb_puts(out, t.content.layout == ESL_LAYOUT_PRICE ? "price: " : "text: ");
+            esl_sb_puts(out, layout_name(&t.content));
+            esl_sb_puts(out, ": ");
             for (unsigned i = 0; i < t.content.nfields; i++) {
                 uint8_t len;
                 const uint8_t *f = esl_content_field(&t.content, i, &len);
@@ -531,6 +661,17 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             esl_sb_puts(out, "</td><td>no content");
         if (t.seen && (t.poll_flags & ESL_POLL_FLAG_DRAW_FAILED))
             esl_sb_puts(out, ", draw failed");
+        const char *err = esl_tag_pending(&t) ? esl_content_err_text(t.content_err) : NULL;
+        if (err)
+            esl_sb_printf(out, " (%s)", err);
+        if (t.seen && t.layout_capable && api->layouts) {
+            uint32_t v;
+            esl_layouts_info(api->layouts, t.model, &v, NULL, NULL);
+            if (v && t.layout_failed == v)
+                esl_sb_puts(out, ", layout file rejected");
+            else if (t.layout_ver != v)
+                esl_sb_puts(out, ", layout file pending");
+        }
         esl_sb_puts(out, "</td></tr>");
     }
     esl_sb_puts(out, "</table></body></html>");
@@ -589,7 +730,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         esl_tag_t t;
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
-        write_tag(out, &t, now_ms, true);
+        write_tag(api, out, &t, now_ms, true);
         status = 200;
     } else if (item && strcmp(method, "DELETE") == 0) {
         char m[17];

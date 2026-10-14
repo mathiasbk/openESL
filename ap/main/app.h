@@ -19,5 +19,6 @@ esp_err_t wifi_start(const char *ssid, const char *password, const char *hostnam
 /* http_api.c */
 esp_err_t http_api_start(const esl_api_t *api);
 
-/* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c */
-esp_err_t radio_start(esl_store_t *st, uint8_t channel, uint16_t pan_id);
+/* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
+ * sent to the tags in blocks) may be NULL. */
+esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);

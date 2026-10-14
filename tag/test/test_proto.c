@@ -8,12 +8,68 @@ static const uint8_t mac[8] = { 0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00 }
 
 static void test_build_poll(void)
 {
-    uint8_t p[ESL_POLL_LEN];
-    static const uint8_t expect[ESL_POLL_LEN] = {
-        0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE
+    uint8_t p[ESL_POLL_LEN_LAYOUT];
+    static const uint8_t expect[ESL_POLL_LEN_LAYOUT] = {
+        0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE,
+        0x00, 0x00, 0x44, 0x33, 0x22, 0x11
     };
-    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03), ESL_POLL_LEN);
+    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x11223344ul), ESL_POLL_LEN_LAYOUT);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
+}
+
+static void test_build_layout_req(void)
+{
+    uint8_t p[ESL_LREQ_LEN];
+    static const uint8_t expect[ESL_LREQ_LEN] = {
+        0x05, 0x01, MODEL_CODE, 94, 0x44, 0x33, 0x22, 0x11, 0x2C, 0x01
+    };
+    CHECK_EQ(proto_build_layout_req(p, 0x11223344ul, 300, ESL_LAYOUT_CHUNK_MAX), ESL_LREQ_LEN);
+    CHECK(memcmp(p, expect, sizeof(expect)) == 0);
+    CHECK_EQ(ESL_LAYOUT_CHUNK_MAX, 94);
+}
+
+static void test_parse_layout(void)
+{
+    uint8_t p[ESL_MAX_PAYLOAD + 1];
+    proto_reply_t r;
+    uint8_t i;
+
+    p[0] = ESL_MSG_LAYOUT;
+    p[1] = ESL_PROTO_VER;
+    ESL_PUT_U16(p + 2, 120);
+    ESL_PUT_U32(p + 4, 0xCAFEBABEul);
+    ESL_PUT_U16(p + 8, 200);            /* file size */
+    ESL_PUT_U16(p + 10, 150);           /* block position */
+    for (i = 0; i < 50; i++)
+        p[12 + i] = i;
+    CHECK_EQ(proto_parse_reply(p, 12 + 50, &r), PROTO_OK);
+    CHECK_EQ(r.type, ESL_MSG_LAYOUT);
+    CHECK_EQ(r.next_poll_s, 120);
+    CHECK(r.content_id == 0xCAFEBABEul);
+    CHECK_EQ(r.lay_size, 200);
+    CHECK_EQ(r.lay_pos, 150);
+    CHECK_EQ(r.field_off[0], ESL_LAYOUT_OFF_DATA);
+    CHECK_EQ(r.field_len[0], 50);
+
+    CHECK_EQ(proto_parse_reply(p, 12 + 51, &r), PROTO_E_FIELD);    /* past the end of the file */
+    CHECK_EQ(proto_parse_reply(p, 11, &r), PROTO_E_SHORT);
+    CHECK_EQ(proto_parse_reply(p, ESL_MAX_PAYLOAD + 1, &r), PROTO_E_LONG);
+    ESL_PUT_U16(p + 10, 201);
+    CHECK_EQ(proto_parse_reply(p, 12, &r), PROTO_E_FIELD);
+    ESL_PUT_U32(p + 4, 0);                /* "no file": no data, size 0 */
+    ESL_PUT_U16(p + 8, 0);
+    ESL_PUT_U16(p + 10, 0);
+    CHECK_EQ(proto_parse_reply(p, 12, &r), PROTO_OK);
+    CHECK(r.content_id == 0);
+    CHECK_EQ(r.field_len[0], 0);
+}
+
+static void test_crc32(void)
+{
+    /* CRC-32/ISO-HDLC of "123456789" is 0xCBF43926, also in two pieces */
+    CHECK(proto_crc32(0, (const uint8_t *)"123456789", 9) == 0xCBF43926ul);
+    CHECK(proto_crc32(proto_crc32(0, (const uint8_t *)"1234", 4), (const uint8_t *)"56789", 5) == 0xCBF43926ul);
+    CHECK(proto_crc32(0, (const uint8_t *)"", 0) == 0);
 }
 
 static void test_parse_idle(void)
@@ -85,6 +141,10 @@ static void test_parse_errors(void)
 
     p[8] = 9;
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_LAYOUT);
+    p[8] = ESL_LAYOUT_FILE + ESL_LAYOUT_FILE_MAX;
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_LAYOUT);
+    p[8] = ESL_LAYOUT_FILE + ESL_LAYOUT_FILE_MAX - 1;     /* layout 15 of the downloaded file */
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
     p[8] = ESL_LAYOUT_PRICE;
 
     CHECK_EQ(proto_parse_reply(p, ESL_MAX_PAYLOAD + 1, &r), PROTO_E_LONG);
@@ -93,13 +153,13 @@ static void test_parse_errors(void)
 
 static void test_build_frame(void)
 {
-    uint8_t payload[ESL_POLL_LEN];
+    uint8_t payload[ESL_POLL_LEN_LAYOUT];
     uint8_t f[128];
     static const uint8_t hdr[ESL_MAC_HDR_LEN] = {
         0x41, 0xC8, 0x07, 0x53, 0x45, 0x00, 0x00,
         0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00
     };
-    proto_build_poll(payload, 1, 3000, 0, 0);
+    proto_build_poll(payload, 1, 3000, 0, 0, 0);
     CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN),
              ESL_MAC_HDR_LEN + ESL_POLL_LEN);
     CHECK(memcmp(f, hdr, sizeof(hdr)) == 0);
@@ -143,6 +203,9 @@ static void test_fcs(void)
 void test_proto(void)
 {
     RUN(test_build_poll);
+    RUN(test_build_layout_req);
+    RUN(test_parse_layout);
+    RUN(test_crc32);
     RUN(test_parse_idle);
     RUN(test_parse_content);
     RUN(test_parse_content_empty_fields_and_mic);

@@ -2,20 +2,51 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "esl_content.h"
 #include "esl_json.h"
 #include "esl_proto.h"
 
-/* Layout files per tag model (krav A12, G7; docs/protokoll.md part 3).
+/* Layout files per tag model (krav G7, A12-A14; docs/protokoll.md part 3).
  *
- * The file format from the design tool is not specified yet, so the AP keeps
- * the file as it was uploaded (a JSON object, at most ESL_LAYOUT_MAX_SIZE
- * bytes) with a version (CRC32 of the file, never 0). Sending a layout to the
- * tags over radio waits for the block transfer in protokoll.md part 3.
+ * A layout file is JSON ("format": "esl-layouts") with up to 16 named
+ * layouts for one model. esl_layout_compile() checks it against the model
+ * (screen size, fonts, what the tag can draw) and turns it into the binary
+ * file the tags download (ESL_LBIN_* in shared/proto.h). The version of a
+ * model's layouts is the CRC32 of that binary, so it changes exactly when
+ * what the tags draw changes.
  *
- * Same locking and persistence pattern as esl_store: every public function
- * takes the lock, the persist hooks are called after it is released. */
+ * Layout n of the file is sent as CONTENT layout ESL_LAYOUT_FILE + n; clients
+ * only ever see the names.
+ *
+ * Storage follows esl_store: every public function takes the lock, the
+ * persist hooks are called after it is released. Only the JSON is persisted;
+ * the binary is compiled again at boot. */
 
-#define ESL_LAYOUT_MAX_SIZE 8192
+#define ESL_LAYOUT_MAX_SIZE 8192 /* JSON file */
+#define ESL_LAYOUT_FIELD_NAME_MAX 16
+#define ESL_LAYOUT_ERR_MAX 160
+
+/* ---- compiler ------------------------------------------------------------ */
+
+typedef struct {
+    uint32_t version; /* CRC32 of bin, never 0 */
+    uint16_t size;    /* bytes used in bin */
+    uint8_t bin[ESL_LBIN_MAX];
+    uint8_t count;    /* layouts in the file */
+    uint8_t nfields[ESL_LAYOUT_FILE_MAX];
+    char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
+} esl_layout_bin_t;
+
+/* Compiles a layout file for model. Returns false with a message in err (at
+ * least ESL_LAYOUT_ERR_MAX bytes) that names the place in the file, e.g.
+ * "layouts[0].elements[2]: x + w = 300 is past the right edge (296)". */
+bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_bin_t *out, char *err,
+                        size_t errlen);
+
+/* Index of name in a compiled file, or -1. */
+int esl_layout_bin_find(const esl_layout_bin_t *b, const char *name, size_t len);
+
+/* ---- storage --------------------------------------------------------------- */
 
 typedef struct {
     void *ctx;
@@ -26,9 +57,9 @@ typedef struct {
 } esl_layout_ops_t;
 
 typedef struct {
-    uint32_t version; /* 0 = no layout for this model */
-    uint16_t len;
+    uint16_t len;            /* 0 = no layout file for this model */
     char data[ESL_LAYOUT_MAX_SIZE];
+    esl_layout_bin_t bin;
 } esl_layout_t;
 
 typedef struct {
@@ -36,21 +67,53 @@ typedef struct {
     esl_layout_ops_t ops;
 } esl_layouts_t;
 
+/* What the radio path needs to know about one model's file when it answers a
+ * POLL (copied out, so the store can use it under its own lock). */
+typedef struct {
+    uint32_t version; /* 0 = no file for this model */
+    uint8_t count;
+    uint8_t nfields[ESL_LAYOUT_FILE_MAX];
+    char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
+} esl_layout_env_t;
+
 /* ops may be NULL (no locking, no persistence). */
 void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops);
 
-/* Loads a persisted file at boot. Does not call persist_save. */
+/* Loads a persisted file at boot (compiling it again). Does not call
+ * persist_save. False for an unknown model or a file that no longer compiles. */
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len);
 
-/* Stores a file. The caller has validated it. Returns the version, or 0 for
- * an unknown model or a file that is too big. *changed is false (and nothing
- * is persisted) when the model already has exactly this file. */
-uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len, bool *changed);
+/* Stores a file that esl_layout_compile() accepted as bin for this model.
+ * Returns the version (0 for an unknown model or a bad size). *changed is
+ * false (and nothing is persisted) when the model already has exactly this file. */
+uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
+                         const esl_layout_bin_t *bin, bool *changed);
 
 bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model);
 
-/* Version and size of a model's file; false if it has none. */
-bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_t *len);
+/* Version, JSON size and binary size of a model's file; false if it has none.
+ * Any pointer may be NULL. */
+bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_t *len, size_t *bin_size);
 
 /* Appends a model's file to out; false if it has none. */
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
+
+/* Writes the layout names of a model's file as a JSON array to out ("[]" if none). */
+void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
+
+/* Index of layout name in a model's file, -1 if the model has no such layout.
+ * *nfields (may be NULL) gets the number of fields it takes. */
+int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
+
+/* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
+void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);
+
+/* Builds the LAYOUT reply for a tag of this model that asks for the block at
+ * pos of version ver (from LAYOUT_REQ; ver 0 / pos 0 for the first block after
+ * a POLL). If the model's file is no longer ver (it changed during the
+ * download), the block at 0 of the current file is sent, so the tag starts
+ * over; version 0 means the AP has no file for the model. The block has at
+ * most max bytes (and at most ESL_LAYOUT_CHUNK_MAX). out holds ESL_MAX_PAYLOAD
+ * bytes. Returns the length. ls may be NULL. */
+size_t esl_layouts_block(esl_layouts_t *ls, uint8_t model, uint32_t ver, uint16_t pos, uint8_t max,
+                         uint16_t next_poll_s, uint8_t *out);

@@ -147,6 +147,43 @@ void test_content(void)
     n = esl_content_msg_build(msg, 0, 1, &a);
     CHECK_INT(n, 8 + 2 + 4 + 92);
     CHECK(n + ESL_MIC_RESERVE == ESL_MAX_PAYLOAD);
+
+    /* a layout from the layout file, by name (krav A14) */
+    esl_content_t n1, n2, b1;
+    CHECK_INT(esl_content_init_named(&n1, "shelf", 5, ESL_CFLAG_FRAME), ESL_CONTENT_OK);
+    CHECK_INT(n1.layout, ESL_LAYOUT_NAMED);
+    CHECK_STR(n1.name, "shelf");
+    CHECK_INT(esl_content_max_fields(ESL_LAYOUT_NAMED), 4);
+    CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_NAMED, 0), ESL_CONTENT_ERR_LAYOUT); /* only by name */
+    CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 15, 0), ESL_CONTENT_OK);     /* as sent */
+    CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 16, 0), ESL_CONTENT_ERR_LAYOUT);
+    CHECK_INT(esl_content_init_named(&n2, "price", 5, 0), ESL_CONTENT_ERR_LAYOUT);
+    CHECK_INT(esl_content_init_named(&n2, "", 0, 0), ESL_CONTENT_ERR_LAYOUT);
+    CHECK(esl_layout_name_valid("price-2.9", 9));
+    CHECK(esl_layout_name_valid("a_b.c-1", 7));
+    CHECK(!esl_layout_name_valid("-a", 2));
+    CHECK(!esl_layout_name_valid("Shelf", 5));
+    CHECK(!esl_layout_name_valid("a b", 3));
+    CHECK(!esl_layout_name_valid("text", 4));
+    CHECK(esl_layout_name_valid("texts", 5));
+    CHECK(esl_layout_name_valid("0123456789012345678901234567890", 31));
+    CHECK(!esl_layout_name_valid("01234567890123456789012345678901", 32));
+    esl_content_add_field(&n1, S("Kaffe"));
+    esl_content_init_named(&n2, "sign", 4, ESL_CFLAG_FRAME);
+    esl_content_add_field(&n2, S("Kaffe"));
+    CHECK(!esl_content_equal(&n1, &n2));
+    CHECK(esl_content_id(&n1) != esl_content_id(&n2));
+    uint8_t nb[ESL_CONTENT_BODY_MAX];
+    size_t nn = esl_content_body(&n1, nb);
+    CHECK_INT(nn, 1 + 1 + 5 + 1 + 1 + 5);
+    CHECK_MEM(nb, "\xFF\x05shelf\x02\x05Kaffe", nn);
+    /* resolved for a tag: layout 0x10 + index, the same id as before */
+    esl_content_resolve(&n1, 3, &b1);
+    CHECK_INT(b1.layout, ESL_LAYOUT_FILE + 3);
+    CHECK_STR(b1.name, "");
+    uint8_t cm[ESL_MAX_PAYLOAD];
+    nn = esl_content_msg_build(cm, 0, 77, &b1);
+    CHECK_MEM(cm, "\x03\x01\x00\x00\x4D\x00\x00\x00\x13\x02\x05Kaffe", nn);
 }
 
 void test_proto(void)
@@ -202,13 +239,69 @@ void test_proto(void)
     size_t n = esl_content_msg_build(buf, 300, 0xAABBCCDD, &c);
     CHECK_INT(n, 8 + 2 + 5 + 5);
     CHECK_MEM(buf, "\x03\x01\x2C\x01\xDD\xCC\xBB\xAA\x01\x01\x04Melk\x04" "9,90", n);
+
+    /* POLL with the layout version (18 bytes; 12-13 reserved for cfg_ver) */
+    esl_poll_t p2 = {1, 3000, 5, ESL_POLL_FLAG_LAYOUT_FAILED, ESL_MODEL_29, true, 0xA1B2C3D4u};
+    CHECK_INT(esl_poll_build(buf, &p2), ESL_POLL_LEN_LAYOUT);
+    CHECK_MEM(&buf[12], "\x00\x00\xD4\xC3\xB2\xA1", 6);
+    CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LAYOUT, &p));
+    CHECK(p.has_layout_ver);
+    CHECK_INT(p.layout_ver, 0xA1B2C3D4u);
+    CHECK_INT(p.flags, ESL_POLL_F_LAYOUTFAIL);
+    CHECK(esl_poll_parse(buf, 17, &p)); /* 13..17 bytes: no layout version */
+    CHECK(!p.has_layout_ver);
+    CHECK_INT(p.layout_ver, 0);
+
+    /* LAYOUT_REQ */
+    esl_layout_req_t rq = {ESL_MODEL_154, 94, 0x01020304, 300}, rq2;
+    CHECK_INT(esl_layout_req_build(buf, &rq), ESL_LREQ_LEN);
+    CHECK_MEM(buf, "\x05\x01\x02\x5E\x04\x03\x02\x01\x2C\x01", ESL_LREQ_LEN);
+    CHECK(esl_layout_req_parse(buf, ESL_LREQ_LEN, &rq2));
+    CHECK_INT(rq2.model, ESL_MODEL_154);
+    CHECK_INT(rq2.max, 94);
+    CHECK_INT(rq2.layout_ver, 0x01020304);
+    CHECK_INT(rq2.pos, 300);
+    CHECK(!esl_layout_req_parse(buf, ESL_LREQ_LEN - 1, &rq2));
+    CHECK(!esl_poll_parse(buf, ESL_LREQ_LEN, &p));
+    buf[1] = 2;
+    CHECK(!esl_layout_req_parse(buf, ESL_LREQ_LEN, &rq2));
+
+    /* LAYOUT, and what the tag's parser accepts */
+    static uint8_t data[200];
+    for (int i = 0; i < 200; i++)
+        data[i] = (uint8_t)i;
+    n = esl_layout_msg_build(buf, 60, 0xCAFE, 200, 100, data, 200); /* clamped to one chunk */
+    CHECK_INT(n, ESL_LAYOUT_HDR_LEN + ESL_LAYOUT_CHUNK_MAX);
+    CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
+    CHECK_MEM(buf, "\x04\x01\x3C\x00\xFE\xCA\x00\x00\xC8\x00\x64\x00", 12);
+    esl_reply_t r;
+    n = esl_layout_msg_build(buf, 60, 0xCAFE, 200, 100, data, 94);
+    CHECK(esl_reply_parse(buf, n, &r));
+    CHECK_INT(r.type, ESL_MSG_LAYOUT);
+    CHECK_INT(r.layout_ver, 0xCAFE);
+    CHECK_INT(r.layout_size, 200);
+    CHECK_INT(r.layout_pos, 100);
+    CHECK_INT(r.layout_len, 94);
+    n = esl_layout_msg_build(buf, 60, 0xCAFE, 150, 100, data, 94); /* past the end of the file */
+    CHECK(!esl_reply_parse(buf, n, &r));
+    n = esl_layout_msg_build(buf, 60, 0, 10, 0, data, 0); /* version 0 has no file */
+    CHECK(!esl_reply_parse(buf, n, &r));
+    CHECK(!esl_reply_parse(buf, ESL_LAYOUT_HDR_LEN - 1, &r));
+
+    uint16_t w, h;
+    CHECK(esl_model_size(ESL_MODEL_29, &w, &h));
+    CHECK_INT(w, 296);
+    CHECK_INT(h, 128);
+    CHECK(esl_model_size(ESL_MODEL_154, &w, &h));
+    CHECK_INT(w, 200);
+    CHECK(!esl_model_size(ESL_MODEL_UNKNOWN, &w, &h));
 }
 
 void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);
@@ -279,5 +372,29 @@ void test_persist(void)
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
     blob[9] = ESL_LAYOUT_PRICE;
     blob[11] = 4; /* too many fields for the price layout */
+    CHECK(!esl_persist_decode(blob, n, &mac, &d));
+
+    /* named layout: version 2 blob; built-in content is still written as version 1 */
+    blob[11] = 3;
+    CHECK(esl_persist_decode(blob, n, &mac, &d));
+    CHECK_INT(blob[0], ESL_PERSIST_VER);
+    esl_content_init_named(&c, "a-long-layout-name-with-31-ch15", 31, ESL_CFLAG_FRAME);
+    esl_content_add_field(&c, S("Kaffe"));
+    esl_content_add_field(&c, S("49,90"));
+    n = esl_persist_encode(7, &c, blob);
+    CHECK_INT(n, 1 + 8 + 1 + 1 + 31 + 2 + 2 + 10);
+    CHECK_INT(blob[0], ESL_PERSIST_VER_NAMED);
+    CHECK(esl_persist_decode(blob, n, &mac, &d));
+    CHECK(mac == 7);
+    CHECK(esl_content_equal(&c, &d));
+    CHECK_STR(d.name, "a-long-layout-name-with-31-ch15");
+    CHECK(!esl_persist_decode(blob, n - 1, &mac, &d));
+    blob[9] = ESL_LAYOUT_PRICE;
+    CHECK(!esl_persist_decode(blob, n, &mac, &d));
+    blob[9] = ESL_LAYOUT_NAMED;
+    blob[10] = 40; /* name longer than the blob */
+    CHECK(!esl_persist_decode(blob, n, &mac, &d));
+    blob[10] = 31;
+    blob[11] = 'A'; /* not a valid name */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
 }

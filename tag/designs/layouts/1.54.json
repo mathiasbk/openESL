@@ -1,0 +1,41 @@
+{
+  "format": "esl-layouts",
+  "version": 1,
+  "model": "1.54",
+  "description": "Example layouts for the SoluM 1.54\" (200 x 200). Upload with PUT /api/layouts/1.54.",
+  "layouts": [
+    {
+      "name": "shelf",
+      "description": "Name in a black band, highlighted price, a note and the unit price",
+      "fields": ["name", "price", "unit", "info"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 36, "color": "black" },
+        { "type": "text", "field": "name", "x": 4, "y": 0, "w": 192, "h": 36,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "price", "x": 6, "y": 42, "w": 188, "h": 96,
+          "fonts": ["large", "mid", "medium"], "align": "center", "valign": "middle", "lines": 1,
+          "color": "highlight" },
+        { "type": "text", "field": "info", "x": 6, "y": 142, "w": 188, "h": 34,
+          "fonts": ["small"], "align": "center", "lines": 2 },
+        { "type": "text", "field": "unit", "x": 6, "y": 180, "w": 188, "h": 17,
+          "fonts": ["small"], "align": "center", "lines": 1 }
+      ]
+    },
+    {
+      "name": "sign",
+      "description": "A heading over a rule, up to three centred lines, optional frame",
+      "fields": ["title", "body"],
+      "elements": [
+        { "type": "text", "field": "title", "x": 8, "y": 8, "w": 184, "h": 30,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+        { "type": "rect", "x": 8, "y": 40, "w": 184, "h": 2 },
+        { "type": "text", "field": "body", "x": 8, "y": 48, "w": 184, "h": 140,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+        { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 197, "w": 200, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 200, "color": "frame" },
+        { "type": "rect", "x": 197, "y": 0, "w": 3, "h": 200, "color": "frame" }
+      ]
+    }
+  ]
+}

@@ -34,9 +34,10 @@ static void nvs_erase(void *ctx, unsigned slot)
 }
 
 static nvs_t nvs;
+static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_tag_t tags[CAP];
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -58,10 +59,16 @@ static uint8_t air(esl_faketag_t *t, uint64_t now_ms, bool lose_reply)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
     size_t n = esl_faketag_poll(t, PAN, rx);
-    size_t m = esl_radio_handle(&st, PAN, rx, n, -60, now_ms, tx, NULL);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now_ms, tx, NULL);
     if (!m || lose_reply)
         return 0;
     return esl_faketag_receive(t, tx, m);
+}
+
+static uint32_t json_u32(const char *s, const char *key)
+{
+    const char *p = strstr(s, key);
+    return p ? (uint32_t)strtoul(p + strlen(key), NULL, 10) : 0;
 }
 
 static int put(const char *mac, const char *body)
@@ -74,7 +81,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -83,7 +90,7 @@ static void test_handle_filters(void)
 
     /* a POLL for us: IDLE echoing the sequence number, tag discovered */
     n = esl_frame_build_from_tag(rx, 42, PAN, ESL_AP_SHORT_ADDR, 0x1122, payload, sizeof(payload));
-    size_t m = esl_radio_handle(&st, PAN, rx, n, -70, 5000, tx, &ev);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -70, 5000, tx, &ev);
     CHECK_INT(m, ESL_MHR_LEN + ESL_IDLE_LEN + ESL_FCS_LEN);
     CHECK(ev.mac == 0x1122);
     CHECK_INT(ev.reply_type, ESL_MSG_IDLE);
@@ -98,18 +105,18 @@ static void test_handle_filters(void)
 
     /* ignored: other PAN, other short address, not a POLL, broken POLL, AP->tag frame */
     n = esl_frame_build_from_tag(rx, 1, 0x1234, ESL_AP_SHORT_ADDR, 0x3344, payload, sizeof(payload));
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, n, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
     n = esl_frame_build_from_tag(rx, 1, PAN, 0x0001, 0x3344, payload, sizeof(payload));
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, n, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
     uint8_t idle[ESL_IDLE_LEN];
     esl_idle_build(idle, 0);
     n = esl_frame_build_from_tag(rx, 1, PAN, ESL_AP_SHORT_ADDR, 0x3344, idle, sizeof(idle));
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, n, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
     n = esl_frame_build_from_tag(rx, 1, PAN, ESL_AP_SHORT_ADDR, 0x3344, payload, ESL_POLL_LEN - 1);
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, n, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
     n = esl_frame_build_to_tag(rx, 1, PAN, ESL_AP_SHORT_ADDR, 0x3344, payload, sizeof(payload));
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, n, 0, 0, tx, NULL), 0);
-    CHECK_INT(esl_radio_handle(&st, PAN, rx, 5, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, 5, 0, 0, tx, NULL), 0);
     CHECK_INT(esl_store_count(&st), 1);
 }
 
@@ -256,6 +263,315 @@ static void test_many_tags(void)
     CHECK(HAS(resp, "\"model\":\"1.54\""));
 }
 
+/* ---- layout files over the air (docs/protokoll.md part 1, "Layout transfer") ---- */
+
+char *read_example_layout(const char *name, size_t *len); /* test_layout.c */
+
+static int put_layout(const char *model, const char *file, size_t len)
+{
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/api/layouts/%s", model);
+    return esl_api_handle(&api, "PUT", uri, AUTH, file, len, 0, &out);
+}
+
+static uint32_t version_of(uint8_t model)
+{
+    uint32_t v = 0;
+    esl_layouts_info(&layouts, model, &v, NULL, NULL);
+    return v;
+}
+
+/* One frame from the tag through the AP and back. Returns what the tag accepted. */
+static uint8_t hop(esl_faketag_t *t, const uint8_t *rx, size_t n, bool lose)
+{
+    uint8_t tx[ESL_PSDU_MAX];
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 0, tx, NULL);
+    return m && !lose ? esl_faketag_receive(t, tx, m) : 0;
+}
+
+static const char *const SHELF =
+    "{\"layout\":\"shelf\",\"fields\":[\"Kaffe 500 g\",\"49,90\",\"kr 99,80/kg\",\"Tilbud\"],\"price_highlight\":true}";
+
+static void test_layout_download(void)
+{
+    size_t l29, l154;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    char *f154 = read_example_layout("1.54.json", &l154);
+    CHECK(f29 && f154);
+    if (!f29 || !f154)
+        return;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0x154B, 1, 3000, ESL_MODEL_154);
+
+    /* no files: nothing to download, the tags work as before */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(a.layout_blocks, 0);
+
+    /* a file for each model, and named content for both tags (krav A12, A14) */
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put_layout("1.54", f154, l154), 200);
+    CHECK_INT(put("000000000000029A", SHELF), 200);
+    CHECK_INT(put("000000000000154B", SHELF), 200);
+    uint32_t id = json_u32(resp, "\"content_id\":");
+
+    /* one round: POLL -> LAYOUT@0, LAYOUT_REQ(94) -> LAYOUT@94, then POLL -> CONTENT */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(a.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(a.layout_size, 174);
+    CHECK_INT(a.layout_blocks, 2);
+    CHECK_INT(a.layout_installs, 1);
+    CHECK_INT(a.shown, id);
+    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 0); /* "shelf" is layout 0 of the file */
+    CHECK_INT(a.drawn_elements, 5);
+    CHECK_INT(a.missing_layouts, 0);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(b.layout_ver, version_of(ESL_MODEL_154));
+    CHECK(b.layout_ver != a.layout_ver);
+    CHECK_INT(b.shown, id);
+    CHECK_INT(b.drawn_elements, 5);
+
+    /* the downloaded file is exactly the AP's binary for the model */
+    esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    CHECK(esl_layout_compile(f29, l29, ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK_MEM(a.layout, bin.bin, bin.size);
+
+    /* the same version is not sent again (krav T17) */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(a.layout_blocks, 2);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null"));
+
+    /* another layout from the file */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"\\u00c5pent 9-21\"],\"frame\":true}"),
+              200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 1);
+    CHECK_INT(a.drawn_elements, 7);
+    CHECK_INT(a.content.flags, ESL_CF_FRAME);
+
+    /* a changed file: downloaded, and the content drawn with the old one is sent again in the same round */
+    uint32_t old = a.layout_ver;
+    uint32_t contents = a.contents;
+    char *f2 = malloc(l29 + 1);
+    memcpy(f2, f29, l29);
+    char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
+    CHECK(band != NULL);
+    if (band)
+        band[6] = '2'; /* the black band 20 px instead of 30 */
+    CHECK_INT(put_layout("2.9", f2, l29), 200);
+    CHECK(version_of(ESL_MODEL_29) != old);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(a.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(a.contents, contents + 1);
+    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 1);
+
+    /* built-in content is not sent again when the file changes */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    contents = a.contents;
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(a.layout_ver, old);
+    CHECK_INT(a.contents, contents);
+
+    /* the tag restarts: the file is not in its flash yet, so it fetches it again, then the content */
+    esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("000000000000029A", SHELF), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(a.layout_ver, old);
+    CHECK_INT(a.drawn_elements, 5);
+
+    /* the file is deleted: the tag drops its copy, named content cannot be sent */
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(a.layout_ver, 0);
+    CHECK_INT(a.shown, 0); /* it asks for the content again, resolved against no file */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
+    CHECK(HAS(resp, "\"pending\":true"));
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(a.shown, id);
+
+    free(f2);
+    free(f29);
+    free(f154);
+}
+
+static void test_layout_lost_and_changed(void)
+{
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+    uint8_t rx[ESL_PSDU_MAX];
+    esl_faketag_t t;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    uint32_t v1 = version_of(ESL_MODEL_29);
+    esl_faketag_init(&t, 0x77, 1, 3000, ESL_MODEL_29);
+
+    /* block 0 arrives, the answer to LAYOUT_REQ is lost: the round ends */
+    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
+    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
+    CHECK_INT(hop(&t, rx, esl_faketag_request(&t, PAN, rx), true), 0);
+    CHECK_INT(t.layout_ver, 0);
+
+    /* next round: the AP offers block 0 again, the tag carries on at 94 */
+    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
+    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
+    size_t n = esl_faketag_request(&t, PAN, rx);
+    esl_rx_frame_t f;
+    esl_layout_req_t req;
+    CHECK(esl_frame_parse_from_tag(rx, n, &f) && esl_layout_req_parse(f.payload, f.payload_len, &req));
+    CHECK_INT(req.pos, ESL_LAYOUT_CHUNK_MAX);
+    CHECK_INT(req.layout_ver, v1);
+    CHECK_INT(req.model, ESL_MODEL_29);
+    CHECK_INT(req.max, ESL_LAYOUT_CHUNK_MAX);
+
+    /* the file changes before the tag asks: the AP answers with block 0 of the new file */
+    char *f2 = malloc(l29);
+    memcpy(f2, f29, l29);
+    char *x = strstr(f2, "\"x\": 120");
+    CHECK(x != NULL);
+    if (x)
+        x[7] = '5'; /* price box at x 125 */
+    CHECK_INT(put_layout("2.9", f2, l29), 200);
+    uint32_t v2 = version_of(ESL_MODEL_29);
+    CHECK(v2 != v1);
+    CHECK_INT(hop(&t, rx, n, false), ESL_MSG_LAYOUT);
+    CHECK_INT(t.dl_ver, v2);
+    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
+    CHECK_INT(hop(&t, rx, esl_faketag_request(&t, PAN, rx), false), ESL_MSG_LAYOUT);
+    CHECK_INT(t.layout_ver, v2);
+    CHECK_INT(t.layout_installs, 1);
+    CHECK_INT(esl_faketag_request(&t, PAN, rx), 0);
+
+    /* a LAYOUT_REQ that is not for this AP's PAN is ignored */
+    esl_layout_req_t r2 = {ESL_MODEL_29, 94, v2, 0};
+    uint8_t pl[ESL_LREQ_LEN], tx[ESL_PSDU_MAX];
+    esl_layout_req_build(pl, &r2);
+    n = esl_frame_build_from_tag(rx, 1, 0x1234, ESL_AP_SHORT_ADDR, 0x77, pl, sizeof(pl));
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
+    esl_radio_event_t ev;
+    n = esl_frame_build_from_tag(rx, 9, PAN, ESL_AP_SHORT_ADDR, 0x77, pl, sizeof(pl));
+    CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, &ev) > 0);
+    CHECK_INT(ev.msg_type, ESL_MSG_LAYOUT_REQ);
+    CHECK_INT(ev.reply_type, ESL_MSG_LAYOUT);
+    CHECK_INT(ev.req.layout_ver, v2);
+    CHECK(ev.mac == 0x77);
+
+    free(f2);
+    free(f29);
+}
+
+static void test_layout_rejected_and_old_firmware(void)
+{
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+    esl_faketag_t t, old;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    uint32_t v1 = version_of(ESL_MODEL_29);
+
+    /* firmware without layout files: 12-byte POLL, never a LAYOUT, built-in content as before */
+    esl_faketag_init(&old, 0x01D, 1, 3000, ESL_MODEL_29);
+    old.layouts = false;
+    CHECK_INT(put("000000000000001D", SHELF), 200); /* model unknown yet: accepted */
+    CHECK_INT(esl_faketag_round(&old, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(old.layout_blocks, 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000001D", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout_version\":null"));
+    CHECK(HAS(resp, "\"content_error\":\"the tag firmware cannot download layout files\""));
+    CHECK_INT(put("000000000000001D", SHELF), 422); /* now the model is known */
+    CHECK_INT(put("000000000000001D", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&old, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(old.content.layout, ESL_LAYOUT_PRICE);
+
+    /* a tag that cannot use the file says so (POLL flag); the AP stops offering that version */
+    esl_faketag_init(&t, 0x8AD, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("00000000000008AD", SHELF), 200);
+    uint8_t rx[ESL_PSDU_MAX];
+    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT); /* offered v1 */
+    t.dl_ver = 0;
+    t.layout_rejected = v1; /* as if the CRC or the structure check had failed */
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(t.layout_blocks, 1);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AD", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout_failed\":true,\"content_error\":\"the tag rejected the layout file\""));
+    /* built-in content still gets through */
+    CHECK_INT(put("00000000000008AD", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    /* a new version is offered again, and this time it works */
+    char *f2 = malloc(l29);
+    memcpy(f2, f29, l29);
+    char *x = strstr(f2, "\"x\": 120");
+    if (x)
+        x[7] = '5';
+    CHECK_INT(put_layout("2.9", f2, l29), 200);
+    CHECK_INT(put("00000000000008AD", SHELF), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
+    CHECK_INT(t.layout_rejected, 0);
+    CHECK_INT(t.drawn_elements, 5);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AD", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout_failed\":false"));
+
+    free(f2);
+    free(f29);
+}
+
+static void test_layout_many_tags(void)
+{
+    static esl_faketag_t t[CAP];
+    size_t l29, l154;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    char *f154 = read_example_layout("1.54.json", &l154);
+    CHECK(f29 && f154);
+    if (!f29 || !f154)
+        return;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put_layout("1.54", f154, l154), 200);
+    for (unsigned i = 0; i < CAP; i++) {
+        char mac[17];
+        esl_faketag_init(&t[i], 0xE000 + i, 1, 3000, i % 2 ? ESL_MODEL_154 : ESL_MODEL_29);
+        esl_mac_format(t[i].mac, mac);
+        CHECK_INT(put(mac, i % 3 ? SHELF : "{\"layout\":\"sign\",\"fields\":[\"A\",\"B\"]}"), 200);
+    }
+    for (unsigned i = 0; i < CAP; i++) {
+        CHECK_INT(esl_faketag_round(&t[i], &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
+        CHECK_INT(t[i].layout_ver, version_of(t[i].model));
+        CHECK_INT(t[i].drawn_elements, i % 3 ? 5 : 7);
+        CHECK_INT(esl_faketag_round(&t[i], &st, &layouts, PAN, -60, 60000), ESL_MSG_IDLE);
+    }
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", AUTH, NULL, 0, 60000, &out), 200);
+    CHECK(!HAS(resp, "\"pending\":true"));
+    CHECK(!HAS(resp, "\"layout_pending\":true"));
+    free(f29);
+    free(f154);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -263,4 +579,8 @@ void test_radio(void)
     test_fake_tag_filters();
     test_end_to_end();
     test_many_tags();
+    test_layout_download();
+    test_layout_lost_and_changed();
+    test_layout_rejected_and_old_firmware();
+    test_layout_many_tags();
 }

@@ -385,6 +385,141 @@ static void test_custom_elements(void)
     CHECK_EQ(sc.rect[2].y0, 70);
 }
 
+/* Two scenes must be the same: every run and rectangle. */
+static int same_scene(const draw_scene_t *a, const draw_scene_t *b)
+{
+    int i;
+    if (a->nruns != b->nruns || a->nrects != b->nrects)
+        return 0;
+    for (i = 0; i < a->nruns; i++) {
+        const draw_run_t *x = &a->run[i], *y = &b->run[i];
+        if (x->text != y->text || x->len != y->len || x->ellipsis != y->ellipsis || x->font != y->font ||
+            x->color != y->color || x->x != y->x || x->y != y->y || x->w != y->w)
+            return 0;
+    }
+    for (i = 0; i < a->nrects; i++)
+        if (memcmp(&a->rect[i], &b->rect[i], sizeof(draw_rect_t)) != 0)
+            return 0;
+    return 1;
+}
+
+/* Encodes a built-in layout in the wire format. Returns the number of elements. */
+static uint8_t encode_builtin(uint8_t id, uint8_t *out)
+{
+    const layout_elem_t *e = layout_builtin(id);
+    uint8_t n = 0;
+    for (; e->kind != LE_END; e++, n++)
+        out = put_elem(out, e->kind, e->field, e->font[0], e->font[1], e->font[2], e->opts, e->lines,
+                       e->color, e->x, e->y, e->w, e->h);
+    return n;
+}
+
+static void test_font_heights_match_ap(void)
+{
+    /* The AP checks layout files with these heights (shared/proto.h) */
+    CHECK_EQ(font_get(FONT_SMALL)->height, ESL_FONT_SMALL_H);
+    CHECK_EQ(font_get(FONT_MEDIUM)->height, ESL_FONT_MEDIUM_H);
+    CHECK_EQ(font_get(FONT_LARGE)->height, ESL_FONT_LARGE_H);
+    CHECK_EQ(font_get(FONT_MID)->height, ESL_FONT_MID_H);
+}
+
+static void test_wire_matches_builtin(void)
+{
+    /* The built-in layouts sent as a downloaded file draw exactly the same scene */
+    static draw_scene_t sc2;
+    static uint8_t wire[16 * ESL_LE_SIZE];
+    static const char *const f[] = { "Kjøttdeig av storfe 14 % fett, ekstra stor", "129,90", "kr/kg 108,25", "" };
+    const uint8_t *t[4];
+    uint8_t len[4], n, id, flags;
+    int i;
+
+    for (i = 0; i < 4; i++)
+        t[i] = L(f[i], &len[i]);
+    for (id = ESL_LAYOUT_PRICE; id <= ESL_LAYOUT_TEXT; id++) {
+        n = encode_builtin(id, wire);
+        for (flags = 0; flags < 4; flags++) {
+            layout_apply(&sc, layout_builtin(id), t, len, 4, flags);
+            layout_apply_bin(&sc2, wire, n, t, len, 4, flags);
+            CHECK(sc.nruns > 0);
+            CHECK(same_scene(&sc, &sc2));
+        }
+    }
+}
+
+/* Builds a file with one layout from the built-in price layout into layout_file. */
+static uint16_t price_file(void)
+{
+    layout_file[0] = ESL_LBIN_FORMAT;
+    layout_file[1] = MODEL_CODE;
+    layout_file[2] = 1;
+    layout_file[3] = 0;
+    layout_file[4] = encode_builtin(ESL_LAYOUT_PRICE, layout_file + 5);
+    return (uint16_t)(5 + layout_file[4] * ESL_LE_SIZE);
+}
+
+static uint32_t crc_of(uint16_t len)
+{
+    uint32_t c = proto_crc32(0, layout_file, len);
+    return c ? c : 1;
+}
+
+static void test_file_install(void)
+{
+    uint16_t len;
+    uint8_t n;
+    const uint8_t *e;
+
+    len = price_file();
+    CHECK(layout_file_install(len, crc_of(len)));
+    CHECK(layout_file_ver == crc_of(len));
+    e = layout_file_find(0, &n);
+    CHECK(e == layout_file + 5);
+    CHECK_EQ(n, 7);
+    CHECK(layout_file_find(1, &n) == 0);
+
+    /* Content with layout 0x10 is drawn like the built-in price layout */
+    {
+        static draw_scene_t sc2;
+        static const char *const f[] = { "Lettmelk 1 L", "24,90", "kr/l 24,90" };
+        build(ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, f);
+        sc2 = sc;
+        build(ESL_LAYOUT_FILE, ESL_CF_PRICE_HIGHLIGHT, 3, f);
+        CHECK(same_scene(&sc, &sc2));
+    }
+
+    /* Wrong CRC */
+    len = price_file();
+    CHECK(!layout_file_install(len, crc_of(len) + 1));
+    CHECK(layout_file_ver == 0);
+    CHECK(layout_file_find(0, &n) == 0);
+
+    /* Each of these makes the file invalid */
+#define BAD(stmt) do { len = price_file(); stmt; CHECK(!layout_file_install(len, crc_of(len))); \
+                       CHECK(layout_file_ver == 0); } while (0)
+    BAD(layout_file[0] = 2);                                   /* format */
+    BAD(layout_file[1] = MODEL_CODE == 1 ? 2 : 1);             /* another model */
+    BAD(layout_file[2] = 0);                                   /* no layouts */
+    BAD(layout_file[2] = 2);                                   /* layout 2 is missing */
+    BAD(len--);                                                /* cut */
+    BAD(layout_file[len++] = 0);                               /* trailing byte */
+    BAD(layout_file[5 + ESL_LE_OFF_KIND] = 3);                 /* element kind */
+    BAD(layout_file[5 + ESL_LE_OFF_FIELD] = 4);                /* field */
+    BAD(layout_file[5 + ESL_LE_OFF_FONT] = ESL_FONT_NONE);     /* text without a font */
+    BAD(layout_file[5 + ESL_LE_OFF_FONT + 1] = 4);             /* font */
+    BAD(layout_file[5 + ESL_LE_OFF_COLOR] = 5);                /* colour */
+    BAD(layout_file[5 + ESL_LE_OFF_LINES] = 4);                /* lines */
+    BAD(ESL_PUT_U16(layout_file + 5 + ESL_LE_OFF_W, DRAW_W));  /* past the right edge (x = margin) */
+    BAD(layout_file[5 + ESL_LE_OFF_H] = DRAW_H);               /* past the bottom */
+#undef BAD
+    CHECK(!layout_file_install(ESL_LBIN_MAX + 1, 1));          /* too big */
+    /* A rectangle may cover the whole screen */
+    len = price_file();
+    put_elem(layout_file + 5, ESL_LE_RECT, 9, 9, 9, 9, 0, 9, ESL_LE_BLACK, 0, 0, DRAW_W, DRAW_H);
+    CHECK(layout_file_install(len, crc_of(len)));
+    layout_file_clear();
+    CHECK(layout_file_ver == 0);
+}
+
 static void test_status_lines(void)
 {
     /* The start screen: 4 lines; the MAC line must fit without "…" */
@@ -418,5 +553,8 @@ void test_layout(void)
     RUN(test_frame);
     RUN(test_max_length_fields);
     RUN(test_custom_elements);
+    RUN(test_font_heights_match_ap);
+    RUN(test_wire_matches_builtin);
+    RUN(test_file_install);
     RUN(test_status_lines);
 }

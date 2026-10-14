@@ -30,13 +30,13 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 - The tag does not need a whole image in RAM: it calculates one pixel column at a time and streams it to the display controller, which has its own image memory.
 
 ### Layout from the design tool (requirement G7)
-- A designer makes the screen design in a separate design tool (not built yet). The tool exports one JSON file per layout and tag model: fields, positions, fonts, colours, alignment and truncation.
-- Open: whether conversion to a compact binary format happens on the PC (before upload) or on the AP, and whether the tag ends up reading JSON or the binary format.
-- Flow: design tool → layout file → AP (`PUT /api/layouts/{model}` or similar) → AP converts the file to a compact binary format → the tag fetches it over radio when the layout version has changed, and stores it in flash.
-- `layout` in `PUT /api/tags` then refers to a layout name from the file, instead of the fixed `price`/`text`.
-- This needs a new message type and block transfer in the radio protocol (a layout is larger than 110 bytes), and a fixed file format with a size limit. To be agreed between the tag and AP before it is specified in [protokoll.md](protokoll.md).
-- The tag still draws the screen itself, so text changes are still one radio packet. A layout is only sent when it changes.
+- A designer makes the screen design in a separate design tool (not built yet; until then the file is written by hand). It is one JSON layout file per tag model with up to 16 named layouts: fields, positions, fonts, colours, alignment ([protokoll.md](protokoll.md) part 3).
+- Flow: layout file → AP (`PUT /api/layouts/{model}`) → the AP checks it against the model and compiles it to a compact binary (14 bytes per element, at most 768 bytes) → each tag downloads it in blocks when the version (CRC-32 of the binary) in its POLL differs from the AP's ([protokoll.md](protokoll.md) part 1, "Layout transfer").
+- **Conversion on the AP**, not on the PC and not on the tag: clients upload the same JSON the tool makes, the AP can answer `422` with the exact place of an error, and the tag only needs a small interpreter for the binary (`layout_apply_bin()`), no JSON parser. The tag preview on the PC (`tag/tools/render_host.py`) builds the AP's compiler for the host, so previews show exactly what a tag gets.
+- `layout` in `PUT /api/tags` is `price`, `text` or a layout name from the file. The AP stores the name and turns it into "layout n of the file" (CONTENT layout 0x10 + n) for each tag's model when it sends the content; the same name can exist in both models' files.
+- The tag still draws the screen itself, so text changes are still one radio packet. A layout file is only sent when it changes; a 768-byte file is 9 blocks.
 - The layout file belongs to the tag model, not to the individual tag. All tags of the same model use the same layout file, with content from the client.
+- The tag keeps the file in XRAM for now. Once flash writing works (requirement T12) it should be stored in flash, so a restart does not cost a new download.
 
 ### Two tag sizes: 2.9" and 1.54" (requirement G6)
 - SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white) are both supported by the same AP, the same radio protocol, the same API and the same code.

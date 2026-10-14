@@ -8,10 +8,10 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 
 | Part | Status |
 |---|---|
-| Packets: POLL (with the model byte, T18), IDLE, CONTENT and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
+| Packets: POLL (with the model byte, T18, and the layout version, T17), IDLE, CONTENT, LAYOUT, LAYOUT_REQ and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
 | Fonts: small (17 px), medium (24 px), price fonts large (52 px) and mid (36 px) with digits and ` ,-.:` only | Done, generated from Inter (OFL) |
 | Column-by-column drawing (`draw.c`), layout interpreter with built-in layouts "price" and "text" (`layout.c`) for both models | Done, tested on PC for both models, previews in `build/preview/<model>/` |
-| Layouts sent from the AP (G7/T17) | Interpreter ready (`layout_apply`); the radio format is not agreed yet |
+| Layouts sent from the AP (G7/T17): block download, CRC-32 and structure check, drawing from XRAM (`app.c`, `layout.c`, [protokoll.md](../docs/protokoll.md) part 1 "Layout transfer") | Done, tested on PC for both models (fake radio); not tried on the air yet. Kept in XRAM only, fetched again after a restart |
 | State machine: POLL, retry, draw only on a new `content_id`, longer interval without AP, "No AP found" screen (`app.c`) | Done, tested on PC with a fake radio |
 | SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Commands are unconfirmed until the controller is confirmed (phase 0); the 1.54" controller is not known at all yet |
 | Clock, GPIO, UART, timer, watchdog, battery, deep sleep (`hal/zbs243/`) | Stubs, waiting for register facts (phases 1 and 6) |
@@ -44,7 +44,9 @@ tag/
     OFL.txt             the font licence
   designs/              label designs in JSON (see below)
     examples/           example data per design, drawn by tools/render_host.py
-  test/                 host tests, fake hardware and preview
+    layouts/            example layout files per model (2.9.json, 1.54.json), protokoll.md part 3
+  test/                 host tests, fake hardware, preview, layout_compile (the AP's layout
+                        compiler as a host tool, for the previews)
   tools/
     build.py            builds the firmware, runs the tests and the preview (default model)
     render_host.py      tests and previews for every model, including the JSON designs
@@ -62,7 +64,7 @@ Requires Python 3 with Pillow. Without `make`, run `python tools/build.py <targe
 |---|---|
 | `make test` | Compiles and runs the host tests with a normal C compiler, and the Python design tests |
 | `make preview` | Draws example content to `build/preview/*.png` (2.9") |
-| `make host` | Runs the host tests for every model and draws the examples and the designs to `build/preview/<model>/*.png`, with everything on one sheet in `all.png` (`python tools/render_host.py [29\|154]`) |
+| `make host` | Runs the host tests for every model and draws the examples, the layouts in `designs/layouts/<model>.json` (`layout-<name>.png`) and the designs to `build/preview/<model>/*.png`, with everything on one sheet in `all.png` (`python tools/render_host.py [29\|154]`) |
 | `make fw` | Builds the firmware with SDCC to `build/fw/openesl.ihx` and `.bin` |
 | `make fonts` | Regenerates `fonts/font_*.c` |
 
@@ -76,6 +78,8 @@ Flash with [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) (`write build/f
 
 **Size now (SDCC 4.5.0, 2026-10-12):** 28,808 bytes of flash (about 14 KB of it is fonts), 680 bytes of XRAM, and 247 bytes free for the stack in internal RAM. Whether the stack is enough for the deepest call chain (POLL → layout → drawing), and whether ZBS243 has at least 680 bytes of XRAM, has not been measured yet. Both must be checked in phase 1. After that measurement the layout work added the mid price font (about 1.6 KB of flash), the layout tables (about 250 bytes) and about 60 bytes of XRAM (two more text runs and the line buffers in `layout.c`); not re-measured, because SDCC was not available.
 
+**Layout download (2026-10-14, estimated, SDCC was not available):** about +810 bytes of XRAM (`layout_file[]` 768, its length and version 6, one decoded element 14, download state in `app` 12, LAYOUT fields in the two `proto_reply_t` 8; POLL is now built straight into `txbuf`, which saves 12 bytes of stack) and about +1.5-2 KB of flash (CRC-32 with a 64-byte table, the LAYOUT parser and LAYOUT_REQ builder, the file check, the transfer loop). Drawing a downloaded layout is no deeper on the stack than a built-in one (one `apply_list()` for both). Measure both on the next SDCC build.
+
 ## Label design (JSON)
 
 Design files are in `designs/`. The format and rules are at the top of `tools/label_design.py`. A design says which layout the label uses, which fields it fills (with placeholders such as `{name}`), and the styles. `render` gives the fields in the same form as the body of `PUT /api/tags/{mac}`, so a client can send them directly.
@@ -86,9 +90,9 @@ python tools/label_design.py render designs/pris-standard.json data.json
 python -m unittest discover -s test -p "test_label_*.py"
 ```
 
-The design does not change the firmware. The tag still only knows the layouts "price" and "text". The styles `price_highlight` and `frame` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
+The design does not change the firmware. Its layout is one of the built-in layouts "price" and "text", or a layout from a layout file (`designs/layouts/<model>.json`, uploaded to the AP and downloaded by the tags); the field names then come from that file (`render <design> <data> designs/layouts/2.9.json`). The styles `price_highlight` and `frame` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
 
-`make host` draws every design with the data in `designs/examples/<id>.json` to `build/preview/<model>/design-<id>-<n>.png`.
+`make host` draws every design with the data in `designs/examples/<id>.json` to `build/preview/<model>/design-<id>-<n>.png`. A design for a file layout is drawn for every model whose layout file has that layout: `render_host.py` compiles `designs/layouts/<model>.json` with the AP's own compiler (built from `ap/components/esl_core/` as `build/host/layout_compile`) into `build/preview/<model>/layouts.bin`, and the preview tool installs that file with the tag's own check (`layout_file_install`), as after a download. An error in a layout file stops the run with the same message the AP would answer with.
 
 ## How the drawing works
 
@@ -105,7 +109,7 @@ Layout 1, "price": the name at the top, in the medium font on up to two lines (t
 Layout 2, "text": four lines in the medium font, or the small font for a line that does not fit. On the 1.54" each line may use two text lines.
 Flag bit 1 gives a black frame around the whole screen.
 
-The element format is meant to also carry layouts from the AP later (G7/T17); `layout_apply()` takes the list from RAM as well as from flash. The format is documented in `src/layout.h` and is a proposal until the radio message is agreed.
+Layouts from the AP (G7/T17) use the same elements, 14 bytes each in the wire format in `shared/proto.h`. The AP announces a new version in its answer to POLL; `app.c` fetches the file block by block in the same wake-up into `layout_file[]` (768 bytes of XRAM), `layout_file_install()` checks the CRC-32, the model and every element, and CONTENT with layout 0x10 + n is then drawn with layout n of the file (`layout_apply_bin()`, decoding one element at a time into a 14-byte buffer, so no second copy). See [protokoll.md](../docs/protokoll.md) part 1, "Layout transfer".
 
 **Models.** `src/model.h` holds the screen size. The 2.9" is 296 × 128 and the 1.54" (ST-GM16XX2) is 200 × 200, both black/white. The built-in layouts use the same elements on both, with box sizes taken from the model.
 
@@ -115,6 +119,8 @@ The element format is meant to also carry layouts from the AP later (G7/T17); `l
 
 - **The "No AP found" screen** (requirement T9) is drawn after `CFG_LOST_AP_S` = 2 hours without an answer. The price then disappears from the screen. This is a deliberate choice so that faults are visible, but in some uses it is better to leave the price up. Raise `CFG_LOST_AP_S` to delay it.
 - **Longer interval without AP** (T11): the first two misses keep the interval, then it doubles up to 10 minutes.
+- **One layout buffer:** the download overwrites the installed layout file, so while a download is unfinished the tag has no file (it reports version 0) and content for a file layout waits. Two buffers would keep the old file usable, at the cost of another 768 bytes of XRAM.
+- **A rejected layout file** (bad CRC, wrong model, an element the tag cannot draw) is not tried again until the AP offers another version; the tag reports it with POLL flag bit2 and keeps drawing built-in layouts.
 - **Retry:** once, after a random pause of 2-10 ms, as the protocol says. Within each listening window up to three frames are read, so a reply to another tag does not count as a miss.
 - **No acknowledgement:** follows [protokoll.md](../docs/protokoll.md). The next POLL with the new `content_id` is the acknowledgement.
 - **Ellipsis:** character `0x7F` in the fonts is "…", because Latin-1 does not have it. The AP sends "…" in content as "...", so 0x7F is only drawn by the tag itself.

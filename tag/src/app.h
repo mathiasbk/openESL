@@ -3,6 +3,8 @@
  *
  *   app_init()      read the MAC, draw the start screen
  *   app_poll_once() one round: POLL -> IDLE/CONTENT -> draw on new content.
+ *                   A LAYOUT reply starts (or continues) the layout download in the
+ *                   same round: LAYOUT_REQ -> LAYOUT until the file is complete.
  *                   Returns how many seconds the tag should sleep.
  *
  * main.c just does: hal_init(); app_init(); for (;;) power_sleep_s(app_poll_once());
@@ -24,6 +26,12 @@ typedef struct {
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
     uint8_t seq;
     uint16_t rng;
+    /* Layout download (docs/protokoll.md part 1, "Layout transfer"). The file goes
+       straight into layout_file[] (layout.c); dl_got bytes of it are in place. */
+    uint32_t dl_ver;          /* version being downloaded, 0 = none */
+    uint16_t dl_size;
+    uint16_t dl_got;
+    uint32_t lay_rejected;    /* version the tag could not use (reported with ESL_POLL_F_LAYOUTFAIL) */
 } app_state_t;
 
 extern app_state_t __xdata app;

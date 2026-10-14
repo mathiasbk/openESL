@@ -7,6 +7,10 @@
  *                                                   one image; layout 1 = price, 2 = text,
  *                                                   flags as in CONTENT, fields in UTF-8
  *                                                   (converted to Latin-1 like the AP does)
+ *   preview -L <layouts.bin> -o <file.ppm> <layout> <flags> [field ...]
+ *                                                   the same with a downloaded layout file
+ *                                                   (layout 16 + n = layout n of the file),
+ *                                                   installed with the tag's own check
  *
  * Used by 'python tools/build.py preview' and 'python tools/render_host.py'.
  */
@@ -83,6 +87,27 @@ static const struct {
     { "tekst_lang",      T, FRAME,       { "Velkommen!", "Denne linjen er altfor lang til å få plass", "", "ÆØÅ æøå é ü ß ©" } },
 };
 
+/* Loads a layout file the way the tag stores a finished download. */
+static int load_layout_file(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    size_t n;
+    uint32_t crc;
+
+    if (!f) {
+        printf("%s: cannot read\n", path);
+        return 1;
+    }
+    n = fread(layout_file, 1, ESL_LBIN_MAX + 1, f);
+    fclose(f);
+    crc = proto_crc32(0, layout_file, (uint16_t)n);
+    if (n > ESL_LBIN_MAX || !layout_file_install((uint16_t)n, crc ? crc : 1)) {
+        printf("%s: the tag would reject this layout file\n", path);
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     char p[512];
@@ -90,6 +115,12 @@ int main(int argc, char **argv)
     unsigned i;
     int err = 0;
 
+    if (argc >= 3 && strcmp(argv[1], "-L") == 0) {
+        if (load_layout_file(argv[2]))
+            return 1;
+        argc -= 2;
+        argv += 2;
+    }
     if (argc >= 5 && strcmp(argv[1], "-o") == 0)
         return one(argv[2], (uint8_t)atoi(argv[3]), (uint8_t)strtol(argv[4], NULL, 0),
                    argc - 5, (const char *const *)(argv + 5));

@@ -86,7 +86,7 @@ uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses)
     return s;
 }
 
-/* Sends POLL and waits for a valid answer to us. true = reply is filled in. */
+/* Sends the frame in txbuf and waits for a valid answer to us. true = reply is filled in. */
 static bool exchange(uint8_t flen)
 {
     uint8_t t, off;
@@ -108,6 +108,99 @@ static bool exchange(uint8_t flen)
         }
     }
     return false;
+}
+
+/* exchange(), and once more after a random pause if nothing came (protokoll.md). */
+static bool exchange_retry(uint8_t flen)
+{
+    if (exchange(flen))
+        return true;
+    hal_delay_ms(CFG_RETRY_MIN_MS + (uint8_t)(rng_next() % (CFG_RETRY_MAX_MS - CFG_RETRY_MIN_MS + 1)));
+    return exchange(flen);
+}
+
+/* Builds POLL straight into the payload part of txbuf (proto_build_frame copies it onto itself). */
+static uint8_t build_poll_frame(void)
+{
+    uint8_t *pl = txbuf + ESL_MAC_HDR_LEN;
+    uint8_t flags = app.poll_flags;
+
+    if (app.lay_rejected)
+        flags |= ESL_POLL_F_LAYOUTFAIL;
+    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, layout_file_ver);
+    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LAYOUT);
+}
+
+/* The layout file changed: content drawn with one of its layouts must be fetched again,
+   because the AP resolves layout names against the file it has now. */
+static void layout_changed(void)
+{
+    if (app.shown_id && shown.layout >= ESL_LAYOUT_FILE)
+        app.shown_id = 0;
+}
+
+/*
+ * reply is a LAYOUT block. Stores it and asks for the rest of the file in the same round
+ * (docs/protokoll.md part 1, "Layout transfer"). Returns true when the file is complete
+ * (installed or rejected) or dropped, so the caller polls once more for content.
+ * Returns false when there is nothing to do or the AP stopped answering; the download
+ * then continues from dl_got the next time the AP offers the same version.
+ */
+static bool layout_transfer(void)
+{
+    uint8_t req = 0, n, i;
+    uint16_t pos;
+    uint32_t ver;
+
+    for (;;) {
+        ver = reply.content_id;
+        if (ver == 0) {                     /* the AP has no file for this model */
+            app.dl_ver = 0;
+            app.lay_rejected = 0;
+            if (!layout_file_ver)
+                return false;
+            layout_file_clear();
+            layout_changed();
+            return true;
+        }
+        if (ver == layout_file_ver || ver == app.lay_rejected)
+            return false;
+        if (ver != app.dl_ver || reply.lay_size != app.dl_size) {
+            /* A new file, or the file changed during the download: start from the beginning */
+            if (reply.lay_size > ESL_LBIN_MAX || reply.lay_size < ESL_LBIN_HDR_LEN) {
+                app.dl_ver = 0;
+                app.lay_rejected = ver;     /* too big for this tag; the AP should never offer it */
+                return true;
+            }
+            if (layout_file_ver) {          /* the download overwrites the installed file */
+                layout_file_clear();
+                layout_changed();
+            }
+            app.dl_ver = ver;
+            app.dl_size = reply.lay_size;
+            app.dl_got = 0;
+        }
+        n = reply.field_len[0];
+        pos = reply.lay_pos;
+        if (pos <= app.dl_got && pos + n > app.dl_got) {
+            const uint8_t *d = rxbuf + rx_off + reply.field_off[0];
+            for (i = (uint8_t)(app.dl_got - pos); i < n; i++)
+                layout_file[pos + i] = d[i];
+            app.dl_got = pos + n;
+        }
+        if (app.dl_got >= app.dl_size) {
+            app.dl_ver = 0;
+            app.lay_rejected = layout_file_install(app.dl_size, ver) ? 0 : ver;
+            return true;
+        }
+        if (++req > CFG_LAYOUT_MAX_REQ)
+            return false;
+        n = proto_build_layout_req(txbuf + ESL_MAC_HDR_LEN, ver, app.dl_got, ESL_LAYOUT_CHUNK_MAX);
+        if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
+                                              txbuf + ESL_MAC_HDR_LEN, n)) ||
+            reply.type != ESL_MSG_LAYOUT)
+            return false;
+    }
 }
 
 static uint16_t on_miss(void)
@@ -163,6 +256,12 @@ void app_init(void)
         app.rng ^= (uint16_t)app.mac[i] << ((i & 1) ? 8 : 0);
     if (!app.rng)
         app.rng = 1;
+    app.dl_ver = 0;
+    app.dl_size = 0;
+    app.dl_got = 0;
+    app.lay_rejected = 0;
+    layout_file_clear();     /* not kept in flash yet: fetched again after every restart */
+    shown.layout = 0;
 
     radio_init(CFG_CHANNEL);
     if (!draw_status(msg_waiting))
@@ -171,19 +270,21 @@ void app_init(void)
 
 uint16_t app_poll_once(void)
 {
-    uint8_t payload[ESL_POLL_LEN];
-    uint8_t flen;
     bool got;
 
     hal_wdt_kick();
-    proto_build_poll(payload, FW_VERSION, battery_read_mv(), app.shown_id, app.poll_flags);
-    flen = proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, payload, ESL_POLL_LEN);
-
     radio_on();
-    got = exchange(flen);
-    if (!got) {
-        hal_delay_ms(CFG_RETRY_MIN_MS + (uint8_t)(rng_next() % (CFG_RETRY_MAX_MS - CFG_RETRY_MIN_MS + 1)));
-        got = exchange(flen);
+    got = exchange_retry(build_poll_frame());
+    if (got && reply.type == ESL_MSG_LAYOUT) {
+        if (reply.next_poll_s)
+            app.interval_s = reply.next_poll_s;
+        /* After a finished download, poll again at once: the AP answers with the content
+           for the new file. Anything else this round means "nothing to draw". */
+        if (!layout_transfer() || !exchange_retry(build_poll_frame()) || reply.type == ESL_MSG_LAYOUT) {
+            reply.type = ESL_MSG_LAYOUT;
+            reply.next_poll_s = 0;
+        }
+        hal_wdt_kick();
     }
     radio_off();
 

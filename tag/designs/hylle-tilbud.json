@@ -1,0 +1,13 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "hylle-tilbud",
+  "layout": "shelf",
+  "fields": {
+    "name": "{name}",
+    "price": "{price}",
+    "unit": "{unit_price}",
+    "info": "{note}"
+  },
+  "style": { "price_highlight": true, "frame": false }
+}

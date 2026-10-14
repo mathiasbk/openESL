@@ -51,6 +51,8 @@ bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out)
     out->content_id = get32(&p[ESL_POLL_OFF_CID]);
     out->flags = p[ESL_POLL_OFF_FLAGS];
     out->model = p[ESL_POLL_OFF_MODEL];
+    out->has_layout_ver = len >= ESL_POLL_LEN_LAYOUT;
+    out->layout_ver = out->has_layout_ver ? get32(&p[ESL_POLL_OFF_LAYOUT_VER]) : 0;
     return true;
 }
 
@@ -63,7 +65,49 @@ size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll)
     put32(&out[ESL_POLL_OFF_CID], poll->content_id);
     out[ESL_POLL_OFF_FLAGS] = poll->flags;
     out[ESL_POLL_OFF_MODEL] = poll->model;
-    return ESL_POLL_LEN;
+    if (!poll->has_layout_ver)
+        return ESL_POLL_LEN;
+    out[ESL_POLL_LEN] = out[ESL_POLL_LEN + 1] = 0; /* bytes 12-13: reserved for cfg_ver */
+    put32(&out[ESL_POLL_OFF_LAYOUT_VER], poll->layout_ver);
+    return ESL_POLL_LEN_LAYOUT;
+}
+
+bool esl_layout_req_parse(const uint8_t *p, size_t len, esl_layout_req_t *out)
+{
+    if (len < ESL_LREQ_LEN || p[0] != ESL_MSG_LAYOUT_REQ || p[1] != ESL_PROTO_VER)
+        return false;
+    out->model = p[ESL_LREQ_OFF_MODEL];
+    out->max = p[ESL_LREQ_OFF_MAX];
+    out->layout_ver = get32(&p[ESL_LREQ_OFF_VER]);
+    out->pos = get16(&p[ESL_LREQ_OFF_POS]);
+    return true;
+}
+
+size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req)
+{
+    out[0] = ESL_MSG_LAYOUT_REQ;
+    out[1] = ESL_PROTO_VER;
+    out[ESL_LREQ_OFF_MODEL] = req->model;
+    out[ESL_LREQ_OFF_MAX] = req->max;
+    put32(&out[ESL_LREQ_OFF_VER], req->layout_ver);
+    put16(&out[ESL_LREQ_OFF_POS], req->pos);
+    return ESL_LREQ_LEN;
+}
+
+size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
+                            const uint8_t *data, size_t n)
+{
+    if (n > ESL_LAYOUT_CHUNK_MAX)
+        n = ESL_LAYOUT_CHUNK_MAX;
+    out[0] = ESL_MSG_LAYOUT;
+    out[1] = ESL_PROTO_VER;
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put32(&out[ESL_LAYOUT_OFF_VER], ver);
+    put16(&out[ESL_LAYOUT_OFF_SIZE], size);
+    put16(&out[ESL_LAYOUT_OFF_POS], pos);
+    if (n)
+        memcpy(&out[ESL_LAYOUT_OFF_DATA], data, n);
+    return ESL_LAYOUT_HDR_LEN + n;
 }
 
 size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s)
@@ -92,6 +136,18 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
     out->next_poll_s = get16(&p[ESL_OFF_NEXT_POLL]);
     if (out->type == ESL_MSG_IDLE)
         return len == ESL_IDLE_LEN;
+    if (out->type == ESL_MSG_LAYOUT) {
+        if (len < ESL_LAYOUT_HDR_LEN || len > ESL_MAX_PAYLOAD)
+            return false;
+        out->layout_ver = get32(&p[ESL_LAYOUT_OFF_VER]);
+        out->layout_size = get16(&p[ESL_LAYOUT_OFF_SIZE]);
+        out->layout_pos = get16(&p[ESL_LAYOUT_OFF_POS]);
+        out->layout_data = &p[ESL_LAYOUT_OFF_DATA];
+        out->layout_len = len - ESL_LAYOUT_HDR_LEN;
+        return out->layout_pos <= out->layout_size &&
+               out->layout_len <= (size_t)(out->layout_size - out->layout_pos) &&
+               (out->layout_ver != 0 || out->layout_size == 0);
+    }
     if (out->type != ESL_MSG_CONTENT || len < ESL_CONTENT_HDR_LEN)
         return false;
     out->content_id = get32(&p[ESL_CONTENT_OFF_CID]);
@@ -211,6 +267,15 @@ const char *esl_model_name(uint8_t model)
     case ESL_MODEL_29:  return "2.9";
     case ESL_MODEL_154: return "1.54";
     default:            return NULL;
+    }
+}
+
+bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h)
+{
+    switch (model) {
+    case ESL_MODEL_29:  *w = ESL_MODEL_29_W;  *h = ESL_MODEL_29_H;  return true;
+    case ESL_MODEL_154: *w = ESL_MODEL_154_W; *h = ESL_MODEL_154_H; return true;
+    default:            return false;
     }
 }
 
