@@ -19,6 +19,7 @@ __sfr __at (0xB7) CLKEN;     /* peripheral clocks: 0x01 timers, 0x08 SPI, 0x20 U
 __sfr __at (0xFF) CFGPAGE;   /* 0x04 selects config page 4 */
 __sfr __at (0xA8) IEN0;      /* interrupt enable, bit 7 = EA */
 __sfr __at (0x8F) RESET;     /* bit 0x04 holds the radio in reset (active high) */
+__sfr __at (0xA1) IEN1;      /* bit 0x10: temperature conversion (cleared when done) */
 
 /* ---- GPIO (page 0) ---- */
 __sfr __at (0x80) P0;        /* reading an output pin does NOT return the written level */
@@ -47,6 +48,7 @@ __sbit __at (0xA0) P2_0;
 __sbit __at (0xA1) P2_1;
 __sbit __at (0xA2) P2_2;
 
+
 /* ---- Timer 0 (classic 8051, clocked at 16 MHz / 12) ---- */
 __sfr __at (0x88) TCON;      /* 0x10 TR0 (run), 0x20 TF0 (overflow) */
 __sfr __at (0x89) TMOD;
@@ -67,8 +69,19 @@ __sfr __at (0xBD) WDTRSTVALM;
 __sfr __at (0xBE) WDTRSTVALH;
 __sfr __at (0xBF) WDTCONF;   /* bit 7 = enable */
 
+/* ---- Temperature sensor (page 4; CLKEN bit 0x80). Result bit-reversed ---- */
+__sfr __at (0xE6) TEMPCAL1;
+__sfr __at (0xE7) TEMPCAL2;
+__sfr __at (0xF7) TEMPCFG;   /* 0x08 set when a conversion is done */
+__sfr __at (0xF8) TEMPRETH;  /* top 8 bits of the 10-bit result, bit-reversed */
+__sfr __at (0xF9) TEMPRETL;  /* low 2 bits in bits 0-1, swapped */
+__sfr __at (0xFB) TEMPCAL3;
+__sfr __at (0xFC) TEMPCAL4;
+__sfr __at (0xFD) TEMPCAL5;
+__sfr __at (0xFE) TEMPCAL6;
+
 /* ---- Flash DMA (page 4). Copies flash or the info page to xdata ---- */
-__sfr __at (0xC7) SETTINGS;  /* 0x08 = read */
+__sfr __at (0xC7) SETTINGS;  /* 0x08 read, 0x18 write, |= 0x38 erase page then write */
 __sfr __at (0xCF) TCON2;     /* 0x08 = flash operation done */
 __sfr __at (0xD7) TRIGGER;   /* 0x08 starts a flash operation */
 __sfr __at (0xD8) FPGNO;     /* page 0x00-0x3F main flash (1 KB each), 0x80 info page */
@@ -149,6 +162,11 @@ __sfr __at (0xFA) RADIO_GOTLEN;   /* any page: length of the frame in the RX FIF
 #define RADIO_UNK_F0        RADIO_REG(0xDFF0)
 #define RADIO_POWER_CTL     RADIO_REG(0xDFF4)
 #define RADIO_CH_SETTING1   RADIO_REG(0xDFFD)
+#define RADIO_SLEEP_HI      RADIO_REG(0xDFD9)   /* sleep timer, 20 bits, counts down */
+#define RADIO_SLEEP_MID     RADIO_REG(0xDFDA)
+#define RADIO_SLEEP_LO      RADIO_REG(0xDFDB)
+#define RADIO_SLEEP_CFG     RADIO_REG(0xDFF3)   /* 0x16: 1 s ticks, 0x56: 1/32768 s ticks; | 0x80 to arm */
+#define RADIO_WAKE_REASON   RADIO_REG(0xDFFB)   /* 0x08 timer, 0x04 pin, 0x02 radio */
 
 #define RADIO_CMD_RECEIVE   0xC2
 #define RADIO_CMD_FLUSH_RX  0xC6

@@ -25,7 +25,7 @@ ROOT = os.path.dirname(TAG)
 BUILD = os.path.join(TAG, "build")
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
-CODE_SIZE = 0xFC00              # flash from 0xFC00 up holds the stock MAC (kildelogg 2026-10-10)
+CODE_SIZE = 0xF800              # 0xF800-0xFBFF: persistent store (hal_store_*); 0xFC00 up: the stock MAC
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test")]
 
@@ -151,8 +151,9 @@ def build_8051(subdir, name, sources, defines=()):
     out = os.path.join(BUILD, subdir)
     os.makedirs(out, exist_ok=True)
     flags = ["-mmcs51", "--model-large", "--stack-auto", "--std-c99", "--opt-code-size"]
-    # ZBS243 XRAM is 8 KB at 0xE000-0xFFFF (kildelogg 2026-10-14)
-    link_flags = ["--xram-loc", "0xE000", "--xram-size", "0x2000"]
+    # ZBS243 XRAM is 8 KB at 0xE000-0xFFFF, but 0xE000-0xE2FF is lost in deep sleep,
+    # so variables start at 0xE300 (kildelogg 2026-10-14; OEPL links there too)
+    link_flags = ["--xram-loc", "0xE300", "--xram-size", "0x1D00"]
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
