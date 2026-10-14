@@ -125,8 +125,14 @@ static void reset_model(void)
    Screen column x = gate line x; row y = bit y of the source direction, MSB first. */
 static int ram_pixel(int x, int y)
 {
+#if MODEL == 154
+    /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE) */
+    uint8_t m = (uint8_t)(0x80 >> (x & 7));
+    return (ram[0][y][x >> 3] & m) ? 0 : 1;
+#else
     uint8_t m = (uint8_t)(0x80 >> (y & 7));
     return (ram[0][x][y >> 3] & m) ? 0 : 1;      /* black plane: 1 = white */
+#endif
 }
 
 /* Bytes of the screen window in the second RAM (0x26) that are not zero */
@@ -170,9 +176,15 @@ static void test_epd_stream(const char *out)
     CHECK_EQ(first_cmd, 0x12);                   /* software reset first */
     CHECK_EQ(gate_lines, DRAW_W);
     CHECK_EQ(xs, 0);
+#if MODEL == 154
+    CHECK_EQ(xe, (DRAW_W + 7) / 8 - 1);
+    CHECK_EQ(ys, 0);
+    CHECK_EQ(ye, DRAW_H - 1);
+#else
     CHECK_EQ(xe, DRAW_COL_BYTES - 1);
     CHECK_EQ(ys, 0);
     CHECK_EQ(ye, DRAW_W - 1);
+#endif
     CHECK_EQ(n_out_of_window, 0);
     CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);
     CHECK(n_written[1] == 0 || n_written[1] == DRAW_W * DRAW_COL_BYTES);

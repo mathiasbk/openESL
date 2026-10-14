@@ -5,6 +5,8 @@ Build script for the tag firmware. Works with and without make (the Makefile onl
   python tools/build.py test      host tests (a C compiler on the PC)
   python tools/build.py preview   draws the example layouts to build/preview/*.png
   python tools/build.py fw        firmware with SDCC -> build/fw/openesl.ihx and .bin
+                                  (MODEL=154 for the 1.54" -> build/fw154/openesl.bin; default 29)
+  python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
   python tools/build.py clean
 
@@ -39,8 +41,9 @@ HOST_TARGETS = {
     "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
 }
 
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c"] + CORE + FONTS + \
-             ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
+HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
+FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c"] + CORE + FONTS + HAL_SOURCES
+HWTEST_SOURCES = ["src/hal/zbs243/hwtest.c"] + HAL_SOURCES
 
 
 def find_cc():
@@ -133,7 +136,7 @@ def ihx_to_bin(ihx, bin_path):
     print("%s: %d bytes (%.1f %% of 0x%04X)" % (bin_path, top, 100.0 * top / CODE_SIZE, CODE_SIZE))
 
 
-def cmd_fw():
+def build_8051(subdir, name, sources, defines=()):
     sdcc = os.environ.get("SDCC", "sdcc")
     winget_sdcc = r"C:\Program Files\SDCC\bin\sdcc.exe"   # winget installs SDCC here without adding it to PATH
     if not shutil.which(sdcc) and os.path.exists(winget_sdcc):
@@ -145,18 +148,31 @@ def cmd_fw():
     ver = subprocess.run([sdcc, "--version"], capture_output=True, text=True).stdout
     if SDCC_VERSION not in ver:
         print("WARNING: expected SDCC %s, got: %s" % (SDCC_VERSION, ver.strip().splitlines()[0]))
-    out = os.path.join(BUILD, "fw")
+    out = os.path.join(BUILD, subdir)
     os.makedirs(out, exist_ok=True)
     flags = ["-mmcs51", "--model-large", "--stack-auto", "--std-c99", "--opt-code-size"]
-    # TODO phase 0/1: --xram-size once the ZBS243 XRAM size is known (kildelogg).
+    # ZBS243 XRAM is 8 KB at 0xE000-0xFFFF (kildelogg 2026-10-14)
+    link_flags = ["--xram-loc", "0xE000", "--xram-size", "0x2000"]
     rels = []
-    for s in FW_SOURCES:
+    for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
-        run([sdcc] + flags + ["-I" + i for i in INCLUDES[:2]] + ["-c", os.path.join(TAG, s), "-o", rel])
+        run([sdcc] + flags + list(defines) + ["-I" + i for i in INCLUDES[:2]] +
+            ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
-    ihx = os.path.join(out, "openesl.ihx")
-    run([sdcc] + flags + ["--code-size", str(CODE_SIZE), "-o", ihx] + rels)
-    ihx_to_bin(ihx, os.path.join(out, "openesl.bin"))
+    ihx = os.path.join(out, name + ".ihx")
+    run([sdcc] + flags + link_flags + ["--code-size", str(CODE_SIZE), "-o", ihx] + rels)
+    ihx_to_bin(ihx, os.path.join(out, name + ".bin"))
+
+
+def cmd_fw():
+    model = os.environ.get("MODEL", "29")
+    if model not in ("29", "154"):
+        sys.exit("MODEL must be 29 or 154")
+    build_8051("fw" if model == "29" else "fw" + model, "openesl", FW_SOURCES, ["-DMODEL=" + model])
+
+
+def cmd_hwtest():
+    build_8051("hwtest", "hwtest", HWTEST_SOURCES)
 
 
 def cmd_fonts():
@@ -168,7 +184,7 @@ def cmd_clean():
 
 
 def main():
-    cmds = {"test": cmd_test, "preview": cmd_preview, "fw": cmd_fw, "fonts": cmd_fonts, "clean": cmd_clean}
+    cmds = {"test": cmd_test, "preview": cmd_preview, "fw": cmd_fw, "hwtest": cmd_hwtest, "fonts": cmd_fonts, "clean": cmd_clean}
     if len(sys.argv) != 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     cmds[sys.argv[1]]()
