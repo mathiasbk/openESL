@@ -33,3 +33,6 @@ desktop.ini
 
 # Private notes, never published
 private/
+
+# PlatformIO
+.pio/
