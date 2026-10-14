@@ -14,6 +14,14 @@ Source types: `datasheet`, `measurement`, `experiment`, `stock-fw` (study of a b
 | 2026-10-12 | 802.15.4 sends multi-byte fields and extended addresses least significant byte first | datasheet | IEEE 802.15.4, general frame format | `tag/src/proto.c` |
 | 2026-10-12 | The FCS is CRC-16 with polynomial x^16+x^12+x^5+1, initial value 0, reflected (check value 0x2189 for "123456789") | datasheet | IEEE 802.15.4, FCS field. The check value is tested in `tag/test/test_proto.c` | `tag/src/proto.c` |
 | 2026-10-12 | 8051: interrupts are disabled with EA (IE.7) | datasheet | Intel MCS-51 documentation, IE register. The name `EA` comes from SDCC's `<8051.h>` | `tag/src/hal/zbs243/hal_zbs243.c` |
+| 2026-10-14 | ZBS243 SFRs: CLKSPEED 0x8E (0x01 = 16 MHz crystal), CLKEN 0xB7 (0x01 timers, 0x20 UART), CFGPAGE 0xFF, P0/P1/P2 FUNC 0xAD–0xAF, DIR 0xB9–0xBB (1 = input), PULL 0xBC–0xBE | text | Dmitry Grinberg's ZBS243 reverse engineering (zbs243.h), as used in atc1441's ZBS_Flasher examples and OpenEPaperLink Tag_FW_ZBS243. Confirmed on 000002079350341C: UART and pins work | `tag/src/hal/zbs243/zbs243.h`, `hal_zbs243.c` |
+| 2026-10-14 | UART TX on P0.6 (debug pad 4) with P0FUNC bit 6; UARTSTA 0x98 (0x10 on, 0x02 TX ready), UARTBUF 0x99, baud = 16 MHz / (BRG + 1), BRG 138 = 115200 | text + measurement | As above. Measured: clean text at 115200 on the debug D1 mini (ttyUSB0) | `hal_zbs243.c` |
+| 2026-10-14 | Timer 0 is a classic 8051 timer clocked at 16 MHz / 12 (1333 ticks per ms) | text + measurement | As above. Measured: 87 one-second counts in 87 s of PC time | `hal_zbs243.c` (`hal_delay_ms`) |
+| 2026-10-14 | Watchdog in CFGPAGE 4: WDTENA 0xBA, WDTPET 0xBB, WDTCONF 0xBF bit 7 | text | As above. Not exercised yet (turned off in `hal_init`) | `hal_zbs243.c` |
+| 2026-10-14 | The MAC is in the info page at 0x10–0x17, least significant byte first; read with the flash DMA (CFGPAGE 4, FPGNO 0x80, CLKSPEED 0x21 during the copy) | text + measurement | Same source for the flash DMA. Read back 000002079350341C on the tag, same as the flasher's MAC backup | `hal_zbs243.c` (`hal_mac_read`) |
+| 2026-10-14 | XRAM is 8 KB at 0xE000–0xFFFF; the radio registers are memory mapped at 0xDF00–0xDFFF | text | As above (OEPL links at 0xE300 with size 0x1D00) | `tag/tools/build.py` |
+| 2026-10-14 | EPD pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1 (high = busy), SCK P0.0, MOSI P0.1, BS1 P1.2 low | text + measurement | OEPL boardcommon.c / sem9010.c, and [st-gm16xx2.md](st-gm16xx2.md). Measured: BUSY goes high after 0x12 and for about 2.9 s after a refresh | `hal_zbs243.c` |
+| 2026-10-14 | Radio init values, channel table, frame filter (0xDF88–0xDF93), TX via TXPTR/TXLEN + TRIGGER 0x02, RX via GOTLEN + RX DMA (TRIGGER 0x04), pending flags at 0xDFAD | text | Dmitry Grinberg / OEPL radio.c. The pending flags latch without CPU interrupts: TX ends with 0x40 seen by polling. Receiving is not confirmed yet | `tag/src/hal/zbs243/radio_zbs243.c` |
 
 ## Unconfirmed: in the code, but must be checked before it counts as a fact
 
@@ -26,4 +34,4 @@ These appear in `tag/src/epd.c` marked "unconfirmed". They are the common codes 
 | The black/white RAM stores 1 for white (hence `EPD_BW_INVERT`) | Datasheet + test on the display |
 | 128 pixels per RAM line along the short side, 296 lines | Datasheet + test on the display |
 
-Clock, GPIO, UART, timer, watchdog, ADC, flash writing, radio and deep sleep on the ZBS243 are still stubs in `tag/src/hal/zbs243/`. No register addresses are in use yet.
+Clock, GPIO, UART, timer, MAC reading and the radio are implemented in `tag/src/hal/zbs243/` (radio receive not yet confirmed on air). ADC/battery, temperature, flash writing, watchdog use and deep sleep are still stubs.

@@ -7,6 +7,11 @@
  * in docs/kildelogg.md. The same applies to polarity (EPD_BW_INVERT) and RAM
  * direction (EPD_DATA_ENTRY).
  * No custom waveform: the update uses the display's OTP waveform.
+ *
+ * The window and line count come from model.h (DRAW_W lines of DRAW_H pixels). On a
+ * black/white-only model (MODEL_HAS_RED = 0) only the black plane is written.
+ * UNCONFIRMED for the 1.54" (ST-GM16XX2, 200 x 200): that it is an SSD16xx at all,
+ * and whether its controller wants the second RAM (0x26) written too before a full update.
  */
 #include "epd.h"
 #include "hal/hal.h"
@@ -27,11 +32,21 @@
 #define CMD_RAM_Y_RANGE     0x45
 #define CMD_RAM_X_COUNTER   0x4E
 #define CMD_RAM_Y_COUNTER   0x4F
+#define CMD_DUMMY_LINE      0x3A
+#define CMD_GATE_TIME       0x3B
+#define CMD_SOFT_START      0x0C
+#define CMD_UPDATE_CTRL1    0x21
+#define CMD_WRITE_TEMP      0x1A
 
 #define EPD_BW_INVERT       1      /* 1 = the black plane stores 1 for white */
-#define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first */
-#define EPD_UPDATE_SEQ      0xF7   /* full update with the OTP waveform */
 #define EPD_BUSY_TIMEOUT_MS 30000u /* a red update takes 15-20 s */
+#if MODEL == 154
+#define EPD_UPDATE_SEQ      0xD7   /* stock firmware, with the temperature from 0x1A */
+#define EPD_TEMP_C          25     /* TODO phase 6: the ZBS243 temperature sensor */
+#else
+#define EPD_UPDATE_SEQ      0xF7   /* full update with the OTP waveform */
+#endif
+#define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first (the stock firmware on 154 uses Y-) */
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
 static uint8_t __xdata col_red[DRAW_COL_BYTES];
@@ -79,10 +94,10 @@ static void set_window(void)
 {
     cmd(CMD_DATA_ENTRY);
     data(EPD_DATA_ENTRY);
-    cmd(CMD_RAM_X_RANGE);              /* X in bytes: 0 .. 15 (128 pixels) */
+    cmd(CMD_RAM_X_RANGE);              /* X in bytes: one column, DRAW_COL_BYTES */
     data(0);
     data(DRAW_COL_BYTES - 1);
-    cmd(CMD_RAM_Y_RANGE);              /* Y: 0 .. 295 */
+    cmd(CMD_RAM_Y_RANGE);              /* Y: one line per column, 0 .. DRAW_W - 1 */
     data(0);
     data(0);
     data((uint8_t)(DRAW_W - 1));
@@ -123,6 +138,39 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     hal_epd_cs(1);
 }
 
+static void init_panel(void)
+{
+#if MODEL == 154
+    cmd(CMD_DRIVER_OUTPUT);            /* gate lines */
+    data((uint8_t)(DRAW_W - 1));
+    data((uint8_t)((DRAW_W - 1) >> 8));
+    data(0x00);
+    cmd(CMD_DUMMY_LINE);
+    data(0x1B);
+    cmd(CMD_GATE_TIME);
+    data(0x0B);
+    set_window();
+    cmd(CMD_BORDER);
+    data(0x33);
+    cmd(CMD_SOFT_START);
+    data(0xC7);
+    data(0x8F);
+    data(0x8F);
+    cmd(CMD_UPDATE_CTRL1);
+    data(0x83);
+#else
+    cmd(CMD_DRIVER_OUTPUT);            /* 296 lines */
+    data((uint8_t)(DRAW_W - 1));
+    data((uint8_t)((DRAW_W - 1) >> 8));
+    data(0x00);
+    cmd(CMD_BORDER);
+    data(0x05);
+    cmd(CMD_TEMP_SENSOR);              /* internal temperature sensor */
+    data(0x80);
+    set_window();
+#endif
+}
+
 bool epd_draw(draw_scene_t *s)
 {
     bool ok;
@@ -141,24 +189,27 @@ bool epd_draw(draw_scene_t *s)
         return false;
     }
 
-    cmd(CMD_DRIVER_OUTPUT);            /* 296 lines */
-    data((uint8_t)(DRAW_W - 1));
-    data((uint8_t)((DRAW_W - 1) >> 8));
-    data(0x00);
-    cmd(CMD_BORDER);
-    data(0x05);
-    cmd(CMD_TEMP_SENSOR);              /* internal temperature sensor */
-    data(0x80);
-    set_window();
+    init_panel();
 
     stream_plane(s, 0);
+#if MODEL_HAS_RED
     stream_plane(s, 1);
+#endif
 
+#if MODEL == 154
+    cmd(CMD_WRITE_TEMP);
+    data(EPD_TEMP_C);
+    data(0x00);
+#endif
     cmd(CMD_UPDATE_CTRL2);
     data(EPD_UPDATE_SEQ);
     cmd(CMD_MASTER_ACTIVATE);
     ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
 
+#if MODEL == 154
+    cmd(CMD_UPDATE_CTRL1);             /* stock firmware does this before sleeping */
+    data(0x03);
+#endif
     cmd(CMD_DEEP_SLEEP);               /* must always be in deep sleep, or the battery drains */
     data(0x01);
     hal_epd_power(0);
