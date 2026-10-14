@@ -433,12 +433,10 @@ int8_t hal_temp_c(void)
  * and carries on after the last instruction here when the timer runs out. The
  * radio must be off. The watchdog is stopped while asleep.
  *
- * Known problem (2026-10-14): after the first deep sleep the radio still sends,
- * but no longer receives (it sees the start of a frame, never a whole frame), even
- * after radio_on. Until that is solved, power_sleep_s busy-waits, and deep sleep
- * is only used by hwtest (zbs_deep_sleep_s).
+ * XRAM 0xE000-0xE2FF does not survive deep sleep (measured 2026-10-14); the
+ * linker keeps all variables at 0xE300 and up (build.py). Internal RAM survives.
  */
-void zbs_deep_sleep_s(uint16_t s)
+void power_sleep_s(uint16_t s)
 {
     if (!s)
         return;
@@ -490,19 +488,7 @@ void zbs_deep_sleep_s(uint16_t s)
     wdt_on();
 }
 
-void power_sleep_s(uint16_t s)
-{
-#ifdef ZBS_DEEP_SLEEP
-    zbs_deep_sleep_s(s);
-#else
-    while (s--) {
-        uint8_t k;
-        for (k = 0; k < 4; k++)
-            hal_delay_ms(250);
-        hal_wdt_kick();
-    }
-#endif
-}
+
 
 /* ---- Display pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, SCK P0.0, MOSI P0.1 ---- */
 void hal_epd_power(bool on) { (void)on; }   /* no switchable display supply known */

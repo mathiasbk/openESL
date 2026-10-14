@@ -215,6 +215,22 @@ static void show_rx(int8_t r)
     put_frame(rx, r);
 }
 
+/* Bring-up: dump the radio's xdata registers 0xDF00-0xDFFF (skipping the RX FIFO byte). */
+static void radio_dump(void)
+{
+    uint16_t a;
+    for (a = 0xDF00; a <= 0xDFFF; a++) {
+        if ((a & 0x1F) == 0) {
+            hal_uart_puts("\r\nR");
+            put_hex((uint8_t)a);
+            hal_uart_putc(' ');
+            hal_delay_ms(3);
+        }
+        put_hex(a == 0xDF98 ? 0 : *(volatile __xdata uint8_t *)a);
+    }
+    hal_uart_puts("\r\n");
+}
+
 static void radio_test(const uint8_t *mac, uint8_t seq)
 {
     int8_t r;
@@ -262,8 +278,7 @@ void main(void)
     hal_uart_puts("radio up\r\n");
 
     /* Each round: check in, print battery and temperature, then wait 10 s: busy
-       on even rounds, deep sleep on odd ones (receiving after deep sleep is still
-       broken). After 12 rounds, hang without kicking the watchdog: the tag must
+       on even rounds, deep sleep on odd ones. After 12 rounds, hang without kicking the watchdog: the tag must
        restart within ~60 s, and the boot count must go up by one. */
     for (;;) {
         hal_wdt_kick();
@@ -281,7 +296,7 @@ void main(void)
         hal_uart_puts(" C (hex), wait 10 s\r\n");
         hal_delay_ms(5);
         if (n & 1) {
-            zbs_deep_sleep_s(10);
+            power_sleep_s(10);
         } else {
             uint8_t k;
             for (k = 0; k < 40; k++)

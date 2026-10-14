@@ -173,10 +173,6 @@ __sfr __at (0xFA) RADIO_GOTLEN;   /* any page: length of the frame in the RX FIF
 #define RADIO_CMD_FLUSH_TX  0xC7
 #define RADIO_CMD_LOAD_TX   0xCB
 
-/* Deep sleep (hal_zbs243.c). power_sleep_s busy-waits until receiving after deep
- * sleep works; build with -DZBS_DEEP_SLEEP to use this instead. */
-void zbs_deep_sleep_s(uint16_t s);
-
 /* Radio extra (radio_zbs243.c): the PAN ID for the frame filter. Default CFG_PAN_ID. */
 void radio_set_pan(uint16_t pan);
 
