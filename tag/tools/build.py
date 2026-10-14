@@ -25,7 +25,7 @@ ROOT = os.path.dirname(TAG)
 BUILD = os.path.join(TAG, "build")
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
-CODE_SIZE = 0xFC00              # flash from 0xFC00 up holds the stock MAC (kildelogg 2026-10-10)
+CODE_SIZE = 0xF800              # 0xF800-0xFBFF: persistent store (hal_store_*); 0xFC00 up: the stock MAC
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test")]
 

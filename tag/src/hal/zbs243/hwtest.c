@@ -6,9 +6,11 @@
  * counter once a second on the debug UART (pad 4, 115200 8N1). Compare the time
  * stamps on the PC with the counter to check hal_delay_ms.
  *
- * Radio: every 5 s it sends an OpenEPaperLink check-in (PKT_AVAIL_DATA_REQ, PAN
+ * Radio: each round it sends an OpenEPaperLink check-in (PKT_AVAIL_DATA_REQ, PAN
  * 0x4447, channel 11) and prints every frame it receives in the next 100 ms.
  * An OEPL AP in range answers with PKT_AVAIL_DATA_INFO, which tests TX and RX.
+ * Then battery, temperature, deep sleep, the watchdog, and a boot counter kept in
+ * the persistent store.
  */
 #include "../hal.h"
 #include "../hal_epd.h"
@@ -242,24 +244,56 @@ void main(void)
     hal_uart_putc(hal_epd_busy() ? '1' : '0');
     hal_uart_puts("\r\n");
 
+    {
+        /* Persistent store: a boot counter that must survive resets */
+        uint8_t cnt = 0;
+        if (hal_store_read(&cnt, 1) != 1)
+            cnt = 0;
+        cnt++;
+        hal_uart_puts("boot count ");
+        put_hex(cnt);
+        hal_uart_puts(hal_store_write(&cnt, 1) ? " (saved)\r\n" : " (save FAILED)\r\n");
+    }
+
     epd_test();
 
     radio_set_pan(OEPL_PAN);
     radio_init(OEPL_CHANNEL);
     hal_uart_puts("radio up\r\n");
 
+    /* Each round: check in, print battery and temperature, then wait 10 s: busy
+       on even rounds, deep sleep on odd ones (receiving after deep sleep is still
+       broken). After 12 rounds, hang without kicking the watchdog: the tag must
+       restart within ~60 s, and the boot count must go up by one. */
     for (;;) {
-        if ((n % 5) == 0)
-            radio_test(mac, (uint8_t)n);
-        for (i = 0; i < 4; i++) {           /* listen for the rest of the second */
-            int8_t r = radio_rx(rx, sizeof(rx), 250);
-            if (r >= 0)
-                show_rx(r);
+        hal_wdt_kick();
+        radio_on();
+        radio_test(mac, (uint8_t)n);
+        radio_off();
+        hal_uart_puts("battery mV ");
+        {
+            uint16_t mv = battery_read_mv();
+            put_hex((uint8_t)(mv >> 8));
+            put_hex((uint8_t)mv);
         }
-        hal_uart_puts("t ");
-        put_hex((uint8_t)(n >> 8));
+        hal_uart_puts("\r\ntemp ");
+        put_hex((uint8_t)hal_temp_c());
+        hal_uart_puts(" C (hex), wait 10 s\r\n");
+        hal_delay_ms(5);
+        if (n & 1) {
+            zbs_deep_sleep_s(10);
+        } else {
+            uint8_t k;
+            for (k = 0; k < 40; k++)
+                hal_delay_ms(250);
+        }
+        hal_uart_puts("woke ");
         put_hex((uint8_t)n);
         hal_uart_puts("\r\n");
-        n++;
+        if (++n == 12) {
+            hal_uart_puts("watchdog test: hanging\r\n");
+            for (;;)
+                ;
+        }
     }
 }

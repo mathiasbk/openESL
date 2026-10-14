@@ -190,8 +190,8 @@ void radio_off(void)
     if (!radio_up)
         return;
     RADIO_IRQ_PENDING = 0;
+    RADIO_UNK_C1 &= (uint8_t)~0x81;     /* in page 0, as the OEPL power-down does */
     CFGPAGE = 4;
-    RADIO_UNK_C1 &= (uint8_t)~0x81;
     RADIO_COMMAND = 0xCA;
     RADIO_COMMAND = 0xC5;
     CFGPAGE = 0;
