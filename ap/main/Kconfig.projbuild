@@ -1,0 +1,76 @@
+menu "OpenESL AP"
+
+    config ESL_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            Used when NVS namespace "cfg" has no "ssid" key.
+
+    config ESL_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+        help
+            Used when NVS namespace "cfg" has no "pass" key.
+
+    config ESL_API_TOKEN
+        string "API bearer token"
+        default ""
+        help
+            Clients send "Authorization: Bearer <token>". Used when NVS
+            namespace "cfg" has no "token" key. If empty, every API request
+            is rejected with 401.
+
+    config ESL_MDNS_HOSTNAME
+        string "mDNS hostname"
+        default "openesl"
+
+    config ESL_CHANNEL
+        int "802.15.4 channel"
+        range 11 26
+        default 25
+
+    config ESL_PAN_ID
+        hex "802.15.4 PAN ID"
+        range 0x0000 0xFFFE
+        default 0x4553
+
+    config ESL_NEXT_POLL_S
+        int "next_poll_s sent to tags (0 = tag keeps its own interval)"
+        range 0 65535
+        default 0
+
+    config ESL_MAX_TAGS
+        int "Max tags per AP"
+        range 20 200
+        default 64
+
+    config ESL_TX_POWER_DBM
+        int "802.15.4 TX power (dBm)"
+        range -24 20
+        default 10
+
+    choice ESL_RADIO_MODE
+        prompt "Radio mode"
+        default ESL_RADIO_AP
+
+        config ESL_RADIO_AP
+            bool "AP: answer tag polls over 802.15.4"
+        config ESL_RADIO_SNIFFER
+            bool "Sniffer: log every frame on the channel, do not answer"
+        config ESL_RADIO_STUB
+            bool "Stub: no radio, simulated tags poll the store"
+    endchoice
+
+    config ESL_STUB_TAGS
+        int "Simulated tags"
+        depends on ESL_RADIO_STUB
+        range 1 16
+        default 3
+
+    config ESL_STUB_INTERVAL_S
+        int "Simulated poll interval (s)"
+        depends on ESL_RADIO_STUB
+        range 1 600
+        default 10
+
+endmenu

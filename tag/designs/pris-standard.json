@@ -1,0 +1,12 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "pris-standard",
+  "layout": "price",
+  "fields": {
+    "name": "{name}",
+    "price": "{price}",
+    "subtitle": "{unit_price}"
+  },
+  "style": { "price_red": true, "frame_red": false }
+}

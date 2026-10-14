@@ -1,0 +1,13 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "tekst-apningstider",
+  "layout": "text",
+  "fields": {
+    "line1": "{heading}",
+    "line2": "{line2}",
+    "line3": "{line3}",
+    "line4": ""
+  },
+  "style": { "frame_red": false }
+}

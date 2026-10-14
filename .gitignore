@@ -1,0 +1,35 @@
+# Tag (SDCC)
+tag/build/
+*.ihx
+*.hex
+*.rel
+*.rst
+*.sym
+*.lst
+*.map
+*.mem
+*.lk
+
+# Firmware images and backups of the original SoluM firmware (kept out of git)
+*.bin
+backup/
+
+# AP (ESP-IDF)
+ap/build/
+ap/sdkconfig.old
+ap/managed_components/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editor and OS
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+
+# Private notes, never published
+private/
