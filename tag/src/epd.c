@@ -51,7 +51,7 @@
  * On this panel a RAM line (Y) is a screen row, so one layout column cannot be
  * one RAM line: that gave a transposed image (rotated and mirrored, seen on the
  * tag 2026-10-14). Instead 8 layout columns are transposed into one RAM byte
- * column (X), and the counter runs down Y first.
+ * column (X), and the counter runs down Y first. Confirmed right way round on the tag.
  */
 #define EPD_TRANSPOSE       1
 #define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
