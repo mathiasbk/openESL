@@ -7,7 +7,7 @@ The small SoluM tag (label ST-GM16XX2, display FPC marked **HINK-E0154A16-A0**) 
 - The display is **200×200, black/white**, not 152×152 as on the older 1.54" ST-GR16000.
 - The controller is **SSD-type** (BUSY high while busy), on the same pins as on the other M2 tags.
 - It **ignores** some commands that SSD1619/SSD1680-style code relies on. Code written for those controllers shows nothing, or shows noise or an inverted image (see the table).
-- With the stock init and refresh sequence below, plus the workarounds, the panel draws correctly.
+- With the stock init and refresh sequence below, plus the workarounds, the panel draws correctly. Tested on two tags (000002079350341C, 0000020663463415).
 
 ## How the stock firmware picks the panel
 
@@ -15,7 +15,7 @@ At boot the stock firmware copies flash `0xFC00–0xFC0C` to xdata `0xFD79–0xF
 
 | Flash | Our tags | Meaning |
 |---|---|---|
-| `0xFC0A` | `01` | Board variant. 1: BS1 on P1.2, P0.3 driven high before EPD access. Other: BS1 on P1.5, P1.6 high |
+| `0xFC0A` | `01` | Board variant. 1: BS1 on P1.2, P0.3 driven high before EPD access (not needed for the display: it works without it). Other: BS1 on P1.5, P1.6 high |
 | `0xFC0B` | `02` | Panel type. 2: SSD-type (BUSY active high). 1: UC-type (UC8151 family, BUSY active low) |
 
 The stock firmware contains complete drivers for both panel types. Both the 1.6" (`000002079350341C`) and the 2.9" (`000001C280923B15`) tags we have show `01 02`, so the 2.9" probably needs the same treatment (not tested yet).
@@ -43,7 +43,7 @@ After a hardware reset (RESET low, then high) and `0x12` soft reset:
 Refresh:
 
 ```
-1A <temp> 00       write the temperature register (°C in the first byte)
+1A <temp> 00       write the temperature register (°C in the first byte, from the ZBS243's own sensor)
 22 D7              display update control 2
 20                 master activation, then wait while BUSY is high
 21 03
