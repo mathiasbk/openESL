@@ -16,6 +16,7 @@ backup/
 
 # AP (ESP-IDF)
 ap/build/
+ap/sdkconfig
 ap/sdkconfig.old
 ap/managed_components/
 

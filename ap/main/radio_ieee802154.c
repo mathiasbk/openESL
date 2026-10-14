@@ -26,6 +26,13 @@ static const char *TAG = "radio";
 
 #define AP_SHORT_ADDR ESL_AP_SHORT_ADDR
 
+/* Bool Kconfig symbols are undefined when off, so give the sniffer choice a 0/1 value */
+#ifdef CONFIG_ESL_RADIO_SNIFFER
+#define SNIFFER 1
+#else
+#define SNIFFER 0
+#endif
+
 typedef struct {
     uint8_t len; /* PSDU length incl. FCS */
     uint8_t psdu[ESL_PSDU_MAX];
@@ -138,7 +145,7 @@ static void radio_task(void *arg)
     for (;;) {
         if (xQueueReceive(rx_queue, &it, pdMS_TO_TICKS(1000)) == pdTRUE) {
             stats.rx++;
-#if CONFIG_ESL_RADIO_SNIFFER
+#if SNIFFER
             log_frame(&it);
 #else
             handle_poll(&it);
@@ -170,17 +177,13 @@ esp_err_t radio_start(esl_store_t *st, uint8_t channel, uint16_t pan_id)
     esp_ieee802154_set_txpower(CONFIG_ESL_TX_POWER_DBM);
     esp_ieee802154_set_panid(pan_id);
     esp_ieee802154_set_short_address(AP_SHORT_ADDR);
-#if CONFIG_ESL_RADIO_SNIFFER
-    esp_ieee802154_set_promiscuous(true);
-#else
-    esp_ieee802154_set_promiscuous(false);
-#endif
+    esp_ieee802154_set_promiscuous(SNIFFER);
     esp_ieee802154_set_rx_when_idle(true);
 
     if (xTaskCreate(radio_task, "radio", 4096, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     err = esp_ieee802154_receive();
     ESP_LOGI(TAG, "802.15.4 %s on channel %u, PAN 0x%04X",
-             CONFIG_ESL_RADIO_SNIFFER ? "sniffer" : "AP", channel, pan_id);
+             SNIFFER ? "sniffer" : "AP", channel, pan_id);
     return err;
 }

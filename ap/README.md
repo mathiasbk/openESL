@@ -2,7 +2,7 @@
 
 One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
-**Status:** the core, the HTTP API (including layout files and the status page) and the radio receive path are written, and the host tests pass: 698 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS. The ESP-IDF part (`main/`) is written but **not yet built or flashed**: it has only been syntax-checked against stub headers. The radio code against `esp_ieee802154` must be checked against the pinned ESP-IDF version on the first build.
+**Status:** the core, the HTTP API (including layout files and the status page) and the radio receive path are written, and the host tests pass: 698 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.875 MB app slot. It has **not been flashed** yet.
 
 ## Layout
 
@@ -78,7 +78,7 @@ Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel, does not
 
 ## Build and flash
 
-Requires ESP-IDF 5.2 or newer (pin the version once chosen, requirement G5). The custom partition table (`partitions.csv`) assumes 2 MB flash with one 1.875 MB app slot; OTA (A10) would need two app slots and a 4 MB layout.
+Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) assumes 2 MB flash with one 1.875 MB app slot; OTA (A10) would need two app slots and a 4 MB layout.
 
 ```bash
 cd ap
