@@ -91,4 +91,8 @@ void app_main(void)
 #endif
 
     ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    /* The tag table (ESL_MAX_TAGS x sizeof(esl_tag_t)) is the one thing that grows with
+       the configuration; this shows how much room is left for a bigger one. */
+    ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
+             (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
 }

@@ -636,7 +636,7 @@ components:
         fw: { type: string, description: AP firmware version, example: "0.1.0" }
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
-        max_tags: { type: integer, minimum: 1, description: "How many tags the AP has room for (menuconfig, default 64)" }
+        max_tags: { type: integer, minimum: 1, description: "How many tags the AP has room for (menuconfig, default 256)" }
         poll_s:
           type: integer
           minimum: 0

@@ -38,6 +38,43 @@ static esp_err_t send_json(httpd_req_t *req, int status, const char *body, size_
     return httpd_resp_send(req, body, (ssize_t)len);
 }
 
+/* Replies that grow with the tag table (GET /api/tags, the status page) are
+ * streamed: the API fills a buffer of ESL_API_STREAM_BUF bytes and hands each
+ * full one here as a chunk, so the reply never has to fit in RAM at once. */
+typedef struct {
+    httpd_req_t *req;
+    const char *type;
+} sink_t;
+
+static bool http_sink(esl_sb_t *sb)
+{
+    sink_t *s = sb->ctx;
+    if (sb->sent == 0) {
+        httpd_resp_set_status(s->req, esl_api_status_line(sb->status));
+        httpd_resp_set_type(s->req, s->type);
+    }
+    return httpd_resp_send_chunk(s->req, sb->buf, (ssize_t)sb->len) == ESP_OK;
+}
+
+/* Sends what the API wrote: the rest of a streamed reply, or the whole one. */
+static esp_err_t send_reply(httpd_req_t *req, int status, esl_sb_t *out, const char *type)
+{
+    if (out->sent) {
+        /* The head has gone out with out->status; nothing can replace it */
+        if (status != out->status || out->overflow) {
+            ESP_LOGE(TAG, "%s: streamed reply failed (%d)", req->uri, status);
+            return ESP_FAIL; /* closes the connection: the client sees a cut body */
+        }
+        esl_sb_flush(out);
+        if (out->overflow)
+            return ESP_FAIL;
+        return httpd_resp_send_chunk(req, NULL, 0);
+    }
+    httpd_resp_set_status(req, esl_api_status_line(status));
+    httpd_resp_set_type(req, type);
+    return httpd_resp_send(req, out->buf, (ssize_t)out->len);
+}
+
 static const char *method_name(int method)
 {
     switch (method) {
@@ -88,16 +125,17 @@ static esp_err_t api_handler(httpd_req_t *req)
         }
     }
 
-    size_t cap = ESL_API_RESP_SIZE(CONFIG_ESL_MAX_TAGS);
-    resp = malloc(cap);
+    resp = malloc(ESL_API_STREAM_BUF);
     if (!resp)
         goto oom;
     esl_sb_t out;
-    esl_sb_init(&out, resp, cap);
+    sink_t sink = {req, "application/json"};
+    esl_sb_init(&out, resp, ESL_API_STREAM_BUF);
+    esl_sb_set_sink(&out, http_sink, &sink);
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
     int status = api_handle(api, method, req->uri, auth, body, len, now_ms, &out);
     ESP_LOGI(TAG, "%s %s -> %d", method, req->uri, status);
-    ret = send_json(req, status, out.buf, out.len);
+    ret = send_reply(req, status, &out, "application/json");
     goto done;
 
 oom:
@@ -217,18 +255,17 @@ static esp_err_t page_handler(httpd_req_t *req)
             return httpd_resp_send(req, NULL, 0);
         }
     }
-    size_t cap = ESL_API_PAGE_SIZE(CONFIG_ESL_MAX_TAGS);
-    char *page = malloc(cap);
+    char *page = malloc(ESL_API_STREAM_BUF);
     if (!page) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         return httpd_resp_sendstr(req, "out of memory");
     }
     esl_sb_t out;
-    esl_sb_init(&out, page, cap);
+    sink_t sink = {req, "text/html; charset=utf-8"};
+    esl_sb_init(&out, page, ESL_API_STREAM_BUF);
+    esl_sb_set_sink(&out, http_sink, &sink);
     int status = esl_api_status_page(api, (uint64_t)esp_timer_get_time() / 1000, &out);
-    httpd_resp_set_status(req, esl_api_status_line(status));
-    httpd_resp_set_type(req, status == 200 ? "text/html; charset=utf-8" : "text/plain");
-    esp_err_t ret = httpd_resp_send(req, out.buf, (ssize_t)out.len);
+    esp_err_t ret = send_reply(req, status, &out, status == 200 ? sink.type : "text/plain");
     free(page);
     return ret;
 }

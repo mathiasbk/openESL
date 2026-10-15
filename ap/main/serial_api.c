@@ -19,9 +19,12 @@
  *   host -> AP:  @ESL <seq> <METHOD> <uri> <len>\n<len bytes body>
  *   AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
  *
- * A reply is written with one fwrite under the stdout lock, so log lines from
- * other tasks cannot land inside it. Anyone with the USB cable has the device
- * anyway, so serial requests need no token.
+ * A reply that grows with the tag table (GET /api/tags) comes in pieces: every
+ * piece but the last has a "+" after its length ("@ESL 7 200 22912+ {..."),
+ * and the host joins them. Each piece is written with one fwrite under the
+ * stdout lock, so log lines from other tasks cannot land inside it (they can
+ * come between pieces). Anyone with the USB cable has the device anyway, so
+ * serial requests need no token.
  *
  * The driver drops received bytes when its RX ring buffer is full, so the
  * buffer holds a whole request (the client waits for each reply before sending
@@ -72,14 +75,21 @@ static bool read_body(char *dst, size_t n)
     return true;
 }
 
-static void reply(const char *seq, int status, const char *body, size_t len)
+static void reply(const char *seq, int status, const char *body, size_t len, bool more)
 {
     flockfile(stdout);
-    printf("@ESL %s %d %u ", seq, status, (unsigned)len);
+    printf("@ESL %s %d %u%s ", seq, status, (unsigned)len, more ? "+" : "");
     fwrite(body, 1, len, stdout);
     fputc('\n', stdout);
     fflush(stdout);
     funlockfile(stdout);
+}
+
+/* The API's buffer is full: send it as one piece of the reply */
+static bool serial_sink(esl_sb_t *sb)
+{
+    reply(sb->ctx, sb->status, sb->buf, sb->len, true);
+    return true;
 }
 
 static void handle_line(char *line, char *resp, size_t cap)
@@ -96,7 +106,7 @@ static void handle_line(char *line, char *resp, size_t cap)
         /* Swallow the body so the next request line is found again */
         read_body(NULL, len);
         static const char msg[] = "{\"error\":\"body too large\"}";
-        reply(seq, 413, msg, sizeof(msg) - 1);
+        reply(seq, 413, msg, sizeof(msg) - 1, false);
         return;
     }
     if (len) {
@@ -104,31 +114,39 @@ static void handle_line(char *line, char *resp, size_t cap)
         if (!body) {
             read_body(NULL, len);
             static const char msg[] = "{\"error\":\"out of memory\"}";
-            reply(seq, 500, msg, sizeof(msg) - 1);
+            reply(seq, 500, msg, sizeof(msg) - 1, false);
             return;
         }
         if (!read_body(body, len)) {
             free(body);
             ESP_LOGW(TAG, "%s %s: body stopped arriving", method, uri);
             static const char msg[] = "{\"error\":\"body incomplete\"}";
-            reply(seq, 408, msg, sizeof(msg) - 1);
+            reply(seq, 408, msg, sizeof(msg) - 1, false);
             return;
         }
     }
 
     esl_sb_t out;
     esl_sb_init(&out, resp, cap);
+    esl_sb_set_sink(&out, serial_sink, seq);
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
     int status = api_handle(&serial_api, method, uri, "Bearer " SERIAL_TOKEN, body, len, now_ms, &out);
     free(body);
     ESP_LOGI(TAG, "%s %s -> %d", method, uri, status);
-    reply(seq, status, out.buf, out.len);
+    if (out.sent && (status != out.status || out.overflow)) {
+        /* Pieces with out.status have gone out already (cannot happen with a
+           buffer this size); the host sees a cut body */
+        ESP_LOGE(TAG, "%s %s: streamed reply failed (%d)", method, uri, status);
+        reply(seq, out.status, "", 0, false);
+        return;
+    }
+    reply(seq, status, out.buf, out.len, false);
 }
 
 static void serial_task(void *arg)
 {
     (void)arg;
-    size_t cap = ESL_API_RESP_SIZE(CONFIG_ESL_MAX_TAGS);
+    size_t cap = ESL_API_STREAM_BUF;
     char *resp = malloc(cap);
     static char line[REQ_LINE_MAX + 32];
     if (!resp) {

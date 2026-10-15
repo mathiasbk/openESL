@@ -295,16 +295,63 @@ void esl_sb_init(esl_sb_t *sb, char *buf, size_t cap)
     sb->cap = cap;
     sb->len = 0;
     sb->overflow = cap == 0;
+    sb->sink = NULL;
+    sb->ctx = NULL;
+    sb->streaming = false;
+    sb->status = 0;
+    sb->sent = 0;
     if (cap)
         buf[0] = '\0';
 }
 
+void esl_sb_set_sink(esl_sb_t *sb, bool (*sink)(esl_sb_t *sb), void *ctx)
+{
+    sb->sink = sink;
+    sb->ctx = ctx;
+}
+
+void esl_sb_stream(esl_sb_t *sb, int status)
+{
+    if (!sb->sink)
+        return;
+    sb->streaming = true;
+    sb->status = status;
+    sb->sent = 0;
+}
+
+void esl_sb_flush(esl_sb_t *sb)
+{
+    if (!sb->streaming || sb->overflow)
+        return;
+    if (sb->len) {
+        if (!sb->sink(sb)) {
+            sb->overflow = true;
+            return;
+        }
+        sb->sent += sb->len;
+    }
+    sb->len = 0;
+    sb->buf[0] = '\0';
+}
+
+/* True if room bytes (plus the NUL) fit, flushing first when streaming. */
+static bool make_room(esl_sb_t *sb, size_t room)
+{
+    if (sb->len + room < sb->cap)
+        return true;
+    if (sb->streaming)
+        esl_sb_flush(sb);
+    if (sb->overflow || sb->len + room >= sb->cap) {
+        sb->overflow = true;
+        return false;
+    }
+    return true;
+}
+
 void esl_sb_putc(esl_sb_t *sb, char c)
 {
-    if (sb->len + 1 >= sb->cap) {
-        sb->overflow = true;
+    if (!make_room(sb, 1))
         return;
-    }
     sb->buf[sb->len++] = c;
     sb->buf[sb->len] = '\0';
 }
@@ -326,6 +373,13 @@ void esl_sb_printf(esl_sb_t *sb, const char *fmt, ...)
     size_t room = sb->cap - sb->len;
     int n = vsnprintf(&sb->buf[sb->len], room, fmt, ap);
     va_end(ap);
+    if (n >= 0 && (size_t)n >= room && sb->streaming && make_room(sb, (size_t)n)) {
+        /* Did not fit behind what was there: the buffer is empty now, try again */
+        va_start(ap, fmt);
+        n = vsnprintf(&sb->buf[sb->len], sb->cap - sb->len, fmt, ap);
+        va_end(ap);
+        room = sb->cap - sb->len;
+    }
     if (n < 0 || (size_t)n >= room) {
         sb->overflow = true;
         sb->buf[sb->len] = '\0';

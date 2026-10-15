@@ -178,11 +178,13 @@ class FakeSerialAp(threading.Thread):
     """Answers "@ESL" frames on a pty like ap/main/serial_api.c, with log lines
     around each reply."""
 
-    def __init__(self, fd, replies):
+    def __init__(self, fd, replies, piece=0):
         super().__init__(daemon=True)
         self.fd = fd
         self.replies = replies      # list of (status, body bytes)
         self.requests = []
+        self.piece = piece          # > 0: send the body in pieces of this size, "+" after the length
+
 
     def run(self):
         f = os.fdopen(self.fd, "rb", buffering=0)
@@ -194,15 +196,20 @@ class FakeSerialAp(threading.Thread):
             data = f.read(int(n)) if int(n) else b""
             self.requests.append((method.decode(), path.decode(), data))
             os.write(self.fd, b"I (100) radio: rx 12 B\n@ESL 99 200 2 {}\n")
+            if self.piece:
+                while len(body) > self.piece:
+                    os.write(self.fd, b"@ESL " + seq + b" %d %d+ " % (status, self.piece) + body[:self.piece] + b"\n")
+                    os.write(self.fd, b"I (150) http: GET /api/tags -> 200\n")
+                    body = body[self.piece:]
             os.write(self.fd, b"@ESL " + seq + b" %d %d " % (status, len(body)) + body + b"\n")
             os.write(self.fd, b"W (200) wifi: disconnected\n")
         time.sleep(5)               # keep the master open: closing it hangs up the port
 
 
 class SerialClientTest(unittest.TestCase):
-    def _client(self, replies):
+    def _client(self, replies, piece=0):
         master, slave = os.openpty()
-        ap = FakeSerialAp(master, replies)
+        ap = FakeSerialAp(master, replies, piece)
         ap.start()
         cli = esl_client.SerialClient(os.ttyname(slave), timeout=2)
         cli.fd = cli._open()    # before the last slave fd closes, or the pty hangs up
@@ -217,6 +224,12 @@ class SerialClientTest(unittest.TestCase):
         method, path, data = ap.requests[0]
         self.assertEqual((method, path), ("PUT", "/api/tags/00000123456789A8"))
         self.assertEqual(json.loads(data)["fields"], ["Milk", "24.90"])
+
+    def test_reply_in_pieces(self):
+        tags = [{"mac": "%016X" % (0x2000 + i), "content_id": i, "pending": i % 2 == 0} for i in range(40)]
+        body = json.dumps({"ap": {"fw": "0.1.0"}, "tags": tags}).encode()
+        cli, _ = self._client([(200, body)], piece=700)
+        self.assertEqual(cli.tags()["tags"], tags)
 
     def test_error_status(self):
         cli, _ = self._client([(422, b'{"error":"text too long"}')])

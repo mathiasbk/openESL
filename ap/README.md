@@ -2,7 +2,7 @@
 
 One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
-**Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, the layout transfer and CONFIG to the tags are written, and the host tests pass: 1582 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, layout files downloaded block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.875 MB app slot. It has **not been flashed** yet.
+**Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, the layout transfer and CONFIG to the tags are written, and the host tests pass: 1582 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, layout files downloaded block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It has **not been flashed** yet.
 
 ## Layout
 
@@ -31,7 +31,7 @@ ap/
     radio_stub.c        simulated tags (esl_faketag), no radio
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
-  partitions.csv          NVS enlarged to 84 KB for tag content and layout files
+  partitions.csv          NVS enlarged to 468 KB for tag content and layout files
   test/                   host unit tests (Makefile)
 ```
 
@@ -93,7 +93,7 @@ host -> AP:  @ESL <seq> <METHOD> <uri> <len>\n<len bytes body>
 AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
 ```
 
-No token is needed there, since whoever has the cable has the device. WiFi can be set this way too: `esl-client --serial /dev/ttyACM0 wifi "Network" --password ...` (`PUT /api/wifi`). `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
+A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to 23 KB: every piece but the last has `+` after its length (`@ESL 7 200 22912+ {"ap":...`), and the host joins them; log lines can come between pieces, never inside one. No token is needed there, since whoever has the cable has the device. WiFi can be set this way too: `esl-client --serial /dev/ttyACM0 wifi "Network" --password ...` (`PUT /api/wifi`). `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
 
 ## WiFi setup
 
@@ -119,6 +119,15 @@ idf.py -B build-lcd -p /dev/ttyACM0 flash monitor
 
 CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in `sdkconfig.lcd` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are a guess from the Waveshare ESP32-C6-LCD boards, since the seller gives no pinout; check them against the board's silkscreen or schematic. At start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`. The text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
 
+## How many tags
+
+`ESL_MAX_TAGS` (menuconfig, default 256, at most 1000) is the size of the tag table. What each slot costs:
+
+- **RAM:** about 220 bytes per slot for the whole run (`sizeof(esl_tag_t)`): 56 KB at 256, 220 KB at 1000. The boot log ends with `free heap N bytes, tag table M bytes`; keep a good margin for WiFi and HTTP. 1000 is likely too much for the C6 next to WiFi, a few hundred is fine.
+- **NVS:** up to about 320 bytes per tag once it has content and settings (two blobs, 32-byte NVS entries), plus 2 x 8 KB layout files. The NVS partition is 468 KB, so 1000 tags fit.
+- **API replies:** `GET /api/tags` and the status page are streamed (HTTP chunks, `+` pieces on the USB port) through one 23 KB buffer per request, so they do not grow with the table. A batch (`PUT /api/tags`) is still at most 50 tags.
+- **Radio:** a tag's POLL exchange takes 3-6 ms on the air, and tags send without listening for a free channel first (one retry after 2-10 ms). With the default 60 s interval, 64 tags keep the channel busy 0.5 % of the time and about 1 % of first POLLs collide, 200 tags about 3 %, 1000 tags about 15 % (the retry catches most). Beyond that: a longer interval, more APs on different channels, or CCA on the tag.
+
 ## Status page
 
 `http://openesl.local/` shows the layout files per model (version, size for the tags, layout names) and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
@@ -141,7 +150,7 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 ## Build and flash
 
-Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) assumes 2 MB flash with one 1.875 MB app slot; OTA (A10) would need two app slots and a 4 MB layout.
+Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) assumes 2 MB flash: 468 KB NVS and one 1.5 MB app slot (the image is about 1 MB); OTA (A10) would need two app slots and a 4 MB layout. A board flashed with the older table (84 KB NVS, app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the new NVS area overlaps the old app.
 
 ```bash
 cd ap
