@@ -5,6 +5,7 @@
 
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
+import { snapMove, snapResize } from "./snap.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -323,6 +324,19 @@ function initList() {
   ol.addEventListener("pointerleave", () => hover(null));
 }
 
+function drawGuides(guides) {
+  const ov = $("overlay");
+  const { width, height } = MODELS[state.model];
+  ov.querySelectorAll(".guide").forEach((g) => g.remove());
+  for (const g of guides) {
+    const d = document.createElement("div");
+    d.className = "guide " + g.axis;
+    if (g.axis === "x") d.style.left = (100 * g.at) / width + "%";
+    else d.style.top = (100 * g.at) / height + "%";
+    ov.append(d);
+  }
+}
+
 function fieldLabel(f) {
   return typeof f === "number" ? layout()?.fields[f] ?? String(f) : String(f);
 }
@@ -358,17 +372,28 @@ function initDrag() {
     const dx = Math.round((ev.clientX - drag.sx) / drag.scale);
     const dy = Math.round((ev.clientY - drag.sy) / drag.scale);
     const s = drag.start;
+    // Snap to the screen and the other boxes within about 6 screen pixels; Alt turns it off.
+    const near = ev.altKey ? -1 : Math.max(1, Math.round(6 / drag.scale));
+    const others = layout().elements.filter((o) => o !== e);
+    const size = { w: width, h: height };
+    let guides = [];
     if (drag.resize) {
-      e.w = clamp(s.w + dx, 1, width - s.x);
-      e.h = clamp(s.h + dy, 1, height - s.y);
+      const r = snapResize({ x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }, others, size, near);
+      e.w = clamp(r.w, 1, width - s.x);
+      e.h = clamp(r.h, 1, height - s.y);
+      guides = r.guides;
     } else {
-      e.x = clamp(s.x + dx, 0, width - s.w);
-      e.y = clamp(s.y + dy, 0, height - s.h);
+      const r = snapMove({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }, others, size, near);
+      e.x = clamp(r.x, 0, width - s.w);
+      e.y = clamp(r.y, 0, height - s.h);
+      guides = r.guides;
     }
     changed({ form: true });
+    drawGuides(guides);
   });
   const end = () => {
     state.dragging = false;
+    drawGuides([]);
     if (drag) save();
     drag = null;
   };
@@ -516,6 +541,7 @@ function refreshElement() {
     pair.append(l);
   }
   box.append(pair);
+  box.append(placeButtons(e));
   if (e.type === "text") {
     const fonts = e.fonts || ["small"];
     for (let i = 0; i < 3; i++) {
@@ -536,6 +562,36 @@ function refreshElement() {
   }
   sel("Colour", "color", e.type === "text" ? TEXT_COLORS : RECT_COLORS, e.color || "black",
     (v) => (v === "black" ? delete e.color : (e.color = v)));
+}
+
+// Buttons that put the element against an edge or in the middle of the screen, or stretch it.
+function placeButtons(e) {
+  const { width, height } = MODELS[state.model];
+  const row = document.createElement("div");
+  row.className = "place";
+  const actions = [
+    ["⇤", "Against the left edge", () => (e.x = 0)],
+    ["↔", "Centre across", () => (e.x = Math.floor((width - e.w) / 2))],
+    ["⇥", "Against the right edge", () => (e.x = width - e.w)],
+    ["⤒", "Against the top", () => (e.y = 0)],
+    ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
+    ["⤓", "Against the bottom", () => (e.y = height - e.h)],
+    ["Full width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
+    ["Full height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
+  ];
+  for (const [label, title, act] of actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", () => {
+      act();
+      changed({ form: true });
+    });
+    row.append(b);
+  }
+  return row;
 }
 
 function updatePositionInputs() {

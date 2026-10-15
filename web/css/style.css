@@ -141,6 +141,11 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .el-list .ico.inv { background: var(--box); }
 .el-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .el-list .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.guide { position: absolute; pointer-events: none; z-index: 3; }
+.guide.x { top: 0; bottom: 0; width: 0; border-left: 1px solid var(--box-sel); }
+.guide.y { left: 0; right: 0; height: 0; border-top: 1px solid var(--box-sel); }
+.place { display: flex; flex-wrap: wrap; gap: 4px; }
+.place button { padding: 2px 8px; font-size: 14px; }
 .box.hover { border-style: solid; border-width: 2px; }
 .hint, .muted { color: var(--muted); font-size: 13px; }
 .warn { color: var(--warn); }
