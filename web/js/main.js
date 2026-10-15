@@ -9,7 +9,7 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- tabs ----------
 
-const TABS = ["home", "design", "tag", "ap", "api"];
+const TABS = ["home", "design", "tag", "ap", "setup", "api"];
 
 function showTab(name) {
   if (!TABS.includes(name)) name = "home";
