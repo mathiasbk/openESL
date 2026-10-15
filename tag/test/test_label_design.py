@@ -112,7 +112,7 @@ class LayoutFileTests(unittest.TestCase):
     def test_example_files_outline(self):
         for f in self.lf.values():
             ld.check_layout_file(f)
-            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva", "vare-ean"])
+            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva", "vare-ean", "vare-priser"])
 
     def test_render_uses_the_file_field_order(self):
         data = {"name": "Kaffe", "price": "49,90", "unit_price": "kr 99,80/kg", "note": "Tilbud"}
@@ -120,6 +120,13 @@ class LayoutFileTests(unittest.TestCase):
             out = ld.render(self.shelf, data, f)
             self.assertEqual(out, {"layout": "shelf", "fields": ["Kaffe", "49,90", "kr 99,80/kg", "Tilbud"],
                                    "price_highlight": True, "frame": False})
+
+    def test_two_prices(self):
+        d = ld.load(os.path.join(TAG, "designs", "vare-priser.json"))
+        data = {"brand": "Kramp", "name": "Spann", "item": "1626", "price_inc": "17,25", "price_ex": "13,80"}
+        for f in self.lf.values():
+            out = ld.render(d, data, f)
+            self.assertEqual(out["fields"], ["Kramp", "Spann", "1626", "17,25", "13,80"])
 
     def test_render_needs_the_layout(self):
         data = {"name": "a", "price": "1", "unit_price": "", "note": ""}
@@ -143,7 +150,7 @@ class LayoutFileTests(unittest.TestCase):
             "no layouts": lambda f: f.update(layouts=[]),
             "reserved name": lambda f: f["layouts"][0].update(name="price"),
             "duplicate name": lambda f: f["layouts"][1].update(name="shelf"),
-            "five fields": lambda f: f["layouts"][0].update(fields=["a", "b", "c", "d", "e"]),
+            "seven fields": lambda f: f["layouts"][0].update(fields=["a", "b", "c", "d", "e", "f", "g"]),
             "bad field": lambda f: f["layouts"][0].update(fields=["Name"]),
             "no elements": lambda f: f["layouts"][0].update(elements=[]),
         }
