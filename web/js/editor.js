@@ -3,6 +3,7 @@
 // and the AP's own compiler: what the preview shows is what the tag draws, and an error here
 // is the 422 the AP would answer when the file is uploaded.
 
+import { History } from "./history.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -29,6 +30,8 @@ const state = {
   el: -1,              // selected element index
   samples: {},         // "<model>/<layout name>" -> [values]
   renderer: null,
+  history: {},         // model -> History of the layout file
+  dragging: false,
 };
 
 function emptyDoc(model) {
@@ -58,13 +61,15 @@ function defaultSample(name) {
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
 
+// The sample values of the current layout. Always the same array for a layout (changed in
+// place), so the inputs that edit it stay connected to what is drawn.
 function samples() {
   const k = sampleKey();
   const names = fieldNames();
-  const s = state.samples[k] || [...(layout()?._sample || [])];
+  const s = (state.samples[k] ||= [...(layout()?._sample || [])]);
   while (s.length < names.length) s.push(defaultSample(names[s.length]));
-  state.samples[k] = s.slice(0, names.length);
-  return state.samples[k];
+  s.length = names.length;
+  return s;
 }
 
 // ---------- persistence ----------
@@ -73,6 +78,45 @@ function save() {
   store.set("doc." + state.model, JSON.stringify(doc()));
   store.set("model", state.model);
   store.set("samples", JSON.stringify(state.samples));
+  scheduleRecord();
+}
+
+// ---------- undo ----------
+
+// Changes are recorded as one undo step once the editing pauses, so typing a name, a run of
+// arrow keys or one drag is a single step.
+let recordTimer = 0;
+
+function scheduleRecord() {
+  clearTimeout(recordTimer);
+  if (!state.dragging) recordTimer = setTimeout(record, 400);
+}
+
+function record() {
+  clearTimeout(recordTimer);
+  const h = state.history[state.model];
+  if (h) h.push(JSON.stringify(doc()), { sel: state.sel, el: state.el });
+  refreshUndo();
+}
+
+function undoRedo(redo) {
+  record();
+  const h = state.history[state.model];
+  const entry = redo ? h.redo() : h.undo();
+  if (!entry) return;
+  state.docs[state.model] = JSON.parse(entry.snap);
+  state.sel = entry.extra?.sel || "file:0";
+  if (!isBuiltin() && !layout()) state.sel = "file:0";
+  state.el = entry.extra?.el ?? -1;
+  if (!layout()?.elements?.[state.el]) state.el = -1;
+  refreshAll();
+  save();
+}
+
+function refreshUndo() {
+  const h = state.history[state.model];
+  $("undo").disabled = !h?.canUndo;
+  $("redo").disabled = !h?.canRedo;
 }
 
 async function exampleDoc(model) {
@@ -111,6 +155,10 @@ async function loadModel(model) {
     } catch {
       state.docs[model] = emptyDoc(model);
     }
+  }
+  if (!state.history[model]) {
+    state.history[model] = new History();
+    state.history[model].reset(JSON.stringify(state.docs[model]));
   }
   state.renderer = await loadRenderer(model);
   $("model").value = model;
@@ -222,6 +270,7 @@ function initDrag() {
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
     };
+    state.dragging = true;
     ov.setPointerCapture(ev.pointerId);
     refreshElement();
     ev.preventDefault();
@@ -243,27 +292,44 @@ function initDrag() {
     changed({ form: true });
   });
   const end = () => {
+    state.dragging = false;
     if (drag) save();
     drag = null;
   };
   ov.addEventListener("pointerup", end);
   ov.addEventListener("pointercancel", end);
 
-  document.addEventListener("keydown", (ev) => {
-    const e = element();
-    if (!e || ev.target.closest("input, textarea, select")) return;
-    const step = ev.shiftKey ? 10 : 1;
-    const { width, height } = MODELS[state.model];
-    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    if (moves[ev.key]) {
-      e.x = clamp(e.x + moves[ev.key][0], 0, width - e.w);
-      e.y = clamp(e.y + moves[ev.key][1], 0, height - e.h);
-      changed({ form: true });
-      ev.preventDefault();
-    } else if (ev.key === "Delete") {
-      deleteElement();
-    }
-  });
+  document.addEventListener("keydown", onKey);
+}
+
+// Keyboard shortcuts, only while the Design tab is shown. In a text box the browser's own
+// keys win (its undo, arrows, Delete).
+function onKey(ev) {
+  if ($("tab-design").hidden || ev.target.closest("input, textarea, select")) return;
+  const mod = ev.ctrlKey || ev.metaKey;
+  const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  const e = element();
+  const { width, height } = MODELS[state.model];
+  const step = ev.shiftKey ? 10 : 1;
+  const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+  if (mod && key === "z") undoRedo(ev.shiftKey);
+  else if (mod && key === "y") undoRedo(true);
+  else if (mod && key === "d") duplicateElement();
+  else if (mod || ev.altKey) return;
+  else if (moves[key] && e) {
+    e.x = clamp(e.x + moves[key][0], 0, width - e.w);
+    e.y = clamp(e.y + moves[key][1], 0, height - e.h);
+    changed({ form: true });
+  } else if ((key === "Delete" || key === "Backspace") && e) deleteElement();
+  else if (key === "Escape" && state.el >= 0) {
+    state.el = -1;
+    refreshElement();
+  } else if (key === "Tab" && layout() && ev.target === document.body) {
+    const n = layout().elements.length;
+    state.el = ((state.el < 0 ? (ev.shiftKey ? 0 : -1) : state.el) + (ev.shiftKey ? n - 1 : 1)) % n;
+    refreshElement();
+  } else return;
+  ev.preventDefault();
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -330,7 +396,7 @@ function refreshElement() {
   box.replaceChildren();
   const e = element();
   $("el-panel").hidden = !layout();
-  $("el-del").disabled = $("el-up").disabled = $("el-down").disabled = !e;
+  $("el-del").disabled = $("el-dup").disabled = $("el-up").disabled = $("el-down").disabled = !e;
   drawOverlay();
   if (!e) {
     const p = document.createElement("p");
@@ -417,6 +483,7 @@ function refreshAll() {
   refreshSample();
   refreshElement();
   refreshJson();
+  refreshUndo();
   compileAndDraw();
 }
 
@@ -458,6 +525,19 @@ function deleteElement() {
   if (!element() || lay.elements.length <= 1) return;
   lay.elements.splice(state.el, 1);
   state.el = -1;
+  changed();
+}
+
+function duplicateElement() {
+  const lay = layout();
+  const e = element();
+  if (!e) return;
+  const { width, height } = MODELS[state.model];
+  const c = structuredClone(e);
+  c.x = clamp(c.x + 4, 0, width - c.w);
+  c.y = clamp(c.y + 4, 0, height - c.h);
+  lay.elements.splice(state.el + 1, 0, c);
+  state.el++;
   changed();
 }
 
@@ -617,6 +697,9 @@ function initActions() {
   $("el-add-text").addEventListener("click", () => addElement("text"));
   for (const k of ["invert", "rect", "hline", "vline"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-del").addEventListener("click", deleteElement);
+  $("el-dup").addEventListener("click", duplicateElement);
+  $("undo").addEventListener("click", () => undoRedo(false));
+  $("redo").addEventListener("click", () => undoRedo(true));
   $("el-up").addEventListener("click", () => moveElement(-1));
   $("el-down").addEventListener("click", () => moveElement(1));
 }
