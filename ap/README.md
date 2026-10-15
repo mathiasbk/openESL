@@ -172,7 +172,7 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 ## Build and flash
 
-Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the partitions moved.
+Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the partitions moved. Erasing takes the stored tags, layout files and settings with it: `esl-client backup ap.json` before and `esl-client restore ap.json` after keeps them (`tools/esl-client/README.md`).
 
 ```bash
 cd ap

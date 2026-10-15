@@ -107,8 +107,24 @@ class Client:
     def delete_tag(self, mac):
         return self._request("DELETE", f"/api/tags/{mac}")
 
+    def tag_config(self, mac):
+        return self._request("GET", f"/api/tags/{mac}/config")
+
+    def set_tag_config(self, mac, cfg):
+        """cfg: poll_s, max_poll_s, lost_ap_s; a key left out or None means the default."""
+        return self._request("PUT", f"/api/tags/{mac}/config", cfg)
+
     def layouts(self):
         return self._request("GET", "/api/layouts")
+
+    def layout(self, model):
+        """The layout file as uploaded, or None when the model has none."""
+        try:
+            return self._request("GET", f"/api/layouts/{model}")
+        except ApiError as e:
+            if e.status == 404:
+                return None
+            raise
 
     def put_layout(self, model, raw):
         return self._request("PUT", f"/api/layouts/{model}", raw)
@@ -780,6 +796,137 @@ def sync(cli, args):
     return 0
 
 
+# ---- backup and restore ----------------------------------------------------------------------
+
+BACKUP_FORMAT = "openesl-backup"
+MODELS = ("2.9", "1.54")
+CONTENT_KEYS = ("layout", "fields", "price_highlight", "frame")
+
+
+def backup(cli, now=None):
+    """Everything the AP keeps in NVS that the API can read back: the default poll
+    interval and the webhook, the layout files, each tag's content and settings, and
+    the scheduled content. Not the WiFi (its password cannot be read) or the token."""
+    st = cli.tags()
+    tags = []
+    for t in st.get("tags", []):
+        cfg = {k: v for k, v in (t.get("config") or {}).items() if v is not None}
+        row = {"mac": t["mac"]}
+        if t.get("content_id", 0):
+            d = cli.tag(t["mac"])
+            row.update({k: d[k] for k in CONTENT_KEYS if d.get(k) is not None})
+        if cfg:
+            row["config"] = cfg
+        if len(row) > 1:  # a tag that has only polled is added back when it polls again
+            tags.append(row)
+    cfg = cli.config()
+    layouts = {m: f for m in MODELS if (f := cli.layout(m)) is not None}
+    try:
+        sched = [{k: v for k, v in e.items() if v is not None} for e in cli.schedule().get("scheduled", [])]
+    except ApiError as e:
+        if e.status != 404:  # an AP built without scheduling
+            raise
+        sched = []
+    sched.sort(key=lambda e: (e["at"], e["mac"]))
+    return {"format": BACKUP_FORMAT, "version": 1,
+            "taken": datetime.datetime.fromtimestamp(now or time.time(), datetime.timezone.utc)
+            .isoformat(timespec="seconds"),
+            "ap": {"fw": st.get("ap", {}).get("fw"), "channel": st.get("ap", {}).get("channel")},
+            "config": {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")},
+            "layouts": layouts, "tags": tags, "scheduled": sched}
+
+
+class BackupError(Exception):
+    pass
+
+
+def read_backup(path):
+    try:
+        with open(path, "rb") as f:
+            b = json.load(f)
+    except ValueError as e:
+        raise BackupError(f"{path}: not JSON ({e})")
+    if not isinstance(b, dict) or b.get("format") != BACKUP_FORMAT or b.get("version") != 1:
+        raise BackupError(f"{path}: not a backup from \"esl-client backup\"")
+    for key, kind in (("config", dict), ("layouts", dict), ("tags", list), ("scheduled", list)):
+        if not isinstance(b.get(key), kind):
+            raise BackupError(f"{path}: \"{key}\" is missing or not a {kind.__name__}")
+    for i, t in enumerate(b["tags"] + b["scheduled"]):
+        if not isinstance(t, dict) or not MAC_RE.match(str(t.get("mac", ""))):
+            raise BackupError(f"{path}: entry {i} has no valid mac")
+        if "layout" in t and not isinstance(t.get("fields"), list):
+            raise BackupError(f"{path}: {t['mac']} has a layout but no fields")
+    return b
+
+
+def restore(cli, b, dry_run=False, now=None):
+    """Puts a backup onto an AP, in the order the AP needs: config, layout files, tag
+    settings, content, then the scheduled content (entries whose time has passed are
+    skipped, since the AP would set them now). Tags the backup does not have are left
+    as they are. Returns (lines, ok)."""
+    now = int(now or time.time())
+    lines = []
+    ok = True
+    cfg = b["config"]
+    want = {"poll_s": cfg.get("poll_s", 0)}
+    if cfg.get("webhook"):
+        want["webhook"] = cfg["webhook"]
+    layouts = {m: f for m, f in b["layouts"].items() if m in MODELS}
+    settings = [(t["mac"], t["config"]) for t in b["tags"] if t.get("config")]
+    content = [{"mac": t["mac"], **{k: t[k] for k in CONTENT_KEYS if k in t}} for t in b["tags"] if "layout" in t]
+    due = [e for e in b["scheduled"] if e["at"] > now]
+    passed = len(b["scheduled"]) - len(due)
+    lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}")
+    lines.append(f"layout files: {', '.join(layouts) or 'none'}")
+    lines.append(f"tags: {len(content)} with content, {len(settings)} with their own settings")
+    lines.append(f"scheduled: {len(due)}" + (f" ({passed} skipped, their time has passed)" if passed else ""))
+    if dry_run:
+        lines.append("nothing sent (dry run)")
+        return lines, True
+
+    try:
+        cli.set_config(**want)
+    except ApiError as e:
+        if "webhook" not in want or e.status != 422:
+            raise
+        lines.append(f"warning: the webhook was not restored ({e.body.strip()}); this AP has no webhook")
+        cli.set_config(poll_s=want["poll_s"])
+        ok = False
+    for m, f in layouts.items():
+        cli.put_layout(m, json.dumps(f).encode("utf-8"))
+    for mac, c in settings:
+        cli.set_tag_config(mac, c)
+    sent = 0
+    for i in range(0, len(content), BATCH_MAX):
+        chunk = content[i:i + BATCH_MAX]
+        try:
+            sent += len(cli.set_many(chunk))
+        except ApiError as e:
+            msg = e.body
+            try:
+                err = json.loads(e.body)
+                msg = err.get("error", msg)
+                if isinstance(err.get("index"), int) and 0 <= err["index"] < len(chunk):
+                    msg = f"{chunk[err['index']]['mac']}: {msg}"
+            except ValueError:
+                pass
+            lines.append(f"error: HTTP {e.status}: {msg}; {sent} tags were restored before it")
+            return lines, False
+    if due:
+        rows = [{"mac": e["mac"], "at": e["at"], **{k: e[k] for k in CONTENT_KEYS if k in e}} for e in due]
+        try:
+            ensure_time(cli)
+            cli.set_many(rows)
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            lines.append(f"warning: the {len(due)} scheduled entries were not restored; this AP has no scheduling")
+            due = []
+            ok = False
+    lines.append(f"restored: {len(layouts)} layout files, {len(settings)} tag settings, {sent} tags, {len(due)} scheduled")
+    return lines, ok
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="OpenESL AP example client")
     p.add_argument("--url", default=os.environ.get("OPENESL_URL", "http://openesl.local"))
@@ -844,6 +991,12 @@ def main(argv=None):
     s.add_argument("--rounds", type=int, help="stop after this many rounds (default: run until Ctrl-C)")
     s = sub.add_parser("report", help="summarise a log from \"log\": gaps, battery, problems, AP restarts (exit 1 on any)")
     s.add_argument("file")
+
+    s = sub.add_parser("backup", help="save the AP's tags, settings, layout files and schedule to a JSON file")
+    s.add_argument("file", help="where to write it (- for stdout)")
+    s = sub.add_parser("restore", help="put a backup from \"backup\" onto an AP (a new one, or after erase-flash)")
+    s.add_argument("file")
+    s.add_argument("--dry-run", action="store_true", help="show what would be restored")
 
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
@@ -921,6 +1074,25 @@ def main(argv=None):
                 print(f"sending {len(image)} bytes ...", flush=True)
                 r = cli.ota(image, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True))
                 print(f"written to {r.get('slot')}: version {r.get('version')}, the AP is restarting")
+        elif args.cmd == "backup":
+            b = backup(cli)
+            text = json.dumps(b, indent=1, ensure_ascii=False)
+            if args.file == "-":
+                print(text)
+            else:
+                with open(args.file, "w", encoding="utf-8") as f:
+                    f.write(text + "\n")
+                print(f"{args.file}: {len(b['tags'])} tags, {len(b['layouts'])} layout files, "
+                      f"{len(b['scheduled'])} scheduled")
+        elif args.cmd == "restore":
+            try:
+                b = read_backup(args.file)
+            except (OSError, BackupError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            lines, ok = restore(cli, b, args.dry_run)
+            print("\n".join(lines))
+            return 0 if ok else 1
         elif args.cmd == "wifi":
             if args.ssid is None:
                 print_wifi(cli.wifi())

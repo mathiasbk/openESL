@@ -24,6 +24,8 @@ class FakeAp(BaseHTTPRequestHandler):
     time = None
     sched = []
     config = {"poll_s": 0, "builtin_poll_s": 0, "webhook": None}
+    tag_cfg = {}
+    layouts = {}
 
     def log_message(self, *a):
         pass
@@ -67,13 +69,31 @@ class FakeAp(BaseHTTPRequestHandler):
         old = self.tags.get(mac, {})
         changed = old.get("content_id") != cid
         self.tags[mac] = {"mac": mac, "content_id": cid, "shown_content_id": cid, "pending": False,
-                          "model": "2.9", "seen_s_ago": 3, "battery_mv": 2950, "rssi": -60}
+                          "model": "2.9", "seen_s_ago": 3, "battery_mv": 2950, "rssi": -60,
+                          "config": self._cfg(mac), "layout": c.get("layout"), "fields": c.get("fields"),
+                          "price_highlight": bool(c.get("price_highlight")), "frame": bool(c.get("frame"))}
         return {"mac": mac, "content_id": cid, "changed": changed, "pending": False}
+
+    @staticmethod
+    def _cfg(mac):
+        c = FakeAp.tag_cfg.get(mac, {})
+        return {k: c.get(k) for k in ("poll_s", "max_poll_s", "lost_ap_s")}
 
     def do_GET(self):
         if not self._auth():
             return
-        if self.path == "/api/wifi":
+        if self.path == "/api/layouts":
+            self._send(200, {"max_size": 8192, "max_binary_size": 768,
+                             "layouts": [{"model": m, "version": 1, "size": 1, "binary_size": 1,
+                                          "layouts": [x["name"] for x in f["layouts"]]}
+                                         for m, f in FakeAp.layouts.items()]})
+        elif self.path.startswith("/api/layouts/"):
+            f = FakeAp.layouts.get(self.path.rsplit("/", 1)[1])
+            self._send(200 if f else 404, f or {"error": "no layout file"})
+        elif self.path.endswith("/config") and self.path.startswith("/api/tags/"):
+            mac = self.path.split("/")[3]
+            self._send(200, {"mac": mac, "poll_s": None, "config": self._cfg(mac), "config_pending": False})
+        elif self.path == "/api/wifi":
             self._send(200, self.wifi)
         elif self.path == "/api/time":
             self._send(200, {"time": FakeAp.time, "source": "api" if FakeAp.time else None})
@@ -118,6 +138,21 @@ class FakeAp(BaseHTTPRequestHandler):
             FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
                            "setup_ssid": None, "networks": []}
             self._send(200, FakeAp.wifi)
+        elif self.path.startswith("/api/layouts/"):
+            model = self.path.rsplit("/", 1)[1]
+            if body.get("model") != model:
+                self._send(422, {"error": "the file is for another model"})
+                return
+            FakeAp.layouts[model] = body
+            self._send(200, {"model": model, "version": 1, "size": 1, "binary_size": 1,
+                             "layouts": [x["name"] for x in body["layouts"]], "changed": True})
+        elif self.path.endswith("/config") and self.path.startswith("/api/tags/"):
+            mac = self.path.split("/")[3]
+            FakeAp.tag_cfg[mac] = body
+            if mac in self.tags:
+                self.tags[mac]["config"] = self._cfg(mac)
+            self._send(200, {"mac": mac, "poll_s": body.get("poll_s"), "config": self._cfg(mac),
+                             "config_pending": True, "changed": True})
         elif self.path == "/api/tags":
             if len(body["tags"]) > esl_client.BATCH_MAX:
                 self._send(413, {"error": "too many"})
@@ -151,6 +186,9 @@ class ClientTest(unittest.TestCase):
         FakeAp.calls.clear()
         FakeAp.sched = []
         FakeAp.time = None
+        FakeAp.tag_cfg.clear()
+        FakeAp.layouts.clear()
+        FakeAp.config = {"poll_s": 0, "builtin_poll_s": 0, "webhook": None}
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -228,6 +266,72 @@ class ClientTest(unittest.TestCase):
         self.assertIn("low_battery|silent", a8)
         b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
         self.assertIn("     3 ", b9)         # 3 rounds, no problems
+
+    def test_backup_and_restore(self):
+        layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
+                  "layouts": [{"name": "shelf", "fields": ["a"], "elements": [{"type": "text", "field": "a",
+                                                                                "x": 0, "y": 0, "w": 10, "h": 20}]}]}
+        FakeAp.layouts["2.9"] = layout
+        FakeAp.config.update({"poll_s": 120, "webhook": "http://10.0.0.5:8080/esl"})
+        self.run_cli("price", "00000123456789A8", "Milk", "24.90", "--highlight")
+        self.run_cli("text", "00000123456789A9", "Open", "9-21", "--frame")
+        FakeAp.tag_cfg["00000123456789A9"] = {"poll_s": 300}
+        FakeAp.tags["00000123456789A9"]["config"] = FakeAp._cfg("00000123456789A9")
+        FakeAp.tags["00000123456789B0"] = {"mac": "00000123456789B0", "content_id": 0, "shown_content_id": 0,
+                                           "pending": False, "model": "2.9", "seen_s_ago": 3, "battery_mv": 2950,
+                                           "rssi": -60, "config": FakeAp._cfg("00000123456789B0")}
+        future = int(time.time()) + 3600
+        FakeAp.sched = [{"mac": "00000123456789A8", "at": future, "layout": "price", "fields": ["Milk", "19.90"]},
+                        {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]}]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ap.json")
+            rc, out = self.run_cli("backup", path)
+            self.assertEqual((rc, out), (0, f"{path}: 2 tags, 1 layout files, 2 scheduled\n"))
+            with open(path, encoding="utf-8") as f:
+                b = json.load(f)
+            self.assertEqual(b["format"], "openesl-backup")
+            self.assertEqual(b["config"], {"poll_s": 120, "webhook": "http://10.0.0.5:8080/esl"})
+            self.assertEqual(b["layouts"], {"2.9": layout})
+            self.assertEqual(b["tags"], [
+                {"mac": "00000123456789A8", "layout": "price", "fields": ["Milk", "24.90"], "price_highlight": True,
+                 "frame": False},
+                {"mac": "00000123456789A9", "layout": "text", "fields": ["Open", "9-21"], "price_highlight": False,
+                 "frame": True, "config": {"poll_s": 300}}])
+            self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
+
+            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed
+            self.setUp()
+            rc, out = self.run_cli("restore", path, "--dry-run")
+            self.assertEqual(rc, 0)
+            self.assertIn("tags: 2 with content, 1 with their own settings", out)
+            self.assertIn("scheduled: 1 (1 skipped, their time has passed)", out)
+            self.assertIn("nothing sent", out)
+            self.assertEqual(FakeAp.calls, [])
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 1 scheduled", out)
+            self.assertEqual(FakeAp.config["poll_s"], 120)
+            self.assertEqual(FakeAp.config["webhook"], "http://10.0.0.5:8080/esl")
+            self.assertEqual(FakeAp.layouts, {"2.9": layout})
+            self.assertEqual(FakeAp.tag_cfg, {"00000123456789A9": {"poll_s": 300}})
+            self.assertEqual(sorted(FakeAp.tags), ["00000123456789A8", "00000123456789A9"])
+            self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk", "24.90"])
+            self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
+            self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A8", "at": future, "layout": "price",
+                                             "fields": ["Milk", "19.90"]}])
+            self.assertIsNotNone(FakeAp.time)  # set before the scheduled entry was sent
+            paths = [c[0] for c in FakeAp.calls]
+            self.assertLess(paths.index("/api/layouts/2.9"), paths.index("/api/tags"))
+            self.assertLess(paths.index("/api/config"), paths.index("/api/layouts/2.9"))
+
+            # The same backup again changes nothing
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 0)
+
+            with open(path, "w") as f:
+                f.write("{\"format\": \"something\"}")
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 1)
 
     def test_ota(self):
         rc, out = self.run_cli("ota")
