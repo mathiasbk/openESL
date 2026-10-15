@@ -37,7 +37,7 @@ Default paths are what `tag/tools/build.py` writes:
 | 2.9" | `python tag/tools/build.py fw` | `tag/build/fw/openesl.bin` |
 | 1.54" | `MODEL=154 python tag/tools/build.py fw` | `tag/build/fw154/openesl.bin` |
 
-A missing file is shown in red and nothing is sent to the flasher. The build keeps the code below 0xF400 (`CODE_SIZE` in `tag/tools/build.py`; above it are the layout store, the content store and, from 0xFC00, the stock MAC). `flash-tui` itself only refuses an image that reaches 0xFC00.
+A missing file is shown in red and nothing is sent to the flasher. The image must end below 0xF400, where the tag keeps its layout file and last content (`CODE_SIZE` in `tag/tools/build.py`).
 
 ## Serial port
 

@@ -130,9 +130,10 @@ class WorkflowTest(unittest.TestCase):
     def test_firmware_too_big(self):
         p = os.path.join(self.dir, "big.bin")
         with open(p, "wb") as f:
-            f.write(b"\x00" * (0xFC00 + 1))
+            f.write(b"\x00" * (0xF400 + 1))   # one byte into the layout store
         r = self.run_job(fw_path=p)
         self.assertEqual(r.step, "firmware")
+        self.assertIn("0xF400", r.message)
         self.assertEqual(self.port.commands, [])
 
     def test_flaky_backup_read_writes_nothing(self):

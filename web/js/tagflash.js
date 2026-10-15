@@ -22,7 +22,9 @@ export const MODELS = {
   "1.54": { name: '1.54"', macCode: 0x34, firmware: "firmware/tag-154.bin" },
 };
 
-export const CODE_LIMIT = 0xfc00;
+// tag/tools/build.py CODE_SIZE: from 0xF400 the tag keeps its layout file (0xF400) and its
+// last content (0xF800), and the stock MAC sits at 0xFC00
+export const CODE_LIMIT = 0xf400;
 export const STOCK_MAC_ADDR = 0xfc06;
 export const INFO_MAC_ADDR = 0x10;
 
@@ -60,7 +62,7 @@ export function modelOfMac(mac) {
 export function checkFirmware(data) {
   if (!data || !data.length) throw new JobError("firmware", "the firmware file is empty");
   if (data.length > CODE_LIMIT)
-    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (stock MAC area)`);
+    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (the tag's layout and content store starts there)`);
   if (data.every((b) => b === 0xff)) throw new JobError("firmware", "the firmware file is only 0xFF");
   return data;
 }
