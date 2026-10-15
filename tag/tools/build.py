@@ -7,6 +7,7 @@ Build script for the tag firmware. Works with and without make (the Makefile onl
   python tools/build.py fw        firmware with SDCC -> build/fw/openesl.ihx and .bin
                                   (MODEL=154 for the 1.54" -> build/fw154/openesl.bin; default 29)
   python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
+                                  (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead)
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
   python tools/build.py clean
 
@@ -64,7 +65,7 @@ def version_defines():
 
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
 FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c"] + CORE + FONTS + HAL_SOURCES
-HWTEST_SOURCES = ["src/hal/zbs243/hwtest.c"] + HAL_SOURCES
+HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES
 
 
 def find_cc():
