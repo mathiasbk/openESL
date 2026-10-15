@@ -117,6 +117,31 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .status { margin-left: auto; color: var(--muted); }
 .status.error { color: var(--error); }
 .status.ok { color: var(--ok); }
+.meters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.meter {
+  display: inline-flex; gap: 6px; align-items: center; font-size: 13px; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted);
+}
+.meter b { color: var(--text); font-weight: 600; }
+.meter i { display: inline-block; width: 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.meter i::before { content: ""; display: block; height: 100%; width: var(--p); background: var(--ok); }
+.meter.near i::before { background: var(--warn); }
+.meter.over { border-color: var(--error); color: var(--error); }
+.meter.over b { color: var(--error); }
+.meter.over i::before { background: var(--error); }
+.el-list { list-style: none; padding: 0; display: grid; gap: 2px; }
+.el-list li {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.el-list li:hover { background: var(--bg); }
+.el-list li.sel { background: color-mix(in srgb, var(--box-sel) 15%, transparent); }
+.el-list .ico { width: 14px; height: 10px; border: 1.5px solid var(--box); border-radius: 2px; }
+.el-list .ico.rect { background: var(--box-rect); border-color: var(--box-rect); }
+.el-list .ico.inv { background: var(--box); }
+.el-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-list .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.box.hover { border-style: solid; border-width: 2px; }
 .hint, .muted { color: var(--muted); font-size: 13px; }
 .warn { color: var(--warn); }
 

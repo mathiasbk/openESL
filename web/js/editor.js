@@ -4,6 +4,7 @@
 // is the 422 the AP would answer when the file is uploaded.
 
 import { History } from "./history.js";
+import { layoutUsage } from "./limits.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -180,6 +181,7 @@ function compileAndDraw() {
     layoutId = BUILTIN[state.sel.slice(8)].id;
   } else if (!res.ok) {
     setStatus("AP would reject the file: " + res.error, "error");
+    refreshMeters(res);
     dimCanvas();
     return;
   } else {
@@ -193,8 +195,36 @@ function compileAndDraw() {
     return;
   }
   paint(out.pixels, r.width, r.height);
+  refreshMeters(res);
   if (res.ok) setStatus(`OK: ${res.size} of 768 bytes for the tag, version ${res.version.toString(16).toUpperCase().padStart(8, "0")}`, "ok");
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
+}
+
+// What the layout uses of the tag's limits, so you see a limit coming before the AP says no.
+function refreshMeters(res) {
+  const box = $("meters");
+  const r = state.renderer;
+  const lim = r.limits;
+  const lay = layout();
+  const meters = [];
+  if (lay) {
+    const u = layoutUsage(lay, lim);
+    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the tag may draw for this layout (each text box counts the most lines its fonts can fit)"]);
+    meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
+  }
+  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
+  meters.push(["Sample text", samples().reduce((a, s) => a + r.textBytes(s), 0), r.maxText, "Bytes of text in one update from the AP"]);
+  box.replaceChildren(...meters.map(([name, n, max, title]) => {
+    const m = document.createElement("span");
+    m.className = "meter" + (n === null ? "" : n > max ? " over" : n >= max ? " near" : "");
+    m.title = title;
+    const bar = document.createElement("i");
+    bar.style.setProperty("--p", n === null ? "0%" : Math.min(100, (100 * n) / max) + "%");
+    const b = document.createElement("b");
+    b.textContent = (n === null ? "?" : n) + " / " + max;
+    m.append(name + " ", b, bar);
+    return m;
+  }));
 }
 
 function setStatus(text, cls) {
@@ -245,6 +275,52 @@ function drawOverlay() {
     b.append(tag, grip);
     ov.append(b);
   });
+  refreshList();
+}
+
+// The list of elements in drawing order, so a box hidden under another can still be picked.
+function refreshList() {
+  const ol = $("el-list");
+  const lay = layout();
+  $("list-panel").hidden = !lay;
+  if (!lay) return;
+  const usage = layoutUsage(lay, state.renderer.limits).elements;
+  ol.replaceChildren(...lay.elements.map((e, i) => {
+    const li = document.createElement("li");
+    li.className = i === state.el ? "sel" : "";
+    li.dataset.i = i;
+    const ico = document.createElement("span");
+    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight");
+    ico.className = "ico" + (e.type === "rect" ? " rect" : inverted ? " inv" : "");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = e.type === "text" ? fieldLabel(e.field) + (e.color && e.color !== "black" ? ` (${e.color})` : "") : rectName(e);
+    const dim = document.createElement("span");
+    dim.className = "dim";
+    const u = usage[i];
+    dim.textContent = `${e.x},${e.y} ${e.w}×${e.h}` + (u.runs ? ` · ${u.runs} ln` : "");
+    dim.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px` + (u.runs ? `, up to ${u.runs} lines of text` : "") + (u.rects ? ", uses a box" : "");
+    li.append(ico, name, dim);
+    return li;
+  }));
+}
+
+function rectName(e) {
+  const kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : "box";
+  return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
+}
+
+function initList() {
+  const ol = $("el-list");
+  ol.addEventListener("click", (ev) => {
+    const li = ev.target.closest("li");
+    if (!li) return;
+    state.el = +li.dataset.i;
+    refreshElement();
+  });
+  const hover = (i) => document.querySelectorAll("#overlay .box").forEach((b) => b.classList.toggle("hover", b.dataset.i === i));
+  ol.addEventListener("pointerover", (ev) => hover(ev.target.closest("li")?.dataset.i));
+  ol.addEventListener("pointerleave", () => hover(null));
 }
 
 function fieldLabel(f) {
@@ -712,6 +788,7 @@ export async function initEditor() {
   }
   initActions();
   initDrag();
+  initList();
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : "2.9");
 }

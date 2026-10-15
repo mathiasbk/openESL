@@ -99,6 +99,7 @@
           <label><input type="checkbox" id="opt-frame"> <code>frame</code></label>
           <span id="status" class="status" role="status"></span>
         </div>
+        <div id="meters" class="meters" aria-label="What this layout uses of the tag's limits"></div>
         <div class="add-row" id="add-row">
           <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
           <button id="redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
@@ -119,6 +120,10 @@
         <details open>
           <summary>Sample text</summary>
           <div id="sample" class="form"></div>
+        </details>
+        <details open id="list-panel">
+          <summary>Elements</summary>
+          <ol id="el-list" class="el-list"></ol>
         </details>
         <details open id="el-panel">
           <summary>Element</summary>
