@@ -1,7 +1,7 @@
 // wifisetup.js - "Set the WiFi over USB" on the Set up tab: GET and PUT /api/wifi over the
 // AP's USB port with Web Serial (js/apserial.js), for when the setup network is no help.
-import { WebSerialTransport } from "./zbs.js";
-import { SerialAp, describeWifi, checkWifi } from "./apserial.js";
+import { describeWifi, checkWifi } from "./apserial.js";
+import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -11,17 +11,11 @@ const JOIN_POLL_MS = 2000;
 
 export function initWifiSetup() {
   const btn = $("wifi-connect");
-  if (!("serial" in navigator)) {
+  if (!hasSerial()) {
     $("wifi-serial-missing").hidden = false;
     btn.disabled = true;
     return;
   }
-
-  let transport = null;
-  let ap = null;
-  let queue = Promise.resolve();
-  // One request at a time on the port
-  const run = (f) => (queue = queue.then(f, f));
 
   const msg = (text, cls = "") => {
     $("wifi-msg").textContent = text;
@@ -33,8 +27,7 @@ export function initWifiSetup() {
 
   const show = (w) => {
     $("wifi-state").textContent = describeWifi(w);
-    const list = $("wifi-networks");
-    list.replaceChildren(...(w.networks || []).map((n) => {
+    $("wifi-networks").replaceChildren(...(w.networks || []).map((n) => {
       const o = document.createElement("option");
       o.value = n.ssid;
       o.label = `${n.rssi} dBm`;
@@ -43,49 +36,37 @@ export function initWifiSetup() {
     if (!$("wifi-ssid").value && w.ssid) $("wifi-ssid").value = w.ssid;
   };
 
-  const closed = async () => {
-    if (transport) await transport.close().catch(() => {});
-    transport = ap = null;
-    btn.textContent = "Connect AP";
-    $("wifi-form").hidden = true;
-    $("wifi-state").textContent = "";
-  };
-
-  btn.addEventListener("click", async () => {
-    if (transport) {
-      await closed();
+  // The port opened or closed, here or on the dashboard
+  onSerialChange(async (ap) => {
+    btn.textContent = ap ? "Disconnect" : "Connect AP";
+    $("wifi-form").hidden = !ap;
+    if (!ap) {
+      $("wifi-state").textContent = "";
       msg("Disconnected.");
       return;
     }
-    let port;
     try {
-      port = await navigator.serial.requestPort();
-    } catch {
-      return; // no port chosen
-    }
-    busy(true);
-    try {
-      // DTR and RTS stay as the port opened them, as with esl_client.py
-      transport = await WebSerialTransport.open(port, { lowSignals: false });
-      ap = new SerialAp(transport);
-      msg("Port open, waiting for the AP ...");
-      const w = await run(() => ap.waitReady());
+      const w = await ap.wifi();
       show(w);
-      btn.textContent = "Disconnect";
-      $("wifi-form").hidden = false;
       msg(w.networks?.length ? "Pick a network from the list or type its name." : "Type the network's name (the AP has no scan list).");
     } catch (e) {
-      msg("Could not connect: " + e.message, "error");
-      await closed();
-    } finally {
-      busy(false);
+      msg("The AP did not answer: " + e.message, "error");
     }
   });
 
-  navigator.serial.addEventListener("disconnect", (ev) => {
-    if (transport && ev.target === transport.port) {
-      closed();
-      msg("The AP was unplugged.", "error");
+  btn.addEventListener("click", async () => {
+    if (serialAp()) {
+      await disconnectSerial();
+      return;
+    }
+    busy(true);
+    msg("Waiting for the AP ...");
+    try {
+      await connectSerial();
+    } catch (e) {
+      msg(e.name === "NotFoundError" ? "" : "Could not connect: " + e.message, "error");
+    } finally {
+      busy(false);
     }
   });
 
@@ -95,9 +76,11 @@ export function initWifiSetup() {
 
   // After a change: watch the AP until it has joined, or give up after JOIN_WAIT_MS
   async function change(ssid, password) {
+    const ap = serialAp();
+    if (!ap) return;
     busy(true);
     try {
-      let w = await run(() => ap.setWifi(ssid, password));
+      let w = await ap.setWifi(ssid, password);
       show(w);
       if (!ssid) {
         msg("The AP forgot the network and opened its setup network.", "ok");
@@ -105,10 +88,10 @@ export function initWifiSetup() {
       }
       msg(`Saved. The AP is joining "${ssid}" ...`);
       const end = Date.now() + JOIN_WAIT_MS;
-      while (!w.connected && Date.now() < end && ap) {
+      while (!w.connected && Date.now() < end) {
         await sleep(JOIN_POLL_MS);
-        if (!ap) return;
-        w = await run(() => ap.wifi());
+        if (serialAp() !== ap) return;
+        w = await ap.wifi();
         show(w);
       }
       if (w.connected)

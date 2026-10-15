@@ -34,6 +34,7 @@ export class SerialAp {
     this.timeoutMs = timeoutMs;
     this.seq = 0;
     this.buf = new Uint8Array(0);
+    this.queue = Promise.resolve();
   }
 
   // Reads more from the port into buf, or throws on timeout
@@ -62,8 +63,15 @@ export class SerialAp {
     return this.readBytes(i + 1, end);
   }
 
-  // { status, body } with the body as bytes; throws only when no reply comes
-  async send(method, path, body = new Uint8Array(0), timeoutMs = this.timeoutMs) {
+  // { status, body } with the body as bytes; throws only when no reply comes. One request
+  // at a time: a second waits for the first (the WiFi card and the dashboard share the port).
+  send(method, path, body, timeoutMs) {
+    const p = this.queue.then(() => this.exchange(method, path, body, timeoutMs));
+    this.queue = p.catch(() => {});
+    return p;
+  }
+
+  async exchange(method, path, body = new Uint8Array(0), timeoutMs = this.timeoutMs) {
     if (typeof body === "string") body = enc.encode(body);
     const seq = ++this.seq;
     await this.t.flushInput();

@@ -5,12 +5,13 @@ import { flashTag, checkFirmware, BackupStore, modelOfMac, MODELS as TAG_MODELS 
 import { loadRenderer, LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT } from "./renderer.js";
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
+import { initDashboard } from "./dashboard.js";
 
 const $ = (id) => document.getElementById(id);
 
 // ---------- tabs ----------
 
-const TABS = ["home", "design", "tag", "ap", "setup", "api"];
+const TABS = ["home", "design", "tag", "ap", "dashboard", "setup", "api"];
 
 function showTab(name) {
   if (!TABS.includes(name)) name = "home";
@@ -28,6 +29,7 @@ window.addEventListener("hashchange", () => {
 });
 showTab(location.hash.slice(1));
 initWifiSetup();
+initDashboard();
 
 initEditor().catch((e) => {
   const s = $("status");
