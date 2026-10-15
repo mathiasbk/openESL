@@ -37,3 +37,6 @@ private/
 
 # PlatformIO
 .pio/
+
+# Web page build (web/build.py)
+web/dist/
