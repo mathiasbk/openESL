@@ -36,6 +36,44 @@
         { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 200, "color": "frame" },
         { "type": "rect", "x": 197, "y": 0, "w": 3, "h": 200, "color": "frame" }
       ]
+    },
+    {
+      "name": "vare",
+      "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
+      "fields": ["brand", "name", "info", "price"],
+      "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 28, "w": 190, "h": 52,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 2 },
+        { "type": "text", "field": "info", "x": 5, "y": 84, "w": 190, "h": 38,
+          "fonts": ["small"], "align": "center", "valign": "middle", "lines": 2 },
+        { "type": "rect", "x": 0, "y": 126, "w": 200, "h": 2 },
+        { "type": "text", "field": "price", "x": 5, "y": 132, "w": 190, "h": 64,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" }
+      ]
+    },
+    {
+      "name": "vare-mva",
+      "description": "Product label with two prices: brand band, name, a small note (e.g. the price inc. VAT) and the highlighted price",
+      "fields": ["brand", "name", "note", "price"],
+      "_sample": ["Kramp", "Nedre kuleledd, kat. 3/2", "inkl. mva 192,25", "153,80"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 28, "w": 190, "h": 76,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+        { "type": "rect", "x": 0, "y": 108, "w": 200, "h": 2 },
+        { "type": "text", "field": "note", "x": 5, "y": 114, "w": 190, "h": 18,
+          "fonts": ["small"], "align": "right", "lines": 1 },
+        { "type": "text", "field": "price", "x": 5, "y": 134, "w": 190, "h": 62,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" }
+      ]
     }
   ]
 }

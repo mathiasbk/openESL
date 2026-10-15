@@ -98,7 +98,9 @@ static int load_layout_file(const char *path)
         printf("%s: cannot read\n", path);
         return 1;
     }
-    n = fread(layout_file, 1, ESL_LBIN_MAX + 1, f);
+    n = fread(layout_file, 1, ESL_LBIN_MAX, f);
+    if (n == ESL_LBIN_MAX && fgetc(f) != EOF)
+        n++;                    /* too big; layout_file has no room for a test byte */
     fclose(f);
     crc = proto_crc32(0, layout_file, (uint16_t)n);
     if (n > ESL_LBIN_MAX || !layout_file_install((uint16_t)n, crc ? crc : 1)) {

@@ -91,6 +91,8 @@ python -m unittest discover -s test -p "test_label_*.py"
 
 The design does not change the firmware. Its layout is one of the built-in layouts "price" and "text", or a layout from a layout file (`designs/layouts/<model>.json`, uploaded to the AP and downloaded by the tags); the field names then come from that file (`render <design> <data> designs/layouts/2.9.json`). The styles `price_highlight` and `frame` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
 
+The example layout files hold `shelf` and `sign`, and two product labels: `vare` (brand in a black band, name, article number/EAN, price) and `vare-mva` (brand, name, a small note such as the price inc. VAT, and the highlighted price). Layouts have no fixed text and at most four fields, so a label such as "inkl. mva" comes from the design, as in `designs/vare-eks-mva.json` (`"note": "inkl. mva {price_inc}"`).
+
 `make host` draws every design with the data in `designs/examples/<id>.json` to `build/preview/<model>/design-<id>-<n>.png`. A design for a file layout is drawn for every model whose layout file has that layout: `render_host.py` compiles `designs/layouts/<model>.json` with the AP's own compiler (built from `ap/components/esl_core/` as `build/host/layout_compile`) into `build/preview/<model>/layouts.bin`, and the preview tool installs that file with the tag's own check (`layout_file_install`), as after a download. An error in a layout file stops the run with the same message the AP would answer with.
 
 ## How the drawing works
