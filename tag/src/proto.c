@@ -32,6 +32,18 @@ uint8_t proto_build_layout_req(uint8_t *out, uint32_t layout_ver, uint16_t pos, 
     return ESL_LREQ_LEN;
 }
 
+uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max)
+{
+    out[ESL_OFF_TYPE] = ESL_MSG_FW_REQ;
+    out[ESL_OFF_VER] = ESL_PROTO_VER;
+    out[ESL_FREQ_OFF_MODEL] = MODEL_CODE;
+    out[ESL_FREQ_OFF_MAX] = max;
+    ESL_PUT_U16(out + ESL_FREQ_OFF_VER, fw_ver);
+    ESL_PUT_U16(out + ESL_FREQ_OFF_POS, pos);
+    ESL_PUT_U32(out + ESL_FREQ_OFF_CRC, crc);
+    return ESL_FREQ_LEN;
+}
+
 int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
 {
     uint8_t i, pos, flen;
@@ -46,6 +58,9 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
     r->flags = 0;
     r->lay_size = 0;
     r->lay_pos = 0;
+    r->fw_ver = 0;
+    r->fw_crc = 0;
+    r->fw_model = 0;
     r->cfg_ver = 0;
     r->cfg_poll_s = 0;
     r->cfg_max_poll_s = 0;
@@ -70,6 +85,20 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
         r->lay_pos = ESL_GET_U16(p + ESL_LAYOUT_OFF_POS);
         r->field_off[0] = ESL_LAYOUT_OFF_DATA;
         r->field_len[0] = len - ESL_LAYOUT_OFF_DATA;
+        if (r->lay_pos > r->lay_size || r->field_len[0] > r->lay_size - r->lay_pos)
+            return PROTO_E_FIELD;
+        return PROTO_OK;
+    }
+    if (r->type == ESL_MSG_FW) {
+        if (len < ESL_FW_HDR_LEN)
+            return PROTO_E_SHORT;
+        r->fw_ver = ESL_GET_U16(p + ESL_FW_OFF_VER);
+        r->lay_size = ESL_GET_U16(p + ESL_FW_OFF_SIZE);
+        r->lay_pos = ESL_GET_U16(p + ESL_FW_OFF_POS);
+        r->fw_crc = ESL_GET_U32(p + ESL_FW_OFF_CRC);
+        r->fw_model = p[ESL_FW_OFF_MODEL];
+        r->field_off[0] = ESL_FW_OFF_DATA;
+        r->field_len[0] = len - ESL_FW_OFF_DATA;
         if (r->lay_pos > r->lay_size || r->field_len[0] > r->lay_size - r->lay_pos)
             return PROTO_E_FIELD;
         return PROTO_OK;

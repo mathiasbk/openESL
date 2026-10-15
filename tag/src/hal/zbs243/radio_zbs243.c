@@ -92,10 +92,16 @@ void radio_set_pan(uint16_t pan)
         set_filter();
 }
 
+/*
+ * Only remembers the channel; the radio stays off until radio_on(). It used to
+ * power the radio here, which left it in receive mode (about 12 mA) through the
+ * start screen's refresh and until the first poll, where radio_on() is called
+ * anyway. On a worn coin cell that peak, on top of the panel's, pulled the
+ * supply down and the tag never got through its start-up (2026-10-15).
+ */
 void radio_init(uint8_t channel)
 {
     cur_channel = channel;
-    radio_on();
 }
 
 void radio_on(void)

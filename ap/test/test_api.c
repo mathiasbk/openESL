@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -98,7 +98,7 @@ static void test_put_one(void)
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
              "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
-             "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,"
+             "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
              "\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id);
@@ -321,7 +321,7 @@ static void test_batch_and_list(void)
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
                     "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
                     "\"config_pending\":false,"
-                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null}"));
+                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
     /* delete */

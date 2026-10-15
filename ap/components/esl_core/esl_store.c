@@ -330,6 +330,45 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
     return n;
 }
 
+bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver)
+{
+    bool offer = false;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = &st->tags[idx];
+        if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered)
+            t->fw_failed = t->fw_offered;
+        if (ver && poll->fw_ver == ver)
+            t->fw_failed = 0;
+        offer = ver && (poll->flags & ESL_POLL_F_OTA) && poll->fw_ver != ver && t->fw_failed != ver;
+        if (offer)
+            t->fw_offered = ver;
+    }
+    unlock(st);
+    return offer;
+}
+
+void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    lock(st);
+    for (unsigned i = 0; i < st->cap; i++) {
+        const esl_tag_t *t = &st->tags[i];
+        if (!t->used || !t->seen || t->model != model)
+            continue;
+        if (t->fw == ver)
+            out->updated++;
+        else if (!(t->poll_flags & ESL_POLL_F_OTA))
+            out->no_ota++;
+        else if (t->fw_failed == ver)
+            out->failed++;
+        else
+            out->pending++;
+    }
+    unlock(st);
+}
+
 bool esl_store_delete(esl_store_t *st, uint64_t mac)
 {
     lock(st);

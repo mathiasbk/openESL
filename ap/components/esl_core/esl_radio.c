@@ -2,12 +2,20 @@
 #include "esl_crc32.h"
 #include <string.h>
 
+static esl_tagfw_t *tagfw;
+
+void esl_radio_set_tagfw(esl_tagfw_t *fw)
+{
+    tagfw = fw;
+}
+
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev)
 {
     esl_rx_frame_t f;
     esl_poll_t poll;
     esl_layout_req_t req;
+    esl_fw_req_t freq;
     uint8_t reply[ESL_MAX_PAYLOAD];
     size_t n;
 
@@ -19,6 +27,11 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
     if (esl_layout_req_parse(f.payload, f.payload_len, &req)) {
         n = esl_layouts_block(ls, req.model, req.layout_ver, req.pos, req.max, esl_store_tag_poll_s(st, f.src_mac),
                               reply);
+    } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
+        uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
+        n = esl_tagfw_block(tagfw, freq.model, freq.ver, freq.crc, freq.pos, freq.max, next, reply);
+        if (n == 0)
+            n = esl_idle_build(reply, next); /* the image is gone: the tag stops */
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
@@ -28,6 +41,17 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         if (n == 0)
             n = esl_layouts_block(ls, poll.model, 0, 0, ESL_LAYOUT_CHUNK_MAX, esl_store_tag_poll_s(st, f.src_mac),
                                   reply);
+        /* Nothing else for the tag: new firmware, if there is some for it */
+        esl_tagfw_img_t img;
+        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && esl_tagfw_get(tagfw, poll.model, &img) &&
+            esl_store_fw_offer(st, f.src_mac, &poll, img.ver)) {
+            size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX,
+                                       esl_store_tag_poll_s(st, f.src_mac), reply);
+            if (m)
+                n = m;
+        } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_FWFAIL)) {
+            esl_store_fw_offer(st, f.src_mac, &poll, 0); /* note the rejection */
+        }
     } else {
         return 0;
     }
@@ -63,12 +87,63 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
     uint8_t flags = t->flags;
     if (t->layouts && t->layout_rejected)
         flags |= ESL_POLL_F_LAYOUTFAIL;
+    if (t->ota)
+        flags |= ESL_POLL_F_OTA;
+    if (t->ota && t->fw_failed)
+        flags |= ESL_POLL_F_FWFAIL;
     esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model,
                     !t->legacy, t->cfg_ver, t->layouts && !t->legacy, t->layout_ver};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     t->poll_again = false;
     return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);
+}
+
+size_t esl_faketag_fw_request(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
+{
+    uint8_t payload[ESL_FREQ_LEN];
+    if (!t->fw_dl_ver || t->fw_dl_got >= t->fw_dl_size)
+        return 0;
+    esl_fw_req_t r = {t->model, ESL_FW_CHUNK_MAX, t->fw_dl_ver, t->fw_dl_got, t->fw_dl_crc};
+    size_t n = esl_fw_req_build(payload, &r);
+    t->seq++;
+    return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);
+}
+
+/* A FW block: the same checks as ota_block() on the tag (tag/src/ota.c). Only a running
+   CRC is kept; a whole image "installs" by taking its version, as after the restart. */
+static void on_fw(esl_faketag_t *t, const esl_reply_t *r)
+{
+    t->fw_blocks++;
+    if (!t->ota || r->fw_model != t->model || r->fw_ver == t->fw || r->fw_ver == t->fw_failed)
+        return;
+    if (r->fw_ver != t->fw_dl_ver || r->layout_size != t->fw_dl_size || r->fw_crc != t->fw_dl_crc) {
+        if (r->layout_size == 0 || r->layout_size > ESL_FW_MAX || (r->layout_size & 0x3FF)) {
+            t->fw_failed = r->fw_ver;
+            return;
+        }
+        t->fw_dl_ver = r->fw_ver;
+        t->fw_dl_size = r->layout_size;
+        t->fw_dl_crc = r->fw_crc;
+        t->fw_dl_got = 0;
+        t->fw_dl_sum = 0;
+        t->fw_failed = 0;
+    }
+    if (r->layout_pos <= t->fw_dl_got && r->layout_pos + r->layout_len > t->fw_dl_got) {
+        size_t skip = t->fw_dl_got - r->layout_pos;
+        t->fw_dl_sum = esl_crc32_update(t->fw_dl_sum, r->layout_data + skip, r->layout_len - skip);
+        t->fw_dl_got = (uint16_t)(r->layout_pos + r->layout_len);
+    }
+    if (t->fw_dl_got >= t->fw_dl_size) {
+        if (t->fw_dl_sum == t->fw_dl_crc && !t->fw_bad) {
+            t->fw = t->fw_dl_ver;           /* installed and restarted */
+            t->flags = ESL_POLL_F_BOOTED;
+            t->fw_installs++;
+        } else {
+            t->fw_failed = t->fw_dl_ver;    /* bad CRC, or (fw_bad) rolled back */
+        }
+        t->fw_dl_ver = 0;
+    }
 }
 
 size_t esl_faketag_request(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
@@ -189,7 +264,9 @@ uint8_t esl_faketag_receive(esl_faketag_t *t, const uint8_t *psdu, size_t psdu_l
         return 0;
     }
     t->flags = 0;
-    if (r.type == ESL_MSG_CONFIG) {
+    if (r.type == ESL_MSG_FW) {
+        on_fw(t, &r);
+    } else if (r.type == ESL_MSG_CONFIG) {
         /* new base settings first, then next_poll_s as for any reply */
         t->cfg = r.cfg;
         t->cfg_ver = r.cfg_ver;
@@ -226,6 +303,14 @@ uint8_t esl_faketag_round(esl_faketag_t *t, esl_store_t *st, esl_layouts_t *ls, 
     size_t n = esl_faketag_poll(t, pan, rx);
     size_t m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
     uint8_t type = m ? esl_faketag_receive(t, tx, m) : 0;
+    if (type == ESL_MSG_FW) {
+        for (int req = 0; req < ESL_FAKETAG_FW_REQS && (n = esl_faketag_fw_request(t, pan, rx)) != 0; req++) {
+            m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
+            if (!m || esl_faketag_receive(t, tx, m) != ESL_MSG_FW)
+                break;
+        }
+        return type;
+    }
     if (type != ESL_MSG_LAYOUT)
         return type;
     for (int req = 0; req < 16 && (n = esl_faketag_request(t, pan, rx)) != 0; req++) {

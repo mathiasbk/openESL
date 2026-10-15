@@ -146,9 +146,19 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
                  (unsigned)ev.req.pos, (long long)us);
         return;
     }
-    const char *reply = ev.reply_type == ESL_MSG_CONTENT ? "CONTENT" : ev.reply_type == ESL_MSG_LAYOUT ? "LAYOUT" : "IDLE";
-    ESP_LOGI(TAG, "%s poll id=%08lX bat=%u model=%u layout=%08lX rssi=%d -> %s in %lld us", m,
-             (unsigned long)ev.poll.content_id, ev.poll.battery_mv, ev.poll.model, (unsigned long)ev.poll.layout_ver,
+    if (ev.msg_type == ESL_MSG_FW_REQ) {
+        /* hundreds per download: debug only; the stats line counts them as blocks */
+        ESP_LOGD(TAG, "%s fw block -> %s in %lld us", m, ev.reply_type == ESL_MSG_FW ? "FW" : "IDLE", (long long)us);
+        return;
+    }
+    const char *reply = ev.reply_type == ESL_MSG_CONTENT  ? "CONTENT"
+                        : ev.reply_type == ESL_MSG_LAYOUT ? "LAYOUT"
+                        : ev.reply_type == ESL_MSG_CONFIG ? "CONFIG"
+                        : ev.reply_type == ESL_MSG_FW     ? "FW"
+                                                          : "IDLE";
+    ESP_LOGI(TAG, "%s poll id=%08lX fw=%u bat=%u model=%u layout=%08lX rssi=%d -> %s in %lld us", m,
+             (unsigned long)ev.poll.content_id, ev.poll.fw_ver, ev.poll.battery_mv, ev.poll.model,
+             (unsigned long)ev.poll.layout_ver,
              it->rssi, reply, (long long)us);
 }
 

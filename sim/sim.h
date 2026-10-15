@@ -37,6 +37,9 @@ bool sim_ap_up(void);
    the JSON body, valid until the next call. */
 int sim_api(const char *method, const char *uri, const char *body, const char **resp);
 
+/* The same with a body of len bytes that need not be text (PUT /api/tag-firmware). */
+int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **resp);
+
 /* Number and bool from the top level of the last JSON reply (-1 if missing or null). */
 long sim_json_num(const char *key);
 int sim_json_bool(const char *key);
@@ -84,6 +87,15 @@ uint8_t sim_tag_misses(void);
 uint64_t sim_tag_next_wake_ms(void);
 uint64_t sim_tag_last_draw_ms(void);
 uint32_t sim_tag_layout_ver(void);
+/* Firmware update (docs/tag-ota.md): the tag's firmware version and model byte as in
+   POLL, how often it restarted itself (into the bootloader, which then ran), whether
+   the chip holds img (len bytes) as its application, and whether the update state in
+   its SPI flash says the running image was confirmed. */
+uint16_t sim_tag_fw_version(void);
+uint8_t sim_tag_model_code(void);
+int sim_tag_restarts(void);
+bool sim_tag_app_is(const uint8_t *img, size_t len);
+bool sim_tag_ota_confirmed(void);
 /* The screen as PNG (2x, black/white). The tag is drawn in the orientation of the layouts. */
 bool sim_tag_save_png(const char *path);
 /* Called after every wake-up with a new drawing (NULL = none). */

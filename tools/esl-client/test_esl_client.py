@@ -28,6 +28,7 @@ class FakeAp(BaseHTTPRequestHandler):
     layouts = {}
     ota = {}
     ota_rollback = False
+    tagfw = {}
 
     def log_message(self, *a):
         pass
@@ -107,6 +108,11 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, self.config)
         elif self.path == "/api/ota":
             self._send(200, FakeAp.ota)
+        elif self.path == "/api/tag-firmware":
+            self._send(200, {"max_size": 61456, "part_max": 24576, "images": [
+                {"model": "2.9", "version": None},
+                {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD",
+                 "tags": {"updated": 2, "pending": 1, "failed": 0, "no_ota": 1}}]})
         elif self.path.startswith("/api/health"):
             self.calls.append((self.path, None))
             problems = [{"mac": m, "problems": ["low_battery"], "seen_s_ago": t["seen_s_ago"],
@@ -126,6 +132,16 @@ class FakeAp(BaseHTTPRequestHandler):
     def do_PUT(self):
         if not self._auth():
             return
+        if self.path.startswith("/api/tag-firmware?"):
+            n = int(self.headers.get("Content-Length", 0))
+            part = self.rfile.read(n)
+            self.calls.append((self.path, self.headers.get("Content-Type"), len(part)))
+            q = dict(x.split("=") for x in self.path.split("?")[1].split("&"))
+            FakeAp.tagfw["data"] = FakeAp.tagfw.get("data", b"")[:int(q["offset"])] + part
+            if len(FakeAp.tagfw["data"]) < int(q["total"]):
+                return self._send(200, {"received": len(FakeAp.tagfw["data"]), "total": int(q["total"])})
+            return self._send(200, {"model": "1.54", "version": "0.3.0", "size": n, "crc": "00000000",
+                                    "received": int(q["total"]), "total": int(q["total"])})
         body = self._body()
         self.calls.append((self.path, body))
         if self.path == "/api/time":
@@ -343,6 +359,32 @@ class ClientTest(unittest.TestCase):
                 f.write("{\"format\": \"something\"}")
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1)
+
+    def test_tag_ota(self):
+        rc, out = self.run_cli("tag-ota")
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "  2.9: no firmware\n"
+                              " 1.54: 0.3.0 (53248 bytes, CRC 1234ABCD), tags: 2 updated, 1 pending, 0 failed, 1 without OTA\n")
+        data = b"OSFW" + bytes([1, 2]) + (30000).to_bytes(2, "little") + bytes(8) + bytes(range(256)) * 160
+        FakeAp.tagfw = {}
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(data)
+            f.flush()
+            rc, out = self.run_cli("tag-ota", f.name)
+        self.assertEqual(rc, 0)
+        self.assertIn("sending 1.54 firmware 3.0.0 (40976 bytes)", out)
+        self.assertIn("the AP offers 1.54 firmware 0.3.0 to the tags", out)
+        self.assertEqual(FakeAp.tagfw["data"], data)
+        parts = [c for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
+        self.assertEqual([c[0] for c in parts], ["/api/tag-firmware?offset=0&total=40976",
+                                                 "/api/tag-firmware?offset=16384&total=40976",
+                                                 "/api/tag-firmware?offset=32768&total=40976"])
+        self.assertEqual(parts[0][1], "application/octet-stream")
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(b"\x02\x00" + bytes(100))   # the flasher image, not the OTA file
+            f.flush()
+            rc, out = self.run_cli("tag-ota", f.name)
+        self.assertEqual(rc, 2)
 
     def test_ota(self):
         rc, out = self.run_cli("ota")

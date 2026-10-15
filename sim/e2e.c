@@ -385,6 +385,59 @@ int e2e_run(const char *out, const char *root)
     CHECK(sim_tag_last_sleep_s() == 300, "back to 300 s, got %u", sim_tag_last_sleep_s());
     png("11-scheduled");
 
+    /* ------------------------------------------------------------------ */
+    step("12. New firmware over the air (T15): download, install, restart, confirm");
+    {
+        /* A made-up 4 KB image as build.py packs it; the "tag" only copies it */
+        static uint8_t file[ESL_FWF_HDR_LEN + 4096];
+        uint8_t *img = file + ESL_FWF_HDR_LEN;
+        uint16_t ver = (uint16_t)(sim_tag_fw_version() + 1);
+        uint32_t crc = 0xFFFFFFFFu;
+        char uri[96];
+        for (int i = 0; i < 4096; i++) {
+            img[i] = (uint8_t)(i * 31 + 7);
+            crc ^= img[i];
+            for (int b = 0; b < 8; b++)
+                crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+        crc = ~crc;
+        ESL_PUT_U32(file + ESL_FWF_OFF_MAGIC, ESL_FWF_MAGIC);
+        file[ESL_FWF_OFF_FORMAT] = ESL_FWF_FORMAT;
+        file[ESL_FWF_OFF_MODEL] = sim_tag_model_code();
+        file[ESL_FWF_OFF_VER] = (uint8_t)ver;
+        file[ESL_FWF_OFF_VER + 1] = (uint8_t)(ver >> 8);
+        ESL_PUT_U32(file + ESL_FWF_OFF_SIZE, 4096u);
+        ESL_PUT_U32(file + ESL_FWF_OFF_CRC, crc);
+        /* in two parts, as esl-client does with bigger images */
+        snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=0&total=%u", (unsigned)sizeof(file));
+        CHECK(sim_api_bin("PUT", uri, file, 2000, &resp) == 200, "first part");
+        snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=2000&total=%u", (unsigned)sizeof(file));
+        CHECK(sim_api_bin("PUT", uri, file + 2000, sizeof(file) - 2000, &resp) == 200, "last part");
+        note("uploaded %u bytes: %.120s", (unsigned)sizeof(file), resp);
+
+        uint32_t shown = sim_tag_shown_id();
+        int restarts = sim_tag_restarts();
+        run_for(301);
+        CHECK(sim_tag_restarts() == restarts + 1, "the tag downloaded the image and restarted (%d)", sim_tag_restarts());
+        CHECK(sim_tag_app_is(img, 4096), "the bootloader copied the image into the chip");
+        CHECK(sim_tag_shown_id() == shown, "the price is back on the screen after the restart (T12)");
+        CHECK(sim_tag_ota_confirmed(), "the new image talked to the AP and is kept");
+        note("restarted at %.0f s, confirmed", now_s());
+        /* The simulated tag still reports its old version: a mismatch with the image's,
+           so it reports the update as failed and the AP stops offering it */
+        restarts = sim_tag_restarts();
+        run_for(601);
+        CHECK(sim_tag_restarts() == restarts, "not taken again");
+        CHECK(sim_api("GET", "/api/tag-firmware", NULL, &resp) == 200 && strstr(resp, "\"failed\":1"),
+              "the API counts it as failed");
+        snprintf(uri, sizeof(uri), "/api/tag-firmware/%s", sim_tag_model);
+        CHECK(sim_api("DELETE", uri, NULL, &resp) == 200, "DELETE the image");
+        restarts = sim_tag_restarts();
+        run_for(601);
+        CHECK(sim_tag_restarts() == restarts, "no more updates");
+        CHECK(sim_tag_last_sleep_s() == 300, "polls every 300 s again, got %u", sim_tag_last_sleep_s());
+    }
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

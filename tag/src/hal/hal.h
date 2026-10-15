@@ -44,7 +44,27 @@ uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 bool hal_layout_store_write(const uint8_t __xdata *data, uint16_t len);
 void hal_layout_store_read(uint8_t __xdata *data, uint16_t len);
 
-/* ---- Radio (802.15.4) ---- */
+/* ---- SPI flash for firmware updates (docs/tag-ota.md; W25Q80, 1 MB, on the 1.54") ----
+ * hal_xflash_open wakes the chip from deep power-down and returns false if no chip
+ * answers; hal_xflash_close puts it back to sleep. The rest need it open. Addresses are
+ * 24-bit; hal_xflash_write programs bytes inside one 256-byte page that was erased
+ * (hal_xflash_erase erases the 4 KB sector at addr). */
+bool hal_xflash_open(void);
+void hal_xflash_close(void);
+void hal_xflash_read(uint32_t addr, uint8_t __xdata *buf, uint16_t len);
+bool hal_xflash_erase(uint32_t addr);
+bool hal_xflash_write(uint32_t addr, const uint8_t __xdata *buf, uint16_t len);
+
+/* Reads the chip's own flash (the running application), for the rollback copy. */
+void hal_code_read(uint16_t addr, uint8_t __xdata *buf, uint16_t len);
+/* Restarts the chip, which runs the bootloader. Does not return on the tag. */
+void hal_reset(void);
+
+/* ---- Radio (802.15.4) ----
+ * radio_init only remembers the channel; the radio stays off (nothing drawn
+ * from the battery) until radio_on, and radio_off turns it off again. The app
+ * turns it on for each exchange only, so the display is never refreshed with
+ * the radio on. */
 void radio_init(uint8_t channel);
 void radio_on(void);
 void radio_off(void);

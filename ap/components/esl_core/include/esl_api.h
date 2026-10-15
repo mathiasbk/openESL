@@ -7,6 +7,7 @@
 #include "esl_store.h"
 #include "esl_wifi.h"
 #include "esl_health.h"
+#include "esl_tagfw.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -27,6 +28,7 @@ typedef struct {
     esl_sched_t *sched;     /* NULL: no scheduled content; /api/time and /api/schedule answer 404 */
     esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
     struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
+    esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

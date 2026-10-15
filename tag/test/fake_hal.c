@@ -34,6 +34,12 @@ void fake_rx_push(const uint8_t *frame, uint8_t len)
     rxq_tail++;
 }
 
+void fake_rx_lose(void)
+{
+    if (rxq_tail < FAKE_MAX_FRAMES)
+        rxq_len[rxq_tail++] = 0;
+}
+
 void hal_init(void) {}
 void hal_delay_ms(uint8_t ms) { fake_delay_ms_total += ms; }
 void hal_wdt_kick(void) {}
@@ -123,6 +129,11 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
         return -1;
     }
     n = rxq_len[rxq_head];
+    if (n == 0) {                       /* fake_rx_lose(): this answer never arrives */
+        rxq_head++;
+        fake_delay_ms_total += timeout_ms;
+        return -1;
+    }
     if (n > maxlen)
         n = maxlen;
     memcpy(buf, rxq[rxq_head], n);

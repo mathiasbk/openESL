@@ -55,6 +55,8 @@ typedef struct {
     uint32_t layout_ver;      /* layout file version from the last POLL */
     uint32_t layout_offered;  /* version the AP last offered it */
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
+    uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
+    uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
 } esl_tag_t;
 
@@ -152,6 +154,22 @@ uint16_t esl_store_get_next_poll(esl_store_t *st);
 /* The interval a tag is told (next_poll_s): its own poll_s, else the default.
  * The default for a MAC not in the table. Used for LAYOUT blocks. */
 uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
+
+/* Tag firmware (esl_tagfw): called after esl_store_on_poll answered IDLE.
+ * True when the tag should get the first FW block of image version ver (0 =
+ * no image for its model) instead: it takes firmware over the air
+ * (ESL_POLL_F_OTA), runs another version, and has not rejected this one. A
+ * POLL with ESL_POLL_F_FWFAIL marks the version last offered as rejected. */
+bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver);
+
+typedef struct {
+    unsigned updated;  /* tags of the model that run the version */
+    unsigned pending;  /* tags that take firmware over the air and run another one */
+    unsigned failed;   /* tags that rejected it, or went back to their old firmware */
+    unsigned no_ota;   /* tags of the model without OTA (old firmware or no SPI flash) */
+} esl_fw_counts_t;
+/* The state of the update to version ver for the seen tags of a model. */
+void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out);
 
 /* Content is set and the tag has not reported showing it yet. */
 bool esl_tag_pending(const esl_tag_t *t);
