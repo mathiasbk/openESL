@@ -1,10 +1,14 @@
-# OpenESL AP partition table (2 MB flash).
+# OpenESL AP partition table (4 MB flash: the ESP32-C6FH4 on the C6 Super Mini).
 # NVS is much larger than the default 24 KB: it holds the content and settings
 # of every tag (up to about 320 bytes each in NVS, 1000 tags fit) and up to two
-# 8 KB layout files (krav A4, A12). The app slot (1.5 MB) has room for the
-# 1 MB image. Flashing this table over the old one (NVS 84 KB) must erase the
-# flash first, which the web flasher does.
+# 8 KB layout files (krav A4, A12). Two 1.5 MB app slots for OTA (krav A10):
+# POST /api/ota writes the one not running, and the bootloader rolls back to
+# the old one if the new image does not confirm itself (app_main.c). The image
+# is about 1 MB. Flashing this table over an older one must erase the flash
+# first, which the web flasher does.
 # Name,   Type, SubType, Offset,  Size
 nvs,      data, nvs,     0x9000,  0x75000
-phy_init, data, phy,     0x7E000, 0x1000
-factory,  app,  factory, 0x80000, 0x180000
+otadata,  data, ota,     0x7E000, 0x2000
+phy_init, data, phy,     0x80000, 0x1000
+ota_0,    app,  ota_0,   0x90000, 0x180000
+ota_1,    app,  ota_1,   0x210000, 0x180000

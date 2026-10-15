@@ -22,6 +22,12 @@ CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESP_TASK_WDT_PANIC=y
 
-# Bigger NVS for tag content and layout files (partitions.csv)
+# 4 MB flash (ESP32-C6FH4): bigger NVS for tag content and layout files, and
+# two app slots for OTA (partitions.csv). A new image must confirm itself
+# after boot (esp_ota_mark_app_valid_cancel_rollback in app_main.c), or the
+# bootloader goes back to the old one.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

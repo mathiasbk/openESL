@@ -200,6 +200,17 @@ menu "OpenESL AP"
         range 5 3600
         default 30
 
+    config ESL_OTA
+        bool "OTA: new AP firmware through POST /api/ota"
+        default y
+        help
+            The app image (build/esl_ap.bin, openesl-ap-ota.bin in a
+            release) is written to the app slot that is not running, which
+            becomes the boot slot; the AP restarts and the bootloader goes
+            back to the old slot if the new image does not come up.
+            Needs the two-slot partition table (ap/partitions.csv) on a
+            4 MB flash. Off: POST /api/ota answers 501.
+
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"
         range -24 20

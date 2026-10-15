@@ -39,6 +39,11 @@ typedef struct {
  * the sink in pieces of this size. */
 #define ESL_API_STREAM_BUF ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH)
 
+/* True if auth is "Bearer <token>" (case-insensitive scheme), in constant
+ * time; false when the AP has no token. For transports that handle a request
+ * themselves (main/ota.c). */
+bool esl_api_auth_ok(const char *token, const char *auth);
+
 /* Handles one request. method is "GET"/"PUT"/"DELETE", uri may contain a query
  * string, auth is the Authorization header (or NULL), now_ms is time since
  * boot. Writes a JSON body to out and returns the HTTP status code. */

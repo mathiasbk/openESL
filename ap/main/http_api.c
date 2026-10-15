@@ -159,6 +159,98 @@ done:
     return ret;
 }
 
+#if CONFIG_ESL_OTA
+/* ---- /api/ota: new AP firmware (krav A10) ------------------------------------- */
+
+/* Checks the token like the rest of the API; false after sending 401. */
+static bool ota_auth(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    char auth[160] = ""; /* "Bearer " + a token of up to 128 bytes */
+    size_t al = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (al && al < sizeof(auth))
+        httpd_req_get_hdr_value_str(req, "Authorization", auth, sizeof(auth));
+    if (esl_api_auth_ok(api->token, al ? auth : NULL))
+        return true;
+    static const char msg[] = "{\"error\":\"unauthorized\"}";
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
+    send_json(req, 401, msg, sizeof(msg) - 1);
+    return false;
+}
+
+static esp_err_t ota_get(httpd_req_t *req)
+{
+    if (!ota_auth(req))
+        return ESP_OK;
+    char buf[256];
+    esl_sb_t out;
+    esl_sb_init(&out, buf, sizeof(buf));
+    int status = ota_info(&out);
+    return send_json(req, status, out.buf, out.len);
+}
+
+/* The body is the image, whole (no query) or one part (?offset=N&total=T);
+ * it goes to flash in OTA_CHUNK pieces, so no buffer holds the image. */
+#define OTA_CHUNK 4096
+
+static esp_err_t ota_post(httpd_req_t *req)
+{
+    if (!ota_auth(req))
+        return ESP_OK;
+    size_t offset, total, len = req->content_len;
+    char buf[256];
+    esl_sb_t out;
+    esl_sb_init(&out, buf, sizeof(buf));
+    if (!ota_parse_query(req->uri, &offset, &total)) {
+        static const char msg[] = "{\"error\":\"give both offset and total, or neither\"}";
+        return send_json(req, 422, msg, sizeof(msg) - 1);
+    }
+    if (!total)
+        total = len; /* the whole image in one request */
+    if (!len) {
+        static const char msg[] = "{\"error\":\"empty body\"}";
+        return send_json(req, 422, msg, sizeof(msg) - 1);
+    }
+    char *chunk = malloc(OTA_CHUNK);
+    if (!chunk) {
+        static const char msg[] = "{\"error\":\"out of memory\"}";
+        return send_json(req, 500, msg, sizeof(msg) - 1);
+    }
+    int status = 200;
+    size_t got = 0;
+    while (status == 200 && got < len) {
+        size_t want = len - got < OTA_CHUNK ? len - got : OTA_CHUNK;
+        int r = httpd_req_recv(req, chunk, want);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT)
+            continue;
+        if (r <= 0) {
+            ESP_LOGW(TAG, "POST %s: body stopped arriving", req->uri);
+            ota_part(0, 0, chunk, 0, &out); /* offset 0 drops the open upload, and size 0 opens no new one */
+            free(chunk);
+            return ESP_FAIL;
+        }
+        esl_sb_init(&out, buf, sizeof(buf));
+        status = ota_part(offset + got, total, chunk, (size_t)r, &out);
+        got += (size_t)r;
+    }
+    free(chunk);
+    ESP_LOGI(TAG, "POST %s -> %d (%u bytes)", req->uri, status, (unsigned)got);
+    if (status != 200 && got < len) {
+        /* Drain the rest so the reply gets through, within reason */
+        size_t rest = len - got;
+        char junk[128];
+        while (rest && rest <= 4 * OTA_CHUNK) {
+            int r = httpd_req_recv(req, junk, rest < sizeof(junk) ? rest : sizeof(junk));
+            if (r <= 0 && r != HTTPD_SOCK_ERR_TIMEOUT)
+                break;
+            if (r > 0)
+                rest -= (size_t)r;
+        }
+    }
+    return send_json(req, status, out.buf, out.len);
+}
+#endif
+
 /* ---- /setup: WiFi and token (krav A1) ---------------------------------------- */
 
 #define SETUP_MAX_BODY 1024
@@ -285,11 +377,24 @@ esp_err_t http_api_start(const esl_api_t *api)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
+    cfg.max_uri_handlers = 12; /* two for /api/ota, three for the /api wildcard, two for /setup, one for / */
 
     esp_err_t err = httpd_start(&server, &cfg);
     if (err != ESP_OK)
         return err;
 
+#if CONFIG_ESL_OTA
+    /* Before the wildcard: the first registered match wins */
+    httpd_uri_t ota_uris[] = {
+        {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_post, .user_ctx = (void *)api},
+        {.uri = "/api/ota", .method = HTTP_GET, .handler = ota_get, .user_ctx = (void *)api},
+    };
+    for (size_t i = 0; i < sizeof(ota_uris) / sizeof(ota_uris[0]); i++) {
+        err = httpd_register_uri_handler(server, &ota_uris[i]);
+        if (err != ESP_OK)
+            return err;
+    }
+#endif
     static const httpd_method_t methods[] = {HTTP_GET, HTTP_PUT, HTTP_DELETE};
     for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
         httpd_uri_t uri = {

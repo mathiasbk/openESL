@@ -33,8 +33,9 @@ ap/
     radio_stub.c        simulated tags (esl_faketag), no radio
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
     health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
+    ota.c               new AP firmware through POST /api/ota (ESL_OTA)
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
-  partitions.csv          NVS enlarged to 468 KB for tag content and layout files
+  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA
   test/                   host unit tests (Makefile)
 ```
 
@@ -112,6 +113,10 @@ AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
 
 A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to 23 KB: every piece but the last has `+` after its length (`@ESL 7 200 22912+ {"ap":...`), and the host joins them; log lines can come between pieces, never inside one. No token is needed there, since whoever has the cable has the device. WiFi can be set this way too: `esl-client --serial /dev/ttyACM0 wifi "Network" --password ...` (`PUT /api/wifi`). `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
 
+## OTA: new AP firmware (krav A10)
+
+`POST /api/ota` with the app image as the body (`esl-client ota build/esl_ap.bin`, or `openesl-ap-esp32c6-<version>-ota.bin` from a release; not the merged `openesl-ap...bin`, which has the bootloader in front) writes it to the app slot that is not running (`ota.c`, `esp_ota_*`). The last byte makes that slot the boot slot and the AP restarts a second after the reply; tag content, settings and layout files stay, since they are in NVS. `GET /api/ota` shows which slot runs and what the other holds. Over WiFi the whole image goes in one request; over the USB port it goes in parts (`?offset=N&total=T`, `esl-client` sends 16 KB at a time), since the serial driver drops bytes when its buffer is full. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the new image must confirm itself (`ota_confirm_running()`, once everything in `app_main` has started); if it does not get that far, the next reset boots the old slot again, so a bad image costs one restart. Flashing over USB (`idf.py flash`, the web flasher) still works and always writes `ota_0`; `ESL_OTA` (on by default) turns the endpoint off, and a one-slot partition table answers `501`.
+
 ## WiFi setup
 
 With no network saved (first start, or after `PUT /api/wifi {"ssid":null}`), the AP opens its own network `openesl-XXXX` and a form at `http://192.168.4.1/setup` (`/` redirects there): pick the network from the scan list, enter the password, and choose the API token if none is set. The AP saves both in NVS (`cfg/ssid`, `cfg/pass`, `cfg/token`) and joins at once. If the saved network gives no IP for `ESL_WIFI_SETUP_AFTER_S` (180 s), the setup network opens again next to it, so a changed WiFi password can be fixed without a cable; it closes a minute after the AP has joined. While the setup network is open the AP retries the saved one every 20 s (joining hops channels, which drops phones on the setup network). Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet; set `ESL_WIFI_SETUP_PASSWORD` for WPA2 on it. The same settings are in `GET/PUT /api/wifi` and over the USB port. The checks, the form and the pages are in `esl_wifi.c` (host-tested); `wifi.c` is the ESP-IDF side.
@@ -167,7 +172,7 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 ## Build and flash
 
-Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) assumes 2 MB flash: 468 KB NVS and one 1.5 MB app slot (the image is about 1 MB); OTA (A10) would need two app slots and a 4 MB layout. A board flashed with the older table (84 KB NVS, app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the new NVS area overlaps the old app.
+Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the partitions moved.
 
 ```bash
 cd ap
@@ -199,4 +204,4 @@ Covers CRC32, text conversion, content, messages and frames, the NVS format, JSO
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
 - **Development builds with layouts but without CONFIG** (the layout branch before the merge) send 0 in POLL bytes 12–13. The AP reads that as "understands CONFIG, built-in settings", so such a tag with its own settings would get CONFIG, which it drops. No such firmware was released; flash the current one.
 - **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`) is host-tested and builds, but not tried on hardware: the jig's C6 has dead WiFi. No captive portal (a DNS answer for every name), so phones may say "no internet"; open `http://192.168.4.1/setup` by hand.
-- OTA (A10) is not started.
+- **OTA (A10)** is host-tested as far as the API routing goes and builds; writing a slot, the restart and the rollback are not tried on hardware yet.

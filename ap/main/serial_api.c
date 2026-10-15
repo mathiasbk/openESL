@@ -92,6 +92,60 @@ static bool serial_sink(esl_sb_t *sb)
     return true;
 }
 
+#if CONFIG_ESL_OTA
+/* POST /api/ota?offset=N&total=T with one part of the image as the body
+ * (ESL_API_MAX_BODY at most, which is what the driver's buffer holds), read
+ * straight into flash in pieces of resp's size. GET /api/ota: the info. */
+static void handle_ota(const char *seq, const char *method, const char *uri, unsigned len, char *resp, size_t cap)
+{
+    esl_sb_t out;
+    char small[256];
+    esl_sb_init(&out, small, sizeof(small));
+    int status;
+    if (strcmp(method, "GET") == 0) {
+        read_body(NULL, len);
+        status = ota_info(&out);
+    } else if (strcmp(method, "POST") != 0) {
+        read_body(NULL, len);
+        static const char msg[] = "{\"error\":\"method not allowed\"}";
+        reply(seq, 405, msg, sizeof(msg) - 1, false);
+        return;
+    } else {
+        size_t offset, total;
+        if (!ota_parse_query(uri, &offset, &total) || !total) {
+            read_body(NULL, len);
+            static const char msg[] = "{\"error\":\"send the image in parts: ?offset=N&total=T\"}";
+            reply(seq, 422, msg, sizeof(msg) - 1, false);
+            return;
+        }
+        if (len > ESL_API_MAX_BODY) {
+            read_body(NULL, len);
+            static const char msg[] = "{\"error\":\"body too large\"}";
+            reply(seq, 413, msg, sizeof(msg) - 1, false);
+            return;
+        }
+        status = 200;
+        size_t got = 0;
+        while (status == 200 && got < len) {
+            size_t n = len - got < cap ? len - got : cap;
+            if (!read_body(resp, n)) {
+                ESP_LOGW(TAG, "POST %s: body stopped arriving", uri);
+                static const char msg[] = "{\"error\":\"body incomplete\"}";
+                reply(seq, 408, msg, sizeof(msg) - 1, false);
+                return;
+            }
+            esl_sb_init(&out, small, sizeof(small));
+            status = ota_part(offset + got, total, resp, n, &out);
+            got += n;
+        }
+        if (got < len)
+            read_body(NULL, len - got);
+    }
+    ESP_LOGI(TAG, "%s %s -> %d", method, uri, status);
+    reply(seq, status, out.buf, out.len, false);
+}
+#endif
+
 static void handle_line(char *line, char *resp, size_t cap)
 {
     char seq[16], method[8], uri[REQ_LINE_MAX];
@@ -100,6 +154,13 @@ static void handle_line(char *line, char *resp, size_t cap)
         ESP_LOGW(TAG, "bad request line");
         return;
     }
+
+#if CONFIG_ESL_OTA
+    if (strncmp(uri, "/api/ota", 8) == 0 && (uri[8] == 0 || uri[8] == '?')) {
+        handle_ota(seq, method, uri, len, resp, cap);
+        return;
+    }
+#endif
 
     char *body = NULL;
     if (len > ESL_API_MAX_BODY) {
