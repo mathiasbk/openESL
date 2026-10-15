@@ -152,7 +152,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 ## Status page
 
-`http://openesl.local/` shows the layout files per model (version, size for the tags, layout names) and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
+`http://openesl.local/` shows the layout files per model (version, size for the tags, layout names), the webhook when one is set, and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected, and an Attention column with the same flags as `GET /api/health`: silent, unseen, low battery, ...; the heading counts the tags that need it) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
 
 ## Tag model in POLL
 

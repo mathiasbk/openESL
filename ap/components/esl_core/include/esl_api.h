@@ -62,7 +62,7 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
 /* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (2560 + 896 * (max_tags))
+#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1024 * (max_tags))
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);
