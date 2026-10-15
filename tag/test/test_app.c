@@ -488,6 +488,28 @@ static void test_config_from_ap(void)
     CHECK_EQ(app.interval_s, CFG_POLL_S);
 }
 
+/* T9: "No AP found" when CFG_LOST_AP_S have passed since the last answer, not a sleep earlier */
+static void test_lost_ap_on_time(void)
+{
+    unsigned total = 0;
+    int rounds = 0, draws;
+
+    fresh();
+    push_content(9, ESL_LAYOUT_PRICE, 0, 3, price);
+    total = app_poll_once();         /* the last answer; time counts from here */
+    draws = fake_draw_count;
+
+    while (fake_draw_count == draws && rounds < 1000) {
+        fake_radio_reset();
+        total += app_poll_once();
+        rounds++;
+    }
+    CHECK_EQ(fake_draw_count, draws + 1);
+    /* drawn in the round that woke at exactly CFG_LOST_AP_S; total includes the sleep after it */
+    CHECK_EQ(total - app_backoff_s(app.interval_s, app.misses), CFG_LOST_AP_S);
+    CHECK_EQ(app.lost_s, CFG_LOST_AP_S);
+}
+
 static void test_config_backoff_and_lost(void)
 {
     unsigned total = 0;
@@ -764,6 +786,7 @@ void test_app(void)
     RUN(test_backoff);
     RUN(test_draw_fail_reported);
     RUN(test_lost_ap);
+    RUN(test_lost_ap_on_time);
     RUN(test_layout_download);
     RUN(test_layout_resume);
     RUN(test_layout_changed_midway);

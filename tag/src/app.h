@@ -29,7 +29,8 @@ typedef struct {
     uint32_t shown_id;        /* content_id currently shown, 0 = nothing */
     uint16_t interval_s;      /* interval from the AP (or default) */
     uint8_t misses;           /* rounds in a row without an answer */
-    uint32_t lost_s;          /* seconds since the last answer */
+    uint32_t lost_s;          /* seconds slept since the last answer */
+    uint16_t slept_s;         /* the sleep the last round asked for, counted into lost_s at the next miss */
     uint8_t lost_shown;       /* "No AP found" is drawn */
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
     uint8_t seq;
