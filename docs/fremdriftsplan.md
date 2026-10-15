@@ -104,6 +104,9 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Six fields per layout (was four), sharing the 96 bytes in CONTENT; example layout `vare-priser` with the price both with and without VAT (`price`, `price_ex`). The client sends both prices, the AP computes no VAT. Tags still on v0.1.0 read four fields and reject a layout file that uses field 5 or 6, so reflash them before uploading such a layout
 - [ ] `vare-priser` shown on a real tag (after reflashing it from master)
 - [ ] Release v0.2.0: `VERSION` on master is still 0.1.0, so tags flashed from master send the same version in POLL as tags on the v0.1.0 release, although they read six fields, barcodes and fixed texts and the release does not
+- [x] OTA for the tags (T15, [tag-ota.md](tag-ota.md)): a 1 KB bootloader in page 0, the application from 0x0400, the image staged in the SPI flash (W25Q80, probed on the 1.54"), install with rollback after 9 starts without the AP; on the AP `PUT /api/tag-firmware` (`esl-client tag-ota`), offered after content, layout and settings; releases carry `openesl-tag-<model>-<version>-ota.bin`. On by default without T16, by decision. Host-tested (tag, bootloader, AP) and in the simulation; not tried on a tag
+- [ ] Tag OTA tried on the jig: flash `openesl.bin` with the bootloader, send a newer version through the AP, see it installed and confirmed, and a broken image (one that never polls) rolled back. The AP needs a USB flash for the `tagfw` partition first
+- [ ] SPI flash probed on a 2.9"
 - [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, and five wrong tokens in a row lock it for 60 s (`429`)
 
 ## Phase 0: Preparation
@@ -187,4 +190,4 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 - Write a flashing recipe per tag (backup → write → MAC) and build a jig so that it takes under a minute per tag.
 
 ## After version 1 (not planned in detail)
-Signed content (T16), OTA for the tags (T15, study in [tag-ota.md](tag-ota.md)), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes and OTA for the AP (A10) are already done, see the checklist above.
+Signed content (T16), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes, OTA for the AP (A10) and OTA for the tags (T15, [tag-ota.md](tag-ota.md)) are already done, see the checklist above.

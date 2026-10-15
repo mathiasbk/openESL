@@ -53,7 +53,7 @@
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
-        <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
+        <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client tag-ota</code> sends new tag firmware to the tags over the radio; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
       </ol>
     </section>
     <section class="card wide">

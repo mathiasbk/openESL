@@ -25,7 +25,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
 | battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" cannot measure it: its panel cannot be read and the ZBS243 ADC has no supply input, see kildelogg.md) |
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
-| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer") |
+| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer"), bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer") |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
 | layout_ver | 4 | bytes 14–17: version of the layout file the tag has (0 = none, built-in layouts only). Requirement T17 |
@@ -92,6 +92,28 @@ Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 
 | max | 1 | the most data bytes the tag wants in the answer (1..94) |
 | layout_ver | 4 | the version the tag is downloading |
 | pos | 2 | the first byte the tag is missing |
+
+**FW** (AP → tag), `type = 0x06`, 15 bytes + data. One block of a firmware image (docs/tag-ota.md)
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x06, 0x01 |
+| next_poll_s | 2 | as in IDLE |
+| fw_ver | 2 | version of the image, as `fw_ver` in POLL |
+| size | 2 | size of the image in bytes, a whole number of 1 KB pages |
+| pos | 2 | where in the image the data starts |
+| crc | 4 | CRC-32 of the whole image |
+| model | 1 | the tag model the image is built for |
+| data | rest | bytes `pos .. pos + n` of the image, n ≤ 91 (`ESL_FW_CHUNK_MAX` = 110 − 15 − 4 for the MIC) |
+
+**FW_REQ** (tag → AP), `type = 0x07`, 12 bytes
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x07, 0x01 |
+| model | 1 | as in POLL |
+| max | 1 | the most data bytes the tag wants in the answer (1..91) |
+| fw_ver | 2 | the version the tag is downloading |
+| pos | 2 | the first byte the tag is missing |
+| crc | 4 | the CRC-32 of the image it is downloading |
 
 ### Layout file on the tag (binary)
 The AP turns the JSON layout file (part 3) into this format. It is what the tag downloads and keeps.
@@ -165,15 +187,33 @@ Tag                                          AP
 - **Storage on the tag.** The tag keeps a copy of the file in flash (requirement T12) and installs it again at start-up, so after a restart it reports the same `layout_ver` and needs no new download. It also keeps the last content and draws it at start-up, reporting its `content_id` in the first POLL, so the AP answers IDLE. A tag whose flash copy is missing or damaged reports 0 and fetches the file again before it gets content.
 - **Unknown messages.** The tag ignores LAYOUT if it is too short, too long or reaches past `size`. The AP ignores LAYOUT_REQ shorter than 10 bytes.
 
+### Firmware transfer (requirement T15)
+The same pattern as the layout transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).
+```
+Tag                                          AP
+ | POLL(fw_ver=A, flags bit3) --------------->|  AP has image B ≠ A for the model, nothing else waits
+ |<----------------- FW(B, size, pos 0, 91 B) |
+ | FW_REQ(B, pos 91) ------------------------>|
+ |<---------------- FW(B, size, pos 91, ...)  |  ... up to 128 blocks per wake-up
+ | (next wake-ups: POLL, FW from 0, the tag goes on where it stopped)
+ | has `size` bytes, CRC-32 matches: installs and restarts
+ | POLL(fw_ver=B, flags bit0) --------------->|  the new firmware confirms itself on this answer
+```
+- **When the AP sends it.** Only when it would otherwise answer IDLE (layout file, content and settings first), the POLL has bit3 (the tag has the bootloader and a SPI flash), the AP has an image for the tag's model, and the tag reports another version. The AP stops offering a version once a POLL after the offer has bit4 (the API counts the tag as `failed`); a newer image is offered again.
+- **Blocks.** As for LAYOUT: the tag asks with FW_REQ for the next missing byte and keeps what it has between wake-ups. The AP answers a FW_REQ for a version or CRC it no longer has with block 0 of its current image, and with IDLE when it has none, which ends the transfer. The tag asks for at most 128 blocks (11 KB) per wake-up, so a 54 KB image takes five wake-ups.
+- **Check.** The tag refuses an image for another model, the version it runs, a size that is not whole 1 KB pages or larger than 60 KB, and a version it already rejected. When it has the whole image it reads it back from the SPI flash and checks the CRC-32; a mismatch is a rejection (bit4).
+- **Install.** The tag copies its own application to the rollback slot, asks the bootloader to install the new one and restarts. The new firmware reports bit0 (just started) and its version; the first answered POLL confirms it. If it is started 9 times (resets, not wake-ups) without an answer from the AP, the bootloader puts the old firmware back, which then reports bit4.
+
 ### Priority: layout, content, settings
 The AP answers each POLL with one message. When several things are waiting for a tag, it sends them in this order:
 
 1. **LAYOUT**: the layout file, when the tag's `layout_ver` differs from the AP's version for its model (and the tag has not rejected that version). It goes first because the content may use a layout from the file.
 2. **CONTENT**: when the tag's `content_id` differs from the AP's. Content with a file layout the tag cannot use (old firmware, not in the file, file rejected) is held back (`content_error` in the API), and the AP goes on to 3.
 3. **CONFIG**: when the tag sends `cfg_ver` and it differs from the version of its settings on the AP.
-4. **IDLE**.
+4. **FW**: new firmware for the tag (see "Firmware transfer").
+5. **IDLE**.
 
-After a finished layout download the tag sends a new POLL at once, so content (or CONFIG) follows in the same wake-up; otherwise the next item goes out at the next POLL. `next_poll_s` in every reply, LAYOUT blocks included, is the tag's own interval (its `poll_s`, or the AP default).
+After a finished layout download the tag sends a new POLL at once, so content (or CONFIG) follows in the same wake-up; otherwise the next item goes out at the next POLL. `next_poll_s` in every reply, LAYOUT and FW blocks included, is the tag's own interval (its `poll_s`, or the AP default).
 
 ### Listening window and battery
 The tag is awake for about 5–25 ms per round. Adjust the window from measurements in phases 5–6; it is the most important power parameter after sleep current.
@@ -203,6 +243,7 @@ In short:
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent), for monitoring |
 | `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
 | `GET`/`POST /api/ota` | New firmware for the AP itself: the app image, whole or in parts; the AP restarts into it (`esl-client ota`) |
+| `GET`/`PUT /api/tag-firmware`, `GET`/`DELETE /api/tag-firmware/{model}` | New firmware for the tags of a model, in parts; the AP sends it to them over the radio (part 1, "Firmware transfer"), and shows how far they are (`esl-client tag-ota`) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
 
 **WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there, and a phone that joins is sent to the form by the captive portal) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".

@@ -102,6 +102,18 @@ tags:
       does not come up. The AP's own tag content, settings and layout files stay (they are in
       NVS). The image is `esl_ap.bin` from a build, or `openesl-ap-esp32c6-<version>-ota.bin`
       from a release (not the merged flash image, which has the bootloader in front).
+  - name: Tag firmware
+    description: |
+      New firmware for the tags, sent to them over the radio
+      ([docs/tag-ota.md](https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md)).
+      The file is `openesl-tag-<model>-<version>-ota.bin` from a release (or `tag/build/fw/openesl-ota.bin`):
+      a 16-byte header with the model, version, size and CRC-32, then the image. The AP keeps
+      one image per model and offers it to every tag of that model that polls with another
+      firmware version and can take updates (firmware with the bootloader and a SPI flash),
+      after its content, layout file and settings; the tag fetches it block by block over a
+      few wake-ups, installs it and restarts. A tag that rejects the image, or goes back to
+      its old firmware because the new one never reached the AP, is not offered it again.
+      `esl-client tag-ota` uploads a file and shows how far the tags are.
   - name: WiFi
     description: |
       The network the AP joins. With no network saved the AP opens its own network
@@ -585,6 +597,112 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "501": { $ref: "#/components/responses/NoOta" }
 
+  /api/tag-firmware:
+    get:
+      tags: [Tag firmware]
+      operationId: listTagFirmware
+      summary: The tag firmware of each model, and how far the tags are
+      responses:
+        "200":
+          description: One line per model, with or without an image
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagFirmwareList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+    put:
+      tags: [Tag firmware]
+      operationId: putTagFirmware
+      summary: Upload tag firmware; the AP offers it to the tags of its model
+      description: |
+        The body is the file, whole in one request (no query), or in parts with `offset` and
+        `total`, as for `POST /api/ota`: a part at offset 0 starts a new upload (the model is
+        taken from the header in it), every other part must start where the last one ended.
+        A part may have at most 24,576 bytes (`part_max`), so an image (about 54 KB) goes in
+        parts; `esl-client` sends 16 KB. From the first part on, the model's old image is no
+        longer offered; after the last one the AP checks the CRC-32 and offers the new one.
+        Content-Type is not checked.
+      parameters:
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+          description: Where in the file this part starts (with `total`)
+        - name: total
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 61456 }
+          description: The size of the whole file (with `offset`)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The part is stored; after the last one, the image the AP now offers
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagFirmwareReply" }
+        "400":
+          description: No body, `offset` without `total` or the other way round, a first part shorter than the header, or `total` not the size in the header
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: total does not match the size in the file header }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "409":
+          description: Not the next part, or no upload in progress for an offset above 0
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: not the next part of the upload in progress }
+        "413":
+          description: The file is larger than a tag image can be, or the parts add up to more than `total`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: the file is larger than a tag image can be }
+        "422":
+          description: Not a tag firmware file, an unknown model, a bad size or version in the header, or an image that does not match its CRC-32
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: not a tag firmware file (openesl-ota.bin from the release) }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/tag-firmware/{model}:
+    parameters:
+      - $ref: "#/components/parameters/model"
+    get:
+      tags: [Tag firmware]
+      operationId: getTagFirmware
+      summary: The tag firmware for a model, and how far its tags are
+      responses:
+        "200":
+          description: The image
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagFirmware" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/NoTagFirmware" }
+    delete:
+      tags: [Tag firmware]
+      operationId: deleteTagFirmware
+      summary: Stop updating the tags of a model
+      description: Tags in the middle of a download stop at their next request; what they already installed stays.
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutDeleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/NoTagFirmware" }
+
   /api/wifi:
     get:
       tags: [WiFi]
@@ -790,6 +908,12 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: unknown model (use 2.9 or 1.54) }
+    NoTagFirmware:
+      description: Not a tag model, or no firmware for it
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: no tag firmware for this model }
     NoLayout:
       description: Not a tag model, or no layout file for it
       content:
@@ -1345,6 +1469,50 @@ components:
             version: { type: integer }
             changed: { type: boolean, description: "false: the same file as before; nothing was written" }
       unevaluatedProperties: false
+
+    TagFirmware:
+      type: object
+      additionalProperties: false
+      required: [model, version]
+      description: Without an image, only `model` and `version` (null).
+      properties:
+        model: { $ref: "#/components/schemas/ModelName" }
+        version: { type: [string, "null"], description: "The firmware version (the VERSION file it was built from); null: no image" }
+        size: { type: integer, minimum: 1024, maximum: 61440, description: Bytes each tag downloads }
+        crc: { type: string, pattern: "^[0-9A-F]{8}$", description: CRC-32 of the image }
+        tags:
+          type: object
+          additionalProperties: false
+          required: [updated, pending, failed, no_ota]
+          description: The tags of this model the AP has seen since it started
+          properties:
+            updated: { type: integer, minimum: 0, description: Run this version }
+            pending: { type: integer, minimum: 0, description: "Run another version and take updates; they get it at their next polls" }
+            failed: { type: integer, minimum: 0, description: "Rejected it, or went back to their old firmware; not offered it again" }
+            no_ota: { type: integer, minimum: 0, description: "Run another version and cannot take updates (older firmware, or no SPI flash)" }
+      example: { model: "1.54", version: 0.3.0, size: 53248, crc: 1A2B3C4D, tags: { updated: 12, pending: 3, failed: 0, no_ota: 1 } }
+
+    TagFirmwareList:
+      type: object
+      additionalProperties: false
+      required: [max_size, part_max, images]
+      properties:
+        max_size: { type: integer, const: 61456, description: Bytes a file may have (header and image) }
+        part_max: { type: integer, const: 24576, description: Bytes a part may have }
+        images: { type: array, items: { $ref: "#/components/schemas/TagFirmware" } }
+
+    TagFirmwareReply:
+      type: object
+      additionalProperties: false
+      required: [received, total]
+      properties:
+        received: { type: integer, minimum: 0, description: Bytes stored so far }
+        total: { type: integer, minimum: 1 }
+        model: { $ref: "#/components/schemas/ModelName" }
+        version: { type: string, description: "After the last part: the version the AP now offers" }
+        size: { type: integer, description: "After the last part: bytes of the image" }
+        crc: { type: string, pattern: "^[0-9A-F]{8}$" }
+      example: { model: "1.54", version: 0.3.0, size: 53248, crc: 1A2B3C4D, received: 53264, total: 53264 }
 
     LayoutDeleted:
       type: object
