@@ -97,13 +97,18 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Scheduled prices: `"at"` in `PUT /api/tags` (Unix seconds), kept in NVS and applied by the AP itself, also after a restart; the clock from NTP or `PUT /api/time`; `GET`/`DELETE /api/schedule`; `esl-client --at` (`ap/README.md`, "Scheduled content")
 - [ ] Scheduled prices tried on hardware: NTP over WiFi, and over the USB port with the time set by `esl-client`; an entry survives an AP restart
 - [x] OTA for the AP (A10): `POST /api/ota` with the app image, whole or in parts over USB (`esl-client ota`), two app slots with rollback; releases carry `openesl-ap-esp32c6-<version>-ota.bin`. Host-tested routing and built; the upload, restart and rollback are not tried on hardware
-- [ ] OTA tried on hardware: `esl-client --serial /dev/ttyACM0 ota build/esl_ap.bin --wait`, the AP comes back with the new version, a broken image falls back to the old slot. Flash with `idf.py erase-flash` first (the partition table changed)
+- [x] OTA tried on hardware (2026-10-15, from the web page's Firmware card over USB): 0.2.0 → 0.2.91 → 0.2.0, each back on the new version in seconds, stored tags and tag firmware kept ([tag-ota.md](tag-ota.md), "From the web page")
+- [ ] AP OTA rollback tried on hardware: a broken image falls back to the old slot
 - [x] Health and alerts: `GET /api/health` (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent) and a webhook the AP posts the report to when it changes (`PUT /api/config {"webhook":...}`)
 - [x] Backup and restore of an AP: `esl-client backup ap.json` (config, layout files, every tag's content and settings, the schedule) and `esl-client restore ap.json` onto a new AP or after `erase-flash`; tested against the fake AP in CI and against the simulator's AP core over the serial framing
 - [ ] The webhook tried on hardware (needs a C6 with working WiFi): set it with `esl-client config --webhook http://<pc>:8080/x`, pull a tag's battery, see the POST arrive
 - [x] Six fields per layout (was four), sharing the 96 bytes in CONTENT; example layout `vare-priser` with the price both with and without VAT (`price`, `price_ex`). The client sends both prices, the AP computes no VAT. Tags still on v0.1.0 read four fields and reject a layout file that uses field 5 or 6, so reflash them before uploading such a layout
 - [ ] `vare-priser` shown on a real tag (after reflashing it from master)
 - [ ] Release v0.2.0: `VERSION` on master is still 0.1.0, so tags flashed from master send the same version in POLL as tags on the v0.1.0 release, although they read six fields, barcodes and fixed texts and the release does not
+- [x] OTA for the tags (T15, [tag-ota.md](tag-ota.md)): a 1 KB bootloader in page 0, the application from 0x0400, the image staged in the SPI flash (W25Q80, probed on the 1.54"), install with rollback after 9 starts without the AP; on the AP `PUT /api/tag-firmware` (`esl-client tag-ota`), offered after content, layout and settings; releases carry `openesl-tag-<model>-<version>-ota.bin`. On by default without T16, by decision. Host-tested (tag, bootloader, AP) and in the simulation; tried on the 1.54" jig tag 2026-10-15
+- [x] Tag OTA tried on the jig (2026-10-15): `openesl.bin` with the bootloader flashed once, then four updates through the AP (two up, two down), each installed and confirmed in 5–9 minutes at poll 60 s, with the price shown again after the restart ([tag-ota.md](tag-ota.md), "Tried on the jig")
+- [ ] Tag OTA rollback tried on the jig: a broken image (one that never polls) copied back after 9 starts
+- [ ] SPI flash probed on a 2.9"
 - [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, and five wrong tokens in a row lock it for 60 s (`429`)
 
 ## Phase 0: Preparation
@@ -187,4 +192,4 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 - Write a flashing recipe per tag (backup → write → MAC) and build a jig so that it takes under a minute per tag.
 
 ## After version 1 (not planned in detail)
-Signed content (T16), OTA for the tags (T15), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes and OTA for the AP (A10) are already done, see the checklist above.
+Signed content (T16), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes, OTA for the AP (A10) and OTA for the tags (T15, [tag-ota.md](tag-ota.md)) are already done, see the checklist above.

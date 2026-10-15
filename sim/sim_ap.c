@@ -18,6 +18,8 @@ static esl_layouts_t layouts;
 static esl_sched_entry_t sched_entries[CAP];
 static esl_sched_t sched;
 static bool ap_up;
+static esl_tagfw_t tagfw;
+static uint8_t tagfw_flash[ESL_MODEL_COUNT - 1][ESL_TAGFW_SLOT];   /* the "tagfw" partition, kept over restarts */
 static uint64_t ap_boot_ms;
 
 sim_stats_t sim_stats;
@@ -98,15 +100,45 @@ static void nvs_sched_erase(void *ctx, unsigned slot)
     nvs.sched_len[slot] = 0;
 }
 
+/* ---- the tag firmware store (the "tagfw" partition) ---- */
+
+static bool fw_erase(void *ctx, uint8_t model)
+{
+    (void)ctx;
+    memset(tagfw_flash[model - 1], 0xFF, ESL_TAGFW_SLOT);
+    return true;
+}
+
+static bool fw_write(void *ctx, uint8_t model, uint32_t off, const void *data, size_t len)
+{
+    (void)ctx;
+    if (off + len > ESL_TAGFW_SLOT)
+        return false;
+    memcpy(tagfw_flash[model - 1] + off, data, len);
+    return true;
+}
+
+static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *data, size_t len)
+{
+    (void)ctx;
+    if (off + len > ESL_TAGFW_SLOT)
+        return false;
+    memcpy(data, tagfw_flash[model - 1] + off, len);
+    return true;
+}
+
 void sim_ap_boot(void)
 {
+    static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
     static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase};
     static bool first = true;
 
-    if (first)
+    if (first) {
         memset(&nvs, 0, sizeof(nvs));
+        memset(tagfw_flash, 0xFF, sizeof(tagfw_flash));
+    }
     first = false;
     memset(tags, 0, sizeof(tags));
     esl_store_init(&st, tags, CAP, &ops, 0);   /* CONFIG_ESL_NEXT_POLL_S default: the tag keeps its own */
@@ -130,6 +162,8 @@ void sim_ap_boot(void)
     for (uint8_t model = 1; model < ESL_MODEL_COUNT; model++)
         if (nvs.layout_len[model])
             esl_layouts_restore(&layouts, model, nvs.layout[model], nvs.layout_len[model]);
+    esl_tagfw_init(&tagfw, &fops);
+    esl_radio_set_tagfw(&tagfw);
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
@@ -156,7 +190,12 @@ static char resp[ESL_API_RESP_SIZE(CAP)];
 
 int sim_api(const char *method, const char *uri, const char *body, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL};
+    return sim_api_bin(method, uri, body, body ? strlen(body) : 0, out_body);
+}
+
+int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
+{
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw};
     esl_sb_t out;
     int status;
 
@@ -166,8 +205,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
         status = 503;
     } else {
         esl_sched_tick(&sched, &st, ap_now_ms());
-        status = esl_api_handle(&api, method, uri, "Bearer " SIM_TOKEN, body, body ? strlen(body) : 0,
-                                ap_now_ms(), &out);
+        status = esl_api_handle(&api, method, uri, "Bearer " SIM_TOKEN, body, len, ap_now_ms(), &out);
     }
     if (out_body)
         *out_body = resp;

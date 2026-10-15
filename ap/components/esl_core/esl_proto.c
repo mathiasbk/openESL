@@ -101,6 +101,48 @@ size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req)
     return ESL_LREQ_LEN;
 }
 
+bool esl_fw_req_parse(const uint8_t *p, size_t len, esl_fw_req_t *out)
+{
+    if (len < ESL_FREQ_LEN || p[0] != ESL_MSG_FW_REQ || p[1] != ESL_PROTO_VER)
+        return false;
+    out->model = p[ESL_FREQ_OFF_MODEL];
+    out->max = p[ESL_FREQ_OFF_MAX];
+    out->ver = get16(&p[ESL_FREQ_OFF_VER]);
+    out->pos = get16(&p[ESL_FREQ_OFF_POS]);
+    out->crc = get32(&p[ESL_FREQ_OFF_CRC]);
+    return true;
+}
+
+size_t esl_fw_req_build(uint8_t *out, const esl_fw_req_t *req)
+{
+    out[0] = ESL_MSG_FW_REQ;
+    out[1] = ESL_PROTO_VER;
+    out[ESL_FREQ_OFF_MODEL] = req->model;
+    out[ESL_FREQ_OFF_MAX] = req->max;
+    put16(&out[ESL_FREQ_OFF_VER], req->ver);
+    put16(&out[ESL_FREQ_OFF_POS], req->pos);
+    put32(&out[ESL_FREQ_OFF_CRC], req->crc);
+    return ESL_FREQ_LEN;
+}
+
+size_t esl_fw_msg_build(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t size, uint16_t pos,
+                        uint32_t crc, uint8_t model, const uint8_t *data, size_t n)
+{
+    if (n > ESL_FW_CHUNK_MAX)
+        n = ESL_FW_CHUNK_MAX;
+    out[0] = ESL_MSG_FW;
+    out[1] = ESL_PROTO_VER;
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put16(&out[ESL_FW_OFF_VER], ver);
+    put16(&out[ESL_FW_OFF_SIZE], size);
+    put16(&out[ESL_FW_OFF_POS], pos);
+    put32(&out[ESL_FW_OFF_CRC], crc);
+    out[ESL_FW_OFF_MODEL] = model;
+    if (n)
+        memcpy(&out[ESL_FW_OFF_DATA], data, n);
+    return ESL_FW_HDR_LEN + n;
+}
+
 size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
                             const uint8_t *data, size_t n)
 {
@@ -184,6 +226,19 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
         return out->layout_pos <= out->layout_size &&
                out->layout_len <= (size_t)(out->layout_size - out->layout_pos) &&
                (out->layout_ver != 0 || out->layout_size == 0);
+    }
+    if (out->type == ESL_MSG_FW) {
+        if (len < ESL_FW_HDR_LEN || len > ESL_MAX_PAYLOAD)
+            return false;
+        out->fw_ver = get16(&p[ESL_FW_OFF_VER]);
+        out->layout_size = get16(&p[ESL_FW_OFF_SIZE]);
+        out->layout_pos = get16(&p[ESL_FW_OFF_POS]);
+        out->fw_crc = get32(&p[ESL_FW_OFF_CRC]);
+        out->fw_model = p[ESL_FW_OFF_MODEL];
+        out->layout_data = &p[ESL_FW_OFF_DATA];
+        out->layout_len = len - ESL_FW_HDR_LEN;
+        return out->fw_ver != 0 && out->layout_pos <= out->layout_size &&
+               out->layout_len <= (size_t)(out->layout_size - out->layout_pos);
     }
     if (out->type == ESL_MSG_CONFIG) {
         if (len < ESL_CONFIG_LEN)

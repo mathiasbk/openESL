@@ -183,3 +183,18 @@ uint16_t make_test_layout_file(uint8_t *out, uint32_t *ver)
     *ver = crc ? crc : 1;
     return (uint16_t)(p - out);
 }
+
+uint8_t make_fw_block(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t size, uint16_t pos,
+                      uint32_t crc, uint8_t model, const uint8_t *data, uint8_t n)
+{
+    out[0] = ESL_MSG_FW;
+    out[1] = ESL_PROTO_VER;
+    ESL_PUT_U16(out + ESL_OFF_NEXT_POLL, next_poll_s);
+    ESL_PUT_U16(out + ESL_FW_OFF_VER, ver);
+    ESL_PUT_U16(out + ESL_FW_OFF_SIZE, size);
+    ESL_PUT_U16(out + ESL_FW_OFF_POS, pos);
+    ESL_PUT_U32(out + ESL_FW_OFF_CRC, crc);
+    out[ESL_FW_OFF_MODEL] = model;
+    memcpy(out + ESL_FW_OFF_DATA, data, n);
+    return (uint8_t)(ESL_FW_HDR_LEN + n);
+}

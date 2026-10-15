@@ -1,7 +1,8 @@
 # Builds the tag firmware (both models, after the host tests) and the AP firmware.
 # Called by web.yml (every push and pull request) and release.yml (a VERSION bump merged to master, a tag v*, or by hand), so CI and
 # releases build the firmware the same way. Artifacts:
-#   tag-firmware: tag-29.bin, tag-154.bin
+#   tag-firmware: tag-29.bin, tag-154.bin (bootloader and application, for the flasher),
+#                 tag-29-ota.bin, tag-154-ota.bin (the application with its header, for PUT /api/tag-firmware)
 #   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
 #                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
 #                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
@@ -51,6 +52,8 @@ jobs:
           mkdir -p out
           cp tag/build/fw/openesl.bin out/tag-29.bin
           cp tag/build/fw154/openesl.bin out/tag-154.bin
+          cp tag/build/fw/openesl-ota.bin out/tag-29-ota.bin
+          cp tag/build/fw154/openesl-ota.bin out/tag-154-ota.bin
       - uses: actions/upload-artifact@v7
         with:
           name: tag-firmware

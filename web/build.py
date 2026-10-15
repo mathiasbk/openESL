@@ -11,7 +11,9 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
                                    GitHub workflow; any of them may be "-" for none;
                                    ap-lcd.bin is the AP with the status screen, offered
                                    by a checkbox on the page; FIRMWARE_RELEASE=v1.2.3
-                                   marks them as that release)
+                                   marks them as that release). A <file>-ota.bin next to
+                                   each one is copied too, for the dashboard's updates
+                                   through the API
 
 The renderer is web/wasm/web_api.c with the tag's drawing code and the AP's layout
 compiler, built with Emscripten (emcc) once per tag model:
@@ -137,10 +139,17 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
         "ap": ap != "-",
         "ap_lcd": ap_lcd != "-" and os.path.exists(ap_lcd),
     }
+    info["ota"] = {}
     for src, name in ((tag29, "tag-29.bin"), (tag154, "tag-154.bin"), (ap, "ap-openesl.bin"),
                       (ap_lcd if info["ap_lcd"] else "-", "ap-openesl-lcd.bin")):
         if src != "-":
             shutil.copy2(src, os.path.join(out, name))
+            # the file for an update through the API lies next to it as <name>-ota.bin
+            # (release and CI names alike); the dashboard sends it
+            ota = src[:-4] + "-ota.bin"
+            if os.path.exists(ota):
+                shutil.copy2(ota, os.path.join(out, name[:-4] + "-ota.bin"))
+                info["ota"][name[:-4]] = True
     # ap-manifest.json and ap-lcd-manifest.json
     if ap != "-":
         ap_manifest(out, "OpenESL AP", info["version"], "ap-openesl.bin")

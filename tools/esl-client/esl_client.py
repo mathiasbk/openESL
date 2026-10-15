@@ -16,6 +16,8 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
   esl_client.py ota build/esl_ap.bin    # new AP firmware; "ota" alone shows the slots
+  esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin   # new tag firmware, sent over the radio
+  esl_client.py tag-ota                 # the tag firmware on the AP and how far the tags are
   esl_client.py log week.csv --every 60 # long-term test: one row per tag per minute
   esl_client.py report week.csv         # gaps, battery, problems and AP restarts from that log
   esl_client.py --serial /dev/ttyACM0 status
@@ -42,6 +44,8 @@ import urllib.request
 
 BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
+TAGFW_PART = 16384      # bytes per PUT /api/tag-firmware part (below the AP's 24 KB body limit)
+TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 
 
@@ -157,6 +161,28 @@ class Client:
             progress(len(image), len(image))
         return json.loads(payload)
 
+    def tag_firmware(self):
+        return self._request("GET", "/api/tag-firmware")
+
+    def put_tag_firmware(self, data, progress=None):
+        """Uploads a tag firmware file (openesl-tag-<model>-<version>-ota.bin) in parts of TAGFW_PART bytes.
+        Returns the AP's reply to the last part: the image it now offers."""
+        total = len(data)
+        reply = None
+        for off in range(0, total, TAGFW_PART):
+            part = data[off:off + TAGFW_PART]
+            status, payload = self.send("PUT", f"/api/tag-firmware?offset={off}&total={total}", part,
+                                        content_type="application/octet-stream")
+            if status >= 400:
+                raise ApiError(status, payload.decode("utf-8", "replace"))
+            reply = json.loads(payload)
+            if progress:
+                progress(off + len(part), total)
+        return reply
+
+    def delete_tag_firmware(self, model):
+        return self._request("DELETE", f"/api/tag-firmware/{model}")
+
     def set_wifi(self, ssid, password=""):
         return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
 
@@ -240,8 +266,9 @@ class SerialClient(Client):
             line += self._read(1, end)
         return line
 
-    def send(self, method, path, data=None, auth=None):
-        """As Client.send; no token is needed on the USB port, so auth is ignored."""
+    def send(self, method, path, data=None, auth=None, content_type=None):
+        """As Client.send; no token is needed on the USB port, so auth is ignored, and
+        there are no headers, so content_type is too."""
         data = data or b""
         try:
             if self.fd is None:
@@ -325,7 +352,7 @@ def make_bridge(cli, extra_origins=()):
             if origin is None:
                 return self._reply(403)
             self._reply(204, origin=origin, extra=(
-                ("Access-Control-Allow-Methods", "GET, PUT, DELETE"),
+                ("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE"),
                 ("Access-Control-Allow-Headers", "Authorization, Content-Type"),
                 ("Access-Control-Allow-Private-Network", "true"),
                 ("Access-Control-Max-Age", "600")))
@@ -580,6 +607,25 @@ def print_ota(o):
     other = f"{o.get('other_slot')} holds {o.get('other_version') or 'nothing'}" if o.get("other_slot") else "no second slot"
     print(f"running {o.get('version')} from {o.get('slot')}, slot size {o.get('slot_size')} bytes, {other}"
           + (", upload in progress" if o.get("uploading") else ""))
+
+
+def print_tag_firmware(f):
+    for i in f.get("images", []):
+        if not i.get("version"):
+            print(f"{i['model']:>5}: no firmware")
+            continue
+        t = i.get("tags", {})
+        print(f"{i['model']:>5}: {i['version']} ({i['size']} bytes, CRC {i['crc']}), tags: {t.get('updated', 0)} updated, "
+              f"{t.get('pending', 0)} pending, {t.get('failed', 0)} failed, {t.get('no_ota', 0)} without OTA")
+
+
+def tag_firmware_header(data):
+    """(model name, "x.y.z") from a tag firmware file, or None if it is not one."""
+    if len(data) < 16 or data[:4] != TAGFW_MAGIC:
+        return None
+    model = {1: "2.9", 2: "1.54"}.get(data[5], f"model {data[5]}")
+    v = int.from_bytes(data[6:8], "little")
+    return model, f"{v // 10000}.{v // 100 % 100}.{v % 100}"
 
 
 def wait_back(cli, slot, version, timeout_s=120, poll_s=2, sleep=time.sleep):
@@ -1016,6 +1062,11 @@ def main(argv=None):
     s.add_argument("--wait", action="store_true", help="wait until the AP answers again and check that the new image runs")
     s.add_argument("--wait-s", type=int, default=120)
 
+    s = sub.add_parser("tag-ota", help="send new tag firmware to the AP, which updates the tags over the radio; "
+                                       "alone, show what the AP has and how far the tags are")
+    s.add_argument("file", nargs="?", help="openesl-tag-<model>-<version>-ota.bin from a release, or tag/build/fw/openesl-ota.bin")
+    s.add_argument("--delete", metavar="MODEL", help="stop updating tags of this model (2.9 or 1.54)")
+
     s = sub.add_parser("log", help="long-term test: append a row per tag to a CSV file every --every seconds, until Ctrl-C")
     s.add_argument("file", help="the CSV log (created with a header if new, otherwise appended to)")
     s.add_argument("--every", type=float, default=60, metavar="S", help="seconds between rounds (default 60)")
@@ -1110,6 +1161,25 @@ def main(argv=None):
                     sleep_s = 3  # the restart itself takes a few seconds
                     time.sleep(sleep_s)
                     return wait_back(cli, r.get("slot"), r.get("version"), args.wait_s)
+        elif args.cmd == "tag-ota":
+            if args.delete:
+                cli.delete_tag_firmware(args.delete)
+                print(f"no more firmware updates for {args.delete} tags")
+            elif args.file is None:
+                print_tag_firmware(cli.tag_firmware())
+            else:
+                with open(args.file, "rb") as f:
+                    data = f.read()
+                hdr = tag_firmware_header(data)
+                if not hdr:
+                    print(f"error: {args.file} is not a tag firmware file (use openesl-ota.bin or openesl-tag-<model>-<version>-ota.bin, "
+                          f"not openesl.bin, which is for the flasher)", file=sys.stderr)
+                    return 2
+                print(f"sending {hdr[0]} firmware {hdr[1]} ({len(data)} bytes) ...", flush=True)
+                r = cli.put_tag_firmware(data, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r",
+                                                                        flush=True))
+                print(f"the AP offers {r.get('model')} firmware {r.get('version')} to the tags; "
+                      f"each takes it at its next poll (\"tag-ota\" shows how far they are)")
         elif args.cmd == "backup":
             b = backup(cli)
             text = json.dumps(b, indent=1, ensure_ascii=False)

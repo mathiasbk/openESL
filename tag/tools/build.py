@@ -4,8 +4,10 @@ Build script for the tag firmware. Works with and without make (the Makefile onl
 
   python tools/build.py test      host tests (a C compiler on the PC)
   python tools/build.py preview   draws the example layouts to build/preview/*.png
-  python tools/build.py fw        firmware with SDCC -> build/fw/openesl.ihx and .bin
-                                  (MODEL=154 for the 1.54" -> build/fw154/openesl.bin; default 29)
+  python tools/build.py fw        firmware with SDCC -> build/fw/openesl.bin (bootloader + application,
+                                  for the flasher) and build/fw/openesl-ota.bin (the application
+                                  with the OTA header, for the AP; docs/tag-ota.md)
+                                  (MODEL=154 for the 1.54" -> build/fw154/; default 29)
   python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
                                   (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead)
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
@@ -27,14 +29,20 @@ BUILD = os.path.join(TAG, "build")
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
 CODE_SIZE = 0xF400              # 0xF400-0xF7FF: layout file store, 0xF800-0xFBFF: record store (hal_*store_*); 0xFC00 up: the stock MAC
+BOOT_SIZE = 0x400               # page 0: the bootloader (boot/); the application starts here (ESL_FW_APP_BASE)
 
-INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test")]
+INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test"),
+            os.path.join(TAG, "boot")]
+
+OTA_FILE_MAGIC = 0x5746534F     # ESL_FWF_MAGIC in shared/proto.h
+OTA_FILE_FORMAT = 1
 
 CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c", "src/barcode.c"]
 FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fonts", "font_*.c")))
 
 HOST_TARGETS = {
-    "test_all": CORE + FONTS + ["src/app.c", "test/test_main.c", "test/test_proto.c",
+    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "boot/boot_core.c", "test/fake_xflash.c",
+                                "test/test_ota.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_layout.c",
                                 "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c",
                                 "test/helpers.c"],
@@ -64,7 +72,9 @@ def version_defines():
 
 
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c"] + CORE + FONTS + HAL_SOURCES
+FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c"] + CORE + FONTS + HAL_SOURCES + \
+    ["src/hal/zbs243/xflash_zbs243.c"]
+BOOT_SOURCES = ["boot/boot_zbs243.c", "boot/boot_core.c"]
 HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES
 
 
@@ -134,7 +144,8 @@ def cmd_preview():
     print("Images in", out)
 
 
-def ihx_to_bin(ihx, bin_path):
+def ihx_to_bin(ihx, bin_path, base=0, limit=CODE_SIZE):
+    """The image from base up to the last byte the ihx sets; must end below limit."""
     mem = {}
     with open(ihx) as f:
         for line in f:
@@ -150,18 +161,27 @@ def ihx_to_bin(ihx, bin_path):
                 break
     if not mem:
         sys.exit("empty ihx")
+    if min(mem) < base:
+        sys.exit("%s has code below 0x%04X" % (ihx, base))
     top = max(mem) + 1
-    if top > CODE_SIZE:
-        sys.exit("the firmware goes past 0x%04X and would overwrite the MAC area" % CODE_SIZE)
-    img = bytearray([0xFF] * top)
+    if top > limit:
+        sys.exit("%s goes past 0x%04X" % (ihx, limit))
+    img = bytearray([0xFF] * (top - base))
     for a, v in mem.items():
-        img[a] = v
+        img[a - base] = v
     with open(bin_path, "wb") as f:
         f.write(img)
-    print("%s: %d bytes (%.1f %% of 0x%04X)" % (bin_path, top, 100.0 * top / CODE_SIZE, CODE_SIZE))
+    print("%s: %d bytes (%.1f %% of 0x%04X)" % (bin_path, len(img), 100.0 * len(img) / (limit - base), limit - base))
+    return bytes(img)
 
 
-def build_8051(subdir, name, sources, defines=()):
+def crc32(data):
+    import zlib
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+
+def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, model="--model-large"):
+    """Compiles and links; returns the image from code_loc as bytes (also written to <name>.bin)."""
     sdcc = os.environ.get("SDCC", "sdcc")
     winget_sdcc = r"C:\Program Files\SDCC\bin\sdcc.exe"   # winget installs SDCC here without adding it to PATH
     if not shutil.which(sdcc) and os.path.exists(winget_sdcc):
@@ -175,10 +195,13 @@ def build_8051(subdir, name, sources, defines=()):
         print("WARNING: expected SDCC %s, got: %s" % (SDCC_VERSION, ver.strip().splitlines()[0]))
     out = os.path.join(BUILD, subdir)
     os.makedirs(out, exist_ok=True)
-    flags = ["-mmcs51", "--model-large", "--stack-auto", "--std-c99", "--opt-code-size"]
+    flags = ["-mmcs51", model, "--std-c99", "--opt-code-size"]
+    if model == "--model-large":
+        flags.append("--stack-auto")
     # ZBS243 XRAM is 8 KB at 0xE000-0xFFFF, but 0xE000-0xE2FF is lost in deep sleep,
     # so variables start at 0xE300 (kildelogg 2026-10-14; OEPL links there too)
-    link_flags = ["--xram-loc", "0xE300", "--xram-size", "0x1D00"]
+    link_flags = ["--xram-loc", "0xE300", "--xram-size", "0x1D00",
+                  "--code-loc", str(code_loc), "--code-size", str(limit - code_loc)]
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
@@ -186,15 +209,32 @@ def build_8051(subdir, name, sources, defines=()):
             ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
     ihx = os.path.join(out, name + ".ihx")
-    run([sdcc] + flags + link_flags + ["--code-size", str(CODE_SIZE), "-o", ihx] + rels)
-    ihx_to_bin(ihx, os.path.join(out, name + ".bin"))
+    run([sdcc] + flags + link_flags + ["-o", ihx] + rels)
+    return ihx_to_bin(ihx, os.path.join(out, name + ".bin"), code_loc, limit)
 
 
 def cmd_fw():
+    """Bootloader in page 0 and the application from BOOT_SIZE (docs/tag-ota.md):
+         openesl.bin      both, written at 0 by the flasher (the jig)
+         openesl-ota.bin  the OTA file for the AP: ESL_FWF_* header + the application"""
+    import struct
     model = os.environ.get("MODEL", "29")
     if model not in ("29", "154"):
         sys.exit("MODEL must be 29 or 154")
-    build_8051("fw" if model == "29" else "fw" + model, "openesl", FW_SOURCES, ["-DMODEL=" + model])
+    subdir = "fw" if model == "29" else "fw" + model
+    boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
+    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE)
+    app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
+    out = os.path.join(BUILD, subdir)
+    with open(os.path.join(out, "openesl.bin"), "wb") as f:
+        f.write(boot + b"\xFF" * (BOOT_SIZE - len(boot)) + app)
+    code = {"29": 1, "154": 2}[model]      # ESL_MODEL_* in shared/proto.h
+    _, fw_ver = read_version()
+    hdr = struct.pack("<IBBHII", OTA_FILE_MAGIC, OTA_FILE_FORMAT, code, fw_ver, len(app), crc32(app))
+    with open(os.path.join(out, "openesl-ota.bin"), "wb") as f:
+        f.write(hdr + app)
+    print("%s: bootloader + application; openesl-ota.bin: %d bytes for the AP" %
+          (os.path.join(out, "openesl.bin"), len(hdr) + len(app)))
 
 
 def cmd_hwtest():

@@ -2,7 +2,7 @@
 
 One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
-**Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, the layout transfer and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, layout files downloaded block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, OTA, CONFIG and the scheduled content are not tried on hardware yet.
+**Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, the layout transfer and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, layout files downloaded block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
 
 ## Layout
 
@@ -40,7 +40,7 @@ ap/
     health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
     ota.c               new AP firmware through POST /api/ota (ESL_OTA)
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
-  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA
+  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA, 128 KB for tag firmware
   test/                   host unit tests (Makefile)
 ```
 
@@ -122,6 +122,8 @@ A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to
 ## OTA: new AP firmware (krav A10)
 
 `POST /api/ota` with the app image as the body (`esl-client ota build/esl_ap.bin`, or `openesl-ap-esp32c6-<version>-ota.bin` from a release, `openesl-ap-esp32c6-lcd-<version>-ota.bin` on a board with the LCD; not the merged `openesl-ap...bin`, which has the bootloader in front) writes it to the app slot that is not running (`ota.c`, `esp_ota_*`). The last byte makes that slot the boot slot and the AP restarts a second after the reply; tag content, settings and layout files stay, since they are in NVS. `GET /api/ota` shows which slot runs and what the other holds. Over WiFi the whole image goes in one request; over the USB port it goes in parts (`?offset=N&total=T`, `esl-client` sends 16 KB at a time), since the serial driver drops bytes when its buffer is full. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the new image must confirm itself (`ota_confirm_running()`, once everything in `app_main` has started); if it does not get that far, the next reset boots the old slot again, so a bad image costs one restart. Flashing over USB (`idf.py flash`, the web flasher) still works and always writes `ota_0`; `ESL_OTA` (on by default) turns the endpoint off, and a one-slot partition table answers `501`.
+
+**Tag firmware.** `PUT /api/tag-firmware` (`esl-client tag-ota openesl-tag-<model>-<version>-ota.bin`) stores firmware for one tag model in the `tagfw` partition (64 KB per model, `tagfw.c`, `esl_tagfw.c`), and the AP sends it to the tags of that model over the radio, block by block, when they have nothing else waiting ([docs/tag-ota.md](../docs/tag-ota.md), [docs/protokoll.md](../docs/protokoll.md) "Firmware transfer"). `GET /api/tag-firmware` shows each image and how many tags run it, still need it, rejected it or cannot take updates. The image survives restarts. The partition sits after `ota_1` in space that was free, so nothing else moves; an AP that got its firmware through `POST /api/ota` still has the old table without it and answers `404` until it is flashed over USB once.
 
 ## WiFi setup
 
@@ -210,4 +212,4 @@ Covers CRC32, text conversion, content, messages and frames, the NVS format, JSO
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
 - **Development builds with layouts but without CONFIG** (the layout branch before the merge) send 0 in POLL bytes 12–13. The AP reads that as "understands CONFIG, built-in settings", so such a tag with its own settings would get CONFIG, which it drops. No such firmware was released; flash the current one.
 - **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`, the captive portal) is host-tested and builds, but not tried on hardware: the jig's C6 has dead WiFi.
-- **OTA (A10)** is host-tested as far as the API routing goes and builds; writing a slot, the restart and the rollback are not tried on hardware yet.
+- **OTA (A10)**: writing a slot and the restart into it work on the Super Mini (2026-10-15, both ways between 0.2.0 and 0.2.91, from the web page); the rollback of a broken image is not tried on hardware yet.

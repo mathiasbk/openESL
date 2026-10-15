@@ -29,6 +29,19 @@ export class ApClient {
     return data;
   }
 
+  // A binary body (firmware); { status, body } with the body as bytes, as SerialAp.send
+  async send(method, path, bytes) {
+    const headers = { "Content-Type": "application/octet-stream" };
+    if (this.token) headers.Authorization = "Bearer " + this.token;
+    let r;
+    try {
+      r = await this.fetch(this.base + path, { method, headers, body: bytes });
+    } catch {
+      throw new Error(`no answer from ${this.base}. Is the bridge running (esl_client.py --serial /dev/ttyACM0 serve)?`);
+    }
+    return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
+  }
+
   // { ap, tags }
   tags() { return this.call("GET", "/api/tags"); }
 

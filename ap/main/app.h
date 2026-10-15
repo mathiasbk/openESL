@@ -5,6 +5,7 @@
 #include "esp_err.h"
 #include "esl_api.h"
 #include "esl_layout.h"
+#include "esl_radio.h"
 #include "esl_store.h"
 
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
@@ -58,6 +59,10 @@ int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t 
 int ota_info(esl_sb_t *out);
 bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
+
+/* tagfw.c: the store for tag firmware images (the "tagfw" partition). NULL
+ * when the partition table has none. */
+esl_tagfw_t *tagfw_start(void);
 
 /* captive.c (ESL_WIFI_CAPTIVE): the DNS server of the setup network, which
  * answers every name with 192.168.4.1 so phones open the setup form by

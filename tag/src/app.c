@@ -3,6 +3,7 @@
 #include "draw.h"
 #include "layout.h"
 #include "epd.h"
+#include "ota.h"
 #include "hal/hal.h"
 
 #define RX_TRIES 3       /* other tags may be in the window; read up to 3 frames */
@@ -244,6 +245,7 @@ static uint8_t build_poll_frame(void)
 
     if (app.lay_rejected)
         flags |= ESL_POLL_F_LAYOUTFAIL;
+    flags |= ota_poll_flags();
     proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags,
                      app.cfg.ver, layout_file_ver);
     return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LAYOUT);
@@ -319,6 +321,36 @@ static bool layout_transfer(void)
             reply.type != ESL_MSG_LAYOUT)
             return false;
     }
+}
+
+/*
+ * reply is a FW block (docs/tag-ota.md): writes it to the SPI flash and asks for the
+ * next ones in the same round, up to CFG_FW_MAX_REQ. A request that gets no answer is
+ * sent again, up to CFG_FW_MAX_MISS times per round. True when the image is complete and
+ * checked; the download otherwise goes on at the next FW the AP sends.
+ */
+static bool fw_transfer(void)
+{
+    uint8_t req = 0, miss = 0, r, n;
+
+    ota_open();
+    r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    while (r == OTA_MORE && ++req <= CFG_FW_MAX_REQ) {
+        if ((req & 15) == 0)
+            hal_wdt_kick();
+        n = proto_build_fw_req(txbuf + ESL_MAC_HDR_LEN, ota.dl_ver, ota.dl_got, ota.dl_crc, ESL_FW_CHUNK_MAX);
+        if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
+                                              txbuf + ESL_MAC_HDR_LEN, n))) {
+            if (++miss > CFG_FW_MAX_MISS)
+                break;
+            continue;
+        }
+        if (reply.type != ESL_MSG_FW)
+            break;                     /* the AP no longer has it */
+        r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    }
+    ota_close();
+    return r == OTA_DONE;
 }
 
 static uint16_t on_miss(void)
@@ -409,6 +441,7 @@ void app_init(void)
     app.dl_size = 0;
     app.dl_got = 0;
     app.lay_rejected = 0;
+    ota_init();
     hal_layout_store_read(layout_file, ESL_LBIN_MAX);
     layout_file_restore();
     stored_lay_ver = layout_file_ver;
@@ -422,7 +455,7 @@ void app_init(void)
 
 static uint16_t poll_round(void)
 {
-    bool got;
+    bool got, fw_done = false;
 
     hal_wdt_kick();
     radio_on();
@@ -437,12 +470,20 @@ static uint16_t poll_round(void)
             reply.next_poll_s = 0;
         }
         hal_wdt_kick();
+    } else if (got && reply.type == ESL_MSG_FW) {
+        /* The AP sends firmware only when nothing else is waiting: nothing to draw */
+        fw_done = fw_transfer();
+        reply.type = ESL_MSG_FW;
+        hal_wdt_kick();
     }
     radio_off();
     save_layout_file();
 
     if (!got)
         return on_miss();
+    ota_confirm();                   /* a new image that reaches the AP stays */
+    if (fw_done)
+        ota_install();               /* restarts into the bootloader */
 
     app.misses = 0;
     app.lost_s = 0;

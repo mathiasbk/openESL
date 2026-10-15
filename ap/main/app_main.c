@@ -83,6 +83,8 @@ void app_main(void)
     if (!api.layouts)
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
+    api.tagfw = tagfw_start();
+    esl_radio_set_tagfw(api.tagfw);
     api_handle_init();
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);

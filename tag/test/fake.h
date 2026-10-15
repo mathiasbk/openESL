@@ -5,7 +5,7 @@
 #include "compat.h"
 #include "draw.h"
 
-#define FAKE_MAX_FRAMES 8
+#define FAKE_MAX_FRAMES 16
 
 /* Radio */
 extern uint8_t fake_tx[FAKE_MAX_FRAMES][128];
@@ -13,6 +13,7 @@ extern uint8_t fake_tx_len[FAKE_MAX_FRAMES];
 extern int fake_tx_count;
 extern int fake_rx_calls;
 void fake_rx_push(const uint8_t *frame, uint8_t len);   /* the next reply radio_rx returns */
+void fake_rx_lose(void);                                /* the next radio_rx gets nothing */
 void fake_radio_reset(void);
 extern int fake_radio_on;
 
@@ -30,6 +31,17 @@ extern bool fake_store_radio_on_write; /* a write happened with the radio on (no
 extern uint8_t fake_lstore[1024];
 extern int fake_lstore_writes;
 void fake_store_clear(void);          /* clears both stores */
+
+/* SPI flash, the chip's flash and restarts (test/fake_xflash.c). Absent unless
+   fake_xflash_clear(true): tags without the chip take no firmware updates. */
+#define FAKE_XFLASH_SIZE 0x100000
+extern uint8_t fake_xflash[FAKE_XFLASH_SIZE];
+extern uint8_t fake_code[0x10000];
+extern bool fake_xflash_present;
+extern bool fake_xflash_is_open;
+extern int fake_xflash_misuse;
+extern int fake_resets;                    /* hal_reset() calls */
+void fake_xflash_clear(bool present);      /* all 0xFF */
 
 /* Display (test/fake_epd.c): epd_draw draws into a whole image */
 extern int fake_draw_count;

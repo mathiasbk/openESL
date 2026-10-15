@@ -70,18 +70,51 @@ static void blob_erase(void *ctx, unsigned slot)
     blob_len[slot] = 0;
 }
 
+/* Tag firmware store in RAM */
+static uint8_t fw_mem[ESL_MODEL_COUNT - 1][ESL_TAGFW_SLOT];
+static esl_tagfw_t tagfw;
+
+static bool fw_erase(void *ctx, uint8_t model)
+{
+    (void)ctx;
+    memset(fw_mem[model - 1], 0xFF, ESL_TAGFW_SLOT);
+    return true;
+}
+
+static bool fw_write(void *ctx, uint8_t model, uint32_t off, const void *d, size_t n)
+{
+    (void)ctx;
+    if (off + n > ESL_TAGFW_SLOT)
+        return false;
+    memcpy(fw_mem[model - 1] + off, d, n);
+    return true;
+}
+
+static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
+{
+    (void)ctx;
+    if (off + n > ESL_TAGFW_SLOT)
+        return false;
+    memcpy(d, fw_mem[model - 1] + off, n);
+    return true;
+}
+
+static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
+
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw};
     uint64_t now_ms = 1000;
     char line[512];
 
     esl_store_init(&st, tags, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
+    memset(fw_mem, 0xFF, sizeof(fw_mem));
+    esl_tagfw_init(&tagfw, &fw_ops);
     esl_sched_init(&sched, sched_e, CAP, &sched_ops);
     /* 2026-10-15 12:00 UTC, so the examples with "at" (later times) are scheduled */
     esl_sched_set_time(&sched, 1792065600u, now_ms, ESL_TIME_NTP);

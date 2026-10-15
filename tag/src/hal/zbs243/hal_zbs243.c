@@ -297,11 +297,12 @@ static void epd_byte(uint8_t b)
 }
 
 /*
- * The SPI flash (nCS P1.1, SCK and MOSI shared with the display) is not used by
- * this firmware, but it sits on the battery: in standby it takes tens of µA, in
- * deep power-down about 1 µA. Send DEEP POWER-DOWN (0xB9, SPI mode 0) once at
- * start-up; nothing wakes it again (the display traffic keeps its nCS high, and
- * the chip stays powered through the ZBS243's sleep). Whole-byte writes to P1,
+ * The SPI flash (nCS P1.1, SCK and MOSI shared with the display) sits on the
+ * battery: in standby it takes tens of µA, in deep power-down about 1 µA. Send
+ * DEEP POWER-DOWN (0xB9, SPI mode 0) once at start-up; only a firmware update
+ * wakes it (hal_xflash_open), and hal_xflash_close puts it back (the display
+ * traffic keeps its nCS high, and the chip stays powered through the ZBS243's
+ * sleep). Whole-byte writes to P1,
  * since reading a port back does not give the written levels (kildelogg.md);
  * the levels are those gpio_init() set, with P1.1 low in between.
  */
