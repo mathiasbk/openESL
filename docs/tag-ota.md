@@ -123,9 +123,25 @@ The test images were the same source with a different `VERSION` (0.2.90 = fw 290
 
 What was seen:
 
-- An image takes 6–8 wake-ups, not five: a wake-up ends early when a FW_REQ gets no answer twice (`exchange_retry`), and the download goes on at the next poll. The AP counted 70 failed transmits of about 1,300 replies. This only makes an update slower. Since then the tag sends an unanswered FW_REQ again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), so a lost answer no longer ends the wake-up; not yet tried on the tag.
+- An image takes 6–8 wake-ups, not five: a wake-up ends early when a FW_REQ gets no answer twice (`exchange_retry`), and the download goes on at the next poll. The AP counted 70 failed transmits of about 1,300 replies. This only makes an update slower. Since then the tag sends an unanswered FW_REQ again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), so a lost answer no longer ends the wake-up. Tried the same evening (below): four or five wake-ups per update.
 - The second update took over 9 minutes, and the tag reported the new version right after the AP restarted (opening its serial log reset it). Two more updates with the log open the whole time did not stall, so this was most likely a run of short wake-ups like the ones above, not a stuck state. It was not caught in the log, so this is not shown.
 - The AP log names every reply that is not CONTENT or LAYOUT "IDLE", also FW blocks and CONFIG, and logs each FW_REQ as a poll with `id=00000000 model=0`. This was misleading when following an update in the log. Fixed since: the poll line names FW and CONFIG replies and shows the tag's `fw=`, and FW_REQ is logged at debug level only (the stats line counts the blocks).
+
+### From the web page (2026-10-15 evening)
+
+The Firmware card on the Dashboard tab, in headless Chromium through the bridge (`esl_client.py --serial /dev/ttyACM0 serve`), with a second 1.54" tag, 0000020663463415. That tag still had the OEPL firmware: it was backed up whole first (`ZBS_Flasher`), then flashed with `openesl.bin`. It only started after it was put into the jig again, since the jig powered it only now and then; on a battery it ran steadily.
+
+| Step | Result |
+|------|--------|
+| 1.54" 0.2.90 from the page's list | upload about 1 s; the tag reported 290 241 s after its first poll, 5 wake-ups (4 with download), table "1 updated" |
+| 1.54" 0.2.0 from "A file from this computer" | 312 s from the upload, first poll after 42 s, 6 wake-ups; no round ended early |
+| "Remove" | `GET /api/tag-firmware` shows no image for 1.54 |
+| AP 0.2.91 from the list | upload 9 s; the page said "The AP is back and runs 0.2.91" 3 s after the restart (`ota_1`) |
+| AP 0.2.0 from a file | 16.5 s; back on `ota_0`; the tag image on the AP survived both restarts |
+
+With `CFG_FW_MAX_MISS` an update needed 4–5 download rounds instead of 6–8. This was also the first try of the AP's own OTA (`POST /api/ota`) on hardware; the rollback of a bad AP image is still not tried.
+
+Seen on the way: the AP keeps the tags' run-time state (last poll, OTA support) in RAM only, so right after an AP restart the dashboard shows a tag as never seen until it polls again.
 
 ## Still to do
 
@@ -133,4 +149,3 @@ What was seen:
 2. Probe a 2.9".
 3. Measure the energy of a whole update.
 4. Signed images, with T16.
-5. Try `CFG_FW_MAX_MISS` on the jig: an update should need close to five wake-ups.

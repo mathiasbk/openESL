@@ -232,6 +232,9 @@ export function initDashboard() {
         if (kind.kind !== "tag") continue;
         pageImgs[kind.model] = kind;
         pageData[kind.model] = data;
+        // the list names the version in the file itself
+        const o = $("fw-src").querySelector(`option[value="${k}-ota"]`);
+        if (o) o.textContent = `Tag firmware for the ${kind.model}", ${kind.version}`;
       } catch {
         /* offline: no update buttons */
       }
@@ -243,7 +246,6 @@ export function initDashboard() {
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((info) => {
-      loadPageTagImages(info);
       const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${info.version}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
@@ -252,6 +254,7 @@ export function initDashboard() {
         o.textContent = label;
         return o;
       }));
+      loadPageTagImages(info);
     });
 
   async function chosenFile() {
