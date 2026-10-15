@@ -1,6 +1,7 @@
 #include "esl_barcode.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
+#include "esl_text.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,10 @@ typedef struct {
     uint16_t scr_w, scr_h;
     /* current place in the file, for messages */
     int li, ei;
+    /* the fixed texts of the whole file, in Latin-1, each once */
+    uint8_t ntext;
+    uint8_t tlen[ESL_LBIN_TEXT_MAX];
+    uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
 } cc_t;
 
 static bool fail(cc_t *c, const char *fmt, ...)
@@ -148,6 +153,35 @@ static bool field_name_ok(const char *s)
     return true;
 }
 
+/* "text": a fixed text, stored once in the file. Returns its field byte, or -1 after fail(). */
+static int fixed_text(cc_t *c, int v)
+{
+    char utf8[ESL_LBIN_TEXT_LEN_MAX * 4 + 4];
+    uint8_t latin1[ESL_LBIN_TEXT_LEN_MAX];
+    bool overflow = false;
+    size_t n = 0;
+
+    if (T(c, v)->type != ESL_JSON_STRING)
+        return fail(c, "text must be a string"), -1;
+    int ul = esl_json_str_decode(c->js, T(c, v), utf8, sizeof(utf8));
+    if (ul == -1)
+        return fail(c, "invalid string escape in text"), -1;
+    if (ul >= 0)
+        n = esl_utf8_to_latin1(utf8, (size_t)ul, latin1, sizeof(latin1), &overflow);
+    if (ul < 0 || overflow)
+        return fail(c, "text is longer than %d bytes", ESL_LBIN_TEXT_LEN_MAX), -1;
+    if (n == 0)
+        return fail(c, "text must not be empty"), -1;
+    for (unsigned i = 0; i < c->ntext; i++)
+        if (c->tlen[i] == n && memcmp(c->text[i], latin1, n) == 0)
+            return (int)(ESL_LE_FIELD_FIXED | i);
+    if (c->ntext >= ESL_LBIN_TEXT_MAX)
+        return fail(c, "at most %d different fixed texts in a file", ESL_LBIN_TEXT_MAX), -1;
+    memcpy(c->text[c->ntext], latin1, n);
+    c->tlen[c->ntext] = (uint8_t)n;
+    return (int)(ESL_LE_FIELD_FIXED | c->ntext++);
+}
+
 /* The rest of a barcode element (box, field and colour are done). */
 static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, unsigned w, unsigned h,
                             uint8_t color)
@@ -197,7 +231,7 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type", "x", "y", "w", "h", "field", "fonts", "align", "valign",
-                                       "lines", "color", "symbology", "module", NULL};
+                                       "lines", "color", "symbology", "module", "text", NULL};
     static const char *const types[] = {"text", "rect", "barcode", NULL};
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
@@ -250,8 +284,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     }
 
     if (!text && !barcode) {
-        static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines"};
-        for (int i = 0; i < 5; i++)
+        static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines", "text"};
+        for (int i = 0; i < 6; i++)
             if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
                 return fail(c, "%s is only for text elements", text_only[i]);
         if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL)
@@ -260,12 +294,25 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return true;
     }
 
-    /* field: a name from the layout's fields, or its index */
+    /* field: a name from the layout's fields, or its index; or a fixed text */
     int f = esl_json_obj_get(c->js, c->tok, e, "field");
+    int fx = esl_json_obj_get(c->js, c->tok, e, "text");
     unsigned fi = 0;
-    if (f < 0)
-        return fail(c, "a %s element needs a field", barcode ? "barcode" : "text");
-    if (T(c, f)->type == ESL_JSON_STRING) {
+    if (fx >= 0 && barcode)
+        return fail(c, "a barcode takes a field, not a fixed text");
+    if (fx >= 0 && f >= 0)
+        return fail(c, "give either field or text, not both");
+    if (fx >= 0) {
+        int fb = fixed_text(c, fx);
+        if (fb < 0)
+            return false;
+        out[ESL_LE_OFF_FIELD] = (uint8_t)fb;
+    } else if (f < 0)
+        return fail(c, barcode ? "a barcode element needs a field"
+                               : "a text element needs a field or a fixed text");
+    if (fx >= 0) {
+        /* the fixed text is in place */
+    } else if (T(c, f)->type == ESL_JSON_STRING) {
         char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
         str_copy(c, f, name, sizeof(name));
         for (fi = 0; fi < lay->nfields && strcmp(lay->fields[fi], name) != 0; fi++)
@@ -275,7 +322,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     } else if (!get_uint(c, f, &fi) || fi >= lay->nfields) {
         return fail(c, "field must be one of the layout's fields (a name, or 0..%u)", (unsigned)lay->nfields - 1);
     }
-    out[ESL_LE_OFF_FIELD] = (uint8_t)fi;
+    if (fx < 0)
+        out[ESL_LE_OFF_FIELD] = (uint8_t)fi;
 
     if (barcode)
         return barcode_element(c, e, lay, out, fi, w, h, color);
@@ -407,7 +455,12 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
                         size_t errlen)
 {
     static const char *const keys[] = {"format", "version", "model", "layouts", "description", NULL};
-    cc_t c = {json, NULL, err, errlen, 0, 0, -1, -1};
+    cc_t c;
+    memset(&c, 0, sizeof(c));
+    c.js = json;
+    c.err = err;
+    c.errlen = errlen;
+    c.li = c.ei = -1;
     bool ok = false;
     esl_jtok_t *tok = NULL;
 
@@ -420,8 +473,12 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     /* Every token takes at least two bytes of input except the last. */
     unsigned max_tok = (unsigned)(len / 2 + 2);
     tok = malloc(sizeof(esl_jtok_t) * max_tok);
-    if (!tok)
+    c.text = malloc(sizeof(*c.text) * ESL_LBIN_TEXT_MAX);
+    if (!tok || !c.text) {
+        free(tok);
+        free(c.text);
         return fail(&c, "out of memory");
+    }
     c.tok = tok;
     int n = esl_json_parse(json, len, tok, max_tok);
     if (n < 0) {
@@ -461,13 +518,24 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     out->bin[0] = ESL_LBIN_FORMAT;
     out->bin[1] = model;
     out->bin[2] = (uint8_t)tok[ls].size;
-    out->bin[3] = 0;
+    out->bin[ESL_LBIN_OFF_NTEXT] = 0;
     int k = ls + 1;
     for (unsigned i = 0; i < tok[ls].size; i++, k = tok[k].next) {
         c.li = (int)i;
         if (!layout(&c, k, out, &pos))
             goto done;
     }
+    c.li = -1;
+    for (unsigned i = 0; i < c.ntext; i++) {
+        if (pos + 1 + c.tlen[i] > ESL_LBIN_MAX) {
+            fail(&c, "the file is too big for the tags: at most %d bytes with the fixed texts", ESL_LBIN_MAX);
+            goto done;
+        }
+        out->bin[pos++] = c.tlen[i];
+        memcpy(&out->bin[pos], c.text[i], c.tlen[i]);
+        pos += c.tlen[i];
+    }
+    out->bin[ESL_LBIN_OFF_NTEXT] = c.ntext;
     out->count = (uint8_t)tok[ls].size;
     out->size = (uint16_t)pos;
     out->version = esl_crc32(out->bin, pos);
@@ -477,6 +545,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
 
 done:
     free(tok);
+    free(c.text);
     if (!ok) {
         out->count = 0;
         out->size = 0;

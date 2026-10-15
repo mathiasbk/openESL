@@ -85,7 +85,7 @@
  */
 typedef struct {
     uint8_t kind;
-    uint8_t field;
+    uint8_t field;            /* 0..3, or ESL_LE_FIELD_FIXED | n: fixed text n of the layout file */
     uint8_t font[LAYOUT_MAX_FONTS];
     uint8_t opts;
     uint8_t lines;

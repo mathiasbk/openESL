@@ -121,18 +121,26 @@
 
 /*
  * Layoutfila slik tagen får den (binær, laget av AP-en fra JSON-fila):
- *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)   3 0
- *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver.
+ *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)
+ *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)
+ *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver,
+ *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst.
+ * Et tekst- eller strekkodeelement med felt ESL_LE_FIELD_FIXED | i tegner fast tekst i i stedet
+ * for et felt fra CONTENT. Firmware 0.1.0 kjenner ikke faste tekster og avviser slike filer.
  * Versjonen er CRC32 (IEEE, som esl_crc32 på AP-en) av hele fila, 0 regnes som 1.
  */
 #define ESL_LBIN_FORMAT      1
 #define ESL_LBIN_HDR_LEN     4
+#define ESL_LBIN_OFF_NTEXT   3
+#define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
+#define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
+#define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
 #define ESL_LBIN_MAX         768    /* største fil tagen tar imot (XRAM-buffer på tagen) */
 
 /* Ett element, 14 byte, i samme rekkefølge som layout_elem_t i tag/src/layout.h */
 #define ESL_LE_SIZE          14
 #define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
-#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..3 */
+#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..3, eller ESL_LE_FIELD_FIXED | fast tekst */
 #define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
 #define ESL_LE_OFF_OPTS      5      /* u8 justering */
 #define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3) */
@@ -187,8 +195,8 @@
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
 #define ESL_INVERT_PAD       4      /* = LAYOUT_INVERT_PAD i tag/src/layout.h */
-#define ESL_DRAW_MAX_RUNS    8      /* = DRAW_MAX_RUNS i tag/src/draw.h: tekstlinjer per skjerm */
-#define ESL_DRAW_MAX_RECTS   5      /* = DRAW_MAX_RECTS: rektangler og inverterte felt per skjerm */
+#define ESL_DRAW_MAX_RUNS    16     /* = DRAW_MAX_RUNS i tag/src/draw.h: tekstlinjer per skjerm */
+#define ESL_DRAW_MAX_RECTS   10     /* = DRAW_MAX_RECTS: rektangler og inverterte felt per skjerm */
 #define ESL_LE_MAX_LINES     3      /* = LAYOUT_MAX_LINES */
 
 /* Skjermstørrelse per modell (= DRAW_W/DRAW_H i tag/src/model.h) */

@@ -361,6 +361,21 @@ uint8_t __xdata layout_file[ESL_LBIN_MAX];
 uint16_t __xdata layout_file_len;
 uint32_t __xdata layout_file_ver;
 static layout_elem_t __xdata wire_elem;
+static uint16_t __xdata text_pos;   /* where the fixed texts start in layout_file */
+
+/* Fixed text i of the installed file (ESL_LE_FIELD_FIXED), or *len = 0 */
+static const uint8_t *fixed_text(uint8_t i, uint8_t *len)
+{
+    uint16_t pos = text_pos;
+
+    *len = 0;
+    if (!layout_file_ver || i >= layout_file[ESL_LBIN_OFF_NTEXT])
+        return layout_file;
+    while (i--)
+        pos += 1 + (uint16_t)layout_file[pos];
+    *len = layout_file[pos];
+    return layout_file + pos + 1;
+}
 
 static void decode(const uint8_t *p)
 {
@@ -406,12 +421,19 @@ static void apply_list(draw_scene_t *s, const layout_elem_t *e, const uint8_t *w
                     color = DRAW_BLACK;
                 if (e->w && e->h)
                     draw_add_rect(s, e->x, e->y, e->x + e->w - 1, (uint8_t)(e->y + e->h - 1), color);
-            } else if (e->kind == LE_TEXT) {
-                if (e->field < nfields && lens[e->field])
-                    place_text(s, e, text[e->field], lens[e->field], color);
-            } else if (e->kind == LE_BARCODE) {
-                if (e->field < nfields && lens[e->field])
-                    place_barcode(s, e, text[e->field], lens[e->field]);
+            } else {
+                const uint8_t *t = 0;
+                uint8_t len = 0;
+                if (e->field & ESL_LE_FIELD_FIXED) {
+                    t = fixed_text(e->field & (uint8_t)~ESL_LE_FIELD_FIXED, &len);
+                } else if (e->field < nfields) {
+                    t = text[e->field];
+                    len = lens[e->field];
+                }
+                if (len && e->kind == LE_TEXT)
+                    place_text(s, e, t, len, color);
+                else if (len && e->kind == LE_BARCODE)
+                    place_barcode(s, e, t, len);
             }
         }
         if (wire)
@@ -435,6 +457,14 @@ void layout_apply_bin(draw_scene_t *s, const uint8_t *wire, uint8_t nelem, const
 
 /* ---- Downloaded layout file ---- */
 
+/* A field from CONTENT, or one of the file's fixed texts */
+static bool field_ok(uint8_t f)
+{
+    if (f & ESL_LE_FIELD_FIXED)
+        return (uint8_t)(f & ~ESL_LE_FIELD_FIXED) < layout_file[ESL_LBIN_OFF_NTEXT];
+    return f < ESL_MAX_FIELDS;
+}
+
 /* The checks the AP also makes, so a bad file can never index past a table or the screen. */
 static bool elem_ok(void)
 {
@@ -448,9 +478,9 @@ static bool elem_ok(void)
     if (e->kind == LE_RECT)
         return true;
     if (e->kind == LE_BARCODE)
-        return e->field < ESL_MAX_FIELDS && e->font[0] < ESL_BC_COUNT && e->lines <= ESL_BC_MODULE_MAX &&
+        return field_ok(e->field) && e->font[0] < ESL_BC_COUNT && e->lines <= ESL_BC_MODULE_MAX &&
                e->color == LE_BLACK;
-    if (e->field >= ESL_MAX_FIELDS || e->font[0] >= FONT_COUNT || e->lines > LAYOUT_MAX_LINES)
+    if (!field_ok(e->field) || e->font[0] >= FONT_COUNT || e->lines > LAYOUT_MAX_LINES)
         return false;
     for (i = 1; i < LAYOUT_MAX_FONTS; i++)
         if (e->font[i] >= FONT_COUNT && e->font[i] != LE_NO_FONT)
@@ -464,7 +494,8 @@ static bool file_ok(uint16_t len)
     uint8_t n, k;
 
     if (len < ESL_LBIN_HDR_LEN || layout_file[0] != ESL_LBIN_FORMAT || layout_file[1] != MODEL_CODE ||
-        layout_file[2] == 0 || layout_file[2] > ESL_LAYOUT_FILE_MAX)
+        layout_file[2] == 0 || layout_file[2] > ESL_LAYOUT_FILE_MAX ||
+        layout_file[ESL_LBIN_OFF_NTEXT] > ESL_LBIN_TEXT_MAX)
         return false;
     for (k = layout_file[2]; k; k--) {
         if (pos >= len)
@@ -477,6 +508,15 @@ static bool file_ok(uint16_t len)
             if (!elem_ok())
                 return false;
         }
+    }
+    text_pos = pos;
+    for (k = layout_file[ESL_LBIN_OFF_NTEXT]; k; k--) {
+        if (pos >= len)
+            return false;
+        n = layout_file[pos++];
+        if (!n || n > ESL_LBIN_TEXT_LEN_MAX || n > len - pos)
+            return false;
+        pos += n;
     }
     return pos == len;
 }
@@ -505,12 +545,18 @@ bool layout_file_restore(void)
     uint8_t k;
 
     layout_file_clear();
-    if (layout_file[0] != ESL_LBIN_FORMAT || layout_file[2] > ESL_LAYOUT_FILE_MAX)
+    if (layout_file[0] != ESL_LBIN_FORMAT || layout_file[2] > ESL_LAYOUT_FILE_MAX ||
+        layout_file[ESL_LBIN_OFF_NTEXT] > ESL_LBIN_TEXT_MAX)
         return false;               /* also erased flash (0xFF) */
     for (k = layout_file[2]; k; k--) {
         if (pos >= ESL_LBIN_MAX)
             return false;
         pos += 1 + (uint16_t)layout_file[pos] * ESL_LE_SIZE;
+    }
+    for (k = layout_file[ESL_LBIN_OFF_NTEXT]; k; k--) {
+        if (pos >= ESL_LBIN_MAX)
+            return false;
+        pos += 1 + (uint16_t)layout_file[pos];
     }
     if (pos > ESL_LBIN_MAX)
         return false;

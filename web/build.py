@@ -41,7 +41,7 @@ _spec.loader.exec_module(tag_build)
 
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
-AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c"]
+AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c"]
 TAG_SOURCES = tag_build.CORE + tag_build.FONTS + ["test/fake_epd.c", "test/helpers.c"]
 MODELS = ["29", "154"]
 STATIC = ["index.html", "api.html", "css", "js"]

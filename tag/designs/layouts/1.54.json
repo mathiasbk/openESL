@@ -82,8 +82,10 @@
       "_sample": ["Kramp", "Spann sort 12 l", "8713331002910", "17,25"],
       "elements": [
         { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
-        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24,
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 110, "h": 24,
           "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "text": "inkl. mva", "x": 118, "y": 0, "w": 76, "h": 24,
+          "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "field": "name", "x": 6, "y": 28, "w": 188, "h": 48,
           "fonts": ["medium", "small"], "lines": 2 },
         { "type": "text", "field": "price", "x": 6, "y": 76, "w": 188, "h": 56,

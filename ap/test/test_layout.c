@@ -270,7 +270,6 @@ static void test_errors(void)
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "color must be");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"invert\"}", "a rect can be");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"field\":\"a\"}", "field is only for text");
-    bad_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":100,\"h\":30,\"fonts\":[\"small\"]}", "needs a field");
     bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"medium\"],\"field\":\"c\"}", "field \"c\" is not in the layout's fields");
     bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"medium\"],\"field\":2}", "field must be one of");
     bad_el(TEXT_XYW ",\"h\":30,\"field\":\"a\",\"fonts\":[]}", "fonts must be a list of 1 to 3");
@@ -282,25 +281,55 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
     bad_el(TEXT_A ",\"color\":\"invert\"}", "black border of an inverted field");
-    /* the tag's scene: 8 text lines and 5 rectangles per screen */
+    /* the tag's scene: 16 text lines and 10 rectangles per screen */
 #define TALL TEXT_XYW ",\"h\":128,\"field\":\"a\",\"fonts\":[\"small\"]"
-    bad_el(TALL ",\"lines\":3}," TALL "}," TALL "}",
-           "layouts[0]: needs up to 9 lines of text, the tag draws at most 8");
-    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
-           "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
-           TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"},"
-           "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}",
-           "needs 6 rectangles");
-    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
-           "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
-           "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}",
-           "needs 6 rectangles");
-    /* 4 rects + one inverted field, and 3 + 3 + 2 lines, are exactly the limits */
-    CHECK(compile_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
-                     "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1},"
+#define R1 "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}"
+#define R5 R1 "," R1 "," R1 "," R1 "," R1
+    bad_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":2}",
+           "layouts[0]: needs up to 17 lines of text, the tag draws at most 16");
+    bad_el(R5 "," R5 "," TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}",
+           "needs 11 rectangles");
+    bad_el(R5 "," R5 "," R1, "needs 11 rectangles");
+    /* 9 rects + one inverted field, and 5 * 3 + 1 lines, are exactly the limits */
+    CHECK(compile_el(R5 "," R1 "," R1 "," R1 "," R1 ","
                      TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"));
-    CHECK(compile_el(TALL "}," TALL "}," TALL ",\"lines\":2}"));
+    CHECK(compile_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":1}"));
+#undef R5
+#undef R1
 #undef TALL
+
+    /* fixed texts: stored once at the end of the file, the element points at them */
+    CHECK(compile_el(TEXT_XYW ",\"h\":30,\"text\":\"inkl. mva\",\"fonts\":[\"small\"]},"
+                     TEXT_XYW ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]},"
+                     TEXT_XYW ",\"h\":30,\"text\":\"inkl. mva\",\"fonts\":[\"small\"]},"
+                     TEXT_A "}"));
+    {
+        const uint8_t *b = bin.bin;
+        size_t els = ESL_LBIN_HDR_LEN + 1 + 4 * ESL_LE_SIZE;
+        CHECK_INT(b[ESL_LBIN_OFF_NTEXT], 2);
+        CHECK_INT(b[5 + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
+        CHECK_INT(b[5 + ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 1);
+        CHECK_INT(b[5 + 2 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
+        CHECK_INT(b[5 + 3 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], 0);
+        CHECK_INT(bin.size, els + 1 + 9 + 1 + 2);
+        CHECK_INT(b[els], 9);
+        CHECK_MEM(&b[els + 1], "inkl. mva", 9);
+        CHECK_INT(b[els + 10], 2);
+        CHECK_MEM(&b[els + 11], "kr", 2);
+    }
+    /* UTF-8 becomes Latin-1, as for content */
+    CHECK(compile_el(TEXT_XYW ",\"h\":30,\"text\":\"Pris \u00e6\u00f8\u00e5 \u2013 kr\",\"fonts\":[\"small\"]}"));
+    CHECK_MEM(&bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_SIZE + 1], "Pris \xe6\xf8\xe5 - kr", 12);
+    bad_el(TEXT_XYW ",\"h\":30,\"text\":\"\",\"fonts\":[\"small\"]}", "text must not be empty");
+    bad_el(TEXT_XYW ",\"h\":30,\"text\":1,\"fonts\":[\"small\"]}", "text must be a string");
+    bad_el(TEXT_A ",\"text\":\"x\"}", "either field or text");
+    bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"small\"],\"text\":"
+           "\"12345678901234567890123456789012345678901234567890123456789012345\"}", "longer than 64 bytes");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1,\"text\":\"x\"}", "text is only for text");
+    bad_el("{\"type\":\"barcode\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"symbology\":\"code128\",\"text\":\"x\"}",
+           "a barcode takes a field");
+    bad_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":100,\"h\":30,\"fonts\":[\"small\"]}",
+           "needs a field or a fixed text");
 
     /* barcodes */
 #define BC "{\"type\":\"barcode\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"field\":\"a\""
