@@ -187,4 +187,4 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 - Write a flashing recipe per tag (backup → write → MAC) and build a jig so that it takes under a minute per tag.
 
 ## After version 1 (not planned in detail)
-Signed content (T16), OTA for the tags (T15), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes and OTA for the AP (A10) are already done, see the checklist above.
+Signed content (T16), OTA for the tags (T15, study in [tag-ota.md](tag-ota.md)), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes and OTA for the AP (A10) are already done, see the checklist above.
