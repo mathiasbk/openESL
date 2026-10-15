@@ -216,7 +216,7 @@ Reply `200` with one line per tag as above. Practical for the daily price job: o
 ### `GET /api/tags`: status for all tags
 ```json
 {
-  "ap": { "fw": "0.1.0", "uptime_s": 86400, "channel": 25, "max_tags": 64 },
+  "ap": { "fw": "0.1.0", "uptime_s": 86400, "channel": 25, "max_tags": 64, "reset": "poweron" },
   "tags": [
     { "mac": "00000123456789A8", "seen_s_ago": 12, "battery_mv": 2950, "rssi": -61,
       "fw": 1, "model": "2.9", "draw_failed": false,
