@@ -63,6 +63,7 @@ const char *esl_api_status_line(int status)
     case 409: return "409 Conflict";
     case 413: return "413 Payload Too Large";
     case 422: return "422 Unprocessable Entity";
+    case 429: return "429 Too Many Requests";
     case 501: return "501 Not Implemented";
     case 507: return "507 Insufficient Storage";
     default:  return "500 Internal Server Error";
@@ -92,6 +93,26 @@ bool esl_api_auth_ok(const char *token, const char *auth)
     for (size_t i = 0; i < gl; i++)
         diff |= (unsigned char)given[i] ^ (unsigned char)token[i % tl];
     return diff == 0;
+}
+
+int esl_api_auth_check(const esl_api_t *api, const char *auth, uint64_t now_ms, unsigned *wait_s)
+{
+    esl_api_lock_t *l = api->lock;
+    *wait_s = 0;
+    if (l && now_ms < l->locked_until_ms) {
+        *wait_s = (unsigned)((l->locked_until_ms - now_ms + 999) / 1000);
+        return 429;
+    }
+    if (esl_api_auth_ok(api->token, auth)) {
+        if (l)
+            l->fails = 0;
+        return 0;
+    }
+    if (l && ++l->fails >= ESL_API_AUTH_TRIES) {
+        l->fails = 0;
+        l->locked_until_ms = now_ms + ESL_API_AUTH_LOCK_S * 1000u;
+    }
+    return 401;
 }
 
 /* ---- request parsing -------------------------------------------------------- */
@@ -1253,7 +1274,14 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
 
     if (plen < 5 || memcmp(uri, "/api/", 5) != 0)
         return api_error(out, 404, "not found");
-    if (!esl_api_auth_ok(api->token, auth))
+    unsigned wait_s;
+    int auth_status = esl_api_auth_check(api, auth, now_ms, &wait_s);
+    if (auth_status == 429) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "too many wrong tokens: locked for %u s", wait_s);
+        return api_error(out, 429, msg);
+    }
+    if (auth_status)
         return api_error(out, 401, "unauthorized");
 
     const size_t lbase = sizeof(PATH_LAYOUTS) - 1;

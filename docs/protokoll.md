@@ -186,7 +186,7 @@ Any software (the client) calls a small REST API on the AP when content changes.
 
 In short:
 - **Reaching the AP:** HTTP on the local network or a VPN (`openesl.local`, or a fixed IP), or the same API over the AP's USB port as `@ESL` lines, with no token (`ap/README.md`, "Over the USB port"). `tools/esl-client` speaks both, and `esl_client.py serve` is a bridge on localhost that lets the web page send test requests.
-- **Authentication:** `Authorization: Bearer <token>`; the token is set in the AP (the setup page at `/setup`, menuconfig or NVS). Without a valid token: `401`. A read-only status page at `/` needs no token (requirement A6).
+- **Authentication:** `Authorization: Bearer <token>`; the token is set in the AP (the setup page at `/setup`, menuconfig or NVS). Without a valid token: `401`; after five wrong tokens in a row, `429` for every request for 60 s, so the token cannot be guessed at speed. A read-only status page at `/` needs no token (requirement A6).
 - **Errors:** `{"error":"<what is wrong>"}`, in a batch with `"index"` for the row.
 
 | Request | What it does |

@@ -162,7 +162,9 @@ done:
 #if CONFIG_ESL_OTA
 /* ---- /api/ota: new AP firmware (krav A10) ------------------------------------- */
 
-/* Checks the token like the rest of the API; false after sending 401. */
+/* Checks the token like the rest of the API, with the same lockout (the
+ * server runs every handler in one task, so api->lock needs no mutex here);
+ * false after sending 401 or 429. */
 static bool ota_auth(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
@@ -170,11 +172,16 @@ static bool ota_auth(httpd_req_t *req)
     size_t al = httpd_req_get_hdr_value_len(req, "Authorization");
     if (al && al < sizeof(auth))
         httpd_req_get_hdr_value_str(req, "Authorization", auth, sizeof(auth));
-    if (esl_api_auth_ok(api->token, al ? auth : NULL))
+    unsigned wait_s;
+    int status = esl_api_auth_check(api, al ? auth : NULL, (uint64_t)esp_timer_get_time() / 1000, &wait_s);
+    if (!status)
         return true;
-    static const char msg[] = "{\"error\":\"unauthorized\"}";
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
-    send_json(req, 401, msg, sizeof(msg) - 1);
+    char msg[80];
+    int n = status == 429 ? snprintf(msg, sizeof(msg), "{\"error\":\"too many wrong tokens: locked for %u s\"}", wait_s)
+                          : snprintf(msg, sizeof(msg), "{\"error\":\"unauthorized\"}");
+    if (status == 401)
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
+    send_json(req, status, msg, (size_t)n);
     return false;
 }
 

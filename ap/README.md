@@ -50,7 +50,7 @@ ap/
 
 ## HTTP API
 
-The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protokoll.md](../docs/protokoll.md) part 2 has an overview. `make openapi` in `test/` checks the spec against `esl_api.c`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`).
+The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protokoll.md](../docs/protokoll.md) part 2 has an overview. `make openapi` in `test/` checks the spec against `esl_api.c`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`). Five wrong tokens in a row lock the API for 60 s: every request, also with the right token, gets `429` until then, and `POST /api/ota` counts the same way (`esl_api_auth_check()`, `esl_api_lock_t`). The USB port has no token and no lockout.
 
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \

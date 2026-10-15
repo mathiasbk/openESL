@@ -133,6 +133,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TagList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
     put:
       tags: [Content]
       operationId: setTags
@@ -170,6 +171,7 @@ paths:
               schema: { $ref: "#/components/schemas/BatchResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/BatchInvalid" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -192,6 +194,7 @@ paths:
               schema: { $ref: "#/components/schemas/TagDetail" }
         "400": { $ref: "#/components/responses/BadMac" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownTag" }
     put:
       tags: [Content]
@@ -240,6 +243,7 @@ paths:
                   - $ref: "#/components/schemas/Scheduled"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "409": { $ref: "#/components/responses/NoTime" }
         "422": { $ref: "#/components/responses/Invalid" }
@@ -260,6 +264,7 @@ paths:
               schema: { $ref: "#/components/schemas/TagDeleted" }
         "400": { $ref: "#/components/responses/BadMac" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownTag" }
 
   /api/schedule/{mac}:
@@ -278,6 +283,7 @@ paths:
               schema: { $ref: "#/components/schemas/ScheduleDeleted" }
         "400": { $ref: "#/components/responses/BadMac" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NothingScheduled" }
 
   /api/schedule:
@@ -293,6 +299,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ScheduleList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
     delete:
       tags: [Schedule]
       operationId: deleteSchedule
@@ -304,6 +311,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ScheduleDeleted" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NothingScheduled" }
 
   /api/time:
@@ -322,6 +330,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Time" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
     put:
       tags: [Schedule]
       operationId: setTime
@@ -350,6 +359,7 @@ paths:
               schema: { $ref: "#/components/schemas/Time" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
 
@@ -368,6 +378,7 @@ paths:
               schema: { $ref: "#/components/schemas/TagConfigReply" }
         "400": { $ref: "#/components/responses/BadMac" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownTag" }
     put:
       tags: [Settings]
@@ -400,6 +411,7 @@ paths:
               schema: { $ref: "#/components/schemas/TagConfigChanged" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -417,6 +429,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApConfigReply" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
     put:
       tags: [Settings]
       operationId: setApConfig
@@ -451,6 +464,7 @@ paths:
               schema: { $ref: "#/components/schemas/ApConfigReply" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
 
@@ -482,6 +496,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "500": { $ref: "#/components/responses/ServerError" }
 
   /api/ota:
@@ -497,6 +512,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OtaInfo" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "501": { $ref: "#/components/responses/NoOta" }
     post:
       tags: [Firmware]
@@ -535,6 +551,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OtaReply" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "409":
           description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0
           content:
@@ -568,6 +585,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WifiStatus" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
     put:
       tags: [WiFi]
       operationId: setWifi
@@ -600,6 +618,7 @@ paths:
               schema: { $ref: "#/components/schemas/WifiStatus" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -616,6 +635,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LayoutList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
 
   /api/layouts/{model}:
     parameters:
@@ -631,6 +651,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LayoutFile" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoLayout" }
     put:
       tags: [Layout files]
@@ -667,6 +688,7 @@ paths:
               schema: { $ref: "#/components/schemas/LayoutStored" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownModel" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/LayoutInvalid" }
@@ -683,6 +705,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LayoutDeleted" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoLayout" }
 
 components:
@@ -690,7 +713,7 @@ components:
     token:
       type: http
       scheme: bearer
-      description: The token set in the AP. Not needed over the USB port.
+      description: The token set in the AP. Not needed over the USB port. After five wrong tokens in a row the API answers `429` for 60 seconds.
 
   parameters:
     mac:
@@ -734,6 +757,15 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: unauthorized }
+    Locked:
+      description: |
+        Five wrong tokens in a row lock the API for 60 seconds: every request gets this,
+        whatever its token, and the count starts again afterwards. The USB port is not
+        affected.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "too many wrong tokens: locked for 42 s" }
     UnknownTag:
       description: The AP does not know this tag
       content:

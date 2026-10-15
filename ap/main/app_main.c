@@ -73,6 +73,8 @@ void app_main(void)
 #endif
     api.store = &store;
     api.token = token;
+    static esl_api_lock_t lock;
+    api.lock = &lock;
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
