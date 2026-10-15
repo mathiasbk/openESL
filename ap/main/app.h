@@ -13,8 +13,11 @@ esp_err_t layouts_nvs_init(esl_layouts_t *ls);
 /* Reads a string from NVS namespace "cfg", falling back to def. */
 void cfg_get_str(const char *key, const char *def, char *out, size_t out_len);
 
-/* wifi.c */
-esp_err_t wifi_start(const char *ssid, const char *password, const char *hostname);
+/* wifi.c: joins ssid, or opens the setup network when there is none or it
+ * does not answer. token (token_cap bytes) is the API token buffer, which the
+ * setup page may change. Never fails: WiFi trouble leaves the mode "off". */
+const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const char *hostname, char *token,
+                                 size_t token_cap);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
  * HTTP and serial transports; call api_handle_init() before either starts. */

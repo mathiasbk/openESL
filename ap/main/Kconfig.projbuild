@@ -12,6 +12,25 @@ menu "OpenESL AP"
         help
             Used when NVS namespace "cfg" has no "pass" key.
 
+    config ESL_WIFI_SETUP_AFTER_S
+        int "Open the setup network after this many s without WiFi (0 = never)"
+        range 0 3600
+        default 180
+        help
+            With no network saved, the AP opens its own network
+            "openesl-XXXX" at once, with a setup page at
+            http://192.168.4.1/setup. With one saved that has not given an IP
+            for this long, it opens the setup network too, and keeps trying
+            the saved one. The setup network closes a minute after joining.
+
+    config ESL_WIFI_SETUP_PASSWORD
+        string "Setup network password (empty = open network)"
+        default ""
+        help
+            8 to 63 characters for WPA2, empty for an open network. The page
+            itself asks for the API token once a token is set, so an open
+            setup network only lets strangers configure an AP that has none.
+
     config ESL_API_TOKEN
         string "API bearer token"
         default ""

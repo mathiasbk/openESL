@@ -19,11 +19,32 @@ static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 
+/* A WiFi side that only remembers what it was given. */
+static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
+                                 .scan_count = 1, .scan = {"Butikken"}, .scan_rssi = {-58}};
+
+static void wifi_status(void *ctx, esl_wifi_status_t *out)
+{
+    (void)ctx;
+    *out = wifi;
+}
+
+static int wifi_set(void *ctx, const char *ssid, const char *pass)
+{
+    (void)ctx;
+    (void)pass;
+    strcpy(wifi.ssid, ssid);
+    wifi.mode = ssid[0] ? ESL_WIFI_STA_SETUP : ESL_WIFI_SETUP;
+    return 0;
+}
+
+static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, NULL, NULL};
+
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron"};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops};
     uint64_t now_ms = 1000;
     char line[512];
 

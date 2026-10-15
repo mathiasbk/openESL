@@ -13,6 +13,7 @@ void test_store(void);
 void test_api(void);
 void test_layout(void);
 void test_radio(void);
+void test_wifi(void);
 
 static const struct {
     const char *name;
@@ -29,6 +30,7 @@ static const struct {
     {"api", test_api},
     {"layout", test_layout},
     {"radio", test_radio},
+    {"wifi", test_wifi},
 };
 
 int main(void)

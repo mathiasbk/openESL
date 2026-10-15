@@ -64,9 +64,9 @@ void app_main(void)
     cfg_get_str("pass", CONFIG_ESL_WIFI_PASSWORD, password, sizeof(password));
     cfg_get_str("token", CONFIG_ESL_API_TOKEN, token, sizeof(token));
     if (!token[0])
-        ESP_LOGE(TAG, "No API token set (menuconfig or NVS cfg/token): every API request gets 401");
+        ESP_LOGE(TAG, "No API token set (setup page, menuconfig or NVS cfg/token): every HTTP API request gets 401");
 
-    ESP_ERROR_CHECK(wifi_start(ssid, password, CONFIG_ESL_MDNS_HOSTNAME));
+    api.wifi = wifi_start(ssid, password, CONFIG_ESL_MDNS_HOSTNAME, token, sizeof(token));
 
     api.store = &store;
     api.token = token;

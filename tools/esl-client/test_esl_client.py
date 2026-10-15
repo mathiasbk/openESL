@@ -18,6 +18,7 @@ TOKEN = "secret"
 class FakeAp(BaseHTTPRequestHandler):
     tags = {}
     calls = []
+    wifi = {}
 
     def log_message(self, *a):
         pass
@@ -51,7 +52,9 @@ class FakeAp(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._auth():
             return
-        if self.path == "/api/tags":
+        if self.path == "/api/wifi":
+            self._send(200, self.wifi)
+        elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
         elif self.path.startswith("/api/tags/"):
@@ -65,7 +68,11 @@ class FakeAp(BaseHTTPRequestHandler):
             return
         body = self._body()
         self.calls.append((self.path, body))
-        if self.path == "/api/tags":
+        if self.path == "/api/wifi":
+            FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
+                           "setup_ssid": None, "networks": []}
+            self._send(200, FakeAp.wifi)
+        elif self.path == "/api/tags":
             if len(body["tags"]) > esl_client.BATCH_MAX:
                 self._send(413, {"error": "too many"})
                 return
@@ -147,6 +154,19 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(sizes, [50, 50, 20])
         self.assertTrue(FakeAp.calls[0][1]["tags"][1]["price_highlight"])
         self.assertNotIn("price_highlight", FakeAp.calls[0][1]["tags"][0])
+
+    def test_wifi(self):
+        FakeAp.wifi = {"mode": "sta+setup", "ssid": "Home", "connected": False, "setup_ssid": "openesl-1A2B",
+                       "networks": [{"ssid": "Home", "rssi": -50}]}
+        rc, out = self.run_cli("wifi")
+        self.assertEqual(rc, 0)
+        self.assertIn("trying to join 'Home'", out)
+        self.assertIn("openesl-1A2B", out)
+        self.assertIn(" -50 dBm  Home", out)
+        rc, out = self.run_cli("wifi", "Butikken", "--password", "hemmelig123")
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Butikken", "password": "hemmelig123"}))
+        self.assertIn("trying to join 'Butikken'", out)
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)

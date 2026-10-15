@@ -8,6 +8,7 @@
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
 #define PATH_CONFIG "/api/config"
+#define PATH_WIFI "/api/wifi"
 
 _Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -598,6 +599,58 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
     return 200;
 }
 
+/* GET/PUT /api/wifi: the network the AP joins (krav A1). The password is never
+ * shown. ssid "" or null forgets the network, and the AP opens its setup
+ * network again. */
+static int ap_wifi(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
+{
+    esl_wifi_status_t ws;
+    if (strcmp(method, "PUT") == 0) {
+        esl_jtok_t *tok = NULL;
+        int status = parse_json(body, len, &tok, out);
+        if (status == 0) {
+            char ssid[ESL_WIFI_SSID_MAX + 1] = "", pass[ESL_WIFI_PASS_MAX + 1] = "";
+            int s = esl_json_obj_get(body, tok, 0, "ssid");
+            int p = esl_json_obj_get(body, tok, 0, "password");
+            int sl = 0, pl = 0;
+            const char *err = NULL;
+            if (s < 0)
+                err = "ssid is required (null or \"\" forgets the saved network)";
+            else if (tok[s].type == ESL_JSON_STRING)
+                sl = esl_json_str_decode(body, &tok[s], ssid, sizeof(ssid) - 1);
+            else if (tok[s].type != ESL_JSON_NULL)
+                err = "ssid must be a string or null";
+            if (!err && p >= 0 && tok[p].type == ESL_JSON_STRING)
+                pl = esl_json_str_decode(body, &tok[p], pass, sizeof(pass) - 1);
+            else if (!err && p >= 0 && tok[p].type != ESL_JSON_NULL)
+                err = "password must be a string";
+            if (!err && sl == -2)
+                err = "ssid is longer than 32 bytes";
+            else if (!err && pl == -2)
+                err = "password must be empty (open network) or 8 to 63 characters";
+            else if (!err && (sl < 0 || pl < 0))
+                err = "bad escape in ssid or password";
+            if (!err) {
+                ssid[sl] = 0;
+                pass[pl] = 0;
+                err = esl_wifi_check(ssid, (size_t)sl, pass, (size_t)pl);
+            }
+            if (err)
+                status = api_error(out, 422, err);
+            else if (api->wifi->set(api->wifi->ctx, ssid, pass) != 0)
+                status = api_error(out, 500, "could not save the network");
+        }
+        free(tok);
+        if (status)
+            return status;
+    } else if (strcmp(method, "GET") != 0) {
+        return api_error(out, 405, "method not allowed");
+    }
+    api->wifi->status(api->wifi->ctx, &ws);
+    esl_wifi_write_json(out, &ws);
+    return 200;
+}
+
 /* ---- layouts ------------------------------------------------------------------- */
 
 static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
@@ -756,6 +809,8 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     html_ago(out, now_ms / 1000);
     esl_sb_printf(out, ", channel %u, %u of %u tags.</p>", (unsigned)api->channel,
                   esl_store_count(api->store), api->store->cap);
+    if (api->wifi)
+        esl_sb_puts(out, "<p><a href=\"/setup\">WiFi and API token setup</a></p>");
     if (api->layouts) {
         esl_sb_puts(out, "<p>Layout files:");
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
@@ -856,6 +911,13 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     const size_t cbase = sizeof(PATH_CONFIG) - 1;
     if ((plen == cbase || (plen == cbase + 1 && uri[cbase] == '/')) && memcmp(uri, PATH_CONFIG, cbase) == 0) {
         int status = ap_config(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t wbase = sizeof(PATH_WIFI) - 1;
+    if (api->wifi && (plen == wbase || (plen == wbase + 1 && uri[wbase] == '/')) &&
+        memcmp(uri, PATH_WIFI, wbase) == 0) {
+        int status = ap_wifi(api, method, body, body_len, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
