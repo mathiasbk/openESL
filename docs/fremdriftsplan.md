@@ -63,7 +63,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Example client in Python (`tools/esl-client`)
 - [x] Status page on the AP (A6)
 - [x] Web flasher and label designer (GitHub Pages, `web/`)
-- [ ] API documentation checked against what runs on hardware
+- [x] API documentation checked against the code (`docs/protokoll.md` part 2: transports, limits, error codes, every field in `GET /api/tags`); the AP runs the same `esl_api.c` as the host tests
+- [ ] The settings endpoints (`/api/config`, `/api/tags/{mac}/config`) and CONFIG tried on hardware; the other endpoints were used over the USB port in phase 5
 
 **Phase 8: Operational reliability**
 - [x] Watchdog on the tag (T10)
