@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import esl_client
@@ -75,6 +75,10 @@ class FakeAp(BaseHTTPRequestHandler):
         elif self.path == "/api/tags":
             if len(body["tags"]) > esl_client.BATCH_MAX:
                 self._send(413, {"error": "too many"})
+                return
+            bad = [i for i, r in enumerate(body["tags"]) if "BAD" in r.get("fields", [])]
+            if bad:
+                self._send(422, {"error": "layout \"BAD\" is not in any layout file", "index": bad[0]})
                 return
             self._send(200, {"tags": [self._set(r["mac"], {k: v for k, v in r.items() if k != "mac"})
                                       for r in body["tags"]]})
@@ -154,6 +158,72 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(sizes, [50, 50, 20])
         self.assertTrue(FakeAp.calls[0][1]["tags"][1]["price_highlight"])
         self.assertNotIn("price_highlight", FakeAp.calls[0][1]["tags"][0])
+
+    def write(self, text, encoding="utf-8"):
+        f = tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False)
+        f.write(text.encode(encoding))
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def run_err(self, *args):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc, out = self.run_cli(*args)
+        return rc, out, err.getvalue()
+
+    def test_sync_excel_semicolons(self):
+        # Excel on a Norwegian Windows: ; between columns, Windows-1252, decimal comma
+        path = self.write("MAC;Navn;Pris;Layout\r\n0000000000000001;Brød;24,90;price\r\n", "cp1252")
+        rc, out = self.run_cli("sync", path)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[0][1]["tags"], [{"mac": "0000000000000001", "layout": "price",
+                                                       "fields": ["Brød", "24,90"]}])
+
+    def test_sync_columns_by_name(self):
+        path = self.write("name,mac,price,frame\nMelk,0000000000000002,19.90,1\nOst,0000000000000003,,\n")
+        rc, out = self.run_cli("sync", path, "--layout", "price")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[0][1]["tags"], [
+            {"mac": "0000000000000002", "layout": "price", "fields": ["Melk", "19.90"], "frame": True},
+            {"mac": "0000000000000003", "layout": "price", "fields": ["Ost"]}])
+
+    def test_sync_items_to_tags(self):
+        tags = self.write("mac,item\n0000000000000001,100\n0000000000000002,100\n0000000000000003,200\n"
+                          "0000000000000004,300\n")
+        prices = self.write("item,layout,name,price\n100,price,Melk,19.90\n200,price,Ost,89.00\n")
+        rc, out = self.run_cli("sync", prices, "--tags", tags)
+        self.assertEqual(rc, 0, out)
+        sent = {r["mac"]: r["fields"] for r in FakeAp.calls[0][1]["tags"]}
+        self.assertEqual(sent, {"0000000000000001": ["Melk", "19.90"], "0000000000000002": ["Melk", "19.90"],
+                                "0000000000000003": ["Ost", "89.00"]})
+        self.assertIn("item '300'", out)
+
+    def test_sync_errors_send_nothing(self):
+        path = self.write("mac,layout,name\n0000000000000001,price,A\n12,price,B\n"
+                          "0000000000000001,price,C\n0000000000000004,,D\n")
+        rc, out, err = self.run_err("sync", path)
+        self.assertEqual(rc, 1)
+        self.assertEqual(FakeAp.calls, [])
+        self.assertIn(f"{path}:3: not a 16-digit hex MAC", err)
+        self.assertIn(f"{path}:4: 0000000000000001 already has content from line 2", err)
+        self.assertIn(f"{path}:5: no layout", err)
+
+    def test_sync_ap_error_names_the_line(self):
+        lines = "".join(f"{i:016X},price,Vare {i}\n" for i in range(1, 61))
+        path = self.write("mac,layout,name\n" + lines.replace("Vare 55", "BAD"))
+        rc, out, err = self.run_err("sync", path)
+        self.assertEqual(rc, 2)
+        self.assertIn(f"{path}:56: layout", err)
+        self.assertIn("the 50 tags before", err)
+
+    def test_sync_dry_run(self):
+        path = self.write("mac,layout,name,price\n0000000000000001,price,Melk,19.90\n")
+        rc, out = self.run_cli("sync", path, "--dry-run")
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls, [])
+        self.assertIn("0000000000000001  price       Melk | 19.90", out)
+        self.assertIn("1 tags would be sent", out)
 
     def test_wifi(self):
         FakeAp.wifi = {"mode": "sta+setup", "ssid": "Home", "connected": False, "setup_ssid": "openesl-1A2B",

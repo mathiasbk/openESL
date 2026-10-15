@@ -89,6 +89,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Barcodes in layouts: Code 128 and EAN-13 drawn by the tag (`barcode` element, [protokoll.md](protokoll.md) parts 1 and 3), the AP refuses content it cannot encode; decoded from the drawn screens in the host tests
 - [ ] A barcode scanned from a real tag (2.9" with 2-pixel modules, and the 1.54" with 1-pixel modules)
 - [x] Fixed text in layouts (`"text"` in a text element, stored once at the end of the layout file), and up to 16 text lines and 10 rectangles per screen (was 8 and 5)
+- [x] CSV import for bulk updates in `esl-client sync`: columns by name, Excel exports (`;`, Windows-1252), prices by item number with a `mac,item` file (`--tags`), every bad line reported before anything is sent, `--dry-run`; the tool tests now run in CI
 - [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, without a limit on wrong tries
 
 ## Phase 0: Preparation

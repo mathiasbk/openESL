@@ -16,12 +16,14 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py --serial /dev/ttyACM0 status
   esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
-CSV for sync: mac,layout,highlight,frame,field1,field2,... with a header row.
-highlight and frame are 1/0, true/false or empty.
+CSV for sync: a header row names the columns: mac, layout, highlight and frame
+(1/0, true/false or empty); every other column is a field, in column order.
+With --tags tags.csv (mac,item) the file has an item column instead of mac.
 """
 
 import argparse
 import csv
+import io
 import json
 import os
 import re
@@ -301,24 +303,120 @@ def content(layout, fields, highlight=False, frame=False):
     return c
 
 
-def read_csv(path):
+class CsvError(Exception):
+    """A problem in a CSV file, with file and line."""
+
+
+def read_text(path):
+    """A CSV export as text: UTF-8 (with or without BOM), else Windows-1252, which
+    is what Excel writes for "CSV" on a Norwegian Windows."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", "replace")
+
+
+def read_table(path):
+    """Header (lower case) and [(line, cells)] from a CSV file. The separator is
+    the one of , ; or tab that the header line has most of (Excel uses ; where
+    the decimal mark is a comma)."""
+    text = read_text(path)
+    first = text.split("\n", 1)[0]
+    delim = max(",;\t", key=first.count)
+    r = csv.reader(io.StringIO(text, newline=""), delimiter=delim)
+    header = next(r, None)
+    if not header:
+        raise CsvError(f"{path}: empty file")
+    header = [h.strip().lower() for h in header]
     rows = []
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        r = csv.reader(f)
-        header = next(r, None)
-        if not header or [h.strip().lower() for h in header[:4]] != ["mac", "layout", "highlight", "frame"]:
-            raise SystemExit("CSV header must start with mac,layout,highlight,frame")
-        for n, row in enumerate(r, start=2):
-            if not row or not row[0].strip():
-                continue
+    for row in r:
+        if any(c.strip() for c in row):
+            rows.append((r.line_num, row))
+    return header, rows
+
+
+def read_bindings(path):
+    """tags.csv for --tags: which tags show which item. {item: [mac, ...]}."""
+    header, rows = read_table(path)
+    if "mac" not in header or "item" not in header:
+        raise CsvError(f"{path}: the header needs the columns mac and item")
+    im, ii = header.index("mac"), header.index("item")
+    by_item, seen = {}, {}
+    for n, row in rows:
+        cell = lambda i: row[i].strip() if i < len(row) else ""
+        try:
+            mac = norm_mac(cell(im))
+        except argparse.ArgumentTypeError as e:
+            raise CsvError(f"{path}:{n}: {e}")
+        item = cell(ii)
+        if not item:
+            raise CsvError(f"{path}:{n}: no item for {mac}")
+        if mac in seen:
+            raise CsvError(f"{path}:{n}: {mac} is already bound to item {seen[mac]!r}")
+        seen[mac] = item
+        by_item.setdefault(item, []).append(mac)
+    return by_item
+
+
+def read_csv(path, layout=None, bindings=None):
+    """Tag content from a CSV file: [(where, content with "mac")], where = "file:line".
+
+    Columns are found by name: mac (or item, with bindings from --tags), layout
+    (or the layout argument), highlight and frame are optional, and every other
+    column is a field, in column order. Problems are collected and raised
+    together, so nothing is sent from a file with errors."""
+    header, rows = read_table(path)
+    key = "mac" if "mac" in header else "item" if "item" in header else None
+    errors = []
+    if key is None:
+        raise CsvError(f"{path}: the header needs a mac column, or an item column together with --tags")
+    if key == "item" and bindings is None:
+        raise CsvError(f"{path}: an item column needs --tags with the file that binds tags to items")
+    if "layout" not in header and not layout:
+        raise CsvError(f"{path}: no layout column: add one, or give --layout")
+    col = {name: header.index(name) for name in ("layout", "highlight", "frame") if name in header}
+    col[key] = header.index(key)
+    fields = [i for i, h in enumerate(header) if i not in col.values()]
+
+    out, where_mac, items = [], {}, set()
+    for n, row in rows:
+        where = f"{path}:{n}"
+        cell = lambda name: row[col[name]].strip() if name in col and col[name] < len(row) else ""
+        lay = cell("layout") or layout
+        if not lay:
+            errors.append(f"{where}: no layout")
+            continue
+        c = content(lay, [row[i] if i < len(row) else "" for i in fields],
+                    as_bool(cell("highlight")), as_bool(cell("frame")))
+        while c["fields"] and not c["fields"][-1]:
+            c["fields"].pop()
+        if key == "mac":
             try:
-                mac = norm_mac(row[0].strip())
+                macs = [norm_mac(cell("mac"))]
             except argparse.ArgumentTypeError as e:
-                raise SystemExit(f"{path}:{n}: {e}")
-            c = content(row[1].strip(), row[4:], as_bool(row[2]), as_bool(row[3]))
-            c["mac"] = mac
-            rows.append(c)
-    return rows
+                errors.append(f"{where}: {e}")
+                continue
+        else:
+            item = cell("item")
+            if item in items:
+                errors.append(f"{where}: item {item!r} is in the file twice")
+                continue
+            items.add(item)
+            macs = bindings.get(item, [])
+        for mac in macs:
+            if mac in where_mac:
+                errors.append(f"{where}: {mac} already has content from line {where_mac[mac].rsplit(':', 1)[1]}")
+                continue
+            where_mac[mac] = where
+            out.append((where, dict(c, mac=mac)))
+    if errors:
+        raise CsvError("\n".join(errors))
+    unused = []
+    if key == "item":
+        unused = sorted(set(bindings) - items)
+    return out, unused
 
 
 def fmt_ago(s):
@@ -379,6 +477,44 @@ def set_one(cli, args, c):
     return 0
 
 
+def sync(cli, args):
+    try:
+        bindings = read_bindings(args.tags) if args.tags else None
+        rows, unused = read_csv(args.csv, args.layout, bindings)
+    except (CsvError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    for item in unused:
+        print(f"note: item {item!r} in {args.tags} is not in {args.csv}; its tags are left as they are")
+    if args.dry_run:
+        for where, c in rows:
+            print(f"{c['mac']}  {c['layout']:10}  {' | '.join(c['fields'])}  ({where})")
+        print(f"{len(rows)} tags would be sent")
+        return 0
+    res = []
+    for i in range(0, len(rows), BATCH_MAX):
+        chunk = rows[i:i + BATCH_MAX]
+        try:
+            res.extend(cli.set_many([c for _, c in chunk]))
+        except ApiError as e:
+            msg = e.body
+            try:
+                err = json.loads(e.body)
+                msg = err.get("error", msg)
+                if isinstance(err.get("index"), int) and 0 <= err["index"] < len(chunk):
+                    msg = f"{chunk[err['index']][0]}: {msg}"
+            except ValueError:
+                pass
+            print(f"error: HTTP {e.status}: {msg}", file=sys.stderr)
+            if res:
+                print(f"the {len(res)} tags before this group of {len(chunk)} were sent; "
+                      "fix the line and run sync again (unchanged tags cost nothing)", file=sys.stderr)
+            return 2
+    changed = sum(1 for r in res if r.get("changed"))
+    print(f"{len(res)} tags sent, {changed} changed, {sum(1 for r in res if r.get('pending'))} pending")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="OpenESL AP example client")
     p.add_argument("--url", default=os.environ.get("OPENESL_URL", "http://openesl.local"))
@@ -404,6 +540,9 @@ def main(argv=None):
 
     s = sub.add_parser("sync", help="full send from CSV (chunks of 50)")
     s.add_argument("csv")
+    s.add_argument("--tags", metavar="CSV", help="mac,item file: the CSV has an item column instead of mac")
+    s.add_argument("--layout", help="layout for rows without one (or when there is no layout column)")
+    s.add_argument("--dry-run", action="store_true", help="check the files and show what would be sent")
     s = sub.add_parser("delete", help="remove a tag from the AP")
     s.add_argument("mac", type=norm_mac)
     sub.add_parser("layouts", help="list layout files per model")
@@ -439,11 +578,7 @@ def main(argv=None):
         elif args.cmd == "text":
             return set_one(cli, args, content("text", args.fields, False, args.frame))
         elif args.cmd == "sync":
-            rows = read_csv(args.csv)
-            res = cli.set_many(rows)
-            changed = sum(1 for r in res if r.get("changed"))
-            print(f"{len(res)} tags sent, {changed} changed, "
-                  f"{sum(1 for r in res if r.get('pending'))} pending")
+            return sync(cli, args)
         elif args.cmd == "delete":
             cli.delete_tag(args.mac)
             print(f"{args.mac} deleted")
