@@ -556,7 +556,7 @@ def print_status(st):
             state += ", DRAW FAILED"
         batt = t.get("battery_mv")
         print(f"{t['mac']:16}  {t.get('model') or '-':5}  {fmt_ago(t.get('seen_s_ago')):>7}  "
-              f"{(str(batt) + ' mV') if batt is not None else '-':>6}  "
+              f"{(str(batt) + ' mV') if batt else '-':>6}  "
               f"{t.get('rssi') if t.get('rssi') is not None else '-':>4}  {state}")
 
 

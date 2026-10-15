@@ -213,6 +213,10 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("status")
         self.assertIn("00000123456789A8", out)
         self.assertIn("shown", out)
+        self.assertIn("2950 mV", out)
+        FakeAp.tags["00000123456789A8"]["battery_mv"] = 0     # 0 = the tag cannot measure it
+        rc, out = self.run_cli("status")
+        self.assertNotIn("0 mV", out)
 
     def test_health_and_config(self):
         rc, out = self.run_cli("health")
