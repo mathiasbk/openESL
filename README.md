@@ -8,11 +8,11 @@ your software ──HTTP + token──► ESP32-C6 (AP) ──802.15.4──► 
 
 The AP is only an API. It does not know about products, shops or databases: it stores text fields per tag MAC and hands them to the tags. Anything that can make an HTTP request (a script, a web shop, a home automation system) can be a client.
 
-**API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api): interactive, with test requests against your own AP through `tools/esl-client` (`esl_client.py serve`). The reference is [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1), checked against the AP code in CI. The same page has the label designer and the flashers. An example client is in [tools/esl-client](tools/esl-client/README.md).
+**Setting up the AP** (first start, WiFi, the API token): the Set up tab of the web page, [mathiasbk.github.io/openESL/#setup](https://mathiasbk.github.io/openESL/#setup). **API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api): interactive, with test requests against your own AP through `tools/esl-client` (`esl_client.py serve`). The reference is [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1), checked against the AP code in CI. The same page has the label designer and the flashers. An example client is in [tools/esl-client](tools/esl-client/README.md).
 
 ## Status
 
-Early work in progress. The protocol, the AP core with its HTTP API, and the drawing code on the tag are written and tested on a PC. The hardware layer of the tag (clock, GPIO, radio, sleep) is not written yet, so the tag firmware does not run on a real tag yet. See [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
+Working on hardware since 2026-10-14: the tag firmware runs on the SoluM 1.54" (ST-GM16XX2, ZBS243), and the ESP32-C6 AP serves it, with the API over USB and WiFi. Prices and text, layout files with barcodes, scheduled prices, per-tag settings, a health report with a webhook, OTA for the AP, backup and restore, and the web page with a label designer and browser flashers are in place and tested on a PC, in CI and (most of them) on the jig. The first release is v0.1.0. What is left, and what is still untried on hardware, is in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
 ## Folders
 

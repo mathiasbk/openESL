@@ -271,6 +271,12 @@ class SerialClient(Client):
                 if not more:
                     return status, body
         except (OSError, TimeoutError) as e:
+            if self.fd is not None:  # the port is opened again next time (the AP may have restarted)
+                try:
+                    os.close(self.fd)
+                except OSError:
+                    pass
+                self.fd = None
             raise ConnectionError(f"no answer on {self.port}: {e}") from None
 
 
@@ -574,6 +580,29 @@ def print_ota(o):
     other = f"{o.get('other_slot')} holds {o.get('other_version') or 'nothing'}" if o.get("other_slot") else "no second slot"
     print(f"running {o.get('version')} from {o.get('slot')}, slot size {o.get('slot_size')} bytes, {other}"
           + (", upload in progress" if o.get("uploading") else ""))
+
+
+def wait_back(cli, slot, version, timeout_s=120, poll_s=2, sleep=time.sleep):
+    """After an OTA: asks GET /api/ota until the AP answers again, and says
+    whether it runs the new image or fell back to the old slot. Returns 0 when
+    the new one runs, 1 otherwise."""
+    end = time.monotonic() + timeout_s
+    while True:
+        try:
+            o = cli.ota_info()
+        except ConnectionError:
+            o = None
+        if o is not None:
+            if o.get("slot") == slot and o.get("version") == version:
+                print(f"the AP is back: version {version} from {slot}")
+                return 0
+            print(f"the AP is back on {o.get('slot')} with version {o.get('version')}: "
+                  f"the new image did not confirm itself, so the bootloader fell back to the old one")
+            return 1
+        if time.monotonic() >= end:
+            print(f"no answer from the AP after {timeout_s} s; check its log on the USB port", file=sys.stderr)
+            return 1
+        sleep(poll_s)
 
 
 def print_wifi(w):
@@ -984,6 +1013,8 @@ def main(argv=None):
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or show the app slots")
     s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release")
+    s.add_argument("--wait", action="store_true", help="wait until the AP answers again and check that the new image runs")
+    s.add_argument("--wait-s", type=int, default=120)
 
     s = sub.add_parser("log", help="long-term test: append a row per tag to a CSV file every --every seconds, until Ctrl-C")
     s.add_argument("file", help="the CSV log (created with a header if new, otherwise appended to)")
@@ -1074,6 +1105,11 @@ def main(argv=None):
                 print(f"sending {len(image)} bytes ...", flush=True)
                 r = cli.ota(image, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True))
                 print(f"written to {r.get('slot')}: version {r.get('version')}, the AP is restarting")
+                if args.wait:
+                    print("waiting for the AP to come back ...", flush=True)
+                    sleep_s = 3  # the restart itself takes a few seconds
+                    time.sleep(sleep_s)
+                    return wait_back(cli, r.get("slot"), r.get("version"), args.wait_s)
         elif args.cmd == "backup":
             b = backup(cli)
             text = json.dumps(b, indent=1, ensure_ascii=False)
