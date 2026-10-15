@@ -31,6 +31,14 @@ int api_handle(const esl_api_t *api, const char *method, const char *uri, const 
     return status;
 }
 
+int api_handle_health(const esl_api_t *api, uint64_t now_ms, uint8_t *prev, esl_sb_t *out)
+{
+    xSemaphoreTake(api_mutex, portMAX_DELAY);
+    int status = esl_api_health(api, now_ms, NULL, prev, out);
+    xSemaphoreGive(api_mutex);
+    return status;
+}
+
 static esp_err_t send_json(httpd_req_t *req, int status, const char *body, size_t len)
 {
     httpd_resp_set_status(req, esl_api_status_line(status));

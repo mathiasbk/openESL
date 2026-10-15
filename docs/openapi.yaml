@@ -81,6 +81,14 @@ tags:
       set by the AP itself, so the client does not need to run at that time.
   - name: Settings
     description: How often the tags poll and when they give up on the AP. Kept in NVS, so they survive an AP restart.
+  - name: Health
+    description: |
+      Which tags need attention: silent (no poll for 3 intervals), never seen since the AP
+      started, drawing failed, battery low, layout file rejected, or content that cannot be
+      sent. `GET /api/health` is made for monitoring (poll it, and read `ok`). With a
+      `webhook` set in `PUT /api/config`, the AP checks every 30 s and `POST`s the same
+      report (plus `changed`) to that URL whenever any tag's problems change, so nothing
+      needs to poll it.
   - name: WiFi
     description: |
       The network the AP joins. With no network saved the AP opens its own network
@@ -393,7 +401,7 @@ paths:
     get:
       tags: [Settings]
       operationId: getApConfig
-      summary: The AP-wide default poll interval
+      summary: The AP-wide default poll interval and the webhook
       responses:
         "200":
           description: The default
@@ -404,8 +412,11 @@ paths:
     put:
       tags: [Settings]
       operationId: setApConfig
-      summary: Change the AP-wide default poll interval
-      description: The interval for tags without their own `poll_s`. Stored in NVS (`cfg/poll_s`).
+      summary: Change the AP-wide default poll interval or the webhook
+      description: |
+        `poll_s` is the interval for tags without their own `poll_s`. `webhook` is where the
+        AP posts the health report (`GET /api/health`) when it changes. A key left out keeps
+        its value; at least one must be there. Both are stored in NVS (`cfg/poll_s`, `cfg/webhook`).
       requestBody:
         required: true
         content:
@@ -418,6 +429,12 @@ paths:
               builtin:
                 summary: Back to the value set in menuconfig
                 value: { poll_s: null }
+              webhook:
+                summary: Post the health report to a server when it changes
+                value: { webhook: "http://192.168.1.10:8080/openesl" }
+              no-webhook:
+                summary: Stop posting
+                value: { webhook: null }
       responses:
         "200":
           description: The new default
@@ -428,6 +445,36 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
+
+  /api/health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: The tags that need attention
+      description: |
+        Every tag with a problem, and counts per problem. A tag is `silent` when it has not
+        polled for `silent_s` (default 3 x its interval), `unseen` when it is in the table
+        from NVS but has not polled since the AP started for that long, `low_battery` below
+        `battery_mv` (a tag that reports 0 cannot measure it, and is never low).
+      parameters:
+        - name: silent_s
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 65535 }
+          description: Seconds without a poll before a tag is silent (default 3 x the interval the AP sends it; 180 s for a tag on the built-in 60 s)
+        - name: battery_mv
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 65535 }
+          description: Battery voltage below which a tag is low (default 2500)
+      responses:
+        "200":
+          description: The health report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/wifi:
     get:
@@ -983,7 +1030,7 @@ components:
 
     ApConfig:
       type: object
-      required: [poll_s]
+      description: At least one of the keys
       properties:
         poll_s:
           type: [integer, "null"]
@@ -992,14 +1039,67 @@ components:
           description: |
             `0` = tags keep their built-in interval (60 s), `10`–`3600` = that many seconds,
             `null` = back to the value set in menuconfig (`ESL_NEXT_POLL_S`).
+        webhook:
+          type: [string, "null"]
+          maxLength: 127
+          pattern: "^http://[^/]"
+          description: |
+            `http://host[:port][/path]` the AP posts the health report to when it changes
+            (plain HTTP, at most 127 characters), `null` or `""` = no webhook. `422` on an AP
+            built without the webhook.
 
     ApConfigReply:
       type: object
       additionalProperties: false
-      required: [poll_s, builtin_poll_s]
+      required: [poll_s, builtin_poll_s, webhook]
       properties:
         poll_s: { type: integer, minimum: 0, maximum: 3600, description: The default now }
         builtin_poll_s: { type: integer, minimum: 0, maximum: 3600, description: The value set in menuconfig }
+        webhook: { type: [string, "null"], maxLength: 127, description: "The webhook URL, null when off" }
+
+    Health:
+      type: object
+      additionalProperties: false
+      required: [problems, ok, tags, with_problems, silent, unseen, draw_failed, low_battery, layout_failed, content_error]
+      properties:
+        problems:
+          type: array
+          description: Every tag with at least one problem, in table order
+          items:
+            type: object
+            additionalProperties: false
+            required: [mac, problems, seen_s_ago, battery_mv]
+            properties:
+              mac: { $ref: "#/components/schemas/Mac" }
+              problems:
+                type: array
+                minItems: 1
+                items: { type: string, enum: [silent, unseen, draw_failed, low_battery, layout_failed, content_error] }
+              seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since its last poll; null: not seen since the AP started" }
+              battery_mv: { type: [integer, "null"], minimum: 0, description: "From its last poll; 0: the tag cannot measure it" }
+        ok: { type: boolean, description: No tag has a problem }
+        tags: { type: integer, minimum: 0, description: Tags in the table }
+        with_problems: { type: integer, minimum: 0, description: Length of `problems` }
+        silent: { type: integer, minimum: 0, description: Tags that have not polled for `silent_s` }
+        unseen: { type: integer, minimum: 0, description: Tags from NVS that have not polled since the AP started }
+        draw_failed: { type: integer, minimum: 0, description: Tags whose last drawing failed }
+        low_battery: { type: integer, minimum: 0, description: Tags below `battery_mv` }
+        layout_failed: { type: integer, minimum: 0, description: Tags that rejected the AP's layout file }
+        content_error: { type: integer, minimum: 0, description: Tags whose pending content cannot be sent (`content_error` in `GET /api/tags`) }
+        changed: { type: integer, minimum: 0, description: "Only in the webhook: tags whose problems differ from the last report" }
+      example:
+        problems:
+          - { mac: "00000123456789A8", problems: [silent], seen_s_ago: 1260, battery_mv: 2950 }
+          - { mac: "00000123456789A9", problems: [draw_failed, low_battery], seen_s_ago: 12, battery_mv: 2380 }
+        ok: false
+        tags: 12
+        with_problems: 2
+        silent: 1
+        unseen: 0
+        draw_failed: 1
+        low_battery: 1
+        layout_failed: 0
+        content_error: 0
 
     WifiSet:
       type: object

@@ -56,7 +56,7 @@ static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_tag_t tags[CAP];
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -326,7 +326,7 @@ static void test_config(void)
 
     /* a run-time default reaches tags without their own poll_s, is persisted, and null resets it */
     CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"poll_s\":240}", 14, 0, &out), 200);
-    CHECK_STR(resp, "{\"poll_s\":240,\"builtin_poll_s\":0}");
+    CHECK_STR(resp, "{\"poll_s\":240,\"builtin_poll_s\":0,\"webhook\":null}");
     CHECK(nvs.has_next_poll);
     CHECK_INT(air(&again, 4000, false), ESL_MSG_IDLE);       /* has its own poll_s */
     CHECK_INT(again.interval_s, 30);

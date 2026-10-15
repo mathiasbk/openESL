@@ -18,6 +18,7 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
+static esl_notify_t notify;
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
@@ -75,7 +76,7 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify};
     uint64_t now_ms = 1000;
     char line[512];
 

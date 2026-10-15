@@ -199,7 +199,8 @@ In short:
 | `GET /api/tags`, `GET /api/tags/{mac}` | The AP and its tags: last seen, battery, signal, model, what each tag shows, settings, layout file state |
 | `DELETE /api/tags/{mac}` | Forget a tag: its content, settings and scheduled content |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
-| `GET`/`PUT /api/config` | The AP-wide default poll interval |
+| `GET`/`PUT /api/config` | The AP-wide default poll interval, and the webhook the AP posts the health report to |
+| `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent), for monitoring |
 | `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
 

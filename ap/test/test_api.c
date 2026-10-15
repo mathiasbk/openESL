@@ -9,7 +9,18 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL};
+static char persisted_url[ESL_WEBHOOK_URL_MAX + 1];
+static int persisted;
+
+static void persist_url(void *ctx, const char *url)
+{
+    (void)ctx;
+    strcpy(persisted_url, url);
+    persisted++;
+}
+
+static esl_notify_t notify = {"", NULL, persist_url};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -537,9 +548,9 @@ static void test_config_api(void)
     /* AP-wide default */
     CHECK_INT(req("GET", "/api/config", NULL, NULL, 0), 401);
     CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0}");
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null}");
     CHECK_INT(req("PUT", "/api/config/", AUTH, "{\"poll_s\":3600}", 0), 200);
-    CHECK_STR(resp, "{\"poll_s\":3600,\"builtin_poll_s\":0}");
+    CHECK_STR(resp, "{\"poll_s\":3600,\"builtin_poll_s\":0,\"webhook\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":0}", 0), 200);
     CHECK_INT(esl_store_get_next_poll(&st), 0);
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":9}", 0), 422);
@@ -664,7 +675,7 @@ static void test_streaming(void)
     esl_sb_set_sink(&sb, collect, NULL);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 5000, &sb), 200);
     CHECK(!sb.streaming && sb.sent == 0 && pieces == 0);
-    CHECK_STR(small, "{\"poll_s\":0,\"builtin_poll_s\":0}");
+    CHECK_STR(small, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null}");
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000002000", AUTH, NULL, 0, 5000, &sb), 500);
     CHECK(!sb.streaming && pieces == 0); /* one tag is bigger than this buffer: an error, not a stream */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", "Bearer wrong", NULL, 0, 5000, &sb), 401);
@@ -687,6 +698,161 @@ static void test_streaming(void)
     CHECK_MEM(streamed, page, whole);
 }
 
+static void test_webhook_config(void)
+{
+    esl_store_init(&st, tags, CAP, NULL, 0);
+    notify.url[0] = '\0';
+    persisted = 0;
+
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
+    CHECK(HAS(resp, "poll_s or webhook"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
+    CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
+    CHECK_STR(persisted_url, "http://192.168.1.10:8080/esl");
+    CHECK_INT(persisted, 1);
+    /* both at once; poll_s unchanged when left out */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":120,\"webhook\":\"http://hook.local/\"}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":120,\"builtin_poll_s\":0,\"webhook\":\"http://hook.local/\"}");
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":120,\"builtin_poll_s\":0,\"webhook\":\"http://hook.local/\"}");
+    /* bad URLs change nothing */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"https://hook.local/\"}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http:///x\"}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://a b/\"}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":7}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":5,\"webhook\":null}", 0), 422);
+    char longurl[200];
+    memset(longurl, 'a', sizeof(longurl));
+    memcpy(longurl, "{\"webhook\":\"http://", 19);
+    memcpy(longurl + 196, "\"}", 3);
+    CHECK_INT(req("PUT", "/api/config", AUTH, longurl, 0), 422);
+    CHECK_STR(notify.url, "http://hook.local/");
+    CHECK_INT(persisted, 2);
+    /* off again, with null or "" */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"\"}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":120,\"builtin_poll_s\":0,\"webhook\":null}");
+    CHECK_STR(notify.url, "");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":null,\"poll_s\":null}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null}");
+    CHECK_INT(persisted, 4);
+    /* an AP without a webhook */
+    api.notify = NULL;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://hook.local/\"}", 0), 422);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":60}", 0), 200);
+    api.notify = &notify;
+}
+
+static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, uint32_t layout_ver, uint64_t now)
+{
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    /* layout_ver 1: firmware without layout files */
+    esl_poll_t p = {2, battery, shown, flags, ESL_MODEL_29, false, 0, layout_ver != 1, layout_ver};
+    esl_layout_env_t env;
+    esl_layouts_env(&layouts, ESL_MODEL_29, &env);
+    esl_store_on_poll(&st, mac, &p, -61, now, &env, reply);
+}
+
+static void test_health(void)
+{
+    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_layouts_init(&layouts, NULL);
+
+    /* empty table */
+    CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
+    CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"silent\":0,\"unseen\":0,"
+                    "\"draw_failed\":0,\"low_battery\":0,\"layout_failed\":0,\"content_error\":0}");
+
+    /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    uint32_t id = json_u32(resp, "\"content_id\":");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000004", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    uint64_t now = UINT64_C(1000) * 1000;
+    poll_flags(1, id, 2950, 0, 0, now - 30 * 1000);
+    poll_flags(2, id, 2950, 0, 0, now - 400 * 1000);
+    poll_flags(3, id, 2400, ESL_POLL_FLAG_DRAW_FAILED, 0, now - 10 * 1000);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
+    CHECK_STR(resp, "{\"problems\":["
+                    "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
+                    "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
+                    "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
+                    "],\"ok\":false,\"tags\":4,\"with_problems\":3,\"silent\":1,\"unseen\":1,"
+                    "\"draw_failed\":1,\"low_battery\":1,\"layout_failed\":0,\"content_error\":0}");
+    /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
+    CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);
+    CHECK(HAS(resp, "\"with_problems\":2,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
+    /* a tag with its own interval is silent after 3 x that */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002/config", AUTH, "{\"poll_s\":300}", 0), 200);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
+    CHECK(HAS(resp, "\"silent\":0,"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, now + 500 * 1000), 200);
+    CHECK(HAS(resp, "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":900,"));
+    CHECK(HAS(resp, "\"silent\":3,")); /* the others too by now */
+    /* early after boot nothing is unseen yet */
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 100 * 1000), 200);
+    CHECK(HAS(resp, "\"unseen\":0,"));
+
+    /* layout file rejected, and named content that cannot be sent */
+    static char lf[512];
+    snprintf(lf, sizeof(lf), "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+                             "{\"name\":\"sign\",\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}]}");
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, lf, 0), 200);
+    uint32_t ver;
+    CHECK(esl_layouts_info(&layouts, ESL_MODEL_29, &ver, NULL, NULL));
+    poll_flags(1, id, 2950, 0, 0, now);                    /* offered the file */
+    poll_flags(1, id, 2950, ESL_POLL_F_LAYOUTFAIL, 0, now); /* and rejected it */
+    /* tag 3 gets content with a named layout, but its firmware has no layout files */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"sign\",\"fields\":[\"a\"]}", 0), 200);
+    poll_flags(3, id, 2950, 0, 1, now);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
+    CHECK(HAS(resp, "{\"mac\":\"0000000000000001\",\"problems\":[\"layout_failed\"]"));
+    CHECK(HAS(resp, "{\"mac\":\"0000000000000003\",\"problems\":[\"content_error\"]"));
+    CHECK(HAS(resp, "\"layout_failed\":1,\"content_error\":1}"));
+
+    /* the report for the webhook: what changed since the last one */
+    uint8_t prev[CAP];
+    memset(prev, 0, sizeof(prev));
+    esl_sb_t sb;
+    static char page[ESL_API_RESP_SIZE(CAP)];
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
+    CHECK(HAS(page, "\"changed\":3}")); /* 1 layout, 3 content, 4 unseen (2 polls every 300 s, 400 s is fine) */
+    CHECK_INT(prev[0], ESL_HEALTH_LAYOUT_FAILED);
+    CHECK_INT(prev[3], ESL_HEALTH_UNSEEN);
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
+    CHECK(HAS(page, "\"changed\":0}"));
+    poll_flags(2, id, 2400, 0, ver, now); /* 2 runs low */
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
+    CHECK(HAS(page, "\"changed\":1}"));
+    CHECK_INT(prev[1], ESL_HEALTH_LOW_BATTERY);
+    /* a deleted tag clears its slot */
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000004", AUTH, NULL, 0), 200);
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
+    CHECK_INT(prev[3], 0);
+    CHECK(HAS(page, "\"tags\":3,"));
+
+    /* streamed like GET /api/tags */
+    char small[160];
+    streamed_len = pieces = 0;
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, now, &sb), 200);
+    esl_sb_flush(&sb);
+    CHECK(!sb.overflow && pieces >= 1);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
+    CHECK_INT((int)streamed_len, (int)out.len);
+    CHECK_MEM(streamed, resp, out.len);
+}
+
 void test_api(void)
 {
     esl_store_init(&st, tags, CAP, NULL, 0);
@@ -700,4 +866,6 @@ void test_api(void)
     test_status_page();
     test_config_api();
     test_streaming();
+    test_webhook_config();
+    test_health();
 }

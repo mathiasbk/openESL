@@ -32,6 +32,7 @@ ap/
     radio_ieee802154.c  AP and sniffer modes, calls esl_radio_handle()
     radio_stub.c        simulated tags (esl_faketag), no radio
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
+    health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
   partitions.csv          NVS enlarged to 468 KB for tag content and layout files
   test/                   host unit tests (Makefile)
@@ -94,6 +95,11 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 - **Room:** `ESL_MAX_SCHEDULED` (menuconfig, default 256, 0 turns it off) entries for all tags together; a tag can have several (the same tag and time replaces). Each costs 16 bytes of RAM and up to about 160 bytes of NVS (blob `s<slot>` in namespace `esl_sched`) while it waits, and is erased once applied.
 - **Applying:** a task (`main/sched.c`) checks every second and sets the content as `PUT /api/tags` would have; the tag then gets it at its next poll, so with the 60 s default a scheduled price shows up to a minute after `at`.
 - Content sent without `at` leaves scheduled entries in place; `DELETE /api/schedule/{mac}` removes them, and `DELETE /api/tags/{mac}` removes them with the tag. `GET /api/schedule` lists them with their content, `GET /api/tags/{mac}` gives the times under `scheduled`.
+## Health and webhook
+
+`GET /api/health` lists the tags that need attention, for monitoring: `silent` (no poll for `silent_s`, default 3 x the interval the AP sends the tag), `unseen` (in the table from NVS, but no poll since the AP started for that long), `draw_failed`, `low_battery` (below `battery_mv`, default 2500; a tag that reports 0 cannot measure it), `layout_failed` and `content_error`. `?silent_s=600&battery_mv=2400` changes the thresholds for one call, and `ok` says whether anything is listed. `esl-client health` prints it and exits 1 when there are problems.
+
+With `PUT /api/config {"webhook":"http://host:port/path"}` (`esl-client config --webhook ...`, kept in NVS `cfg/webhook`) the AP posts the same report, with `changed` = how many tags' problems differ from the last report, to that URL whenever it changes; `health.c` checks every `ESL_HEALTH_PERIOD_S` (30 s). Plain HTTP, no retries: a failed POST is logged and the change goes out with the next one. The logic is in `esl_health.c` and `esl_api_health()` (host-tested); the task and `esp_http_client` are the ESP-IDF side (`ESL_WEBHOOK`, on by default).
 
 ### Over the USB port
 

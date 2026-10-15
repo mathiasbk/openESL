@@ -6,6 +6,7 @@
 #include "esl_sched.h"
 #include "esl_store.h"
 #include "esl_wifi.h"
+#include "esl_health.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -24,6 +25,7 @@ typedef struct {
     const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
     const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
     esl_sched_t *sched;     /* NULL: no scheduled content; /api/time and /api/schedule answer 404 */
+    esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
 } esl_api_t;
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a
@@ -42,6 +44,14 @@ typedef struct {
  * boot. Writes a JSON body to out and returns the HTTP status code. */
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
+
+/* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
+ * counts per problem. prev (cap bytes, may be NULL) holds the flags of the
+ * last report: the tags whose flags differ are listed under "changed", and
+ * every tag's new flags are written back to it. Returns the HTTP status;
+ * streams like GET /api/tags. */
+int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
+                   esl_sb_t *out);
 
 /* The status page at / (krav A6): an HTML table with the same data as
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
