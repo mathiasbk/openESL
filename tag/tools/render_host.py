@@ -157,6 +157,8 @@ def to_png(out):
 
 def one_model(model):
     print("==== MODEL=%s ====" % model)
+    os.environ["ESL_TEST_OUT"] = os.path.join(build.BUILD, "host", "barcodes")
+    os.makedirs(os.environ["ESL_TEST_OUT"], exist_ok=True)
     build.run([compile_host("test_all", model)])
     out = os.path.join(build.BUILD, "preview", model)
     os.makedirs(out, exist_ok=True)
@@ -181,6 +183,9 @@ def main(argv):
     if bad:
         sys.exit(__doc__)
     errors = sum(one_model(m) for m in models)
+    # the barcodes test_all drew for each model, read back with a decoder
+    build.run([sys.executable, "-m", "unittest", "discover", "-s", os.path.join(build.TAG, "test"),
+               "-p", "test_label_barcode.py"])
     if errors:
         sys.exit("%d design example(s) failed" % errors)
 

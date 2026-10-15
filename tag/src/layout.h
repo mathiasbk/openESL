@@ -41,6 +41,7 @@
 #define LE_END        0
 #define LE_TEXT       ESL_LE_TEXT     /* one text field in a box, wrapped onto lines */
 #define LE_RECT       ESL_LE_RECT     /* filled rectangle */
+#define LE_BARCODE    ESL_LE_BARCODE  /* one text field as a barcode (font[0] = ESL_BC_*, lines = module width) */
 
 #define LE_NO_FONT    ESL_FONT_NONE   /* ends the font list early */
 
@@ -76,6 +77,11 @@
  *     rectangle hugs the text (right-aligned text gets a right-aligned box) and stays
  *     inside x, y, w, h. It uses one of the DRAW_MAX_RECTS rectangles.
  * LE_RECT fills the box x, y, w, h (field, font, opts and lines are unused).
+ * LE_BARCODE draws text field `field` as a barcode with symbology font[0] (ESL_BC_*), bars
+ * the full height of the box, modules `lines` pixels wide (0 = the widest that fits, up to
+ * ESL_BC_MODULE_MAX), placed by the horizontal alignment in opts with the quiet zones
+ * inside the box. One per screen (DRAW_MAX_BARCODES). Nothing is drawn if the text cannot
+ * be encoded or does not fit.
  */
 typedef struct {
     uint8_t kind;

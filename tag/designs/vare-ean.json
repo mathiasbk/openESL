@@ -1,0 +1,13 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "vare-ean",
+  "layout": "vare-ean",
+  "fields": {
+    "brand": "{brand}",
+    "name": "{name}",
+    "ean": "{ean}",
+    "price": "{price}"
+  },
+  "style": { "price_highlight": true, "frame": false }
+}

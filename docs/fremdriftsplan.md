@@ -84,6 +84,13 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [ ] Long-term test: 10 tags for a week
 - [ ] Flashing recipe and jig under a minute per tag
 
+**Improvements after v0.1.0** (the list from 2026-10-15)
+- [x] "No AP found" exactly 2 h after the last answer (T9), PR #24
+- [x] Barcodes in layouts: Code 128 and EAN-13 drawn by the tag (`barcode` element, [protokoll.md](protokoll.md) parts 1 and 3), the AP refuses content it cannot encode; decoded from the drawn screens in the host tests
+- [ ] A barcode scanned from a real tag (2.9" with 2-pixel modules, and the 1.54" with 1-pixel modules)
+- [ ] Fixed text in layouts, and more text lines and boxes per screen
+- [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, without a limit on wrong tries
+
 ## Phase 0: Preparation
 - Install and pin the SDCC and ESP-IDF versions.
 - Back up (`read`) the original SoluM firmware on 2–3 tags before flashing anything else. It is the basis for the register study, and lets you restore the tags.

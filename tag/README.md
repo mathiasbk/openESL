@@ -17,6 +17,7 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 | SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Commands are unconfirmed until the controller is confirmed (phase 0); the 1.54" controller is not known at all yet |
 | Clock, GPIO, UART, timer, watchdog, battery, deep sleep (`hal/zbs243/`) | Stubs, waiting for register facts (phases 1 and 6) |
 | Radio (`hal/zbs243/radio_zbs243.c`) | Stub, waiting for phase 3 |
+| Barcodes (Code 128, EAN-13) as a layout element (`barcode.c`, [protokoll.md](../docs/protokoll.md) part 1): drawn column by column like the rest, checked by reading the drawn screens back with a decoder (`test/test_label_barcode.py`, zxing-cpp) | Done, tested on PC for both models; not scanned from a real tag yet |
 | Last content and the layout file in flash (T12): drawn again at start-up without the AP (`app.c`, `hal_layout_store_*`) | Done, tested on PC (fake flash); not tried on the tag yet. `hwtest` writes and reads back the 768-byte layout page |
 
 ## Folders
@@ -30,6 +31,7 @@ tag/
     proto.c, proto_tag.h  build POLL and the frame, parse IDLE/CONTENT/CONFIG
     model.h             screen size per tag model (MODEL=29 or 154)
     layout.c/.h         layout elements, font fallback, line wrapping, truncation with "…"
+    barcode.c/.h        Code 128 and EAN-13 as bars, for the barcode element
     draw.c/.h           computes one screen column (DRAW_H/8 bytes) at a time
     font.c/.h           lookup in the font tables
     epd.c/.h            SSD16xx over bit-banged SPI
@@ -91,7 +93,7 @@ python -m unittest discover -s test -p "test_label_*.py"
 
 The design does not change the firmware. Its layout is one of the built-in layouts "price" and "text", or a layout from a layout file (`designs/layouts/<model>.json`, uploaded to the AP and downloaded by the tags); the field names then come from that file (`render <design> <data> designs/layouts/2.9.json`). The styles `price_highlight` and `frame` map to flag bits 0 and 1 and have the same names as in the API. Characters the AP replaces itself (dashes, curly quotes, "…") are allowed, and the length limit is counted after the replacement, as on the AP.
 
-The example layout files hold `shelf` and `sign`, and two product labels: `vare` (brand in a black band, name, article number/EAN, price) and `vare-mva` (brand, name, a small note such as the price inc. VAT, and the highlighted price). Layouts have no fixed text and at most four fields, so a label such as "inkl. mva" comes from the design, as in `designs/vare-eks-mva.json` (`"note": "inkl. mva {price_inc}"`).
+The example layout files hold `shelf` and `sign`, and three product labels: `vare` (brand in a black band, name, article number/EAN, price), `vare-mva` (brand, name, a small note such as the price inc. VAT, and the highlighted price), and `vare-ean` (brand, name, price, and the EAN-13 as a barcode with the digits under it). Layouts have no fixed text and at most four fields, so a label such as "inkl. mva" comes from the design, as in `designs/vare-eks-mva.json` (`"note": "inkl. mva {price_inc}"`).
 
 `make host` draws every design with the data in `designs/examples/<id>.json` to `build/preview/<model>/design-<id>-<n>.png`. A design for a file layout is drawn for every model whose layout file has that layout: `render_host.py` compiles `designs/layouts/<model>.json` with the AP's own compiler (built from `ap/components/esl_core/` as `build/host/layout_compile`) into `build/preview/<model>/layouts.bin`, and the preview tool installs that file with the tag's own check (`layout_file_install`), as after a download. An error in a layout file stops the run with the same message the AP would answer with.
 

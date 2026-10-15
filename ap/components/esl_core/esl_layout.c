@@ -1,4 +1,6 @@
 #include "esl_layout.h"
+#include "esl_barcode.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -184,4 +186,36 @@ size_t esl_layouts_block(esl_layouts_t *ls, uint8_t model, uint32_t ver, uint16_
     }
     unlock(ls);
     return n;
+}
+
+bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen)
+{
+    esl_layout_t *l = slot(ls, model);
+    bool ok = true;
+    if (!l || c->layout != ESL_LAYOUT_NAMED)
+        return true;
+    size_t nl = 0;
+    while (nl < ESL_LAYOUT_NAME_MAX && c->name[nl])
+        nl++;
+    lock(ls);
+    int i = l->len ? esl_layout_bin_find(&l->bin, c->name, nl) : -1;
+    if (i >= 0 && l->bin.bc_field[i] >= 0) {
+        uint8_t len;
+        const uint8_t *t = esl_content_field(c, (unsigned)l->bin.bc_field[i], &len);
+        uint8_t sym = l->bin.bc_sym[i];
+        int m = len ? esl_barcode_modules(sym, t, len) : 0;
+        if (m < 0) {
+            ok = false;
+            snprintf(msg, msglen, "field %d of layout %s is a %s barcode: %s", l->bin.bc_field[i], c->name,
+                     esl_barcode_name(sym),
+                     sym == ESL_BC_EAN13 ? "it takes 12 digits, or 13 with a correct check digit"
+                                         : "it takes ASCII characters only");
+        } else if (m > l->bin.bc_max[i]) {
+            ok = false;
+            snprintf(msg, msglen, "field %d of layout %s is too long for its barcode on model %s (%d of %u modules)",
+                     l->bin.bc_field[i], c->name, esl_model_name(model), m, (unsigned)l->bin.bc_max[i]);
+        }
+    }
+    unlock(ls);
+    return ok;
 }

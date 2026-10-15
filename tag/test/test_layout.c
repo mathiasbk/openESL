@@ -502,7 +502,7 @@ static void test_file_install(void)
     BAD(layout_file[2] = 2);                                   /* layout 2 is missing */
     BAD(len--);                                                /* cut */
     BAD(layout_file[len++] = 0);                               /* trailing byte */
-    BAD(layout_file[5 + ESL_LE_OFF_KIND] = 3);                 /* element kind */
+    BAD(layout_file[5 + ESL_LE_OFF_KIND] = 4);                 /* element kind */
     BAD(layout_file[5 + ESL_LE_OFF_FIELD] = 4);                /* field */
     BAD(layout_file[5 + ESL_LE_OFF_FONT] = ESL_FONT_NONE);     /* text without a font */
     BAD(layout_file[5 + ESL_LE_OFF_FONT + 1] = 4);             /* font */

@@ -374,6 +374,29 @@ static void test_layouts(void)
                   "{\"mac\":\"0000000000000154\",\"layout\":\"only-29\",\"fields\":[]}]}", 0), 422);
     CHECK(HAS(resp, "\"index\":1"));
 
+    /* a barcode field must be one the tag can draw */
+    const char *bc29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"bc\","
+                       "\"fields\":[\"name\",\"ean\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"ean\","
+                       "\"symbology\":\"ean13\",\"x\":0,\"y\":0,\"w\":150,\"h\":40}]},{\"name\":\"c128\","
+                       "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
+                       "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":100,\"h\":40}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
+    poll_model(0x29, ESL_MODEL_29, true, 0, 0);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\",\"590123412345\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\",\"5901234123457\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\",\"5901234123458\"]}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"field 1 of layout bc is a ean13 barcode: it takes 12 digits, or 13 with a correct check digit\"}");
+    /* 100 px with 1-pixel modules: Code 128 of 5 letters is 11 * 7 + 13 + 20 = 110 modules */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCD\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
+    CHECK(HAS(resp, "too long for its barcode on model 2.9 (110 of 100 modules)"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"12345678\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"bl\u00e5\"]}", 0), 422);
+    CHECK(HAS(resp, "ASCII characters only"));
+    /* the model not known yet: checked against every file with the layout */
+    CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
+
     /* layout status of a tag: version it has, still to download, rejected */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
     poll_model(0x29, ESL_MODEL_29, true, 0, 0);

@@ -932,7 +932,7 @@ components:
           type: array
           minItems: 1
           items: { $ref: "#/components/schemas/Element" }
-          description: Drawn in order (all rectangles before all text)
+          description: Drawn in order (all rectangles, then the barcode, then all text)
 
     Element:
       type: object
@@ -940,8 +940,23 @@ components:
       patternProperties: { "^_": true }
       required: [type, x, y, w, h]
       properties:
-        type: { type: string, enum: [text, rect], description: "`text`: one field in a box; `rect`: a filled box" }
-        field: { type: [string, integer], description: "text only: a name from `fields`, or its index" }
+        type:
+          type: string
+          enum: [text, rect, barcode]
+          description: "`text`: one field in a box; `rect`: a filled box; `barcode`: one field as a barcode"
+        field: { type: [string, integer], description: "text and barcode: a name from `fields`, or its index" }
+        symbology:
+          type: string
+          enum: [code128, ean13]
+          description: |
+            barcode only, required. `code128`: ASCII 32-127; `ean13`: 12 digits, or 13 with a correct
+            check digit. Content whose barcode field cannot be encoded or does not fit the box is refused with 422.
+        module:
+          type: integer
+          minimum: 0
+          maximum: 4
+          default: 0
+          description: "barcode only: module width in pixels, 0 = the widest that fits the box"
         x: { type: integer, minimum: 0 }
         y: { type: integer, minimum: 0 }
         w: { type: integer, minimum: 1 }

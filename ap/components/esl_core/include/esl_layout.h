@@ -35,6 +35,11 @@ typedef struct {
     uint8_t count;    /* layouts in the file */
     uint8_t nfields[ESL_LAYOUT_FILE_MAX];
     char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
+    /* The barcode element of each layout, if any: its field (-1 = none), symbology
+     * and the widest code in modules, quiet zones included, that fits its box. */
+    int8_t bc_field[ESL_LAYOUT_FILE_MAX];
+    uint8_t bc_sym[ESL_LAYOUT_FILE_MAX];
+    uint16_t bc_max[ESL_LAYOUT_FILE_MAX];
 } esl_layout_bin_t;
 
 /* Compiles a layout file for model. Returns false with a message in err (at
@@ -104,6 +109,12 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
 /* Index of layout name in a model's file, -1 if the model has no such layout.
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
+
+/* Checks the barcode field of content c (a named layout) against the layout of that name
+ * in model's file: it must be one the tag can encode and fit in the element's box.
+ * Returns true if it is fine, or if the file has no such layout; else false with a
+ * message in msg. */
+bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
 
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);

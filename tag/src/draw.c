@@ -5,6 +5,7 @@ void draw_clear(draw_scene_t *s)
 {
     s->nruns = 0;
     s->nrects = 0;
+    s->nbars = 0;
     s->last_x = 0;
 }
 
@@ -143,6 +144,13 @@ void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         const draw_rect_t *r = &s->rect[i];
         if (x >= r->x0 && x <= r->x1 && r->y0 <= r->y1 && r->y0 < DRAW_H)
             fill_span(black, r->y0, r->y1 < DRAW_H ? r->y1 : DRAW_H - 1, r->color);
+    }
+
+    if (s->nbars && x >= s->bars.x0) {
+        const draw_bars_t *b = &s->bars;
+        uint16_t m = (x - b->x0) / b->mw;
+        if (m < b->nmod && (b->bits[m >> 3] & (0x80 >> (m & 7))))
+            fill_span(black, b->y0, b->y1, DRAW_BLACK);
     }
 
     for (i = 0; i < s->nruns; i++)

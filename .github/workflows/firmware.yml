@@ -30,7 +30,10 @@ jobs:
           mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
       - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
       - name: Host tests
-        run: python3 tag/tools/build.py test
+        run: |
+          # zxing-cpp reads back the barcodes the tag code draws (tag/test/test_label_barcode.py)
+          python3 -m pip install --user zxing-cpp==3.1.1 pillow
+          python3 tag/tools/build.py test
       - name: End-to-end simulation (tag firmware against the AP core, sim/README.md)
         run: |
           make -C sim SAN=1

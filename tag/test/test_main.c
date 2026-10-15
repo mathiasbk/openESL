@@ -9,6 +9,7 @@ void test_font(void);
 void test_draw(void);
 void test_layout(void);
 void test_app(void);
+void test_barcode(void);
 
 int main(void)
 {
@@ -17,6 +18,7 @@ int main(void)
     test_draw();
     test_layout();
     test_app();
+    test_barcode();
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

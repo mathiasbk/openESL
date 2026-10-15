@@ -24,7 +24,7 @@ TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(FW_VER) -DFW_VERSION_S
 AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared \
               -DSIM_ROOT='"$(abspath $(ROOT))"'
 
-TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/draw.c $(TAG)/src/layout.c \
+TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/draw.c $(TAG)/src/layout.c $(TAG)/src/barcode.c \
             $(wildcard $(TAG)/fonts/font_*.c) $(TAG)/test/fake_epd.c sim_tag.c
 # esl_screen.c (the optional LCD on the C6) is left out: it shares the tag's font code
 AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c e2e.c main.c png.c

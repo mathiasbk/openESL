@@ -74,6 +74,26 @@
           "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
           "color": "highlight" }
       ]
+    },
+    {
+      "name": "vare-ean",
+      "description": "Product label with an EAN-13 barcode: brand band, name, price, the code with its digits under it (1-pixel modules, 0.14 mm: check that your scanner reads it)",
+      "fields": ["brand", "name", "ean", "price"],
+      "_sample": ["Kramp", "Spann sort 12 l", "8713331002910", "17,25"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 6, "y": 28, "w": 188, "h": 48,
+          "fonts": ["medium", "small"], "lines": 2 },
+        { "type": "text", "field": "price", "x": 6, "y": 76, "w": 188, "h": 56,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" },
+        { "type": "barcode", "field": "ean", "symbology": "ean13",
+          "x": 6, "y": 138, "w": 188, "h": 42, "align": "center" },
+        { "type": "text", "field": "ean", "x": 6, "y": 181, "w": 188, "h": 17,
+          "fonts": ["small"], "align": "center", "lines": 1 }
+      ]
     }
   ]
 }
