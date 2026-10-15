@@ -59,6 +59,12 @@ bool esl_api_auth_ok(const char *token, const char *auth);
 /* esl_api_auth_ok() with api->lock: 0 when the request may go on, 401 for a
  * wrong token, 429 while locked (then *wait_s is the seconds left). */
 int esl_api_auth_check(const esl_api_t *api, const char *auth, uint64_t now_ms, unsigned *wait_s);
+/* The two halves, for a check that compares the token itself (the setup
+ * form): esl_api_lock_wait() is the seconds left of a lock, 0 when there is
+ * none (or lock is NULL); esl_api_lock_note() counts a right or wrong token.
+ * Both are safe with lock NULL. */
+unsigned esl_api_lock_wait(const esl_api_lock_t *lock, uint64_t now_ms);
+void esl_api_lock_note(esl_api_lock_t *lock, bool ok, uint64_t now_ms);
 
 /* Handles one request. method is "GET"/"PUT"/"DELETE", uri may contain a query
  * string, auth is the Authorization header (or NULL), now_ms is time since

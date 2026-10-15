@@ -85,10 +85,13 @@ static void test_check(void)
 
 static char buf[ESL_WIFI_PAGE_SIZE];
 
+static esl_api_lock_t *post_lock;
+static uint64_t post_now;
+
 static int post(const char *token, const char *body, esl_sb_t *out)
 {
     esl_sb_init(out, buf, sizeof(buf));
-    return esl_wifi_setup_post(&ops, token, "1.0", body, strlen(body), out);
+    return esl_wifi_setup_post(&ops, token, "1.0", body, strlen(body), post_lock, post_now, out);
 }
 
 static void test_setup_page(void)
@@ -155,6 +158,26 @@ static void test_setup_page(void)
     CHECK_INT(post("s3cret", "ssid=Home&token=s3cret&new_token=another1", &out), 200);
     CHECK_STR(fake.token, "another1");
     CHECK_INT(fake.sets, 1);
+
+    /* the API's lockout counts the form's wrong tokens too, and the form is
+     * refused while the API is locked; without a token there is nothing to guess */
+    esl_api_lock_t lock = {0, 0};
+    post_lock = &lock;
+    post_now = 5000;
+    for (int i = 0; i < ESL_API_AUTH_TRIES - 1; i++)
+        CHECK_INT(post("s3cret", "ssid=Home&token=nope", &out), 401);
+    CHECK_INT(post("s3cret", "ssid=Home&token=s3cret", &out), 200); /* a right one resets the count */
+    for (int i = 0; i < ESL_API_AUTH_TRIES; i++)
+        CHECK_INT(post("s3cret", "ssid=Home&token=nope", &out), 401);
+    CHECK_INT(post("s3cret", "ssid=Home&token=s3cret", &out), 429);
+    CHECK(strstr(buf, "Too many wrong API tokens. Try again in 60 s.") != NULL);
+    post_now = 5000 + 59 * 1000;
+    CHECK_INT(post("s3cret", "ssid=Home&token=s3cret", &out), 429);
+    CHECK(strstr(buf, "Try again in 1 s.") != NULL);
+    CHECK_INT(post("", "ssid=Home", &out), 200); /* no token set: the lock does not apply */
+    post_now = 5000 + 60 * 1000;
+    CHECK_INT(post("s3cret", "ssid=Home&token=s3cret", &out), 200);
+    post_lock = NULL;
 
     /* the radio side failing */
     fake.fail = 1;

@@ -1,5 +1,7 @@
 #include "esl_wifi.h"
+#include <stdio.h>
 #include <string.h>
+#include "esl_api.h"
 
 const char *esl_wifi_mode_name(esl_wifi_mode_t m)
 {
@@ -203,16 +205,26 @@ static int fail(esl_sb_t *out, int status, const char *msg)
 }
 
 int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char *fw, const char *body, size_t len,
-                        esl_sb_t *out)
+                        struct esl_api_lock *lock, uint64_t now_ms, esl_sb_t *out)
 {
     (void)fw;
     char ssid[ESL_WIFI_SSID_MAX + 1], pass[ESL_WIFI_PASS_MAX + 1];
     char given[ESL_WIFI_TOKEN_MAX + 1], new_token[ESL_WIFI_TOKEN_MAX + 1];
     bool token_set = token && token[0];
 
-    int gl = esl_form_get(body, len, "token", given, sizeof(given));
-    if (token_set && (gl < 0 || !token_eq(token, given)))
-        return fail(out, 401, "Wrong API token.");
+    if (token_set) {
+        unsigned wait_s = esl_api_lock_wait(lock, now_ms);
+        if (wait_s) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Too many wrong API tokens. Try again in %u s.", wait_s);
+            return fail(out, 429, msg);
+        }
+        int gl = esl_form_get(body, len, "token", given, sizeof(given));
+        bool ok = gl >= 0 && token_eq(token, given);
+        esl_api_lock_note(lock, ok, now_ms);
+        if (!ok)
+            return fail(out, 401, "Wrong API token.");
+    }
 
     int sl = esl_form_get(body, len, "ssid", ssid, sizeof(ssid));
     if (sl <= 0)
