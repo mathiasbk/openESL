@@ -1,15 +1,18 @@
 /*
  * adcprobe.c - experiment: sweep the temperature ADC's settings and keep the results
- * in flash page 0x3D (0xF400), to compare runs at different supply voltages.
+ * in flash pages 0x20-0x3D, to compare runs at different supply voltages.
  * Not part of the firmware. Record: 'A', 'D', count, then per setting
  * cfg, cal2, cal1, cal3, cal4, cal5, cal6, sum of 8 samples (16 bit, MSB first; 0xFFFF = timeout).
- * The last byte of the page counts the runs since flashing (0 = first run).
+ * Runs go to pages 0x20-0x3D in order (0xF400 is page 0x3D, 0x8000 is page 0x20).
  */
 #include "../hal.h"
 #include "zbs243.h"
 
-#define LOG_PAGE 0x3D
-static __code const uint8_t __at (LOG_PAGE * 0x400u + 1023) prev_runs[1];
+/* Each run writes the first empty page from FIRST_PAGE up, so a battery run is not
+ * overwritten by later runs in the jig (a bad pogo contact restarts the tag). */
+#define FIRST_PAGE 0x20
+#define LAST_PAGE  0x3D
+static uint8_t log_page;
 static __xdata uint8_t logbuf[1024];
 static uint16_t loglen;
 static void log_save(void)
@@ -21,7 +24,7 @@ static void log_save(void)
     CFGPAGE = 4;
     SETTINGS |= 0x38;
     FWRTHREE = 3;
-    FPGNO = LOG_PAGE;
+    FPGNO = log_page;
     FWRDSTL = 0;
     FWRDSTH = 0;
     FWRLENL = 0xFF;                   /* 1024 bytes */
@@ -121,6 +124,10 @@ void main(void)
     uint8_t i, j;
 
     hal_init();
+    for (i = 0; i < 30; i++) {          /* 3 s first: short power glitches leave no record */
+        hal_wdt_kick();
+        hal_delay_ms(100);
+    }
     logbuf[0] = 'A';
     logbuf[1] = 'D';
     logbuf[2] = 0;
@@ -147,8 +154,11 @@ void main(void)
     }
     c[0] = 0x81; c[1] = 0x22; c[2] = 0x55;
     run();                              /* the stock setting again, last */
-    logbuf[1023] = (uint8_t)(prev_runs[0] + 1);   /* run counter: 0xFF + 1 = 0 on the first run */
-    log_save();
+    for (log_page = FIRST_PAGE; log_page <= LAST_PAGE; log_page++)
+        if (*(const __code uint8_t *)((uint16_t)log_page * 0x400u) == 0xFF)
+            break;
+    if (log_page <= LAST_PAGE)
+        log_save();
     for (;;) {
         hal_wdt_kick();
         hal_delay_ms(1000);
