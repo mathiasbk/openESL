@@ -43,6 +43,8 @@ static void wdt_on(void)
     CFGPAGE = 0;
 }
 
+static void eeprom_sleep(void);
+
 static void gpio_init(void)
 {
     P0INTEN = 0;
@@ -93,6 +95,7 @@ void hal_init(void)
     gpio_init();
     uart_init();
     timer_init();
+    eeprom_sleep();
     wdt_on();                /* requirement T10: a hang resets the tag after 60 s */
 }
 
@@ -291,6 +294,23 @@ static void epd_byte(uint8_t b)
         P0_0 = 0;
         b <<= 1;
     }
+}
+
+/*
+ * The SPI flash (nCS P1.1, SCK and MOSI shared with the display) sits on the
+ * battery: in standby it takes tens of µA, in deep power-down about 1 µA. Send
+ * DEEP POWER-DOWN (0xB9, SPI mode 0) once at start-up; only a firmware update
+ * wakes it (hal_xflash_open), and hal_xflash_close puts it back (the display
+ * traffic keeps its nCS high, and the chip stays powered through the ZBS243's
+ * sleep). Whole-byte writes to P1,
+ * since reading a port back does not give the written levels (kildelogg.md);
+ * the levels are those gpio_init() set, with P1.1 low in between.
+ */
+static void eeprom_sleep(void)
+{
+    P1 = 0x80;                       /* nCS low; EPD nCS stays high, BS1 low */
+    epd_byte(0xB9);
+    P1 = 0x82;                       /* nCS high */
 }
 
 static void epd_cmd1(uint8_t c, int16_t arg)     /* arg < 0: no parameter */

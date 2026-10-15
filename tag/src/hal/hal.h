@@ -60,7 +60,11 @@ void hal_code_read(uint16_t addr, uint8_t __xdata *buf, uint16_t len);
 /* Restarts the chip, which runs the bootloader. Does not return on the tag. */
 void hal_reset(void);
 
-/* ---- Radio (802.15.4) ---- */
+/* ---- Radio (802.15.4) ----
+ * radio_init only remembers the channel; the radio stays off (nothing drawn
+ * from the battery) until radio_on, and radio_off turns it off again. The app
+ * turns it on for each exchange only, so the display is never refreshed with
+ * the radio on. */
 void radio_init(uint8_t channel);
 void radio_on(void);
 void radio_off(void);
