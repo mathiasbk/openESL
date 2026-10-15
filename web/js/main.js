@@ -4,6 +4,7 @@ import * as zp from "./zbs.js";
 import { flashTag, checkFirmware, BackupStore, modelOfMac, MODELS as TAG_MODELS } from "./tagflash.js";
 import { loadRenderer, LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT } from "./renderer.js";
 import { makeZip } from "./zip.js";
+import { initWifiSetup } from "./wifisetup.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +27,7 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
 });
 showTab(location.hash.slice(1));
+initWifiSetup();
 
 initEditor().catch((e) => {
   const s = $("status");

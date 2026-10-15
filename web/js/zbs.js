@@ -226,6 +226,7 @@ export { eq as bytesEqual };
 
 // Web Serial port as a transport. DTR and RTS are set low after opening, so the D1 mini's
 // auto-reset circuit is not pulsed on purpose (probe() waits if it resets anyway).
+// lowSignals: false leaves them as the port opened, as esl_client.py does on the AP.
 export class WebSerialTransport {
   constructor(port) {
     this.port = port;
@@ -234,12 +235,14 @@ export class WebSerialTransport {
     this.closed = false;
   }
 
-  static async open(port) {
+  static async open(port, { lowSignals = true } = {}) {
     await port.open({ baudRate: BAUD });
-    try {
-      await port.setSignals({ dataTerminalReady: false, requestToSend: false });
-    } catch {
-      /* not every driver supports it */
+    if (lowSignals) {
+      try {
+        await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+      } catch {
+        /* not every driver supports it */
+      }
     }
     const t = new WebSerialTransport(port);
     t.pump();
