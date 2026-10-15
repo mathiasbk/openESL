@@ -165,6 +165,7 @@ async function loadModel(model) {
   }
   state.renderer = await loadRenderer(model);
   $("model").value = model;
+  applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
   state.el = -1;
@@ -711,7 +712,20 @@ function setDoc(d) {
   if (!layout()?.elements?.[state.el]) state.el = -1;
 }
 
+// Fit: as wide as the column, but never taller than about 60% of the window, so the whole
+// tag and the buttons under it stay in view (the 1.54" is square). Otherwise tag pixels.
+function applyZoom() {
+  const z = $("zoom").value;
+  const { width, height } = MODELS[state.model];
+  $("stage").style.width = z === "fit" ? `min(100%, calc(60vh * ${width / height}))` : `${z * width}px`;
+}
+
 function initActions() {
+  $("zoom").value = store.get("zoom") || "fit";
+  $("zoom").addEventListener("change", () => {
+    store.set("zoom", $("zoom").value);
+    applyZoom();
+  });
   $("model").addEventListener("change", (ev) => loadModel(ev.target.value).then(save));
   $("layout-select").addEventListener("change", (ev) => {
     state.sel = ev.target.value;

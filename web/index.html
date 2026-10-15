@@ -89,11 +89,23 @@
 
     <div class="design">
       <section class="stage-col">
-        <div id="stage" class="stage">
-          <canvas id="screen"></canvas>
-          <div id="overlay" class="overlay"></div>
+        <div class="stage-scroll">
+          <div id="stage" class="stage">
+            <canvas id="screen"></canvas>
+            <div id="overlay" class="overlay"></div>
+          </div>
         </div>
         <div class="stage-bar">
+          <label>Zoom
+            <select id="zoom" title="Fit: the whole tag fits on the screen">
+              <option value="fit">Fit</option>
+              <option value="1">1×</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+              <option value="6">6×</option>
+            </select>
+          </label>
           <label><input type="checkbox" id="opt-boxes" checked> Show boxes</label>
           <label><input type="checkbox" id="opt-highlight" checked> <code>price_highlight</code></label>
           <label><input type="checkbox" id="opt-frame"> <code>frame</code></label>
