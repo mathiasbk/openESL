@@ -45,6 +45,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Table of tags in NVS, HTTP API with a token, status page (A6)
 - [x] The API over the USB port (`esl-client --serial`), PR #5
 - [ ] WiFi on the C6 Super Mini: the board's WiFi is dead (hardware), so WiFi and coexistence are untested
+- [x] WiFi setup without menuconfig: setup network `openesl-XXXX` with a form at `/setup`, `GET/PUT /api/wifi` (also over USB, `esl-client wifi`), token set from the form; host-tested and built (`ap/README.md`, "WiFi setup")
+- [ ] WiFi setup tried on hardware (needs a C6 with working WiFi): first start opens the setup network, the form joins the network, a wrong password brings the setup network back after 180 s, `PUT /api/wifi` over USB
 - [ ] Response time measured on hardware (requirement A3)
 
 **Phase 5: End to end**

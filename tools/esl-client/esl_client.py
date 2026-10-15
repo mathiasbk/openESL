@@ -104,6 +104,12 @@ class Client:
     def put_layout(self, model, raw):
         return self._request("PUT", f"/api/layouts/{model}", raw)
 
+    def wifi(self):
+        return self._request("GET", "/api/wifi")
+
+    def set_wifi(self, ssid, password=""):
+        return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
+
     def wait_shown(self, mac, content_id, timeout_s=120, poll_s=5):
         """Wait until the tag reports content_id as shown (requirement G1: 2 min)."""
         end = time.monotonic() + timeout_s
@@ -338,6 +344,21 @@ def print_status(st):
               f"{t.get('rssi') if t.get('rssi') is not None else '-':>4}  {state}")
 
 
+def print_wifi(w):
+    line = f"WiFi {w.get('mode')}: "
+    if w.get("connected"):
+        line += f"connected to {w.get('ssid')!r}, IP {w.get('ip')}, {w.get('rssi')} dBm"
+    elif w.get("ssid"):
+        line += f"trying to join {w.get('ssid')!r}"
+    else:
+        line += "no network saved"
+    if w.get("setup_ssid"):
+        line += f"; setup network {w['setup_ssid']!r} open (http://192.168.4.1/setup)"
+    print(line)
+    for n in w.get("networks", []):
+        print(f"  {n.get('rssi'):>4} dBm  {n.get('ssid')}")
+
+
 def set_one(cli, args, c):
     r = cli.set_tag(args.mac, c)
     print(f"{r['mac']}: content_id {r['content_id']}, "
@@ -386,6 +407,10 @@ def main(argv=None):
     s.add_argument("--allow-origin", action="append", default=[], metavar="ORIGIN",
                    help="another page that may use the bridge, e.g. http://192.168.1.10:8000")
 
+    s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
+    s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
+    s.add_argument("--password", default="", help="empty for an open network")
+
     args = p.parse_args(argv)
     if args.serial:
         cli = SerialClient(args.serial)
@@ -414,6 +439,11 @@ def main(argv=None):
         elif args.cmd == "delete":
             cli.delete_tag(args.mac)
             print(f"{args.mac} deleted")
+        elif args.cmd == "wifi":
+            if args.ssid is None:
+                print_wifi(cli.wifi())
+            else:
+                print_wifi(cli.set_wifi(args.ssid, args.password))
         elif args.cmd == "layouts":
             print(json.dumps(cli.layouts(), indent=2))
         elif args.cmd == "layout-put":

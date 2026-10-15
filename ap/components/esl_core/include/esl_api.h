@@ -4,6 +4,7 @@
 #include "esl_json.h"
 #include "esl_layout.h"
 #include "esl_store.h"
+#include "esl_wifi.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -20,6 +21,7 @@ typedef struct {
     uint8_t channel;
     esl_layouts_t *layouts; /* NULL: the /api/layouts endpoints answer 404 */
     const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
+    const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
 } esl_api_t;
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a

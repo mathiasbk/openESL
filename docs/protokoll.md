@@ -181,7 +181,7 @@ Any software (the client) calls a small REST API on the AP when content changes.
 
 In short:
 - **Reaching the AP:** HTTP on the local network or a VPN (`openesl.local`, or a fixed IP), or the same API over the AP's USB port as `@ESL` lines, with no token (`ap/README.md`, "Over the USB port"). `tools/esl-client` speaks both, and `esl_client.py serve` is a bridge on localhost that lets the web page send test requests.
-- **Authentication:** `Authorization: Bearer <token>`; the token is set in the AP (menuconfig or NVS). Without a valid token: `401`. A read-only status page at `/` needs no token (requirement A6).
+- **Authentication:** `Authorization: Bearer <token>`; the token is set in the AP (the setup page at `/setup`, menuconfig or NVS). Without a valid token: `401`. A read-only status page at `/` needs no token (requirement A6).
 - **Errors:** `{"error":"<what is wrong>"}`, in a batch with `"index"` for the row.
 
 | Request | What it does |
@@ -193,6 +193,9 @@ In short:
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
 | `GET`/`PUT /api/config` | The AP-wide default poll interval |
 | `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
+| `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
+
+**WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it. Details: `ap/README.md`, "WiFi setup".
 
 ## 3. Layout files
 

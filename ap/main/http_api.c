@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include "app.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -112,11 +113,110 @@ done:
     return ret;
 }
 
+/* ---- /setup: WiFi and token (krav A1) ---------------------------------------- */
+
+#define SETUP_MAX_BODY 1024
+
+static esp_err_t send_page(httpd_req_t *req, int status, esl_sb_t *out)
+{
+    httpd_resp_set_status(req, esl_api_status_line(status));
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, out->buf, (ssize_t)out->len);
+}
+
+static esp_err_t setup_get(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    char q[16];
+    const char *msg = NULL;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK && strstr(q, "scan=1")) {
+        if (api->wifi->scan)
+            api->wifi->scan(api->wifi->ctx);
+        msg = "Searching for networks. Reload the page in a few seconds.";
+    }
+    char *page = malloc(ESL_WIFI_PAGE_SIZE);
+    esl_wifi_status_t *ws = malloc(sizeof(*ws));
+    esp_err_t ret;
+    if (!page || !ws) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        ret = httpd_resp_sendstr(req, "out of memory");
+    } else {
+        esl_sb_t out;
+        esl_sb_init(&out, page, ESL_WIFI_PAGE_SIZE);
+        api->wifi->status(api->wifi->ctx, ws);
+        xSemaphoreTake(api_mutex, portMAX_DELAY);
+        bool token_set = api->token && api->token[0];
+        xSemaphoreGive(api_mutex);
+        esl_wifi_page(&out, ws, token_set, api->fw_version, msg);
+        ret = send_page(req, 200, &out);
+    }
+    free(page);
+    free(ws);
+    return ret;
+}
+
+static esp_err_t setup_post(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    size_t len = req->content_len;
+    if (len > SETUP_MAX_BODY) {
+        httpd_resp_set_status(req, "413 Payload Too Large");
+        return httpd_resp_sendstr(req, "too large");
+    }
+    char *body = malloc(len + 1);
+    char *page = malloc(ESL_WIFI_PAGE_SIZE);
+    esp_err_t ret = ESP_OK;
+    if (!body || !page) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        ret = httpd_resp_sendstr(req, "out of memory");
+        goto done;
+    }
+    size_t got = 0;
+    while (got < len) {
+        int r = httpd_req_recv(req, body + got, len - got);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT)
+            continue;
+        if (r <= 0) {
+            ret = ESP_FAIL;
+            goto done;
+        }
+        got += (size_t)r;
+    }
+    esl_sb_t out;
+    esl_sb_init(&out, page, ESL_WIFI_PAGE_SIZE);
+    /* Under the API mutex: it may change the token the API checks. */
+    xSemaphoreTake(api_mutex, portMAX_DELAY);
+    int status = esl_wifi_setup_post(api->wifi, api->token, api->fw_version, body, len, &out);
+    xSemaphoreGive(api_mutex);
+    ESP_LOGI(TAG, "POST /setup -> %d", status);
+    ret = send_page(req, status, &out);
+done:
+    free(body);
+    free(page);
+    return ret;
+}
+
 #if CONFIG_ESL_STATUS_PAGE
 /* GET /: the status page (krav A6). Read-only and without a token. */
 static esp_err_t page_handler(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
+    if (api->wifi) {
+        /* Nothing saved yet: whoever is on the setup network wants the form. */
+        esl_wifi_status_t *ws = malloc(sizeof(*ws));
+        bool unset = false;
+        if (ws) {
+            api->wifi->status(api->wifi->ctx, ws);
+            unset = ws->mode == ESL_WIFI_SETUP;
+            free(ws);
+        }
+        if (unset) {
+            httpd_resp_set_status(req, "302 Found");
+            httpd_resp_set_hdr(req, "Location", "/setup");
+            return httpd_resp_send(req, NULL, 0);
+        }
+    }
     size_t cap = ESL_API_PAGE_SIZE(CONFIG_ESL_MAX_TAGS);
     char *page = malloc(cap);
     if (!page) {
@@ -155,6 +255,13 @@ esp_err_t http_api_start(const esl_api_t *api)
         };
         err = httpd_register_uri_handler(server, &uri);
         if (err != ESP_OK)
+            return err;
+    }
+    if (api->wifi) {
+        httpd_uri_t sg = {.uri = "/setup", .method = HTTP_GET, .handler = setup_get, .user_ctx = (void *)api};
+        httpd_uri_t sp = {.uri = "/setup", .method = HTTP_POST, .handler = setup_post, .user_ctx = (void *)api};
+        if ((err = httpd_register_uri_handler(server, &sg)) != ESP_OK ||
+            (err = httpd_register_uri_handler(server, &sp)) != ESP_OK)
             return err;
     }
 #if CONFIG_ESL_STATUS_PAGE

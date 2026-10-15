@@ -30,7 +30,7 @@ info:
     `localhost`. The browser may ask whether this page may reach devices on your network.
 
     **Authentication.** `Authorization: Bearer <token>` on every request. The token is set
-    in the AP (menuconfig or NVS). Without a valid token the reply is `401`, also when the
+    in the AP (the setup page at `/setup`, menuconfig or NVS). Without a valid token the reply is `401`, also when the
     AP has no token set. Plain HTTP on the local network or VPN; there is no HTTPS.
 
     **Requests.** Paths take an optional trailing `/`, and a query string is ignored.
@@ -75,6 +75,15 @@ tags:
     description: Put text on the tags and read what they show.
   - name: Settings
     description: How often the tags poll and when they give up on the AP. Kept in NVS, so they survive an AP restart.
+  - name: WiFi
+    description: |
+      The network the AP joins. With no network saved the AP opens its own network
+      `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there) to pick
+      the network and set the token; if the saved network gives no IP for 180 s
+      (`ESL_WIFI_SETUP_AFTER_S`) the setup network opens again next to it, and it closes a
+      minute after the AP has joined. Once a token is set, the form asks for it. Over the
+      USB port these endpoints set up WiFi without a browser
+      ([ap/README.md](https://github.com/mathiasbk/openesl/blob/master/ap/README.md), "WiFi setup").
   - name: Layout files
     description: |
       One layout file per tag model holds up to 16 named layouts, made with the Design tab
@@ -295,6 +304,54 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
+
+  /api/wifi:
+    get:
+      tags: [WiFi]
+      operationId: getWifi
+      summary: The WiFi state and the last scan
+      responses:
+        "200":
+          description: The WiFi state; never the password
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WifiStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [WiFi]
+      operationId: setWifi
+      summary: Set the network the AP joins
+      description: |
+        Stored in NVS (`cfg/ssid`, `cfg/pass`). The AP leaves the old network and joins the
+        new one at once, so a `PUT` over WiFi may lose its own connection before the reply
+        arrives; over the USB port it always arrives. `ssid` `""` or `null` forgets the saved
+        network, and the AP opens its setup network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WifiSet" }
+            examples:
+              wpa2:
+                summary: A WPA2 network
+                value: { ssid: Butikken, password: hemmelig123 }
+              open:
+                summary: An open network
+                value: { ssid: Gjest }
+              forget:
+                summary: Forget the network and open the setup network
+                value: { ssid: null }
+      responses:
+        "200":
+          description: The WiFi state after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WifiStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/layouts:
     get:
@@ -735,6 +792,56 @@ components:
       properties:
         poll_s: { type: integer, minimum: 0, maximum: 3600, description: The default now }
         builtin_poll_s: { type: integer, minimum: 0, maximum: 3600, description: The value set in menuconfig }
+
+    WifiSet:
+      type: object
+      required: [ssid]
+      properties:
+        ssid:
+          type: [string, "null"]
+          maxLength: 32
+          description: The network name, at most 32 bytes; `""` or `null` forgets the saved network
+        password:
+          type: [string, "null"]
+          maxLength: 63
+          description: Empty or missing for an open network, otherwise 8–63 printable ASCII characters (WPA2)
+
+    WifiStatus:
+      type: object
+      additionalProperties: false
+      required: [mode, ssid, connected, setup_ssid, networks]
+      properties:
+        mode:
+          type: string
+          enum: [sta, setup, sta+setup, "off"]
+          description: |
+            `sta` = joining or joined the saved network, `setup` = nothing saved, only the
+            setup network, `sta+setup` = the saved network has not answered and both run,
+            `off` = WiFi did not start.
+        ssid: { type: [string, "null"], description: "The saved network, `null` if none" }
+        connected: { type: boolean, description: Has an IP on the saved network }
+        ip: { type: string, description: Only while connected }
+        rssi: { type: integer, description: "Signal of the saved network in dBm, only while connected" }
+        setup_ssid: { type: [string, "null"], description: "The setup network's name while it is open, e.g. `openesl-1A2B`" }
+        networks:
+          type: array
+          maxItems: 16
+          description: The last scan, strongest first; empty until a scan has run
+          items:
+            type: object
+            additionalProperties: false
+            required: [ssid, rssi]
+            properties:
+              ssid: { type: string }
+              rssi: { type: integer }
+      example:
+        mode: sta
+        ssid: Butikken
+        connected: true
+        ip: 192.168.1.40
+        rssi: -58
+        setup_ssid: null
+        networks: [{ ssid: Butikken, rssi: -58 }, { ssid: Gjest, rssi: -71 }]
 
     ModelName:
       type: string
