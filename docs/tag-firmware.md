@@ -22,7 +22,7 @@
 ## Simplifications for version 1
 - **SPI to the display can be bit-banged** with GPIO. Then you only need to know the GPIO registers to get the display running. The display is slow anyway, so speed does not matter.
 - **Use the display's built-in OTP waveform** (update mode from the datasheet). Then you avoid your own LUTs, which are the hardest part of an e-paper display.
-- **No external EEPROM in version 1.** The last content (max ~110 bytes) can be stored in a flash page in the ZBS243 (requirement T12) once flash writing is understood. Until then: blank screen with "waiting for AP" after a restart.
+- **No external EEPROM in version 1.** The last content (max 110 bytes) and the settings are kept in one flash page in the ZBS243 and the layout file in another (requirement T12), so a restarted tag draws its content again without the AP (`tag/README.md`, "Flash").
 - **No interrupt-driven radio at first.** Send, poll the status register in a loop with a timeout, read the packet. Simple to debug.
 
 ## Modules
@@ -54,7 +54,7 @@
 ## Layout from file (requirements G7, T17)
 - The layouts come from a file made in the design tool, not fixed in the code. The AP checks the JSON file and turns it into a binary format; the tag downloads that in blocks when the AP reports a new version ([protokoll.md](protokoll.md) part 1, "Layout transfer", and part 3).
 - `layout.c` interprets a list of elements (text field, filled rectangle) with position, fonts, colour, alignment and line count. "Price" and "Text" are such lists in flash; a downloaded file holds up to 16 more in the 14-byte wire format, drawn straight from XRAM with `layout_apply_bin()`.
-- The download goes into one 768-byte XRAM buffer (`layout_file[]`), is checked with CRC-32 and a structure check (`layout_file_install()`), and is kept until the AP offers a new version. It is not in flash yet, so a restart means a new download (one round, about 9 blocks at most).
+- The download goes into one 768-byte XRAM buffer (`layout_file[]`), is checked with CRC-32 and a structure check (`layout_file_install()`), and is kept until the AP offers a new version. A copy is kept in flash and installed again at start-up, so a restart does not need a new download.
 - "Price" and "Text" stay built in as fallback layouts; content for a file layout the tag does not have is shown with "Text".
 
 ## Fonts

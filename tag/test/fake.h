@@ -26,7 +26,10 @@ extern uint8_t fake_store[200];
 extern uint8_t fake_store_len;        /* 0 = no record */
 extern int fake_store_writes;
 extern bool fake_store_radio_on_write; /* a write happened with the radio on (not allowed) */
-void fake_store_clear(void);
+/* Layout file store (hal_layout_store_*): one page, 0xFF when erased */
+extern uint8_t fake_lstore[1024];
+extern int fake_lstore_writes;
+void fake_store_clear(void);          /* clears both stores */
 
 /* Display (test/fake_epd.c): epd_draw draws into a whole image */
 extern int fake_draw_count;

@@ -457,6 +457,26 @@ bool layout_file_install(uint16_t len, uint32_t ver)
     return true;
 }
 
+bool layout_file_restore(void)
+{
+    uint16_t pos = ESL_LBIN_HDR_LEN;
+    uint32_t crc;
+    uint8_t k;
+
+    layout_file_clear();
+    if (layout_file[0] != ESL_LBIN_FORMAT || layout_file[2] > ESL_LAYOUT_FILE_MAX)
+        return false;               /* also erased flash (0xFF) */
+    for (k = layout_file[2]; k; k--) {
+        if (pos >= ESL_LBIN_MAX)
+            return false;
+        pos += 1 + (uint16_t)layout_file[pos] * ESL_LE_SIZE;
+    }
+    if (pos > ESL_LBIN_MAX)
+        return false;
+    crc = proto_crc32(0, layout_file, pos);
+    return layout_file_install(pos, crc ? crc : 1);
+}
+
 void layout_file_clear(void)
 {
     layout_file_ver = 0;

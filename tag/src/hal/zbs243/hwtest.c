@@ -9,8 +9,9 @@
  * Radio: each round it sends an OpenEPaperLink check-in (PKT_AVAIL_DATA_REQ, PAN
  * 0x4447, channel 11) and prints every frame it receives in the next 100 ms.
  * An OEPL AP in range answers with PKT_AVAIL_DATA_INFO, which tests TX and RX.
- * Then battery, temperature, deep sleep, the watchdog, and a boot counter kept in
- * the persistent store.
+ * Then battery, temperature, deep sleep, the watchdog, a boot counter kept in
+ * the persistent store, and a 768-byte pattern in the layout file store that the
+ * next boot checks.
  */
 #include "../hal.h"
 #include "../hal_epd.h"
@@ -245,6 +246,8 @@ static void radio_test(const uint8_t *mac, uint8_t seq)
     }
 }
 
+static __xdata uint8_t lbuf[768];
+
 void main(void)
 {
     uint8_t mac[8];
@@ -269,6 +272,21 @@ void main(void)
         hal_uart_puts("boot count ");
         put_hex(cnt);
         hal_uart_puts(hal_store_write(&cnt, 1) ? " (saved)\r\n" : " (save FAILED)\r\n");
+
+        /* Layout store: 768 bytes (more than one FWRLENL), a pattern that changes each boot */
+        {
+            uint16_t k;
+            bool ok = true;
+            hal_layout_store_read(lbuf, sizeof(lbuf));
+            for (k = 0; k < sizeof(lbuf); k++)
+                if (lbuf[k] != (uint8_t)(k + cnt - 1))
+                    ok = false;
+            hal_uart_puts(ok ? "layout store kept\r\n" : "layout store not kept (expected on first boot)\r\n");
+            for (k = 0; k < sizeof(lbuf); k++)
+                lbuf[k] = (uint8_t)(k + cnt);
+            hal_uart_puts(hal_layout_store_write(lbuf, sizeof(lbuf)) ? "layout store saved\r\n"
+                                                                    : "layout store save FAILED\r\n");
+        }
     }
 
     epd_test();
