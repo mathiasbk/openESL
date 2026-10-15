@@ -14,9 +14,9 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 | Column-by-column drawing (`draw.c`), layout interpreter with built-in layouts "price" and "text" (`layout.c`) for both models | Done, tested on PC for both models, previews in `build/preview/<model>/` |
 | Layouts sent from the AP (G7/T17): block download, CRC-32 and structure check, drawing from XRAM (`app.c`, `layout.c`, [protokoll.md](../docs/protokoll.md) part 1 "Layout transfer") | Done, tested on PC for both models (fake radio); tried on the air (PR #7). Kept in flash too, so a restart needs no new download (see T12 below) |
 | State machine: POLL, retry, draw only on a new `content_id`, longer interval without AP, "No AP found" screen (`app.c`) | Done, tested on PC with a fake radio |
-| SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Commands are unconfirmed until the controller is confirmed (phase 0); the 1.54" controller is not known at all yet |
-| Clock, GPIO, UART, timer, watchdog, battery, deep sleep (`hal/zbs243/`) | Stubs, waiting for register facts (phases 1 and 6) |
-| Radio (`hal/zbs243/radio_zbs243.c`) | Stub, waiting for phase 3 |
+| SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Draws correctly on the 1.54" (RAM layout and direction confirmed on the tag, [kildelogg.md](../docs/kildelogg.md)); the commands are not checked against a datasheet, and the 2.9" is not tried yet |
+| Clock, GPIO, UART, timer, watchdog, temperature, flash, deep sleep (`hal/zbs243/`), and `hwtest.c` to check them | Done and running on the tag; facts in [kildelogg.md](../docs/kildelogg.md). Battery voltage reads 0 mV (unknown) on the ST-GM16XX2 (issue #4) |
+| Radio (`hal/zbs243/radio_zbs243.c`) | Done, sends and receives with the C6 (phases 3 and 5) |
 | Barcodes (Code 128, EAN-13) as a layout element (`barcode.c`, [protokoll.md](../docs/protokoll.md) part 1): drawn column by column like the rest, checked by reading the drawn screens back with a decoder (`test/test_label_barcode.py`, zxing-cpp) | Done, tested on PC for both models; not scanned from a real tag yet |
 | Last content and the layout file in flash (T12): drawn again at start-up without the AP (`app.c`, `hal_layout_store_*`) | Done, tested on PC (fake flash); not tried on the tag yet. `hwtest` writes and reads back the 768-byte layout page |
 
@@ -28,7 +28,7 @@ tag/
   src/
     main.c              start-up and main loop (ZBS243 only)
     app.c/.h            the state machine, with no hardware code
-    proto.c, proto_tag.h  build POLL and the frame, parse IDLE/CONTENT/CONFIG
+    proto.c, proto_tag.h  build POLL, LAYOUT_REQ and the frame, parse IDLE/CONTENT/CONFIG/LAYOUT
     model.h             screen size per tag model (MODEL=29 or 154)
     layout.c/.h         layout elements, font fallback, line wrapping, truncation with "…"
     barcode.c/.h        Code 128 and EAN-13 as bars, for the barcode element
@@ -39,7 +39,7 @@ tag/
     compat.h            lets the same code compile with SDCC and on the PC
     hal/hal.h           everything the app needs from the hardware
     hal/hal_epd.h       the display pins
-    hal/zbs243/         the ZBS243 implementation (stubs for now)
+    hal/zbs243/         the ZBS243 implementation (HAL, radio, hwtest.c)
   fonts/
     font_*.c            generated font tables (checked in)
     preview_*.png       what the fonts look like
@@ -72,10 +72,10 @@ Requires Python 3 with Pillow. Without `make`, run `python tools/build.py <targe
 | `make fonts` | Regenerates `fonts/font_*.c` |
 
 **Tool versions (requirement G5):**
-- SDCC **4.5.0** (`winget install SDCC.SDCC --version 4.5.0`). `build.py` warns if another version is used. Flags: `-mmcs51 --model-large --stack-auto --std-c99 --opt-code-size`, and the code is linked below `0xFC00` because the stock MAC is at `0xFC06`.
+- SDCC **4.5.0** (`winget install SDCC.SDCC --version 4.5.0`). `build.py` warns if another version is used. Flags: `-mmcs51 --model-large --stack-auto --std-c99 --opt-code-size`, and the code is linked below `0xF400` (`CODE_SIZE`): 0xF400-0xF7FF holds the layout file, 0xF800-0xFBFF the record, and the stock MAC is at `0xFC06`.
 - Host compiler: `CC`, otherwise gcc, clang, cc, or `python -m ziglang cc`.
 - The fonts are generated with Pillow 11.1.0 from Inter 3.019. The generated files are checked in, so the build is the same even if Pillow changes. The output also depends on the FreeType build inside Pillow (Windows and Linux differ by a few pixels), so regenerate only the font you change: `python tools/gen_font.py mid`. `font_mid.c` was made with Pillow 11.1.0 / FreeType 2.13.2 on Linux, the others on Windows.
-- Model: `-DMODEL=29` (default) or `-DMODEL=154`. `render_host.py` builds both on the PC. `build.py fw` does not pass `MODEL` yet, so the firmware is always the 2.9".
+- Model: `-DMODEL=29` (default) or `-DMODEL=154`. `render_host.py` builds both on the PC. `MODEL=154 python tools/build.py fw` builds the 1.54" to `build/fw154/openesl.bin`; the default is the 2.9" in `build/fw/`.
 
 Flash with [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) (`write build/fw/openesl.bin`). Back up the original firmware with `read` first.
 
@@ -126,7 +126,7 @@ Layouts from the AP (G7/T17) use the same elements, 14 bytes each in the wire fo
 - **A rejected layout file** (bad CRC, wrong model, an element the tag cannot draw) is not tried again until the AP offers another version; the tag reports it with POLL flag bit2 and keeps drawing built-in layouts.
 - **Settings from the AP:** `config.h` holds the built-in values. A CONFIG message from the AP (protokoll.md part 1) replaces `poll_s`, `max_poll_s` and `lost_ap_s` (0 = built-in), and the tag sends the message's `cfg_ver` back in every POLL as the acknowledgement. Values below the minimum (10 s, 60 s for `lost_ap_s`) are raised to it. The settings live in `app.cfg` and are kept in flash (T12) in the record described below. A missing or foreign record means the built-in values. `next_poll_s` in a reply still sets the interval as before.
 - **Flash (T12):** two pages below the stock MAC, kept out of the firmware by `CODE_SIZE` (0xF400) in `build.py`:
-  - 0xF800 (`hal_store_*`): one record with the settings and the last content: format 2, the settings (8 bytes), the content length, the layout file version the content was drawn with, and the CONTENT payload as it came from the AP (at most 124 bytes). Written after a CONFIG that changes the settings and after new content is drawn, always with the radio off. Format 1 records (settings only, from older firmware) are still read.
+  - 0xF800 (`hal_store_*`): one record with the settings and the last content: format 2, the settings (8 bytes), the content length, the layout file version the content was drawn with, and the CONTENT payload as it came from the AP (at most 110 bytes; the whole record is at most 124). Written after a CONFIG that changes the settings and after new content is drawn, always with the radio off. Format 1 records (settings only, from older firmware) are still read.
   - 0xF400 (`hal_layout_store_*`): the layout file, raw. It is written when the file in XRAM changes (installed or dropped), after the radio is off. At start-up the tag reads the page, finds the length from the file's structure and installs it with its CRC-32 as the version, with the same checks as a download. An erased page, or a write cut off half way, is not a valid file.
   - At start-up (`app_init()`) the tag draws the stored content instead of the start screen (T9), and reports its `content_id` and the layout version in the first POLL, so the AP answers IDLE and nothing is redrawn. Content drawn with a layout from the file is drawn again only if the same file version came back from flash; otherwise the tag shows the start screen and the AP sends the file and the content as for a new tag. A tag with nothing stored shows the start screen as before.
   - The pages are rewritten only when something changes, so wear follows how often the content changes (the ZBS243 flash endurance is not measured; at 10,000 erase cycles that is 27 years at one change a day). `hwtest` keeps a counter in the record page and a test pattern in the layout page, so run the firmware after `hwtest` to start clean.
@@ -138,7 +138,9 @@ Layouts from the AP (G7/T17) use the same elements, 14 bytes each in the wire fo
 
 ## Missing hardware facts
 
-Everything under `src/hal/zbs243/` is a stub marked `TODO phase N`. Every register fact that is used must go into [docs/kildelogg.md](../docs/kildelogg.md) with its source. The order follows [docs/fremdriftsplan.md](../docs/fremdriftsplan.md):
+The ZBS243 HAL is written and runs on the tag. What is still open: the display commands checked against a datasheet, battery voltage on the ST-GM16XX2 (issue #4), and the sleep current measured (phase 6). Every register fact that is used must go into [docs/kildelogg.md](../docs/kildelogg.md) with its source. The order follows [docs/fremdriftsplan.md](../docs/fremdriftsplan.md):
+
+The original order, now done except as noted above:
 
 1. Phase 0: the pins between ZBS243 and the display's FPC (`hal_epd_*`), which controller the display has, the MAC byte order in flash (`hal_mac_read`), the XRAM size (`--xram-size` in `build.py`).
 2. Phase 1: clock, calibrated `hal_delay_ms`, GPIO, UART TX.

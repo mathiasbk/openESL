@@ -50,6 +50,9 @@ info:
     | `422` | the JSON is valid but a value is not (the message says which) |
     | `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
     | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`) |
+    | `408` | over the USB port: a body that stops arriving |
+    | `429` | five wrong tokens in a row: every request (also with the right token, also the `/setup` form) is refused for 60 s; not on the USB port |
+    | `501` | OTA on a build or partition table without it |
     | `507` | the tag table or the schedule is full |
 
     **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become

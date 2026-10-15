@@ -32,12 +32,13 @@
 | `hal_gpio`, `hal_clock`, `hal_uart` | Clock, pins, debug output | Register findings |
 | `hal_timer`, `power` | Delays, deep sleep, wake after N seconds, watchdog | Register findings |
 | `epd` | SSD16xx: reset, init, write the black/white plane, update, wait for BUSY, sleep | GPIO, datasheet |
-| `font` | Generated table: small (~16 px), medium (~24 px), large digits only, comma and «,-» (~56 px) | Font generator |
+| `font` | Generated tables: small (17 px) and medium (24 px) in Latin-1, mid (36 px) and large (52 px) with digits and ` ,-.:` only | Font generator |
 | `draw` | Calculates one pixel column at a time from layout + text and streams it to `epd` | `font` |
-| `layout` | Layout 1 "Price" and layout 2 "Text": positions, line wrapping, truncation with «…» | `draw` |
+| `layout` | Element interpreter (text, rectangle, barcode, fixed text) for the built-in layouts "price" and "text" and up to 16 layouts from the downloaded file: positions, line wrapping, truncation with «…» | `draw` |
+| `barcode` | Code 128 and EAN-13 as bars for the barcode element | `draw` |
 | `radio` | Init, set channel/PAN, send frame, receive frame with timeout, RSSI | Register findings |
-| `proto` | Build POLL, parse IDLE/CONTENT ([protokoll.md](protokoll.md)) | `radio`, `shared/proto.h` |
-| `battery` | Read voltage (ADC or internal reference) | Register findings |
+| `proto` | Build POLL/LAYOUT_REQ, parse IDLE/CONTENT/CONFIG/LAYOUT ([protokoll.md](protokoll.md)) | `radio`, `shared/proto.h` |
+| `battery` | Voltage from the display controller's voltage detector (100 mV steps, once every 60 POLLs); 0 = unknown on the ST-GM16XX2 (issue #4) | Register findings |
 | `main` | State machine: start-up → start-up screen → loop {wake, POLL, handle, sleep} | Everything |
 
 ## Display 2.9": 296×128, black/white
@@ -53,13 +54,13 @@
 
 ## Layout from file (requirements G7, T17)
 - The layouts come from a file made in the design tool, not fixed in the code. The AP checks the JSON file and turns it into a binary format; the tag downloads that in blocks when the AP reports a new version ([protokoll.md](protokoll.md) part 1, "Layout transfer", and part 3).
-- `layout.c` interprets a list of elements (text field, filled rectangle) with position, fonts, colour, alignment and line count. "Price" and "Text" are such lists in flash; a downloaded file holds up to 16 more in the 14-byte wire format, drawn straight from XRAM with `layout_apply_bin()`.
+- `layout.c` interprets a list of elements (text field, filled rectangle, barcode, fixed text from the file) with position, fonts, colour, alignment and line count. "Price" and "Text" are such lists in flash; a downloaded file holds up to 16 more in the 14-byte wire format, drawn straight from XRAM with `layout_apply_bin()`.
 - The download goes into one 768-byte XRAM buffer (`layout_file[]`), is checked with CRC-32 and a structure check (`layout_file_install()`), and is kept until the AP offers a new version. A copy is kept in flash and installed again at start-up, so a restart does not need a new download.
 - "Price" and "Text" stay built in as fallback layouts; content for a file layout the tag does not have is shown with "Text".
 
 ## Fonts
 - The fonts are made with a Python script (Pillow) from a font with an open licence that allows embedding (Inter, OFL). The source font's licence file is in `tag/fonts/`.
-- Only the characters needed are generated: Latin-1 for small and medium fonts, only `0–9 , - :` for the large price font. That keeps the firmware well within 64 KB of flash.
+- Only the characters needed are generated: Latin-1 for small and medium fonts, only digits and ` ,-.:` for the mid and large price fonts. That keeps the firmware well within 64 KB of flash.
 
 ## Memory and coding style on the 8051
 - Little internal RAM. Put buffers in `__xdata`, keep the stack small, avoid recursion and `printf` with floating point.
