@@ -68,6 +68,9 @@ void app_main(void)
 
     api.wifi = wifi_start(ssid, password, CONFIG_ESL_MDNS_HOSTNAME, token, sizeof(token));
 
+#if CONFIG_ESL_MAX_SCHEDULED
+    api.sched = sched_start(&store, CONFIG_ESL_MAX_SCHEDULED);
+#endif
     api.store = &store;
     api.token = token;
     api.fw_version = version;

@@ -20,12 +20,14 @@ ap/
     esl_layout    layout files per tag model: storage, version, blocks for the radio
     esl_layout_compile  layout file (JSON) -> the binary the tags download, checked per model
     esl_persist   blob formats for NVS (content and settings per tag)
+    esl_sched     scheduled content ("at") and the AP's clock
     esl_json      small JSON parser and writer
     esl_api       HTTP API (routes, token, validation) and the status page, independent of the HTTP server
     esl_wifi      WiFi setup: checks, the /setup form and page, GET/PUT /api/wifi JSON
     esl_screen    the status screen's lines and their rendering (ESL_DISPLAY)
   main/                   ESP-IDF glue
     app_main.c  startup         store_nvs.c  mutex + NVS storage (tags and layouts)
+    sched.c     scheduled content in NVS, its task, NTP
     wifi.c      WiFi, setup network, mDNS     http_api.c   esp_http_server -> esl_api_handle(), status page
     radio_ieee802154.c  AP and sniffer modes, calls esl_radio_handle()
     radio_stub.c        simulated tags (esl_faketag), no radio
@@ -84,6 +86,15 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 - NVS: per-tag settings are blob `c<slot>` in namespace `esl_tags` next to the content blob `t<slot>`; the default interval is `poll_s` (u16) in namespace `cfg`. `PUT /api/config {"poll_s":null}` erases it, and the `menuconfig` value (`ESL_NEXT_POLL_S`) applies again.
 - A tag with its own settings counts as holding data: it is not evicted when the table is full, and `DELETE` erases its settings too.
 
+## Scheduled content
+
+`"at"` (Unix seconds, UTC) in `PUT /api/tags` sets content at a given time instead of now: new prices from Monday 07:00, or a sale that starts and one that ends it. The AP applies it itself, so the client does not need to run then (`esl-client sync prices.csv --at "2026-10-19 07:00"`).
+
+- **Clock:** the AP has none that survives a restart. It gets the time from NTP once it is on WiFi (`ESL_NTP_SERVER`, default `pool.ntp.org`), or from `PUT /api/time`; `esl-client` sets it from the computer before it schedules anything if the AP does not know it. Without a known time `at` gives `409`, and after a restart without NTP nothing is applied until the time is set again; then the entries that came due meanwhile are applied, the latest per tag.
+- **Room:** `ESL_MAX_SCHEDULED` (menuconfig, default 256, 0 turns it off) entries for all tags together; a tag can have several (the same tag and time replaces). Each costs 16 bytes of RAM and up to about 160 bytes of NVS (blob `s<slot>` in namespace `esl_sched`) while it waits, and is erased once applied.
+- **Applying:** a task (`main/sched.c`) checks every second and sets the content as `PUT /api/tags` would have; the tag then gets it at its next poll, so with the 60 s default a scheduled price shows up to a minute after `at`.
+- Content sent without `at` leaves scheduled entries in place; `DELETE /api/schedule/{mac}` removes them, and `DELETE /api/tags/{mac}` removes them with the tag. `GET /api/schedule` lists them with their content, `GET /api/tags/{mac}` gives the times under `scheduled`.
+
 ### Over the USB port
 
 With `ESL_SERIAL_API` (on by default; the console is on the built-in USB-Serial-JTAG port) the same API also answers on the USB port, for setups without WiFi. Requests and replies are framed lines in the log stream:
@@ -124,7 +135,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 `ESL_MAX_TAGS` (menuconfig, default 256, at most 1000) is the size of the tag table. What each slot costs:
 
 - **RAM:** about 220 bytes per slot for the whole run (`sizeof(esl_tag_t)`): 56 KB at 256, 220 KB at 1000. The boot log ends with `free heap N bytes, tag table M bytes`; keep a good margin for WiFi and HTTP. 1000 is likely too much for the C6 next to WiFi, a few hundred is fine.
-- **NVS:** up to about 320 bytes per tag once it has content and settings (two blobs, 32-byte NVS entries), plus 2 x 8 KB layout files. The NVS partition is 468 KB, so 1000 tags fit.
+- **NVS:** up to about 320 bytes per tag once it has content and settings (two blobs, 32-byte NVS entries), plus 2 x 8 KB layout files and up to about 160 bytes per waiting scheduled entry (40 KB at the default 256, "Scheduled content"). The NVS partition is 468 KB, so 1000 tags fit.
 - **API replies:** `GET /api/tags` and the status page are streamed (HTTP chunks, `+` pieces on the USB port) through one 23 KB buffer per request, so they do not grow with the table. A batch (`PUT /api/tags`) is still at most 50 tags.
 - **Radio:** a tag's POLL exchange takes 3-6 ms on the air, and tags send without listening for a free channel first (one retry after 2-10 ms). With the default 60 s interval, 64 tags keep the channel busy 0.5 % of the time and about 1 % of first POLLs collide, 200 tags about 3 %, 1000 tags about 15 % (the retry catches most). Beyond that: a longer interval, more APs on different channels, or CCA on the tag.
 

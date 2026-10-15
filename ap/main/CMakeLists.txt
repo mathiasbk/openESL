@@ -1,4 +1,4 @@
-set(srcs app_main.c http_api.c store_nvs.c wifi.c)
+set(srcs app_main.c http_api.c sched.c store_nvs.c wifi.c)
 
 if(CONFIG_ESL_RADIO_STUB)
     list(APPEND srcs radio_stub.c)

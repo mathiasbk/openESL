@@ -9,6 +9,8 @@
 #define PATH_LAYOUTS "/api/layouts"
 #define PATH_CONFIG "/api/config"
 #define PATH_WIFI "/api/wifi"
+#define PATH_TIME "/api/time"
+#define PATH_SCHEDULE "/api/schedule"
 
 _Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -173,6 +175,33 @@ static int parse_uint(const json_t *j, int obj, const char *key, unsigned min, u
     return 0;
 }
 
+/* "at": when scheduled content takes effect, Unix seconds (UTC). Missing or
+ * null gives 0 (now). Returns 0 or 422 with msg set. */
+static int parse_at(const esl_api_t *api, const json_t *j, int obj, uint32_t *at, char *msg)
+{
+    int v = esl_json_obj_get(j->js, j->tok, obj, "at");
+    *at = 0;
+    if (v < 0 || j->tok[v].type == ESL_JSON_NULL)
+        return 0;
+    uint64_t n = 0;
+    bool ok = j->tok[v].type == ESL_JSON_NUMBER;
+    for (int i = j->tok[v].start; ok && i < j->tok[v].end; i++) {
+        char c = j->js[i];
+        ok = c >= '0' && c <= '9' && n <= UINT32_MAX;
+        n = n * 10 + (uint64_t)(c - '0');
+    }
+    if (!ok || n < ESL_SCHED_MIN_UNIX || n > UINT32_MAX) {
+        snprintf(msg, MSG_MAX, "at must be null or a time in whole seconds since 1970 (UTC), after 2020");
+        return 422;
+    }
+    if (!api->sched) {
+        snprintf(msg, MSG_MAX, "this AP has no room for scheduled content (ESL_MAX_SCHEDULED is 0)");
+        return 422;
+    }
+    *at = (uint32_t)n;
+    return 0;
+}
+
 /* Fills cfg from {poll_s, max_poll_s, lost_ap_s}; missing or null = default. */
 static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
 {
@@ -312,6 +341,15 @@ static void write_set_result(esl_sb_t *out, uint64_t mac, const esl_set_result_t
                   m, r->content_id, r->changed ? "true" : "false", r->pending ? "true" : "false");
 }
 
+static void write_sched_result(esl_sb_t *out, uint64_t mac, uint32_t at)
+{
+    char m[17];
+    esl_mac_format(mac, m);
+    esl_sb_printf(out, "{\"mac\":\"%s\",\"scheduled\":true,\"at\":%" PRIu32 "}", m, at);
+}
+
+#define NO_TIME_MSG "the AP does not know the time yet: set it with PUT /api/time, or let it reach an NTP server"
+
 static void write_opt_u16(esl_sb_t *out, const char *key, uint16_t v)
 {
     if (v)
@@ -340,6 +378,24 @@ static const char *layout_name(const esl_content_t *c)
     if (c->layout == ESL_LAYOUT_NAMED)
         return c->name;
     return c->layout == ESL_LAYOUT_PRICE ? "price" : "text";
+}
+
+/* ,"layout":...,"fields":[...],"price_highlight":...,"frame":... */
+static void write_content(esl_sb_t *out, const esl_content_t *c)
+{
+    esl_sb_puts(out, ",\"layout\":");
+    esl_sb_json_str(out, layout_name(c));
+    esl_sb_puts(out, ",\"fields\":[");
+    for (unsigned i = 0; i < c->nfields; i++) {
+        uint8_t len;
+        const uint8_t *f = esl_content_field(c, i, &len);
+        if (i)
+            esl_sb_putc(out, ',');
+        esl_sb_json_latin1(out, f, len);
+    }
+    esl_sb_printf(out, "],\"price_highlight\":%s,\"frame\":%s",
+                  (c->flags & ESL_CFLAG_PRICE_HIGHLIGHT) ? "true" : "false",
+                  (c->flags & ESL_CFLAG_FRAME) ? "true" : "false");
 }
 
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
@@ -389,27 +445,46 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     else
         esl_sb_puts(out, "null");
 
-    if (with_content && t->has_content) {
-        esl_sb_puts(out, ",\"layout\":");
-        esl_sb_json_str(out, layout_name(&t->content));
-        esl_sb_puts(out, ",\"fields\":[");
-        for (unsigned i = 0; i < t->content.nfields; i++) {
-            uint8_t len;
-            const uint8_t *f = esl_content_field(&t->content, i, &len);
-            if (i)
-                esl_sb_putc(out, ',');
-            esl_sb_json_latin1(out, f, len);
+    if (with_content && t->has_content)
+        write_content(out, &t->content);
+    if (with_content && api->sched) {
+        /* when this tag's scheduled content takes effect */
+        esl_sb_puts(out, ",\"scheduled\":[");
+        bool first = true;
+        for (unsigned s = 0; s < api->sched->cap; s++) {
+            uint64_t m;
+            uint32_t at;
+            if (!esl_sched_get_slot(api->sched, s, &m, &at, NULL) || m != t->mac)
+                continue;
+            esl_sb_printf(out, "%s%" PRIu32, first ? "" : ",", at);
+            first = false;
         }
-        esl_sb_printf(out, "],\"price_highlight\":%s,\"frame\":%s",
-                      (t->content.flags & ESL_CFLAG_PRICE_HIGHLIGHT) ? "true" : "false",
-                      (t->content.flags & ESL_CFLAG_FRAME) ? "true" : "false");
+        esl_sb_putc(out, ']');
     }
     esl_sb_putc(out, '}');
 }
 
 /* ---- handlers ------------------------------------------------------------------ */
 
-static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t len, esl_sb_t *out)
+/* When content with "at" takes effect: 0 = now (no "at", or a time that has
+ * passed), else the time to schedule it for. Returns 0 or 409 with msg set. */
+static int when(const esl_api_t *api, uint32_t at, uint64_t now_ms, uint32_t *sched_at, char *msg)
+{
+    *sched_at = 0;
+    if (!at)
+        return 0;
+    uint32_t now = esl_sched_now(api->sched, now_ms, NULL);
+    if (!now) {
+        snprintf(msg, MSG_MAX, NO_TIME_MSG);
+        return 409;
+    }
+    if (at > now)
+        *sched_at = at;
+    return 0;
+}
+
+static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t len, uint64_t now_ms,
+                   esl_sb_t *out)
 {
     esl_jtok_t *tok = NULL;
     int status = parse_json(body, len, &tok, out);
@@ -418,10 +493,22 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
         esl_content_t c;
         char msg[MSG_MAX];
         esl_set_result_t r;
+        uint32_t at = 0;
         status = parse_content(api, &j, 0, mac, &c, msg);
+        if (!status)
+            status = parse_at(api, &j, 0, &at, msg);
+        if (!status)
+            status = when(api, at, now_ms, &at, msg);
         if (status)
             api_error(out, status, msg);
-        else if (esl_store_set(api->store, mac, &c, &r) != ESL_STORE_OK)
+        else if (at) {
+            if (esl_sched_add(api->sched, mac, at, &c) != ESL_SCHED_OK)
+                status = api_error(out, 507, "schedule full");
+            else {
+                write_sched_result(out, mac, at);
+                status = 200;
+            }
+        } else if (esl_store_set(api->store, mac, &c, &r) != ESL_STORE_OK)
             status = api_error(out, 507, "tag table full");
         else {
             write_set_result(out, mac, &r);
@@ -432,10 +519,11 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
     return status;
 }
 
-static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_t *out)
+static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_t now_ms, esl_sb_t *out)
 {
     esl_jtok_t *tok = NULL;
     uint64_t *macs = NULL;
+    uint32_t *ats = NULL;
     esl_content_t *contents = NULL;
     int status = parse_json(body, len, &tok, out);
     if (status)
@@ -453,15 +541,16 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
         goto done;
     }
     macs = malloc(sizeof(*macs) * (n ? n : 1));
+    ats = malloc(sizeof(*ats) * (n ? n : 1));
     contents = malloc(sizeof(*contents) * (n ? n : 1));
-    if (!macs || !contents) {
+    if (!macs || !ats || !contents) {
         status = api_error(out, 500, "out of memory");
         goto done;
     }
 
     /* Validate everything first so a bad entry changes nothing. */
     int i = arr + 1;
-    unsigned new_macs = 0;
+    unsigned new_macs = 0, new_sched = 0;
     for (unsigned k = 0; k < n; k++) {
         char msg[MSG_MAX];
         int mt = esl_json_obj_get(body, tok, i, "mac");
@@ -471,20 +560,30 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
             goto done;
         }
         int st = parse_content(api, &j, i, macs[k], &contents[k], msg);
+        if (!st)
+            st = parse_at(api, &j, i, &ats[k], msg);
+        if (!st)
+            st = when(api, ats[k], now_ms, &ats[k], msg);
         if (st) {
             status = api_error_at(out, st, msg, (int)k);
             goto done;
         }
-        esl_tag_t existing;
         bool dup = false;
         for (unsigned d = 0; d < k; d++)
-            dup |= macs[d] == macs[k];
-        if (!dup && (!esl_store_get(api->store, macs[k], &existing) || !esl_tag_holds_data(&existing)))
+            dup |= macs[d] == macs[k] && (ats[k] ? ats[d] == ats[k] : !ats[d]);
+        esl_tag_t existing;
+        if (!dup && ats[k])
+            new_sched += !esl_sched_has(api->sched, macs[k], ats[k]);
+        else if (!dup && !ats[k] && (!esl_store_get(api->store, macs[k], &existing) || !esl_tag_holds_data(&existing)))
             new_macs++;
         i = tok[i].next;
     }
     if (new_macs > esl_store_available(api->store)) {
         status = api_error(out, 507, "tag table full");
+        goto done;
+    }
+    if (new_sched && new_sched > esl_sched_free(api->sched)) {
+        status = api_error(out, 507, "schedule full");
         goto done;
     }
 
@@ -493,12 +592,15 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
         esl_set_result_t r;
         if (k)
             esl_sb_putc(out, ',');
-        if (esl_store_set(api->store, macs[k], &contents[k], &r) == ESL_STORE_OK) {
+        if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
+            write_sched_result(out, macs[k], ats[k]);
+        } else if (!ats[k] && esl_store_set(api->store, macs[k], &contents[k], &r) == ESL_STORE_OK) {
             write_set_result(out, macs[k], &r);
         } else {
             char m[17];
             esl_mac_format(macs[k], m);
-            esl_sb_printf(out, "{\"mac\":\"%s\",\"error\":\"tag table full\"}", m);
+            esl_sb_printf(out, "{\"mac\":\"%s\",\"error\":\"%s\"}", m,
+                          ats[k] ? "schedule full" : "tag table full");
         }
     }
     esl_sb_puts(out, "]}");
@@ -507,6 +609,7 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, esl_sb_
 done:
     free(tok);
     free(macs);
+    free(ats);
     free(contents);
     return status;
 }
@@ -525,6 +628,15 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         esl_sb_puts(out, ",\"reset\":");
         esl_sb_json_str(out, api->reset_reason);
     }
+    if (api->sched) {
+        uint32_t t = esl_sched_now(api->sched, now_ms, NULL);
+        if (t)
+            esl_sb_printf(out, ",\"time\":%" PRIu32, t);
+        else
+            esl_sb_puts(out, ",\"time\":null");
+        esl_sb_printf(out, ",\"scheduled\":%u,\"max_scheduled\":%u", esl_sched_count(api->sched),
+                      api->sched->cap);
+    }
     esl_sb_puts(out, "},\"tags\":[");
     bool first = true;
     for (unsigned s = 0; s < api->store->cap; s++) {
@@ -535,6 +647,87 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             esl_sb_putc(out, ',');
         first = false;
         write_tag(api, out, &t, now_ms, def_poll, false);
+    }
+    esl_sb_puts(out, "]}");
+    return 200;
+}
+
+/* ---- clock and schedule --------------------------------------------------------- */
+
+static void write_time(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
+{
+    uint8_t src;
+    uint32_t t = esl_sched_now(api->sched, now_ms, &src);
+    if (t)
+        esl_sb_printf(out, "{\"time\":%" PRIu32 ",\"source\":\"%s\"}", t, esl_time_src_name(src));
+    else
+        esl_sb_puts(out, "{\"time\":null,\"source\":null}");
+}
+
+/* GET/PUT /api/time */
+static int ap_time(const esl_api_t *api, const char *method, const char *body, size_t len, uint64_t now_ms,
+                   esl_sb_t *out)
+{
+    if (strcmp(method, "PUT") == 0) {
+        esl_jtok_t *tok = NULL;
+        int status = parse_json(body, len, &tok, out);
+        if (status) {
+            free(tok);
+            return status;
+        }
+        json_t j = {body, tok};
+        int v = esl_json_obj_get(body, tok, 0, "time");
+        uint64_t n = 0;
+        bool ok = v >= 0 && tok[v].type == ESL_JSON_NUMBER;
+        for (int i = ok ? tok[v].start : 0; ok && i < tok[v].end; i++) {
+            ok = body[i] >= '0' && body[i] <= '9' && n <= UINT32_MAX;
+            n = n * 10 + (uint64_t)(body[i] - '0');
+        }
+        (void)j;
+        free(tok);
+        if (!ok || n < ESL_SCHED_MIN_UNIX || n > UINT32_MAX)
+            return api_error(out, 422, "time must be whole seconds since 1970 (UTC), after 2020");
+        esl_sched_set_time(api->sched, (uint32_t)n, now_ms, ESL_TIME_API);
+    } else if (strcmp(method, "GET") != 0)
+        return api_error(out, 405, "method not allowed");
+    write_time(api, now_ms, out);
+    return 200;
+}
+
+/* GET/DELETE /api/schedule, DELETE /api/schedule/{mac} */
+static int ap_schedule(const esl_api_t *api, const char *method, bool has_mac, uint64_t mac, uint64_t now_ms,
+                       esl_sb_t *out)
+{
+    if (strcmp(method, "DELETE") == 0) {
+        unsigned n = esl_sched_remove(api->sched, mac, !has_mac);
+        if (!n)
+            return api_error(out, 404, has_mac ? "nothing scheduled for this tag" : "nothing scheduled");
+        esl_sb_printf(out, "{\"deleted\":%u}", n);
+        return 200;
+    }
+    if (strcmp(method, "GET") != 0 || has_mac)
+        return api_error(out, 405, "method not allowed");
+    /* Up to ESL_MAX_SCHEDULED entries with content: streamed like GET /api/tags */
+    esl_sb_stream(out, 200);
+    uint32_t t = esl_sched_now(api->sched, now_ms, NULL);
+    if (t)
+        esl_sb_printf(out, "{\"time\":%" PRIu32, t);
+    else
+        esl_sb_puts(out, "{\"time\":null");
+    esl_sb_printf(out, ",\"max_scheduled\":%u,\"scheduled\":[", api->sched->cap);
+    bool first = true;
+    for (unsigned s = 0; s < api->sched->cap; s++) {
+        uint64_t m;
+        uint32_t at;
+        esl_content_t c;
+        char ms[17];
+        if (!esl_sched_get_slot(api->sched, s, &m, &at, &c))
+            continue;
+        esl_mac_format(m, ms);
+        esl_sb_printf(out, "%s{\"mac\":\"%s\",\"at\":%" PRIu32, first ? "" : ",", ms, at);
+        write_content(out, &c);
+        esl_sb_putc(out, '}');
+        first = false;
     }
     esl_sb_puts(out, "]}");
     return 200;
@@ -941,6 +1134,24 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
+    const size_t tbase = sizeof(PATH_TIME) - 1;
+    if (api->sched && (plen == tbase || (plen == tbase + 1 && uri[tbase] == '/')) &&
+        memcmp(uri, PATH_TIME, tbase) == 0)
+        return ap_time(api, method, body, body_len, now_ms, out);
+
+    const size_t sbase = sizeof(PATH_SCHEDULE) - 1;
+    if (api->sched && plen >= sbase && memcmp(uri, PATH_SCHEDULE, sbase) == 0 &&
+        (plen == sbase || uri[sbase] == '/')) {
+        size_t ml = plen > sbase ? plen - sbase - 1 : 0;
+        if (ml == 17 && uri[sbase + 17] == '/')
+            ml = 16;
+        uint64_t m = 0;
+        if (ml && !esl_mac_parse(&uri[sbase + 1], ml, &m))
+            return api_error(out, 400, "mac must be 16 hex digits");
+        int status = ap_schedule(api, method, ml != 0, m, now_ms, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
     bool collection = false, item = false, item_cfg = false;
     uint64_t mac = 0;
     if (plen >= base && memcmp(uri, PATH_TAGS, base) == 0) {
@@ -969,9 +1180,9 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     else if (collection && strcmp(method, "GET") == 0)
         status = get_all(api, now_ms, out);
     else if (collection && strcmp(method, "PUT") == 0)
-        status = put_batch(api, body, body_len, out);
+        status = put_batch(api, body, body_len, now_ms, out);
     else if (item && strcmp(method, "PUT") == 0)
-        status = put_one(api, mac, body, body_len, out);
+        status = put_one(api, mac, body, body_len, now_ms, out);
     else if (item && strcmp(method, "GET") == 0) {
         esl_tag_t t;
         if (!esl_store_get(api->store, mac, &t))
@@ -980,7 +1191,9 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         status = 200;
     } else if (item && strcmp(method, "DELETE") == 0) {
         char m[17];
-        if (!esl_store_delete(api->store, mac))
+        /* its scheduled content goes too, or it would come back */
+        unsigned removed = api->sched ? esl_sched_remove(api->sched, mac, false) : 0;
+        if (!esl_store_delete(api->store, mac) && !removed)
             return api_error(out, 404, "unknown tag");
         esl_mac_format(mac, m);
         esl_sb_printf(out, "{\"mac\":\"%s\",\"deleted\":true}", m);

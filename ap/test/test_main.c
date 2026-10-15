@@ -15,6 +15,7 @@ void test_layout(void);
 void test_radio(void);
 void test_wifi(void);
 void test_screen(void);
+void test_sched(void);
 
 static const struct {
     const char *name;
@@ -33,6 +34,7 @@ static const struct {
     {"radio", test_radio},
     {"wifi", test_wifi},
     {"screen", test_screen},
+    {"sched", test_sched},
 };
 
 int main(void)

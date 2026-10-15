@@ -167,6 +167,24 @@ menu "OpenESL AP"
             margin for WiFi and HTTP. See "How many tags" in README.md,
             also for what the radio takes.
 
+    config ESL_MAX_SCHEDULED
+        int "Max scheduled content entries"
+        range 0 1000
+        default 256
+        help
+            Room for content that takes effect at a given time ("at" in
+            PUT /api/tags). Each entry costs 16 bytes of RAM and up to about
+            160 bytes of NVS while it waits. 0 turns scheduling and the
+            clock (/api/time, /api/schedule) off.
+
+    config ESL_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+        depends on ESL_MAX_SCHEDULED > 0
+        help
+            Where the AP gets the time once it is on WiFi. Empty: no NTP;
+            the time then only comes from PUT /api/time.
+
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"
         range -24 20
