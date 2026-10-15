@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,14 +20,51 @@
  *
  * A reply is written with one fwrite under the stdout lock, so log lines from
  * other tasks cannot land inside it. Anyone with the USB cable has the device
- * anyway, so serial requests need no token. */
+ * anyway, so serial requests need no token.
+ *
+ * The driver drops received bytes when its RX ring buffer is full, so the
+ * buffer holds a whole request (the client waits for each reply before sending
+ * the next). A body that stops arriving gets 408 after BODY_TIMEOUT_MS, and the
+ * reader looks for the next request line. */
 
 static const char *TAG = "serial_api";
 
 #define SERIAL_TOKEN "serial"
 #define REQ_LINE_MAX 256
+#define BODY_TIMEOUT_MS 2000
 
 static esl_api_t serial_api;
+
+/* Bytes read from the driver but not used yet */
+static uint8_t in_buf[256];
+static size_t in_pos, in_len;
+
+static int get_byte(TickType_t wait)
+{
+    if (in_pos == in_len) {
+        int n = usb_serial_jtag_read_bytes(in_buf, sizeof(in_buf), wait);
+        if (n <= 0)
+            return -1;
+        in_pos = 0;
+        in_len = (size_t)n;
+    }
+    return in_buf[in_pos++];
+}
+
+/* Reads exactly n bytes into dst (NULL: discard). False on timeout. */
+static bool read_body(char *dst, size_t n)
+{
+    TickType_t end = xTaskGetTickCount() + pdMS_TO_TICKS(BODY_TIMEOUT_MS);
+    for (size_t i = 0; i < n; i++) {
+        TickType_t now = xTaskGetTickCount();
+        int c = get_byte(now < end ? end - now : 0);
+        if (c < 0)
+            return false;
+        if (dst)
+            dst[i] = (char)c;
+    }
+    return true;
+}
 
 static void reply(const char *seq, int status, const char *body, size_t len)
 {
@@ -50,18 +88,24 @@ static void handle_line(char *line, char *resp, size_t cap)
     char *body = NULL;
     if (len > ESL_API_MAX_BODY) {
         /* Swallow the body so the next request line is found again */
-        for (unsigned i = 0; i < len && getchar() != EOF; i++)
-            ;
+        read_body(NULL, len);
         static const char msg[] = "{\"error\":\"body too large\"}";
         reply(seq, 413, msg, sizeof(msg) - 1);
         return;
     }
     if (len) {
         body = malloc(len);
-        if (!body || fread(body, 1, len, stdin) != len) {
+        if (!body) {
+            read_body(NULL, len);
+            static const char msg[] = "{\"error\":\"out of memory\"}";
+            reply(seq, 500, msg, sizeof(msg) - 1);
+            return;
+        }
+        if (!read_body(body, len)) {
             free(body);
-            static const char msg[] = "{\"error\":\"short body\"}";
-            reply(seq, 400, msg, sizeof(msg) - 1);
+            ESP_LOGW(TAG, "%s %s: body stopped arriving", method, uri);
+            static const char msg[] = "{\"error\":\"body incomplete\"}";
+            reply(seq, 408, msg, sizeof(msg) - 1);
             return;
         }
     }
@@ -85,12 +129,18 @@ static void serial_task(void *arg)
         ESP_LOGE(TAG, "out of memory");
         vTaskDelete(NULL);
     }
+    size_t n = 0;
     for (;;) {
-        if (!fgets(line, sizeof(line), stdin)) {
-            clearerr(stdin);
-            vTaskDelay(pdMS_TO_TICKS(10));
+        int c = get_byte(portMAX_DELAY);
+        if (c < 0)
+            continue;
+        if (c != '\n') {
+            if (n < sizeof(line) - 1)
+                line[n++] = (char)c;
             continue;
         }
+        line[n] = 0;
+        n = 0;
         if (strncmp(line, "@ESL ", 5) == 0)
             handle_line(line, resp, cap);
     }
@@ -99,16 +149,16 @@ static void serial_task(void *arg)
 esp_err_t serial_api_start(const esl_api_t *api)
 {
     usb_serial_jtag_driver_config_t cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    cfg.rx_buffer_size = 1024;
+    cfg.rx_buffer_size = REQ_LINE_MAX + 32 + ESL_API_MAX_BODY;
     cfg.tx_buffer_size = 1024;
     esp_err_t err = usb_serial_jtag_driver_install(&cfg);
     if (err != ESP_OK)
         return err;
     /* Bodies are length-counted, so no CR/LF rewriting in either direction */
-    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
+    /* stdout (log and replies) through the driver too; requests are read
+     * from the driver directly, so stdin is not used. */
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_use_driver();
-    setvbuf(stdin, NULL, _IONBF, 0);
 
     serial_api = *api;
     serial_api.token = SERIAL_TOKEN;
