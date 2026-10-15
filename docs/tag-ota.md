@@ -88,7 +88,7 @@ sector 0FF000: before FF.., status WEL 02, erase ms 0019, after erase FF.., prog
 after write A5 B4 87 96 E1 F0 C3 D2 2D 3C 0F 1E 69 78 4B 5A
 ```
 
-So way A works on the 1.54". The 2.9" is not probed yet. The chip must be put in deep power-down (0xB9) at start-up, or it draws current while the tag sleeps (the sleep current was measured at 33 µA without it); `eeprom_sleep()` in `hal_init` does that (PR #54).
+So way A works on the 1.54". The 2.9" is not probed yet. The chip must be put in deep power-down (0xB9) at start-up, or it draws current while the tag sleeps (a sleep current of 33 µA was measured before, and the chip is the suspected cause); `eeprom_sleep()` in `hal_init` does that (PR #54).
 
 ## Next steps
 
