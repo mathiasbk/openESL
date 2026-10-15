@@ -4,6 +4,7 @@
 #include "esl_radio.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -18,6 +19,10 @@
  * POLL, look up the ready-made reply, build the frame; tested on the PC) and
  * transmits the result. Target: under 5 ms from received POLL to
  * transmit (krav A3); the worst time seen is logged.
+ *
+ * The task is registered with the task watchdog and wakes at least once a
+ * second to feed it, so a radio task stuck in a lock or the driver restarts
+ * the AP (sdkconfig.defaults: CONFIG_ESP_TASK_WDT_PANIC).
  *
  * Not yet built against ESP-IDF on real hardware. Check the driver API names
  * against the pinned ESP-IDF version on first build. */
@@ -152,7 +157,9 @@ static void radio_task(void *arg)
     (void)arg;
     rx_item_t it;
     int64_t last_stats = esp_timer_get_time();
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
+        esp_task_wdt_reset();
         if (xQueueReceive(rx_queue, &it, pdMS_TO_TICKS(1000)) == pdTRUE) {
             stats.rx++;
 #if SNIFFER

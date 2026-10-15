@@ -12,7 +12,15 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # Log and serial API (ESL_SERIAL_API) on the built-in USB port
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Task watchdog: the radio task and the serial API task are registered with it
+# (and the idle task, so a task that never yields is caught too). After 10 s
+# without a feed the AP restarts; GET /api/tags then shows "reset": "task_wdt"
+# under "ap". The tag table and content are in NVS, so they survive it.
 CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_PANIC=y
 
 # Bigger NVS for tag content and layout files (partitions.csv)
 CONFIG_PARTITION_TABLE_CUSTOM=y

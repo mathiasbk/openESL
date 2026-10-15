@@ -6,6 +6,7 @@
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,13 +26,18 @@
  * The driver drops received bytes when its RX ring buffer is full, so the
  * buffer holds a whole request (the client waits for each reply before sending
  * the next). A body that stops arriving gets 408 after BODY_TIMEOUT_MS, and the
- * reader looks for the next request line. */
+ * reader looks for the next request line.
+ *
+ * The task is registered with the task watchdog: it waits at most IDLE_WAIT_MS
+ * for input before it feeds it again, and a request (body included) takes at
+ * most BODY_TIMEOUT_MS plus the time the API needs. */
 
 static const char *TAG = "serial_api";
 
 #define SERIAL_TOKEN "serial"
 #define REQ_LINE_MAX 256
 #define BODY_TIMEOUT_MS 2000
+#define IDLE_WAIT_MS 1000
 
 static esl_api_t serial_api;
 
@@ -130,8 +136,10 @@ static void serial_task(void *arg)
         vTaskDelete(NULL);
     }
     size_t n = 0;
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
-        int c = get_byte(portMAX_DELAY);
+        esp_task_wdt_reset();
+        int c = get_byte(pdMS_TO_TICKS(IDLE_WAIT_MS));
         if (c < 0)
             continue;
         if (c != '\n') {
