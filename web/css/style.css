@@ -185,3 +185,19 @@ h3.sub { margin-top: 16px; }
 .backups input { width: 100%; min-width: 120px; }
 .backups input.bad { border-color: var(--error); }
 .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 13px; }
+
+/* API tab: docs/protokoll.md parts 2 and 3, made into HTML by apidocs.py */
+.doc { max-width: 960px; margin: 0 auto 16px; line-height: 1.5; }
+.doc h2 { font-size: 19px; margin: 28px 0 8px; }
+.doc h2:first-child { margin-top: 0; }
+.doc h3 { font-size: 15px; margin: 24px 0 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.doc pre { background: var(--bg); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+.doc :not(pre) > code { background: var(--bg); border-radius: 4px; padding: 1px 4px; overflow-wrap: anywhere; }
+.doc ul { padding-left: 20px; }
+.doc li { margin: 4px 0; }
+.doc li > p { margin: 6px 0; }
+.doc .table { overflow-x: auto; margin: 8px 0; }
+.doc table { border-collapse: collapse; font-size: 14px; }
+.doc th, .doc td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.doc th { background: var(--bg); }
+.doc a { color: var(--accent); }

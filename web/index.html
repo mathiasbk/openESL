@@ -15,6 +15,7 @@
       <button role="tab" data-tab="design">Design</button>
       <button role="tab" data-tab="tag">Flash tag</button>
       <button role="tab" data-tab="ap">Flash AP</button>
+      <button role="tab" data-tab="api">API</button>
     </nav>
     <a class="repo" href="https://github.com/mathiasbk/openesl">Source</a>
   </header>
@@ -49,7 +50,7 @@
         <li><strong>Flash the AP</strong> on an ESP32-C6 and connect it to your computer or network.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
-        <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields.</li>
+        <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
       </ol>
     </section>
     <section class="card wide">
@@ -59,7 +60,7 @@
         <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
         <li>For the AP: an ESP32-C6 board with USB.</li>
       </ul>
-      <p class="muted">Source, protocol and API documentation: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
+      <p class="muted">API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>
   </main>
 
@@ -198,6 +199,15 @@
         <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
       </esp-web-install-button>
     </section>
+  </main>
+
+  <!-- ===================== API ===================== -->
+  <main id="tab-api" class="tab" role="tabpanel" hidden>
+    <article class="card doc">
+      <h2>The AP's API</h2>
+      <p>How a client puts content on the tags: the HTTP API of the access point and the layout file format. The same text is in <a href="https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md">docs/protokoll.md</a> (parts 2 and 3); the radio protocol between the AP and the tags is in part 1 there. <code>tools/esl-client</code> in the repository is an example client in Python.</p>
+<!-- API_DOCS -->
+    </article>
   </main>
 
   <script type="module" src="js/main.js"></script>
