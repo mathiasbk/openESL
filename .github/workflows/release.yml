@@ -79,6 +79,8 @@ jobs:
           mkdir out
           cp fw/tag-firmware/tag-29.bin    "out/openesl-tag-2.9-$TAG.bin"
           cp fw/tag-firmware/tag-154.bin   "out/openesl-tag-1.54-$TAG.bin"
+          cp fw/tag-firmware/tag-29-ota.bin  "out/openesl-tag-2.9-$TAG-ota.bin"
+          cp fw/tag-firmware/tag-154-ota.bin "out/openesl-tag-1.54-$TAG-ota.bin"
           cp fw/ap-firmware/openesl-ap.bin "out/openesl-ap-esp32c6-$TAG.bin"
           cp fw/ap-firmware/openesl-ap-lcd.bin "out/openesl-ap-esp32c6-lcd-$TAG.bin"
           cp fw/ap-firmware/openesl-ap-ota.bin "out/openesl-ap-esp32c6-$TAG-ota.bin"

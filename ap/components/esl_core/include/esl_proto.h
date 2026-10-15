@@ -66,30 +66,50 @@ size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req); /* for t
 size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
                             const uint8_t *data, size_t n);
 
+/* FW_REQ (tag -> AP, firmware update; docs/tag-ota.md) */
+typedef struct {
+    uint8_t model;
+    uint8_t max;     /* data bytes the tag wants at most */
+    uint16_t ver;    /* the image it is downloading */
+    uint16_t pos;
+    uint32_t crc;    /* CRC-32 of that image */
+} esl_fw_req_t;
+
+bool esl_fw_req_parse(const uint8_t *p, size_t len, esl_fw_req_t *out);
+size_t esl_fw_req_build(uint8_t *out, const esl_fw_req_t *req); /* for the fake tag */
+
+/* FW (AP -> tag): data (n bytes, at most ESL_FW_CHUNK_MAX) is the block at pos of an
+ * image of size bytes for model, version ver, CRC-32 crc. out holds ESL_MAX_PAYLOAD bytes. */
+size_t esl_fw_msg_build(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t size, uint16_t pos,
+                        uint32_t crc, uint8_t model, const uint8_t *data, size_t n);
+
 size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s);
 /* out must hold ESL_MAX_PAYLOAD bytes */
 size_t esl_content_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t content_id, const esl_content_t *c);
 /* CONFIG with c and its version (ESL_CONFIG_LEN bytes). */
 size_t esl_config_msg_build(uint8_t *out, uint16_t next_poll_s, const esl_tag_cfg_t *c);
 
-/* An IDLE, CONTENT, LAYOUT or CONFIG message as the tag reads it (for the fake tag and
+/* An IDLE, CONTENT, LAYOUT, CONFIG or FW message as the tag reads it (for the fake tag and
  * the tests, so what the AP builds is checked by an independent parser). */
 typedef struct {
-    uint8_t type; /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT or ESL_MSG_CONFIG */
+    uint8_t type; /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT, ESL_MSG_CONFIG or ESL_MSG_FW */
     uint16_t next_poll_s;
     uint32_t content_id;   /* CONTENT only */
     esl_content_t content; /* CONTENT only */
     uint32_t layout_ver;   /* LAYOUT only */
-    uint16_t layout_size;
+    uint16_t layout_size;  /* LAYOUT and FW: size, position and data of the block */
     uint16_t layout_pos;
     const uint8_t *layout_data; /* points into p */
     size_t layout_len;
+    uint16_t fw_ver;       /* FW only */
+    uint32_t fw_crc;
+    uint8_t fw_model;
     uint16_t cfg_ver;     /* CONFIG only */
     esl_tag_cfg_t cfg;    /* CONFIG only */
 } esl_reply_t;
 
 /* Rejects unknown types/versions, truncated messages, bad field lengths,
- * LAYOUT blocks outside their file and trailing bytes (except after CONFIG,
+ * LAYOUT and FW blocks outside their file and trailing bytes (except after CONFIG,
  * where newer APs may append settings). */
 bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out);
 

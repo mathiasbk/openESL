@@ -10,6 +10,9 @@
 #include "layout.h"
 #include "model.h"
 #include "sim.h"
+#include "boot_core.h"
+#include "otaslot.h"
+#include "proto.h"
 
 uint64_t sim_now_ms;
 uint64_t sim_tag_mac = 0x00000123456789A8ull;
@@ -108,10 +111,13 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
 
 /* ---- sim.h ---- */
 
+static int restarts;
+
 void sim_tag_flash_erase(void)
 {
     flash_rec_len = 0;
     memset(flash_lay, 0xFF, sizeof(flash_lay));
+    fake_xflash_clear(true);   /* the SPI flash is there, so it takes firmware updates */
 }
 
 void sim_tag_boot(void)
@@ -134,6 +140,16 @@ static void wake(void)
     int before = fake_draw_count;
     sim_now_ms = next_wake_ms;
     last_sleep_s = app_poll_once();
+    if (fake_resets) {
+        /* ota_install() restarted the tag: the bootloader, then the application anew */
+        fake_resets = 0;
+        restarts++;
+        if (sim_verbose)
+            printf("  [%7.1f s] tag restarts for a firmware update\n", sim_now_ms / 1000.0);
+        boot_core_run();
+        sim_tag_boot();
+        return;
+    }
     if (fake_draw_count != before) {
         last_draw_ms = sim_now_ms;
         if (sim_on_draw)
@@ -167,6 +183,17 @@ bool sim_tag_run_until_draw(uint64_t t_ms)
 }
 
 uint32_t sim_tag_shown_id(void) { return app.shown_id; }
+uint16_t sim_tag_fw_version(void) { return FW_VERSION; }
+uint8_t sim_tag_model_code(void) { return MODEL_CODE; }
+int sim_tag_restarts(void) { return restarts; }
+bool sim_tag_app_is(const uint8_t *img, size_t len)
+{
+    return memcmp(fake_code + ESL_FW_APP_BASE, img, len) == 0;
+}
+bool sim_tag_ota_confirmed(void)
+{
+    return fake_xflash[OTA_STATE + OTA_ST_CONFIRMED] == 0;
+}
 int sim_tag_draws(void) { return fake_draw_count; }
 uint16_t sim_tag_interval_s(void) { return app.interval_s; }
 uint16_t sim_tag_last_sleep_s(void) { return last_sleep_s; }

@@ -13,6 +13,7 @@
 #define PATH_SCHEDULE "/api/schedule"
 #define PATH_HEALTH "/api/health"
 #define PATH_OTA "/api/ota"
+#define PATH_TAGFW "/api/tag-firmware"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -1133,6 +1134,91 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
     return api_error(out, 405, "method not allowed");
 }
 
+/* ---- tag firmware (docs/tag-ota.md) ------------------------------------------- */
+
+/* ?key=N in the query string; false if absent or not a number. */
+static bool query_size(const char *uri, const char *key, size_t *v)
+{
+    const char *q = strchr(uri, '?');
+    size_t kl = strlen(key);
+    while (q) {
+        q++;
+        if (strncmp(q, key, kl) == 0 && q[kl] == '=' && q[kl + 1] >= '0' && q[kl + 1] <= '9') {
+            *v = (size_t)strtoul(q + kl + 1, NULL, 10);
+            return true;
+        }
+        q = strchr(q, '&');
+    }
+    return false;
+}
+
+static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model)
+{
+    esl_tagfw_img_t img;
+    if (!esl_tagfw_get(api->tagfw, model, &img)) {
+        esl_sb_printf(out, "{\"model\":\"%s\",\"version\":null}", esl_model_name(model));
+        return;
+    }
+    esl_fw_counts_t c;
+    esl_store_fw_counts(api->store, model, img.ver, &c);
+    esl_sb_putc(out, '{');
+    esl_tagfw_write_fields(out, model, &img);
+    esl_sb_printf(out, ",\"tags\":{\"updated\":%u,\"pending\":%u,\"failed\":%u,\"no_ota\":%u}}", c.updated,
+                  c.pending, c.failed, c.no_ota);
+}
+
+static int handle_tagfw(const esl_api_t *api, const char *method, const char *uri, size_t plen,
+                        const char *body, size_t body_len, esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_TAGFW) - 1;
+
+    if (plen == base || (plen == base + 1 && uri[base] == '/')) {
+        if (strcmp(method, "GET") == 0) {
+            esl_sb_printf(out, "{\"max_size\":%u,\"part_max\":%u,\"images\":[", (unsigned)(ESL_FWF_HDR_LEN + ESL_FW_MAX),
+                          (unsigned)ESL_API_MAX_BODY);
+            for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+                if (m > 1)
+                    esl_sb_putc(out, ',');
+                write_tagfw_model(api, out, m);
+            }
+            esl_sb_puts(out, "]}");
+            return 200;
+        }
+        if (strcmp(method, "PUT") != 0)
+            return api_error(out, 405, "method not allowed");
+        size_t offset = 0, total = body_len;
+        bool has_off = query_size(uri, "offset", &offset), has_total = query_size(uri, "total", &total);
+        if (has_off != has_total)
+            return api_error(out, 400, "give both offset and total, or neither");
+        if (!body || body_len == 0)
+            return api_error(out, 400, "missing body: the tag firmware file (openesl-tag-<model>-<version>-ota.bin)");
+        if (total > ESL_FWF_HDR_LEN + ESL_FW_MAX)
+            return api_error(out, 413, "the file is larger than a tag image can be");
+        return esl_tagfw_part(api->tagfw, offset, total, (const uint8_t *)body, body_len, out);
+    }
+    if (uri[base] != '/')
+        return api_error(out, 404, "not found");
+    size_t ml = plen - base - 1;
+    if (ml > 0 && uri[base + ml] == '/')
+        ml--;
+    uint8_t model = esl_model_parse(&uri[base + 1], ml);
+    if (model == ESL_MODEL_UNKNOWN)
+        return api_error(out, 404, "unknown model (use 2.9 or 1.54)");
+    if (strcmp(method, "GET") == 0) {
+        if (!esl_tagfw_get(api->tagfw, model, NULL))
+            return api_error(out, 404, "no tag firmware for this model");
+        write_tagfw_model(api, out, model);
+        return 200;
+    }
+    if (strcmp(method, "DELETE") == 0) {
+        if (!esl_tagfw_delete(api->tagfw, model))
+            return api_error(out, 404, "no tag firmware for this model");
+        esl_sb_printf(out, "{\"model\":\"%s\",\"deleted\":true}", esl_model_name(model));
+        return 200;
+    }
+    return api_error(out, 405, "method not allowed");
+}
+
 /* ---- status page ------------------------------------------------------------------ */
 
 /* Latin-1 to UTF-8, escaped for HTML text and attribute values. */
@@ -1319,6 +1405,12 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         if (out->overflow)
             return api_error(out, 500, "response too large");
         return status;
+    }
+
+    const size_t fbase = sizeof(PATH_TAGFW) - 1;
+    if (api->tagfw && plen >= fbase && memcmp(uri, PATH_TAGFW, fbase) == 0 && (plen == fbase || uri[fbase] == '/')) {
+        int status = handle_tagfw(api, method, uri, plen, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
     const size_t cbase = sizeof(PATH_CONFIG) - 1;

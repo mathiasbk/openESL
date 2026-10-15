@@ -39,6 +39,14 @@ def fail(msg):
     errors.append(msg)
 
 
+def tag_firmware_file(model=1, ver=300, size=1024):
+    """A tag firmware file as tag/tools/build.py writes it (shared/proto.h ESL_FWF_*)."""
+    import struct
+    import zlib
+    image = bytes((i * 7) & 0xFF for i in range(size))
+    return struct.pack("<IBBHII", 0x5746534F, 1, model, ver, size, zlib.crc32(image)) + image
+
+
 # ---- a small JSON Schema (2020-12) validator: what docs/openapi.yaml uses ----------------
 
 class Validator:
@@ -290,6 +298,8 @@ def main():
                 body_ex = list(examples_of(rb["content"]["application/json"]))
                 if not body_ex:
                     fail(f"{m.upper()} {path}: no request example")
+            elif rb and path == "/api/tag-firmware":
+                body_ex = [("tag-29-ota.bin", tag_firmware_file())]
             values = {}
             for name, ex in body_ex or [(None, None)]:
                 if path == "/api/layouts/{model}" and ex:

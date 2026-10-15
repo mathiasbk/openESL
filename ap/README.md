@@ -40,7 +40,7 @@ ap/
     health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
     ota.c               new AP firmware through POST /api/ota (ESL_OTA)
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
-  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA
+  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA, 128 KB for tag firmware
   test/                   host unit tests (Makefile)
 ```
 
@@ -122,6 +122,8 @@ A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to
 ## OTA: new AP firmware (krav A10)
 
 `POST /api/ota` with the app image as the body (`esl-client ota build/esl_ap.bin`, or `openesl-ap-esp32c6-<version>-ota.bin` from a release, `openesl-ap-esp32c6-lcd-<version>-ota.bin` on a board with the LCD; not the merged `openesl-ap...bin`, which has the bootloader in front) writes it to the app slot that is not running (`ota.c`, `esp_ota_*`). The last byte makes that slot the boot slot and the AP restarts a second after the reply; tag content, settings and layout files stay, since they are in NVS. `GET /api/ota` shows which slot runs and what the other holds. Over WiFi the whole image goes in one request; over the USB port it goes in parts (`?offset=N&total=T`, `esl-client` sends 16 KB at a time), since the serial driver drops bytes when its buffer is full. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the new image must confirm itself (`ota_confirm_running()`, once everything in `app_main` has started); if it does not get that far, the next reset boots the old slot again, so a bad image costs one restart. Flashing over USB (`idf.py flash`, the web flasher) still works and always writes `ota_0`; `ESL_OTA` (on by default) turns the endpoint off, and a one-slot partition table answers `501`.
+
+**Tag firmware.** `PUT /api/tag-firmware` (`esl-client tag-ota openesl-tag-<model>-<version>-ota.bin`) stores firmware for one tag model in the `tagfw` partition (64 KB per model, `tagfw.c`, `esl_tagfw.c`), and the AP sends it to the tags of that model over the radio, block by block, when they have nothing else waiting ([docs/tag-ota.md](../docs/tag-ota.md), [docs/protokoll.md](../docs/protokoll.md) "Firmware transfer"). `GET /api/tag-firmware` shows each image and how many tags run it, still need it, rejected it or cannot take updates. The image survives restarts. The partition sits after `ota_1` in space that was free, so nothing else moves; an AP that got its firmware through `POST /api/ota` still has the old table without it and answers `404` until it is flashed over USB once.
 
 ## WiFi setup
 
