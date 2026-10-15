@@ -1,44 +1,69 @@
-# Publishes a GitHub release when a tag v<major>.<minor>.<patch> is pushed, for example:
+# Publishes a GitHub release for the version in the VERSION file. Three ways to start it:
 #
-#   git tag v0.2.0 && git push origin v0.2.0
+#   - merge a pull request that changes VERSION on master: the release v<VERSION> is made
+#     from that commit (the usual way; nothing to tag by hand)
+#   - Actions -> Release -> Run workflow: releases VERSION from the chosen branch, if that
+#     release does not exist yet
+#   - push a tag yourself: git tag v0.2.0 && git push origin v0.2.0 (it must match VERSION;
+#     a suffix such as v0.2.0-rc1 makes a pre-release, which the web page does not use)
 #
-# The tag must match the VERSION file (bump VERSION on master first). The firmware is built
-# by firmware.yml from the tagged commit and attached to the release with SHA-256 sums; the
-# release notes are generated from the pull requests merged since the previous release.
-# A tag with a suffix (v0.2.0-rc1) becomes a pre-release, which the web page does not use.
-# After a normal release, web.yml runs again so the flasher on the page serves it.
+# The firmware is built by firmware.yml and attached with SHA-256 sums; the release notes
+# list the pull requests merged since the previous release. After a normal release, web.yml
+# runs again so the flashers on the web page serve it.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+    branches: [master]
+    paths: [VERSION]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
 
 jobs:
   check:
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v7
-      - name: The tag matches the VERSION file
+      - name: Which release (and does the tag match VERSION)
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          tag="${GITHUB_REF_NAME#v}"
-          if [ "${tag%%-*}" != "$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION ($version). Bump VERSION on master and tag that commit."
-            exit 1
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+            t="${tag#v}"
+            if [ "${t%%-*}" != "$version" ]; then
+              echo "::error::Tag $tag does not match VERSION ($version). Bump VERSION on master and tag that commit."
+              exit 1
+            fi
+          else
+            tag="v$version"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $tag exists already, nothing to do"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
   firmware:
     needs: check
+    if: needs.check.outputs.release == 'true'
     uses: ./.github/workflows/firmware.yml
 
   release:
-    needs: firmware
+    needs: [check, firmware]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -48,23 +73,27 @@ jobs:
         with:
           path: fw
       - name: Name the files after the release
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
-          t="$GITHUB_REF_NAME"
           mkdir out
-          cp fw/tag-firmware/tag-29.bin    "out/openesl-tag-2.9-$t.bin"
-          cp fw/tag-firmware/tag-154.bin   "out/openesl-tag-1.54-$t.bin"
-          cp fw/ap-firmware/openesl-ap.bin "out/openesl-ap-esp32c6-$t.bin"
+          cp fw/tag-firmware/tag-29.bin    "out/openesl-tag-2.9-$TAG.bin"
+          cp fw/tag-firmware/tag-154.bin   "out/openesl-tag-1.54-$TAG.bin"
+          cp fw/ap-firmware/openesl-ap.bin "out/openesl-ap-esp32c6-$TAG.bin"
           (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
           pre=""
-          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" \
-            --title "OpenESL $GITHUB_REF_NAME" --generate-notes --verify-tag $pre
+          case "$TAG" in *-*) pre="--prerelease";; esac
+          # a pushed tag is used as it is; otherwise the tag is made on the commit this run built
+          if [ "$GITHUB_REF_TYPE" = tag ]; then where="--verify-tag"; else where="--target $GITHUB_SHA"; fi
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" \
+            --title "OpenESL $TAG" --generate-notes $where $pre
       - name: Publish the web page with the new firmware
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(needs.check.outputs.tag, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run web.yml --repo "$GITHUB_REPOSITORY" --ref master

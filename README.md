@@ -30,13 +30,9 @@ Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftspla
 
 The version is in [VERSION](VERSION). The tag firmware shows it on its start screen and sends it in POLL (1.2.3 as 10203), and the AP reports it as `ap.fw` in `GET /api/tags`.
 
-To make a release, bump `VERSION` on `master` in a pull request, then tag that commit:
+To make a release, bump `VERSION` in a pull request. When it is merged to `master`, [release.yml](.github/workflows/release.yml) makes the release `v<VERSION>` from that commit: it builds the firmware and publishes a GitHub release with the tag firmware for each model, the merged AP image, `SHA256SUMS.txt`, and notes listing the pull requests since the previous release. The web page is then published again, and its flashers serve that release.
 
-```
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-[release.yml](.github/workflows/release.yml) checks that the tag matches `VERSION`, builds the firmware, and publishes a GitHub release with the tag firmware for each model, the merged AP image, `SHA256SUMS.txt`, and notes listing the pull requests since the previous release. The web page is then published again, and its flashers serve that release. A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.
+The same workflow can be started by hand (Actions → Release → Run workflow) to release the current `VERSION` if that release does not exist yet, or by pushing a tag that matches `VERSION` (`git tag v0.2.0 && git push origin v0.2.0`). A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.
 
 Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml): host tests, both tag models, the AP and the web page with its tests.
 
