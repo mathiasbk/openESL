@@ -894,7 +894,7 @@ components:
         Keys starting with `_` and `description` are comments. Besides this structure the AP
         checks that every box is inside the screen (296×128 or 200×200), that a text box is
         at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
-        most 8 text lines and 5 rectangles per layout, and at most 768 bytes compiled.
+        most 16 text lines and 10 rectangles per layout, and at most 768 bytes compiled.
       additionalProperties: false
       patternProperties: { "^_": true }
       required: [format, version, model, layouts]
@@ -945,6 +945,12 @@ components:
           enum: [text, rect, barcode]
           description: "`text`: one field in a box; `rect`: a filled box; `barcode`: one field as a barcode"
         field: { type: [string, integer], description: "text and barcode: a name from `fields`, or its index" }
+        text:
+          type: string
+          minLength: 1
+          description: |
+            text only, instead of `field`: a fixed text stored in the layout file (at most 64 bytes in
+            Latin-1, 32 different texts per file), so it does not take room in the content
         symbology:
           type: string
           enum: [code128, ean13]

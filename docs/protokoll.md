@@ -101,15 +101,16 @@ The AP turns the JSON layout file (part 3) into this format. It is what the tag 
 | 0 | format = 1 |
 | 1 | model (as in POLL); the tag rejects a file for another model |
 | 2 | number of layouts n, 1..16 |
-| 3 | 0 (reserved) |
+| 3 | number of fixed texts t, 0..32 |
 | then n times | number of elements (1 byte), then the elements, 14 bytes each |
+| then t times | a fixed text: its length (1 byte, 1..64), then the Latin-1 text |
 
 Element, 14 bytes, the same order as `layout_elem_t` in `tag/src/layout.h`:
 
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind: 1 = text, 2 = filled rectangle, 3 = barcode |
-| 1 | 1 | text field 0..3 (text and barcode) |
+| 1 | 1 | text field 0..3 (text and barcode), or 0x80 + i for fixed text i of the file |
 | 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
 | 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom) |
 | 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits |
@@ -121,7 +122,7 @@ Element, 14 bytes, the same order as `layout_elem_t` in `tag/src/layout.h`:
 
 How a text element is drawn (font fallback, wrapping, "…", inverted box) is described in `tag/src/layout.h`; the built-in layouts are the same kind of element list.
 
-A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the tag adds the check digit) or 13 with a correct check digit. A field that cannot be encoded, or does not fit the box even with 1-pixel modules, draws nothing; the AP refuses such content in `PUT /api/tags` (part 2). At most one barcode per layout. Tag firmware 0.1.0 does not know kind 3 and rejects a file that uses it (bit2 in POLL, `layout_failed` in the API).
+A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the tag adds the check digit) or 13 with a correct check digit. A field that cannot be encoded, or does not fit the box even with 1-pixel modules, draws nothing; the AP refuses such content in `PUT /api/tags` (part 2). At most one barcode per layout. Tag firmware 0.1.0 does not know kind 3 or fixed texts and rejects a file that uses them (bit2 in POLL, `layout_failed` in the API).
 
 How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. EAN-13 is specified from 0.264 mm per module (80 %), so a 2-pixel module (0.45 mm) on the 2.9" is a safe choice; 1-pixel modules are below the standard and need a good scanner.
 
@@ -238,6 +239,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `type` | `"text"` (one field in a box), `"rect"` (filled box) or `"barcode"` (one field as a barcode) |
 | `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen |
 | `field` | text and barcode: a name from `fields` (or its index) |
+| `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
 | `module` | barcode only: module width 1–4 px, 0 (default) = the widest that fits the box |
 | `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `mid` (36 px), `large` (52 px); `mid` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
@@ -249,7 +251,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 The AP also checks what the tag can draw, so a file that is accepted always works on the tag (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 8 text lines (each text element counts the most lines it can use) and 5 rectangles (`rect` elements plus `invert`/`highlight` text): the tag's scene has room for no more (`DRAW_MAX_RUNS`, `DRAW_MAX_RECTS`);
+- per layout at most 16 text lines (each text element counts the most lines it can use) and 10 rectangles (`rect` elements plus `invert`/`highlight` text): the tag's scene has room for no more (`DRAW_MAX_RUNS`, `DRAW_MAX_RECTS`; tag firmware 0.1.0 has room for 8 and 5 and leaves out what does not fit);
 - the binary file is at most 768 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 

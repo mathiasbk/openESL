@@ -24,8 +24,8 @@
 
 #define DRAW_COL_BYTES   ((DRAW_H + 7) / 8)
 
-#define DRAW_MAX_RUNS    8      /* text runs (one per line), 15 bytes each in XRAM */
-#define DRAW_MAX_RECTS   5      /* frame (4) + one inverted field */
+#define DRAW_MAX_RUNS    16     /* text runs (one per line), 15 bytes each in XRAM */
+#define DRAW_MAX_RECTS   10     /* frame (4), rect elements and inverted fields, 7 bytes each */
 #define DRAW_MAX_BARCODES 1     /* one barcode per screen */
 #define DRAW_BC_BYTES    ((DRAW_W + 7) / 8)
 

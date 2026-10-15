@@ -86,7 +86,7 @@ size_t esl_faketag_request(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
 static bool file_ok(const esl_faketag_t *t, const uint8_t *b, uint16_t len)
 {
     if (len < ESL_LBIN_HDR_LEN || b[0] != ESL_LBIN_FORMAT || b[1] != t->model || b[2] == 0 ||
-        b[2] > ESL_LAYOUT_FILE_MAX)
+        b[2] > ESL_LAYOUT_FILE_MAX || b[ESL_LBIN_OFF_NTEXT] > ESL_LBIN_TEXT_MAX)
         return false;
     size_t pos = ESL_LBIN_HDR_LEN;
     for (unsigned k = 0; k < b[2]; k++) {
@@ -95,6 +95,14 @@ static bool file_ok(const esl_faketag_t *t, const uint8_t *b, uint16_t len)
         size_t n = b[pos++];
         pos += n * ESL_LE_SIZE;
         if (pos > len)
+            return false;
+    }
+    for (unsigned k = 0; k < b[ESL_LBIN_OFF_NTEXT]; k++) {
+        if (pos >= len)
+            return false;
+        size_t n = b[pos++];
+        pos += n;
+        if (n == 0 || n > ESL_LBIN_TEXT_LEN_MAX || pos > len)
             return false;
     }
     return pos == len;

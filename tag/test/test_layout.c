@@ -520,6 +520,65 @@ static void test_file_install(void)
     CHECK(layout_file_ver == 0);
 }
 
+/* A file with one layout: field 0 at the top, fixed text 1 below it, and texts "kr" and "inkl. mva" */
+static uint16_t fixed_file(void)
+{
+    uint8_t *p = layout_file + 5;
+    layout_file[0] = ESL_LBIN_FORMAT;
+    layout_file[1] = MODEL_CODE;
+    layout_file[2] = 1;
+    layout_file[ESL_LBIN_OFF_NTEXT] = 2;
+    layout_file[4] = 2;
+    p = put_elem(p, ESL_LE_TEXT, 0, ESL_FONT_MEDIUM, ESL_FONT_NONE, ESL_FONT_NONE, 0, 1, ESL_LE_BLACK,
+                 5, 4, DRAW_W - 10, 30);
+    p = put_elem(p, ESL_LE_TEXT, ESL_LE_FIELD_FIXED | 1, ESL_FONT_SMALL, ESL_FONT_NONE, ESL_FONT_NONE,
+                 ESL_LE_RIGHT, 1, ESL_LE_BLACK, 5, 40, DRAW_W - 10, 20);
+    *p++ = 2;
+    *p++ = 'k';
+    *p++ = 'r';
+    *p++ = 9;
+    memcpy(p, "inkl. mva", 9);
+    p += 9;
+    return (uint16_t)(p - layout_file);
+}
+
+static void test_fixed_text(void)
+{
+    static const char *const f[] = { "Kaffe" };
+    uint16_t len;
+
+    len = fixed_file();
+    CHECK(layout_file_install(len, crc_of(len)));
+    build(ESL_LAYOUT_FILE, 0, 1, f);
+    CHECK_EQ(sc.nruns, 2);
+    CHECK_EQ(sc.run[0].len, 5);
+    CHECK_EQ(sc.run[1].len, 9);
+    CHECK(memcmp(sc.run[1].text, "inkl. mva", 9) == 0);
+    CHECK_EQ(sc.run[1].x + sc.run[1].w, DRAW_W - 5);      /* right-aligned like any text */
+    /* the fixed text is drawn without any content fields too */
+    build(ESL_LAYOUT_FILE, 0, 0, f);
+    CHECK_EQ(sc.nruns, 1);
+
+    /* after a restart the texts come back with the file */
+    len = fixed_file();
+    layout_file_clear();
+    CHECK(layout_file_restore());
+    CHECK_EQ(layout_file_len, len);
+
+    /* Each of these makes the file invalid */
+#define BAD(stmt) do { len = fixed_file(); stmt; CHECK(!layout_file_install(len, crc_of(len))); \
+                       CHECK(layout_file_ver == 0); } while (0)
+    BAD(layout_file[ESL_LBIN_OFF_NTEXT] = 1);                      /* text 1 does not exist, and a trailing byte */
+    BAD(layout_file[ESL_LBIN_OFF_NTEXT] = 3);                      /* text 3 is missing */
+    BAD(layout_file[ESL_LBIN_OFF_NTEXT] = ESL_LBIN_TEXT_MAX + 1);
+    BAD(layout_file[5 + ESL_LE_SIZE + ESL_LE_OFF_FIELD] = ESL_LE_FIELD_FIXED | 2);
+    BAD(layout_file[5 + 2 * ESL_LE_SIZE] = 0);                     /* empty text */
+    BAD(layout_file[5 + 2 * ESL_LE_SIZE] = 3);                     /* lengths do not add up */
+    BAD(len--);                                                    /* cut */
+#undef BAD
+    layout_file_clear();
+}
+
 static void test_status_lines(void)
 {
     /* The start screen: 4 lines; the MAC line must fit without "…" */
@@ -556,5 +615,6 @@ void test_layout(void)
     RUN(test_font_heights_match_ap);
     RUN(test_wire_matches_builtin);
     RUN(test_file_install);
+    RUN(test_fixed_text);
     RUN(test_status_lines);
 }

@@ -45,7 +45,7 @@ LAYOUT_IDS = {"price": 1, "text": 2}
 LAYOUT_FILE = 0x10                               # ESL_LAYOUT_FILE: layout n of the file is 0x10 + n
 FLAG_BITS = {"price_highlight": 0x01, "frame": 0x02}
 AP_CORE = os.path.join(build.ROOT, "ap", "components", "esl_core")
-LAYOUT_COMPILER = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c"]
+LAYOUT_COMPILER = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c"]
 
 
 def compile_host(name, model):
