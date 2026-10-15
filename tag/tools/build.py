@@ -41,6 +41,27 @@ HOST_TARGETS = {
     "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
 }
 
+
+
+def read_version():
+    """The version in the VERSION file at the top of the repository, as ("1.2.3", 10203).
+    The number is what the tag sends in POLL (u16), so major is at most 6 and minor and patch at most 99."""
+    with open(os.path.join(ROOT, "VERSION")) as f:
+        text = f.read().strip()
+    parts = text.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        sys.exit("VERSION must be major.minor.patch, got %r" % text)
+    major, minor, patch = (int(p) for p in parts)
+    if minor > 99 or patch > 99 or major * 10000 + minor * 100 + patch > 0xFFFF:
+        sys.exit("VERSION %s does not fit in the u16 the tag sends" % text)
+    return text, major * 10000 + minor * 100 + patch
+
+
+def version_defines():
+    text, number = read_version()
+    return ["-DFW_VERSION=%d" % number, '-DFW_VERSION_STR="%s"' % text]
+
+
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
 FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c"] + CORE + FONTS + HAL_SOURCES
 HWTEST_SOURCES = ["src/hal/zbs243/hwtest.c"] + HAL_SOURCES
@@ -80,7 +101,7 @@ def build_host(name):
     flags = ["-std=c99", "-Wall", "-Wextra", "-O1", "-g"]
     flags += os.environ.get("HOST_CFLAGS", "").split()
     srcs = [os.path.join(TAG, s) for s in HOST_TARGETS[name]]
-    run(cc + flags + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
+    run(cc + flags + version_defines() + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
     return exe
 
 
@@ -157,7 +178,7 @@ def build_8051(subdir, name, sources, defines=()):
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
-        run([sdcc] + flags + list(defines) + ["-I" + i for i in INCLUDES[:2]] +
+        run([sdcc] + flags + list(defines) + version_defines() + ["-I" + i for i in INCLUDES[:2]] +
             ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
     ihx = os.path.join(out, name + ".ihx")

@@ -36,7 +36,7 @@ cd web/dist && python -m http.server    # http://localhost:8000
 
 ## Publishing
 
-`.github/workflows/web.yml` builds the tag firmware (SDCC 4.5.0, both models), the AP (ESP-IDF v5.5.5, merged into one image at offset 0), the page and the renderer, runs the tests, and publishes `web/dist` to GitHub Pages on every push to `master`. The firmware the flash tabs offer is the one built from that commit (`firmware/info.json`). Pull requests build and test only, and attach the page as an artifact.
+`.github/workflows/web.yml` builds the tag firmware (SDCC 4.5.0, both models) and the AP (ESP-IDF v5.5.5, merged into one image at offset 0) through `firmware.yml`, builds the page and the renderer, runs the tests, and publishes `web/dist` to GitHub Pages on every push to `master`. The firmware the flash tabs offer is the latest GitHub release (`firmware/info.json` says which); before the first release it is the firmware built from that commit. Pull requests build and test only, and attach the page, with the firmware built from the pull request, as an artifact. See "Releases" in the top-level README.
 
 One-time setup in the repository: Settings → Pages → Source: **GitHub Actions**.
 

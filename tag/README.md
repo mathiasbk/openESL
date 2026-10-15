@@ -33,7 +33,7 @@ tag/
     draw.c/.h           computes one screen column (DRAW_H/8 bytes) at a time
     font.c/.h           lookup in the font tables
     epd.c/.h            SSD16xx over bit-banged SPI
-    config.h            intervals, channel, PAN ID, version
+    config.h            intervals, channel, PAN ID (the version comes from ../VERSION)
     compat.h            lets the same code compile with SDCC and on the PC
     hal/hal.h           everything the app needs from the hardware
     hal/hal_epd.h       the display pins

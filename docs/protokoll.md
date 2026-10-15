@@ -22,7 +22,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
-| fw_ver | 2 | firmware version |
+| fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
 | battery_mv | 2 | battery voltage in mV |
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer") |
@@ -237,7 +237,7 @@ Reply `200` with one line per tag as above. Practical for the daily price job: o
   "ap": { "fw": "0.1.0", "uptime_s": 86400, "channel": 25, "max_tags": 64, "poll_s": 0, "reset": "poweron" },
   "tags": [
     { "mac": "00000123456789A8", "seen_s_ago": 12, "battery_mv": 2950, "rssi": -61,
-      "fw": 1, "model": "2.9", "draw_failed": false,
+      "fw": 100, "model": "2.9", "draw_failed": false,
       "content_id": 2914470401, "shown_content_id": 2914470401, "pending": false,
       "poll_s": 120, "config": { "poll_s": 120, "max_poll_s": null, "lost_ap_s": null }, "config_pending": false,
       "layout_version": 1167268903, "layout_pending": false, "layout_failed": false,
@@ -250,7 +250,7 @@ Reply `200` with one line per tag as above. Practical for the daily price job: o
 - Tags that have sent POLL without any content set have `content_id: 0`. This is how a client finds new tags.
 - The AP has no clock, so it sends "seconds ago". The client converts this to a time.
 - `max_tags` is how many tags the AP has room for (set in `menuconfig`, default 64).
-- `seen_s_ago`, `battery_mv`, `rssi`, `fw`, `model` and `shown_content_id` are `null` for tags not seen since the AP started. `model` is also `null` for firmware that does not send it. `battery_mv` 0 means the tag cannot measure its battery (the 1.54", issue #4). `draw_failed` is bit1 of the flags in the last POLL.
+- `seen_s_ago`, `battery_mv`, `rssi`, `fw`, `model` and `shown_content_id` are `null` for tags not seen since the AP started. `model` is also `null` for firmware that does not send it. `battery_mv` 0 means the tag cannot measure its battery (the 1.54", issue #4). `draw_failed` is bit1 of the flags in the last POLL. `fw` is the tag's `fw_ver` (100 = 0.1.0, see POLL).
 - `poll_s` is the interval the AP sends this tag (`null` = the tag's built-in one), `config` the tag's own settings (`null` = default, see `PUT /api/tags/{mac}/config`), and `config_pending` is `true` while a tag that understands CONFIG has not confirmed the current settings (always `false` for older firmware).
 - `layout_version` is the layout file version the tag reported (`null` for firmware without layout files). `layout_pending` is true while it differs from the AP's version for the tag's model (the tag is downloading the file), `layout_failed` when the tag rejected the AP's current file.
 - `content_error` is `null`, or why pending content with a named layout cannot be sent: the tag's firmware cannot download layout files, the layout is not in the file for the tag's model, or the tag rejected the file.
