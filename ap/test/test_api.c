@@ -135,6 +135,12 @@ static void test_put_one(void)
     esl_store_on_poll(&st, 2, &p, -70, 2000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 2000), 200);
     CHECK(HAS(resp, "\"model\":\"1.54\",\"draw_failed\":false,"));
+
+    /* battery 0 = the tag could not measure it; the API passes it on as 0 */
+    p.battery_mv = 0;
+    esl_store_on_poll(&st, 2, &p, -70, 3000, NULL, reply);
+    CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 3000), 200);
+    CHECK(HAS(resp, "\"seen_s_ago\":0,\"battery_mv\":0,\"rssi\":-70,\"fw\":1,"));
 }
 
 static void test_put_errors(void)
@@ -570,6 +576,14 @@ static void test_status_page(void)
     CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
                     "<td>-</td><td>no content</td>"));
     CHECK(!HAS(page, "<b>"));
+
+    /* battery 0 = not measured */
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
+    CHECK(HAS(page, "<td>0000000000000002</td><td>1.54</td><td>1 s ago</td><td>-</td><td>-70</td>"));
 
     /* worst case: every slot full, every byte escaped, both models with 16 layouts with
        long names, and half the tags with named content they cannot get */

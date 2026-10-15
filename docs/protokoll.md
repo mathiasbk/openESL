@@ -23,7 +23,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
-| battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" panel cannot be read yet, issue #4) |
+| battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" cannot measure it: its panel cannot be read and the ZBS243 ADC has no supply input, see kildelogg.md) |
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer") |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |

@@ -1229,8 +1229,11 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         esl_sb_printf(out, "<tr><td>%s</td><td>%s</td><td>", m, model ? model : "-");
         if (t.seen) {
             html_ago(out, (now_ms - t.last_seen_ms) / 1000);
-            esl_sb_printf(out, " ago</td><td>%u mV</td><td>%d</td><td>%u</td><td>", (unsigned)t.battery_mv,
-                          (int)t.rssi, (unsigned)t.fw);
+            if (t.battery_mv)
+                esl_sb_printf(out, " ago</td><td>%u mV</td>", (unsigned)t.battery_mv);
+            else
+                esl_sb_puts(out, " ago</td><td>-</td>");
+            esl_sb_printf(out, "<td>%d</td><td>%u</td><td>", (int)t.rssi, (unsigned)t.fw);
         } else {
             esl_sb_puts(out, "-</td><td>-</td><td>-</td><td>-</td><td>");
         }
