@@ -1,5 +1,5 @@
 #include "esl_layout.h"
-#include "esl_crc32.h"
+#include <stdlib.h>
 #include <string.h>
 
 static void lock(esl_layouts_t *ls)
@@ -16,13 +16,7 @@ static void unlock(esl_layouts_t *ls)
 
 static esl_layout_t *slot(esl_layouts_t *ls, uint8_t model)
 {
-    return esl_model_name(model) ? &ls->models[model - 1] : NULL;
-}
-
-static uint32_t version_of(const char *data, size_t len)
-{
-    uint32_t v = esl_crc32(data, len);
-    return v ? v : 1;
+    return ls && esl_model_name(model) ? &ls->models[model - 1] : NULL;
 }
 
 void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops)
@@ -34,29 +28,37 @@ void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops)
 
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len)
 {
-    bool changed;
-    esl_layout_ops_t ops = ls->ops;
-    ls->ops.persist_save = NULL;
-    bool ok = esl_layouts_set(ls, model, data, len, &changed) != 0;
-    ls->ops = ops;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_layout_bin_t *bin = malloc(sizeof(*bin));
+    bool changed, ok = false;
+    if (!bin)
+        return false;
+    if (slot(ls, model) && esl_layout_compile(data, len, model, bin, err, sizeof(err))) {
+        esl_layout_ops_t ops = ls->ops;
+        ls->ops.persist_save = NULL;
+        ok = esl_layouts_set(ls, model, data, len, bin, &changed) != 0;
+        ls->ops = ops;
+    }
+    free(bin);
     return ok;
 }
 
-uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len, bool *changed)
+uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
+                         const esl_layout_bin_t *bin, bool *changed)
 {
     esl_layout_t *l = slot(ls, model);
     *changed = false;
-    if (!l || len == 0 || len > ESL_LAYOUT_MAX_SIZE)
+    if (!l || len == 0 || len > ESL_LAYOUT_MAX_SIZE || !bin->version || bin->bin[1] != model)
         return 0;
 
-    uint32_t v = version_of(data, len);
     lock(ls);
-    *changed = l->version != v || l->len != len || memcmp(l->data, data, len) != 0;
+    *changed = l->len != len || memcmp(l->data, data, len) != 0;
     if (*changed) {
         memcpy(l->data, data, len);
         l->len = (uint16_t)len;
-        l->version = v;
+        l->bin = *bin;
     }
+    uint32_t v = l->bin.version;
     unlock(ls);
 
     if (*changed && ls->ops.persist_save)
@@ -70,25 +72,34 @@ bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model)
     if (!l)
         return false;
     lock(ls);
-    bool had = l->version != 0;
-    l->version = 0;
+    bool had = l->len != 0;
     l->len = 0;
+    memset(&l->bin, 0, sizeof(l->bin));
     unlock(ls);
     if (had && ls->ops.persist_erase)
         ls->ops.persist_erase(ls->ops.ctx, model);
     return had;
 }
 
-bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_t *len)
+bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_t *len, size_t *bin_size)
 {
     esl_layout_t *l = slot(ls, model);
-    if (!l)
-        return false;
-    lock(ls);
-    *version = l->version;
-    *len = l->len;
-    unlock(ls);
-    return *version != 0;
+    uint32_t v = 0;
+    size_t n = 0, b = 0;
+    if (l) {
+        lock(ls);
+        v = l->len ? l->bin.version : 0;
+        n = l->len;
+        b = l->len ? l->bin.size : 0;
+        unlock(ls);
+    }
+    if (version)
+        *version = v;
+    if (len)
+        *len = n;
+    if (bin_size)
+        *bin_size = b;
+    return v != 0;
 }
 
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)
@@ -97,9 +108,80 @@ bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)
     if (!l)
         return false;
     lock(ls);
-    bool has = l->version != 0;
+    bool has = l->len != 0;
     for (size_t i = 0; has && i < l->len; i++)
         esl_sb_putc(out, l->data[i]);
     unlock(ls);
     return has;
+}
+
+void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)
+{
+    esl_layout_t *l = slot(ls, model);
+    esl_sb_putc(out, '[');
+    if (l) {
+        lock(ls);
+        for (unsigned i = 0; l->len && i < l->bin.count; i++) {
+            if (i)
+                esl_sb_putc(out, ',');
+            esl_sb_json_str(out, l->bin.names[i]); /* names are plain ASCII */
+        }
+        unlock(ls);
+    }
+    esl_sb_putc(out, ']');
+}
+
+int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields)
+{
+    esl_layout_t *l = slot(ls, model);
+    int i = -1;
+    if (!l)
+        return -1;
+    lock(ls);
+    if (l->len) {
+        i = esl_layout_bin_find(&l->bin, name, len);
+        if (i >= 0 && nfields)
+            *nfields = l->bin.nfields[i];
+    }
+    unlock(ls);
+    return i;
+}
+
+void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env)
+{
+    esl_layout_t *l = slot(ls, model);
+    memset(env, 0, sizeof(*env));
+    if (!l)
+        return;
+    lock(ls);
+    if (l->len) {
+        env->version = l->bin.version;
+        env->count = l->bin.count;
+        memcpy(env->nfields, l->bin.nfields, sizeof(env->nfields));
+        memcpy(env->names, l->bin.names, sizeof(env->names));
+    }
+    unlock(ls);
+}
+
+size_t esl_layouts_block(esl_layouts_t *ls, uint8_t model, uint32_t ver, uint16_t pos, uint8_t max,
+                         uint16_t next_poll_s, uint8_t *out)
+{
+    esl_layout_t *l = slot(ls, model);
+    size_t n;
+    if (!l)
+        return esl_layout_msg_build(out, next_poll_s, 0, 0, 0, NULL, 0);
+    lock(ls);
+    if (!l->len) {
+        n = esl_layout_msg_build(out, next_poll_s, 0, 0, 0, NULL, 0);
+    } else {
+        const esl_layout_bin_t *b = &l->bin;
+        if (ver != b->version || pos >= b->size)
+            pos = 0; /* first block, or the file changed: start over */
+        size_t take = b->size - pos;
+        if (max && take > max)
+            take = max;
+        n = esl_layout_msg_build(out, next_poll_s, b->version, b->size, pos, &b->bin[pos], take);
+    }
+    unlock(ls);
+    return n;
 }

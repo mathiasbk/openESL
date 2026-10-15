@@ -1,6 +1,20 @@
 #include "layout.h"
 #include "font.h"
 
+/* The downloaded layout files use the font numbers and screen sizes from shared/proto.h */
+#if FONT_SMALL != ESL_FONT_SMALL || FONT_MEDIUM != ESL_FONT_MEDIUM || FONT_LARGE != ESL_FONT_LARGE || \
+    FONT_MID != ESL_FONT_MID || FONT_COUNT != ESL_FONT_COUNT
+#error "font numbers in font.h and shared/proto.h differ"
+#endif
+#if (MODEL_CODE == ESL_MODEL_29 && (DRAW_W != ESL_MODEL_29_W || DRAW_H != ESL_MODEL_29_H)) || \
+    (MODEL_CODE == ESL_MODEL_154 && (DRAW_W != ESL_MODEL_154_W || DRAW_H != ESL_MODEL_154_H))
+#error "screen size in model.h and shared/proto.h differ"
+#endif
+#if LAYOUT_INVERT_PAD != ESL_INVERT_PAD || DRAW_MAX_RUNS != ESL_DRAW_MAX_RUNS || \
+    DRAW_MAX_RECTS != ESL_DRAW_MAX_RECTS || LAYOUT_MAX_LINES != ESL_LE_MAX_LINES
+#error "the limits the AP checks layout files against (shared/proto.h) differ from the tag's"
+#endif
+
 /* ---- Built-in layouts, one set per model ---- */
 
 #define TEXT_LINES   4
@@ -306,25 +320,160 @@ static void place_text(draw_scene_t *s, const layout_elem_t *e, const uint8_t *t
                       DRAW_BLACK);
 }
 
-void layout_apply(draw_scene_t *s, const layout_elem_t *e, const uint8_t *const *text,
-                  const uint8_t *lens, uint8_t nfields, uint8_t flags)
+/* The downloaded file, and one element decoded from it (layout_apply_bin). In XRAM: the
+   8051 stack is in the small internal RAM. */
+uint8_t __xdata layout_file[ESL_LBIN_MAX];
+uint16_t __xdata layout_file_len;
+uint32_t __xdata layout_file_ver;
+static layout_elem_t __xdata wire_elem;
+
+static void decode(const uint8_t *p)
+{
+    wire_elem.kind = p[ESL_LE_OFF_KIND];
+    wire_elem.field = p[ESL_LE_OFF_FIELD];
+    wire_elem.font[0] = p[ESL_LE_OFF_FONT];
+    wire_elem.font[1] = p[ESL_LE_OFF_FONT + 1];
+    wire_elem.font[2] = p[ESL_LE_OFF_FONT + 2];
+    wire_elem.opts = p[ESL_LE_OFF_OPTS];
+    wire_elem.lines = p[ESL_LE_OFF_LINES];
+    wire_elem.color = p[ESL_LE_OFF_COLOR];
+    wire_elem.x = ESL_GET_U16(p + ESL_LE_OFF_X);
+    wire_elem.y = p[ESL_LE_OFF_Y];
+    wire_elem.w = ESL_GET_U16(p + ESL_LE_OFF_W);
+    wire_elem.h = p[ESL_LE_OFF_H];
+}
+
+/*
+ * Adds the elements of one layout: the struct list e (built-in, up to LE_END), or, when
+ * e is 0, n elements in the wire format at wire. One function for both, so drawing a
+ * downloaded layout is no deeper on the stack than drawing a built-in one.
+ */
+static void apply_list(draw_scene_t *s, const layout_elem_t *e, const uint8_t *wire, uint8_t n,
+                       const uint8_t *const *text, const uint8_t *lens, uint8_t nfields, uint8_t flags)
 {
     uint8_t color;
 
     draw_clear(s);
-    for (; e->kind != LE_END; e++) {
-        color = resolve_color(e->color, flags);
-        if (color == COLOR_NONE)
-            continue;
-        if (e->kind == LE_RECT) {
-            if (color == COLOR_INVERT)
-                color = DRAW_BLACK;
-            if (e->w && e->h)
-                draw_add_rect(s, e->x, e->y, e->x + e->w - 1, (uint8_t)(e->y + e->h - 1), color);
-        } else if (e->kind == LE_TEXT) {
-            if (e->field < nfields && lens[e->field])
-                place_text(s, e, text[e->field], lens[e->field], color);
+    for (;;) {
+        if (!e) {
+            if (!n--)
+                break;
+            decode(wire);
+            wire += ESL_LE_SIZE;
+            e = &wire_elem;
+        } else if (e->kind == LE_END) {
+            break;
         }
+        color = resolve_color(e->color, flags);
+        if (color != COLOR_NONE) {
+            if (e->kind == LE_RECT) {
+                if (color == COLOR_INVERT)
+                    color = DRAW_BLACK;
+                if (e->w && e->h)
+                    draw_add_rect(s, e->x, e->y, e->x + e->w - 1, (uint8_t)(e->y + e->h - 1), color);
+            } else if (e->kind == LE_TEXT) {
+                if (e->field < nfields && lens[e->field])
+                    place_text(s, e, text[e->field], lens[e->field], color);
+            }
+        }
+        if (wire)
+            e = 0;
+        else
+            e++;
+    }
+}
+
+void layout_apply(draw_scene_t *s, const layout_elem_t *e, const uint8_t *const *text,
+                  const uint8_t *lens, uint8_t nfields, uint8_t flags)
+{
+    apply_list(s, e, 0, 0, text, lens, nfields, flags);
+}
+
+void layout_apply_bin(draw_scene_t *s, const uint8_t *wire, uint8_t nelem, const uint8_t *const *text,
+                      const uint8_t *lens, uint8_t nfields, uint8_t flags)
+{
+    apply_list(s, 0, wire, nelem, text, lens, nfields, flags);
+}
+
+/* ---- Downloaded layout file ---- */
+
+/* The checks the AP also makes, so a bad file can never index past a table or the screen. */
+static bool elem_ok(void)
+{
+    uint8_t i;
+    const layout_elem_t __xdata *e = &wire_elem;
+
+    if (e->kind != LE_TEXT && e->kind != LE_RECT)
+        return false;
+    if (e->color > LE_FRAME || (uint32_t)e->x + e->w > DRAW_W || (uint16_t)e->y + e->h > DRAW_H)
+        return false;
+    if (e->kind == LE_RECT)
+        return true;
+    if (e->field >= ESL_MAX_FIELDS || e->font[0] >= FONT_COUNT || e->lines > LAYOUT_MAX_LINES)
+        return false;
+    for (i = 1; i < LAYOUT_MAX_FONTS; i++)
+        if (e->font[i] >= FONT_COUNT && e->font[i] != LE_NO_FONT)
+            return false;
+    return true;
+}
+
+static bool file_ok(uint16_t len)
+{
+    uint16_t pos = ESL_LBIN_HDR_LEN;
+    uint8_t n, k;
+
+    if (len < ESL_LBIN_HDR_LEN || layout_file[0] != ESL_LBIN_FORMAT || layout_file[1] != MODEL_CODE ||
+        layout_file[2] == 0 || layout_file[2] > ESL_LAYOUT_FILE_MAX)
+        return false;
+    for (k = layout_file[2]; k; k--) {
+        if (pos >= len)
+            return false;
+        n = layout_file[pos++];
+        if ((uint16_t)n * ESL_LE_SIZE > len - pos)
+            return false;
+        for (; n; n--, pos += ESL_LE_SIZE) {
+            decode(layout_file + pos);
+            if (!elem_ok())
+                return false;
+        }
+    }
+    return pos == len;
+}
+
+bool layout_file_install(uint16_t len, uint32_t ver)
+{
+    uint32_t crc;
+
+    layout_file_ver = 0;
+    if (len > ESL_LBIN_MAX || ver == 0)
+        return false;
+    crc = proto_crc32(0, layout_file, len);
+    if ((crc ? crc : 1) != ver || !file_ok(len)) {
+        layout_file_len = 0;
+        return false;
+    }
+    layout_file_len = len;
+    layout_file_ver = ver;
+    return true;
+}
+
+void layout_file_clear(void)
+{
+    layout_file_ver = 0;
+    layout_file_len = 0;
+}
+
+const uint8_t *layout_file_find(uint8_t n, uint8_t *nelem)
+{
+    uint16_t pos = ESL_LBIN_HDR_LEN;
+
+    if (!layout_file_ver || n >= layout_file[2])
+        return 0;
+    for (;;) {
+        *nelem = layout_file[pos++];
+        if (!n--)
+            return layout_file + pos;
+        pos += (uint16_t)*nelem * ESL_LE_SIZE;
     }
 }
 
@@ -341,7 +490,15 @@ void layout_build(draw_scene_t *s, const proto_reply_t *c, const uint8_t *buf)
         fld_text[i] = buf + c->field_off[i];
         fld_len[i] = c->field_len[i];
     }
-    layout_apply(s, layout_builtin(c->layout), fld_text, fld_len, ESL_MAX_FIELDS, c->flags);
+    if (c->layout >= ESL_LAYOUT_FILE) {
+        uint8_t n;
+        const uint8_t *e = layout_file_find(c->layout - ESL_LAYOUT_FILE, &n);
+        if (e) {
+            apply_list(s, 0, e, n, fld_text, fld_len, ESL_MAX_FIELDS, c->flags);
+            return;
+        }
+    }
+    apply_list(s, layout_builtin(c->layout), 0, 0, fld_text, fld_len, ESL_MAX_FIELDS, c->flags);
 }
 
 void layout_build_lines(draw_scene_t *s, const uint8_t *const *lines, const uint8_t *lens, uint8_t n)

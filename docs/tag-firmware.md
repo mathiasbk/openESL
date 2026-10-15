@@ -52,11 +52,10 @@
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
 ## Layout from file (requirements G7, T17)
-- The layouts must come from a file created in the design tool, not be fixed in the code. The file format is JSON. Whether the AP converts it to a compact binary format, or whether the tag reads JSON directly, is open (see [arkitektur.md](arkitektur.md)).
-- The `layout` module changes from fixed layouts to an interpreter for this format: a list of elements (text field, filled rectangle) with position, font, colour, alignment and maximum width.
-  Done on the tag side: `layout_apply()` in `tag/src/layout.c` runs such a list (14-byte elements, format in `tag/src/layout.h`), and "Price" and "Text" are now lists in flash. The binary format is a proposal for what the AP would send; it is not agreed yet.
-- The tag stores the last layout in flash together with its version, and fetches a new one only when the AP reports that the version has changed.
-- The format and the radio message are not specified yet. "Price" and "Text" are kept as built-in fallback layouts.
+- The layouts come from a file made in the design tool, not fixed in the code. The AP checks the JSON file and turns it into a binary format; the tag downloads that in blocks when the AP reports a new version ([protokoll.md](protokoll.md) part 1, "Layout transfer", and part 3).
+- `layout.c` interprets a list of elements (text field, filled rectangle) with position, fonts, colour, alignment and line count. "Price" and "Text" are such lists in flash; a downloaded file holds up to 16 more in the 14-byte wire format, drawn straight from XRAM with `layout_apply_bin()`.
+- The download goes into one 768-byte XRAM buffer (`layout_file[]`), is checked with CRC-32 and a structure check (`layout_file_install()`), and is kept until the AP offers a new version. It is not in flash yet, so a restart means a new download (one round, about 9 blocks at most).
+- "Price" and "Text" stay built in as fallback layouts; content for a file layout the tag does not have is shown with "Text".
 
 ## Fonts
 - The fonts are made with a Python script (Pillow) from a font with an open licence that allows embedding (Inter, OFL). The source font's licence file is in `tag/fonts/`.

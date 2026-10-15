@@ -6,7 +6,8 @@
 #endif
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
-                         uint32_t content_id, uint8_t flags)
+                         uint32_t content_id, uint8_t flags, uint16_t cfg_ver,
+                         uint32_t layout_ver)
 {
     out[ESL_OFF_TYPE] = ESL_MSG_POLL;
     out[ESL_OFF_VER] = ESL_PROTO_VER;
@@ -15,7 +16,20 @@ uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
     ESL_PUT_U32(out + ESL_POLL_OFF_CID, content_id);
     out[ESL_POLL_OFF_FLAGS] = flags;
     out[ESL_POLL_OFF_MODEL] = MODEL_CODE;     /* requirement T18 */
-    return ESL_POLL_LEN;
+    ESL_PUT_U16(out + ESL_POLL_OFF_CFG_VER, cfg_ver);   /* also says: this tag understands CONFIG */
+    ESL_PUT_U32(out + ESL_POLL_OFF_LAYOUT_VER, layout_ver);
+    return ESL_POLL_LEN_LAYOUT;
+}
+
+uint8_t proto_build_layout_req(uint8_t *out, uint32_t layout_ver, uint16_t pos, uint8_t max)
+{
+    out[ESL_OFF_TYPE] = ESL_MSG_LAYOUT_REQ;
+    out[ESL_OFF_VER] = ESL_PROTO_VER;
+    out[ESL_LREQ_OFF_MODEL] = MODEL_CODE;
+    out[ESL_LREQ_OFF_MAX] = max;
+    ESL_PUT_U32(out + ESL_LREQ_OFF_VER, layout_ver);
+    ESL_PUT_U16(out + ESL_LREQ_OFF_POS, pos);
+    return ESL_LREQ_LEN;
 }
 
 int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
@@ -30,6 +44,12 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
     r->content_id = 0;
     r->layout = 0;
     r->flags = 0;
+    r->lay_size = 0;
+    r->lay_pos = 0;
+    r->cfg_ver = 0;
+    r->cfg_poll_s = 0;
+    r->cfg_max_poll_s = 0;
+    r->cfg_lost_ap_s = 0;
 
     if (len < ESL_IDLE_LEN)
         return PROTO_E_SHORT;
@@ -40,17 +60,39 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
 
     if (r->type == ESL_MSG_IDLE)
         return PROTO_OK;
-    if (r->type != ESL_MSG_CONTENT)
-        return PROTO_E_TYPE;
     if (len > ESL_MAX_PAYLOAD)
         return PROTO_E_LONG;
+    if (r->type == ESL_MSG_LAYOUT) {
+        if (len < ESL_LAYOUT_HDR_LEN)
+            return PROTO_E_SHORT;
+        r->content_id = ESL_GET_U32(p + ESL_LAYOUT_OFF_VER);
+        r->lay_size = ESL_GET_U16(p + ESL_LAYOUT_OFF_SIZE);
+        r->lay_pos = ESL_GET_U16(p + ESL_LAYOUT_OFF_POS);
+        r->field_off[0] = ESL_LAYOUT_OFF_DATA;
+        r->field_len[0] = len - ESL_LAYOUT_OFF_DATA;
+        if (r->lay_pos > r->lay_size || r->field_len[0] > r->lay_size - r->lay_pos)
+            return PROTO_E_FIELD;
+        return PROTO_OK;
+    }
+    if (r->type == ESL_MSG_CONFIG) {
+        if (len < ESL_CONFIG_LEN)
+            return PROTO_E_SHORT;
+        r->cfg_ver = ESL_GET_U16(p + ESL_CONFIG_OFF_VER);
+        r->cfg_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_POLL);
+        r->cfg_max_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_MAX_POLL);
+        r->cfg_lost_ap_s = ESL_GET_U16(p + ESL_CONFIG_OFF_LOST_AP);
+        return PROTO_OK;
+    }
+    if (r->type != ESL_MSG_CONTENT)
+        return PROTO_E_TYPE;
     if (len < ESL_CONTENT_HDR_LEN)
         return PROTO_E_SHORT;
 
     r->content_id = ESL_GET_U32(p + ESL_CONTENT_OFF_CID);
     r->layout = p[ESL_CONTENT_OFF_LAYOUT];
     r->flags = p[ESL_CONTENT_OFF_FLAGS];
-    if (r->layout != ESL_LAYOUT_PRICE && r->layout != ESL_LAYOUT_TEXT)
+    if (r->layout != ESL_LAYOUT_PRICE && r->layout != ESL_LAYOUT_TEXT &&
+        (r->layout < ESL_LAYOUT_FILE || r->layout >= ESL_LAYOUT_FILE + ESL_LAYOUT_FILE_MAX))
         return PROTO_E_LAYOUT;
 
     pos = ESL_CONTENT_OFF_FIELDS;
@@ -104,6 +146,25 @@ int8_t proto_check_frame(const uint8_t *f, uint8_t len, uint16_t pan, const uint
             return PROTO_E_ADDR;
     *payload_off = ESL_MAC_HDR_LEN;
     return (int8_t)(len - ESL_MAC_HDR_LEN);
+}
+
+/* Four bits at a time: 64 bytes of table instead of 1 KB, 2 steps per byte. */
+static const uint32_t __code crc_nib[16] = {
+    0x00000000ul, 0x1DB71064ul, 0x3B6E20C8ul, 0x26D930ACul,
+    0x76DC4190ul, 0x6B6B51F4ul, 0x4DB26158ul, 0x5005713Cul,
+    0xEDB88320ul, 0xF00F9344ul, 0xD6D6A3E8ul, 0xCB61B38Cul,
+    0x9B64C2B0ul, 0x86D3D2D4ul, 0xA00AE278ul, 0xBDBDF21Cul
+};
+
+uint32_t proto_crc32(uint32_t crc, const uint8_t *p, uint16_t len)
+{
+    crc = ~crc;
+    while (len--) {
+        crc ^= *p++;
+        crc = (crc >> 4) ^ crc_nib[(uint8_t)crc & 0x0F];
+        crc = (crc >> 4) ^ crc_nib[(uint8_t)crc & 0x0F];
+    }
+    return ~crc;
 }
 
 uint16_t proto_fcs(const uint8_t *p, uint8_t len)

@@ -1,9 +1,12 @@
 #include "esl_proto.h"
+#include "esl_crc32.h"
 #include <string.h>
 
 /* The CONTENT header in shared/proto.h counts layout and flags; the AP builds
  * up to content_id and lets esl_content_body() add the rest. */
 _Static_assert(ESL_CONTENT_OFF_LAYOUT + 2 == ESL_CONTENT_HDR_LEN, "CONTENT layout");
+_Static_assert(ESL_POLL_OFF_CFG_VER == ESL_POLL_LEN && ESL_POLL_LEN_CFG == ESL_POLL_LEN + 2, "POLL extension");
+_Static_assert(ESL_CONFIG_OFF_LOST_AP + 2 == ESL_CONFIG_LEN, "CONFIG layout");
 _Static_assert(ESL_MHR_LEN == 15 && ESL_PSDU_MAX == 127, "802.15.4 frame");
 
 static void put16(uint8_t *p, uint16_t v)
@@ -51,6 +54,10 @@ bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out)
     out->content_id = get32(&p[ESL_POLL_OFF_CID]);
     out->flags = p[ESL_POLL_OFF_FLAGS];
     out->model = p[ESL_POLL_OFF_MODEL];
+    out->has_cfg_ver = len >= ESL_POLL_LEN_CFG;
+    out->cfg_ver = out->has_cfg_ver ? get16(&p[ESL_POLL_OFF_CFG_VER]) : 0;
+    out->has_layout_ver = len >= ESL_POLL_LEN_LAYOUT;
+    out->layout_ver = out->has_layout_ver ? get32(&p[ESL_POLL_OFF_LAYOUT_VER]) : 0;
     return true;
 }
 
@@ -63,7 +70,81 @@ size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll)
     put32(&out[ESL_POLL_OFF_CID], poll->content_id);
     out[ESL_POLL_OFF_FLAGS] = poll->flags;
     out[ESL_POLL_OFF_MODEL] = poll->model;
-    return ESL_POLL_LEN;
+    if (!poll->has_cfg_ver && !poll->has_layout_ver)
+        return ESL_POLL_LEN;
+    put16(&out[ESL_POLL_OFF_CFG_VER], poll->has_cfg_ver ? poll->cfg_ver : 0);
+    if (!poll->has_layout_ver)
+        return ESL_POLL_LEN_CFG;
+    put32(&out[ESL_POLL_OFF_LAYOUT_VER], poll->layout_ver);
+    return ESL_POLL_LEN_LAYOUT;
+}
+
+bool esl_layout_req_parse(const uint8_t *p, size_t len, esl_layout_req_t *out)
+{
+    if (len < ESL_LREQ_LEN || p[0] != ESL_MSG_LAYOUT_REQ || p[1] != ESL_PROTO_VER)
+        return false;
+    out->model = p[ESL_LREQ_OFF_MODEL];
+    out->max = p[ESL_LREQ_OFF_MAX];
+    out->layout_ver = get32(&p[ESL_LREQ_OFF_VER]);
+    out->pos = get16(&p[ESL_LREQ_OFF_POS]);
+    return true;
+}
+
+size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req)
+{
+    out[0] = ESL_MSG_LAYOUT_REQ;
+    out[1] = ESL_PROTO_VER;
+    out[ESL_LREQ_OFF_MODEL] = req->model;
+    out[ESL_LREQ_OFF_MAX] = req->max;
+    put32(&out[ESL_LREQ_OFF_VER], req->layout_ver);
+    put16(&out[ESL_LREQ_OFF_POS], req->pos);
+    return ESL_LREQ_LEN;
+}
+
+size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
+                            const uint8_t *data, size_t n)
+{
+    if (n > ESL_LAYOUT_CHUNK_MAX)
+        n = ESL_LAYOUT_CHUNK_MAX;
+    out[0] = ESL_MSG_LAYOUT;
+    out[1] = ESL_PROTO_VER;
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put32(&out[ESL_LAYOUT_OFF_VER], ver);
+    put16(&out[ESL_LAYOUT_OFF_SIZE], size);
+    put16(&out[ESL_LAYOUT_OFF_POS], pos);
+    if (n)
+        memcpy(&out[ESL_LAYOUT_OFF_DATA], data, n);
+    return ESL_LAYOUT_HDR_LEN + n;
+}
+
+bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c)
+{
+    return !c->poll_s && !c->max_poll_s && !c->lost_ap_s;
+}
+
+uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c)
+{
+    uint8_t b[6];
+    if (esl_tag_cfg_is_default(c))
+        return 0;
+    put16(&b[0], c->poll_s);
+    put16(&b[2], c->max_poll_s);
+    put16(&b[4], c->lost_ap_s);
+    uint32_t crc = esl_crc32(b, sizeof(b));
+    uint16_t v = (uint16_t)(crc ^ (crc >> 16));
+    return v ? v : 1;
+}
+
+size_t esl_config_msg_build(uint8_t *out, uint16_t next_poll_s, const esl_tag_cfg_t *c)
+{
+    out[0] = ESL_MSG_CONFIG;
+    out[1] = ESL_PROTO_VER;
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put16(&out[ESL_CONFIG_OFF_VER], esl_tag_cfg_version(c));
+    put16(&out[ESL_CONFIG_OFF_POLL], c->poll_s);
+    put16(&out[ESL_CONFIG_OFF_MAX_POLL], c->max_poll_s);
+    put16(&out[ESL_CONFIG_OFF_LOST_AP], c->lost_ap_s);
+    return ESL_CONFIG_LEN;
 }
 
 size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s)
@@ -92,6 +173,27 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
     out->next_poll_s = get16(&p[ESL_OFF_NEXT_POLL]);
     if (out->type == ESL_MSG_IDLE)
         return len == ESL_IDLE_LEN;
+    if (out->type == ESL_MSG_LAYOUT) {
+        if (len < ESL_LAYOUT_HDR_LEN || len > ESL_MAX_PAYLOAD)
+            return false;
+        out->layout_ver = get32(&p[ESL_LAYOUT_OFF_VER]);
+        out->layout_size = get16(&p[ESL_LAYOUT_OFF_SIZE]);
+        out->layout_pos = get16(&p[ESL_LAYOUT_OFF_POS]);
+        out->layout_data = &p[ESL_LAYOUT_OFF_DATA];
+        out->layout_len = len - ESL_LAYOUT_HDR_LEN;
+        return out->layout_pos <= out->layout_size &&
+               out->layout_len <= (size_t)(out->layout_size - out->layout_pos) &&
+               (out->layout_ver != 0 || out->layout_size == 0);
+    }
+    if (out->type == ESL_MSG_CONFIG) {
+        if (len < ESL_CONFIG_LEN)
+            return false;
+        out->cfg_ver = get16(&p[ESL_CONFIG_OFF_VER]);
+        out->cfg.poll_s = get16(&p[ESL_CONFIG_OFF_POLL]);
+        out->cfg.max_poll_s = get16(&p[ESL_CONFIG_OFF_MAX_POLL]);
+        out->cfg.lost_ap_s = get16(&p[ESL_CONFIG_OFF_LOST_AP]);
+        return true;
+    }
     if (out->type != ESL_MSG_CONTENT || len < ESL_CONTENT_HDR_LEN)
         return false;
     out->content_id = get32(&p[ESL_CONTENT_OFF_CID]);
@@ -211,6 +313,15 @@ const char *esl_model_name(uint8_t model)
     case ESL_MODEL_29:  return "2.9";
     case ESL_MODEL_154: return "1.54";
     default:            return NULL;
+    }
+}
+
+bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h)
+{
+    switch (model) {
+    case ESL_MODEL_29:  *w = ESL_MODEL_29_W;  *h = ESL_MODEL_29_H;  return true;
+    case ESL_MODEL_154: *w = ESL_MODEL_154_W; *h = ESL_MODEL_154_H; return true;
+    default:            return false;
     }
 }
 

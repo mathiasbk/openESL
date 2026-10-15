@@ -1,11 +1,12 @@
 /*
  * layout.h - places the text fields from a CONTENT packet on the screen.
  *
- * A layout is a list of elements (layout_elem_t) ending with LE_END. The built-in
- * layouts "price" and "text" are such lists in flash, one set per model (layout.c).
- * Requirement G7/T17 (layouts from a file sent by the AP) can later feed a list
- * received over radio into the same layout_apply(); the format below is a proposal
- * for that, the radio message is not agreed yet (docs/protokoll.md part 3).
+ * A layout is a list of elements (layout_elem_t). The built-in layouts "price" and
+ * "text" are such lists in flash, one set per model (layout.c), ending with LE_END.
+ * A layout file downloaded from the AP (requirements G7/T17, docs/protokoll.md part 1,
+ * "Layout transfer") holds up to 16 more layouts as 14-byte elements in the same field
+ * order (ESL_LE_* in shared/proto.h); layout_apply_bin() draws one of them straight
+ * from the downloaded bytes in XRAM.
  *
  * Built-in layouts (2.9", the 1.54" has the same elements in a 200 x 200 box):
  *   1 "price": name (medium font, 2 lines; small font, 3 lines, if it does not fit),
@@ -38,28 +39,29 @@
 
 /* Element kinds */
 #define LE_END        0
-#define LE_TEXT       1        /* one text field in a box, wrapped onto lines */
-#define LE_RECT       2        /* filled rectangle */
+#define LE_TEXT       ESL_LE_TEXT     /* one text field in a box, wrapped onto lines */
+#define LE_RECT       ESL_LE_RECT     /* filled rectangle */
 
-#define LE_NO_FONT    0xFF     /* ends the font list early */
+#define LE_NO_FONT    ESL_FONT_NONE   /* ends the font list early */
 
 /* opts for LE_TEXT: horizontal | vertical alignment */
-#define LE_LEFT       0x00
-#define LE_CENTER     0x01
-#define LE_RIGHT      0x02
+#define LE_LEFT       ESL_LE_LEFT
+#define LE_CENTER     ESL_LE_CENTER
+#define LE_RIGHT      ESL_LE_RIGHT
 #define LE_HMASK      0x03
 #define LE_TOP        0x00
-#define LE_MIDDLE     0x04
-#define LE_BOTTOM     0x08     /* the last line sits on one baseline shared by every font in
-                                  the list, so the box does not jump when a fallback font is used */
+#define LE_MIDDLE     ESL_LE_MIDDLE
+#define LE_BOTTOM     ESL_LE_BOTTOM   /* the last line sits on one baseline shared by every font
+                                         in the list, so the box does not jump when a fallback
+                                         font is used */
 #define LE_VMASK      0x0C
 
 /* color */
-#define LE_BLACK      0
-#define LE_WHITE      1        /* white text or rectangle, on top of an LE_RECT in black */
-#define LE_INVERT     2        /* LE_TEXT: white text in a black box around it */
-#define LE_PRICE_HL   3        /* LE_INVERT if flag bit0 (ESL_CF_PRICE_HIGHLIGHT) is set, else black */
-#define LE_FRAME      4        /* black if flag bit1 (ESL_CF_FRAME) is set, else not drawn */
+#define LE_BLACK      ESL_LE_BLACK
+#define LE_WHITE      ESL_LE_WHITE    /* white text or rectangle, on top of an LE_RECT in black */
+#define LE_INVERT     ESL_LE_INVERT   /* LE_TEXT: white text in a black box around it */
+#define LE_PRICE_HL   ESL_LE_PRICE_HL /* LE_INVERT if flag bit0 (ESL_CF_PRICE_HIGHLIGHT) is set, else black */
+#define LE_FRAME      ESL_LE_FRAME    /* black if flag bit1 (ESL_CF_FRAME) is set, else not drawn */
 
 /*
  * One element. LE_TEXT puts text field `field` inside the box x, y, w, h:
@@ -88,18 +90,48 @@ typedef struct {
     uint8_t h;
 } layout_elem_t;
 
+/*
+ * Downloaded layout file (docs/protokoll.md part 1). One buffer in XRAM, filled block by
+ * block by app.c; layout_file_ver is 0 while nothing valid is in it. Flash writing is not
+ * done yet, so after a restart the tag starts without a file and downloads it again.
+ */
+extern uint8_t __xdata layout_file[ESL_LBIN_MAX];
+extern uint16_t __xdata layout_file_len;
+extern uint32_t __xdata layout_file_ver;
+
+/*
+ * Checks a complete file in layout_file[0..len): CRC32 against ver, then the structure
+ * (format, model, element kinds, fields, fonts, colours, boxes inside the screen).
+ * Installs it (layout_file_ver = ver) and returns true, or clears it and returns false.
+ */
+bool layout_file_install(uint16_t len, uint32_t ver);
+
+/* Forgets the downloaded file. */
+void layout_file_clear(void);
+
+/* Elements of layout n (0-based) in the installed file, or 0 if there is no such layout. */
+const uint8_t *layout_file_find(uint8_t n, uint8_t *nelem);
+
 /* The built-in layout for ESL_LAYOUT_PRICE or ESL_LAYOUT_TEXT (others give "text"). */
 const layout_elem_t __code *layout_builtin(uint8_t id);
 
 /*
  * Clears the scene and adds every element. text/lens hold nfields text fields
  * (fields past nfields count as empty). flags are the CONTENT flags.
- * e is a generic pointer so that a layout received into XRAM can be used later.
+ * e is a generic pointer, so the list may be in flash or XRAM.
  */
 void layout_apply(draw_scene_t *s, const layout_elem_t *e, const uint8_t *const *text,
                   const uint8_t *lens, uint8_t nfields, uint8_t flags);
 
-/* Builds the scene from a parsed CONTENT packet. buf is the buffer the packet was parsed from. */
+/* As layout_apply, for nelem elements in the 14-byte wire format (ESL_LE_* in proto.h). */
+void layout_apply_bin(draw_scene_t *s, const uint8_t *wire, uint8_t nelem, const uint8_t *const *text,
+                      const uint8_t *lens, uint8_t nfields, uint8_t flags);
+
+/*
+ * Builds the scene from a parsed CONTENT packet. buf is the buffer the packet was parsed from.
+ * Layout ESL_LAYOUT_FILE + n uses layout n of the downloaded file; if the tag has no such
+ * layout (yet), the fields are shown with the built-in "text" layout instead.
+ */
 void layout_build(draw_scene_t *s, const proto_reply_t *c, const uint8_t *buf);
 
 /* Builds a simple screen with up to 4 lines (start-up, "waiting for AP") with the text layout. */

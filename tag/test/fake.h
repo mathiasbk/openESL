@@ -1,4 +1,4 @@
-/* fake.h - fake hardware for the host tests (radio, display, MAC, battery). */
+/* fake.h - fake hardware for the host tests (radio, display, MAC, battery, flash store). */
 #ifndef FAKE_H
 #define FAKE_H
 
@@ -20,6 +20,13 @@ extern int fake_radio_on;
 extern uint8_t fake_mac[8];
 extern uint16_t fake_batt_mv;
 extern unsigned fake_delay_ms_total;
+
+/* Persistent store (hal_store_*): one record in RAM, kept over app_init() */
+extern uint8_t fake_store[200];
+extern uint8_t fake_store_len;        /* 0 = no record */
+extern int fake_store_writes;
+extern bool fake_store_radio_on_write; /* a write happened with the radio on (not allowed) */
+void fake_store_clear(void);
 
 /* Display (test/fake_epd.c): epd_draw draws into a whole image */
 extern int fake_draw_count;

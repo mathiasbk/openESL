@@ -29,7 +29,7 @@ void app_main(void)
 
 #if CONFIG_ESL_RADIO_SNIFFER
     /* Sniffer only: no WiFi, so nothing competes with the radio. */
-    ESP_ERROR_CHECK(radio_start(&store, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    ESP_ERROR_CHECK(radio_start(&store, NULL, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
     return;
 #endif
 
@@ -45,12 +45,12 @@ void app_main(void)
     api.token = token;
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
-    /* About 16 KB, so from the heap rather than .bss of every build. */
+    /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
     ESP_ERROR_CHECK(http_api_start(&api));
 
-    ESP_ERROR_CHECK(radio_start(&store, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
 }

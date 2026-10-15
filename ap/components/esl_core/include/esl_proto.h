@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include "esl_content.h"
 
-/* AP side of the radio protocol in docs/protokoll.md, part 1.
+/* AP side of the radio protocol in docs/protokoll.md, part 1, including the
+ * layout transfer (LAYOUT / LAYOUT_REQ).
  *
  * The message layout comes from shared/proto.h, which the tag firmware uses
  * too. The AP-side names below are aliases for it. */
@@ -12,34 +13,84 @@
 
 #define ESL_POLL_FLAG_BOOT        ESL_POLL_F_BOOTED
 #define ESL_POLL_FLAG_DRAW_FAILED ESL_POLL_F_DRAWFAIL
+#define ESL_POLL_FLAG_LAYOUT_FAILED ESL_POLL_F_LAYOUTFAIL
 
 typedef struct {
     uint16_t fw_ver;
     uint16_t battery_mv;
     uint32_t content_id;
     uint8_t flags;
-    uint8_t model; /* ESL_MODEL_*; old firmware sends 0 (unknown) */
+    uint8_t model;       /* ESL_MODEL_*; old firmware sends 0 (unknown) */
+    bool has_cfg_ver;    /* the tag understands CONFIG (POLL of ESL_POLL_LEN_CFG bytes or more) */
+    uint16_t cfg_ver;    /* the settings the tag uses now; 0 = its built-in defaults */
+    bool has_layout_ver; /* POLL of 18 bytes or more: the tag can download layout files */
+    uint32_t layout_ver; /* its layout file version, 0 = none */
 } esl_poll_t;
 
-/* Accepts payloads longer than 12 bytes so newer tags can append fields. */
+/* Tag settings carried by CONFIG. 0 in a field = the tag's built-in default. */
+typedef struct {
+    uint16_t poll_s;     /* normal interval (ESL_CFG_POLL_MIN_S..ESL_CFG_POLL_MAX_S) */
+    uint16_t max_poll_s; /* longest interval while the AP does not answer (same range) */
+    uint16_t lost_ap_s;  /* "No AP found" after this long without an answer (ESL_CFG_LOST_AP_MIN_S..,
+                          * ESL_CFG_LOST_AP_NEVER = never) */
+} esl_tag_cfg_t;
+
+/* Version of a set of settings as sent in CONFIG and echoed in POLL: 0 when
+ * every field is 0 (what a tag uses after boot), otherwise a nonzero 16-bit
+ * hash of the fields. Derived from the values only, so it survives AP restarts
+ * and needs no counter in NVS. */
+uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c);
+bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c);
+
+/* Accepts payloads longer than 12 bytes so newer tags can append fields:
+ * cfg_ver (bytes 12-13) is read from a POLL of at least 14 bytes, the layout
+ * version (bytes 14-17) from one of at least 18. */
 bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out);
-size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll); /* for tests and the fake tag */
+/* For tests and the fake tag: 18 bytes if has_layout_ver (cfg_ver at 12-13, 0 unless
+ * has_cfg_ver), 14 if only has_cfg_ver, else the old 12. */
+size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll);
+
+/* LAYOUT_REQ (tag -> AP) */
+typedef struct {
+    uint8_t model;
+    uint8_t max;     /* data bytes the tag wants at most */
+    uint32_t layout_ver;
+    uint16_t pos;
+} esl_layout_req_t;
+
+bool esl_layout_req_parse(const uint8_t *p, size_t len, esl_layout_req_t *out);
+size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req); /* for the fake tag */
+
+/* LAYOUT (AP -> tag): data (n bytes) is the block at pos of a file of size
+ * bytes with version ver. out must hold ESL_MAX_PAYLOAD bytes. */
+size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
+                            const uint8_t *data, size_t n);
 
 size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s);
 /* out must hold ESL_MAX_PAYLOAD bytes */
 size_t esl_content_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t content_id, const esl_content_t *c);
+/* CONFIG with c and its version (ESL_CONFIG_LEN bytes). */
+size_t esl_config_msg_build(uint8_t *out, uint16_t next_poll_s, const esl_tag_cfg_t *c);
 
-/* An IDLE or CONTENT message as the tag reads it (for the fake tag and the
- * tests, so what the AP builds is checked by an independent parser). */
+/* An IDLE, CONTENT, LAYOUT or CONFIG message as the tag reads it (for the fake tag and
+ * the tests, so what the AP builds is checked by an independent parser). */
 typedef struct {
-    uint8_t type; /* ESL_MSG_IDLE or ESL_MSG_CONTENT */
+    uint8_t type; /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT or ESL_MSG_CONFIG */
     uint16_t next_poll_s;
-    uint32_t content_id;  /* CONTENT only */
+    uint32_t content_id;   /* CONTENT only */
     esl_content_t content; /* CONTENT only */
+    uint32_t layout_ver;   /* LAYOUT only */
+    uint16_t layout_size;
+    uint16_t layout_pos;
+    const uint8_t *layout_data; /* points into p */
+    size_t layout_len;
+    uint16_t cfg_ver;     /* CONFIG only */
+    esl_tag_cfg_t cfg;    /* CONFIG only */
 } esl_reply_t;
 
-/* Rejects unknown types/versions, truncated messages, bad field lengths and
- * trailing bytes. */
+/* Rejects unknown types/versions, truncated messages, bad field lengths,
+ * LAYOUT blocks outside their file and trailing bytes (except after CONFIG,
+ * where newer APs may append settings). */
 bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out);
 
 /* ---- IEEE 802.15.4 MAC header -------------------------------------------
@@ -100,5 +151,7 @@ void esl_mac_format(uint64_t mac, char out[17]);
 #define ESL_MODEL_COUNT 3 /* ESL_MODEL_UNKNOWN .. ESL_MODEL_154 */
 /* Name of a known model, NULL for ESL_MODEL_UNKNOWN or anything else. */
 const char *esl_model_name(uint8_t model);
+/* Screen size of a known model in pixels (the layout coordinates); false otherwise. */
+bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h);
 /* ESL_MODEL_UNKNOWN if the name is not a known model. */
 uint8_t esl_model_parse(const char *s, size_t len);

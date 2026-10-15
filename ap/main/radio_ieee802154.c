@@ -43,11 +43,12 @@ typedef struct {
 static QueueHandle_t rx_queue;
 static SemaphoreHandle_t tx_idle;
 static esl_store_t *store;
+static esl_layouts_t *layouts;
 static uint16_t pan;
 static uint8_t tx_buf[1 + ESL_PSDU_MAX]; /* length byte + PSDU */
 
 static struct {
-    uint32_t rx, polls, replies, tx_failed, dropped;
+    uint32_t rx, polls, blocks, replies, tx_failed, dropped;
     int64_t worst_us;
 } stats;
 
@@ -110,12 +111,15 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
     /* The previous reply must be out of the radio before tx_buf is reused. */
     if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
         ESP_LOGW(TAG, "previous transmit did not finish");
-    size_t len = esl_radio_handle(store, pan, it->psdu, it->len, it->rssi, now_ms, &tx_buf[1], &ev);
+    size_t len = esl_radio_handle(store, layouts, pan, it->psdu, it->len, it->rssi, now_ms, &tx_buf[1], &ev);
     if (!len) {
-        xSemaphoreGive(tx_idle); /* not a POLL for us */
+        xSemaphoreGive(tx_idle); /* not a POLL or LAYOUT_REQ for us */
         return;
     }
-    stats.polls++;
+    if (ev.msg_type == ESL_MSG_POLL)
+        stats.polls++;
+    else
+        stats.blocks++;
     tx_buf[0] = (uint8_t)len;
     esp_err_t err = esp_ieee802154_transmit(tx_buf, false);
     int64_t us = esp_timer_get_time() - it->rx_us;
@@ -132,9 +136,15 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
 
     char m[17];
     esl_mac_format(ev.mac, m);
-    ESP_LOGI(TAG, "%s poll id=%08lX bat=%u model=%u rssi=%d -> %s in %lld us", m, (unsigned long)ev.poll.content_id,
-             ev.poll.battery_mv, ev.poll.model, it->rssi, ev.reply_type == ESL_MSG_CONTENT ? "CONTENT" : "IDLE",
-             (long long)us);
+    if (ev.msg_type == ESL_MSG_LAYOUT_REQ) {
+        ESP_LOGD(TAG, "%s layout block ver=%08lX pos=%u -> %lld us", m, (unsigned long)ev.req.layout_ver,
+                 (unsigned)ev.req.pos, (long long)us);
+        return;
+    }
+    const char *reply = ev.reply_type == ESL_MSG_CONTENT ? "CONTENT" : ev.reply_type == ESL_MSG_LAYOUT ? "LAYOUT" : "IDLE";
+    ESP_LOGI(TAG, "%s poll id=%08lX bat=%u model=%u layout=%08lX rssi=%d -> %s in %lld us", m,
+             (unsigned long)ev.poll.content_id, ev.poll.battery_mv, ev.poll.model, (unsigned long)ev.poll.layout_ver,
+             it->rssi, reply, (long long)us);
 }
 
 static void radio_task(void *arg)
@@ -153,16 +163,18 @@ static void radio_task(void *arg)
         }
         if (esp_timer_get_time() - last_stats > 60 * 1000000LL) {
             last_stats = esp_timer_get_time();
-            ESP_LOGI(TAG, "stats: rx %lu polls %lu replies %lu tx_failed %lu dropped %lu worst %lld us",
-                     (unsigned long)stats.rx, (unsigned long)stats.polls, (unsigned long)stats.replies,
+            ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu dropped %lu worst %lld us",
+                     (unsigned long)stats.rx, (unsigned long)stats.polls, (unsigned long)stats.blocks,
+                     (unsigned long)stats.replies,
                      (unsigned long)stats.tx_failed, (unsigned long)stats.dropped, (long long)stats.worst_us);
         }
     }
 }
 
-esp_err_t radio_start(esl_store_t *st, uint8_t channel, uint16_t pan_id)
+esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id)
 {
     store = st;
+    layouts = ls;
     pan = pan_id;
     rx_queue = xQueueCreate(8, sizeof(rx_item_t));
     tx_idle = xSemaphoreCreateBinary();
@@ -180,7 +192,8 @@ esp_err_t radio_start(esl_store_t *st, uint8_t channel, uint16_t pan_id)
     esp_ieee802154_set_promiscuous(SNIFFER);
     esp_ieee802154_set_rx_when_idle(true);
 
-    if (xTaskCreate(radio_task, "radio", 4096, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
+    /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack */
+    if (xTaskCreate(radio_task, "radio", 6144, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     err = esp_ieee802154_receive();
     ESP_LOGI(TAG, "802.15.4 %s on channel %u, PAN 0x%04X",

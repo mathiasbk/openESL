@@ -42,6 +42,39 @@ void hal_uart_puts(const char *s) { (void)s; }
 void hal_mac_read(uint8_t *mac8) { memcpy(mac8, fake_mac, 8); }
 uint16_t battery_read_mv(void) { return fake_batt_mv; }
 void power_sleep_s(uint16_t s) { (void)s; }
+int8_t hal_temp_c(void) { return 20; }
+
+uint8_t fake_store[HAL_STORE_MAX];
+uint8_t fake_store_len;
+int fake_store_writes;
+bool fake_store_radio_on_write;
+
+void fake_store_clear(void)
+{
+    fake_store_len = 0;
+    fake_store_writes = 0;
+    fake_store_radio_on_write = false;
+}
+
+bool hal_store_write(const uint8_t *data, uint8_t len)
+{
+    if (len > HAL_STORE_MAX)
+        return false;
+    if (fake_radio_on)
+        fake_store_radio_on_write = true;
+    memcpy(fake_store, data, len);
+    fake_store_len = len;
+    fake_store_writes++;
+    return true;
+}
+
+uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
+{
+    if (!fake_store_len || fake_store_len > maxlen)
+        return 0;
+    memcpy(data, fake_store, fake_store_len);
+    return fake_store_len;
+}
 
 void radio_init(uint8_t channel) { (void)channel; }
 void radio_on(void) { fake_radio_on = 1; }

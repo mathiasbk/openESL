@@ -1,0 +1,41 @@
+{
+  "format": "esl-layouts",
+  "version": 1,
+  "model": "2.9",
+  "description": "Example layouts for the SoluM 2.9\" (296 x 128). Upload with PUT /api/layouts/2.9.",
+  "layouts": [
+    {
+      "name": "shelf",
+      "description": "Name in a black band, highlighted price, a note and the unit price",
+      "fields": ["name", "price", "unit", "info"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "black" },
+        { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "info", "x": 5, "y": 34, "w": 112, "h": 51,
+          "fonts": ["small"], "lines": 3 },
+        { "type": "text", "field": "price", "x": 120, "y": 32, "w": 171, "h": 74,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" },
+        { "type": "text", "field": "unit", "x": 5, "y": 108, "w": 286, "h": 17,
+          "fonts": ["small"], "lines": 1 }
+      ]
+    },
+    {
+      "name": "sign",
+      "description": "A heading over a rule, up to three centred lines, optional frame",
+      "fields": ["title", "body"],
+      "elements": [
+        { "type": "text", "field": "title", "x": 8, "y": 6, "w": 280, "h": 30,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+        { "type": "rect", "x": 8, "y": 38, "w": 280, "h": 2 },
+        { "type": "text", "field": "body", "x": 8, "y": 44, "w": 280, "h": 78,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 125, "w": 296, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 128, "color": "frame" },
+        { "type": "rect", "x": 293, "y": 0, "w": 3, "h": 128, "color": "frame" }
+      ]
+    }
+  ]
+}

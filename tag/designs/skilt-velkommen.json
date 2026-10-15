@@ -1,0 +1,11 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "skilt-velkommen",
+  "layout": "sign",
+  "fields": {
+    "title": "{heading}",
+    "body": "{text}"
+  },
+  "style": { "frame": true }
+}
