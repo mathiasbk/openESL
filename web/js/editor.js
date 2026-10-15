@@ -94,6 +94,7 @@ let recordTimer = 0;
 function scheduleRecord() {
   clearTimeout(recordTimer);
   if (!state.dragging) recordTimer = setTimeout(record, 400);
+  $("undo").disabled = false;     // a change waiting to be recorded can be undone already
 }
 
 function record() {
@@ -277,7 +278,8 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "rect" ? "rect" : e.type === "barcode" ? "▥ " + fieldLabel(e.field) : fieldLabel(e.field);
+    tag.textContent = e.type === "rect" ? "rect" : e.type === "barcode" ? "▥ " + fieldLabel(e.field)
+      : e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
     b.append(tag);
     for (const h of HANDLES) {
       const g = document.createElement("span");
@@ -320,7 +322,8 @@ function refreshList() {
 function elementName(e) {
   if (e.type === "barcode") return `barcode (${fieldLabel(e.field)}, ${e.symbology === "ean13" ? "EAN-13" : "Code 128"})`;
   if (e.type !== "text") return rectName(e);
-  return fieldLabel(e.field) + (e.color && e.color !== "black" ? ` (${e.color})` : "");
+  const what = e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
+  return what + (e.color && e.color !== "black" ? ` (${e.color})` : "");
 }
 
 function rectName(e) {
@@ -561,8 +564,36 @@ function refreshElement() {
     l.append(g);
     box.append(l);
   };
-  if (e.type === "text" || e.type === "barcode") {
+  if (e.type === "barcode") {
     sel("Field", "field", lay.fields, fieldLabel(e.field), (v) => (e.field = v));
+  } else if (e.type === "text") {
+    // A field filled in by each update, or a fixed text that is part of the layout.
+    const FIXED = "(fixed text)";
+    sel("Shows", "field", [...lay.fields, FIXED], e.text !== undefined ? FIXED : fieldLabel(e.field), (v) => {
+      if (v === FIXED) {
+        delete e.field;
+        e.text ??= "inkl. mva";
+      } else {
+        delete e.text;
+        e.field = v;
+      }
+    });
+    if (e.text !== undefined) {
+      const l = document.createElement("label");
+      l.textContent = "Text";
+      const inp = document.createElement("input");
+      inp.value = e.text;
+      inp.maxLength = state.renderer.limits.fixedTextBytes;
+      inp.title = `The same on every tag with this layout, at most ${inp.maxLength} characters`;
+      inp.addEventListener("input", () => {
+        e.text = inp.value;
+        changed({ keepForm: true });
+        refreshList();
+        $("el-title").textContent = "· " + elementName(e);
+      });
+      l.append(inp);
+      box.append(l);
+    }
   }
   // position and size
   const pair = document.createElement("div");
@@ -725,6 +756,7 @@ function addElement(kind) {
   const e = {
     text,
     invert: { ...text, h: 32, color: "invert", lines: 1 },
+    fixed: { type: "text", text: "inkl. mva", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
     hline: { type: "rect", x: 4, y: Math.floor(height / 2), w: width - 8, h: 2 },
     vline: { type: "rect", x: Math.floor(width / 2), y: 4, w: 2, h: height - 8 },
@@ -762,7 +794,7 @@ function pasteElement() {
   const lay = layout();
   const { width, height } = MODELS[state.model];
   const c = structuredClone(state.clip);
-  if (c.type === "text" && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  if (c.type !== "rect" && c.text === undefined && !lay.fields.includes(c.field)) c.field = lay.fields[0];
   c.w = Math.min(c.w, width);
   c.h = Math.min(c.h, height);
   const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
@@ -940,7 +972,7 @@ function initActions() {
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
   $("el-add-text").addEventListener("click", () => addElement("text"));
-  for (const k of ["invert", "rect", "hline", "vline", "barcode"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["invert", "fixed", "rect", "hline", "vline", "barcode"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-del").addEventListener("click", deleteElement);
   $("el-dup").addEventListener("click", duplicateElement);
   $("undo").addEventListener("click", () => undoRedo(false));

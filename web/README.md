@@ -20,7 +20,7 @@ Web Serial needs Chrome or Edge on a computer, and a secure page (https, or http
 - an error under the preview is the message the AP answers with (`422`) when the file is uploaded;
 - the size and version shown are those of the binary file the tags download.
 
-What the format can draw: text in a box (four fonts, alignment, up to 3 lines, black, white, inverted, highlighted), filled boxes in black or white, and one barcode per layout (Code 128 or EAN-13, from a field). A line is a box 1 or 2 px wide; a black area with white text is a black box with white text on it, or inverted text. The tag's scene has room for a limited number of boxes (inverted and highlighted text count as one each) and lines of text per layout (`ESL_DRAW_MAX_RECTS` and `ESL_DRAW_MAX_RUNS` in `shared/proto.h`); the meters under the preview show how much of each a layout uses. Diagonal lines and images are not in the format.
+What the format can draw: text in a box (four fonts, alignment, up to 3 lines, black, white, inverted, highlighted), fixed texts that are part of the layout (such as "inkl. mva"), filled boxes in black or white, and one barcode per layout (Code 128 or EAN-13, from a field). A line is a box 1 or 2 px wide; a black area with white text is a black box with white text on it, or inverted text. The tag's scene has room for a limited number of boxes (inverted and highlighted text count as one each) and lines of text per layout (`ESL_DRAW_MAX_RECTS` and `ESL_DRAW_MAX_RUNS` in `shared/proto.h`); the meters under the preview show how much of each a layout uses. Diagonal lines and images are not in the format.
 
 ## Build and test
 
