@@ -49,6 +49,7 @@ static void test_boot(void)
     fresh();
     CHECK_EQ(fake_draw_count, 1);              /* oppstartsskjerm (T9) */
     CHECK(fake_ink_count(1) > 100);
+    CHECK_EQ(fake_radio_on, 0);                /* drawn with the radio off: radio_init does not power it */
     push_idle(0);
     CHECK_EQ(app_poll_once(), CFG_POLL_S);
     CHECK_EQ(fake_tx_count, 1);
