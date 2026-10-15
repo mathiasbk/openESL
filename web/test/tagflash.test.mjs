@@ -129,3 +129,10 @@ test("no MAC anywhere", async () => {
   assert.equal(r.step, "mac");
   assert.equal(tag.eraseCount[0], 0);
 });
+
+test("firmware must end below the tag's layout and content store at 0xF400", () => {
+  assert.equal(wf.CODE_LIMIT, 0xf400);
+  const ok = new Uint8Array(0xf400).fill(0x12);
+  assert.equal(wf.checkFirmware(ok), ok);
+  assert.throws(() => wf.checkFirmware(new Uint8Array(0xf401).fill(0x12)), /0xF400/i);
+});
