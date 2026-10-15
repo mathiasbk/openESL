@@ -36,4 +36,4 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 
 ## Status
 
-The protocol, the AP core and HTTP API, and the drawing and state machine on the tag are written and tested on a PC. The ZBS243 hardware layer is still stubs. The next step is phase 0 in [fremdriftsplan.md](fremdriftsplan.md).
+The tag firmware runs on the SoluM 1.54" and the ESP32-C6 AP serves it over the API; the first release is v0.1.0. The open rows in [fremdriftsplan.md](fremdriftsplan.md) say what is left, most of it checks on hardware.

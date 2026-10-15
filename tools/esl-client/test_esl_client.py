@@ -26,6 +26,8 @@ class FakeAp(BaseHTTPRequestHandler):
     config = {"poll_s": 0, "builtin_poll_s": 0, "webhook": None}
     tag_cfg = {}
     layouts = {}
+    ota = {}
+    ota_rollback = False
 
     def log_message(self, *a):
         pass
@@ -51,6 +53,8 @@ class FakeAp(BaseHTTPRequestHandler):
             self.calls.append((self.path, self.headers.get("Content-Type"), image))
             if image[:1] != b"\xe9":
                 return self._send(422, {"error": "the image is not valid for this chip"})
+            if not FakeAp.ota_rollback:  # "restarted" into the new slot at once
+                FakeAp.ota.update({"slot": "ota_1", "version": "0.2.0", "other_slot": "ota_0", "other_version": "0.1.0"})
             self._send(200, {"received": n, "total": n, "slot": "ota_1", "version": "0.2.0", "restarting": True})
         else:
             self._send(404, {"error": "not found"})
@@ -102,8 +106,7 @@ class FakeAp(BaseHTTPRequestHandler):
         elif self.path == "/api/config":
             self._send(200, self.config)
         elif self.path == "/api/ota":
-            self._send(200, {"slot": "ota_0", "version": "0.1.0", "slot_size": 1572864, "other_slot": "ota_1",
-                             "other_version": None, "uploading": False})
+            self._send(200, FakeAp.ota)
         elif self.path.startswith("/api/health"):
             self.calls.append((self.path, None))
             problems = [{"mac": m, "problems": ["low_battery"], "seen_s_ago": t["seen_s_ago"],
@@ -189,6 +192,9 @@ class ClientTest(unittest.TestCase):
         FakeAp.tag_cfg.clear()
         FakeAp.layouts.clear()
         FakeAp.config = {"poll_s": 0, "builtin_poll_s": 0, "webhook": None}
+        FakeAp.ota = {"slot": "ota_0", "version": "0.1.0", "slot_size": 1572864, "other_slot": "ota_1",
+                      "other_version": None, "uploading": False}
+        FakeAp.ota_rollback = False
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -349,6 +355,27 @@ class ClientTest(unittest.TestCase):
             f.flush()
             rc, out = self.run_cli("ota", f.name)
         self.assertEqual(rc, 2)
+
+        # --wait: the AP answers again with the new image, or with the old one after a rollback
+        cli = esl_client.Client(self.url, TOKEN)
+        self.setUp()
+        FakeAp.ota.update({"slot": "ota_1", "version": "0.2.0"})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = esl_client.wait_back(cli, "ota_1", "0.2.0", timeout_s=5, sleep=lambda s: None)
+        self.assertEqual((rc, out.getvalue()), (0, "the AP is back: version 0.2.0 from ota_1\n"))
+        self.setUp()
+        with redirect_stdout(out):
+            rc = esl_client.wait_back(cli, "ota_1", "0.2.0", timeout_s=5, sleep=lambda s: None)
+        self.assertEqual(rc, 1)
+        self.assertIn("back on ota_0 with version 0.1.0", out.getvalue())
+        # no answer at all: a timeout, not an exception
+        dead = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=1)
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = esl_client.wait_back(dead, "ota_1", "0.2.0", timeout_s=0.5, poll_s=0.1)
+        self.assertEqual(rc, 1)
+        self.assertIn("no answer from the AP after 0.5 s", err.getvalue())
 
     def test_same_content_is_unchanged(self):
         self.run_cli("text", "00000123456789A8", "Hello", "--frame")
@@ -547,7 +574,7 @@ class SerialClientTest(unittest.TestCase):
         cli = esl_client.SerialClient(os.ttyname(slave), timeout=2)
         cli.fd = cli._open()    # before the last slave fd closes, or the pty hangs up
         os.close(slave)
-        self.addCleanup(os.close, cli.fd)
+        self.addCleanup(lambda: cli.fd is not None and os.close(cli.fd))
         return cli, ap
 
     def test_request_and_reply(self):
@@ -575,6 +602,7 @@ class SerialClientTest(unittest.TestCase):
         cli.timeout = 0.3
         with self.assertRaises(ConnectionError):
             cli.tags()
+        self.assertIsNone(cli.fd)   # opened again on the next request, in case the AP restarted
 
 
 class BridgeTest(unittest.TestCase):
