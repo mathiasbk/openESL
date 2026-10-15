@@ -51,6 +51,7 @@
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
+        <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client log</code> logs a long-term test.</li>
       </ol>
     </section>
     <section class="card wide">
@@ -248,7 +249,7 @@
     <section class="card">
       <h2>Flash the access point (ESP32-C6)</h2>
       <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings.</p>
+      <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings. An AP that already runs OpenESL can be updated without a cable instead: <code>esl-client ota openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code> (the <code>-ota.bin</code> file of a release) writes the new firmware over the API and keeps everything stored.</p>
       <p id="ap-fw-info" class="muted"></p>
       <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
       <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
