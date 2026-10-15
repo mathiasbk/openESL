@@ -44,6 +44,7 @@ Source types: `datasheet`, `measurement`, `experiment`, `stock-fw` (study of a b
 | 2026-10-14 | Refresh on ST-GM16XX2: 1A[temp 00] 22[D7] 20, wait BUSY, 21[03], 10[01]. 0x18=0x80 with 0x22=0xF7 does not change the panel | stock-fw + experiment | Code 0x5ABC. The 0xF7 variant tested on the tag: refresh runs, nothing changes | – |
 | 2026-10-14 | The ST-GM16XX2 controller ignores 0x46/0x47 (auto-fill) and the invert bits in 0x21; BW RAM 1 = white | experiment | Uncleared RAM showed as noise; 0x21 = 0x8B gave no change; manual fill with 0xFF gave white | – |
 | 2026-10-14 | ZBS243: reading back a port bit set as output (P2_2) does not return the written level | experiment | Code that branched on `P2_2` never saw it high; tracking the level in a variable fixed it | – |
+| 2026-10-15 | Tag OTA works on the 1.54": the bootloader in page 0 copies an image staged in the W25Q80 into 0x0400–0xF3FF, and the new firmware confirms itself and redraws the stored content. A 54 KB image takes 6–8 wake-ups (394–490 s at poll 60 s) | experiment | Jig tag 000002079350341C, ESP32-C6 AP over USB, four updates in a row (0.2.0 ↔ 0.2.90); FW requests per wake-up 2–140, see [tag-ota.md](tag-ota.md) | `tag/boot/`, `tag/src/ota.c`, `ap/components/esl_core/esl_tagfw.c` |
 
 ## Unconfirmed: in the code, but must be checked before it counts as a fact
 

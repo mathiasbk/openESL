@@ -1,6 +1,6 @@
 # Firmware update over radio for the tags (T15)
 
-Status: implemented and on, tested on the PC (host tests for the tag, the bootloader and the AP, and the end-to-end simulation); not yet tried on a tag. Radio security (T16) is not done, so this was built and turned on without it, by decision (see "Security").
+Status: implemented and on. Tested on the PC (host tests for the tag, the bootloader and the AP, and the end-to-end simulation) and on the jig tag 000002079350341C (1.54"), where four updates in a row installed and were confirmed (see "Tried on the jig"). Rollback is not tried on a tag yet. Radio security (T16) is not done, so this was built and turned on without it, by decision (see "Security").
 
 The approach is our own; the SPI flash pins and the idea of staging an image in the tag's SPI flash before copying it into the chip come from OpenEPaperLink (atc1441 and others) and Dmitry Grinberg's ZBS243 work, see Credits in the main README.
 
@@ -24,7 +24,7 @@ The approach is our own; the SPI flash pins and the idea of staging an image in 
 | Fact | Value | Source |
 |------|-------|--------|
 | ZBS243 main flash | 64 KB, 1 KB pages; 0xF400 layout file, 0xF800 record store, 0xFC00 up stock MAC/flags | `tag/tools/build.py`, kildelogg.md |
-| Firmware (SDCC 4.5.0, with OTA) | application 53,437 bytes (2.9") and 53,816 (1.54"); bootloader 994 bytes | `build.py fw`, 2026-10-15 |
+| Firmware (SDCC 4.5.0, with OTA) | application 53,437 bytes (2.9") and 53,856 (1.54"); bootloader 994 bytes; OTA file 54,288 bytes (1.54") | `build.py fw`, 2026-10-15 |
 | Interrupts | none used (`IEN0 = 0`), so the bootloader needs no vector forwarding | `hal_zbs243.c` (`hal_init`) |
 | Writing the main flash from the firmware | works: erase + write of a whole 1 KB page | kildelogg.md 2026-10-14/15, `flash_write_page` |
 | SPI flash on the board | **Winbond W25Q80, 1 MB** on P1.1 (nCS), P0.0 SCK, P0.1 MOSI, P0.2 MISO. 4 KB erase 25 ms, 16-byte write 1 ms | `eepromprobe.c` on 000002079350341C (1.54"), 2026-10-15; see "Probe" below |
@@ -106,9 +106,31 @@ after write A5 B4 87 96 E1 F0 C3 D2 2D 3C 0F 1E 69 78 4B 5A
 
 The 2.9" is not probed yet; if its chip is missing or elsewhere, the 2.9" firmware simply never reports bit3. The chip must be put in deep power-down (0xB9) when it is not used, or it draws current while the tag sleeps; `eeprom_sleep()` in `hal_init` does that at start-up (PR #54), and `hal_xflash_close()` after every use.
 
+## Tried on the jig (2026-10-15)
+
+Setup: the ESP32-C6 AP flashed over USB with this branch (the new partition table adds `tagfw` at 0x390000; NVS with the tags and layout files was kept), the API over USB (`esl-client --serial /dev/ttyACM0`), the 1.54" jig tag 000002079350341C flashed once with `openesl.bin` (bootloader + application) through the ZBS_Flasher, poll interval 60 s, RSSI -51 to -60 dBm at the AP. The tag came back with fw 200 (0.2.0), fetched its content and showed it.
+
+The test images were the same source with a different `VERSION` (0.2.90 = fw 290), uploaded with `esl-client tag-ota tag/build/fw154/openesl-ota.bin`:
+
+| Update | Upload to new version reported | FW requests per wake-up | Result |
+|--------|--------------------------------|-------------------------|--------|
+| 0.2.0 → 0.2.90 | about 5 min | not logged | installed, confirmed, price shown again |
+| 0.2.90 → 0.2.0 | over 9 min (see below) | not logged | installed, confirmed, price shown again |
+| 0.2.0 → 0.2.90 | 394 s | 140, 100, 113, 109, 137, 46 | installed, confirmed, price shown again |
+| 0.2.90 → 0.2.0 | 490 s | 137, 134, 134, 2, 134, 46, 9, 44 | installed, confirmed, price shown again |
+
+`esl-client tag-ota` showed "1 pending" during each download and "1 updated" after it. `draw_failed` stayed false and the content id stayed the same, so the restarted firmware drew the stored content (T12). Rebuilding 0.2.0 gave a byte-identical OTA file.
+
+What was seen:
+
+- An image takes 6–8 wake-ups, not five: a wake-up ends early when a FW_REQ gets no answer twice (`exchange_retry`), and the download goes on at the next poll. The AP counted 70 failed transmits of about 1,300 replies. This only makes an update slower, but a tag could be allowed to miss more answers per wake-up.
+- The second update took over 9 minutes, and the tag reported the new version right after the AP restarted (opening its serial log reset it). Two more updates with the log open the whole time did not stall, so this was most likely a run of short wake-ups like the ones above, not a stuck state. It was not caught in the log, so this is not shown.
+- The AP log names every reply that is not CONTENT or LAYOUT "IDLE", also FW blocks and CONFIG, and logs each FW_REQ as a poll with `id=00000000 model=0`. This is misleading when following an update in the log.
+
 ## Still to do
 
-1. Try it on the jig tag: flash `openesl.bin` (bootloader + application), then send an update with a higher version through the AP, and check the install, the confirm and a rollback (an image that never polls).
+1. Try a rollback on the jig tag: an image that never polls must be copied back after 9 starts and reported with POLL flag bit4.
 2. Probe a 2.9".
 3. Measure the energy of a whole update.
 4. Signed images, with T16.
+5. Name FW and CONFIG replies in the AP log, and log FW_REQ apart from POLL.
