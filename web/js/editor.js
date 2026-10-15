@@ -5,7 +5,7 @@
 
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
-import { snapMove, snapResize } from "./snap.js";
+import { snapMove, resizeBox } from "./snap.js";
 import { ApClient } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
@@ -274,9 +274,13 @@ function drawOverlay() {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = e.type === "rect" ? "rect" : fieldLabel(e.field);
-    const grip = document.createElement("span");
-    grip.className = "grip";
-    b.append(tag, grip);
+    b.append(tag);
+    for (const h of HANDLES) {
+      const g = document.createElement("span");
+      g.className = "grip " + h;
+      g.dataset.h = h;
+      b.append(g);
+    }
     ov.append(b);
   });
   refreshList();
@@ -340,6 +344,8 @@ function drawGuides(guides) {
   }
 }
 
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
 function fieldLabel(f) {
   return typeof f === "number" ? layout()?.fields[f] ?? String(f) : String(f);
 }
@@ -358,7 +364,7 @@ function initDrag() {
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
-      resize: ev.target.classList.contains("grip"),
+      resize: ev.target.dataset.h || null,
       sx: ev.clientX, sy: ev.clientY,
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
@@ -381,9 +387,8 @@ function initDrag() {
     const size = { w: width, h: height };
     let guides = [];
     if (drag.resize) {
-      const r = snapResize({ x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }, others, size, near);
-      e.w = clamp(r.w, 1, width - s.x);
-      e.h = clamp(r.h, 1, height - s.y);
+      const r = resizeBox(s, drag.resize, dx, dy, others, size, near);
+      Object.assign(e, { x: r.x, y: r.y, w: r.w, h: r.h });
       guides = r.guides;
     } else {
       const r = snapMove({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }, others, size, near);
@@ -419,6 +424,8 @@ function onKey(ev) {
   if (mod && key === "z") undoRedo(ev.shiftKey);
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
+  else if (mod && key === "c" && e && !window.getSelection()?.toString()) state.clip = structuredClone(e);
+  else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
     e.x = clamp(e.x + moves[key][0], 0, width - e.w);
@@ -524,6 +531,26 @@ function refreshElement() {
     box.append(l);
     return s;
   };
+  // A row of buttons for a few choices, so the choice is visible without opening a list.
+  const seg = (label, options, val, onSet) => {
+    const l = document.createElement("label");
+    l.textContent = label;
+    const g = document.createElement("span");
+    g.className = "seg";
+    g.setAttribute("role", "radiogroup");
+    g.setAttribute("aria-label", label);
+    for (const [v, icon, name] of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = icon + " " + name;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(v === val));
+      b.addEventListener("click", () => { onSet(v); changed({}); });
+      g.append(b);
+    }
+    l.append(g);
+    box.append(l);
+  };
   if (e.type === "text") {
     sel("Field", "field", lay.fields, fieldLabel(e.field), (v) => (e.field = v));
   }
@@ -573,8 +600,10 @@ function refreshElement() {
     }
     fl.append(row);
     box.append(fl);
-    sel("Align", "align", ALIGN, e.align || "left", (v) => (v === "left" ? delete e.align : (e.align = v)));
-    sel("Vertical", "valign", VALIGN, e.valign || "top", (v) => (v === "top" ? delete e.valign : (e.valign = v)));
+    seg("Align", [["left", "⯇", "Left"], ["center", "≡", "Centre"], ["right", "⯈", "Right"]], e.align || "left",
+      (v) => (v === "left" ? delete e.align : (e.align = v)));
+    seg("Vertical", [["top", "⯅", "Top"], ["middle", "≡", "Middle"], ["bottom", "⯆", "Bottom"]], e.valign || "top",
+      (v) => (v === "top" ? delete e.valign : (e.valign = v)));
     sel("Lines", "lines", ["0 (auto)", "1", "2", "3"], e.lines ? String(e.lines) : "0 (auto)", (v) => {
       const n = parseInt(v, 10);
       if (n) e.lines = n;
@@ -691,6 +720,23 @@ function duplicateElement() {
   c.y = clamp(c.y + 4, 0, height - c.h);
   lay.elements.splice(state.el + 1, 0, c);
   state.el++;
+  changed();
+}
+
+// Paste the copied element into the current layout (it may be another layout or model). A
+// text whose field this layout lacks takes the layout's first field.
+function pasteElement() {
+  const lay = layout();
+  const { width, height } = MODELS[state.model];
+  const c = structuredClone(state.clip);
+  if (c.type === "text" && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  c.w = Math.min(c.w, width);
+  c.h = Math.min(c.h, height);
+  const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
+  c.x = clamp(c.x + (same ? 4 : 0), 0, width - c.w);
+  c.y = clamp(c.y + (same ? 4 : 0), 0, height - c.h);
+  lay.elements.push(c);
+  state.el = lay.elements.length - 1;
   changed();
 }
 

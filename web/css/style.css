@@ -108,9 +108,18 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .box.rect .tag { background: var(--box-rect); }
 .box.sel .tag { background: var(--box-sel); }
 .box .grip {
-  position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px;
-  background: var(--box-sel); border-radius: 2px; cursor: nwse-resize; display: none;
+  position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  background: var(--paper); border: 2px solid var(--box-sel); border-radius: 2px; display: none;
 }
+.box .grip.nw { left: 0; top: 0; cursor: nwse-resize; }
+.box .grip.n { left: 50%; top: 0; cursor: ns-resize; }
+.box .grip.ne { left: 100%; top: 0; cursor: nesw-resize; }
+.box .grip.e { left: 100%; top: 50%; cursor: ew-resize; }
+.box .grip.se { left: 100%; top: 100%; cursor: nwse-resize; }
+.box .grip.s { left: 50%; top: 100%; cursor: ns-resize; }
+.box .grip.sw { left: 0; top: 100%; cursor: nesw-resize; }
+.box .grip.w { left: 0; top: 50%; cursor: ew-resize; }
+.box:hover:not(.sel) { border-style: solid; }
 .box.sel .grip { display: block; }
 
 .stage-bar, .add-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; }
@@ -169,6 +178,12 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .tips ul { margin: 6px 0 0; padding-left: 18px; }
 kbd { font: 12px ui-monospace, Consolas, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); color: var(--text); }
 .place { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg button { border-radius: 0; padding: 4px 2px; font-size: 13px; white-space: nowrap; }
+.seg button + button { border-left-width: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button[aria-checked="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .place { gap: 3px; }
 .place button { padding: 2px 6px; font-size: 14px; }
 .box.hover { border-style: solid; border-width: 2px; }
