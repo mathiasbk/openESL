@@ -119,9 +119,19 @@ void test_content(void)
     esl_content_init(&a, ESL_LAYOUT_TEXT, 0);
     CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT + 1), ESL_CONTENT_ERR_TOO_LONG);
     CHECK_INT(esl_content_add_field(&a, big, 50), ESL_CONTENT_OK);
-    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT - 49), ESL_CONTENT_ERR_TOO_LONG);
-    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT - 50), ESL_CONTENT_OK);
-    CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT);
+    /* each field also takes a length byte: 2 fields leave 94 bytes for text */
+    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT_FOR(2) - 49), ESL_CONTENT_ERR_TOO_LONG);
+    CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT_FOR(2) - 50), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT_FOR(2));
+    CHECK_INT(esl_content_add_field(&a, S("")), ESL_CONTENT_ERR_TOO_LONG);
+
+    /* a named layout takes six fields, with 90 bytes of text between them */
+    CHECK_INT(esl_content_init_named(&a, "vare", 4, 0), ESL_CONTENT_OK);
+    for (int i = 0; i < ESL_MAX_FIELDS; i++)
+        CHECK_INT(esl_content_add_field(&a, big, 15), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_add_field(&a, S("")), ESL_CONTENT_ERR_TOO_MANY_FIELDS);
+    CHECK_INT(esl_content_text_len(&a), 90);
+    CHECK_INT(ESL_MAX_TEXT_BYTES, 90);
 
     /* trailing empty fields do not change the id */
     esl_content_init(&a, ESL_LAYOUT_TEXT, 0);
@@ -141,9 +151,9 @@ void test_content(void)
     uint8_t msg[ESL_MAX_PAYLOAD];
     esl_content_init(&a, ESL_LAYOUT_TEXT, 3);
     for (int i = 0; i < 4; i++)
-        esl_content_add_field(&a, big, ESL_MAX_TEXT / 4);
-    CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT);
-    CHECK_INT(ESL_MAX_TEXT, 92);
+        esl_content_add_field(&a, big, 92 / 4);
+    CHECK_INT(esl_content_text_len(&a), 92);
+    CHECK_INT(ESL_MAX_TEXT_FOR(4), 92);
     n = esl_content_msg_build(msg, 0, 1, &a);
     CHECK_INT(n, 8 + 2 + 4 + 92);
     CHECK(n + ESL_MIC_RESERVE == ESL_MAX_PAYLOAD);
@@ -153,7 +163,7 @@ void test_content(void)
     CHECK_INT(esl_content_init_named(&n1, "shelf", 5, ESL_CFLAG_FRAME), ESL_CONTENT_OK);
     CHECK_INT(n1.layout, ESL_LAYOUT_NAMED);
     CHECK_STR(n1.name, "shelf");
-    CHECK_INT(esl_content_max_fields(ESL_LAYOUT_NAMED), 4);
+    CHECK_INT(esl_content_max_fields(ESL_LAYOUT_NAMED), 6);
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_NAMED, 0), ESL_CONTENT_ERR_LAYOUT); /* only by name */
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 15, 0), ESL_CONTENT_OK);     /* as sent */
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 16, 0), ESL_CONTENT_ERR_LAYOUT);

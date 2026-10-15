@@ -82,17 +82,20 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(ld.to_latin1("Mer…"), b"Mer...")
         self.assertEqual(ld.to_latin1("Søn – stengt"), "Søn - stengt".encode("latin-1"))
         d = copy.deepcopy(PRICE)
-        d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
+        d["fields"] = {"name": "A" * 61, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
         with self.assertRaises(ld.DesignError):
-            ld.render(d, {})  # 93 bytes after "…" becomes "..."
+            ld.render(d, {})  # 94 bytes after "…" becomes "...", 93 is the limit with three fields
 
     def test_too_many_bytes(self):
         d = copy.deepcopy(PRICE)
         d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 20}
         with self.assertRaises(ld.DesignError):
             ld.render(d, {})
-        d["fields"]["subtitle"] = "C" * 12
-        ld.render(d, {})  # 92 bytes: exactly at the limit
+        d["fields"]["subtitle"] = "C" * 14
+        with self.assertRaises(ld.DesignError):
+            ld.render(d, {})
+        d["fields"]["subtitle"] = "C" * 13
+        ld.render(d, {})  # 93 bytes: exactly at the limit with three fields (96 - 3 length bytes)
 
 
 if __name__ == "__main__":

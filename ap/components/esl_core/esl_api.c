@@ -14,7 +14,7 @@
 #define PATH_HEALTH "/api/health"
 #define PATH_OTA "/api/ota"
 
-_Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
+_Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
                "update the config error messages");
 _Static_assert(ESL_API_MAX_BODY > ESL_LAYOUT_MAX_SIZE && ESL_API_RESP_SIZE(0) > ESL_LAYOUT_MAX_SIZE,
@@ -251,6 +251,13 @@ static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **
     return 0;
 }
 
+static int text_too_long(char *msg)
+{
+    snprintf(msg, MSG_MAX, "text too long: the fields share 96 bytes, one per field plus the text after "
+                           "Latin-1 conversion (92 bytes of text with four fields, 90 with six)");
+    return 422;
+}
+
 /* Fills c from {layout, fields, price_highlight, frame} for the tag mac.
  * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
 static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
@@ -301,11 +308,15 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
         return 422;
     }
 
+    /* the fields as Latin-1, back to back; empty fields at the end are dropped
+       before they go into c, so they cost no length bytes */
+    uint8_t text[ESL_MAX_TEXT];
+    size_t len[ESL_MAX_FIELDS] = {0}, used = 0;
+    unsigned nf = (unsigned)j->tok[arr].size;
     int i = arr + 1;
-    for (unsigned k = 0; k < j->tok[arr].size; k++) {
+    for (unsigned k = 0; k < nf; k++) {
         const esl_jtok_t *t = &j->tok[i];
         char utf8[ESL_MAX_TEXT * 4 + 4];
-        uint8_t latin1[ESL_MAX_TEXT];
         size_t n = 0;
         bool overflow = false;
 
@@ -316,20 +327,25 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
                 return 400;
             }
             if (ul >= 0)
-                n = esl_utf8_to_latin1(utf8, (size_t)ul, latin1, sizeof(latin1), &overflow);
+                n = esl_utf8_to_latin1(utf8, (size_t)ul, text + used, sizeof(text) - used, &overflow);
             else
                 overflow = true;
         } else if (t->type != ESL_JSON_NULL) {
             snprintf(msg, MSG_MAX, "fields must be an array of strings");
             return 422;
         }
-        if (overflow || esl_content_add_field(c, latin1, n) != ESL_CONTENT_OK) {
-            snprintf(msg, MSG_MAX, "text too long (max 92 bytes after Latin-1 conversion)");
-            return 422;
-        }
+        if (overflow)
+            return text_too_long(msg);
+        len[k] = n;
+        used += n;
         i = t->next;
     }
-    esl_content_trim(c);
+    while (nf > 0 && len[nf - 1] == 0)
+        nf--;
+    used = 0;
+    for (unsigned k = 0; k < nf; used += len[k++])
+        if (esl_content_add_field(c, text + used, len[k]) != ESL_CONTENT_OK)
+            return text_too_long(msg);
 
     /* A barcode field must be one the tag can draw: for the tag's model, or for every
        model with this layout while the model is not known */

@@ -33,18 +33,20 @@ EMSCRIPTEN_KEEPALIVE int web_height(void) { return DRAW_H; }
 EMSCRIPTEN_KEEPALIVE int web_model_code(void) { return MODEL_CODE; }
 EMSCRIPTEN_KEEPALIVE const char *web_error(void) { return err; }
 EMSCRIPTEN_KEEPALIVE uint8_t *web_fb(void) { return &fake_fb[0][0]; }
-EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_MAX_TEXT_BYTES; }
+/* Text and one length byte per field sent share this many bytes in CONTENT */
+EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_CONTENT_FIELD_SPACE; }
 
 /* The limits the compiler checks, so the page can show how close a layout is to them:
  * 0 lines of text per screen, 1 rectangles per screen, 2 bytes in the file, 3 border of an
  * inverted field, 4 lines per text element, 5..8 height of the fonts small, medium, mid, large,
- * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text. */
+ * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text,
+ * 13 fields per layout. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
 {
     static const int v[] = { ESL_DRAW_MAX_RUNS, ESL_DRAW_MAX_RECTS, ESL_LBIN_MAX, ESL_INVERT_PAD,
                              ESL_LE_MAX_LINES, ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_MID_H,
                              ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
-                             ESL_LBIN_TEXT_LEN_MAX };
+                             ESL_LBIN_TEXT_LEN_MAX, ESL_MAX_FIELDS };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
 }
 
@@ -92,12 +94,14 @@ EMSCRIPTEN_KEEPALIVE int web_text_bytes(const char *utf8)
     return to_latin1(tmp, utf8);
 }
 
+_Static_assert(ESL_MAX_FIELDS == 6, "web_render takes six fields");
+
 EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0, const char *f1,
-                                    const char *f2, const char *f3)
+                                    const char *f2, const char *f3, const char *f4, const char *f5)
 {
     static draw_scene_t sc;
     static uint8_t buf[ESL_MAX_PAYLOAD + 300 * ESL_MAX_FIELDS];
-    const char *const f[ESL_MAX_FIELDS] = { f0, f1, f2, f3 };
+    const char *const f[] = { f0, f1, f2, f3, f4, f5 };
     proto_reply_t r;
     int i, total = 0;
     uint8_t len;
@@ -115,8 +119,11 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
         }
         total += b;
     }
-    if (total > ESL_MAX_TEXT_BYTES) {
-        snprintf(err, sizeof(err), "%d bytes of text, the AP takes at most %d", total, ESL_MAX_TEXT_BYTES);
+    while (n > 0 && !f[n - 1][0])
+        n--; /* the AP drops empty fields at the end */
+    if (total > ESL_MAX_TEXT_FOR(n)) {
+        snprintf(err, sizeof(err), "%d bytes of text, the AP takes at most %d with %d fields", total,
+                 ESL_MAX_TEXT_FOR(n), n);
         return 0;
     }
     len = make_content(buf, 0, 1, (uint8_t)layout, (uint8_t)flags, n, f);

@@ -106,20 +106,34 @@ static void test_parse_content(void)
     CHECK_EQ(r.field_len[3], 0);
 }
 
-static void test_parse_content_empty_fields_and_mic(void)
+static void test_parse_content_empty_fields(void)
 {
     static const char *const f[] = { "Velkommen", "", "", "" };
     uint8_t p[ESL_MAX_PAYLOAD];
     proto_reply_t r;
     uint8_t n = make_content(p, 0, 7, ESL_LAYOUT_TEXT, 0, 4, f);
 
-    /* 4 bytes of future MIC after the fields must be ignored */
-    memset(p + n, 0xEE, 4);
-    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n + 4), &r), PROTO_OK);
+    /* a future MIC (T16) is checked and cut off before the fields are read */
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
     CHECK_EQ(r.nfields, 4);
     CHECK_EQ(r.field_len[0], 9);
     CHECK_EQ(r.field_len[1], 0);
     CHECK_EQ(r.field_len[3], 0);
+}
+
+static void test_parse_content_six_fields(void)
+{
+    static const char *const f[] = { "Kramp", "Spann", "", "192,25", "153,80", "stk", "for mye" };
+    uint8_t p[ESL_MAX_PAYLOAD];
+    proto_reply_t r;
+    uint8_t n = make_content(p, 0, 7, ESL_LAYOUT_FILE, 0, 7, f);
+
+    /* six fields are read, anything after them is ignored */
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK_EQ(r.nfields, ESL_MAX_FIELDS);
+    CHECK_EQ(r.field_len[2], 0);
+    CHECK(memcmp(p + r.field_off[4], "153,80", 6) == 0);
+    CHECK(memcmp(p + r.field_off[5], "stk", 3) == 0);
 }
 
 static void test_parse_errors(void)
@@ -241,7 +255,8 @@ void test_proto(void)
     RUN(test_crc32);
     RUN(test_parse_idle);
     RUN(test_parse_content);
-    RUN(test_parse_content_empty_fields_and_mic);
+    RUN(test_parse_content_empty_fields);
+    RUN(test_parse_content_six_fields);
     RUN(test_parse_errors);
     RUN(test_parse_config);
     RUN(test_build_frame);

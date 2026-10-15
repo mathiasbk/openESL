@@ -152,20 +152,27 @@ static void test_put_errors(void)
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", 0), 422);
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\"],\"price_highlight\":\"yes\"}", 0), 422);
 
-    /* 92 bytes of Latin-1 is the limit; each Latin-1 character (e.g. æ) is one byte */
+    /* text and one byte per field share 96 bytes: 95 bytes of Latin-1 in one field;
+       each Latin-1 character (e.g. æ) is one byte */
     char body[512];
     char text[200];
-    memset(text, 'x', 92);
-    text[92] = '\0';
+    memset(text, 'x', 95);
+    text[95] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-    text[92] = 'x';
-    text[93] = '\0';
+    /* empty fields at the end cost nothing */
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\",\"\",null,\"\"]}", text);
+    CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
+    text[95] = 'x';
+    text[96] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     CHECK(HAS(resp, "too long"));
-    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.45s\",\"%.46s\",\"\xC3\xA6\"]}", text, text);
+    /* three fields: 93 bytes */
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.45s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.46s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
+    CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     /* very long UTF-8 input does not overflow anything */
     char huge[2048];
     memset(huge, 'y', sizeof(huge));
@@ -433,6 +440,21 @@ static void test_layouts(void)
                   "{\"tags\":[{\"mac\":\"0000000000000154\",\"layout\":\"sign\",\"fields\":[\"a\"]},"
                   "{\"mac\":\"0000000000000154\",\"layout\":\"only-29\",\"fields\":[]}]}", 0), 422);
     CHECK(HAS(resp, "\"index\":1"));
+
+    /* six fields, e.g. the price with and without VAT next to brand, name and info */
+    const char *six = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"six\","
+                      "\"fields\":[\"brand\",\"name\",\"info\",\"price\",\"price_ex\",\"unit\"],\"elements\":["
+                      "{\"type\":\"text\",\"field\":\"price_ex\",\"x\":0,\"y\":0,\"w\":100,\"h\":20,\"fonts\":[\"small\"]},"
+                      "{\"type\":\"text\",\"field\":5,\"x\":0,\"y\":20,\"w\":100,\"h\":20,\"fonts\":[\"small\"]}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, six, 0), 200);
+    poll_model(0x290, ESL_MODEL_29, true, 0, 0);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":[\"Kramp\",\"Spann\",\"1626\",\"192,25\",\"153,80\",\"stk\"]}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"153,80\",\"stk\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\"]}", 0), 422);
+    CHECK(HAS(resp, "at most 6 fields"));
 
     /* a barcode field must be one the tag can draw */
     const char *bc29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"bc\","

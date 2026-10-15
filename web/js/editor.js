@@ -222,7 +222,9 @@ function refreshMeters(res) {
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
   meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
-  meters.push(["Sample text", samples().reduce((a, s) => a + r.textBytes(s), 0), r.maxText, "Bytes of text in one update from the AP"]);
+  if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
+  const t = textBudget();
+  meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
   box.replaceChildren(...meters.map(([name, n, max, title]) => {
     const m = document.createElement("span");
     m.className = "meter" + (n === null ? "" : n > max ? " over" : n >= max ? " near" : "");
@@ -507,12 +509,21 @@ function refreshSample() {
   countBytes();
 }
 
-function countBytes() {
+// Bytes of sample text, and the most the AP takes with this many fields: each field
+// sent costs a length byte, and empty fields at the end are not sent.
+function textBudget() {
   const r = state.renderer;
-  const n = samples().reduce((a, s) => a + r.textBytes(s), 0);
+  const s = samples();
+  let sent = s.length;
+  while (sent && !s[sent - 1]) sent--;
+  return { n: s.reduce((a, x) => a + r.textBytes(x), 0), max: r.fieldSpace - sent };
+}
+
+function countBytes() {
+  const { n, max } = textBudget();
   const c = $("sample-count");
-  c.textContent = `${n} of ${r.maxText} bytes of text`;
-  c.classList.toggle("error", n > r.maxText);
+  c.textContent = `${n} of ${max} bytes of text`;
+  c.classList.toggle("error", n > max);
 }
 
 function refreshElement() {

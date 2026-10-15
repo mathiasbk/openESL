@@ -167,7 +167,8 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, {"tags": [self._set(r["mac"], {k: v for k, v in r.items() if k != "mac"})
                                       for r in body["tags"]]})
         else:
-            if len(" ".join(body["fields"]).encode("latin-1", "replace")) > 92:
+            f = body["fields"]  # text and one length byte per field share 96 bytes
+            if len("".join(f).encode("latin-1", "replace")) + len(f) > 96:
                 self._send(422, {"error": "text too long"})
                 return
             self._send(200, self._set(self.path.rsplit("/", 1)[1], body))
@@ -256,16 +257,16 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("log", path, "--every", "0", "--rounds", "1")
             with open(path) as f:
                 self.assertEqual(f.read().count("time,ap_uptime_s"), 1)
-            # a round the AP did not answer, and an AP restart, hand-written as "log" writes them
+            # a round the AP did not answer, and an AP restart, hand-written as "log" writes them (dated after the real rounds)
             with open(path, "a", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["2026-10-15 12:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
-                w.writerow(["2026-10-15 12:01:00", "5", "task_wdt", "00000123456789A8", "2.9", "700", "2400", "-60",
+                w.writerow(["2099-01-01 12:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
+                w.writerow(["2099-01-01 12:01:00", "5", "task_wdt", "00000123456789A8", "2.9", "700", "2400", "-60",
                             "1", "1", "0", "1", "low_battery|silent"])
             rc, out = self.run_cli("report", path)
         self.assertEqual(rc, 1)
         self.assertIn("4 rounds", out)
-        self.assertIn("AP did not answer 1 times, restarted 1 times (2026-10-15 12:01:00)", out)
+        self.assertIn("AP did not answer 1 times, restarted 1 times (2099-01-01 12:01:00)", out)
         a8 = next(l for l in out.splitlines() if l.startswith("00000123456789A8"))
         self.assertIn("11 min", a8)          # the longest gap, 700 s
         self.assertIn("2400 mV", a8)

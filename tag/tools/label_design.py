@@ -56,7 +56,8 @@ LAYOUT_FILE_FORMAT = "esl-layouts"
 LAYOUT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,30}$")    # esl_layout_name_valid on the AP
 FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
 MODELS = ("2.9", "1.54")
-MAX_TEXT_BYTES = 92        # ESL_MAX_TEXT_BYTES in shared/proto.h
+MAX_FIELDS = 6             # ESL_MAX_FIELDS in shared/proto.h
+FIELD_SPACE = 96           # ESL_CONTENT_FIELD_SPACE: text + one length byte per field sent
 MAX_FIELD_BYTES = 255      # the length is one byte in the packet
 PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
@@ -159,9 +160,9 @@ def check_layout_file(f):
             raise DesignError("layouts[%d]: the name %r is used twice" % (i, name))
         names.add(name)
         flds = lay.get("fields")
-        if (not isinstance(flds, list) or not 1 <= len(flds) <= 4 or len(set(flds)) != len(flds)
+        if (not isinstance(flds, list) or not 1 <= len(flds) <= MAX_FIELDS or len(set(flds)) != len(flds)
                 or not all(isinstance(x, str) and FIELD_NAME_RE.match(x) for x in flds)):
-            raise DesignError("layouts[%d]: fields must list 1 to 4 field names" % i)
+            raise DesignError("layouts[%d]: fields must list 1 to %d field names" % (i, MAX_FIELDS))
         if not isinstance(lay.get("elements"), list) or not lay["elements"]:
             raise DesignError("layouts[%d]: elements must be a list of at least one element" % i)
     return f
@@ -201,9 +202,13 @@ def render(d, data, layout_file=None):
         if len(to_latin1(value)) > MAX_FIELD_BYTES:
             raise DesignError("field %s is too long" % key)
         fields.append(value)
+    sent = len(fields)
+    while sent and not fields[sent - 1]:
+        sent -= 1                       # the AP drops empty fields at the end
     total = sum(len(to_latin1(f)) for f in fields)
-    if total > MAX_TEXT_BYTES:
-        raise DesignError("the text is %d bytes, maximum %d (requirement in protokoll.md)" % (total, MAX_TEXT_BYTES))
+    if total + sent > FIELD_SPACE:
+        raise DesignError("the text is %d bytes, maximum %d with %d fields (requirement in protokoll.md)"
+                          % (total, FIELD_SPACE - sent, sent))
     style = d.get("style", {})
     out = {"layout": layout, "fields": fields}
     if layout != "text":
