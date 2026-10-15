@@ -10,6 +10,8 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
   esl_client.py text  00000123456789A8 "Opening hours" "Mon-Fri 9-21" "Sat 9-18" --frame
   esl_client.py sync prices.csv          # full send, chunks of 50
+  esl_client.py sync prices.csv --at "2026-10-19 07:00"   # the new prices from Monday 07:00
+  esl_client.py schedule                 # what is scheduled
   esl_client.py delete 00000123456789A8
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
@@ -23,6 +25,7 @@ With --tags tags.csv (mac,item) the file has an item column instead of mac.
 
 import argparse
 import csv
+import datetime
 import io
 import json
 import os
@@ -111,6 +114,18 @@ class Client:
 
     def set_wifi(self, ssid, password=""):
         return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
+
+    def time(self):
+        return self._request("GET", "/api/time")
+
+    def set_time(self, unix_s):
+        return self._request("PUT", "/api/time", {"time": int(unix_s)})
+
+    def schedule(self):
+        return self._request("GET", "/api/schedule")
+
+    def clear_schedule(self, mac=None):
+        return self._request("DELETE", f"/api/schedule/{mac}" if mac else "/api/schedule")
 
     def wait_shown(self, mac, content_id, timeout_s=120, poll_s=5):
         """Wait until the tag reports content_id as shown (requirement G1: 2 min)."""
@@ -294,6 +309,23 @@ def as_bool(s):
     return str(s).strip().lower() in ("1", "true", "yes", "ja", "x")
 
 
+def parse_when(s):
+    """--at / the at column: "2026-10-19 07:00" or "2026-10-19" (local time), ISO
+    with an offset ("2026-10-19T07:00+02:00"), or Unix seconds. Returns Unix seconds."""
+    s = str(s).strip()
+    if s.isdigit():
+        return int(s)
+    try:
+        d = datetime.datetime.fromisoformat(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a time: {s!r} (use e.g. 2026-10-19 07:00)")
+    return int(d.timestamp())  # a time without offset is local time
+
+
+def fmt_when(unix_s):
+    return datetime.datetime.fromtimestamp(unix_s).strftime("%Y-%m-%d %H:%M")
+
+
 def content(layout, fields, highlight=False, frame=False):
     c = {"layout": layout, "fields": list(fields)}
     if highlight:
@@ -360,13 +392,14 @@ def read_bindings(path):
     return by_item
 
 
-def read_csv(path, layout=None, bindings=None):
+def read_csv(path, layout=None, bindings=None, at=None):
     """Tag content from a CSV file: [(where, content with "mac")], where = "file:line".
 
     Columns are found by name: mac (or item, with bindings from --tags), layout
     (or the layout argument), highlight and frame are optional, and every other
-    column is a field, in column order. Problems are collected and raised
-    together, so nothing is sent from a file with errors."""
+    column is a field, in column order. An at column (or the at argument, Unix
+    seconds) schedules the row. Problems are collected and raised together, so
+    nothing is sent from a file with errors."""
     header, rows = read_table(path)
     key = "mac" if "mac" in header else "item" if "item" in header else None
     errors = []
@@ -376,7 +409,7 @@ def read_csv(path, layout=None, bindings=None):
         raise CsvError(f"{path}: an item column needs --tags with the file that binds tags to items")
     if "layout" not in header and not layout:
         raise CsvError(f"{path}: no layout column: add one, or give --layout")
-    col = {name: header.index(name) for name in ("layout", "highlight", "frame") if name in header}
+    col = {name: header.index(name) for name in ("layout", "highlight", "frame", "at") if name in header}
     col[key] = header.index(key)
     fields = [i for i, h in enumerate(header) if i not in col.values()]
 
@@ -392,6 +425,15 @@ def read_csv(path, layout=None, bindings=None):
                     as_bool(cell("highlight")), as_bool(cell("frame")))
         while c["fields"] and not c["fields"][-1]:
             c["fields"].pop()
+        when = at
+        if cell("at"):
+            try:
+                when = parse_when(cell("at"))
+            except argparse.ArgumentTypeError as e:
+                errors.append(f"{where}: {e}")
+                continue
+        if when:
+            c["at"] = when
         if key == "mac":
             try:
                 macs = [norm_mac(cell("mac"))]
@@ -400,22 +442,23 @@ def read_csv(path, layout=None, bindings=None):
                 continue
         else:
             item = cell("item")
-            if item in items:
-                errors.append(f"{where}: item {item!r} is in the file twice")
+            if (item, when) in items:
+                errors.append(f"{where}: item {item!r} is in the file twice" + (" for the same time" if when else ""))
                 continue
-            items.add(item)
+            items.add((item, when))
             macs = bindings.get(item, [])
         for mac in macs:
-            if mac in where_mac:
-                errors.append(f"{where}: {mac} already has content from line {where_mac[mac].rsplit(':', 1)[1]}")
+            if (mac, when) in where_mac:
+                errors.append(f"{where}: {mac} already has content from line "
+                              f"{where_mac[mac, when].rsplit(':', 1)[1]}" + (" for the same time" if when else ""))
                 continue
-            where_mac[mac] = where
+            where_mac[mac, when] = where
             out.append((where, dict(c, mac=mac)))
     if errors:
         raise CsvError("\n".join(errors))
     unused = []
     if key == "item":
-        unused = sorted(set(bindings) - items)
+        unused = sorted(set(bindings) - {i for i, _ in items})
     return out, unused
 
 
@@ -433,7 +476,8 @@ def print_status(st):
     ap = st.get("ap", {})
     print(f"AP fw {ap.get('fw')}  uptime {fmt_ago(ap.get('uptime_s'))}  channel {ap.get('channel')}  "
           f"tags {len(st.get('tags', []))}/{ap.get('max_tags')}"
-          + (f"  reset {ap['reset']}" if ap.get("reset") else ""))
+          + (f"  reset {ap['reset']}" if ap.get("reset") else "")
+          + (f"  scheduled {ap['scheduled']}" if ap.get("scheduled") else ""))
     print(f"{'MAC':16}  {'model':5}  {'seen':>7}  {'batt':>6}  {'rssi':>4}  state")
     for t in st.get("tags", []):
         if t.get("content_id", 0) == 0:
@@ -465,10 +509,41 @@ def print_wifi(w):
         print(f"  {n.get('rssi'):>4} dBm  {n.get('ssid')}")
 
 
+def ensure_time(cli):
+    """Before scheduling: the AP must know the time. Sets it from this computer if
+    it does not (an AP without WiFi has no NTP); warns if the clocks differ."""
+    t = cli.time()
+    now = int(time.time())
+    if t.get("time") is None:
+        cli.set_time(now)
+        print("note: the AP did not know the time; set it from this computer")
+    elif abs(t["time"] - now) > 120:
+        print(f"warning: the AP's clock ({t.get('source')}) is {t['time'] - now:+d} s off this computer's; "
+              "scheduled content follows the AP's clock", file=sys.stderr)
+
+
+def print_result(r):
+    if r.get("scheduled"):
+        print(f"{r['mac']}: scheduled for {fmt_when(r['at'])}")
+    else:
+        print(f"{r['mac']}: content_id {r['content_id']}, "
+              f"{'changed' if r.get('changed') else 'unchanged'}, {'pending' if r.get('pending') else 'shown'}")
+
+
+def print_schedule(sc):
+    rows = sorted(sc.get("scheduled", []), key=lambda e: (e["at"], e["mac"]))
+    for e in rows:
+        print(f"{fmt_when(e['at'])}  {e['mac']}  {e.get('layout', ''):10}  {' | '.join(e.get('fields', []))}")
+    print(f"{len(rows)} of {sc.get('max_scheduled')} scheduled"
+          + ("" if sc.get("time") else "; the AP does not know the time, so nothing is applied"))
+
+
 def set_one(cli, args, c):
+    if args.at:
+        ensure_time(cli)
+        c["at"] = args.at
     r = cli.set_tag(args.mac, c)
-    print(f"{r['mac']}: content_id {r['content_id']}, "
-          f"{'changed' if r.get('changed') else 'unchanged'}, {'pending' if r.get('pending') else 'shown'}")
+    print_result(r)
     if args.wait and r.get("pending"):
         print("waiting for the tag to show it ...", flush=True)
         ok = cli.wait_shown(args.mac, r["content_id"], timeout_s=args.wait_s)
@@ -480,7 +555,7 @@ def set_one(cli, args, c):
 def sync(cli, args):
     try:
         bindings = read_bindings(args.tags) if args.tags else None
-        rows, unused = read_csv(args.csv, args.layout, bindings)
+        rows, unused = read_csv(args.csv, args.layout, bindings, args.at)
     except (CsvError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -488,9 +563,12 @@ def sync(cli, args):
         print(f"note: item {item!r} in {args.tags} is not in {args.csv}; its tags are left as they are")
     if args.dry_run:
         for where, c in rows:
-            print(f"{c['mac']}  {c['layout']:10}  {' | '.join(c['fields'])}  ({where})")
+            when = f"  from {fmt_when(c['at'])}" if c.get("at") else ""
+            print(f"{c['mac']}  {c['layout']:10}  {' | '.join(c['fields'])}{when}  ({where})")
         print(f"{len(rows)} tags would be sent")
         return 0
+    if any(c.get("at") for _, c in rows):
+        ensure_time(cli)
     res = []
     for i in range(0, len(rows), BATCH_MAX):
         chunk = rows[i:i + BATCH_MAX]
@@ -511,7 +589,9 @@ def sync(cli, args):
                       "fix the line and run sync again (unchanged tags cost nothing)", file=sys.stderr)
             return 2
     changed = sum(1 for r in res if r.get("changed"))
-    print(f"{len(res)} tags sent, {changed} changed, {sum(1 for r in res if r.get('pending'))} pending")
+    scheduled = sum(1 for r in res if r.get("scheduled"))
+    print(f"{len(res)} tags sent, {changed} changed, {sum(1 for r in res if r.get('pending'))} pending"
+          + (f", {scheduled} scheduled" if scheduled else ""))
     return 0
 
 
@@ -535,6 +615,8 @@ def main(argv=None):
         if name == "price":
             s.add_argument("--highlight", action="store_true", help="white price in a black box")
         s.add_argument("--frame", action="store_true", help="black frame")
+        s.add_argument("--at", type=parse_when, metavar="WHEN",
+                       help='schedule it: "2026-10-19 07:00" (local time), ISO with offset, or Unix seconds')
         s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
         s.add_argument("--wait-s", type=int, default=120)
 
@@ -543,6 +625,13 @@ def main(argv=None):
     s.add_argument("--tags", metavar="CSV", help="mac,item file: the CSV has an item column instead of mac")
     s.add_argument("--layout", help="layout for rows without one (or when there is no layout column)")
     s.add_argument("--dry-run", action="store_true", help="check the files and show what would be sent")
+    s.add_argument("--at", type=parse_when, metavar="WHEN",
+                   help="schedule every row without its own at column, e.g. \"2026-10-19 07:00\"")
+    sub.add_parser("schedule", help="list scheduled content")
+    s = sub.add_parser("schedule-clear", help="remove scheduled content, for one tag or all")
+    s.add_argument("mac", type=norm_mac, nargs="?")
+    s = sub.add_parser("time", help="show the AP's clock, or set it from this computer")
+    s.add_argument("--set", action="store_true")
     s = sub.add_parser("delete", help="remove a tag from the AP")
     s.add_argument("mac", type=norm_mac)
     sub.add_parser("layouts", help="list layout files per model")
@@ -579,6 +668,22 @@ def main(argv=None):
             return set_one(cli, args, content("text", args.fields, False, args.frame))
         elif args.cmd == "sync":
             return sync(cli, args)
+        elif args.cmd == "schedule":
+            print_schedule(cli.schedule())
+        elif args.cmd == "schedule-clear":
+            try:
+                n = cli.clear_schedule(args.mac)["deleted"]
+            except ApiError as e:
+                if e.status != 404:
+                    raise
+                n = 0
+            print(f"{n} scheduled entries removed")
+        elif args.cmd == "time":
+            t = cli.set_time(time.time()) if args.set else cli.time()
+            if t.get("time") is None:
+                print("the AP does not know the time (no NTP yet); time --set sets it from this computer")
+            else:
+                print(f"{fmt_when(t['time'])} ({t['source']}), {t['time'] - int(time.time()):+d} s from this computer")
         elif args.cmd == "delete":
             cli.delete_tag(args.mac)
             print(f"{args.mac} deleted")

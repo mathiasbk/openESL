@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "esl_json.h"
 #include "esl_layout.h"
+#include "esl_sched.h"
 #include "esl_store.h"
 #include "esl_wifi.h"
 
@@ -22,6 +23,7 @@ typedef struct {
     esl_layouts_t *layouts; /* NULL: the /api/layouts endpoints answer 404 */
     const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
     const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
+    esl_sched_t *sched;     /* NULL: no scheduled content; /api/time and /api/schedule answer 404 */
 } esl_api_t;
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a

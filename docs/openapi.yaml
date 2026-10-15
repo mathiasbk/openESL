@@ -44,12 +44,13 @@ info:
     |---|---|
     | `400` | no body, invalid JSON, the body is not an object, a bad MAC in the path, a bad string escape |
     | `401` | missing or wrong token (also when the AP has no token set) |
-    | `404` | unknown path, unknown tag on `GET`/`DELETE`, unknown model or no layout file |
+    | `404` | unknown path, unknown tag on `GET`/`DELETE`, unknown model or no layout file, nothing scheduled to delete |
     | `405` | a method the path does not have |
     | `413` | the body is too large |
     | `422` | the JSON is valid but a value is not (the message says which) |
     | `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
-    | `507` | the tag table is full |
+    | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`) |
+    | `507` | the tag table or the schedule is full |
 
     **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become
     `?`) and rejects text that is too long with `422`: at most 92 bytes for all fields
@@ -73,6 +74,11 @@ security:
 tags:
   - name: Content
     description: Put text on the tags and read what they show.
+  - name: Schedule
+    description: |
+      Content that takes effect at a given time (`at` in `PUT /api/tags`): a new price from
+      Monday, a sale that starts and ends. Kept in NVS, so it survives an AP restart, and
+      set by the AP itself, so the client does not need to run at that time.
   - name: Settings
     description: How often the tags poll and when they give up on the AP. Kept in NVS, so they survive an AP restart.
   - name: WiFi
@@ -119,6 +125,8 @@ paths:
         At most 50 tags per call (RAM on the AP). The batch is all or nothing: one invalid
         row gives `422` with `index` pointing at the row, and no tag is changed. Practical
         for the daily price job: send everything every time, and only what changed is drawn.
+        Rows with `at` are scheduled (see `PUT /api/tags/{mac}`); the same MAC may be in the
+        batch once per `at`.
       requestBody:
         required: true
         content:
@@ -131,6 +139,13 @@ paths:
                   tags:
                     - { mac: "00000123456789A8", layout: price, fields: ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], price_highlight: true }
                     - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "54.90", "NOK 109.80/kg"] }
+              scheduled:
+                summary: A sale from 13:00 to 14:00 UTC on 2026-10-15
+                value:
+                  tags:
+                    - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "44.90", "Offer"], price_highlight: true, at: 1792069200 }
+                    - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "54.90", "NOK 109.80/kg"], at: 1792072800 }
+                    - { mac: "00000123456789C3", layout: price, fields: ["Cheese 1 kg", "99.00", "Offer"], at: 1792069200 }
       responses:
         "200":
           description: One line per tag, in the order sent
@@ -142,6 +157,7 @@ paths:
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/BatchInvalid" }
         "500": { $ref: "#/components/responses/ServerError" }
+        "409": { $ref: "#/components/responses/NoTime" }
         "507": { $ref: "#/components/responses/TableFull" }
 
   /api/tags/{mac}:
@@ -169,6 +185,16 @@ paths:
         An unknown MAC is accepted: the content is ready when the tag appears. The same
         content twice gives `changed: false`, and the tag does not draw again, so a client
         can send everything every time without tracking what has changed.
+
+        With `at` (Unix seconds, UTC) in the future the content is scheduled instead: the
+        AP keeps it and sets it at that time, as if it was sent then, also after a restart.
+        The tag keeps its current content until then. A tag can have several scheduled
+        entries (a sale and the price after it); the same `at` again replaces that entry.
+        `at` in the past means now. Scheduling needs the AP to know the time (NTP over WiFi,
+        or `PUT /api/time`), else `409`. If the AP restarts without NTP, entries wait until
+        the time is set again; those that came due meanwhile are set then, the latest per
+        tag. Content sent without `at` does not remove scheduled entries
+        (`DELETE /api/schedule/{mac}` does).
       requestBody:
         required: true
         content:
@@ -184,15 +210,22 @@ paths:
               named:
                 summary: A layout from the layout file
                 value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
+              scheduled:
+                summary: A new price from 13:00 UTC on 2026-10-15
+                value: { layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"], at: 1792069200 }
       responses:
         "200":
-          description: Stored; the tag fetches it at its next poll
+          description: Stored; the tag fetches it at its next poll. With a future `at`, scheduled.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SetResult" }
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/SetResult"
+                  - $ref: "#/components/schemas/Scheduled"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "409": { $ref: "#/components/responses/NoTime" }
         "422": { $ref: "#/components/responses/Invalid" }
         "500": { $ref: "#/components/responses/ServerError" }
         "507": { $ref: "#/components/responses/TableFull" }
@@ -201,8 +234,8 @@ paths:
       operationId: deleteTag
       summary: Remove a tag from the AP
       description: |
-        Removes its content and settings. The tag keeps what it shows until it gets new
-        content; if it polls again it is added back without content.
+        Removes its content, settings and scheduled content. The tag keeps what it shows
+        until it gets new content; if it polls again it is added back without content.
       responses:
         "200":
           description: Removed
@@ -212,6 +245,97 @@ paths:
         "400": { $ref: "#/components/responses/BadMac" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/UnknownTag" }
+
+  /api/schedule/{mac}:
+    parameters:
+      - $ref: "#/components/parameters/scheduled_mac"
+    delete:
+      tags: [Schedule]
+      operationId: deleteTagSchedule
+      summary: Remove a tag's scheduled content
+      description: Every scheduled entry for the tag. Its current content stays.
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleDeleted" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NothingScheduled" }
+
+  /api/schedule:
+    get:
+      tags: [Schedule]
+      operationId: listSchedule
+      summary: All scheduled content
+      description: Every entry that has not taken effect yet, with its content, in no particular order.
+      responses:
+        "200":
+          description: The schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Schedule]
+      operationId: deleteSchedule
+      summary: Remove all scheduled content
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleDeleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NothingScheduled" }
+
+  /api/time:
+    get:
+      tags: [Schedule]
+      operationId: getTime
+      summary: The AP's clock
+      description: |
+        The AP has no clock that survives a restart. It gets the time from NTP while it is
+        on WiFi (`ESL_NTP_SERVER` in menuconfig), or from `PUT /api/time`. Only scheduled
+        content uses it.
+      responses:
+        "200":
+          description: The time, or null while it is not known
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Time" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Schedule]
+      operationId: setTime
+      summary: Set the AP's clock
+      description: |
+        For an AP without WiFi (over the USB port). NTP sets it again at its next sync.
+        `esl_client.py` sets it before it schedules content if the AP does not know the time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [time]
+              properties:
+                time: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC" }
+            examples:
+              now:
+                summary: 2026-10-15 12:00 UTC
+                value: { time: 1792065600 }
+      responses:
+        "200":
+          description: The time is set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Time" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
 
   /api/tags/{mac}/config:
     parameters:
@@ -449,6 +573,13 @@ components:
       description: The tag's MAC, 16 hex digits, most significant byte first
       schema: { type: string, pattern: "^[0-9A-Fa-f]{16}$" }
       example: "00000123456789A8"
+    scheduled_mac:
+      name: mac
+      in: path
+      required: true
+      description: The tag's MAC, 16 hex digits
+      schema: { type: string, pattern: "^[0-9A-Fa-f]{16}$" }
+      example: "00000123456789B2"
     model:
       name: model
       in: path
@@ -525,11 +656,23 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: out of memory }
     TableFull:
-      description: The tag table is full (`max_tags` in `GET /api/tags`)
+      description: The tag table is full (`max_tags` in `GET /api/tags`), or with `at` the schedule (`max_scheduled`)
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: tag table full }
+    NoTime:
+      description: "`at` is given, but the AP does not know the time yet"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "the AP does not know the time yet: set it with PUT /api/time, or let it reach an NTP server" }
+    NothingScheduled:
+      description: There was nothing scheduled to remove
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: nothing scheduled }
 
   schemas:
     Error:
@@ -575,6 +718,14 @@ components:
           type: [boolean, "null"]
           default: false
           description: A black frame around the screen (`frame` elements of a named layout). The tags are black and white only.
+        at:
+          type: [integer, "null"]
+          minimum: 1600000000
+          maximum: 4294967295
+          description: |
+            When the content takes effect, Unix seconds (UTC). Missing, null or in the past: now.
+            The AP needs to know the time (`GET /api/time`), else `409`.
+          example: 1792069200
 
     BatchRow:
       allOf:
@@ -620,13 +771,63 @@ components:
           items:
             oneOf:
               - $ref: "#/components/schemas/SetResult"
+              - $ref: "#/components/schemas/Scheduled"
               - type: object
                 description: The table filled up during the batch (only when the same MAC ends up in two slots; rare)
                 additionalProperties: false
                 required: [mac, error]
                 properties:
                   mac: { $ref: "#/components/schemas/Mac" }
-                  error: { type: string, const: tag table full }
+                  error: { type: string, enum: [tag table full, schedule full] }
+
+    Scheduled:
+      type: object
+      additionalProperties: false
+      required: [mac, scheduled, at]
+      description: The content is kept and set at `at`
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        scheduled: { const: true }
+        at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC" }
+
+    Time:
+      type: object
+      additionalProperties: false
+      required: [time, source]
+      properties:
+        time: { type: [integer, "null"], minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC; null: not known (no NTP and no PUT /api/time since the AP started)" }
+        source: { type: [string, "null"], enum: [ntp, api, null], description: Where the time came from }
+
+    ScheduleEntry:
+      allOf:
+        - type: object
+          required: [mac, at]
+          properties:
+            mac: { $ref: "#/components/schemas/Mac" }
+            at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "When it takes effect, Unix seconds, UTC" }
+            layout: { type: string }
+            fields: { type: array, items: { type: string } }
+            price_highlight: { type: boolean }
+            frame: { type: boolean }
+      unevaluatedProperties: false
+
+    ScheduleList:
+      type: object
+      additionalProperties: false
+      required: [time, max_scheduled, scheduled]
+      properties:
+        time: { type: [integer, "null"], minimum: 1600000000, maximum: 4294967295, description: "The AP's time, as in GET /api/time" }
+        max_scheduled: { type: integer, minimum: 1, description: "Room for entries (menuconfig ESL_MAX_SCHEDULED, default 256)" }
+        scheduled:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleEntry" }
+
+    ScheduleDeleted:
+      type: object
+      additionalProperties: false
+      required: [deleted]
+      properties:
+        deleted: { type: integer, minimum: 1, description: How many entries were removed }
 
     ApInfo:
       type: object
@@ -646,6 +847,9 @@ components:
           type: string
           enum: [poweron, ext, sw, usb, panic, int_wdt, task_wdt, wdt, deepsleep, brownout, jtag, pwr_glitch, cpu_lockup, unknown]
           description: Why the AP last started. `task_wdt` means a stuck AP task was restarted by the watchdog.
+        time: { type: [integer, "null"], minimum: 1600000000, maximum: 4294967295, description: "The AP's time (GET /api/time); left out when scheduling is off" }
+        scheduled: { type: integer, minimum: 0, description: Scheduled entries waiting }
+        max_scheduled: { type: integer, minimum: 1, description: "Room for scheduled entries; left out when scheduling is off" }
 
     TagCfg:
       type: object
@@ -704,6 +908,10 @@ components:
               description: The text as stored (after the conversion to Latin-1, without empty fields at the end)
             price_highlight: { type: boolean }
             frame: { type: boolean }
+            scheduled:
+              type: array
+              items: { type: integer, minimum: 1600000000, maximum: 4294967295 }
+              description: When the tag's scheduled content takes effect, Unix seconds (`GET /api/schedule` has the content)
       unevaluatedProperties: false
 
     TagList:

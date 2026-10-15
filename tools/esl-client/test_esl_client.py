@@ -1,5 +1,6 @@
 """Tests for esl_client.py against a small fake AP (python3 -m unittest)."""
 
+import datetime
 import io
 import json
 import os
@@ -19,6 +20,8 @@ class FakeAp(BaseHTTPRequestHandler):
     tags = {}
     calls = []
     wifi = {}
+    time = None
+    sched = []
 
     def log_message(self, *a):
         pass
@@ -42,6 +45,9 @@ class FakeAp(BaseHTTPRequestHandler):
         return True
 
     def _set(self, mac, c):
+        if c.get("at"):
+            FakeAp.sched.append(dict(c, mac=mac))
+            return {"mac": mac, "scheduled": True, "at": c["at"]}
         cid = abs(hash(json.dumps(c, sort_keys=True))) % 2**32 or 1
         old = self.tags.get(mac, {})
         changed = old.get("content_id") != cid
@@ -54,6 +60,10 @@ class FakeAp(BaseHTTPRequestHandler):
             return
         if self.path == "/api/wifi":
             self._send(200, self.wifi)
+        elif self.path == "/api/time":
+            self._send(200, {"time": FakeAp.time, "source": "api" if FakeAp.time else None})
+        elif self.path == "/api/schedule":
+            self._send(200, {"time": FakeAp.time, "max_scheduled": 256, "scheduled": FakeAp.sched})
         elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
@@ -68,7 +78,10 @@ class FakeAp(BaseHTTPRequestHandler):
             return
         body = self._body()
         self.calls.append((self.path, body))
-        if self.path == "/api/wifi":
+        if self.path == "/api/time":
+            FakeAp.time = body["time"]
+            self._send(200, {"time": FakeAp.time, "source": "api"})
+        elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
                            "setup_ssid": None, "networks": []}
             self._send(200, FakeAp.wifi)
@@ -103,6 +116,8 @@ class ClientTest(unittest.TestCase):
     def setUp(self):
         FakeAp.tags.clear()
         FakeAp.calls.clear()
+        FakeAp.sched = []
+        FakeAp.time = None
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -224,6 +239,40 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(FakeAp.calls, [])
         self.assertIn("0000000000000001  price       Melk | 19.90", out)
         self.assertIn("1 tags would be sent", out)
+
+    def test_schedule_sets_the_clock_first(self):
+        rc, out = self.run_cli("price", "0000000000000001", "Melk", "22.90", "--at", "2030-01-02 07:00")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("set it from this computer", out)
+        self.assertEqual(FakeAp.calls[0], ("/api/time", {"time": FakeAp.time}))
+        at = int(datetime.datetime(2030, 1, 2, 7, 0).timestamp())
+        self.assertEqual(FakeAp.calls[1][1]["at"], at)
+        self.assertIn("scheduled for 2030-01-02 07:00", out)
+        # the AP knows the time now, so it is not set again
+        self.run_cli("price", "0000000000000001", "Melk", "21.90", "--at", "2030-01-03")
+        self.assertEqual([p for p, _ in FakeAp.calls].count("/api/time"), 1)
+        rc, out = self.run_cli("schedule")
+        self.assertIn("2030-01-02 07:00  0000000000000001", out)
+        self.assertIn("2 of 256 scheduled", out)
+
+    def test_sync_at(self):
+        path = self.write("mac,layout,name,price,at\n"
+                          "0000000000000001,price,Melk,19.90,\n"
+                          "0000000000000001,price,Melk,14.90,2030-01-02 07:00\n"
+                          "0000000000000002,price,Ost,89.00,\n")
+        rc, out = self.run_cli("sync", path, "--at", "1893456000")
+        self.assertEqual(rc, 0, out)
+        sent = [(r["mac"], r.get("at")) for r in FakeAp.calls[-1][1]["tags"]]
+        at = int(datetime.datetime(2030, 1, 2, 7, 0).timestamp())
+        self.assertEqual(sent, [("0000000000000001", 1893456000), ("0000000000000001", at),
+                                ("0000000000000002", 1893456000)])
+        self.assertIn("3 scheduled", out)
+        bad = self.write("mac,layout,name,at\n0000000000000001,price,A,2030-01-02\n"
+                         "0000000000000001,price,B,2030-01-02\n0000000000000002,price,C,neste uke\n")
+        rc, out, err = self.run_err("sync", bad)
+        self.assertEqual(rc, 1)
+        self.assertIn(f"{bad}:3: 0000000000000001 already has content from line 2 for the same time", err)
+        self.assertIn(f"{bad}:4: not a time: 'neste uke'", err)
 
     def test_wifi(self):
         FakeAp.wifi = {"mode": "sta+setup", "ssid": "Home", "connected": False, "setup_ssid": "openesl-1A2B",

@@ -40,16 +40,50 @@ static int wifi_set(void *ctx, const char *ssid, const char *pass)
 
 static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, NULL, NULL};
 
+/* Scheduled content kept in RAM */
+static esl_sched_entry_t sched_e[CAP];
+static esl_sched_t sched;
+static uint8_t blobs[CAP][ESL_SCHED_BLOB_MAX];
+static size_t blob_len[CAP];
+
+static void blob_save(void *ctx, unsigned slot, const uint8_t *b, size_t len)
+{
+    (void)ctx;
+    memcpy(blobs[slot], b, len);
+    blob_len[slot] = len;
+}
+
+static bool blob_load(void *ctx, unsigned slot, uint8_t *b, size_t *len)
+{
+    (void)ctx;
+    if (!blob_len[slot] || blob_len[slot] > *len)
+        return false;
+    memcpy(b, blobs[slot], blob_len[slot]);
+    *len = blob_len[slot];
+    return true;
+}
+
+static void blob_erase(void *ctx, unsigned slot)
+{
+    (void)ctx;
+    blob_len[slot] = 0;
+}
+
+static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
+
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched};
     uint64_t now_ms = 1000;
     char line[512];
 
     esl_store_init(&st, tags, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
+    esl_sched_init(&sched, sched_e, CAP, &sched_ops);
+    /* 2026-10-15 12:00 UTC, so the examples with "at" (later times) are scheduled */
+    esl_sched_set_time(&sched, 1792065600u, now_ms, ESL_TIME_NTP);
 
     while (fgets(line, sizeof(line), stdin)) {
         char method[16], uri[256], auth[128], mac_s[32], ver_s[16];

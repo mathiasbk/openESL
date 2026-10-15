@@ -123,7 +123,7 @@ static char resp[ESL_API_RESP_SIZE(CAP)];
 
 int sim_api(const char *method, const char *uri, const char *body, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, NULL};
     esl_sb_t out;
     int status;
 
