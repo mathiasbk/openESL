@@ -77,7 +77,7 @@ async function readTwice(fl, page, addr, length, what, progress) {
 }
 
 // Runs the whole job on the tag in the jig. Never throws for tag problems: returns a result.
-// backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info) -> Promise }
+// backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info, model) -> Promise }
 export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, writeMac = true, resetAfter = true } = {}) {
   const res = { model, mac: null, macSource: "", backup: "", ok: false, step: "", message: "", seconds: 0 };
   const t0 = Date.now();
@@ -130,7 +130,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
         if (needMacWrite && !zp.bytesEqual(flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6), raw))
           throw new JobError("backup", "backup does not contain the MAC bytes read before");
         if (flash.every((b) => b === 0xff)) throw new JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup");
-        await backups.save(res.mac, flash, info);
+        await backups.save(res.mac, flash, info, model);
         if (!(await backups.has(res.mac))) throw new JobError("backup", "the stored backup cannot be found again");
       } catch (e) {
         res.backup = "failed";
@@ -222,9 +222,17 @@ export class BackupStore {
     return this.tx("readonly", (s) => s.get(mac));
   }
 
-  async save(mac, flash, info) {
+  async save(mac, flash, info, model = "") {
     if (await this.has(mac)) throw new Error("refusing to overwrite the existing backup of " + mac);
-    await this.tx("readwrite", (s) => s.add({ mac, time: new Date().toISOString(), flash, info }));
+    await this.tx("readwrite", (s) => s.add({ mac, model, barcode: "", time: new Date().toISOString(), flash, info }));
+  }
+
+  // Changes the barcode (or other notes) of a stored backup; the flash itself is never changed.
+  async setBarcode(mac, barcode) {
+    const r = await this.get(mac);
+    if (!r) throw new Error("no backup of " + mac);
+    r.barcode = barcode;
+    await this.tx("readwrite", (s) => s.put(r));
   }
 
   list() {

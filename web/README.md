@@ -1,11 +1,12 @@
 # Web page: label designer and flasher
 
-A static page for GitHub Pages (or any web server) with three tabs:
+A static page for GitHub Pages (or any web server) with an overview and three tools:
 
 | Tab | What it does |
 |---|---|
+| **Overview** | What OpenESL is, how the parts fit together, and what hardware you need. The landing page. |
 | **Design** | Draws and edits layout files (docs/protokoll.md part 3) for the 2.9" and the 1.54". Boxes can be dragged and resized on the preview; text, inverted text, lines and filled boxes can be added. Saves the layout file for `PUT /api/layouts/{model}` and a label design (`esl-label`) for `tag/tools/label_design.py`. |
-| **Flash tag** | Flashes tags through a D1 mini running atc1441's ZBS_Flasher, over Web Serial. The same steps and checks as `tools/flash-tui` (MAC, backup before erase, MAC to the info page, write, verify); the info page is never erased. Backups are kept in the browser and can be downloaded. |
+| **Flash tag** | Flashes tags through a D1 mini running atc1441's ZBS_Flasher, over Web Serial. The model is picked from a preview of each tag. The same steps and checks as `tools/flash-tui` (MAC, backup before erase, MAC to the info page, write, verify); the info page is never erased. Backups are kept in the browser (IndexedDB, kept between visits until the site's data is cleared) with an optional barcode per tag, and can be exported as a ZIP (all images plus `backups.csv`) or as the CSV list alone. |
 | **Flash AP** | Flashes the ESP32-C6 access point with esp-web-tools. |
 
 Web Serial needs Chrome or Edge on a computer, and a secure page (https, or http://localhost).
