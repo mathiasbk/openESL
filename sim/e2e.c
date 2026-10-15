@@ -1,0 +1,362 @@
+/* e2e.c - end-to-end scenarios: the real tag firmware against the real AP core, driven
+ * through the API, with simulated time. The cases follow the phase 5 test matrix in
+ * docs/fremdriftsplan.md (and the hardware results there), plus CONFIG, layout files and
+ * T12. One tag runs through all of them in order, as one long day on the jig.
+ * Every screen worth looking at is saved as PNG in the output folder. */
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "proto.h"
+#include "sim.h"
+
+static int failures, checks;
+static const char *outdir;
+static char mac[17];
+static const char *resp;
+
+#define CHECK(cond, ...) check((cond), #cond, __LINE__, __VA_ARGS__)
+
+static void check(int ok, const char *expr, int line, const char *fmt, ...)
+{
+    va_list ap;
+    checks++;
+    if (ok)
+        return;
+    failures++;
+    printf("  FAIL e2e.c:%d: %s\n        ", line, expr);
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    printf("\n        last reply: %.300s\n", resp ? resp : "");
+}
+
+static double now_s(void) { return sim_now_ms / 1000.0; }
+
+static void step(const char *title)
+{
+    printf("\n== %s (t = %.0f s)\n", title, now_s());
+}
+
+static void note(const char *fmt, ...)
+{
+    va_list ap;
+    printf("   ");
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    printf("\n");
+}
+
+static void png(const char *name)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s.png", outdir, name);
+    CHECK(sim_tag_save_png(path), "could not write %s", path);
+    note("screen -> %s", path);
+}
+
+static int api(const char *method, const char *suffix, const char *body)
+{
+    char uri[128];
+    snprintf(uri, sizeof(uri), "/api/tags/%s%s", mac, suffix);
+    return sim_api(method, uri, body, &resp);
+}
+
+/* GET /api/tags/{mac}: 200 and the fields read below */
+static int get_tag(void)
+{
+    return api("GET", "", NULL);
+}
+
+/* PUT content; returns its content_id (0 on error) */
+static uint32_t put_content(const char *json, int expect_changed)
+{
+    int status = api("PUT", "", json);
+    CHECK(status == 200, "PUT /api/tags/%s -> %d", mac, status);
+    CHECK(sim_json_bool("changed") == expect_changed, "changed should be %d", expect_changed);
+    return (uint32_t)sim_json_num("content_id");
+}
+
+static void run_for(double s)
+{
+    sim_tag_run_until(sim_now_ms + (uint64_t)(s * 1000));
+}
+
+static char *read_file(const char *path, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    char *buf;
+    long n;
+    if (!f)
+        return NULL;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc((size_t)n + 1);
+    if (buf && fread(buf, 1, (size_t)n, f) != (size_t)n) {
+        free(buf);
+        buf = NULL;
+    }
+    fclose(f);
+    if (buf) {
+        buf[n] = 0;
+        *len = (size_t)n;
+    }
+    return buf;
+}
+
+static const char PRICE_1[] = "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"]}";
+static const char PRICE_2[] =
+    "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"21,90\",\"Tilbud\"],\"price_highlight\":true}";
+static const char PRICE_3[] = "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"19,90\",\"Kampanje\"]}";
+static const char PRICE_4[] = "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"22,90\",\"kr/l 22,90\"]}";
+static const char SHELF_1[] = "{\"layout\":\"shelf\",\"fields\":[\"Kaffe filtermalt 500 g\",\"49,90\","
+                              "\"kr 99,80/kg\",\"Tilbud ut uken\"]}";
+static const char SHELF_2[] = "{\"layout\":\"shelf\",\"fields\":[\"Kaffe filtermalt 500 g\",\"44,90\","
+                              "\"kr 89,80/kg\",\"Ny pris\"]}";
+static const char TEXT_1[] = "{\"layout\":\"text\",\"fields\":[\"Velkommen\",\"Man-fre 9-21\",\"Lor 9-18\"],"
+                             "\"frame\":true}";
+
+int e2e_run(const char *out, const char *root)
+{
+    uint32_t cid, cid2;
+    int draws;
+    uint64_t t0, w;
+    sim_stats_t s0;
+
+    outdir = out;
+    snprintf(mac, sizeof(mac), "%016llX", (unsigned long long)sim_tag_mac);
+    printf("End-to-end simulation: tag %s (%s\"), tag firmware tag/src + AP core ap/components/esl_core\n", mac,
+           sim_tag_model);
+
+    /* ------------------------------------------------------------------ */
+    step("1. New tag, unknown to the AP");
+    sim_tag_flash_erase();
+    sim_ap_boot();
+    sim_tag_boot();
+    CHECK(sim_tag_draws() == 1, "start screen drawn once, got %d", sim_tag_draws());
+    png("01-start");
+    run_for(1);
+    CHECK(get_tag() == 200, "the AP knows the tag after its first POLL");
+    CHECK(sim_json_num("seen_s_ago") >= 0 && sim_json_num("seen_s_ago") <= 1, "seen just now");
+    CHECK(sim_json_num("content_id") == 0 && sim_json_num("shown_content_id") == 0, "no content yet");
+    CHECK(sim_json_bool("pending") == 0, "nothing pending");
+    {
+        char want[32];
+        snprintf(want, sizeof(want), "\"model\":\"%s\"", sim_tag_model);
+        CHECK(strstr(resp, want) != NULL, "model %s reported", sim_tag_model);
+    }
+    CHECK(sim_stats.idle == 1, "the AP answered IDLE");
+
+    /* ------------------------------------------------------------------ */
+    step("2. New content through the API");
+    t0 = sim_now_ms;
+    cid = put_content(PRICE_1, 1);
+    CHECK(sim_json_bool("pending") == 1, "pending until the tag shows it");
+    CHECK(sim_tag_run_until_draw(t0 + 120000), "drawn within 2 min (G1)");
+    CHECK(sim_tag_shown_id() == cid, "the tag shows %u, got %u", cid, sim_tag_shown_id());
+    note("drawn %.1f s after the PUT (G1: at most 120 s)", (sim_tag_last_draw_ms() - t0) / 1000.0);
+    get_tag();
+    CHECK(sim_json_bool("pending") == 1, "the API confirms only at the next POLL");
+    run_for(61);
+    get_tag();
+    CHECK(sim_json_num("shown_content_id") == (long)cid && sim_json_bool("pending") == 0,
+          "confirmed one poll later");
+    note("confirmed by the API %.1f s after the PUT", (sim_now_ms - t0) / 1000.0);
+    png("02-price");
+
+    /* ------------------------------------------------------------------ */
+    step("3. Same content again");
+    draws = sim_tag_draws();
+    s0 = sim_stats;
+    cid2 = put_content(PRICE_1, 0);
+    CHECK(cid2 == cid, "same content_id");
+    CHECK(sim_json_bool("pending") == 0, "nothing pending");
+    run_for(300);
+    CHECK(sim_tag_draws() == draws, "no redraw in 5 min");
+    CHECK(sim_stats.content == s0.content && sim_stats.idle >= s0.idle + 4, "IDLE every poll, no CONTENT");
+
+    /* ------------------------------------------------------------------ */
+    step("4a. CONTENT reply lost once: the retry in the same wake-up gets it");
+    t0 = sim_now_ms;
+    s0 = sim_stats;
+    cid = put_content(PRICE_2, 1);
+    sim_drop_reply(ESL_MSG_CONTENT, 1);
+    CHECK(sim_tag_run_until_draw(t0 + 61000), "drawn at the next poll");
+    CHECK(sim_tag_shown_id() == cid, "shows the new content");
+    CHECK(sim_tag_misses() == 0, "not counted as a miss");
+    CHECK(sim_stats.unanswered == s0.unanswered + 1 && sim_stats.content == s0.content + 1,
+          "one lost reply, one CONTENT");
+    png("04a-highlight");
+
+    step("4b. CONTENT lost in both tries: the next wake-up gets it");
+    run_for(61);
+    t0 = sim_now_ms;
+    cid = put_content(PRICE_3, 1);
+    sim_drop_reply(ESL_MSG_CONTENT, 2);
+    w = sim_tag_next_wake_ms();
+    sim_tag_run_until(w);
+    CHECK(sim_tag_misses() == 1 && sim_tag_shown_id() != cid, "a miss, old content still shown");
+    CHECK(sim_tag_last_sleep_s() == 60, "no backoff after one miss, slept %u", sim_tag_last_sleep_s());
+    get_tag();
+    CHECK(sim_json_bool("pending") == 1, "still pending in the API");
+    CHECK(sim_tag_run_until_draw(w + 61000), "drawn one interval later");
+    CHECK(sim_tag_shown_id() == cid && sim_tag_misses() == 0, "shows it, misses back to 0");
+    note("drawn %.1f s after the PUT", (sim_tag_last_draw_ms() - t0) / 1000.0);
+
+    step("4c. The POLL that confirms it is lost: the API waits for the next one");
+    sim_drop_uplink(2);
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    get_tag();
+    CHECK(sim_json_bool("pending") == 1, "not confirmed yet");
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    get_tag();
+    CHECK(sim_json_bool("pending") == 0 && sim_json_num("shown_content_id") == (long)cid, "confirmed");
+
+    step("4d. The AP dies while sending CONTENT and is back after 3 min");
+    t0 = sim_now_ms;
+    cid = put_content(PRICE_4, 1);
+    sim_die_on_drop = true;
+    sim_drop_reply(ESL_MSG_CONTENT, 1);
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    sim_die_on_drop = false;
+    CHECK(!sim_ap_up() && sim_tag_shown_id() != cid, "the AP is off, the tag has not got it");
+    run_for(180);
+    sim_ap_boot();
+    get_tag();
+    CHECK(sim_json_num("content_id") == (long)cid, "the content survived the restart (NVS)");
+    w = sim_now_ms;
+    CHECK(sim_tag_run_until_draw(w + 600000), "the tag gets it after the restart");
+    CHECK(sim_tag_shown_id() == cid, "shows it");
+    note("drawn %.1f s after the AP came back (%.1f s after the PUT)", (sim_tag_last_draw_ms() - w) / 1000.0,
+         (sim_tag_last_draw_ms() - t0) / 1000.0);
+    run_for(61);
+    CHECK(sim_tag_last_sleep_s() == 60, "back to 60 s");
+
+    /* ------------------------------------------------------------------ */
+    step("5. Layout file over the radio, content with a named layout");
+    {
+        char path[512], uri[64];
+        size_t len = 0;
+        char *json;
+        long ver;
+        int status;
+        snprintf(path, sizeof(path), "%s/tag/designs/layouts/%s.json", root, sim_tag_model);
+        json = read_file(path, &len);
+        CHECK(json != NULL, "read %s", path);
+        snprintf(uri, sizeof(uri), "/api/layouts/%s", sim_tag_model);
+        status = sim_api("PUT", uri, json ? json : "", &resp);
+        free(json);
+        CHECK(status == 200, "PUT %s -> %d", uri, status);
+        ver = sim_json_num("version");
+        s0 = sim_stats;
+        t0 = sim_now_ms;
+        cid = put_content(SHELF_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 61000), "drawn at the next poll");
+        CHECK(sim_tag_shown_id() == cid, "shows the shelf layout");
+        CHECK((long)sim_tag_layout_ver() == ver, "has layout file %ld, got %u", ver, sim_tag_layout_ver());
+        note("%u LAYOUT blocks (%u LAYOUT_REQ) and the content in one wake-up",
+             sim_stats.layout - s0.layout, sim_stats.layout_reqs - s0.layout_reqs);
+        run_for(61);
+        get_tag();
+        CHECK(sim_json_bool("pending") == 0 && sim_json_bool("layout_pending") == 0, "confirmed");
+        png("05-shelf");
+    }
+
+    /* ------------------------------------------------------------------ */
+    step("6. Settings (CONFIG): poll_s 120, then back to the default");
+    s0 = sim_stats;
+    CHECK(api("PUT", "/config", "{\"poll_s\":120}") == 200, "PUT config");
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    CHECK(sim_stats.config == s0.config + 1, "CONFIG at the next poll");
+    CHECK(sim_tag_last_sleep_s() == 120, "the tag sleeps 120 s, got %u", sim_tag_last_sleep_s());
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    get_tag();
+    CHECK(sim_json_bool("config_pending") == 0 && sim_json_num("poll_s") == 120, "confirmed");
+    CHECK(api("PUT", "/config", "{}") == 200, "PUT config {}");
+    sim_tag_run_until(sim_tag_next_wake_ms());
+    CHECK(sim_tag_last_sleep_s() == 60, "back to 60 s, got %u", sim_tag_last_sleep_s());
+    run_for(61);
+    get_tag();
+    CHECK(sim_json_bool("config_pending") == 0, "confirmed");
+
+    /* ------------------------------------------------------------------ */
+    step("7. Tag restart with the AP off: the content comes back from flash (T12)");
+    cid = sim_tag_shown_id();
+    draws = sim_tag_draws();
+    sim_ap_off();
+    sim_tag_boot();
+    CHECK(sim_tag_draws() == draws + 1 && sim_tag_shown_id() == cid, "drew the shelf again without the AP");
+    png("07-restart");
+    run_for(30);
+    sim_ap_boot();
+    draws = sim_tag_draws();
+    s0 = sim_stats;
+    run_for(180);
+    CHECK(sim_tag_draws() == draws, "no redraw when the AP comes back");
+    CHECK(sim_stats.content == s0.content && sim_stats.layout == s0.layout, "no CONTENT, no LAYOUT");
+    get_tag();
+    CHECK(sim_json_bool("pending") == 0 && sim_json_bool("layout_pending") == 0, "the API sees it as shown");
+
+    /* ------------------------------------------------------------------ */
+    step("8. The AP gone for an hour with new content waiting");
+    cid = put_content(SHELF_2, 1);
+    sim_ap_off();
+    draws = sim_tag_draws();
+    t0 = sim_now_ms;
+    {
+        unsigned longest = 0;
+        while (sim_tag_next_wake_ms() <= t0 + 3600000) {
+            sim_tag_run_until(sim_tag_next_wake_ms());
+            if (sim_tag_last_sleep_s() > longest)
+                longest = sim_tag_last_sleep_s();
+        }
+        CHECK(longest == 600, "the backoff reaches 600 s (T11), got %u", longest);
+        note("%u misses in an hour, longest sleep %u s", sim_tag_misses(), longest);
+    }
+    run_for((double)(t0 + 3600000 - sim_now_ms) / 1000.0);
+    CHECK(sim_tag_draws() == draws, "nothing drawn (\"No AP found\" only after 2 h)");
+    sim_ap_boot();
+    w = sim_now_ms;
+    CHECK(sim_tag_run_until_draw(w + 601000), "found the AP within 600 s");
+    CHECK(sim_tag_shown_id() == cid, "shows the new content");
+    note("drawn %.1f s after the AP came back", (sim_tag_last_draw_ms() - w) / 1000.0);
+    CHECK(sim_tag_last_sleep_s() == 60, "back to 60 s, got %u", sim_tag_last_sleep_s());
+    png("08-after-hour");
+
+    /* ------------------------------------------------------------------ */
+    step("9. The AP gone for more than 2 h: \"No AP found\" (T9), then back");
+    run_for(61);
+    sim_ap_off();
+    t0 = sim_now_ms;
+    CHECK(sim_tag_run_until_draw(t0 + 7200000 + 601000), "drew the no-AP screen");
+    CHECK(sim_tag_shown_id() == 0, "no content id while showing it");
+    note("\"No AP found\" %.0f s after the AP went", (sim_tag_last_draw_ms() - t0) / 1000.0);
+    png("09-no-ap");
+    sim_ap_boot();
+    w = sim_now_ms;
+    CHECK(sim_tag_run_until_draw(w + 601000), "content again when the AP is back");
+    CHECK(sim_tag_shown_id() == cid, "shows %u, got %u", cid, sim_tag_shown_id());
+    note("drawn %.1f s after the AP came back", (sim_tag_last_draw_ms() - w) / 1000.0);
+
+    /* ------------------------------------------------------------------ */
+    step("10. Tag deleted on the AP (unknown tag)");
+    run_for(61);
+    CHECK(api("DELETE", "", NULL) == 200, "DELETE");
+    draws = sim_tag_draws();
+    run_for(121);
+    CHECK(get_tag() == 200 && sim_json_num("content_id") == 0, "registered again, with no content");
+    CHECK(sim_tag_draws() == draws && sim_tag_shown_id() == cid, "the tag keeps what it shows");
+    t0 = sim_now_ms;
+    cid = put_content(TEXT_1, 1);
+    CHECK(sim_tag_run_until_draw(t0 + 61000), "a new PUT reaches it");
+    CHECK(sim_tag_shown_id() == cid, "shows it");
+    run_for(61);
+    get_tag();
+    CHECK(sim_json_bool("pending") == 0, "confirmed");
+    png("final");
+
+    printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
+    return failures ? 1 : 0;
+}

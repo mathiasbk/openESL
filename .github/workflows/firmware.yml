@@ -31,6 +31,15 @@ jobs:
       - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
       - name: Host tests
         run: python3 tag/tools/build.py test
+      - name: End-to-end simulation (tag firmware against the AP core, sim/README.md)
+        run: |
+          make -C sim SAN=1
+          make -C sim serial
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sim-screens
+          path: sim/build/*/screens/
       - name: Build firmware (2.9" and 1.54")
         run: |
           MODEL=29 python3 tag/tools/build.py fw
