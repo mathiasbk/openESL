@@ -289,3 +289,5 @@ h3.sub { margin-top: 16px; }
 .form.row label[hidden] { display: none; }
 .form label.check { display: inline-flex; gap: 6px; align-items: center; }
 .form label.check > input { width: auto; }
+
+button.small { padding: 2px 8px; font-size: 13px; }

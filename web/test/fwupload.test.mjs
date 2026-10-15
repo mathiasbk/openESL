@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer } from "../js/fwupload.js";
+import { PART, tagUpdate, firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -49,7 +49,7 @@ function simAp() {
 }
 
 test("what a file is", () => {
-  assert.deepEqual(firmwareKind(tagFile(2, 290, 1024)), { kind: "tag", model: "1.54", version: "0.2.90", size: 1024 });
+  assert.deepEqual(firmwareKind(tagFile(2, 290, 1024)), { kind: "tag", model: "1.54", version: "0.2.90", ver: 290, size: 1024 });
   assert.equal(firmwareKind(tagFile(1, 200, 1024)).model, "2.9");
   assert.equal(firmwareKind(tagFile(9, 200, 1024)).kind, null);
   assert.equal(firmwareKind(apImage(4096)).kind, "ap");
@@ -120,4 +120,16 @@ test("after an AP update: back on the new version, back on the old one, or gone"
   assert.match(r.text, /went back to the old one/);
   r = await waitApBack(answers([new Error("x")]), "ota_1", "0.3.0", { sleep, alive: () => false });
   assert.match(r.text, /Connect again/);
+});
+
+test("update button for a tag with older firmware", () => {
+  const imgs = { "1.54": firmwareKind(tagFile(2, 300, 1024)) };
+  const tag = (extra) => ({ model: "1.54", fw: 200, ota: true, ...extra });
+  assert.deepEqual(tagUpdate(tag(), imgs, null), { update: "0.3.0" });
+  assert.equal(tagUpdate(tag({ fw: 300 }), imgs, null), null);           // already runs it
+  assert.equal(tagUpdate(tag({ ota: false }), imgs, null), null);        // no radio updates: the jig
+  assert.equal(tagUpdate(tag({ model: "2.9" }), imgs, null), null);      // nothing for its model on the page
+  assert.equal(tagUpdate(tag({ fw: null }), imgs, null), null);          // not seen yet
+  const offered = { images: [{ model: "1.54", version: "0.3.0" }] };
+  assert.deepEqual(tagUpdate(tag(), imgs, offered), { text: "updating to 0.3.0" });
 });

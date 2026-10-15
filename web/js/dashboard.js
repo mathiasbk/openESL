@@ -5,7 +5,7 @@ import { ApClient } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
-import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -118,7 +118,7 @@ export function initDashboard() {
         [fmtAgo(tag.seen_s_ago)],
         [tag.rssi == null ? "–" : `${tag.rssi} dBm`],
         [fmtBattery(tag.battery_mv)],
-        [fmtTagFw(tag.fw)],
+        [fmtTagFw(tag.fw), "fw"],
         [state.text, "state state-" + state.level],
       ];
       for (const [text, cls] of cells) {
@@ -126,6 +126,25 @@ export function initDashboard() {
         td.textContent = text;
         if (cls) td.className = cls;
         tr.append(td);
+      }
+      // Newer firmware on this page for its model: a button that gives it to the AP
+      const up = tagUpdate(tag, pageImgs, last.tagfw);
+      if (up) {
+        const td = tr.querySelector("td.fw");
+        if (up.update) {
+          const b = document.createElement("button");
+          b.className = "small";
+          b.textContent = "Update to " + up.update;
+          b.title = `Gives firmware ${up.update} to the AP; every ${tag.model}" tag takes it at its next polls`;
+          b.disabled = sending;
+          b.onclick = () => sendPageTagFirmware(tag.model);
+          td.append(" ", b);
+        } else {
+          const s = document.createElement("span");
+          s.className = "muted";
+          s.textContent = " (" + up.text + ")";
+          td.append(s);
+        }
       }
       return tr;
     }));
@@ -199,10 +218,32 @@ export function initDashboard() {
     ["ap-openesl-ota", "AP firmware"],
     ["ap-openesl-lcd-ota", "AP firmware with the status screen"],
   ];
+  // The tag images published with this page, read once: model -> { data, kind }
+  const pageImgs = {};
+  const pageData = {};
+  async function loadPageTagImages(info) {
+    for (const k of ["tag-29", "tag-154"]) {
+      if (!info?.ota?.[k]) continue;
+      try {
+        const r = await fetch(`firmware/${k}-ota.bin`, { cache: "no-cache" });
+        if (!r.ok) continue;
+        const data = new Uint8Array(await r.arrayBuffer());
+        const kind = firmwareKind(data);
+        if (kind.kind !== "tag") continue;
+        pageImgs[kind.model] = kind;
+        pageData[kind.model] = data;
+      } catch {
+        /* offline: no update buttons */
+      }
+    }
+    if (last) render();
+  }
+
   fetch("firmware/info.json", { cache: "no-cache" })
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((info) => {
+      loadPageTagImages(info);
       const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${info.version}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
@@ -246,6 +287,18 @@ export function initDashboard() {
       $("fw-file").click();
       return;
     }
+    return sendData(data);
+  }
+
+  // The "Update to" button in the tag table
+  function sendPageTagFirmware(model) {
+    if (!client || sending || !pageData[model]) return;
+    if (!confirm(`Give ${model}" firmware ${pageImgs[model].version} to the AP? Every ${model}" tag that takes firmware over the radio updates itself over its next polls.`)) return;
+    $("fw-msg").scrollIntoView({ block: "nearest" });
+    return sendData(pageData[model]);
+  }
+
+  async function sendData(data) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
     const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"` : "AP firmware";

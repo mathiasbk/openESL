@@ -24,7 +24,7 @@ export function firmwareKind(data) {
   if (data.length >= 16 && TAGFW_MAGIC.every((x, i) => data[i] === x)) {
     const model = TAG_MODELS[data[5]];
     if (!model) return { kind: null, error: `a tag firmware file for an unknown model (${data[5]})` };
-    return { kind: "tag", model, version: fmtVer(u16(data, 6)), size: u32(data, 8) };
+    return { kind: "tag", model, version: fmtVer(u16(data, 6)), ver: u16(data, 6), size: u32(data, 8) };
   }
   // The AP checks the rest (chip, app description) and refuses what it cannot boot
   if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length };
@@ -75,6 +75,18 @@ export function sendTagFirmware(ap, data, progress) {
 // the last part. Returns { slot, version, ... }.
 export function sendApFirmware(ap, data, progress) {
   return uploadParts(ap, "POST", "/api/ota", data, progress);
+}
+
+// For a tag in the dashboard's table: null when there is nothing to offer it, { update: version }
+// when the page has newer firmware for its model than it runs and it takes firmware over the
+// radio, or { text } when the AP already offers that version. pageImgs: model -> firmwareKind()
+// of the page's file; tagfw: GET /api/tag-firmware.
+export function tagUpdate(tag, pageImgs, tagfw) {
+  const img = pageImgs?.[tag.model];
+  if (!tag.ota || !img || tag.fw == null || tag.fw >= img.ver) return null;
+  const onAp = (tagfw?.images || []).find((i) => i.model === tag.model);
+  if (onAp?.version === img.version) return { text: `updating to ${img.version}` };
+  return { update: img.version };
 }
 
 // Rows for the tag firmware table from GET /api/tag-firmware

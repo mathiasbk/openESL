@@ -495,6 +495,8 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_json_str(out, err);
     else
         esl_sb_puts(out, "null");
+    /* the tag takes firmware over the radio (docs/tag-ota.md) */
+    esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
 
     if (with_content && t->has_content)
         write_content(out, &t->content);

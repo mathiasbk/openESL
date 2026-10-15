@@ -1168,7 +1168,7 @@ components:
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error]
+                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
         seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll; null: not seen since the AP started" }
@@ -1194,6 +1194,7 @@ components:
             - the layout is not in the layout file for this tag's model
             - the tag rejected the layout file
             - null
+        ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]
@@ -1247,6 +1248,7 @@ components:
             layout_pending: false
             layout_failed: false
             content_error: null
+            ota: true
 
     TagDeleted:
       type: object
