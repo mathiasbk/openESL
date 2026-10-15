@@ -144,6 +144,9 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .guide { position: absolute; pointer-events: none; z-index: 3; }
 .guide.x { top: 0; bottom: 0; width: 0; border-left: 1px solid var(--box-sel); }
 .guide.y { left: 0; right: 0; height: 0; border-top: 1px solid var(--box-sel); }
+.buttons.tight { margin: 0; gap: 6px; }
+#ap-status.error { color: var(--error); }
+#ap-status.ok { color: var(--ok); }
 .place { display: flex; flex-wrap: wrap; gap: 4px; }
 .place button { padding: 2px 8px; font-size: 14px; }
 .box.hover { border-style: solid; border-width: 2px; }

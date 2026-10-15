@@ -137,6 +137,24 @@
             <label>Description <input id="lay-desc"></label>
           </div>
         </details>
+        <details open id="ap-panel">
+          <summary>Send to AP</summary>
+          <div class="form">
+            <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
+            <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
+            <div class="buttons tight">
+              <button id="ap-connect">Connect</button>
+              <button id="ap-upload" title="PUT /api/layouts/{model}: the tags of this model download it at their next poll">Upload layout file</button>
+            </div>
+            <label>Tag <select id="ap-tag"><option value="">(connect first)</option></select></label>
+            <div class="buttons tight">
+              <button id="ap-send" title="PUT /api/tags/{mac} with this layout and the sample text">Send sample to tag</button>
+              <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
+            </div>
+            <p id="ap-status" class="hint" role="status"></p>
+            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>).</p>
+          </div>
+        </details>
         <details>
           <summary>Layout file (JSON)</summary>
           <textarea id="json" spellcheck="false" rows="16"></textarea>

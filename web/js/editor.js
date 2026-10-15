@@ -6,6 +6,7 @@
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, snapResize } from "./snap.js";
+import { ApClient } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -168,6 +169,7 @@ async function loadModel(model) {
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
   state.el = -1;
   refreshAll();
+  refreshApTags();
   refreshTemplates(model);
 }
 
@@ -836,6 +838,112 @@ function initActions() {
   $("el-down").addEventListener("click", () => moveElement(1));
 }
 
+// ---------- send to the AP ----------
+
+const ap = { tags: [], fileVersion: null };
+
+function apClient() {
+  return new ApClient($("ap-url").value.trim() || "http://localhost:8080", $("ap-token").value.trim());
+}
+
+function apStatus(text, cls = "") {
+  const s = $("ap-status");
+  s.textContent = text;
+  s.className = "hint " + cls;
+}
+
+function ago(s) {
+  if (s === null || s === undefined) return "not seen";
+  if (s < 90) return s + " s ago";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  return Math.round(s / 3600) + " h ago";
+}
+
+function refreshApTags() {
+  const sel = $("ap-tag");
+  const keep = sel.value;
+  sel.replaceChildren();
+  const mine = ap.tags.filter((t) => t.model === state.model || t.model === null);
+  if (!mine.length) sel.add(new Option(ap.tags.length ? `(no ${state.model}" tags on the AP)` : "(connect first)", ""));
+  for (const t of mine) sel.add(new Option(`${t.mac} · ${ago(t.seen_s_ago)}${t.pending ? " · pending" : ""}`, t.mac));
+  if (mine.some((t) => t.mac === keep)) sel.value = keep;
+}
+
+async function apRun(what, fn) {
+  apStatus(what + "…");
+  for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = true;
+  try {
+    apStatus(...(await fn()));
+  } catch (e) {
+    apStatus(e.message, "error");
+  } finally {
+    for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = false;
+  }
+}
+
+async function apConnect() {
+  const r = await apClient().tags();
+  ap.tags = r.tags || [];
+  refreshApTags();
+  const n = ap.tags.filter((t) => t.model === state.model).length;
+  return [`AP ${r.ap?.fw || "?"}, channel ${r.ap?.channel ?? "?"}: ${ap.tags.length} tags, ${n} of them ${state.model}".`, "ok"];
+}
+
+async function apUpload() {
+  const res = state.renderer.loadLayouts(JSON.stringify(doc()));
+  if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
+  const r = await apClient().putLayouts(state.model, doc());
+  ap.fileVersion = res.version;
+  return [r.changed ? `Stored on the AP. The ${state.model}" tags download it at their next poll.` : "The AP already has this file.", "ok"];
+}
+
+async function apSend() {
+  const mac = $("ap-tag").value;
+  if (!mac) throw new Error("Connect and pick a tag first.");
+  const name = isBuiltin() ? state.sel.slice(8) : layout().name;
+  const content = { layout: name, fields: samples().slice() };
+  if ($("opt-highlight").checked) content.price_highlight = true;
+  if ($("opt-frame").checked) content.frame = true;
+  const r = await apClient().putContent(mac, content);
+  let note = "";
+  const t = ap.tags.find((x) => x.mac === mac);
+  const res = state.renderer.loadLayouts(JSON.stringify(doc()));
+  if (!isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
+    note = " The tag has another version of the layout file than the editor; upload the file too.";
+  }
+  return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
+}
+
+async function apCheck() {
+  const mac = $("ap-tag").value;
+  if (!mac) throw new Error("Connect and pick a tag first.");
+  const t = await apClient().tag(mac);
+  const i = ap.tags.findIndex((x) => x.mac === mac);
+  if (i >= 0) ap.tags[i] = t;
+  refreshApTags();
+  if (t.content_error) return [`Cannot be sent: ${t.content_error}.`, "error"];
+  if (t.layout_failed) return ["The tag rejected the layout file.", "error"];
+  if (t.draw_failed) return ["The tag says its last drawing failed.", "error"];
+  if (t.layout_pending) return [`The tag is downloading the layout file (seen ${ago(t.seen_s_ago)}).`, ""];
+  if (t.pending) return [`Waiting for the tag's next poll (seen ${ago(t.seen_s_ago)}).`, ""];
+  return [`The tag shows it (seen ${ago(t.seen_s_ago)}).`, "ok"];
+}
+
+function initAp() {
+  const sess = {
+    get(k) { try { return sessionStorage.getItem(STORE + k) || ""; } catch { return ""; } },
+    set(k, v) { try { sessionStorage.setItem(STORE + k, v); } catch { /* private mode */ } },
+  };
+  $("ap-url").value = store.get("ap.url") || "";
+  $("ap-token").value = sess.get("ap.token");
+  $("ap-url").addEventListener("change", () => store.set("ap.url", $("ap-url").value.trim()));
+  $("ap-token").addEventListener("change", () => sess.set("ap.token", $("ap-token").value.trim()));
+  $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
+  $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
+  $("ap-send").addEventListener("click", () => apRun("Sending", apSend));
+  $("ap-refresh").addEventListener("click", () => apRun("Asking the AP", apCheck));
+}
+
 export async function initEditor() {
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
@@ -845,6 +953,7 @@ export async function initEditor() {
   initActions();
   initDrag();
   initList();
+  initAp();
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : "2.9");
 }
