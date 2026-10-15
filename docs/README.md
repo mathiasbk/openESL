@@ -15,6 +15,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [ap-firmware.md](ap-firmware.md) | The AP on ESP32-C6 with ESP-IDF |
 | [fremdriftsplan.md](fremdriftsplan.md) | Phases, milestones, estimates and checkpoints |
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
+| [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
 
 ## The main choices (short version)
