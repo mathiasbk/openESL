@@ -3,11 +3,13 @@
  * in flash page 0x3D (0xF400), to compare runs at different supply voltages.
  * Not part of the firmware. Record: 'A', 'D', count, then per setting
  * cfg, cal2, cal1, cal3, cal4, cal5, cal6, sum of 8 samples (16 bit, MSB first; 0xFFFF = timeout).
+ * The last byte of the page counts the runs since flashing (0 = first run).
  */
 #include "../hal.h"
 #include "zbs243.h"
 
 #define LOG_PAGE 0x3D
+static __code const uint8_t __at (LOG_PAGE * 0x400u + 1023) prev_runs[1];
 static __xdata uint8_t logbuf[1024];
 static uint16_t loglen;
 static void log_save(void)
@@ -145,6 +147,7 @@ void main(void)
     }
     c[0] = 0x81; c[1] = 0x22; c[2] = 0x55;
     run();                              /* the stock setting again, last */
+    logbuf[1023] = (uint8_t)(prev_runs[0] + 1);   /* run counter: 0xFF + 1 = 0 on the first run */
     log_save();
     for (;;) {
         hal_wdt_kick();
