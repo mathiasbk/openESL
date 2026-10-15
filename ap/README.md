@@ -23,12 +23,14 @@ ap/
     esl_json      small JSON parser and writer
     esl_api       HTTP API (routes, token, validation) and the status page, independent of the HTTP server
     esl_wifi      WiFi setup: checks, the /setup form and page, GET/PUT /api/wifi JSON
+    esl_screen    the status screen's lines and their rendering (ESL_DISPLAY)
   main/                   ESP-IDF glue
     app_main.c  startup         store_nvs.c  mutex + NVS storage (tags and layouts)
     wifi.c      WiFi, setup network, mDNS     http_api.c   esp_http_server -> esl_api_handle(), status page
     radio_ieee802154.c  AP and sniffer modes, calls esl_radio_handle()
     radio_stub.c        simulated tags (esl_faketag), no radio
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
+    display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
   partitions.csv          NVS enlarged to 84 KB for tag content and layout files
   test/                   host unit tests (Makefile)
 ```
@@ -97,6 +99,26 @@ No token is needed there, since whoever has the cable has the device. WiFi can b
 
 With no network saved (first start, or after `PUT /api/wifi {"ssid":null}`), the AP opens its own network `openesl-XXXX` and a form at `http://192.168.4.1/setup` (`/` redirects there): pick the network from the scan list, enter the password, and choose the API token if none is set. The AP saves both in NVS (`cfg/ssid`, `cfg/pass`, `cfg/token`) and joins at once. If the saved network gives no IP for `ESL_WIFI_SETUP_AFTER_S` (180 s), the setup network opens again next to it, so a changed WiFi password can be fixed without a cable; it closes a minute after the AP has joined. While the setup network is open the AP retries the saved one every 20 s (joining hops channels, which drops phones on the setup network). Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet; set `ESL_WIFI_SETUP_PASSWORD` for WPA2 on it. The same settings are in `GET/PUT /api/wifi` and over the USB port. The checks, the form and the pages are in `esl_wifi.c` (host-tested); `wifi.c` is the ESP-IDF side.
 
+## Status screen (boards with an LCD)
+
+For ESP32-C6 boards with a 0.96" 160x80 ST7789 screen, `ESL_DISPLAY` shows four lines, refreshed every 2 s:
+
+```
+OpenESL 0.4.0          ch 25     firmware and 802.15.4 channel
+12 tags, 2 pending               yellow while tags have not fetched their content
+192.168.1.40                     green; "Setup: openesl-1A2B" or "Joining <network>" in yellow, "WiFi off" in red
+up 3 d 4 h, 9 seen               uptime and tags heard from in the last 10 min; "192.168.4.1/setup" on the setup network
+```
+
+It is off by default, so the C6 Super Mini build is unchanged. Build with the screen:
+
+```sh
+idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build
+idf.py -B build-lcd -p /dev/ttyACM0 flash monitor
+```
+
+CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in `sdkconfig.lcd` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are a guess from the Waveshare ESP32-C6-LCD boards, since the seller gives no pinout; check them against the board's silkscreen or schematic. At start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`. The text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
+
 ## Status page
 
 `http://openesl.local/` shows the layout files per model (version, size for the tags, layout names) and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
@@ -138,7 +160,7 @@ make SAN=1    # with AddressSanitizer and UBSan (needs libasan/libubsan; on Fedo
 
 Without gcc/clang on Windows: `pip install ziglang`, then build for Linux with `python -m ziglang cc -target x86_64-linux-musl ...` (zig's native Windows target fails in its mingw libc). Run the binary in WSL.
 
-Covers CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence), layout files (the compiler with the example files in `tag/designs/layouts/` and every error message, storage, blocks), the whole API (auth, validation, batches, limits, layouts and named content, settings, status page), WiFi setup (form decoding, the setup page and its escaping, token rules, `/api/wifi`), and the radio path end to end with fake tags: new tag, same content (no redraw), new content, lost CONTENT, AP restart, tag restart, next_poll_s, per-tag settings over CONFIG (the fake tag uses the new interval, confirms with `cfg_ver`, gets them again after a tag restart but not after an AP restart; an old-firmware fake tag never gets CONFIG but still gets its interval), the run-time default interval in NVS, 24 tags in one batch (G3), frames that must be ignored, and layout files over the air: download in blocks then content drawn with the downloaded layout in the same round, no second download of the same version, a lost block resumed in the next round, the file changed during a download, a rejected file, a deleted file, firmware without layout files, 24 tags of both models. One test gives a tag a layout file, content and settings at once and checks the order (layout and content in one wake-up, CONFIG in the next; layout then CONFIG in one wake-up when the content did not change). The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`. Not yet covered: the ESP-IDF glue in `main/` (built, not run), radio timing (must be measured on hardware, requirement A3), WiFi coexistence (phase 4) and NVS on real flash.
+Covers CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence), layout files (the compiler with the example files in `tag/designs/layouts/` and every error message, storage, blocks), the whole API (auth, validation, batches, limits, layouts and named content, settings, status page), WiFi setup (form decoding, the setup page and its escaping, token rules, `/api/wifi`), the status screen (every WiFi state, long text cut before the edge, odd sizes), and the radio path end to end with fake tags: new tag, same content (no redraw), new content, lost CONTENT, AP restart, tag restart, next_poll_s, per-tag settings over CONFIG (the fake tag uses the new interval, confirms with `cfg_ver`, gets them again after a tag restart but not after an AP restart; an old-firmware fake tag never gets CONFIG but still gets its interval), the run-time default interval in NVS, 24 tags in one batch (G3), frames that must be ignored, and layout files over the air: download in blocks then content drawn with the downloaded layout in the same round, no second download of the same version, a lost block resumed in the next round, the file changed during a download, a rejected file, a deleted file, firmware without layout files, 24 tags of both models. One test gives a tag a layout file, content and settings at once and checks the order (layout and content in one wake-up, CONFIG in the next; layout then CONFIG in one wake-up when the content did not change). The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`. Not yet covered: the ESP-IDF glue in `main/` (built, not run), radio timing (must be measured on hardware, requirement A3), WiFi coexistence (phase 4) and NVS on real flash.
 
 ## Open points
 
