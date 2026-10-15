@@ -42,19 +42,23 @@ export function snapMove(box, others, size, near) {
   return out;
 }
 
-// Resizing from the bottom-right corner: snaps the right and bottom edges.
-export function snapResize(box, others, size, near) {
+// Resizing by one of the eight handles ("n", "ne", "e", "se", "s", "sw", "w", "nw"): start is
+// the box when the drag began, dx/dy how far the pointer moved. The edges the handle moves
+// follow the pointer, snap like a moved box does, and stay on the screen; the box keeps at
+// least 1 px. Returns { x, y, w, h, guides }.
+export function resizeBox(start, handle, dx, dy, others, size, near) {
   const t = targets(others, size);
-  const out = { w: box.w, h: box.h, guides: [] };
-  const sx = best([box.x + box.w], t.x, near);
-  const sy = best([box.y + box.h], t.y, near);
-  if (sx && box.w + sx.d >= 1) {
-    out.w += sx.d;
-    out.guides.push({ axis: "x", at: sx.at });
-  }
-  if (sy && box.h + sy.d >= 1) {
-    out.h += sy.d;
-    out.guides.push({ axis: "y", at: sy.at });
-  }
-  return out;
+  let l = start.x, r = start.x + start.w, top = start.y, b = start.y + start.h;
+  const guides = [];
+  const edge = (v, lines, axis) => {
+    const s = best([v], lines, near);
+    if (!s) return v;
+    guides.push({ axis, at: s.at });
+    return v + s.d;
+  };
+  if (handle.includes("w")) l = Math.min(Math.max(0, edge(l + dx, t.x, "x")), r - 1);
+  if (handle.includes("e")) r = Math.max(Math.min(size.w, edge(r + dx, t.x, "x")), l + 1);
+  if (handle.includes("n")) top = Math.min(Math.max(0, edge(top + dy, t.y, "y")), b - 1);
+  if (handle.includes("s")) b = Math.max(Math.min(size.h, edge(b + dy, t.y, "y")), top + 1);
+  return { x: l, y: top, w: r - l, h: b - top, guides };
 }

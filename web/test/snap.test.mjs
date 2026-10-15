@@ -1,7 +1,7 @@
 // Snapping in the designer (js/snap.js).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { snapMove, snapResize } from "../js/snap.js";
+import { snapMove, resizeBox } from "../js/snap.js";
 
 const screen = { w: 296, h: 128 };
 
@@ -29,7 +29,22 @@ test("the nearest line wins", () => {
   assert.equal(r.x, 47);
 });
 
-test("resizing snaps the right and bottom edges", () => {
-  const r = snapResize({ x: 10, y: 10, w: 284, h: 116 }, [], screen, 3);
-  assert.deepEqual([r.w, r.h], [286, 118]);
+test("resizing by the bottom-right corner snaps the right and bottom edges", () => {
+  const r = resizeBox({ x: 10, y: 10, w: 200, h: 100 }, "se", 84, 16, [], screen, 3);
+  assert.deepEqual([r.x, r.y, r.w, r.h], [10, 10, 286, 118]);
+});
+
+test("the left handle moves only the left edge, and stops before the right edge", () => {
+  const box = { x: 50, y: 20, w: 40, h: 30 };
+  let r = resizeBox(box, "w", -20, 99, [], screen, 0);
+  assert.deepEqual([r.x, r.y, r.w, r.h], [30, 20, 60, 30]);
+  r = resizeBox(box, "w", 100, 0, [], screen, 0);
+  assert.deepEqual([r.x, r.w], [89, 1]);
+});
+
+test("the top-left handle snaps to the screen corner and stays on the screen", () => {
+  const r = resizeBox({ x: 5, y: 4, w: 40, h: 30 }, "nw", -3, -2, [], screen, 3);
+  assert.deepEqual([r.x, r.y, r.w, r.h], [0, 0, 45, 34]);
+  const off = resizeBox({ x: 5, y: 4, w: 40, h: 30 }, "nw", -50, -50, [], screen, 0);
+  assert.deepEqual([off.x, off.y], [0, 0]);
 });

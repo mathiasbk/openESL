@@ -5,7 +5,7 @@
 
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
-import { snapMove, snapResize } from "./snap.js";
+import { snapMove, resizeBox } from "./snap.js";
 import { ApClient } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
@@ -165,6 +165,7 @@ async function loadModel(model) {
   }
   state.renderer = await loadRenderer(model);
   $("model").value = model;
+  applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
   state.el = -1;
@@ -199,7 +200,7 @@ function compileAndDraw() {
   }
   paint(out.pixels, r.width, r.height);
   refreshMeters(res);
-  if (res.ok) setStatus(`OK: ${res.size} of 768 bytes for the tag, version ${res.version.toString(16).toUpperCase().padStart(8, "0")}`, "ok");
+  if (res.ok) setStatus(`✓ The AP accepts this file (version ${res.version.toString(16).toUpperCase().padStart(8, "0")})`, "ok");
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
 }
 
@@ -273,9 +274,13 @@ function drawOverlay() {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = e.type === "rect" ? "rect" : fieldLabel(e.field);
-    const grip = document.createElement("span");
-    grip.className = "grip";
-    b.append(tag, grip);
+    b.append(tag);
+    for (const h of HANDLES) {
+      const g = document.createElement("span");
+      g.className = "grip " + h;
+      g.dataset.h = h;
+      b.append(g);
+    }
     ov.append(b);
   });
   refreshList();
@@ -339,6 +344,8 @@ function drawGuides(guides) {
   }
 }
 
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
 function fieldLabel(f) {
   return typeof f === "number" ? layout()?.fields[f] ?? String(f) : String(f);
 }
@@ -357,7 +364,7 @@ function initDrag() {
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
-      resize: ev.target.classList.contains("grip"),
+      resize: ev.target.dataset.h || null,
       sx: ev.clientX, sy: ev.clientY,
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
@@ -380,9 +387,8 @@ function initDrag() {
     const size = { w: width, h: height };
     let guides = [];
     if (drag.resize) {
-      const r = snapResize({ x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }, others, size, near);
-      e.w = clamp(r.w, 1, width - s.x);
-      e.h = clamp(r.h, 1, height - s.y);
+      const r = resizeBox(s, drag.resize, dx, dy, others, size, near);
+      Object.assign(e, { x: r.x, y: r.y, w: r.w, h: r.h });
       guides = r.guides;
     } else {
       const r = snapMove({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }, others, size, near);
@@ -418,6 +424,8 @@ function onKey(ev) {
   if (mod && key === "z") undoRedo(ev.shiftKey);
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
+  else if (mod && key === "c" && e && !window.getSelection()?.toString()) state.clip = structuredClone(e);
+  else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
     e.x = clamp(e.x + moves[key][0], 0, width - e.w);
@@ -453,7 +461,7 @@ function refreshLayoutSelect() {
 function refreshLayoutForm() {
   const lay = layout();
   $("layout-panel").hidden = !lay;
-  $("add-row").hidden = !lay;
+  $("add-group").hidden = !lay;
   if (!lay) return;
   $("lay-name").value = lay.name || "";
   $("lay-fields").value = (lay.fields || []).join(", ");
@@ -499,12 +507,15 @@ function refreshElement() {
   box.replaceChildren();
   const e = element();
   $("el-panel").hidden = !layout();
-  $("el-del").disabled = $("el-dup").disabled = $("el-up").disabled = $("el-down").disabled = !e;
+  document.querySelector(".el-actions").hidden = !e;
+  $("el-up").disabled = !e || state.el === 0;
+  $("el-down").disabled = !e || state.el === layout().elements.length - 1;
+  $("el-title").textContent = e ? "· " + (e.type === "text" ? fieldLabel(e.field) : rectName(e)) : "";
   drawOverlay();
   if (!e) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = layout() ? "Click a box in the preview to edit it." : "Built-in layouts are part of the firmware and cannot be edited.";
+    p.textContent = layout() ? "Click a box in the preview or in the list above to edit it, or add one with the buttons over the preview." : "Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own.";
     box.append(p);
     return;
   }
@@ -519,6 +530,26 @@ function refreshElement() {
     l.append(s);
     box.append(l);
     return s;
+  };
+  // A row of buttons for a few choices, so the choice is visible without opening a list.
+  const seg = (label, options, val, onSet) => {
+    const l = document.createElement("label");
+    l.textContent = label;
+    const g = document.createElement("span");
+    g.className = "seg";
+    g.setAttribute("role", "radiogroup");
+    g.setAttribute("aria-label", label);
+    for (const [v, icon, name] of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = icon + " " + name;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(v === val));
+      b.addEventListener("click", () => { onSet(v); changed({}); });
+      g.append(b);
+    }
+    l.append(g);
+    box.append(l);
   };
   if (e.type === "text") {
     sel("Field", "field", lay.fields, fieldLabel(e.field), (v) => (e.field = v));
@@ -545,17 +576,34 @@ function refreshElement() {
   box.append(pair);
   box.append(placeButtons(e));
   if (e.type === "text") {
+    // Up to three fonts on one row; the tag uses the first that fits the text.
     const fonts = e.fonts || ["small"];
+    const fl = document.createElement("label");
+    fl.textContent = "Fonts";
+    fl.title = "Tried in order: the tag uses the first font the text fits in";
+    const row = document.createElement("span");
+    row.className = "fonts";
     for (let i = 0; i < 3; i++) {
-      sel(i ? `then font` : "Font", "font" + i, i ? ["(none)", ...FONTS] : FONTS, fonts[i] || "(none)", (v) => {
+      const s = document.createElement("select");
+      s.setAttribute("aria-label", i ? `Font ${i + 1}, if the text does not fit` : "Font");
+      (i ? ["–", ...FONTS] : FONTS).forEach((o) => s.add(new Option(o, o)));
+      s.value = fonts[i] || "–";
+      s.disabled = i > fonts.length;
+      s.addEventListener("change", () => {
         const f = (e.fonts || ["small"]).slice();
-        if (v === "(none)") f.length = Math.min(f.length, i);
-        else f[i] = v;
+        if (s.value === "–") f.length = Math.min(f.length, i);
+        else f[i] = s.value;
         e.fonts = f.filter(Boolean);
+        changed({});
       });
+      row.append(s);
     }
-    sel("Align", "align", ALIGN, e.align || "left", (v) => (v === "left" ? delete e.align : (e.align = v)));
-    sel("Vertical", "valign", VALIGN, e.valign || "top", (v) => (v === "top" ? delete e.valign : (e.valign = v)));
+    fl.append(row);
+    box.append(fl);
+    seg("Align", [["left", "⯇", "Left"], ["center", "≡", "Centre"], ["right", "⯈", "Right"]], e.align || "left",
+      (v) => (v === "left" ? delete e.align : (e.align = v)));
+    seg("Vertical", [["top", "⯅", "Top"], ["middle", "≡", "Middle"], ["bottom", "⯆", "Bottom"]], e.valign || "top",
+      (v) => (v === "top" ? delete e.valign : (e.valign = v)));
     sel("Lines", "lines", ["0 (auto)", "1", "2", "3"], e.lines ? String(e.lines) : "0 (auto)", (v) => {
       const n = parseInt(v, 10);
       if (n) e.lines = n;
@@ -578,8 +626,8 @@ function placeButtons(e) {
     ["⤒", "Against the top", () => (e.y = 0)],
     ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
     ["⤓", "Against the bottom", () => (e.y = height - e.h)],
-    ["Full width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
-    ["Full height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
+    ["Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
+    ["Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
   ];
   for (const [label, title, act] of actions) {
     const b = document.createElement("button");
@@ -675,6 +723,23 @@ function duplicateElement() {
   changed();
 }
 
+// Paste the copied element into the current layout (it may be another layout or model). A
+// text whose field this layout lacks takes the layout's first field.
+function pasteElement() {
+  const lay = layout();
+  const { width, height } = MODELS[state.model];
+  const c = structuredClone(state.clip);
+  if (c.type === "text" && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  c.w = Math.min(c.w, width);
+  c.h = Math.min(c.h, height);
+  const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
+  c.x = clamp(c.x + (same ? 4 : 0), 0, width - c.w);
+  c.y = clamp(c.y + (same ? 4 : 0), 0, height - c.h);
+  lay.elements.push(c);
+  state.el = lay.elements.length - 1;
+  changed();
+}
+
 function moveElement(d) {
   const lay = layout();
   const j = state.el + d;
@@ -711,7 +776,20 @@ function setDoc(d) {
   if (!layout()?.elements?.[state.el]) state.el = -1;
 }
 
+// Fit: as wide as the column, but never taller than about 60% of the window, so the whole
+// tag and the buttons under it stay in view (the 1.54" is square). Otherwise tag pixels.
+function applyZoom() {
+  const z = $("zoom").value;
+  const { width, height } = MODELS[state.model];
+  $("stage").style.width = z === "fit" ? `min(100%, calc(60vh * ${width / height}))` : `${z * width}px`;
+}
+
 function initActions() {
+  $("zoom").value = store.get("zoom") || "fit";
+  $("zoom").addEventListener("change", () => {
+    store.set("zoom", $("zoom").value);
+    applyZoom();
+  });
   $("model").addEventListener("change", (ev) => loadModel(ev.target.value).then(save));
   $("layout-select").addEventListener("change", (ev) => {
     state.sel = ev.target.value;
