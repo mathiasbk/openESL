@@ -35,6 +35,17 @@ EMSCRIPTEN_KEEPALIVE const char *web_error(void) { return err; }
 EMSCRIPTEN_KEEPALIVE uint8_t *web_fb(void) { return &fake_fb[0][0]; }
 EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_MAX_TEXT_BYTES; }
 
+/* The limits the compiler checks, so the page can show how close a layout is to them:
+ * 0 lines of text per screen, 1 rectangles per screen, 2 bytes in the file, 3 border of an
+ * inverted field, 4 lines per text element, 5..8 height of the fonts small, medium, mid, large. */
+EMSCRIPTEN_KEEPALIVE int web_limit(int what)
+{
+    static const int v[] = { ESL_DRAW_MAX_RUNS, ESL_DRAW_MAX_RECTS, ESL_LBIN_MAX, ESL_INVERT_PAD,
+                             ESL_LE_MAX_LINES, ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_MID_H,
+                             ESL_FONT_LARGE_H };
+    return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
+}
+
 /* The compiled file: what the tags download. Valid after web_load_layouts() returned 1. */
 EMSCRIPTEN_KEEPALIVE const uint8_t *web_layout_bin(void) { return layout_file; }
 EMSCRIPTEN_KEEPALIVE int web_layout_size(void) { return layout_file_ver ? layout_file_len : 0; }

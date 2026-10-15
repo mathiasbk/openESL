@@ -4,6 +4,8 @@
 // is the 422 the AP would answer when the file is uploaded.
 
 import { History } from "./history.js";
+import { layoutUsage } from "./limits.js";
+import { snapMove, snapResize } from "./snap.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -180,6 +182,7 @@ function compileAndDraw() {
     layoutId = BUILTIN[state.sel.slice(8)].id;
   } else if (!res.ok) {
     setStatus("AP would reject the file: " + res.error, "error");
+    refreshMeters(res);
     dimCanvas();
     return;
   } else {
@@ -193,8 +196,36 @@ function compileAndDraw() {
     return;
   }
   paint(out.pixels, r.width, r.height);
+  refreshMeters(res);
   if (res.ok) setStatus(`OK: ${res.size} of 768 bytes for the tag, version ${res.version.toString(16).toUpperCase().padStart(8, "0")}`, "ok");
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
+}
+
+// What the layout uses of the tag's limits, so you see a limit coming before the AP says no.
+function refreshMeters(res) {
+  const box = $("meters");
+  const r = state.renderer;
+  const lim = r.limits;
+  const lay = layout();
+  const meters = [];
+  if (lay) {
+    const u = layoutUsage(lay, lim);
+    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the tag may draw for this layout (each text box counts the most lines its fonts can fit)"]);
+    meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
+  }
+  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
+  meters.push(["Sample text", samples().reduce((a, s) => a + r.textBytes(s), 0), r.maxText, "Bytes of text in one update from the AP"]);
+  box.replaceChildren(...meters.map(([name, n, max, title]) => {
+    const m = document.createElement("span");
+    m.className = "meter" + (n === null ? "" : n > max ? " over" : n >= max ? " near" : "");
+    m.title = title;
+    const bar = document.createElement("i");
+    bar.style.setProperty("--p", n === null ? "0%" : Math.min(100, (100 * n) / max) + "%");
+    const b = document.createElement("b");
+    b.textContent = (n === null ? "?" : n) + " / " + max;
+    m.append(name + " ", b, bar);
+    return m;
+  }));
 }
 
 function setStatus(text, cls) {
@@ -245,6 +276,65 @@ function drawOverlay() {
     b.append(tag, grip);
     ov.append(b);
   });
+  refreshList();
+}
+
+// The list of elements in drawing order, so a box hidden under another can still be picked.
+function refreshList() {
+  const ol = $("el-list");
+  const lay = layout();
+  $("list-panel").hidden = !lay;
+  if (!lay) return;
+  const usage = layoutUsage(lay, state.renderer.limits).elements;
+  ol.replaceChildren(...lay.elements.map((e, i) => {
+    const li = document.createElement("li");
+    li.className = i === state.el ? "sel" : "";
+    li.dataset.i = i;
+    const ico = document.createElement("span");
+    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight");
+    ico.className = "ico" + (e.type === "rect" ? " rect" : inverted ? " inv" : "");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = e.type === "text" ? fieldLabel(e.field) + (e.color && e.color !== "black" ? ` (${e.color})` : "") : rectName(e);
+    const dim = document.createElement("span");
+    dim.className = "dim";
+    const u = usage[i];
+    dim.textContent = `${e.x},${e.y} ${e.w}×${e.h}` + (u.runs ? ` · ${u.runs} ln` : "");
+    dim.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px` + (u.runs ? `, up to ${u.runs} lines of text` : "") + (u.rects ? ", uses a box" : "");
+    li.append(ico, name, dim);
+    return li;
+  }));
+}
+
+function rectName(e) {
+  const kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : "box";
+  return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
+}
+
+function initList() {
+  const ol = $("el-list");
+  ol.addEventListener("click", (ev) => {
+    const li = ev.target.closest("li");
+    if (!li) return;
+    state.el = +li.dataset.i;
+    refreshElement();
+  });
+  const hover = (i) => document.querySelectorAll("#overlay .box").forEach((b) => b.classList.toggle("hover", b.dataset.i === i));
+  ol.addEventListener("pointerover", (ev) => hover(ev.target.closest("li")?.dataset.i));
+  ol.addEventListener("pointerleave", () => hover(null));
+}
+
+function drawGuides(guides) {
+  const ov = $("overlay");
+  const { width, height } = MODELS[state.model];
+  ov.querySelectorAll(".guide").forEach((g) => g.remove());
+  for (const g of guides) {
+    const d = document.createElement("div");
+    d.className = "guide " + g.axis;
+    if (g.axis === "x") d.style.left = (100 * g.at) / width + "%";
+    else d.style.top = (100 * g.at) / height + "%";
+    ov.append(d);
+  }
 }
 
 function fieldLabel(f) {
@@ -282,17 +372,28 @@ function initDrag() {
     const dx = Math.round((ev.clientX - drag.sx) / drag.scale);
     const dy = Math.round((ev.clientY - drag.sy) / drag.scale);
     const s = drag.start;
+    // Snap to the screen and the other boxes within about 6 screen pixels; Alt turns it off.
+    const near = ev.altKey ? -1 : Math.max(1, Math.round(6 / drag.scale));
+    const others = layout().elements.filter((o) => o !== e);
+    const size = { w: width, h: height };
+    let guides = [];
     if (drag.resize) {
-      e.w = clamp(s.w + dx, 1, width - s.x);
-      e.h = clamp(s.h + dy, 1, height - s.y);
+      const r = snapResize({ x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }, others, size, near);
+      e.w = clamp(r.w, 1, width - s.x);
+      e.h = clamp(r.h, 1, height - s.y);
+      guides = r.guides;
     } else {
-      e.x = clamp(s.x + dx, 0, width - s.w);
-      e.y = clamp(s.y + dy, 0, height - s.h);
+      const r = snapMove({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }, others, size, near);
+      e.x = clamp(r.x, 0, width - s.w);
+      e.y = clamp(r.y, 0, height - s.h);
+      guides = r.guides;
     }
     changed({ form: true });
+    drawGuides(guides);
   });
   const end = () => {
     state.dragging = false;
+    drawGuides([]);
     if (drag) save();
     drag = null;
   };
@@ -440,6 +541,7 @@ function refreshElement() {
     pair.append(l);
   }
   box.append(pair);
+  box.append(placeButtons(e));
   if (e.type === "text") {
     const fonts = e.fonts || ["small"];
     for (let i = 0; i < 3; i++) {
@@ -460,6 +562,36 @@ function refreshElement() {
   }
   sel("Colour", "color", e.type === "text" ? TEXT_COLORS : RECT_COLORS, e.color || "black",
     (v) => (v === "black" ? delete e.color : (e.color = v)));
+}
+
+// Buttons that put the element against an edge or in the middle of the screen, or stretch it.
+function placeButtons(e) {
+  const { width, height } = MODELS[state.model];
+  const row = document.createElement("div");
+  row.className = "place";
+  const actions = [
+    ["⇤", "Against the left edge", () => (e.x = 0)],
+    ["↔", "Centre across", () => (e.x = Math.floor((width - e.w) / 2))],
+    ["⇥", "Against the right edge", () => (e.x = width - e.w)],
+    ["⤒", "Against the top", () => (e.y = 0)],
+    ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
+    ["⤓", "Against the bottom", () => (e.y = height - e.h)],
+    ["Full width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
+    ["Full height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
+  ];
+  for (const [label, title, act] of actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", () => {
+      act();
+      changed({ form: true });
+    });
+    row.append(b);
+  }
+  return row;
 }
 
 function updatePositionInputs() {
@@ -712,6 +844,7 @@ export async function initEditor() {
   }
   initActions();
   initDrag();
+  initList();
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : "2.9");
 }

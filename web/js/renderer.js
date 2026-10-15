@@ -42,6 +42,20 @@ async function create(model, base) {
     width,
     height,
     maxText: call("web_max_text", "number", [], []),
+    // The compiler's limits (web_limit in web_api.c).
+    limits: {
+      runs: call("web_limit", "number", ["number"], [0]),
+      rects: call("web_limit", "number", ["number"], [1]),
+      fileBytes: call("web_limit", "number", ["number"], [2]),
+      invertPad: call("web_limit", "number", ["number"], [3]),
+      linesPerText: call("web_limit", "number", ["number"], [4]),
+      fontHeight: {
+        small: call("web_limit", "number", ["number"], [5]),
+        medium: call("web_limit", "number", ["number"], [6]),
+        mid: call("web_limit", "number", ["number"], [7]),
+        large: call("web_limit", "number", ["number"], [8]),
+      },
+    },
 
     loadLayouts(text) {
       const len = M.lengthBytesUTF8(text);

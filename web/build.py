@@ -48,7 +48,7 @@ STATIC = ["index.html", "api.html", "css", "js"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_text_bytes", "web_render", "malloc", "free"]
+           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "malloc", "free"]
 
 
 def sources():
