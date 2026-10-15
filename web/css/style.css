@@ -73,7 +73,7 @@ label { display: inline-flex; gap: 6px; align-items: center; }
   display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
   padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
 }
-.tabs { display: flex; gap: 4px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .tabs button { border: none; border-radius: 6px; background: none; padding: 6px 12px; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); }
 .repo { margin-left: auto; color: var(--muted); }
@@ -161,6 +161,9 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .buttons.tight { margin: 0; gap: 6px; }
 #ap-status.error { color: var(--error); }
 #ap-status.ok { color: var(--ok); }
+#wifi-msg.error { color: var(--error); }
+#wifi-msg.ok { color: var(--ok); }
+#wifi-form { max-width: 480px; }
 .add-group { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .add-group[hidden] { display: none; }
 .group-label { color: var(--muted); font-size: 13px; margin-left: 6px; }
@@ -265,3 +268,22 @@ h3.sub { margin-top: 16px; }
 .api-intro { max-width: 960px; margin: 0 auto 12px; line-height: 1.5; }
 .api-intro code { background: var(--panel); border-radius: 4px; padding: 1px 4px; overflow-wrap: anywhere; }
 .api-frame { display: block; width: 100%; height: calc(100vh - 140px); min-height: 480px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+
+/* ---------- dashboard ---------- */
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px 16px; margin: 0 0 8px; }
+.facts div { min-width: 0; }
+.facts dt { color: var(--muted); font-size: 13px; }
+.facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.dash-tags { border-collapse: collapse; width: 100%; font-size: 14px; }
+.dash-tags th, .dash-tags td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dash-tags th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.dash-tags td.state { white-space: normal; }
+.state-bad { color: var(--error); }
+.state-busy { color: var(--warn); }
+.state-ok { color: var(--ok); }
+#dash-health.bad { color: var(--error); }
+#dash-health.ok { color: var(--ok); }
+#dash-msg.error { color: var(--error); }
+.form.row label[hidden] { display: none; }
+.form label.check { display: inline-flex; gap: 6px; align-items: center; }
+.form label.check > input { width: auto; }
