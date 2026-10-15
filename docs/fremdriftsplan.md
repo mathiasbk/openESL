@@ -62,7 +62,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 **Phase 7: API polish and example client**
 - [x] Example client in Python (`tools/esl-client`)
 - [x] Status page on the AP (A6)
-- [ ] Web flasher and label designer (GitHub Pages): merged into the layout-config branch, not yet on master
+- [x] Web flasher and label designer (GitHub Pages, `web/`)
 - [ ] API documentation checked against what runs on hardware
 
 **Phase 8: Operational reliability**
