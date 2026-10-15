@@ -12,7 +12,7 @@ The approach is our own; the SPI flash pins and the idea of staging an image in 
 
 1. A release has `openesl-tag-<model>-<version>-ota.bin` per model (`tag/build/fw/openesl-ota.bin` from `build.py fw`): a 16-byte header (magic `OSFW`, format, model, version, size, CRC-32; `ESL_FWF_*` in `shared/proto.h`) and the application, padded to whole 1 KB pages.
 2. `esl-client tag-ota FILE` uploads it with `PUT /api/tag-firmware` (16 KB parts). The AP keeps one image per model in its `tagfw` partition and checks the CRC before it offers it.
-3. A tag polls with `fw_ver` and POLL flag bit3 ("I take firmware over the air"). When nothing else waits for it (layout file, content, settings) and it runs another version, the AP answers with the first FW block instead of IDLE. The tag asks for the rest with FW_REQ, at most 128 blocks (11 KB) per wake-up, and writes them to the SPI flash. A 54 KB image takes five wake-ups; the tag keeps showing its price and polling as usual in between. The messages are in [protokoll.md](protokoll.md), "Firmware transfer".
+3. A tag polls with `fw_ver` and POLL flag bit3 ("I take firmware over the air"). When nothing else waits for it (layout file, content, settings) and it runs another version, the AP answers with the first FW block instead of IDLE. The tag asks for the rest with FW_REQ, at most 128 blocks (11 KB) per wake-up, and writes them to the SPI flash. A request that gets no answer even after its one retry is sent again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), before the tag leaves the rest for the next poll. A 54 KB image takes five wake-ups or a few more; the tag keeps showing its price and polling as usual in between. The messages are in [protokoll.md](protokoll.md), "Firmware transfer".
 4. With the whole image in the SPI flash, the tag reads it back and checks the CRC-32, copies its own application to the rollback slot, marks "install" and restarts (`ota.c`).
 5. The bootloader in page 0 (`tag/boot/`) checks the image again, copies it page by page into 0x0400–0xF3FF and jumps to it. The new firmware draws the stored content again (T12) and polls.
 6. The first answered POLL confirms the new image. If it is started 9 times without that (resets, not wake-ups from sleep), the bootloader copies the old application back and marks the update as rolled back; the old firmware then reports POLL flag bit4, and the AP stops offering that version.
@@ -123,9 +123,9 @@ The test images were the same source with a different `VERSION` (0.2.90 = fw 290
 
 What was seen:
 
-- An image takes 6–8 wake-ups, not five: a wake-up ends early when a FW_REQ gets no answer twice (`exchange_retry`), and the download goes on at the next poll. The AP counted 70 failed transmits of about 1,300 replies. This only makes an update slower, but a tag could be allowed to miss more answers per wake-up.
+- An image takes 6–8 wake-ups, not five: a wake-up ends early when a FW_REQ gets no answer twice (`exchange_retry`), and the download goes on at the next poll. The AP counted 70 failed transmits of about 1,300 replies. This only makes an update slower. Since then the tag sends an unanswered FW_REQ again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), so a lost answer no longer ends the wake-up; not yet tried on the tag.
 - The second update took over 9 minutes, and the tag reported the new version right after the AP restarted (opening its serial log reset it). Two more updates with the log open the whole time did not stall, so this was most likely a run of short wake-ups like the ones above, not a stuck state. It was not caught in the log, so this is not shown.
-- The AP log names every reply that is not CONTENT or LAYOUT "IDLE", also FW blocks and CONFIG, and logs each FW_REQ as a poll with `id=00000000 model=0`. This is misleading when following an update in the log.
+- The AP log names every reply that is not CONTENT or LAYOUT "IDLE", also FW blocks and CONFIG, and logs each FW_REQ as a poll with `id=00000000 model=0`. This was misleading when following an update in the log. Fixed since: the poll line names FW and CONFIG replies and shows the tag's `fw=`, and FW_REQ is logged at debug level only (the stats line counts the blocks).
 
 ## Still to do
 
@@ -133,4 +133,4 @@ What was seen:
 2. Probe a 2.9".
 3. Measure the energy of a whole update.
 4. Signed images, with T16.
-5. Name FW and CONFIG replies in the AP log, and log FW_REQ apart from POLL.
+5. Try `CFG_FW_MAX_MISS` on the jig: an update should need close to five wake-ups.

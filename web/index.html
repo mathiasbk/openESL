@@ -234,6 +234,11 @@
       <pre id="tag-log" class="log" aria-live="polite"></pre>
     </section>
     <section class="card">
+      <h2>After this: updates over the radio</h2>
+      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
+      <p class="muted">Tried on the 1.54" jig tag on 2026-10-15: four updates in a row, up and down, took 5 to 8 minutes each at one poll a minute, and the tag kept its price through every restart. The AP needs one flash over USB with such a release first, for its tag firmware storage. There is no radio security yet (T16). Details: <a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">docs/tag-ota.md</a>.</p>
+    </section>
+    <section class="card">
       <h2>Backups in this browser</h2>
       <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode is optional; type or scan the one on the tag to know which label is which.</p>
       <div class="table-wrap">

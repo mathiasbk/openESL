@@ -13,6 +13,7 @@ extern uint8_t fake_tx_len[FAKE_MAX_FRAMES];
 extern int fake_tx_count;
 extern int fake_rx_calls;
 void fake_rx_push(const uint8_t *frame, uint8_t len);   /* the next reply radio_rx returns */
+void fake_rx_lose(void);                                /* the next radio_rx gets nothing */
 void fake_radio_reset(void);
 extern int fake_radio_on;
 

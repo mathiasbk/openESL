@@ -351,6 +351,61 @@ static void test_app_download(void)
     fake_xflash_clear(false);                               /* the other tests run without */
 }
 
+/* Lost answers during a download: the request is sent again and the round goes on. */
+static void test_app_download_lost(void)
+{
+    uint16_t pos;
+    uint8_t blk = 0;
+
+    fake_store_clear();
+    fake_radio_reset();
+    fake_draw_count = 0;
+    fake_epd_ok = true;
+    fake_xflash_clear(true);
+    fill_code();
+    app_init();
+    make_image(1024, 8);                                    /* 12 blocks */
+    for (pos = 0; pos < img_size; pos += ESL_FW_CHUNK_MAX, blk++) {
+        uint8_t n = (uint8_t)(img_size - pos > ESL_FW_CHUNK_MAX ? ESL_FW_CHUNK_MAX : img_size - pos);
+        uint8_t len = make_fw_block(pl, 0, NEW_VER, img_size, pos, img_crc, MODEL_CODE, img + pos, n);
+        if (blk == 4 || blk == 8) {                         /* the request and its retry both lost */
+            fake_rx_lose();
+            fake_rx_lose();
+        }
+        fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, len));
+    }
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 16);                            /* POLL, 11 FW_REQ, 4 sent again */
+    CHECK_EQ(ESL_GET_U16(fake_tx[5] + ESL_MAC_HDR_LEN + ESL_FREQ_OFF_POS), 4 * ESL_FW_CHUNK_MAX);
+    CHECK_EQ(ESL_GET_U16(fake_tx[6] + ESL_MAC_HDR_LEN + ESL_FREQ_OFF_POS), 4 * ESL_FW_CHUNK_MAX);
+    CHECK_EQ(fake_resets, 1);
+    CHECK(st(OTA_ST_INSTALL) == 0);
+    CHECK(!fake_xflash_is_open);
+    CHECK_EQ(fake_radio_on, 0);
+    fake_xflash_clear(false);
+}
+
+/* Nothing answers after the first block: the round stops after CFG_FW_MAX_MISS requests. */
+static void test_app_download_gone(void)
+{
+    uint8_t len;
+
+    fake_store_clear();
+    fake_radio_reset();
+    fake_xflash_clear(true);
+    fill_code();
+    app_init();
+    make_image(1024, 8);
+    len = make_fw_block(pl, 0, NEW_VER, img_size, 0, img_crc, MODEL_CODE, img, ESL_FW_CHUNK_MAX);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, len));
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 1 + 2 * (CFG_FW_MAX_MISS + 1)); /* each request and its retry */
+    CHECK_EQ(fake_resets, 0);
+    CHECK(!fake_xflash_is_open);
+    CHECK_EQ(fake_radio_on, 0);
+    fake_xflash_clear(false);
+}
+
 void test_ota(void)
 {
     RUN(test_fw_messages);
@@ -361,4 +416,6 @@ void test_ota(void)
     RUN(test_version_match);
     RUN(test_boot_cases);
     RUN(test_app_download);
+    RUN(test_app_download_lost);
+    RUN(test_app_download_gone);
 }

@@ -325,25 +325,29 @@ static bool layout_transfer(void)
 
 /*
  * reply is a FW block (docs/tag-ota.md): writes it to the SPI flash and asks for the
- * next ones in the same round, up to CFG_FW_MAX_REQ. True when the image is complete and
+ * next ones in the same round, up to CFG_FW_MAX_REQ. A request that gets no answer is
+ * sent again, up to CFG_FW_MAX_MISS times per round. True when the image is complete and
  * checked; the download otherwise goes on at the next FW the AP sends.
  */
 static bool fw_transfer(void)
 {
-    uint8_t req = 0, r, n;
+    uint8_t req = 0, miss = 0, r, n;
 
     ota_open();
-    for (;;) {
-        r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
-        if (r != OTA_MORE || ++req > CFG_FW_MAX_REQ)
-            break;
+    r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    while (r == OTA_MORE && ++req <= CFG_FW_MAX_REQ) {
         if ((req & 15) == 0)
             hal_wdt_kick();
         n = proto_build_fw_req(txbuf + ESL_MAC_HDR_LEN, ota.dl_ver, ota.dl_got, ota.dl_crc, ESL_FW_CHUNK_MAX);
         if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
-                                              txbuf + ESL_MAC_HDR_LEN, n)) ||
-            reply.type != ESL_MSG_FW)
-            break;
+                                              txbuf + ESL_MAC_HDR_LEN, n))) {
+            if (++miss > CFG_FW_MAX_MISS)
+                break;
+            continue;
+        }
+        if (reply.type != ESL_MSG_FW)
+            break;                     /* the AP no longer has it */
+        r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
     }
     ota_close();
     return r == OTA_DONE;
