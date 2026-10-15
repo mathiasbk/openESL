@@ -231,7 +231,8 @@ def fmt_ago(s):
 def print_status(st):
     ap = st.get("ap", {})
     print(f"AP fw {ap.get('fw')}  uptime {fmt_ago(ap.get('uptime_s'))}  channel {ap.get('channel')}  "
-          f"tags {len(st.get('tags', []))}/{ap.get('max_tags')}")
+          f"tags {len(st.get('tags', []))}/{ap.get('max_tags')}"
+          + (f"  reset {ap['reset']}" if ap.get("reset") else ""))
     print(f"{'MAC':16}  {'model':5}  {'seen':>7}  {'batt':>6}  {'rssi':>4}  state")
     for t in st.get("tags", []):
         if t.get("content_id", 0) == 0:

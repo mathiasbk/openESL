@@ -9,7 +9,7 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -240,6 +240,10 @@ static void test_batch_and_list(void)
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"poll_s\":0},\"tags\":["));
+    api.reset_reason = "task_wdt";
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"poll_s\":0,\"reset\":\"task_wdt\"},\"tags\":["));
+    api.reset_reason = NULL;
     CHECK(HAS(resp, "{\"mac\":\"0000000000ABCDEF\",\"seen_s_ago\":86399,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
                     "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"

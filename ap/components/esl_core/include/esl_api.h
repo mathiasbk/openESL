@@ -19,6 +19,7 @@ typedef struct {
     const char *fw_version; /* reported in GET /api/tags */
     uint8_t channel;
     esl_layouts_t *layouts; /* NULL: the /api/layouts endpoints answer 404 */
+    const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
 } esl_api_t;
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a

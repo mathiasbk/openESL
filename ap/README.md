@@ -131,12 +131,12 @@ Covers CRC32, text conversion, content, messages and frames, the NVS format, JSO
 
 ## Open points
 
-- **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5)** before the layout transfer was merged: a price set over the serial API reached the 1.54" jig tag (POLL -> CONTENT, and the next POLL reported the new content_id as shown). Layouts and CONFIG are not tested on hardware yet.
+- **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5, 1.54" jig tag):** the phase 5 test matrix, see "Results on hardware" in [docs/fremdriftsplan.md](../docs/fremdriftsplan.md). CONFIG and per-tag settings are not tested on hardware yet.
 - **WiFi on the jig's C6 Super Mini is dead:** a scan finds 0 networks, even passive, while 802.15.4 on the same board receives fine (RSSI around -50 from the tag). Replace the board or check its antenna; until then the API runs over USB (`ESL_SERIAL_API`). The AP restarted once without a known cause during that test; watch the reset reason.
 - **Battery in POLL:** the 1.54" tag reports 0 mV (= unknown), since its panel does not answer the voltage-detector reads; see issue #4.
 - **Another model** only needs a new `ESL_MODEL_*` value and screen size in `shared/proto.h`, and a name in `esl_model_name()` / `esl_model_size()`.
 - **Validation per model (A13):** layout files are checked against the model's screen and what the tag can draw, and named content against the tag's model. The 92-byte text limit is the same for both sizes; there is no per-field or per-line length check (the tag shrinks and truncates text that does not fit).
-- **Layout transfer timing:** the block exchange (a LAYOUT_REQ answered within the tag's 20 ms window) is tested on the PC only; check on hardware with the sniffer that 9 blocks in a row arrive, and how long a round takes.
+- **Layout transfer timing:** on hardware a 684-byte layout (8 blocks) arrived in one wake-up without retries: about 50 ms from the first LAYOUT to the last block and 80 ms to the POLL that fetches the content, the AP answering each LAYOUT_REQ in under 40 µs. The full 768 bytes (9 blocks) is not tried; the file limit of 8192 bytes JSON came first.
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
 - **Development builds with layouts but without CONFIG** (the layout branch before the merge) send 0 in POLL bytes 12–13. The AP reads that as "understands CONFIG, built-in settings", so such a tag with its own settings would get CONFIG, which it drops. No such firmware was released; flash the current one.
 - OTA (A10) and a WiFi setup portal are not started.

@@ -1,7 +1,9 @@
 #include <stdlib.h>
+#include <string.h>
 #include "app.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -10,6 +12,26 @@ static const char *TAG = "app";
 static esl_store_t store;
 static esl_api_t api;
 static char ssid[33], password[65], token[129];
+
+static const char *reset_reason_name(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_POWERON:    return "poweron";
+    case ESP_RST_EXT:        return "ext";
+    case ESP_RST_SW:         return "sw";
+    case ESP_RST_PANIC:      return "panic";
+    case ESP_RST_INT_WDT:    return "int_wdt";
+    case ESP_RST_TASK_WDT:   return "task_wdt";
+    case ESP_RST_WDT:        return "wdt";
+    case ESP_RST_DEEPSLEEP:  return "deepsleep";
+    case ESP_RST_BROWNOUT:   return "brownout";
+    case ESP_RST_USB:        return "usb";
+    case ESP_RST_JTAG:       return "jtag";
+    case ESP_RST_PWR_GLITCH: return "pwr_glitch";
+    case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+    default:                 return "unknown";
+    }
+}
 
 void app_main(void)
 {
@@ -24,6 +46,11 @@ void app_main(void)
     const char *version = esp_app_get_description()->version;
     ESP_LOGI(TAG, "OpenESL AP %s, channel %d, PAN 0x%04X, max %d tags",
              version, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID, CONFIG_ESL_MAX_TAGS);
+    const char *why = reset_reason_name(esp_reset_reason());
+    if (!strcmp(why, "poweron") || !strcmp(why, "sw") || !strcmp(why, "usb") || !strcmp(why, "ext"))
+        ESP_LOGI(TAG, "reset reason: %s", why);
+    else
+        ESP_LOGW(TAG, "reset reason: %s", why);
 
     ESP_ERROR_CHECK(store_nvs_init(&store, CONFIG_ESL_MAX_TAGS, CONFIG_ESL_NEXT_POLL_S));
 
@@ -45,6 +72,7 @@ void app_main(void)
     api.token = token;
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
+    api.reset_reason = why;
     /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)

@@ -56,6 +56,20 @@ The order is **risk first**: the hardest and most uncertain part (the tag's radi
 - Test matrix: new tag (unknown MAC), same content (no drawing), new content, CONTENT lost (AP switched off in the middle), AP gone for an hour.
 - Adjust the listening window and the retry.
 
+### Results on hardware (2026-10-15)
+ESP32-C6 Super Mini as AP (API over USB, `esl-client --serial`), the 1.54" tag in the jig, firmware from master, poll every 60 s.
+
+| Case | Result |
+|---|---|
+| Same content again | `changed: false`, the tag keeps getting IDLE and does not redraw |
+| New content | CONTENT on the next poll (60 s after the PUT), reported as shown on the poll after (124 s). The display updates at the first poll, so G1 (2 min) holds with a 60 s interval; the API confirms one poll later |
+| Tag unknown to the AP (`DELETE`, then the tag polls) | The AP registers it with no content and answers IDLE; the tag keeps what it shows. A new PUT reaches it as usual |
+| Tag restarted with empty content | Gets CONTENT on its next poll |
+| Layout file over radio | 2 blocks (174 bytes) and 8 blocks (684 bytes) in one wake-up without retries, about 80 ms for 8 blocks. After the last block the tag polls again at once and gets the content drawn with the new layout (`shelf` with a highlighted price shown) |
+| AP gone for 5 min with new content waiting | Content survives the AP restart (NVS). The tag had backed off (3 misses, then doubling) and polled 205 s after the AP came back, got CONTENT and went back to 60 s |
+
+Not tested yet: losing the CONTENT reply itself in the middle of an exchange, and the AP gone for an hour (the backoff reaches the 600 s maximum, so expect up to 10 min before the tag finds the AP again).
+
 ## Phase 6: Power
 - Find deep sleep with timer wake-up (SoluM backup + experiments).
 - Measure: sleep current, energy per POLL, energy per display update. Calculate the average and compare with the budget.

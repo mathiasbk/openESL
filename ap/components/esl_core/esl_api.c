@@ -499,8 +499,13 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
-    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"poll_s\":%u},\"tags\":[",
+    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"poll_s\":%u",
                   now_ms / 1000, (unsigned)api->channel, api->store->cap, (unsigned)def_poll);
+    if (api->reset_reason) {
+        esl_sb_puts(out, ",\"reset\":");
+        esl_sb_json_str(out, api->reset_reason);
+    }
+    esl_sb_puts(out, "},\"tags\":[");
     bool first = true;
     for (unsigned s = 0; s < api->store->cap; s++) {
         esl_tag_t t;
