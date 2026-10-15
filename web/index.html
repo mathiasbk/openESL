@@ -11,15 +11,60 @@
   <header class="top">
     <h1>OpenESL</h1>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-tab="design" aria-selected="true">Design</button>
+      <button role="tab" data-tab="home" aria-selected="true">Overview</button>
+      <button role="tab" data-tab="design">Design</button>
       <button role="tab" data-tab="tag">Flash tag</button>
       <button role="tab" data-tab="ap">Flash AP</button>
     </nav>
     <a class="repo" href="https://github.com/mathiasbk/openesl">Source</a>
   </header>
 
+  <!-- ===================== Overview ===================== -->
+  <main id="tab-home" class="tab" role="tabpanel">
+    <section class="hero">
+      <h2>Open firmware for e-paper shelf labels</h2>
+      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p id="home-fw" class="muted"></p>
+    </section>
+    <div class="cards">
+      <a class="card link" href="#design">
+        <h3>Design labels</h3>
+        <p>Lay out text, inverted fields, lines and boxes for each tag model, with a preview drawn by the tag's own code. Save the layout file for the AP.</p>
+        <span class="go">Open the designer</span>
+      </a>
+      <a class="card link" href="#tag">
+        <h3>Flash a tag</h3>
+        <p>Put the OpenESL firmware on a tag in the jig with a ZBS_Flasher. The stock firmware is backed up first and kept in this browser.</p>
+        <span class="go">Open the tag flasher</span>
+      </a>
+      <a class="card link" href="#ap">
+        <h3>Flash the access point</h3>
+        <p>Put the AP firmware on an ESP32-C6 board over USB.</p>
+        <span class="go">Open the AP flasher</span>
+      </a>
+    </div>
+    <section class="card wide">
+      <h3>How it fits together</h3>
+      <ol class="steps">
+        <li><strong>Flash the AP</strong> on an ESP32-C6 and connect it to your computer or network.</li>
+        <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
+        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
+        <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields.</li>
+      </ol>
+    </section>
+    <section class="card wide">
+      <h3>What you need</h3>
+      <ul>
+        <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
+        <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
+        <li>For the AP: an ESP32-C6 board with USB.</li>
+      </ul>
+      <p class="muted">Source, protocol and API documentation: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
+    </section>
+  </main>
+
   <!-- ===================== Design ===================== -->
-  <main id="tab-design" class="tab" role="tabpanel">
+  <main id="tab-design" class="tab" role="tabpanel" hidden>
     <section class="toolbar">
       <label>Tag
         <select id="model">
@@ -96,13 +141,19 @@
       <h2>Flash a tag with the ZBS_Flasher</h2>
       <p>Needs a D1 mini running atc1441's ZBS_Flasher, connected by USB, and Chrome or Edge on a computer (Web Serial). Each tag goes through the same steps as <code>tools/flash-tui</code>: the MAC is read, the whole flash is backed up in this browser before anything is erased, the MAC is written to the info page if needed, then the firmware is written and verified. The info page is never erased.</p>
       <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
+      <h3 class="sub">1. Choose the tag model</h3>
+      <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
+        <button type="button" class="model" role="radio" data-model="2.9" aria-checked="true">
+          <canvas width="296" height="128"></canvas>
+          <span class="name">2.9"</span><span class="muted">296 × 128, ST-GM29XX2</span>
+        </button>
+        <button type="button" class="model" role="radio" data-model="1.54" aria-checked="false">
+          <canvas width="200" height="200"></canvas>
+          <span class="name">1.54"</span><span class="muted">200 × 200, ST-GM16XX2</span>
+        </button>
+      </div>
+      <h3 class="sub">2. Firmware and flasher</h3>
       <div class="form row">
-        <label>Model
-          <select id="tag-model">
-            <option value="2.9">2.9"</option>
-            <option value="1.54">1.54"</option>
-          </select>
-        </label>
         <label>Firmware
           <select id="tag-fw-src">
             <option value="release">Built from this page's version</option>
@@ -122,8 +173,15 @@
     </section>
     <section class="card">
       <h2>Backups in this browser</h2>
-      <p class="muted">Stored per MAC before the first flash. Download them and keep them: they are the only copy of the stock firmware.</p>
-      <table class="backups"><thead><tr><th>MAC</th><th>Stored</th><th></th></tr></thead><tbody id="backup-list"></tbody></table>
+      <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode is optional; type or scan the one on the tag to know which label is which.</p>
+      <div class="table-wrap">
+        <table class="backups"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
+      </div>
+      <div class="buttons">
+        <button id="backup-export-zip">Export all (ZIP)</button>
+        <button id="backup-export-csv">Export list (CSV)</button>
+        <span id="backup-persist" class="muted"></span>
+      </div>
     </section>
   </main>
 
