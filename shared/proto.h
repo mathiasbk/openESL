@@ -37,6 +37,8 @@
 #define ESL_POLL_F_BOOTED    0x01   /* nettopp startet */
 #define ESL_POLL_F_DRAWFAIL  0x02   /* forrige tegning feilet */
 #define ESL_POLL_F_LAYOUTFAIL 0x04  /* tagen avviste layoutfila AP-en tilbød sist (for stor, feil CRC, ugyldig) */
+#define ESL_POLL_F_OTA       0x08   /* the tag takes firmware over the air (FW / FW_REQ below) */
+#define ESL_POLL_F_FWFAIL    0x10   /* the tag rejected or rolled back the firmware version the AP offers */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -123,6 +125,52 @@
 #define ESL_LREQ_OFF_MAX     3      /* u8 største antall databyte tagen vil ha (1..ESL_LAYOUT_CHUNK_MAX) */
 #define ESL_LREQ_OFF_VER     4      /* u32 versjonen tagen laster ned */
 #define ESL_LREQ_OFF_POS     8      /* u16 første byte tagen mangler */
+
+/* ---- Firmware transfer (docs/protokoll.md part 1, "Firmware transfer"; docs/tag-ota.md) ----
+ * The same pattern as the layout transfer: the AP answers a POLL that has ESL_POLL_F_OTA,
+ * from a tag whose model has an image on the AP and whose firmware version differs, with
+ * the first FW block (after content, layout and CONFIG are done). The tag asks for the
+ * rest with FW_REQ. The data is the application image, linked at ESL_FW_APP_BASE. */
+
+#define ESL_MSG_FW           0x06   /* AP -> tag: one block of the firmware image */
+#define ESL_MSG_FW_REQ       0x07   /* tag -> AP: ask for the next block */
+
+/* FW, 15 byte header + up to ESL_FW_CHUNK_MAX bytes of data.
+ * next_poll_s at ESL_OFF_NEXT_POLL as in IDLE. */
+#define ESL_FW_HDR_LEN       15
+#define ESL_FW_OFF_VER       4      /* u16 firmware version of the image (POLL format) */
+#define ESL_FW_OFF_SIZE      6      /* u16 image size in bytes */
+#define ESL_FW_OFF_POS       8      /* u16 where in the image the data starts */
+#define ESL_FW_OFF_CRC       10     /* u32 CRC-32 (IEEE) of the whole image */
+#define ESL_FW_OFF_MODEL     14     /* u8 tag model the image is built for */
+#define ESL_FW_OFF_DATA      15
+#define ESL_FW_CHUNK_MAX     (ESL_MAX_PAYLOAD - ESL_FW_HDR_LEN - ESL_MIC_RESERVE)   /* 91 */
+
+/* FW_REQ, 12 byte */
+#define ESL_FREQ_LEN         12
+#define ESL_FREQ_OFF_MODEL   2      /* u8 tag model */
+#define ESL_FREQ_OFF_MAX     3      /* u8 most data bytes the tag wants (1..ESL_FW_CHUNK_MAX) */
+#define ESL_FREQ_OFF_VER     4      /* u16 version being downloaded */
+#define ESL_FREQ_OFF_POS     6      /* u16 first byte the tag is missing */
+#define ESL_FREQ_OFF_CRC     8      /* u32 CRC-32 of the image being downloaded */
+
+/* The image: the application linked from ESL_FW_APP_BASE (page 0 holds the bootloader),
+ * at most up to the layout store page. */
+#define ESL_FW_APP_BASE      0x0400u
+#define ESL_FW_APP_END       0xF400u
+#define ESL_FW_MAX           (ESL_FW_APP_END - ESL_FW_APP_BASE)   /* 61440 */
+
+/* The OTA file a release carries (openesl-tag-<model>-<version>-ota.bin) and the AP takes: this header,
+ * then the image. Little-endian as everything else. */
+#define ESL_FWF_MAGIC        0x5746534Fu   /* "OSFW" */
+#define ESL_FWF_HDR_LEN      16
+#define ESL_FWF_OFF_MAGIC    0      /* u32 */
+#define ESL_FWF_OFF_FORMAT   4      /* u8, = ESL_FWF_FORMAT */
+#define ESL_FWF_OFF_MODEL    5      /* u8 ESL_MODEL_* */
+#define ESL_FWF_OFF_VER      6      /* u16 firmware version (POLL format) */
+#define ESL_FWF_OFF_SIZE     8      /* u32 image size */
+#define ESL_FWF_OFF_CRC      12     /* u32 CRC-32 of the image */
+#define ESL_FWF_FORMAT       1
 
 /*
  * Layoutfila slik tagen får den (binær, laget av AP-en fra JSON-fila):

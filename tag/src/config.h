@@ -26,5 +26,8 @@
    bytes in 94-byte blocks) needs 8 after the first block; the rest is room for repeats.
    An unfinished download continues from where it stopped in a later round. */
 #define CFG_LAYOUT_MAX_REQ  16
+/* FW_REQ per wake-up during a firmware download (docs/tag-ota.md): about 11 KB, a
+   second or two of radio. An image of 49 KB takes five wake-ups. */
+#define CFG_FW_MAX_REQ      128
 
 #endif /* CONFIG_H */
