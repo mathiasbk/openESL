@@ -3,12 +3,32 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 
 /* esp_http_server glue: reads the request and hands it to esl_api_handle().
- * The server runs all handlers in one task, so requests never overlap. */
+ * The server runs all handlers in one task; api_handle() also keeps them apart
+ * from requests on the serial port. */
 
 static const char *TAG = "http";
+
+static SemaphoreHandle_t api_mutex;
+
+void api_handle_init(void)
+{
+    static StaticSemaphore_t buf;
+    api_mutex = xSemaphoreCreateMutexStatic(&buf);
+}
+
+int api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
+               const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out)
+{
+    xSemaphoreTake(api_mutex, portMAX_DELAY);
+    int status = esl_api_handle(api, method, uri, auth, body, body_len, now_ms, out);
+    xSemaphoreGive(api_mutex);
+    return status;
+}
 
 static esp_err_t send_json(httpd_req_t *req, int status, const char *body, size_t len)
 {
@@ -74,7 +94,7 @@ static esp_err_t api_handler(httpd_req_t *req)
     esl_sb_t out;
     esl_sb_init(&out, resp, cap);
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
-    int status = esl_api_handle(api, method, req->uri, auth, body, len, now_ms, &out);
+    int status = api_handle(api, method, req->uri, auth, body, len, now_ms, &out);
     ESP_LOGI(TAG, "%s %s -> %d", method, req->uri, status);
     ret = send_json(req, status, out.buf, out.len);
     goto done;

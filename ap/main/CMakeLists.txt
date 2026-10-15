@@ -6,8 +6,13 @@ else()
     list(APPEND srcs radio_ieee802154.c)
 endif()
 
+if(CONFIG_ESL_SERIAL_API)
+    list(APPEND srcs serial_api.c)
+endif()
+
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS .
-    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154)
+    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154
+             esp_driver_usb_serial_jtag vfs)
 # mdns comes from idf_component.yml and is added to this component automatically.

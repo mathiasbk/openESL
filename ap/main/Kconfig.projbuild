@@ -32,6 +32,15 @@ menu "OpenESL AP"
             battery, content). It needs no token, so anyone on the network
             can read it. The /api/ endpoints always need the token.
 
+    config ESL_SERIAL_API
+        bool "API over the USB serial port"
+        default y
+        depends on ESP_CONSOLE_USB_SERIAL_JTAG
+        help
+            The same API as over HTTP, framed as "@ESL ..." lines on the
+            built-in USB port next to the log (tools/esl-client --serial).
+            Needs no token: whoever has the cable has the device.
+
     config ESL_CHANNEL
         int "802.15.4 channel"
         range 11 26

@@ -16,8 +16,15 @@ void cfg_get_str(const char *key, const char *def, char *out, size_t out_len);
 /* wifi.c */
 esp_err_t wifi_start(const char *ssid, const char *password, const char *hostname);
 
-/* http_api.c */
+/* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
+ * HTTP and serial transports; call api_handle_init() before either starts. */
+void api_handle_init(void);
+int api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
+               const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
 esp_err_t http_api_start(const esl_api_t *api);
+
+/* serial_api.c: the same API over the USB serial port */
+esp_err_t serial_api_start(const esl_api_t *api);
 
 /* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
  * sent to the tags in blocks) may be NULL. */

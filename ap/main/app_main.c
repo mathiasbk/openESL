@@ -50,7 +50,11 @@ void app_main(void)
     if (!api.layouts)
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
+    api_handle_init();
     ESP_ERROR_CHECK(http_api_start(&api));
+#if CONFIG_ESL_SERIAL_API
+    ESP_ERROR_CHECK(serial_api_start(&api));
+#endif
 
     ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
 }

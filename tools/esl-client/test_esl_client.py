@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -149,6 +150,63 @@ class ClientTest(unittest.TestCase):
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)
+        with self.assertRaises(ConnectionError):
+            cli.tags()
+
+
+class FakeSerialAp(threading.Thread):
+    """Answers "@ESL" frames on a pty like ap/main/serial_api.c, with log lines
+    around each reply."""
+
+    def __init__(self, fd, replies):
+        super().__init__(daemon=True)
+        self.fd = fd
+        self.replies = replies      # list of (status, body bytes)
+        self.requests = []
+
+    def run(self):
+        f = os.fdopen(self.fd, "rb", buffering=0)
+        for status, body in self.replies:
+            line = b""
+            while not line.endswith(b"\n"):
+                line += f.read(1)
+            _, seq, method, path, n = line.split()
+            data = f.read(int(n)) if int(n) else b""
+            self.requests.append((method.decode(), path.decode(), data))
+            os.write(self.fd, b"I (100) radio: rx 12 B\n@ESL 99 200 2 {}\n")
+            os.write(self.fd, b"@ESL " + seq + b" %d %d " % (status, len(body)) + body + b"\n")
+            os.write(self.fd, b"W (200) wifi: disconnected\n")
+        time.sleep(5)               # keep the master open: closing it hangs up the port
+
+
+class SerialClientTest(unittest.TestCase):
+    def _client(self, replies):
+        master, slave = os.openpty()
+        ap = FakeSerialAp(master, replies)
+        ap.start()
+        cli = esl_client.SerialClient(os.ttyname(slave), timeout=2)
+        cli.fd = cli._open()    # before the last slave fd closes, or the pty hangs up
+        os.close(slave)
+        self.addCleanup(os.close, cli.fd)
+        return cli, ap
+
+    def test_request_and_reply(self):
+        cli, ap = self._client([(200, b'{"mac":"00000123456789A8","content_id":7,\n"pending":true}')])
+        r = cli.set_tag("00000123456789A8", {"layout": "price", "fields": ["Milk", "24.90"]})
+        self.assertEqual(r["content_id"], 7)
+        method, path, data = ap.requests[0]
+        self.assertEqual((method, path), ("PUT", "/api/tags/00000123456789A8"))
+        self.assertEqual(json.loads(data)["fields"], ["Milk", "24.90"])
+
+    def test_error_status(self):
+        cli, _ = self._client([(422, b'{"error":"text too long"}')])
+        with self.assertRaises(esl_client.ApiError) as e:
+            cli.tags()
+        self.assertEqual(e.exception.status, 422)
+
+    def test_no_answer(self):
+        cli, _ = self._client([])
+        cli.timeout = 0.3
         with self.assertRaises(ConnectionError):
             cli.tags()
 

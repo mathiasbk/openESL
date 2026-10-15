@@ -27,6 +27,7 @@ ap/
     wifi.c      WiFi + mDNS     http_api.c   esp_http_server -> esl_api_handle(), status page
     radio_ieee802154.c  AP and sniffer modes, calls esl_radio_handle()
     radio_stub.c        simulated tags (esl_faketag), no radio
+    serial_api.c        the API over the USB port, "@ESL" frames next to the log
   partitions.csv          NVS enlarged to 84 KB for tag content and layout files
   test/                   host unit tests (Makefile)
 ```
@@ -80,6 +81,17 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 - NVS: per-tag settings are blob `c<slot>` in namespace `esl_tags` next to the content blob `t<slot>`; the default interval is `poll_s` (u16) in namespace `cfg`. `PUT /api/config {"poll_s":null}` erases it, and the `menuconfig` value (`ESL_NEXT_POLL_S`) applies again.
 - A tag with its own settings counts as holding data: it is not evicted when the table is full, and `DELETE` erases its settings too.
 
+### Over the USB port
+
+With `ESL_SERIAL_API` (on by default; the console is on the built-in USB-Serial-JTAG port) the same API also answers on the USB port, for setups without WiFi. Requests and replies are framed lines in the log stream:
+
+```
+host -> AP:  @ESL <seq> <METHOD> <uri> <len>\n<len bytes body>
+AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
+```
+
+No token is needed there, since whoever has the cable has the device. `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
+
 ## Status page
 
 `http://openesl.local/` shows the layout files per model (version, size for the tags, layout names) and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
@@ -119,7 +131,9 @@ Covers CRC32, text conversion, content, messages and frames, the NVS format, JSO
 
 ## Open points
 
-- **Not run on hardware yet:** `main/` builds without warnings with ESP-IDF v5.5.5 (AP and stub modes checked). Commit `dependencies.lock` (G5).
+- **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5)** before the layout transfer was merged: a price set over the serial API reached the 1.54" jig tag (POLL -> CONTENT, and the next POLL reported the new content_id as shown). Layouts and CONFIG are not tested on hardware yet.
+- **WiFi on the jig's C6 Super Mini is dead:** a scan finds 0 networks, even passive, while 802.15.4 on the same board receives fine (RSSI around -50 from the tag). Replace the board or check its antenna; until then the API runs over USB (`ESL_SERIAL_API`). The AP restarted once without a known cause during that test; watch the reset reason.
+- **Battery in POLL:** the 1.54" tag reports 0 mV (= unknown), since its panel does not answer the voltage-detector reads; see issue #4.
 - **Another model** only needs a new `ESL_MODEL_*` value and screen size in `shared/proto.h`, and a name in `esl_model_name()` / `esl_model_size()`.
 - **Validation per model (A13):** layout files are checked against the model's screen and what the tag can draw, and named content against the tag's model. The 92-byte text limit is the same for both sizes; there is no per-field or per-line length check (the tag shrinks and truncates text that does not fit).
 - **Layout transfer timing:** the block exchange (a LAYOUT_REQ answered within the tag's 20 ms window) is tested on the PC only; check on hardware with the sniffer that 9 blocks in a row arrive, and how long a round takes.
