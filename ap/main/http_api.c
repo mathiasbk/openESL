@@ -224,9 +224,9 @@ static esp_err_t ota_post(httpd_req_t *req)
         if (r == HTTPD_SOCK_ERR_TIMEOUT)
             continue;
         if (r <= 0) {
-            free(chunk);
             ESP_LOGW(TAG, "POST %s: body stopped arriving", req->uri);
             ota_part(0, 0, chunk, 0, &out); /* offset 0 drops the open upload, and size 0 opens no new one */
+            free(chunk);
             return ESP_FAIL;
         }
         esl_sb_init(&out, buf, sizeof(buf));
@@ -377,7 +377,7 @@ esp_err_t http_api_start(const esl_api_t *api)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
-    cfg.max_uri_handlers = 12; /* /api/ota x2, /api/* x3, /setup x2, / */
+    cfg.max_uri_handlers = 12; /* two for /api/ota, three for the /api wildcard, two for /setup, one for / */
 
     esp_err_t err = httpd_start(&server, &cfg);
     if (err != ESP_OK)
