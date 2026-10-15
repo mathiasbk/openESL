@@ -30,12 +30,12 @@ jobs:
     needs: firmware
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: actions/checkout@v7
+      - uses: mymindstorm/setup-emsdk@v16
         with:
           version: 3.1.74
           actions-cache-folder: emsdk-cache
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Build the page and the renderer
@@ -44,7 +44,7 @@ jobs:
           python3 web/build.py --native
       - name: Tests (renderer against the native build, flasher against a simulated ZBS_Flasher)
         run: node --test web/test/*.test.mjs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: fw
       - name: Add the firmware (latest release, otherwise this build)
@@ -64,11 +64,11 @@ jobs:
             echo "No release yet: firmware from this build"
             python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin
           fi
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
           path: web/dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name == 'pull_request'
         with:
           name: web-page
@@ -86,4 +86,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
