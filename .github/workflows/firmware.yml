@@ -15,10 +15,10 @@ jobs:
   tag-firmware:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache SDCC 4.5.0
         id: sdcc-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/sdcc
           key: sdcc-4.5.0-amd64
@@ -37,7 +37,7 @@ jobs:
           mkdir -p out
           cp tag/build/fw/openesl.bin out/tag-29.bin
           cp tag/build/fw154/openesl.bin out/tag-154.bin
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tag-firmware
           path: out/
@@ -45,7 +45,7 @@ jobs:
   ap-firmware:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
@@ -53,7 +53,7 @@ jobs:
           target: esp32c6
           path: ap
           command: idf.py build && cd build && python -m esptool --chip esp32c6 merge_bin -o openesl-ap.bin @flash_args
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ap-firmware
           path: ap/build/openesl-ap.bin
