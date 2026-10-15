@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenESL AP API</title>
+  <meta name="description" content="The HTTP API of the OpenESL access point, with test requests through the bridge in tools/esl-client.">
+  <style>
+    html, body { margin: 0; background: #fff; }
+    @media (prefers-color-scheme: dark) { html, body { background: #0f0f0f; } }
+  </style>
+</head>
+<body>
+  <!-- The API reference, made by Scalar from docs/openapi.yaml (copied next to this page
+       by web/build.py). Shown in the API tab of index.html, and works on its own too. -->
+  <div id="app"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.3/dist/browser/standalone.js"></script>
+  <script>
+    Scalar.createApiReference("#app", {
+      url: "openapi.yaml",
+      darkMode: matchMedia("(prefers-color-scheme: dark)").matches,
+      withDefaultFonts: false,
+      showDeveloperTools: "never",
+      agent: { disabled: true },
+      mcp: { disabled: true },
+      hideClientButton: false,
+      defaultHttpClient: { targetKey: "shell", clientKey: "curl" },
+      authentication: { preferredSecurityScheme: "token" },
+      persistAuth: true,
+    });
+  </script>
+</body>
+</html>

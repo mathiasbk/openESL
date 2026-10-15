@@ -64,6 +64,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Status page on the AP (A6)
 - [x] Web flasher and label designer (GitHub Pages, `web/`)
 - [x] API documentation checked against the code (`docs/protokoll.md` part 2: transports, limits, error codes, every field in `GET /api/tags`); the AP runs the same `esl_api.c` as the host tests
+- [x] Interactive API docs: `docs/openapi.yaml` (OpenAPI 3.1) is the reference, shown with Scalar in the API tab of the web page; CI runs every example in it against `esl_api.c` and checks the replies against the schemas (`ap/test/openapi/check_openapi.py`)
+- [ ] "Test Request" from the API tab against the AP on the jig, through `esl_client.py --serial /dev/ttyACM0 serve` (tried here against the API code on the host only)
 - [ ] The settings endpoints (`/api/config`, `/api/tags/{mac}/config`) and CONFIG tried on hardware; the other endpoints were used over the USB port in phase 5
 
 **Phase 8: Operational reliability**

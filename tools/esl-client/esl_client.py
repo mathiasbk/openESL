@@ -14,6 +14,7 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
   esl_client.py --serial /dev/ttyACM0 status
+  esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
 CSV for sync: mac,layout,highlight,frame,field1,field2,... with a header row.
 highlight and frame are 1/0, true/false or empty.
@@ -26,6 +27,7 @@ import os
 import re
 import select
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -48,26 +50,33 @@ class Client:
         self.timeout = timeout
         self.retries = retries
 
-    def _request(self, method, path, body=None, raw=False):
-        data = None
-        headers = {"Authorization": f"Bearer {self.token}"}
-        if body is not None:
-            data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+    def send(self, method, path, data=None, auth=None):
+        """One request as it is: returns (status, body bytes). auth replaces the token."""
+        headers = {"Authorization": auth or f"Bearer {self.token}"}
+        if data is not None:
             headers["Content-Type"] = "application/json"
         last = None
         for attempt in range(self.retries):
             req = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                    payload = r.read()
-                    return payload if raw else (json.loads(payload) if payload else None)
+                    return r.status, r.read()
             except urllib.error.HTTPError as e:
                 # The AP answered: retrying will not help
-                raise ApiError(e.code, e.read().decode("utf-8", "replace")) from None
+                return e.code, e.read()
             except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
                 last = e
                 time.sleep(0.5 * (2 ** attempt))
         raise ConnectionError(f"no answer from {self.url}: {last}")
+
+    def _request(self, method, path, body=None, raw=False):
+        data = None
+        if body is not None:
+            data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+        status, payload = self.send(method, path, data)
+        if status >= 400:
+            raise ApiError(status, payload.decode("utf-8", "replace"))
+        return payload if raw else (json.loads(payload) if payload else None)
 
     def tags(self):
         return self._request("GET", "/api/tags")
@@ -148,10 +157,9 @@ class SerialClient(Client):
             line += self._read(1, end)
         return line
 
-    def _request(self, method, path, body=None, raw=False):
-        data = b""
-        if body is not None:
-            data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+    def send(self, method, path, data=None, auth=None):
+        """As Client.send; no token is needed on the USB port, so auth is ignored."""
+        data = data or b""
         try:
             if self.fd is None:
                 self.fd = self._open()
@@ -170,12 +178,93 @@ class SerialClient(Client):
             payload = (head[2] if len(head) > 2 else b"")
             if len(payload) < length + 1:
                 payload += self._read(length + 1 - len(payload), end)
-            payload = payload[:length]
+            return status, payload[:length]
         except (OSError, TimeoutError) as e:
             raise ConnectionError(f"no answer on {self.port}: {e}") from None
-        if status >= 400:
-            raise ApiError(status, payload.decode("utf-8", "replace"))
-        return payload if raw else (json.loads(payload) if payload else None)
+
+
+# ---- bridge for web pages --------------------------------------------------------------
+
+BRIDGE_ORIGINS = ("https://mathiasbk.github.io",)
+LOCAL_ORIGIN = re.compile(r"^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
+
+
+def origin_allowed(origin, extra=()):
+    return origin in BRIDGE_ORIGINS or origin in extra or bool(LOCAL_ORIGIN.match(origin))
+
+
+def make_bridge(cli, extra_origins=()):
+    """An HTTP handler that passes /api/ requests on to cli (over WiFi or the USB port),
+    so a web page (the API tab of the project page) can try the API. Only pages from
+    BRIDGE_ORIGINS, localhost and extra_origins may use it."""
+    from http.server import BaseHTTPRequestHandler
+    lock = threading.Lock()
+
+    class Bridge(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def _origin(self):
+            """The Origin to allow, "" for no Origin (curl), None for a foreign page."""
+            origin = self.headers.get("Origin")
+            if origin is None:
+                return ""
+            return origin if origin_allowed(origin, extra_origins) else None
+
+        def _reply(self, status, body=b"", origin="", extra=()):
+            self.send_response(status)
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+            for k, val in extra:
+                self.send_header(k, val)
+            if body:
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            origin = self._origin()
+            if origin is None:
+                return self._reply(403)
+            self._reply(204, origin=origin, extra=(
+                ("Access-Control-Allow-Methods", "GET, PUT, DELETE"),
+                ("Access-Control-Allow-Headers", "Authorization, Content-Type"),
+                ("Access-Control-Allow-Private-Network", "true"),
+                ("Access-Control-Max-Age", "600")))
+
+        def _forward(self):
+            origin = self._origin()
+            if origin is None:
+                return self._reply(403, b'{"error":"this page may not use the bridge"}')
+            if not self.path.startswith("/api/"):
+                return self._reply(404, b'{"error":"not found"}', origin)
+            n = int(self.headers.get("Content-Length") or 0)
+            data = self.rfile.read(n) if n else None
+            try:
+                with lock:
+                    status, payload = cli.send(self.command, self.path, data, self.headers.get("Authorization"))
+            except ConnectionError as e:
+                status, payload = 502, json.dumps({"error": str(e)}).encode()
+            self._reply(status, payload, origin)
+
+        do_GET = do_PUT = do_DELETE = do_POST = _forward
+
+        def log_message(self, fmt, *args):
+            print(f"{self.command} {self.path}: {args[1] if len(args) > 1 else ''}", file=sys.stderr)
+
+    return Bridge
+
+
+def serve(cli, port, extra_origins=()):
+    from http.server import ThreadingHTTPServer
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_bridge(cli, extra_origins))
+    print(f"bridge to {cli.url} on http://localhost:{port} (Ctrl+C stops it)", file=sys.stderr)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def norm_mac(s):
@@ -292,15 +381,21 @@ def main(argv=None):
     s = sub.add_parser("layout-put", help="upload a layout file for a model")
     s.add_argument("model", choices=["2.9", "1.54"])
     s.add_argument("file")
+    s = sub.add_parser("serve", help="bridge on localhost so the API tab of the web page can try the API")
+    s.add_argument("--port", type=int, default=8080)
+    s.add_argument("--allow-origin", action="append", default=[], metavar="ORIGIN",
+                   help="another page that may use the bridge, e.g. http://192.168.1.10:8000")
 
     args = p.parse_args(argv)
     if args.serial:
         cli = SerialClient(args.serial)
-    elif not args.token:
+    elif not args.token and args.cmd != "serve":
         p.error("no token: use --token or OPENESL_TOKEN")
     else:
         cli = Client(args.url, args.token)
 
+    if args.cmd == "serve":
+        return serve(cli, args.port, tuple(args.allow_origin))
     try:
         if args.cmd == "status":
             print_status(cli.tags())

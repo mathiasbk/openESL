@@ -211,5 +211,65 @@ class SerialClientTest(unittest.TestCase):
             cli.tags()
 
 
+class BridgeTest(unittest.TestCase):
+    """serve: the bridge the API tab of the web page uses to try the API."""
+
+    class Recorder:
+        url = "fake"
+
+        def __init__(self):
+            self.calls = []
+
+        def send(self, method, path, data=None, auth=None):
+            self.calls.append((method, path, data, auth))
+            return 201, b'{"ok":true}'
+
+    def setUp(self):
+        from http.server import ThreadingHTTPServer
+        self.cli = self.Recorder()
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), esl_client.make_bridge(self.cli))
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def _req(self, method, path, origin=None, data=None, headers=None):
+        import urllib.error
+        import urllib.request
+        h = dict(headers or {})
+        if origin:
+            h["Origin"] = origin
+        req = urllib.request.Request(self.base + path, data=data, method=method, headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+
+    def test_forwards_from_the_project_page(self):
+        status, headers, body = self._req("PUT", "/api/tags/00000123456789A8", "https://mathiasbk.github.io",
+                                          b'{"layout":"text","fields":["a"]}', {"Authorization": "Bearer x"})
+        self.assertEqual((status, body), (201, b'{"ok":true}'))
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "https://mathiasbk.github.io")
+        self.assertEqual(self.cli.calls, [("PUT", "/api/tags/00000123456789A8",
+                                           b'{"layout":"text","fields":["a"]}', "Bearer x")])
+
+    def test_preflight(self):
+        status, headers, _ = self._req("OPTIONS", "/api/tags", "http://localhost:5173")
+        self.assertEqual(status, 204)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "http://localhost:5173")
+        self.assertIn("Authorization", headers["Access-Control-Allow-Headers"])
+        self.assertEqual(headers["Access-Control-Allow-Private-Network"], "true")
+
+    def test_foreign_page_is_refused(self):
+        self.assertEqual(self._req("OPTIONS", "/api/tags", "https://evil.example")[0], 403)
+        self.assertEqual(self._req("PUT", "/api/tags", "https://evil.example", b"{}")[0], 403)
+        self.assertEqual(self.cli.calls, [])
+
+    def test_only_the_api(self):
+        self.assertEqual(self._req("GET", "/")[0], 404)
+        self.assertEqual(self._req("GET", "/api/tags")[0], 201)        # curl: no Origin
+
+
 if __name__ == "__main__":
     unittest.main()

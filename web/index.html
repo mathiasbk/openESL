@@ -202,12 +202,9 @@
   </main>
 
   <!-- ===================== API ===================== -->
-  <main id="tab-api" class="tab" role="tabpanel" hidden>
-    <article class="card doc">
-      <h2>The AP's API</h2>
-      <p>How a client puts content on the tags: the HTTP API of the access point and the layout file format. The same text is in <a href="https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md">docs/protokoll.md</a> (parts 2 and 3); the radio protocol between the AP and the tags is in part 1 there. <code>tools/esl-client</code> in the repository is an example client in Python.</p>
-<!-- API_DOCS -->
-    </article>
+  <main id="tab-api" class="tab tab-api" role="tabpanel" hidden>
+    <p class="api-intro">The AP's HTTP API, from <a href="https://github.com/mathiasbk/openesl/blob/master/docs/openapi.yaml">docs/openapi.yaml</a>. To send test requests to your AP from here, run <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> on the computer the AP is plugged into (or <code>--url http://openesl.local --token &lt;token&gt; serve</code> over WiFi). <a href="api.html" target="_blank">Open on its own page</a>.</p>
+    <iframe class="api-frame" data-src="api.html" title="API reference"></iframe>
   </main>
 
   <script type="module" src="js/main.js"></script>

@@ -1,0 +1,859 @@
+openapi: 3.1.0
+# The HTTP API of the OpenESL access point. This file is the reference for the API:
+# the API tab of the web page shows it, and ap/test/openapi/check_openapi.py runs every
+# example in it against the AP code (esl_api.c) and checks every reply against the schemas.
+info:
+  title: OpenESL AP API
+  version: "1"
+  description: |
+    Any software (the client) calls this small REST API on the access point (AP) when
+    content changes. The AP never calls the client. It sends the content to the tags over
+    802.15.4 radio the next time each tag polls ([docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md), part 1).
+
+    **Reaching the AP.** Over WiFi the client must be on the same network as the AP (or a
+    VPN). Give the AP a fixed IP (DHCP reservation) or use the mDNS name `openesl.local`.
+    The same API (the same code, `esl_api.c`) also answers on the AP's USB port as `@ESL`
+    lines next to the log, with no token, for setups without WiFi
+    ([ap/README.md](https://github.com/mathiasbk/openesl/blob/master/ap/README.md), "Over the USB port"). Over the USB port a body that stops arriving gives `408`.
+    A read-only status page at `/` needs no token.
+
+    **Trying it from this page.** A web page cannot open the AP's USB port or call a plain
+    HTTP address, so start the bridge in the example client on the computer the AP is
+    plugged into, and pick the `localhost` server here:
+
+    ```
+    python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve
+    python3 tools/esl-client/esl_client.py --url http://openesl.local --token <token> serve
+    ```
+
+    It listens on `http://localhost:8080` and only answers pages from this site and from
+    `localhost`. The browser may ask whether this page may reach devices on your network.
+
+    **Authentication.** `Authorization: Bearer <token>` on every request. The token is set
+    in the AP (menuconfig or NVS). Without a valid token the reply is `401`, also when the
+    AP has no token set. Plain HTTP on the local network or VPN; there is no HTTPS.
+
+    **Requests.** Paths take an optional trailing `/`, and a query string is ignored.
+    Bodies are JSON objects of at most 24,576 bytes and 1,024 JSON tokens (`413` above
+    that; layout files have their own limit of 8,192 bytes). MACs are 16 hex digits, most
+    significant byte first, upper or lower case.
+
+    **Errors** come as `{"error":"<what is wrong>"}`, in a batch with `"index"` for the row:
+
+    | Status | When |
+    |---|---|
+    | `400` | no body, invalid JSON, the body is not an object, a bad MAC in the path, a bad string escape |
+    | `401` | missing or wrong token (also when the AP has no token set) |
+    | `404` | unknown path, unknown tag on `GET`/`DELETE`, unknown model or no layout file |
+    | `405` | a method the path does not have |
+    | `413` | the body is too large |
+    | `422` | the JSON is valid but a value is not (the message says which) |
+    | `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
+    | `507` | the tag table is full |
+
+    **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become
+    `?`) and rejects text that is too long with `422`: at most 92 bytes for all fields
+    together after the conversion (`ESL_MAX_TEXT_BYTES` in `shared/proto.h`).
+
+servers:
+  - url: http://localhost:{port}
+    description: The bridge in tools/esl-client (esl_client.py serve), to the AP over USB or WiFi
+    variables:
+      port:
+        default: "8080"
+  - url: http://{host}
+    description: The AP directly over WiFi (from your own software; not reachable from this page)
+    variables:
+      host:
+        default: openesl.local
+
+security:
+  - token: []
+
+tags:
+  - name: Content
+    description: Put text on the tags and read what they show.
+  - name: Settings
+    description: How often the tags poll and when they give up on the AP. Kept in NVS, so they survive an AP restart.
+  - name: Layout files
+    description: |
+      One layout file per tag model holds up to 16 named layouts, made with the Design tab
+      of the web page or by hand. A client uploads it here and then names a layout in the
+      content (`"layout": "shelf"`). The AP checks the file against the model's screen and
+      what the tag can draw, so a file that is accepted always works on the tag; the AP
+      sends it to the tags over the radio. The format is in the `LayoutFile` schema below and,
+      with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
+      The built-in layouts `price` and `text` can always be used, with or without a file.
+
+paths:
+  /api/tags:
+    get:
+      tags: [Content]
+      operationId: listTags
+      summary: Status for all tags
+      description: |
+        The AP and every tag it knows: tags with content and tags that have polled. Tags
+        that have polled without any content set have `content_id: 0`; this is how a
+        client finds new tags. The AP has no clock, so it gives "seconds ago".
+      responses:
+        "200":
+          description: The AP and its tags
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Content]
+      operationId: setTags
+      summary: Set content for many tags
+      description: |
+        At most 50 tags per call (RAM on the AP). The batch is all or nothing: one invalid
+        row gives `422` with `index` pointing at the row, and no tag is changed. Practical
+        for the daily price job: send everything every time, and only what changed is drawn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Batch" }
+            examples:
+              prices:
+                summary: Two price labels
+                value:
+                  tags:
+                    - { mac: "00000123456789A8", layout: price, fields: ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], price_highlight: true }
+                    - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "54.90", "NOK 109.80/kg"] }
+      responses:
+        "200":
+          description: One line per tag, in the order sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/BatchInvalid" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "507": { $ref: "#/components/responses/TableFull" }
+
+  /api/tags/{mac}:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    get:
+      tags: [Content]
+      operationId: getTag
+      summary: Status for one tag
+      description: The same object as one line in `GET /api/tags`, plus the content when the tag has any.
+      responses:
+        "200":
+          description: The tag
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagDetail" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+    put:
+      tags: [Content]
+      operationId: setTag
+      summary: Set content for one tag
+      description: |
+        An unknown MAC is accepted: the content is ready when the tag appears. The same
+        content twice gives `changed: false`, and the tag does not draw again, so a client
+        can send everything every time without tracking what has changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Content" }
+            examples:
+              price:
+                summary: Price label with a highlighted price
+                value: { layout: price, fields: ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], price_highlight: true }
+              text:
+                summary: Four lines of text in a frame
+                value: { layout: text, fields: ["Welcome", "Open 9–21", "", ""], frame: true }
+              named:
+                summary: A layout from the layout file
+                value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
+      responses:
+        "200":
+          description: Stored; the tag fetches it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "507": { $ref: "#/components/responses/TableFull" }
+    delete:
+      tags: [Content]
+      operationId: deleteTag
+      summary: Remove a tag from the AP
+      description: |
+        Removes its content and settings. The tag keeps what it shows until it gets new
+        content; if it polls again it is added back without content.
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagDeleted" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+
+  /api/tags/{mac}/config:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    get:
+      tags: [Settings]
+      operationId: getTagConfig
+      summary: Settings for one tag
+      responses:
+        "200":
+          description: The tag's settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagConfigReply" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+    put:
+      tags: [Settings]
+      operationId: setTagConfig
+      summary: Change the settings for one tag
+      description: |
+        Replaces the tag's settings. A missing or `null` field means the default: `poll_s`
+        falls back to the AP default (`PUT /api/config`), the others to the tag's built-in
+        values. `{}` resets everything. A tag with its own settings is not replaced when the
+        table is full, like a tag with content. An unknown MAC is accepted.
+
+        With `poll_s` above 120 s new content can take longer than 2 minutes to show.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TagConfig" }
+            examples:
+              slower:
+                summary: Poll every 2 minutes, back off to 15
+                value: { poll_s: 120, max_poll_s: 900, lost_ap_s: null }
+              reset:
+                summary: Back to the defaults
+                value: {}
+      responses:
+        "200":
+          description: Stored; the tag gets it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagConfigChanged" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "507": { $ref: "#/components/responses/TableFull" }
+
+  /api/config:
+    get:
+      tags: [Settings]
+      operationId: getApConfig
+      summary: The AP-wide default poll interval
+      responses:
+        "200":
+          description: The default
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApConfigReply" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Settings]
+      operationId: setApConfig
+      summary: Change the AP-wide default poll interval
+      description: The interval for tags without their own `poll_s`. Stored in NVS (`cfg/poll_s`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApConfig" }
+            examples:
+              two-minutes:
+                summary: Every 2 minutes
+                value: { poll_s: 120 }
+              builtin:
+                summary: Back to the value set in menuconfig
+                value: { poll_s: null }
+      responses:
+        "200":
+          description: The new default
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApConfigReply" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /api/layouts:
+    get:
+      tags: [Layout files]
+      operationId: listLayouts
+      summary: The layout file of each model
+      responses:
+        "200":
+          description: One line per model, with or without a file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/layouts/{model}:
+    parameters:
+      - $ref: "#/components/parameters/model"
+    get:
+      tags: [Layout files]
+      operationId: getLayoutFile
+      summary: The layout file, as uploaded
+      responses:
+        "200":
+          description: The file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutFile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoLayout" }
+    put:
+      tags: [Layout files]
+      operationId: putLayoutFile
+      summary: Upload the layout file for a model
+      description: |
+        The file is checked against the model in the URL, stored in NVS and compiled again
+        at boot. The tags of that model download it at their next poll. The same file again
+        gives `changed: false` and no NVS write.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LayoutFile" }
+            examples:
+              sign:
+                summary: One layout with a heading and a body
+                value:
+                  format: esl-layouts
+                  version: 1
+                  model: "2.9"
+                  layouts:
+                    - name: sign
+                      fields: [title, body]
+                      elements:
+                        - { type: text, field: title, x: 8, y: 4, w: 280, h: 30, fonts: [medium, small], align: center, valign: middle, lines: 1 }
+                        - { type: rect, x: 8, y: 36, w: 280, h: 2 }
+                        - { type: text, field: body, x: 8, y: 42, w: 280, h: 80, fonts: [medium, small], align: center, valign: middle, lines: 3 }
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutStored" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/UnknownModel" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/LayoutInvalid" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [Layout files]
+      operationId: deleteLayoutFile
+      summary: Remove the layout file for a model
+      description: The tags of that model drop their file at the next poll.
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutDeleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoLayout" }
+
+components:
+  securitySchemes:
+    token:
+      type: http
+      scheme: bearer
+      description: The token set in the AP. Not needed over the USB port.
+
+  parameters:
+    mac:
+      name: mac
+      in: path
+      required: true
+      description: The tag's MAC, 16 hex digits, most significant byte first
+      schema: { type: string, pattern: "^[0-9A-Fa-f]{16}$" }
+      example: "00000123456789A8"
+    model:
+      name: model
+      in: path
+      required: true
+      description: The tag model
+      schema: { type: string, enum: ["2.9", "1.54"] }
+      example: "2.9"
+
+  responses:
+    BadRequest:
+      description: No body, invalid JSON, the body is not an object, or a bad string escape
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: invalid JSON }
+    BadMac:
+      description: The MAC in the path is not 16 hex digits
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: mac must be 16 hex digits }
+    Unauthorized:
+      description: Missing or wrong token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unauthorized }
+    UnknownTag:
+      description: The AP does not know this tag
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unknown tag }
+    UnknownModel:
+      description: Not a tag model
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unknown model (use 2.9 or 1.54) }
+    NoLayout:
+      description: Not a tag model, or no layout file for it
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: no layout for this model }
+    TooLarge:
+      description: The body is too large (24,576 bytes, a layout file 8,192)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: body too large }
+    Invalid:
+      description: The JSON is valid but a value is not; the message says which
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: text too long (max 92 bytes after Latin-1 conversion) }
+    BatchInvalid:
+      description: A row is not valid; `index` is the row, and no tag was changed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: layout price takes at most 3 fields, index: 1 }
+    LayoutInvalid:
+      description: The file does not work on this model; the message says where and why
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "layouts[0].elements[2]: x + w = 300 is past the right edge of the screen (296)" }
+    ServerError:
+      description: An error inside the AP (out of memory, a reply too large, a file that could not be stored)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: out of memory }
+    TableFull:
+      description: The tag table is full (`max_tags` in `GET /api/tags`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: tag table full }
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: { type: string, description: What is wrong }
+        index: { type: integer, minimum: 0, description: "In a batch: the row" }
+
+    Mac:
+      type: string
+      pattern: "^[0-9A-F]{16}$"
+      description: 16 hex digits, most significant byte first
+      example: "00000123456789A8"
+
+    Content:
+      type: object
+      required: [layout, fields]
+      properties:
+        layout:
+          type: string
+          description: |
+            `price` (name, price, subtitle), `text` (up to 4 lines), or the name of a layout
+            in a layout file, e.g. `shelf`. A named layout must be in the file for the tag's
+            model (in any model's file while the model is not known yet), and the tag's
+            firmware must be able to download layout files; else `422`. The same name may be
+            used in both models' files, so one body works for every tag.
+          examples: [price, text, shelf]
+        fields:
+          type: array
+          items: { type: [string, "null"] }
+          description: |
+            The text, in the layout's field order; `null` counts as `""`. `price` takes at
+            most 3 fields, `text` at most 4, a named layout as many as its `fields`. At most
+            92 bytes together after the conversion to Latin-1. Empty fields at the end are
+            dropped, so `["a",""]` and `["a"]` are the same content.
+        price_highlight:
+          type: [boolean, "null"]
+          default: false
+          description: White digits in a filled black box (`price`), or the `highlight` elements of a named layout.
+        frame:
+          type: [boolean, "null"]
+          default: false
+          description: A black frame around the screen (`frame` elements of a named layout). The tags are black and white only.
+
+    BatchRow:
+      allOf:
+        - type: object
+          required: [mac]
+          properties:
+            mac: { type: string, pattern: "^[0-9A-Fa-f]{16}$", description: The tag's MAC }
+        - $ref: "#/components/schemas/Content"
+
+    Batch:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/BatchRow" }
+
+    SetResult:
+      type: object
+      additionalProperties: false
+      required: [mac, content_id, changed, pending]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        content_id:
+          type: integer
+          minimum: 1
+          maximum: 4294967295
+          description: |
+            CRC-32 of layout, fields and flags, calculated by the AP. For a named layout it
+            covers the name, not the layout number, so it is the same on both models.
+          example: 2914470401
+        changed: { type: boolean, description: "false: the tag already has this content and does not draw again" }
+        pending: { type: boolean, description: "true: the tag has not fetched it yet" }
+
+    BatchResult:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/SetResult"
+              - type: object
+                description: The table filled up during the batch (only when the same MAC ends up in two slots; rare)
+                additionalProperties: false
+                required: [mac, error]
+                properties:
+                  mac: { $ref: "#/components/schemas/Mac" }
+                  error: { type: string, const: tag table full }
+
+    ApInfo:
+      type: object
+      additionalProperties: false
+      required: [fw, uptime_s, channel, max_tags, poll_s]
+      properties:
+        fw: { type: string, description: AP firmware version, example: "0.1.0" }
+        uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
+        channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
+        max_tags: { type: integer, minimum: 1, description: "How many tags the AP has room for (menuconfig, default 64)" }
+        poll_s:
+          type: integer
+          minimum: 0
+          maximum: 3600
+          description: The AP-wide default interval (`GET /api/config`); 0 = tags keep their built-in interval
+        reset:
+          type: string
+          enum: [poweron, ext, sw, usb, panic, int_wdt, task_wdt, wdt, deepsleep, brownout, jtag, pwr_glitch, cpu_lockup, unknown]
+          description: Why the AP last started. `task_wdt` means a stuck AP task was restarted by the watchdog.
+
+    TagCfg:
+      type: object
+      additionalProperties: false
+      required: [poll_s, max_poll_s, lost_ap_s]
+      description: The tag's own settings; `null` = the default
+      properties:
+        poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Poll interval in seconds }
+        max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Longest interval when the tag backs off }
+        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the tag shows "No AP found"; 65535 = never' }
+
+    TagFields:
+      type: object
+      required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
+                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll; null: not seen since the AP started" }
+        battery_mv: { type: [integer, "null"], minimum: 0, description: "Battery voltage; 0 = the tag cannot measure it (the 1.54\")" }
+        rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
+        fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
+        model: { type: [string, "null"], enum: ["2.9", "1.54", null], description: "null until the tag has polled, and for firmware that does not send it" }
+        draw_failed: { type: boolean, description: The tag said in its last poll that its last drawing failed }
+        content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
+        shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: What the tag reported in its last poll }
+        pending: { type: boolean, description: "The tag does not show `content_id` yet" }
+        poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
+        config: { $ref: "#/components/schemas/TagCfg" }
+        config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }
+        layout_version: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The layout file version the tag reported; null for firmware without layout files" }
+        layout_pending: { type: boolean, description: The tag is downloading the AP's layout file for its model }
+        layout_failed: { type: boolean, description: The tag rejected the AP's current layout file }
+        content_error:
+          type: [string, "null"]
+          description: Why pending content with a named layout cannot be sent
+          enum:
+            - the tag firmware cannot download layout files
+            - the layout is not in the layout file for this tag's model
+            - the tag rejected the layout file
+            - null
+
+    Tag:
+      allOf: [{ $ref: "#/components/schemas/TagFields" }]
+      unevaluatedProperties: false
+
+    TagDetail:
+      description: A tag, plus its content when it has any
+      allOf:
+        - $ref: "#/components/schemas/TagFields"
+        - type: object
+          properties:
+            layout: { type: string, description: The layout of the content }
+            fields:
+              type: array
+              items: { type: string }
+              description: The text as stored (after the conversion to Latin-1, without empty fields at the end)
+            price_highlight: { type: boolean }
+            frame: { type: boolean }
+      unevaluatedProperties: false
+
+    TagList:
+      type: object
+      additionalProperties: false
+      required: [ap, tags]
+      properties:
+        ap: { $ref: "#/components/schemas/ApInfo" }
+        tags:
+          type: array
+          items: { $ref: "#/components/schemas/Tag" }
+      example:
+        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, poll_s: 0, reset: poweron }
+        tags:
+          - mac: "00000123456789A8"
+            seen_s_ago: 12
+            battery_mv: 2950
+            rssi: -61
+            fw: 100
+            model: "2.9"
+            draw_failed: false
+            content_id: 2914470401
+            shown_content_id: 2914470401
+            pending: false
+            poll_s: 120
+            config: { poll_s: 120, max_poll_s: null, lost_ap_s: null }
+            config_pending: false
+            layout_version: 1167268903
+            layout_pending: false
+            layout_failed: false
+            content_error: null
+
+    TagDeleted:
+      type: object
+      additionalProperties: false
+      required: [mac, deleted]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        deleted: { const: true }
+
+    TagConfig:
+      type: object
+      properties:
+        poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Poll interval in seconds; null: the AP default" }
+        max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Longest interval when the tag backs off; null: built in" }
+        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before "No AP found"; 65535 = never; null: built in' }
+
+    TagConfigFields:
+      type: object
+      required: [mac, poll_s, config, config_pending]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
+        config: { $ref: "#/components/schemas/TagCfg" }
+        config_pending: { type: boolean, description: The tag has not confirmed these settings yet }
+
+    TagConfigReply:
+      allOf: [{ $ref: "#/components/schemas/TagConfigFields" }]
+      unevaluatedProperties: false
+
+    TagConfigChanged:
+      allOf:
+        - $ref: "#/components/schemas/TagConfigFields"
+        - type: object
+          required: [changed]
+          properties:
+            changed: { type: boolean, description: "false: the tag already had these settings" }
+      unevaluatedProperties: false
+
+    ApConfig:
+      type: object
+      required: [poll_s]
+      properties:
+        poll_s:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 3600
+          description: |
+            `0` = tags keep their built-in interval (60 s), `10`–`3600` = that many seconds,
+            `null` = back to the value set in menuconfig (`ESL_NEXT_POLL_S`).
+
+    ApConfigReply:
+      type: object
+      additionalProperties: false
+      required: [poll_s, builtin_poll_s]
+      properties:
+        poll_s: { type: integer, minimum: 0, maximum: 3600, description: The default now }
+        builtin_poll_s: { type: integer, minimum: 0, maximum: 3600, description: The value set in menuconfig }
+
+    ModelName:
+      type: string
+      enum: ["2.9", "1.54"]
+
+    LayoutInfoFields:
+      type: object
+      required: [model, version, size, binary_size, layouts]
+      properties:
+        model: { $ref: "#/components/schemas/ModelName" }
+        version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version the tags get (CRC-32 of the compiled file); null: no file" }
+        size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
+        binary_size: { type: integer, minimum: 0, maximum: 768, description: Bytes each tag downloads }
+        layouts: { type: array, items: { type: string }, description: The layout names in the file }
+
+    LayoutInfo:
+      allOf: [{ $ref: "#/components/schemas/LayoutInfoFields" }]
+      unevaluatedProperties: false
+
+    LayoutList:
+      type: object
+      additionalProperties: false
+      required: [max_size, max_binary_size, layouts]
+      properties:
+        max_size: { type: integer, const: 8192 }
+        max_binary_size: { type: integer, const: 768 }
+        layouts: { type: array, items: { $ref: "#/components/schemas/LayoutInfo" } }
+
+    LayoutStored:
+      allOf:
+        - $ref: "#/components/schemas/LayoutInfoFields"
+        - type: object
+          required: [changed]
+          properties:
+            version: { type: integer }
+            changed: { type: boolean, description: "false: the same file as before; nothing was written" }
+      unevaluatedProperties: false
+
+    LayoutDeleted:
+      type: object
+      additionalProperties: false
+      required: [model, deleted]
+      properties:
+        model: { $ref: "#/components/schemas/ModelName" }
+        deleted: { const: true }
+
+    LayoutFile:
+      type: object
+      description: |
+        Keys starting with `_` and `description` are comments. Besides this structure the AP
+        checks that every box is inside the screen (296×128 or 200×200), that a text box is
+        at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
+        most 8 text lines and 5 rectangles per layout, and at most 768 bytes compiled.
+      additionalProperties: false
+      patternProperties: { "^_": true }
+      required: [format, version, model, layouts]
+      properties:
+        format: { const: esl-layouts }
+        version: { const: 1 }
+        model: { $ref: "#/components/schemas/ModelName", description: The same as the model in the URL }
+        description: { type: string }
+        layouts:
+          type: array
+          minItems: 1
+          maxItems: 16
+          description: Layout n in this list is layout 0x10 + n on the radio; clients only see the names
+          items: { $ref: "#/components/schemas/Layout" }
+
+    Layout:
+      type: object
+      additionalProperties: false
+      patternProperties: { "^_": true }
+      required: [name, fields, elements]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]{0,30}$"
+          not: { enum: [price, text] }
+          description: Unique in the file
+        description: { type: string }
+        fields:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items: { type: string, pattern: "^[a-z][a-z0-9_]{0,15}$" }
+          description: The order clients send `fields` in
+        elements:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Element" }
+          description: Drawn in order (all rectangles before all text)
+
+    Element:
+      type: object
+      additionalProperties: false
+      patternProperties: { "^_": true }
+      required: [type, x, y, w, h]
+      properties:
+        type: { type: string, enum: [text, rect], description: "`text`: one field in a box; `rect`: a filled box" }
+        field: { type: [string, integer], description: "text only: a name from `fields`, or its index" }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        w: { type: integer, minimum: 1 }
+        h: { type: integer, minimum: 1 }
+        fonts:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { type: string, enum: [small, medium, mid, large] }
+          description: |
+            text only: tried in order, the first the text fits in is used. `small` 17 px,
+            `medium` 24 px, `mid` 36 px, `large` 52 px; `mid` and `large` only have digits and ` ,-.:`.
+        align: { type: string, enum: [left, center, right], default: left }
+        valign: { type: string, enum: [top, middle, bottom], default: top }
+        lines: { type: integer, minimum: 0, maximum: 3, default: 0, description: "0: as many as the box holds" }
+        color:
+          type: string
+          enum: [black, white, frame, invert, highlight]
+          default: black
+          description: |
+            `frame` is only drawn with `"frame": true`; text also `invert` (white text in a
+            black box) and `highlight` (inverted with `"price_highlight": true`, else black)
