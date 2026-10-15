@@ -16,6 +16,7 @@ Early work in progress. The protocol, the AP core with its HTTP API, and the dra
 
 | Folder | Contents |
 |---|---|
+| [web/](web/README.md) | Web page: label designer, and flashing of tags and the AP from the browser |
 | [docs/](docs/README.md) | Requirements, architecture, protocol, work plan, risks and hardware notes |
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [ap/](ap/) | AP firmware for the ESP32-C6 (ESP-IDF) with the HTTP API |

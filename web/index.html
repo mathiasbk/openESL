@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenESL tools</title>
+  <meta name="description" content="Design layouts for OpenESL e-paper labels and flash the tags and the access point from the browser.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>OpenESL</h1>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="design" aria-selected="true">Design</button>
+      <button role="tab" data-tab="tag">Flash tag</button>
+      <button role="tab" data-tab="ap">Flash AP</button>
+    </nav>
+    <a class="repo" href="https://github.com/mathiasbk/openesl">Source</a>
+  </header>
+
+  <!-- ===================== Design ===================== -->
+  <main id="tab-design" class="tab" role="tabpanel">
+    <section class="toolbar">
+      <label>Tag
+        <select id="model">
+          <option value="2.9">2.9" (296 × 128)</option>
+          <option value="1.54">1.54" (200 × 200)</option>
+        </select>
+      </label>
+      <label>Layout <select id="layout-select"></select></label>
+      <button id="layout-add" title="New empty layout">New</button>
+      <button id="layout-dup" title="Copy this layout">Copy</button>
+      <button id="layout-del" title="Delete this layout">Delete</button>
+      <span class="sep"></span>
+      <button id="file-example">Load example</button>
+      <label class="button">Open file…<input id="file-open" type="file" accept=".json,application/json" hidden></label>
+      <button id="file-save">Save layout file</button>
+      <button id="design-save" title="A label design (esl-label) for tag/tools/label_design.py">Save label design</button>
+    </section>
+
+    <div class="design">
+      <section class="stage-col">
+        <div id="stage" class="stage">
+          <canvas id="screen"></canvas>
+          <div id="overlay" class="overlay"></div>
+        </div>
+        <div class="stage-bar">
+          <label><input type="checkbox" id="opt-boxes" checked> Show boxes</label>
+          <label><input type="checkbox" id="opt-highlight" checked> <code>price_highlight</code></label>
+          <label><input type="checkbox" id="opt-frame"> <code>frame</code></label>
+          <span id="status" class="status" role="status"></span>
+        </div>
+        <div class="add-row" id="add-row">
+          <button id="el-add-text">+ Text</button>
+          <button id="el-add-invert" title="White text in a black box">+ Inverted text</button>
+          <button id="el-add-hline">+ Line</button>
+          <button id="el-add-vline">+ Vertical line</button>
+          <button id="el-add-rect" title="A filled box; put white text on a black box for an inverted area">+ Box</button>
+          <button id="el-up" title="Draw earlier">↑</button>
+          <button id="el-down" title="Draw later">↓</button>
+          <button id="el-del">Delete element</button>
+        </div>
+        <p class="hint">Drag a box to move it, drag its corner to resize, arrow keys move the selected box by 1 px (Shift: 10 px). Lines are thin boxes; for a black area with white text, use a black box with text in white on top, or inverted text. A layout holds at most 5 boxes (inverted and highlighted text count as one each) and 8 lines of text. The preview is drawn by the tag's own code; the file is checked by the AP's own compiler.</p>
+      </section>
+
+      <section class="side">
+        <details open>
+          <summary>Sample text</summary>
+          <div id="sample" class="form"></div>
+        </details>
+        <details open id="el-panel">
+          <summary>Element</summary>
+          <div id="el-form" class="form"></div>
+        </details>
+        <details open id="layout-panel">
+          <summary>Layout</summary>
+          <div class="form">
+            <label>Name <input id="lay-name" spellcheck="false"></label>
+            <label>Fields <input id="lay-fields" spellcheck="false" placeholder="name, price, unit"></label>
+            <label>Description <input id="lay-desc"></label>
+          </div>
+        </details>
+        <details>
+          <summary>Layout file (JSON)</summary>
+          <textarea id="json" spellcheck="false" rows="16"></textarea>
+          <p class="hint">Upload with <code>PUT /api/layouts/<span class="model-name">2.9</span></code>:</p>
+          <pre id="upload-cmd" class="cmd"></pre>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===================== Flash tag ===================== -->
+  <main id="tab-tag" class="tab" role="tabpanel" hidden>
+    <section class="card">
+      <h2>Flash a tag with the ZBS_Flasher</h2>
+      <p>Needs a D1 mini running atc1441's ZBS_Flasher, connected by USB, and Chrome or Edge on a computer (Web Serial). Each tag goes through the same steps as <code>tools/flash-tui</code>: the MAC is read, the whole flash is backed up in this browser before anything is erased, the MAC is written to the info page if needed, then the firmware is written and verified. The info page is never erased.</p>
+      <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
+      <div class="form row">
+        <label>Model
+          <select id="tag-model">
+            <option value="2.9">2.9"</option>
+            <option value="1.54">1.54"</option>
+          </select>
+        </label>
+        <label>Firmware
+          <select id="tag-fw-src">
+            <option value="release">Built from this page's version</option>
+            <option value="file">From a file…</option>
+          </select>
+        </label>
+        <input id="tag-fw-file" type="file" accept=".bin" hidden>
+        <span id="tag-fw-info" class="muted"></span>
+      </div>
+      <div class="buttons">
+        <button id="tag-connect">Connect flasher</button>
+        <button id="tag-flash" disabled>Flash tag in jig</button>
+        <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
+      </div>
+      <progress id="tag-progress" max="1" value="0" hidden></progress>
+      <pre id="tag-log" class="log" aria-live="polite"></pre>
+    </section>
+    <section class="card">
+      <h2>Backups in this browser</h2>
+      <p class="muted">Stored per MAC before the first flash. Download them and keep them: they are the only copy of the stock firmware.</p>
+      <table class="backups"><thead><tr><th>MAC</th><th>Stored</th><th></th></tr></thead><tbody id="backup-list"></tbody></table>
+    </section>
+  </main>
+
+  <!-- ===================== Flash AP ===================== -->
+  <main id="tab-ap" class="tab" role="tabpanel" hidden>
+    <section class="card">
+      <h2>Flash the access point (ESP32-C6)</h2>
+      <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
+      <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings.</p>
+      <p id="ap-fw-info" class="muted"></p>
+      <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
+        <button slot="activate">Connect and flash AP</button>
+        <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
+        <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
+      </esp-web-install-button>
+    </section>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+</body>
+</html>
