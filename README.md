@@ -8,6 +8,8 @@ your software ──HTTP + token──► ESP32-C6 (AP) ──802.15.4──► 
 
 The AP is only an API. It does not know about products, shops or databases: it stores text fields per tag MAC and hands them to the tags. Anything that can make an HTTP request (a script, a web shop, a home automation system) can be a client.
 
+**API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api), made from [docs/protokoll.md](docs/protokoll.md) parts 2 and 3. The same page has the label designer and the flashers. An example client is in [tools/esl-client](tools/esl-client/README.md).
+
 ## Status
 
 Early work in progress. The protocol, the AP core with its HTTP API, and the drawing code on the tag are written and tested on a PC. The hardware layer of the tag (clock, GPIO, radio, sleep) is not written yet, so the tag firmware does not run on a real tag yet. See [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
