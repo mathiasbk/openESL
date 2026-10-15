@@ -283,7 +283,9 @@ h3.sub { margin-top: 16px; }
 .state-ok { color: var(--ok); }
 #dash-health.bad { color: var(--error); }
 #dash-health.ok { color: var(--ok); }
-#dash-msg.error { color: var(--error); }
+#dash-msg.error, #fw-msg.error { color: var(--error); }
+#fw-msg.ok { color: var(--ok); }
+#fw-progress { width: 100%; }
 .form.row label[hidden] { display: none; }
 .form label.check { display: inline-flex; gap: 6px; align-items: center; }
 .form label.check > input { width: auto; }

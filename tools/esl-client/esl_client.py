@@ -352,7 +352,7 @@ def make_bridge(cli, extra_origins=()):
             if origin is None:
                 return self._reply(403)
             self._reply(204, origin=origin, extra=(
-                ("Access-Control-Allow-Methods", "GET, PUT, DELETE"),
+                ("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE"),
                 ("Access-Control-Allow-Headers", "Authorization, Content-Type"),
                 ("Access-Control-Allow-Private-Network", "true"),
                 ("Access-Control-Max-Age", "600")))

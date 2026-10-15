@@ -235,7 +235,7 @@
     </section>
     <section class="card">
       <h2>After this: updates over the radio</h2>
-      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
+      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file, or the Firmware card on the <a href="#dashboard">Dashboard</a> tab, gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
       <p class="muted">Tried on the 1.54" jig tag on 2026-10-15: four updates in a row, up and down, took 5 to 8 minutes each at one poll a minute, and the tag kept its price through every restart. The AP needs one flash over USB with such a release first, for its tag firmware storage. There is no radio security yet (T16). Details: <a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">docs/tag-ota.md</a>.</p>
     </section>
     <section class="card">
@@ -310,6 +310,26 @@
           </table>
         </div>
       </section>
+      <section class="card wide">
+        <h3>Firmware</h3>
+        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start. Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+        <dl id="dash-ota" class="facts"></dl>
+        <div class="table-wrap">
+          <table class="dash-tags">
+            <thead><tr><th>Tag model</th><th>Firmware on the AP</th><th>Tags</th><th></th></tr></thead>
+            <tbody id="dash-tagfw"></tbody>
+          </table>
+        </div>
+        <div class="form row">
+          <label>Send
+            <select id="fw-src"></select>
+          </label>
+          <input id="fw-file" type="file" accept=".bin" hidden>
+          <button id="fw-send">Send to the AP</button>
+        </div>
+        <progress id="fw-progress" max="1" value="0" hidden></progress>
+        <p id="fw-msg" class="hint" role="status"></p>
+      </section>
     </div>
   </main>
 
@@ -377,7 +397,7 @@
       <ul>
         <li><strong>Content.</strong> Your software sends text per tag with <code>PUT /api/tags/{mac}</code>, or many at once with <code>PUT /api/tags</code>; the AP stores it and hands it to the tag at its next poll (about a minute). <code>"at"</code> in the request sets it at a given time, so a price change can be sent the day before. The <a href="#api">API</a> tab has every call, and <code>tools/esl-client</code> is a complete command-line client (<code>price</code>, <code>text</code>, <code>sync prices.csv</code> from an Excel export, <code>--at</code>).</li>
         <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, layout file rejected), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
-        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code>: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
+        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code>: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
         <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook and the schedule; <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
         <li><strong>Long-term test.</strong> <code>esl-client log week.csv</code> records every tag once a minute, and <code>report week.csv</code> sums up gaps, battery and AP restarts.</li>
       </ul>
