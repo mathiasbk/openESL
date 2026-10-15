@@ -25,6 +25,9 @@ static void sb_reset(esl_sb_t *sb)
 {
     sb->len = 0;
     sb->overflow = sb->cap == 0;
+    sb->streaming = false;
+    sb->status = 0;
+    sb->sent = 0;
     if (sb->cap)
         sb->buf[0] = '\0';
 }
@@ -510,6 +513,9 @@ done:
 
 static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
 {
+    /* The list can be far larger than the buffer (ESL_API_RESP_SIZE): a
+       glue with a sink gets it in pieces. Nothing below can fail. */
+    esl_sb_stream(out, 200);
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
@@ -809,6 +815,7 @@ static void html_ago(esl_sb_t *out, uint64_t s)
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
 {
     sb_reset(out);
+    esl_sb_stream(out, 200); /* as in get_all: one row per tag, far more than the buffer */
     esl_sb_puts(out,
                 "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
                 "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"

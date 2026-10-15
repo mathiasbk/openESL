@@ -6,6 +6,19 @@ static int parse(const char *js, esl_jtok_t *t, unsigned max)
     return esl_json_parse(js, strlen(js), t, max);
 }
 
+static char sunk[256];
+static size_t sunk_len;
+static bool sink_fails;
+
+static bool sink(esl_sb_t *sb)
+{
+    if (sink_fails)
+        return false;
+    memcpy(sunk + sunk_len, sb->buf, sb->len);
+    sunk_len += sb->len;
+    return true;
+}
+
 void test_json(void)
 {
     esl_jtok_t t[64];
@@ -88,4 +101,47 @@ void test_json(void)
     esl_sb_init(&sb, buf, 8);
     esl_sb_printf(&sb, "%d", 123456789);
     CHECK(sb.overflow);
+
+    /* streaming: a full buffer goes to the sink instead of overflowing */
+    sunk_len = 0;
+    esl_sb_init(&sb, buf, 8);
+    esl_sb_set_sink(&sb, sink, NULL);
+    esl_sb_puts(&sb, "1234567");
+    esl_sb_putc(&sb, '8'); /* no esl_sb_stream yet: still an overflow */
+    CHECK(sb.overflow);
+    CHECK_INT((int)sunk_len, 0);
+    esl_sb_init(&sb, buf, 8);
+    esl_sb_set_sink(&sb, sink, NULL);
+    esl_sb_stream(&sb, 200);
+    CHECK(sb.streaming);
+    CHECK_INT(sb.status, 200);
+    esl_sb_puts(&sb, "123456789abcdef"); /* 7 to the sink, then 7 more, 1 left */
+    CHECK(!sb.overflow);
+    CHECK_INT((int)sb.sent, 14);
+    CHECK_STR(buf, "f");
+    esl_sb_printf(&sb, "%d", 123456); /* fits behind "f" */
+    CHECK(!sb.overflow);
+    CHECK_INT((int)sb.sent, 14);
+    CHECK_STR(buf, "f123456");
+    esl_sb_printf(&sb, "%d", 1234567); /* does not fit behind it: flush, then it fits */
+    CHECK(!sb.overflow);
+    CHECK_INT((int)sb.sent, 21);
+    CHECK_STR(buf, "1234567");
+    esl_sb_printf(&sb, "%d", 12345678); /* never fits in 8: what was there is flushed, then overflow */
+    CHECK(sb.overflow);
+    CHECK_INT((int)sb.sent, 28);
+    esl_sb_init(&sb, buf, 8);
+    esl_sb_set_sink(&sb, sink, NULL);
+    esl_sb_stream(&sb, 200);
+    esl_sb_puts(&sb, "xy");
+    esl_sb_flush(&sb);
+    CHECK_INT((int)sb.sent, 2);
+    CHECK_INT((int)sb.len, 0);
+    CHECK_INT((int)sunk_len, 30);
+    CHECK_MEM(sunk, "1234567" "89abcde" "f123456" "1234567" "xy", 30);
+    /* a sink that fails ends the reply */
+    sink_fails = true;
+    esl_sb_puts(&sb, "123456789");
+    CHECK(sb.overflow);
+    sink_fails = false;
 }

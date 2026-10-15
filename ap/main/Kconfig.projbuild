@@ -156,8 +156,16 @@ menu "OpenESL AP"
 
     config ESL_MAX_TAGS
         int "Max tags per AP"
-        range 20 200
-        default 64
+        range 20 1000
+        default 256
+        help
+            Size of the tag table. Each slot costs about 220 bytes of RAM for
+            the whole run and up to about 320 bytes of NVS once the tag has
+            content and settings (partitions.csv gives NVS 468 KB). The API
+            replies that list every tag are streamed, so they do not grow
+            with this. The boot log ends with the free heap; keep a good
+            margin for WiFi and HTTP. See "How many tags" in README.md,
+            also for what the radio takes.
 
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"

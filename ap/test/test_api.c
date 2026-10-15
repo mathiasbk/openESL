@@ -608,6 +608,85 @@ static void test_config_api(void)
     CHECK(HAS(resp, "\"config_pending\":true,\"layout_version\":4294967295,"));
 }
 
+/* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
+   and the status page in pieces, byte for byte what a big buffer would hold.
+   Everything else must fit the buffer, and errors never start a stream. */
+static char streamed[ESL_API_PAGE_SIZE(CAP)];
+static size_t streamed_len, pieces;
+
+static bool collect(esl_sb_t *sb)
+{
+    CHECK(sb->len > 0 && sb->len < sb->cap);
+    CHECK_INT(sb->status, 200);
+    memcpy(streamed + streamed_len, sb->buf, sb->len);
+    streamed_len += sb->len;
+    pieces++;
+    return true;
+}
+
+static void test_streaming(void)
+{
+    static char page[ESL_API_PAGE_SIZE(CAP)];
+    char small[200]; /* smaller than one tag: every tag needs a flush */
+    esl_sb_t sb;
+    esl_store_init(&st, tags, CAP, NULL, 0);
+    for (unsigned i = 0; i < CAP; i++) {
+        char u[64];
+        snprintf(u, sizeof(u), "/api/tags/%016X", 0x2000 + i);
+        CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"Br\u00f8d & <b>\",\"9,90\"]}", 0), 200);
+        poll_as_tag(0x2000 + i, 0, 1000 + i);
+    }
+
+    /* GET /api/tags, whole */
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 5000), 200);
+    CHECK(!out.overflow && out.sent == 0);
+    size_t whole = out.len;
+    CHECK(whole > sizeof(small));
+    /* in pieces */
+    streamed_len = pieces = 0;
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", AUTH, NULL, 0, 5000, &sb), 200);
+    CHECK(!sb.overflow && sb.streaming && sb.sent == streamed_len && pieces >= CAP);
+    esl_sb_flush(&sb);
+    CHECK_INT((int)sb.len, 0);
+    CHECK_INT((int)streamed_len, (int)whole);
+    CHECK_MEM(streamed, resp, whole);
+
+    /* the same without a sink is the old 500 */
+    esl_sb_init(&sb, small, sizeof(small));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", AUTH, NULL, 0, 5000, &sb), 500);
+    CHECK(HAS(small, "response too large"));
+
+    /* a reply that is not streamed does not use the sink, even when it is there */
+    streamed_len = pieces = 0;
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 5000, &sb), 200);
+    CHECK(!sb.streaming && sb.sent == 0 && pieces == 0);
+    CHECK_STR(small, "{\"poll_s\":0,\"builtin_poll_s\":0}");
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000002000", AUTH, NULL, 0, 5000, &sb), 500);
+    CHECK(!sb.streaming && pieces == 0); /* one tag is bigger than this buffer: an error, not a stream */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", "Bearer wrong", NULL, 0, 5000, &sb), 401);
+    CHECK(!sb.streaming && sb.sent == 0 && pieces == 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/layouts/2.9", AUTH, NULL, 0, 5000, &sb), 500); /* too big */
+    CHECK(!sb.streaming && pieces == 0);
+
+    /* the status page */
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
+    whole = sb.len;
+    CHECK(whole > sizeof(small) && sb.sent == 0);
+    streamed_len = pieces = 0;
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
+    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
+    esl_sb_flush(&sb);
+    CHECK(!sb.overflow && pieces >= CAP);
+    CHECK_INT((int)streamed_len, (int)whole);
+    CHECK_MEM(streamed, page, whole);
+}
+
 void test_api(void)
 {
     esl_store_init(&st, tags, CAP, NULL, 0);
@@ -620,4 +699,5 @@ void test_api(void)
     test_layouts();
     test_status_page();
     test_config_api();
+    test_streaming();
 }

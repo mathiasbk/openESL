@@ -173,18 +173,26 @@ class SerialClient(Client):
             os.write(self.fd, f"@ESL {self.seq} {method} {path} {len(data)}\n".encode() + data)
             end = time.monotonic() + self.timeout
             prefix = f"@ESL {self.seq} ".encode()
+            body = b""
             while True:
-                line = self._readline(end)
-                i = line.find(prefix)
-                if i >= 0:
-                    break
-            head = line[i + len(prefix):].split(b" ", 2)
-            status, length = int(head[0]), int(head[1])
-            # The body may contain newlines: take exactly length bytes
-            payload = (head[2] if len(head) > 2 else b"")
-            if len(payload) < length + 1:
-                payload += self._read(length + 1 - len(payload), end)
-            return status, payload[:length]
+                # A long reply (GET /api/tags) comes in pieces: every piece but the
+                # last has "+" after its length, and log lines may come between them
+                while True:
+                    line = self._readline(end)
+                    i = line.find(prefix)
+                    if i >= 0:
+                        break
+                head = line[i + len(prefix):].split(b" ", 2)
+                status, length = int(head[0]), head[1]
+                more = length.endswith(b"+")
+                length = int(length.rstrip(b"+"))
+                # The body may contain newlines: take exactly length bytes
+                payload = (head[2] if len(head) > 2 else b"")
+                if len(payload) < length + 1:
+                    payload += self._read(length + 1 - len(payload), end)
+                body += payload[:length]
+                if not more:
+                    return status, body
         except (OSError, TimeoutError) as e:
             raise ConnectionError(f"no answer on {self.port}: {e}") from None
 

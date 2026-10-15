@@ -29,6 +29,11 @@ typedef struct {
 #define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
 #define ESL_API_RESP_SIZE(max_tags) \
     ESL_API_RESP_SIZE_((max_tags) > ESL_API_MAX_BATCH ? (max_tags) : ESL_API_MAX_BATCH)
+/* Buffer for a glue that streams (esl_sb_set_sink): every reply that is not
+ * streamed (a batch reply, a layout file, errors) fits in it, and GET
+ * /api/tags and the status page, which grow with the tag table, come through
+ * the sink in pieces of this size. */
+#define ESL_API_STREAM_BUF ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH)
 
 /* Handles one request. method is "GET"/"PUT"/"DELETE", uri may contain a query
  * string, auth is the Authorization header (or NULL), now_ms is time since

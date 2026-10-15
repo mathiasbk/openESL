@@ -50,15 +50,37 @@ int esl_json_str_decode(const char *js, const esl_jtok_t *t, char *out, size_t o
 
 /* ---- writer ------------------------------------------------------------ */
 
-typedef struct {
+typedef struct esl_sb esl_sb_t;
+struct esl_sb {
     char *buf;
     size_t cap;
     size_t len;
     bool overflow;
-} esl_sb_t;
+
+    /* Streaming (large replies that need not fit in buf): the owner of the
+     * buffer sets sink and ctx with esl_sb_set_sink(). A writer that knows
+     * its status before it writes anything calls esl_sb_stream(); from then
+     * on a full buffer is handed to sink (buf[0..len)) and emptied instead of
+     * overflowing. A writer that has not called it gets the old behaviour,
+     * so an error reply can still replace what was written. */
+    bool (*sink)(esl_sb_t *sb);
+    void *ctx;
+    bool streaming;  /* esl_sb_stream() was called and a sink is set */
+    int status;      /* the status given to esl_sb_stream() */
+    size_t sent;     /* bytes handed to the sink so far */
+};
 
 /* buf is always NUL-terminated; at most cap-1 characters are stored. */
 void esl_sb_init(esl_sb_t *sb, char *buf, size_t cap);
+/* Allows streaming: sink is called with buf[0..len) whenever buf is full
+ * (and by esl_sb_flush); it returns false if the bytes could not be sent,
+ * which sets overflow. NULL turns it off. */
+void esl_sb_set_sink(esl_sb_t *sb, bool (*sink)(esl_sb_t *sb), void *ctx);
+/* Called by a writer once it knows the reply's status: from here on the
+ * sink takes what does not fit. Nothing happens without a sink. */
+void esl_sb_stream(esl_sb_t *sb, int status);
+/* Hands whatever is in buf to the sink (only when streaming). */
+void esl_sb_flush(esl_sb_t *sb);
 void esl_sb_putc(esl_sb_t *sb, char c);
 void esl_sb_puts(esl_sb_t *sb, const char *s);
 void esl_sb_printf(esl_sb_t *sb, const char *fmt, ...)
