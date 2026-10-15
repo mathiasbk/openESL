@@ -205,7 +205,7 @@ In short:
 | `GET`/`POST /api/ota` | New firmware for the AP itself: the app image, whole or in parts; the AP restarts into it (`esl-client ota`) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
 
-**WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".
+**WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there, and a phone that joins is sent to the form by the captive portal) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".
 
 ## 3. Layout files
 

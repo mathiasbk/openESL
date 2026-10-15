@@ -379,13 +379,43 @@ static esp_err_t page_handler(httpd_req_t *req)
 }
 #endif
 
+#if CONFIG_ESL_WIFI_CAPTIVE
+/* Any other GET while the setup network is open, asked for by a name that is
+ * not the AP's own address (a phone's connectivity probe, which captive.c's
+ * DNS sent here): a redirect to the form, which makes the phone show its
+ * "sign in to network" page. Everything else is 404 as before. */
+static esp_err_t captive_handler(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    char host[48] = "";
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host));
+    bool setup_open = false;
+    if (api->wifi && strcmp(host, "192.168.4.1") != 0) {
+        esl_wifi_status_t *ws = malloc(sizeof(*ws));
+        if (ws) {
+            api->wifi->status(api->wifi->ctx, ws);
+            setup_open = ws->setup_ssid[0] != 0;
+            free(ws);
+        }
+    }
+    if (!setup_open) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+        return ESP_OK;
+    }
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/setup");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, NULL, 0);
+}
+#endif
+
 esp_err_t http_api_start(const esl_api_t *api)
 {
     httpd_handle_t server = NULL;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
-    cfg.max_uri_handlers = 12; /* two for /api/ota, three for the /api wildcard, two for /setup, one for / */
+    cfg.max_uri_handlers = 13; /* two for /api/ota, three for the /api wildcard, two for /setup, / and the rest */
 
     esp_err_t err = httpd_start(&server, &cfg);
     if (err != ESP_OK)
@@ -432,6 +462,15 @@ esp_err_t http_api_start(const esl_api_t *api)
     err = httpd_register_uri_handler(server, &page);
     if (err != ESP_OK)
         return err;
+#endif
+#if CONFIG_ESL_WIFI_CAPTIVE
+    if (api->wifi) {
+        /* Last: the first registered match wins, so this only gets what nothing else took */
+        httpd_uri_t rest = {.uri = "/*", .method = HTTP_GET, .handler = captive_handler, .user_ctx = (void *)api};
+        err = httpd_register_uri_handler(server, &rest);
+        if (err != ESP_OK)
+            return err;
+    }
 #endif
     ESP_LOGI(TAG, "HTTP API on port %d", cfg.server_port);
     return ESP_OK;

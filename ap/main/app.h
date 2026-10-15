@@ -59,6 +59,12 @@ int ota_info(esl_sb_t *out);
 bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
 
+/* captive.c (ESL_WIFI_CAPTIVE): the DNS server of the setup network, which
+ * answers every name with 192.168.4.1 so phones open the setup form by
+ * themselves. wifi.c starts it with the setup network and stops it with it. */
+void captive_dns_start(void);
+void captive_dns_stop(void);
+
 /* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
  * sent to the tags in blocks) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);

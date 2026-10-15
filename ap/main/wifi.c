@@ -77,12 +77,18 @@ static void setup_open(void)
     taskEXIT_CRITICAL(&w.mux);
     ESP_LOGW(TAG, "setup network \"%s\" open%s: http://192.168.4.1/setup", name,
              ap.ap.authmode == WIFI_AUTH_OPEN ? " (no password)" : "");
+#if CONFIG_ESL_WIFI_CAPTIVE
+    captive_dns_start();
+#endif
 }
 
 static void setup_close(void)
 {
     if (!w.setup_ssid[0])
         return;
+#if CONFIG_ESL_WIFI_CAPTIVE
+    captive_dns_stop();
+#endif
     esp_wifi_set_mode(WIFI_MODE_STA);
     taskENTER_CRITICAL(&w.mux);
     w.setup_ssid[0] = 0;

@@ -31,6 +31,15 @@ menu "OpenESL AP"
             itself asks for the API token once a token is set, so an open
             setup network only lets strangers configure an AP that has none.
 
+    config ESL_WIFI_CAPTIVE
+        bool "Captive portal on the setup network"
+        default y
+        help
+            While the setup network is open, a DNS server answers every name
+            with 192.168.4.1 and unknown pages redirect to the setup form, so
+            a phone that joins the network shows its "sign in" page with the
+            form in it. Without it, open http://192.168.4.1/setup by hand.
+
     config ESL_API_TOKEN
         string "API bearer token"
         default ""
