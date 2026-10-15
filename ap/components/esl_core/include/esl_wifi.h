@@ -74,7 +74,10 @@ void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, c
 
 /* POST /setup with the form fields ssid, pass, token and new_token. When a
  * token is set, the form must carry it in "token"; when none is set, new_token
- * (optional) becomes the token. Writes the answer page and returns the HTTP
- * status. */
+ * (optional) becomes the token. lock (may be NULL) is the API's lockout
+ * against guessing (esl_api_lock_t): a wrong token counts there too, and the
+ * form answers 429 while the API is locked. Writes the answer page and
+ * returns the HTTP status. */
+struct esl_api_lock;
 int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char *fw, const char *body, size_t len,
-                        esl_sb_t *out);
+                        struct esl_api_lock *lock, uint64_t now_ms, esl_sb_t *out);

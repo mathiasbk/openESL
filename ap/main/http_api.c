@@ -332,7 +332,8 @@ static esp_err_t setup_post(httpd_req_t *req)
     esl_sb_init(&out, page, ESL_WIFI_PAGE_SIZE);
     /* Under the API mutex: it may change the token the API checks. */
     xSemaphoreTake(api_mutex, portMAX_DELAY);
-    int status = esl_wifi_setup_post(api->wifi, api->token, api->fw_version, body, len, &out);
+    int status = esl_wifi_setup_post(api->wifi, api->token, api->fw_version, body, len, api->lock,
+                                     (uint64_t)esp_timer_get_time() / 1000, &out);
     xSemaphoreGive(api_mutex);
     ESP_LOGI(TAG, "POST /setup -> %d", status);
     ret = send_page(req, status, &out);

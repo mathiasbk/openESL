@@ -95,24 +95,33 @@ bool esl_api_auth_ok(const char *token, const char *auth)
     return diff == 0;
 }
 
+unsigned esl_api_lock_wait(const esl_api_lock_t *lock, uint64_t now_ms)
+{
+    if (!lock || now_ms >= lock->locked_until_ms)
+        return 0;
+    return (unsigned)((lock->locked_until_ms - now_ms + 999) / 1000);
+}
+
+void esl_api_lock_note(esl_api_lock_t *lock, bool ok, uint64_t now_ms)
+{
+    if (!lock)
+        return;
+    if (ok) {
+        lock->fails = 0;
+    } else if (++lock->fails >= ESL_API_AUTH_TRIES) {
+        lock->fails = 0;
+        lock->locked_until_ms = now_ms + ESL_API_AUTH_LOCK_S * 1000u;
+    }
+}
+
 int esl_api_auth_check(const esl_api_t *api, const char *auth, uint64_t now_ms, unsigned *wait_s)
 {
-    esl_api_lock_t *l = api->lock;
-    *wait_s = 0;
-    if (l && now_ms < l->locked_until_ms) {
-        *wait_s = (unsigned)((l->locked_until_ms - now_ms + 999) / 1000);
+    *wait_s = esl_api_lock_wait(api->lock, now_ms);
+    if (*wait_s)
         return 429;
-    }
-    if (esl_api_auth_ok(api->token, auth)) {
-        if (l)
-            l->fails = 0;
-        return 0;
-    }
-    if (l && ++l->fails >= ESL_API_AUTH_TRIES) {
-        l->fails = 0;
-        l->locked_until_ms = now_ms + ESL_API_AUTH_LOCK_S * 1000u;
-    }
-    return 401;
+    bool ok = esl_api_auth_ok(api->token, auth);
+    esl_api_lock_note(api->lock, ok, now_ms);
+    return ok ? 0 : 401;
 }
 
 /* ---- request parsing -------------------------------------------------------- */
