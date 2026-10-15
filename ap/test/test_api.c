@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -180,6 +180,55 @@ static void test_put_errors(void)
     big[ESL_API_MAX_BODY + 1] = '\0';
     CHECK_INT(req("PUT", u, AUTH, big, 0), 413);
     free(big);
+}
+
+static void test_auth_lockout(void)
+{
+    /* The static api has no lock (lock NULL): wrong tokens are only 401 */
+    for (int i = 0; i < 2 * ESL_API_AUTH_TRIES; i++)
+        CHECK_INT(req("GET", "/api/tags", "Bearer wrong", NULL, 1000), 401);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 1000), 200);
+
+    esl_api_lock_t lock = {0, 0};
+    esl_api_t locked = api;
+    locked.lock = &lock;
+    uint64_t t = 10 * 1000;
+    for (int i = 0; i < ESL_API_AUTH_TRIES; i++) {
+        CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", "Bearer wrong", NULL, 0, t, &out), 401);
+        CHECK_STR(resp, "{\"error\":\"unauthorized\"}");
+    }
+    /* the fifth wrong token locks: even the right one is refused for 60 s */
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", AUTH, NULL, 0, t, &out), 429);
+    CHECK_STR(resp, "{\"error\":\"too many wrong tokens: locked for 60 s\"}");
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", "Bearer wrong", NULL, 0, t + 30 * 1000, &out), 429);
+    CHECK_STR(resp, "{\"error\":\"too many wrong tokens: locked for 30 s\"}");
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", AUTH, NULL, 0, t + 59 * 1000 + 1, &out), 429);
+    CHECK_STR(resp, "{\"error\":\"too many wrong tokens: locked for 1 s\"}");
+    /* wrong tokens while locked do not extend it */
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", AUTH, NULL, 0, t + 60 * 1000, &out), 200);
+    CHECK(lock.fails == 0);
+
+    /* a right token resets the count */
+    t += 120 * 1000;
+    for (int i = 0; i < ESL_API_AUTH_TRIES - 1; i++)
+        CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", "Bearer wrong", NULL, 0, t, &out), 401);
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", AUTH, NULL, 0, t, &out), 200);
+    for (int i = 0; i < ESL_API_AUTH_TRIES - 1; i++)
+        CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", "Bearer wrong", NULL, 0, t, &out), 401);
+    CHECK_INT(esl_api_handle(&locked, "GET", "/api/tags", AUTH, NULL, 0, t, &out), 200);
+    /* a missing header counts like a wrong token; a request outside /api does not */
+    for (int i = 0; i < ESL_API_AUTH_TRIES; i++)
+        CHECK_INT(esl_api_handle(&locked, "GET", "/", NULL, NULL, 0, t, &out), 404);
+    for (int i = 0; i < ESL_API_AUTH_TRIES; i++)
+        CHECK_INT(esl_api_handle(&locked, "GET", "/api/health", NULL, NULL, 0, t, &out), 401);
+    CHECK_INT(esl_api_handle(&locked, "DELETE", "/api/tags/0000000000002000", AUTH, NULL, 0, t, &out), 429);
+
+    /* esl_api_auth_check() for transports that check the token themselves (OTA) */
+    unsigned wait_s = 7;
+    CHECK_INT(esl_api_auth_check(&locked, AUTH, t + 60 * 1000, &wait_s), 0);
+    CHECK_INT(esl_api_auth_check(&locked, "Bearer wrong", t + 60 * 1000, &wait_s), 401);
+    CHECK(wait_s == 0);
+    CHECK_INT(esl_api_auth_check(&api, "Bearer wrong", t, &wait_s), 401);
 }
 
 static void test_batch_and_list(void)
@@ -861,6 +910,7 @@ void test_api(void)
     esl_layouts_init(&layouts, NULL);
     esl_sb_init(&out, resp, sizeof(resp));
     test_auth_and_routing();
+    test_auth_lockout();
     test_put_one();
     test_put_errors();
     test_batch_and_list();

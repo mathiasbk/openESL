@@ -26,7 +26,19 @@ typedef struct {
     const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
     esl_sched_t *sched;     /* NULL: no scheduled content; /api/time and /api/schedule answer 404 */
     esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
+    struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
 } esl_api_t;
+
+/* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the
+ * API answers 429 to every request for ESL_API_AUTH_LOCK_S seconds, without
+ * looking at the token; a right token resets the count. One per transport,
+ * touched only by that transport's task. */
+typedef struct esl_api_lock {
+    uint8_t fails;
+    uint64_t locked_until_ms;
+} esl_api_lock_t;
+#define ESL_API_AUTH_TRIES  5
+#define ESL_API_AUTH_LOCK_S 60
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a
  * layout file. */
@@ -43,6 +55,10 @@ typedef struct {
  * time; false when the AP has no token. For transports that handle a request
  * themselves (main/ota.c). */
 bool esl_api_auth_ok(const char *token, const char *auth);
+
+/* esl_api_auth_ok() with api->lock: 0 when the request may go on, 401 for a
+ * wrong token, 429 while locked (then *wait_s is the seconds left). */
+int esl_api_auth_check(const esl_api_t *api, const char *auth, uint64_t now_ms, unsigned *wait_s);
 
 /* Handles one request. method is "GET"/"PUT"/"DELETE", uri may contain a query
  * string, auth is the Authorization header (or NULL), now_ms is time since

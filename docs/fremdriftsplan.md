@@ -97,7 +97,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Health and alerts: `GET /api/health` (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent) and a webhook the AP posts the report to when it changes (`PUT /api/config {"webhook":...}`)
 - [x] Backup and restore of an AP: `esl-client backup ap.json` (config, layout files, every tag's content and settings, the schedule) and `esl-client restore ap.json` onto a new AP or after `erase-flash`; tested against the fake AP in CI and against the simulator's AP core over the serial framing
 - [ ] The webhook tried on hardware (needs a C6 with working WiFi): set it with `esl-client config --webhook http://<pc>:8080/x`, pull a tag's battery, see the POST arrive
-- [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, without a limit on wrong tries
+- [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, and five wrong tokens in a row lock it for 60 s (`429`)
 
 ## Phase 0: Preparation
 - Install and pin the SDCC and ESP-IDF versions.
