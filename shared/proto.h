@@ -145,7 +145,7 @@
 /* Ett element, 14 byte, i samme rekkefølge som layout_elem_t i tag/src/layout.h */
 #define ESL_LE_SIZE          14
 #define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
-#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..3, eller ESL_LE_FIELD_FIXED | fast tekst */
+#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..5, eller ESL_LE_FIELD_FIXED | fast tekst */
 #define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
 #define ESL_LE_OFF_OPTS      5      /* u8 justering */
 #define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3) */

@@ -1,6 +1,6 @@
 # OpenESL
 
-Open firmware for the SoluM ST-GM29XX2 price tags (ZBS243) and an access point (AP) on the ESP32-C6. The AP exposes a small HTTP API, so any software can send price and text straight to the tags.
+Open firmware for the SoluM ST-GM29XX2 (2.9") and ST-GM16XX2 (1.54") price tags (ZBS243) and an access point (AP) on the ESP32-C6. The AP exposes a small HTTP API, so any software can send price and text straight to the tags.
 
 ```
 your software ──HTTP + token──► ESP32-C6 (AP) ──802.15.4──► tags (ZBS243)
@@ -23,6 +23,7 @@ Working on hardware since 2026-10-14: the tag firmware runs on the SoluM 1.54" (
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [ap/](ap/) | AP firmware for the ESP32-C6 (ESP-IDF) with the HTTP API |
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |
+| [tools/](tools/) | [`esl-client`](tools/esl-client/README.md) (example client for the API), [`flash-tui`](tools/flash-tui/README.md) (flashing tags in a jig), [`wemos-debug`](tools/wemos-debug/README.md) (the tag's debug UART), `power-budget` ([docs/strombudsjett.md](docs/strombudsjett.md)) |
 | [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link: end-to-end tests in CI, and a serial port for `esl-client` with no hardware |
 
 Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
@@ -31,7 +32,7 @@ Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftspla
 
 The version is in [VERSION](VERSION). The tag firmware shows it on its start screen and sends it in POLL (1.2.3 as 10203), and the AP reports it as `ap.fw` in `GET /api/tags`.
 
-To make a release, bump `VERSION` in a pull request. When it is merged to `master`, [release.yml](.github/workflows/release.yml) makes the release `v<VERSION>` from that commit: it builds the firmware and publishes a GitHub release with the tag firmware for each model, the merged AP image, the app image alone for OTA (`...-ota.bin`, `esl-client ota`), `SHA256SUMS.txt`, and notes listing the pull requests since the previous release. The web page is then published again, and its flashers serve that release.
+To make a release, bump `VERSION` in a pull request. When it is merged to `master`, [release.yml](.github/workflows/release.yml) makes the release `v<VERSION>` from that commit: it builds the firmware and publishes a GitHub release with the tag firmware for each model, the merged AP image (plain, and with the LCD status screen), the app image alone for OTA (`...-ota.bin` for both, `esl-client ota`), `SHA256SUMS.txt`, and notes listing the pull requests since the previous release. The web page is then published again, and its flashers serve that release.
 
 The same workflow can be started by hand (Actions → Release → Run workflow) to release the current `VERSION` if that release does not exist yet, or by pushing a tag that matches `VERSION` (`git tag v0.2.0 && git push origin v0.2.0`). A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.
 

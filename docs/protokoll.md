@@ -23,7 +23,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
-| battery_mv | 2 | battery voltage in mV |
+| battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" panel cannot be read yet, issue #4) |
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer") |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
@@ -56,7 +56,7 @@ So older tags never get a message type they do not know. Fields added later go a
 | flags | 1 | bit0 = highlighted price (white digits in a black box), bit1 = black frame around the screen |
 | fields | rest | up to 6 text fields (`ESL_MAX_FIELDS`), each as `length (1 byte)` + Latin-1 text |
 
-Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`; a file layout = the `fields` of that layout in the layout file (part 3), in that order. With 4 bytes reserved for a future MIC (requirement T16), the fields have **96 bytes** (`ESL_CONTENT_FIELD_SPACE`): the text after conversion to Latin-1 plus one length byte per field sent, so 92 bytes of text with four fields and 90 with six. The AP drops empty fields at the end, so they cost nothing. Tags with firmware v0.1.0 read only the first four fields and reject a layout file that uses a fifth or sixth (`layout_failed`), so flash new firmware before uploading such a file. A future MIC is checked and cut off before the fields are read, since the number of fields is not fixed.
+Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`; a file layout = the `fields` of that layout in the layout file (part 3), in that order. With 4 bytes reserved for a future MIC (requirement T16), the fields have **96 bytes** (`ESL_CONTENT_FIELD_SPACE`): the text after conversion to Latin-1 plus one length byte per field sent, so 92 bytes of text with four fields and 90 with six. The AP drops empty fields at the end, so they cost nothing. Tags with the v0.1.0 release firmware read only the first four fields and reject a layout file that uses a fifth or sixth (`layout_failed`), so flash new firmware before uploading such a file. A future MIC is checked and cut off before the fields are read, since the number of fields is not fixed.
 
 The AP only sends layout 0x10 + n to a tag that reports the AP's current layout file version in its POLL. A tag that gets a layout number it does not have (should not happen) shows the fields with the built-in Text layout.
 
@@ -70,7 +70,7 @@ The AP only sends layout 0x10 + n to a tag that reports the AP's current layout 
 | max_poll_s | 2 | longest interval while the AP does not answer (T11) |
 | lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
 
-Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field missing from a shorter message counts as 0.
+Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest. A CONFIG shorter than 12 bytes is ignored.
 
 `cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
 
@@ -110,7 +110,7 @@ Element, 14 bytes, the same order as `layout_elem_t` in `tag/src/layout.h`:
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind: 1 = text, 2 = filled rectangle, 3 = barcode |
-| 1 | 1 | text field 0..3 (text and barcode), or 0x80 + i for fixed text i of the file |
+| 1 | 1 | text field 0..5 (text and barcode), or 0x80 + i for fixed text i of the file |
 | 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
 | 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom) |
 | 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits |
@@ -122,7 +122,7 @@ Element, 14 bytes, the same order as `layout_elem_t` in `tag/src/layout.h`:
 
 How a text element is drawn (font fallback, wrapping, "…", inverted box) is described in `tag/src/layout.h`; the built-in layouts are the same kind of element list.
 
-A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the tag adds the check digit) or 13 with a correct check digit. A field that cannot be encoded, or does not fit the box even with 1-pixel modules, draws nothing; the AP refuses such content in `PUT /api/tags` (part 2). At most one barcode per layout. Tag firmware 0.1.0 does not know kind 3 or fixed texts and rejects a file that uses them (bit2 in POLL, `layout_failed` in the API).
+A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the tag adds the check digit) or 13 with a correct check digit. A field that cannot be encoded, or does not fit the box even with 1-pixel modules, draws nothing; the AP refuses such content in `PUT /api/tags` (part 2). At most one barcode per layout. The v0.1.0 release firmware does not know kind 3 or fixed texts and rejects a file that uses them (bit2 in POLL, `layout_failed` in the API).
 
 How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. EAN-13 is specified from 0.264 mm per module (80 %), so a 2-pixel module (0.45 mm) on the 2.9" is a safe choice; 1-pixel modules are below the standard and need a good scanner.
 
@@ -256,7 +256,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 The AP also checks what the tag can draw, so a file that is accepted always works on the tag (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 16 text lines (each text element counts the most lines it can use) and 10 rectangles (`rect` elements plus `invert`/`highlight` text): the tag's scene has room for no more (`DRAW_MAX_RUNS`, `DRAW_MAX_RECTS`; tag firmware 0.1.0 has room for 8 and 5 and leaves out what does not fit);
+- per layout at most 16 text lines (each text element counts the most lines it can use) and 10 rectangles (`rect` elements plus `invert`/`highlight` text): the tag's scene has room for no more (`DRAW_MAX_RUNS`, `DRAW_MAX_RECTS`; the v0.1.0 release firmware has room for 8 and 5 and leaves out what does not fit);
 - the binary file is at most 768 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 

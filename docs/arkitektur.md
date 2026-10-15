@@ -19,6 +19,8 @@
 5. The tag draws the screen (a few seconds for a black/white full update; measured in phase 2) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new `content_id` is the acknowledgement (see [protokoll.md](protokoll.md)).
 6. The next time the client reads `GET /api/tags`, `shown_content_id` shows that the tag has the new content.
 
+The client can also send the content ahead of time with `at` (Unix time): the AP stores it and applies it itself at that time, also after a restart (`/api/schedule`, `/api/time`).
+
 Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawing), within requirement G1.
 
 ## Choices and rationale
@@ -26,23 +28,23 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 ### The tag draws itself (not images)
 - One radio packet instead of about 80 packets per image: no block transfer, no resending of lost pieces, no EEPROM storage.
 - Less radio time gives better battery life.
-- The first step has the layouts "Price" and "Text" fixed in the firmware. They will be replaced by layout files from the design tool (see below). Images may come in version 2 with a separate message type.
+- The layouts `price` and `text` are built into the firmware; the others come as layout files from the design tool (see below). Images may come in version 2 with a separate message type.
 - The tag does not need a whole image in RAM: it calculates one pixel column at a time and streams it to the display controller, which has its own image memory.
 
 ### Layout from the design tool (requirement G7)
-- A designer makes the screen design in a separate design tool (not built yet; until then the file is written by hand). It is one JSON layout file per tag model with up to 16 named layouts: fields, positions, fonts, colours, alignment ([protokoll.md](protokoll.md) part 3).
+- A designer makes the screen design in the label designer on the web page (`web/`, the Design tab), which can also send the file straight to the AP. It is one JSON layout file per tag model with up to 16 named layouts: up to 6 fields, positions, fonts, colours, alignment, fixed texts and one barcode, with up to 16 text lines and 10 boxes per screen ([protokoll.md](protokoll.md) part 3).
 - Flow: layout file → AP (`PUT /api/layouts/{model}`) → the AP checks it against the model and compiles it to a compact binary (14 bytes per element, at most 768 bytes) → each tag downloads it in blocks when the version (CRC-32 of the binary) in its POLL differs from the AP's ([protokoll.md](protokoll.md) part 1, "Layout transfer").
 - **Conversion on the AP**, not on the PC and not on the tag: clients upload the same JSON the tool makes, the AP can answer `422` with the exact place of an error, and the tag only needs a small interpreter for the binary (`layout_apply_bin()`), no JSON parser. The tag preview on the PC (`tag/tools/render_host.py`) builds the AP's compiler for the host, so previews show exactly what a tag gets.
 - `layout` in `PUT /api/tags` is `price`, `text` or a layout name from the file. The AP stores the name and turns it into "layout n of the file" (CONTENT layout 0x10 + n) for each tag's model when it sends the content; the same name can exist in both models' files.
 - The tag still draws the screen itself, so text changes are still one radio packet. A layout file is only sent when it changes; a 768-byte file is 9 blocks.
 - The layout file belongs to the tag model, not to the individual tag. All tags of the same model use the same layout file, with content from the client.
-- The tag keeps the file in XRAM for now. Once flash writing works (requirement T12) it should be stored in flash, so a restart does not cost a new download.
+- The tag keeps the layout file and the last content in flash (requirement T12), so a restart shows the content again and costs no new download.
 
 ### Two tag sizes: 2.9" and 1.54" (requirement G6)
 - SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white) are both supported by the same AP, the same radio protocol, the same API and the same code.
 - Tag: display driver, resolution, font choice and default layouts are parameterised per model. One firmware is built per size from the same source code (build option, e.g. `make fw MODEL=154`).
 - AP: stores the model per tag and selects layout file and text limits by model. The model comes from the tag (field in POLL, requirement T18).
-- Which display controller the 1.54" tag has must be confirmed in phase 0, as for the 2.9". Neither tag has red.
+- The 1.54" display controller was confirmed in phase 0. Neither tag has red.
 
 ### The tag initiates all communication
 - The tag has its radio off almost all the time. It can only receive for the few milliseconds after it has sent something itself.
@@ -71,9 +73,13 @@ openesl/
     tools/        build script, font generator, label design tool (Python)
   ap/             ESP-IDF project for ESP32-C6
     components/esl_core/  plain C core (content, protocol, store, API), tested on the PC
-    main/         ESP-IDF glue: WiFi, HTTP server, radio, NVS
+    main/         ESP-IDF glue: WiFi and setup network, HTTP server, API over USB, radio, NVS,
+                  scheduled content and NTP, webhook, OTA, LCD status screen
   shared/
     proto.h       shared packet definitions, used by both tag and AP
+  sim/            tag firmware and AP core together on the PC, end-to-end tests in CI
+  tools/          esl-client (example client), flash-tui (flashing in a jig), wemos-debug, power-budget
+  web/            the web page: label designer, flashers, setup guide, API docs
   docs/           these documents
 ```
 
