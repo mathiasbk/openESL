@@ -75,8 +75,10 @@ static uint8_t xfer(uint8_t b)
     return r;
 }
 
-static void sel(void)   { P1_7 = 1; P0_0 = 0; P1_1 = 0; }
-static void desel(void) { P1_1 = 1; }
+/* Whole-byte writes to P1, no read-modify-write: the port does not read back what was
+ * written. 0x80 = EPD nCS (P1.7) high, BS1 (P1.2) low, flash nCS (P1.1) low; 0x82 = both high. */
+static void sel(void)   { P0_0 = 0; P1 = 0x80; }
+static void desel(void) { P1 = 0x82; }
 
 static void addr(uint32_t a)
 {
