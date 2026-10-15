@@ -4,8 +4,10 @@
 #include <stdlib.h>
 
 /* Layout files: the compiler (JSON -> what the tags download, krav A13) and
- * the storage per model. The example files in tag/designs/layouts/ are
- * compiled too, so they always stay valid. */
+ * the storage per model. The tests use fixed copies of the example files
+ * (ap/test/layouts/, two layouts each) so their sizes do not change when the
+ * examples grow; the files in tag/designs/layouts/ are compiled too, so they
+ * always stay valid. */
 
 typedef struct {
     int depth, locks, saves, erases;
@@ -47,11 +49,8 @@ static void f_erase(void *ctx, uint8_t model)
 static esl_layout_bin_t bin;
 static char err[ESL_LAYOUT_ERR_MAX];
 
-/* Reads tag/designs/layouts/<name> (the tests run from ap/test). NULL if missing. */
-char *read_example_layout(const char *name, size_t *len)
+static char *read_file(const char *path, size_t *len)
 {
-    char path[256];
-    snprintf(path, sizeof(path), "../../tag/designs/layouts/%s", name);
     FILE *f = fopen(path, "rb");
     if (!f)
         return NULL;
@@ -59,6 +58,14 @@ char *read_example_layout(const char *name, size_t *len)
     *len = buf ? fread(buf, 1, ESL_LAYOUT_MAX_SIZE + 1, f) : 0;
     fclose(f);
     return buf;
+}
+
+/* Reads ap/test/layouts/<name> (the tests run from ap/test). NULL if missing. */
+char *read_example_layout(const char *name, size_t *len)
+{
+    char path[256];
+    snprintf(path, sizeof(path), "layouts/%s", name);
+    return read_file(path, len);
 }
 
 static bool compile(const char *js, uint8_t model)
@@ -94,7 +101,7 @@ static void test_examples(void)
         char *js = read_example_layout(ex[i].file, &len);
         CHECK(js != NULL);
         if (!js) {
-            printf("  missing tag/designs/layouts/%s\n", ex[i].file);
+            printf("  missing ap/test/layouts/%s\n", ex[i].file);
             continue;
         }
         bool ok = esl_layout_compile(js, len, ex[i].model, &bin, err, sizeof(err));
@@ -119,6 +126,27 @@ static void test_examples(void)
         uint8_t other = ex[i].model == ESL_MODEL_29 ? ESL_MODEL_154 : ESL_MODEL_29;
         CHECK(!esl_layout_compile(js, len, other, &bin, err, sizeof(err)));
         CHECK(HAS(err, "model must be"));
+        free(js);
+
+        /* the shipped file: compiles for its model, starts with the same two layouts */
+        char path[256];
+        snprintf(path, sizeof(path), "../../tag/designs/layouts/%s", ex[i].file);
+        js = read_file(path, &len);
+        CHECK(js != NULL);
+        if (!js) {
+            printf("  missing %s\n", path);
+            continue;
+        }
+        ok = esl_layout_compile(js, len, ex[i].model, &bin, err, sizeof(err));
+        if (!ok)
+            printf("  %s: %s\n", path, err);
+        CHECK(ok);
+        CHECK(bin.count >= 2);
+        CHECK_STR(bin.names[0], "shelf");
+        CHECK_STR(bin.names[1], "sign");
+        CHECK_INT(bin.bin[2], bin.count);
+        CHECK_INT(bin.version, esl_crc32(bin.bin, bin.size));
+        CHECK(!esl_layout_compile(js, len, other, &bin, err, sizeof(err)));
         free(js);
     }
 }

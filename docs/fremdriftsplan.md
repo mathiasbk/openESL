@@ -27,7 +27,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] SDCC and ESP-IDF (v5.5.5) installed; the tag firmware and the AP build
 - [x] Flashing through ZBS_Flasher on a Wemos works (`tools/flash-tui`)
 - [x] Display controller found (ST-GM16XX2, 1.54"), pins mapped
-- [ ] Power budget for requirement T6 calculated from the real battery
+- [x] Power budget for requirement T6 estimated ([strombudsjett.md](strombudsjett.md), `tools/power-budget`): about 4.6 µA average, T6 holds on one CR2450 as long as sleep stays under ~20 µA
+- [x] Battery type and count confirmed: 1.54" tags hold one CR2450, 2.9" tags two; the budget covers both
 
 **Phase 1: Signs of life**
 - [x] Clock, calibrated delay, GPIO, UART, MAC read on the tag
@@ -61,7 +62,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 
 **Phase 6: Power**
 - [x] Deep sleep with timer wake-up on the tag
-- [ ] Measure sleep current, energy per POLL and per display update
+- [ ] Measure sleep current, energy per POLL and per display update, and put them into `tools/power-budget` ([strombudsjett.md](strombudsjett.md), "What phase 6 should measure")
 - [ ] Battery measurement (T8): not supported on this panel yet, reported as 0 mV; in progress (issue #4)
 - [x] Longer interval without the AP (T11): backoff up to 600 s
 
