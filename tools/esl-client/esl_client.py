@@ -109,6 +109,18 @@ class Client:
     def put_layout(self, model, raw):
         return self._request("PUT", f"/api/layouts/{model}", raw)
 
+    def health(self, silent_s=None, battery_mv=None):
+        q = [f"silent_s={silent_s}" if silent_s else "", f"battery_mv={battery_mv}" if battery_mv else ""]
+        q = "&".join(x for x in q if x)
+        return self._request("GET", "/api/health" + ("?" + q if q else ""))
+
+    def config(self):
+        return self._request("GET", "/api/config")
+
+    def set_config(self, **kw):
+        """poll_s=None resets the interval, webhook=None or "" turns the webhook off."""
+        return self._request("PUT", "/api/config", kw)
+
     def wifi(self):
         return self._request("GET", "/api/wifi")
 
@@ -494,6 +506,22 @@ def print_status(st):
               f"{t.get('rssi') if t.get('rssi') is not None else '-':>4}  {state}")
 
 
+def print_health(h):
+    """One line per tag with a problem, and the counts. Returns 0 when everything is fine."""
+    counts = ", ".join(f"{k} {h.get(k)}" for k in ("silent", "unseen", "draw_failed", "low_battery",
+                                                   "layout_failed", "content_error") if h.get(k))
+    print(f"{'ok' if h.get('ok') else 'PROBLEMS'}: {h.get('with_problems')} of {h.get('tags')} tags"
+          + (f" ({counts})" if counts else ""))
+    for t in h.get("problems", []):
+        print(f"  {t.get('mac')}  {', '.join(t.get('problems', [])):28}  seen {fmt_ago(t.get('seen_s_ago')):>7}"
+              + (f"  {t['battery_mv']} mV" if t.get("battery_mv") else ""))
+    return 0 if h.get("ok") else 1
+
+
+def print_config(c):
+    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}")
+
+
 def print_wifi(w):
     line = f"WiFi {w.get('mode')}: "
     if w.get("connected"):
@@ -643,6 +671,13 @@ def main(argv=None):
     s.add_argument("--allow-origin", action="append", default=[], metavar="ORIGIN",
                    help="another page that may use the bridge, e.g. http://192.168.1.10:8000")
 
+    s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
+    s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
+    s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval and webhook")
+    s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
+    s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
+
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
@@ -687,6 +722,15 @@ def main(argv=None):
         elif args.cmd == "delete":
             cli.delete_tag(args.mac)
             print(f"{args.mac} deleted")
+        elif args.cmd == "health":
+            return print_health(cli.health(args.silent_s, args.battery_mv))
+        elif args.cmd == "config":
+            kw = {}
+            if args.poll_s is not None:
+                kw["poll_s"] = None if args.poll_s == "null" else int(args.poll_s)
+            if args.webhook is not None:
+                kw["webhook"] = args.webhook or None
+            print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "wifi":
             if args.ssid is None:
                 print_wifi(cli.wifi())

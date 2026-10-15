@@ -184,6 +184,21 @@ menu "OpenESL AP"
         help
             Where the AP gets the time once it is on WiFi. Empty: no NTP;
             the time then only comes from PUT /api/time.
+    config ESL_WEBHOOK
+        bool "Webhook: post the health report when it changes"
+        default y
+        help
+            PUT /api/config {"webhook": "http://..."} makes the AP POST the
+            report of GET /api/health (tags that are silent, never seen,
+            failed to draw, low on battery, rejected the layout file, or
+            cannot get their content) to that URL whenever any tag's
+            problems change. Off: /api/config answers 422 for "webhook".
+
+    config ESL_HEALTH_PERIOD_S
+        int "Seconds between health checks for the webhook"
+        depends on ESL_WEBHOOK
+        range 5 3600
+        default 30
 
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"

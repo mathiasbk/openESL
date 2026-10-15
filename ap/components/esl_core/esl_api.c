@@ -11,6 +11,7 @@
 #define PATH_WIFI "/api/wifi"
 #define PATH_TIME "/api/time"
 #define PATH_SCHEDULE "/api/schedule"
+#define PATH_HEALTH "/api/health"
 
 _Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -778,8 +779,10 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
     return status;
 }
 
-/* PUT/GET /api/config: AP-wide default interval. poll_s 0 = tags keep their
- * built-in interval, null = back to the AP's built-in default (menuconfig). */
+/* PUT/GET /api/config: AP-wide default interval and the webhook. poll_s 0 =
+ * tags keep their built-in interval, null = back to the AP's built-in default
+ * (menuconfig). webhook null or "" = off. Keys left out stay as they are;
+ * one of them must be there. */
 static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
 {
     bool put = strcmp(method, "PUT") == 0;
@@ -789,16 +792,35 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         if (status == 0) {
             json_t j = {body, tok};
             int v = esl_json_obj_get(body, tok, 0, "poll_s");
+            int w = esl_json_obj_get(body, tok, 0, "webhook");
             uint16_t poll_s;
-            if (v < 0)
-                status = api_error(out, 422, "poll_s is required (null resets it to the built-in default)");
-            else if (tok[v].type == ESL_JSON_NULL)
-                esl_store_reset_next_poll(api->store);
-            else if (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
-                     (poll_s && poll_s < ESL_CFG_POLL_MIN_S))
+            char url[ESL_WEBHOOK_URL_MAX + 1];
+            int ul = 0;
+            if (v < 0 && w < 0)
+                status = api_error(out, 422, "poll_s or webhook is required (null resets it)");
+            else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
+                     (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
+                      (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
                 status = api_error(out, 422, "poll_s must be null, 0 or a whole number of seconds from 10 to 3600");
-            else
-                esl_store_set_next_poll(api->store, poll_s);
+            else if (w >= 0 && !api->notify)
+                status = api_error(out, 422, "this AP has no webhook");
+            else if (w >= 0 && tok[w].type != ESL_JSON_NULL &&
+                     (tok[w].type != ESL_JSON_STRING ||
+                      (ul = esl_json_str_decode(body, &tok[w], url, sizeof(url) - 1)) < 0 ||
+                      (ul && !esl_webhook_url_ok(url, (size_t)ul))))
+                status = api_error(out, 422, "webhook must be null or an http://host[:port][/path] URL of at most 127 characters");
+            else {
+                if (v >= 0 && tok[v].type == ESL_JSON_NULL)
+                    esl_store_reset_next_poll(api->store);
+                else if (v >= 0)
+                    esl_store_set_next_poll(api->store, poll_s);
+                if (w >= 0) {
+                    url[ul] = '\0';
+                    strcpy(api->notify->url, url);
+                    if (api->notify->persist)
+                        api->notify->persist(api->notify->ctx, url);
+                }
+            }
         }
         free(tok);
         if (status)
@@ -806,9 +828,95 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
     } else if (strcmp(method, "GET") != 0) {
         return api_error(out, 405, "method not allowed");
     }
-    esl_sb_printf(out, "{\"poll_s\":%u,\"builtin_poll_s\":%u}", (unsigned)esl_store_get_next_poll(api->store),
+    esl_sb_printf(out, "{\"poll_s\":%u,\"builtin_poll_s\":%u,\"webhook\":", (unsigned)esl_store_get_next_poll(api->store),
                   (unsigned)api->store->next_poll_builtin);
+    if (api->notify && api->notify->url[0])
+        esl_sb_json_str(out, api->notify->url);
+    else
+        esl_sb_puts(out, "null");
+    esl_sb_putc(out, '}');
     return 200;
+}
+
+/* ---- health ---------------------------------------------------------------- */
+
+/* A number from the query string (?silent_s=600&battery_mv=2400); 0 if absent. */
+static uint16_t query_u16(const char *uri, const char *key)
+{
+    const char *q = strchr(uri, '?');
+    size_t kl = strlen(key);
+    while (q) {
+        q++;
+        if (strncmp(q, key, kl) == 0 && q[kl] == '=') {
+            unsigned long v = strtoul(q + kl + 1, NULL, 10);
+            return v > 65535 ? 65535 : (uint16_t)v;
+        }
+        q = strchr(q, '&');
+    }
+    return 0;
+}
+
+int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
+                   esl_sb_t *out)
+{
+    unsigned counts[8] = {0}, tags = 0, problems = 0, changed = 0;
+    esl_sb_stream(out, 200); /* one row per tag with a problem: can be larger than the buffer */
+    esl_sb_puts(out, "{\"problems\":[");
+    for (unsigned s = 0; s < api->store->cap; s++) {
+        esl_tag_t t;
+        if (!esl_store_get_slot(api->store, s, &t)) {
+            if (prev)
+                prev[s] = 0;
+            continue;
+        }
+        uint32_t v = 0;
+        if (t.seen && api->layouts)
+            esl_layouts_info(api->layouts, t.model, &v, NULL, NULL);
+        uint8_t f = esl_health_flags(&t, esl_store_tag_poll_s(api->store, t.mac), v, now_ms, cfg);
+        tags++;
+        if (prev) {
+            if (prev[s] != f)
+                changed++;
+            prev[s] = f;
+        }
+        if (!f)
+            continue;
+        char m[17];
+        esl_mac_format(t.mac, m);
+        esl_sb_printf(out, "%s{\"mac\":\"%s\",\"problems\":[", problems ? "," : "", m);
+        bool first = true;
+        for (unsigned b = 0; b < 8; b++) {
+            if (!(f & (1u << b)))
+                continue;
+            counts[b]++;
+            esl_sb_printf(out, "%s\"%s\"", first ? "" : ",", esl_health_flag_name((uint8_t)(1u << b)));
+            first = false;
+        }
+        if (t.seen)
+            esl_sb_printf(out, "],\"seen_s_ago\":%" PRIu64 ",\"battery_mv\":%u}", (now_ms - t.last_seen_ms) / 1000,
+                          (unsigned)t.battery_mv);
+        else
+            esl_sb_puts(out, "],\"seen_s_ago\":null,\"battery_mv\":null}");
+        problems++;
+    }
+    esl_sb_printf(out, "],\"ok\":%s,\"tags\":%u,\"with_problems\":%u", problems ? "false" : "true", tags, problems);
+    for (unsigned b = 0; b < 8; b++) {
+        uint8_t flag = (uint8_t)(1u << b);
+        if (strcmp(esl_health_flag_name(flag), "?") != 0)
+            esl_sb_printf(out, ",\"%s\":%u", esl_health_flag_name(flag), counts[b]);
+    }
+    if (prev)
+        esl_sb_printf(out, ",\"changed\":%u", changed);
+    esl_sb_putc(out, '}');
+    return 200;
+}
+
+static int get_health(const esl_api_t *api, const char *method, const char *uri, uint64_t now_ms, esl_sb_t *out)
+{
+    if (strcmp(method, "GET") != 0)
+        return api_error(out, 405, "method not allowed");
+    esl_health_cfg_t cfg = {query_u16(uri, "silent_s"), query_u16(uri, "battery_mv")};
+    return esl_api_health(api, now_ms, &cfg, NULL, out);
 }
 
 /* GET/PUT /api/wifi: the network the AP joins (krav A1). The password is never
@@ -1124,6 +1232,12 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     const size_t cbase = sizeof(PATH_CONFIG) - 1;
     if ((plen == cbase || (plen == cbase + 1 && uri[cbase] == '/')) && memcmp(uri, PATH_CONFIG, cbase) == 0) {
         int status = ap_config(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t hbase = sizeof(PATH_HEALTH) - 1;
+    if ((plen == hbase || (plen == hbase + 1 && uri[hbase] == '/')) && memcmp(uri, PATH_HEALTH, hbase) == 0) {
+        int status = get_health(api, method, uri, now_ms, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 

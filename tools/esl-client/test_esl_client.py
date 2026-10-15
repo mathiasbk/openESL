@@ -22,6 +22,7 @@ class FakeAp(BaseHTTPRequestHandler):
     wifi = {}
     time = None
     sched = []
+    config = {"poll_s": 0, "builtin_poll_s": 0, "webhook": None}
 
     def log_message(self, *a):
         pass
@@ -64,6 +65,15 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, {"time": FakeAp.time, "source": "api" if FakeAp.time else None})
         elif self.path == "/api/schedule":
             self._send(200, {"time": FakeAp.time, "max_scheduled": 256, "scheduled": FakeAp.sched})
+        elif self.path == "/api/config":
+            self._send(200, self.config)
+        elif self.path.startswith("/api/health"):
+            self.calls.append((self.path, None))
+            problems = [{"mac": m, "problems": ["low_battery"], "seen_s_ago": t["seen_s_ago"],
+                         "battery_mv": t["battery_mv"]} for m, t in self.tags.items() if t["battery_mv"] < 2500]
+            self._send(200, {"problems": problems, "ok": not problems, "tags": len(self.tags),
+                             "with_problems": len(problems), "silent": 0, "unseen": 0, "draw_failed": 0,
+                             "low_battery": len(problems), "layout_failed": 0, "content_error": 0})
         elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
@@ -81,6 +91,12 @@ class FakeAp(BaseHTTPRequestHandler):
         if self.path == "/api/time":
             FakeAp.time = body["time"]
             self._send(200, {"time": FakeAp.time, "source": "api"})
+        if self.path == "/api/config":
+            if "poll_s" in body:
+                FakeAp.config["poll_s"] = body["poll_s"] or 0
+            if "webhook" in body:
+                FakeAp.config["webhook"] = body["webhook"] or None
+            self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
                            "setup_ssid": None, "networks": []}
@@ -135,6 +151,28 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("status")
         self.assertIn("00000123456789A8", out)
         self.assertIn("shown", out)
+
+    def test_health_and_config(self):
+        rc, out = self.run_cli("health")
+        self.assertEqual((rc, out), (0, "ok: 0 of 0 tags\n"))
+        self.run_cli("price", "00000123456789A8", "Milk", "24.90")
+        FakeAp.tags["00000123456789A8"]["battery_mv"] = 2380
+        rc, out = self.run_cli("health", "--silent-s", "600")
+        self.assertEqual(rc, 1)
+        self.assertIn("PROBLEMS: 1 of 1 tags (low_battery 1)", out)
+        self.assertIn("00000123456789A8  low_battery", out)
+        self.assertIn("2380 mV", out)
+        self.assertEqual(FakeAp.calls[-1][0], "/api/health?silent_s=600")
+
+        rc, out = self.run_cli("config")
+        self.assertEqual((rc, out), (0, "poll_s 0 (menuconfig 0), webhook off\n"))
+        rc, out = self.run_cli("config", "--webhook", "http://10.0.0.5:8080/esl", "--poll-s", "120")
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"poll_s": 120, "webhook": "http://10.0.0.5:8080/esl"}))
+        self.assertIn("poll_s 120 (menuconfig 0), webhook http://10.0.0.5:8080/esl", out)
+        rc, out = self.run_cli("config", "--webhook", "", "--poll-s", "null")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"poll_s": None, "webhook": None}))
+        self.assertIn("webhook off", out)
 
     def test_same_content_is_unchanged(self):
         self.run_cli("text", "00000123456789A8", "Hello", "--frame")

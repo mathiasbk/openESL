@@ -214,6 +214,22 @@ esp_err_t layouts_nvs_init(esl_layouts_t *ls)
     return ESP_OK;
 }
 
+void cfg_set_str(const char *key, const char *val)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = val[0] ? nvs_set_str(h, key, val) : nvs_erase_key(h, key);
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/%s failed: %s", key, esp_err_to_name(err));
+}
+
 void cfg_get_str(const char *key, const char *def, char *out, size_t out_len)
 {
     nvs_handle_t h;
