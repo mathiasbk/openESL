@@ -275,7 +275,7 @@ Removes the tag from the AP. The tag keeps what it shows until it gets new conte
 
 ## 3. Layout files
 
-Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (not built yet; until then the file is written by hand) makes **one layout file per tag model**. It holds up to 16 named layouts. A client uploads it with `PUT /api/layouts/{model}` (part 2), chooses a layout per tag by name in `PUT /api/tags` (requirement A14), and the AP sends the file to the tags over radio (part 1, "Layout transfer"). The built-in layouts `price` and `text` stay in the firmware and can always be used, with or without a file. Examples: `tag/designs/layouts/2.9.json` and `1.54.json`; previews in `tag/build/preview/<model>/layout-*.png` (`python tools/render_host.py` in `tag/`).
+Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of the web page in `web/`, or the file written by hand) makes **one layout file per tag model**. It holds up to 16 named layouts. A client uploads it with `PUT /api/layouts/{model}` (part 2), chooses a layout per tag by name in `PUT /api/tags` (requirement A14), and the AP sends the file to the tags over radio (part 1, "Layout transfer"). The built-in layouts `price` and `text` stay in the firmware and can always be used, with or without a file. Examples: `tag/designs/layouts/2.9.json` and `1.54.json`; previews in `tag/build/preview/<model>/layout-*.png` (`python tools/render_host.py` in `tag/`).
 
 ```json
 {

@@ -1,0 +1,105 @@
+# Builds the web page (web/) with the tag and AP firmware, runs its tests, and publishes it
+# to GitHub Pages on every push to master. Pull requests build and test only; the finished
+# page is attached to the run as the "web-page" artifact.
+#
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+name: Web page
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tag-firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDCC 4.5.0
+        run: |
+          curl -sSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.5.0/sdcc-4.5.0-amd64-unknown-linux2.5.tar.bz2/download
+          mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
+          echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
+      - name: Host tests
+        run: python3 tag/tools/build.py test
+      - name: Build firmware (2.9" and 1.54")
+        run: |
+          MODEL=29 python3 tag/tools/build.py fw
+          MODEL=154 python3 tag/tools/build.py fw
+          mkdir -p out
+          cp tag/build/fw/openesl.bin out/tag-29.bin
+          cp tag/build/fw154/openesl.bin out/tag-154.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tag-firmware
+          path: out/
+
+  ap-firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32c6
+          path: ap
+          command: idf.py build && cd build && python -m esptool --chip esp32c6 merge_bin -o openesl-ap.bin @flash_args
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ap-firmware
+          path: ap/build/openesl-ap.bin
+
+  page:
+    needs: [tag-firmware, ap-firmware]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the page and the renderer
+        run: |
+          python3 web/build.py
+          python3 web/build.py --native
+      - name: Tests (renderer against the native build, flasher against a simulated ZBS_Flasher)
+        run: node --test web/test/*.test.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+      - name: Add the firmware
+        run: python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: web/dist
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: web-page
+          path: web/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: page
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
