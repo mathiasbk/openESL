@@ -145,7 +145,7 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 | The POLL that confirms it is lost | `pending` stays true one interval longer; nothing is resent |
 | The AP dies while sending CONTENT, back after 3 min | The content survives in NVS; the tag gets it 60 s after the AP is back |
 | AP gone for an hour with new content waiting | 10 misses, the sleep reaches 600 s; the tag found the AP 390 s after it came back (at most 600 s) and went back to 60 s |
-| AP gone for more than 2 h | "No AP found" after 7020 s: `lost_s` counts the sleep the tag is about to start, so the screen comes up to one sleep (600 s) before the 2 h in T9 have passed. Content again within 600 s when the AP is back |
+| AP gone for more than 2 h | "No AP found" 7200 s after the last answer, as T9 asks: `lost_s` counts the sleeps that have passed, and the last sleep is shortened so the tag wakes when the 2 h are up (before, the screen came up to 600 s early). Content again within 600 s when the AP is back |
 
 ## Phase 6: Power
 - Find deep sleep with timer wake-up (SoluM backup + experiments).

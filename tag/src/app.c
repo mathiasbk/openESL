@@ -328,13 +328,18 @@ static uint16_t on_miss(void)
 
     if (app.misses < 255)
         app.misses++;
-    sleep = app_backoff_s(app.interval_s, app.misses);
+    /* lost_s is the time that has passed: the sleeps before this round, not the next one */
     if (app.lost_s < 0xFFFF0000ul)
-        app.lost_s += sleep;
-    if (lost != ESL_CFG_LOST_AP_NEVER && app.lost_s >= lost && !app.lost_shown) {
+        app.lost_s += app.slept_s;
+    sleep = app_backoff_s(app.interval_s, app.misses);
+    if (lost == ESL_CFG_LOST_AP_NEVER || app.lost_shown)
+        return sleep;
+    if (app.lost_s >= lost) {
         draw_status(msg_lost);
         app.shown_id = 0;     /* the AP resends the content when it is back */
         app.lost_shown = 1;
+    } else if (sleep > lost - app.lost_s) {
+        sleep = (uint16_t)(lost - app.lost_s);   /* wake up when the time is up (T9) */
     }
     return sleep;
 }
@@ -391,6 +396,7 @@ void app_init(void)
     app.interval_s = base_poll_s();
     app.misses = 0;
     app.lost_s = 0;
+    app.slept_s = 0;
     app.lost_shown = 0;
     app.poll_flags = ESL_POLL_F_BOOTED;
     app.seq = 0;
@@ -414,7 +420,7 @@ void app_init(void)
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;
 }
 
-uint16_t app_poll_once(void)
+static uint16_t poll_round(void)
 {
     bool got;
 
@@ -453,4 +459,10 @@ uint16_t app_poll_once(void)
     app.lost_shown = 0;
     hal_wdt_kick();
     return app.interval_s;
+}
+
+uint16_t app_poll_once(void)
+{
+    app.slept_s = poll_round();
+    return app.slept_s;
 }

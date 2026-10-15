@@ -332,6 +332,10 @@ int e2e_run(const char *out, const char *root)
     t0 = sim_now_ms;
     CHECK(sim_tag_run_until_draw(t0 + 7200000 + 601000), "drew the no-AP screen");
     CHECK(sim_tag_shown_id() == 0, "no content id while showing it");
+    /* 2 h after the last answer, which came at most one interval (60 s) before t0 */
+    CHECK(sim_tag_last_draw_ms() >= t0 + 7140000 && sim_tag_last_draw_ms() <= t0 + 7201000,
+          "\"No AP found\" 2 h after the last answer (T9), got %.0f s after the AP went",
+          (sim_tag_last_draw_ms() - t0) / 1000.0);
     note("\"No AP found\" %.0f s after the AP went", (sim_tag_last_draw_ms() - t0) / 1000.0);
     png("09-no-ap");
     sim_ap_boot();
