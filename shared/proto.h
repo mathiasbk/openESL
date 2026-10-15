@@ -144,6 +144,26 @@
 
 #define ESL_LE_TEXT          1
 #define ESL_LE_RECT          2
+#define ESL_LE_BARCODE       3      /* text field drawn as a barcode, bars the full height of the box */
+
+/* A barcode element uses the text element's bytes like this (the rest as for text):
+ *   ESL_LE_OFF_FONT    symbology (ESL_BC_*), the two other font bytes ESL_FONT_NONE
+ *   ESL_LE_OFF_OPTS    horizontal alignment only
+ *   ESL_LE_OFF_LINES   module width in pixels, 1..ESL_BC_MODULE_MAX, 0 = the widest that fits
+ *   ESL_LE_OFF_COLOR   ESL_LE_BLACK
+ * The box holds the code and its quiet zones. Text that cannot be encoded, or does not fit
+ * the box with 1-pixel modules, draws nothing (the AP rejects such content). */
+#define ESL_LE_OFF_SYM       ESL_LE_OFF_FONT
+#define ESL_LE_OFF_MODULE    ESL_LE_OFF_LINES
+#define ESL_BC_CODE128       0      /* ASCII 32-127; all digits are packed two per symbol (code set C) */
+#define ESL_BC_EAN13         1      /* 12 digits (the check digit is added) or 13 with a correct check digit */
+#define ESL_BC_COUNT         2
+#define ESL_BC_MODULE_MAX    4
+#define ESL_BC_MIN_H         10     /* lowest box the AP accepts */
+#define ESL_BC_QUIET_128     10     /* quiet zone each side, in modules */
+#define ESL_BC_QUIET_EAN_L   11
+#define ESL_BC_QUIET_EAN_R   7
+#define ESL_DRAW_MAX_BARCODES 1     /* = DRAW_MAX_BARCODES in tag/src/draw.h */
 #define ESL_LE_LEFT          0x00   /* opts: vannrett | loddrett */
 #define ESL_LE_CENTER        0x01
 #define ESL_LE_RIGHT         0x02

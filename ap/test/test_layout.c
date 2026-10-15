@@ -175,6 +175,24 @@ static void test_binary(void)
     CHECK_INT(bin.bin[5 + ESL_LE_OFF_COLOR], ESL_LE_BLACK);
     CHECK_INT(bin.bin[5 + ESL_LE_OFF_FONT + 1], ESL_FONT_NONE);
 
+    /* a barcode element: symbology in the first font byte, module width in lines */
+    CHECK(compile_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"ean13\",\"module\":2,"
+                     "\"x\":10,\"y\":70,\"w\":226,\"h\":40,\"align\":\"center\"}"));
+    static const uint8_t expect_bc[] = {
+        ESL_LBIN_FORMAT, ESL_MODEL_29, 1, 0, 1,
+        ESL_LE_BARCODE, 1, ESL_BC_EAN13, 0xFF, 0xFF, ESL_LE_CENTER, 2, ESL_LE_BLACK, 10, 0, 70, 226, 0, 40};
+    CHECK_INT(bin.size, sizeof(expect_bc));
+    CHECK_MEM(bin.bin, expect_bc, sizeof(expect_bc));
+    CHECK_INT(bin.bc_field[0], 1);
+    CHECK_INT(bin.bc_sym[0], ESL_BC_EAN13);
+    CHECK_INT(bin.bc_max[0], 113);
+    CHECK(compile_el("{\"type\":\"barcode\",\"field\":0,\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":296,\"h\":10}"));
+    CHECK_INT(bin.bin[5 + ESL_LE_OFF_SYM], ESL_BC_CODE128);
+    CHECK_INT(bin.bin[5 + ESL_LE_OFF_MODULE], 0);
+    CHECK_INT(bin.bc_max[0], 296);
+    CHECK(compile_el(TEXT_A "}"));
+    CHECK_INT(bin.bc_field[0], -1);
+
     /* the 1.54" is 200 x 200 */
     CHECK(compile("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"1.54\",\"layouts\":[{\"name\":\"x\","
                   "\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":200,\"h\":200}]}]}",
@@ -283,6 +301,22 @@ static void test_errors(void)
                      TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"));
     CHECK(compile_el(TALL "}," TALL "}," TALL ",\"lines\":2}"));
 #undef TALL
+
+    /* barcodes */
+#define BC "{\"type\":\"barcode\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"field\":\"a\""
+    bad_el(BC "}", "symbology must be code128 or ean13");
+    bad_el(BC ",\"symbology\":\"qr\"}", "symbology must be");
+    bad_el(BC ",\"symbology\":\"code128\",\"module\":5}", "module must be 0");
+    bad_el(BC ",\"symbology\":\"code128\",\"fonts\":[\"small\"]}", "fonts is only for text");
+    bad_el(BC ",\"symbology\":\"code128\",\"color\":\"white\"}", "a barcode is black");
+    bad_el("{\"type\":\"barcode\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"symbology\":\"code128\"}",
+           "a barcode element needs a field");
+    bad_el("{\"type\":\"barcode\",\"x\":0,\"y\":0,\"w\":296,\"h\":9,\"field\":\"a\",\"symbology\":\"code128\"}",
+           "at least 10 px high");
+    bad_el(BC ",\"symbology\":\"ean13\",\"module\":3}", "w must be at least 339");
+    bad_el(BC ",\"symbology\":\"code128\"}," BC ",\"symbology\":\"code128\"}", "at most 1 barcode");
+    bad_el(TEXT_A ",\"module\":1}", "module is only for barcode");
+#undef BC
 
     /* too big for the tags: 16 layouts of 4 rects = 4 + 16 * 57 bytes */
     static char js[8192];

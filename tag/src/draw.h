@@ -14,7 +14,7 @@
  *
  * Highlighting is black/white too: white text on a filled black rectangle (an inverted
  * field, like the price box of the stock firmware). Rectangles are drawn first, in the
- * order they were added, then text runs in order; DRAW_WHITE clears pixels.
+ * order they were added, then the barcode, then text runs in order; DRAW_WHITE clears pixels.
  */
 #ifndef DRAW_H_INCLUDED
 #define DRAW_H_INCLUDED
@@ -26,6 +26,8 @@
 
 #define DRAW_MAX_RUNS    8      /* text runs (one per line), 15 bytes each in XRAM */
 #define DRAW_MAX_RECTS   5      /* frame (4) + one inverted field */
+#define DRAW_MAX_BARCODES 1     /* one barcode per screen */
+#define DRAW_BC_BYTES    ((DRAW_W + 7) / 8)
 
 #define DRAW_BLACK       0
 #define DRAW_WHITE       1      /* clears: white text or a white rectangle on black */
@@ -52,11 +54,23 @@ typedef struct {
     uint8_t color;
 } draw_rect_t;
 
+/* A barcode: nmod modules of mw pixels from x0, black where the bit is 1 (barcode.h),
+   rows y0..y1. */
+typedef struct {
+    uint16_t x0;
+    uint16_t nmod;
+    uint8_t mw;
+    uint8_t y0, y1;
+    uint8_t bits[DRAW_BC_BYTES];
+} draw_bars_t;
+
 typedef struct {
     uint8_t nruns;
     uint8_t nrects;
+    uint8_t nbars;            /* 0 or 1: bars is in use */
     draw_run_t run[DRAW_MAX_RUNS];
     draw_rect_t rect[DRAW_MAX_RECTS];
+    draw_bars_t bars;
     uint16_t last_x;
 } draw_scene_t;
 

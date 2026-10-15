@@ -29,13 +29,13 @@ CODE_SIZE = 0xF400              # 0xF400-0xF7FF: layout file store, 0xF800-0xFBF
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test")]
 
-CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c"]
+CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c", "src/barcode.c"]
 FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fonts", "font_*.c")))
 
 HOST_TARGETS = {
     "test_all": CORE + FONTS + ["src/app.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_layout.c",
-                                "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c",
+                                "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c",
                                 "test/helpers.c"],
     "test_epd": CORE + FONTS + ["src/epd.c", "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
     "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
@@ -106,6 +106,9 @@ def build_host(name):
 
 
 def cmd_test():
+    # test_barcode writes its screens here for test_label_barcode.py to decode
+    os.environ["ESL_TEST_OUT"] = os.path.join(BUILD, "host", "barcodes")
+    os.makedirs(os.environ["ESL_TEST_OUT"], exist_ok=True)
     for name in ("test_all", "test_epd"):
         exe = build_host(name)
         run([exe])

@@ -1,5 +1,6 @@
 #include "layout.h"
 #include "font.h"
+#include "barcode.h"
 
 /* The downloaded layout files use the font numbers and screen sizes from shared/proto.h */
 #if FONT_SMALL != ESL_FONT_SMALL || FONT_MEDIUM != ESL_FONT_MEDIUM || FONT_LARGE != ESL_FONT_LARGE || \
@@ -11,7 +12,8 @@
 #error "screen size in model.h and shared/proto.h differ"
 #endif
 #if LAYOUT_INVERT_PAD != ESL_INVERT_PAD || DRAW_MAX_RUNS != ESL_DRAW_MAX_RUNS || \
-    DRAW_MAX_RECTS != ESL_DRAW_MAX_RECTS || LAYOUT_MAX_LINES != ESL_LE_MAX_LINES
+    DRAW_MAX_RECTS != ESL_DRAW_MAX_RECTS || LAYOUT_MAX_LINES != ESL_LE_MAX_LINES || \
+    DRAW_MAX_BARCODES != ESL_DRAW_MAX_BARCODES
 #error "the limits the AP checks layout files against (shared/proto.h) differ from the tag's"
 #endif
 
@@ -320,6 +322,39 @@ static void place_text(draw_scene_t *s, const layout_elem_t *e, const uint8_t *t
                       DRAW_BLACK);
 }
 
+/* A barcode element: the field encoded with symbology font[0], module width lines (0 = the
+   widest that fits, at most ESL_BC_MODULE_MAX), quiet zones inside the box. Draws nothing if
+   the text cannot be encoded or does not fit. */
+static void place_barcode(draw_scene_t *s, const layout_elem_t *e, const uint8_t *t, uint8_t len)
+{
+    draw_bars_t *b = &s->bars;
+    uint8_t sym = e->font[0], mw = e->lines;
+    uint16_t n, total, used;
+
+    if (s->nbars >= DRAW_MAX_BARCODES || !e->h)
+        return;
+    n = barcode_encode(sym, t, len, b->bits, DRAW_W);
+    if (!n)
+        return;
+    total = n + barcode_quiet_left(sym) + barcode_quiet_right(sym);
+    if (!mw) {
+        mw = (uint8_t)(e->w / total > ESL_BC_MODULE_MAX ? ESL_BC_MODULE_MAX : e->w / total);
+    }
+    if (!mw || mw > ESL_BC_MODULE_MAX || total * mw > e->w)
+        return;
+    used = total * mw;
+    b->x0 = e->x + barcode_quiet_left(sym) * mw;
+    if ((e->opts & LE_HMASK) == LE_RIGHT)
+        b->x0 += e->w - used;
+    else if ((e->opts & LE_HMASK) == LE_CENTER)
+        b->x0 += (e->w - used) / 2;
+    b->nmod = n;
+    b->mw = mw;
+    b->y0 = e->y;
+    b->y1 = (uint8_t)(e->y + e->h - 1);
+    s->nbars = 1;
+}
+
 /* The downloaded file, and one element decoded from it (layout_apply_bin). In XRAM: the
    8051 stack is in the small internal RAM. */
 uint8_t __xdata layout_file[ESL_LBIN_MAX];
@@ -374,6 +409,9 @@ static void apply_list(draw_scene_t *s, const layout_elem_t *e, const uint8_t *w
             } else if (e->kind == LE_TEXT) {
                 if (e->field < nfields && lens[e->field])
                     place_text(s, e, text[e->field], lens[e->field], color);
+            } else if (e->kind == LE_BARCODE) {
+                if (e->field < nfields && lens[e->field])
+                    place_barcode(s, e, text[e->field], lens[e->field]);
             }
         }
         if (wire)
@@ -403,12 +441,15 @@ static bool elem_ok(void)
     uint8_t i;
     const layout_elem_t __xdata *e = &wire_elem;
 
-    if (e->kind != LE_TEXT && e->kind != LE_RECT)
+    if (e->kind != LE_TEXT && e->kind != LE_RECT && e->kind != LE_BARCODE)
         return false;
     if (e->color > LE_FRAME || (uint32_t)e->x + e->w > DRAW_W || (uint16_t)e->y + e->h > DRAW_H)
         return false;
     if (e->kind == LE_RECT)
         return true;
+    if (e->kind == LE_BARCODE)
+        return e->field < ESL_MAX_FIELDS && e->font[0] < ESL_BC_COUNT && e->lines <= ESL_BC_MODULE_MAX &&
+               e->color == LE_BLACK;
     if (e->field >= ESL_MAX_FIELDS || e->font[0] >= FONT_COUNT || e->lines > LAYOUT_MAX_LINES)
         return false;
     for (i = 1; i < LAYOUT_MAX_FONTS; i++)

@@ -264,6 +264,19 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
         i = t->next;
     }
     esl_content_trim(c);
+
+    /* A barcode field must be one the tag can draw: for the tag's model, or for every
+       model with this layout while the model is not known */
+    if (layout == ESL_LAYOUT_NAMED) {
+        esl_tag_t t;
+        uint8_t model = ESL_MODEL_UNKNOWN;
+        if (esl_store_get(api->store, mac, &t) && t.seen && esl_model_name(t.model))
+            model = t.model;
+        for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
+            if ((model == ESL_MODEL_UNKNOWN || m == model) &&
+                !esl_layouts_check_barcode(api->layouts, m, c, msg, MSG_MAX))
+                return 422;
+    }
     return 0;
 }
 

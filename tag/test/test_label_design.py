@@ -109,7 +109,7 @@ class LayoutFileTests(unittest.TestCase):
     def test_example_files_outline(self):
         for f in self.lf.values():
             ld.check_layout_file(f)
-            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva"])
+            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva", "vare-ean"])
 
     def test_render_uses_the_file_field_order(self):
         data = {"name": "Kaffe", "price": "49,90", "unit_price": "kr 99,80/kg", "note": "Tilbud"}

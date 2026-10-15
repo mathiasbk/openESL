@@ -1,3 +1,4 @@
+#include "esl_barcode.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
 #include <stdarg.h>
@@ -130,6 +131,10 @@ typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     unsigned runs, rects; /* what the layout needs at most from the tag's scene */
+    unsigned barcodes;
+    int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
+    uint8_t bc_sym;
+    uint16_t bc_max;
 } lay_t;
 
 static bool field_name_ok(const char *s)
@@ -143,12 +148,57 @@ static bool field_name_ok(const char *s)
     return true;
 }
 
+/* The rest of a barcode element (box, field and colour are done). */
+static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, unsigned w, unsigned h,
+                            uint8_t color)
+{
+    static const char *const syms[] = {"code128", "ean13", NULL};
+    static const char *const text_only[] = {"fonts", "valign", "lines"};
+    _Static_assert(ESL_BC_CODE128 == 0 && ESL_BC_EAN13 == 1, "syms order");
+
+    for (int i = 0; i < 3; i++)
+        if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
+            return fail(c, "%s is only for text elements", text_only[i]);
+    if (color != ESL_LE_BLACK)
+        return fail(c, "a barcode is black");
+    int sy = esl_json_obj_get(c->js, c->tok, e, "symbology");
+    int si = sy < 0 ? -1 : pick(c, sy, syms);
+    if (si < 0)
+        return fail(c, "symbology must be code128 or ean13");
+    out[ESL_LE_OFF_SYM] = (uint8_t)si;
+
+    int a = esl_json_obj_get(c->js, c->tok, e, "align");
+    int ai = a < 0 ? 0 : pick(c, a, align_names);
+    if (ai < 0)
+        return fail(c, "align must be left, center or right");
+    out[ESL_LE_OFF_OPTS] = align_opts[ai];
+
+    unsigned mw = 0;
+    int m = esl_json_obj_get(c->js, c->tok, e, "module");
+    if (m >= 0 && (!get_uint(c, m, &mw) || mw > ESL_BC_MODULE_MAX))
+        return fail(c, "module must be 0 (the widest that fits) to %d pixels", ESL_BC_MODULE_MAX);
+    out[ESL_LE_OFF_MODULE] = (uint8_t)mw;
+
+    if (h < ESL_BC_MIN_H)
+        return fail(c, "a barcode must be at least %d px high", ESL_BC_MIN_H);
+    unsigned max = w / (mw ? mw : 1);
+    unsigned ean = 95 + ESL_BC_QUIET_EAN_L + ESL_BC_QUIET_EAN_R;
+    if (si == ESL_BC_EAN13 && max < ean)
+        return fail(c, "an EAN-13 with its quiet zones is %u modules: w must be at least %u", ean, ean * (mw ? mw : 1));
+    if (++lay->barcodes > ESL_DRAW_MAX_BARCODES)
+        return fail(c, "the tag draws at most %d barcode per screen", ESL_DRAW_MAX_BARCODES);
+    lay->bc_field = (int8_t)fi;
+    lay->bc_sym = (uint8_t)si;
+    lay->bc_max = (uint16_t)max;
+    return true;
+}
+
 /* One element into 14 bytes at out. */
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type", "x", "y", "w", "h", "field", "fonts", "align", "valign",
-                                       "lines", "color", NULL};
-    static const char *const types[] = {"text", "rect", NULL};
+                                       "lines", "color", "symbology", "module", NULL};
+    static const char *const types[] = {"text", "rect", "barcode", NULL};
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
 
@@ -159,8 +209,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int ty = esl_json_obj_get(c->js, c->tok, e, "type");
     int kind = ty < 0 ? -1 : pick(c, ty, types);
     if (kind < 0)
-        return fail(c, "type must be \"text\" or \"rect\"");
-    bool text = kind == 0;
+        return fail(c, "type must be \"text\", \"rect\" or \"barcode\"");
+    bool text = kind == 0, barcode = kind == 2;
 
     for (int i = 0; i < 4; i++) {
         int t = esl_json_obj_get(c->js, c->tok, e, box[i]);
@@ -176,7 +226,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "y + h = %u is past the bottom of the screen (%u)", y + h, (unsigned)c->scr_h);
 
     memset(out, 0, ESL_LE_SIZE);
-    out[ESL_LE_OFF_KIND] = text ? ESL_LE_TEXT : ESL_LE_RECT;
+    out[ESL_LE_OFF_KIND] = text ? ESL_LE_TEXT : barcode ? ESL_LE_BARCODE : ESL_LE_RECT;
     out[ESL_LE_OFF_FONT] = out[ESL_LE_OFF_FONT + 1] = out[ESL_LE_OFF_FONT + 2] = ESL_FONT_NONE;
     out[ESL_LE_OFF_X] = (uint8_t)x;
     out[ESL_LE_OFF_X + 1] = (uint8_t)(x >> 8);
@@ -192,7 +242,14 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     uint8_t color = color_codes[ci];
     out[ESL_LE_OFF_COLOR] = color;
 
-    if (!text) {
+    if (!barcode) {
+        static const char *const barcode_only[] = {"symbology", "module"};
+        for (int i = 0; i < 2; i++)
+            if (esl_json_obj_get(c->js, c->tok, e, barcode_only[i]) >= 0)
+                return fail(c, "%s is only for barcode elements", barcode_only[i]);
+    }
+
+    if (!text && !barcode) {
         static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines"};
         for (int i = 0; i < 5; i++)
             if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
@@ -207,7 +264,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int f = esl_json_obj_get(c->js, c->tok, e, "field");
     unsigned fi = 0;
     if (f < 0)
-        return fail(c, "a text element needs a field");
+        return fail(c, "a %s element needs a field", barcode ? "barcode" : "text");
     if (T(c, f)->type == ESL_JSON_STRING) {
         char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
         str_copy(c, f, name, sizeof(name));
@@ -219,6 +276,9 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "field must be one of the layout's fields (a name, or 0..%u)", (unsigned)lay->nfields - 1);
     }
     out[ESL_LE_OFF_FIELD] = (uint8_t)fi;
+
+    if (barcode)
+        return barcode_element(c, e, lay, out, fi, w, h, color);
 
     int fo = esl_json_obj_get(c->js, c->tok, e, "fonts");
     if (fo < 0 || T(c, fo)->type != ESL_JSON_ARRAY || T(c, fo)->size < 1 || T(c, fo)->size > 3)
@@ -278,6 +338,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     static const char *const keys[] = {"name", "fields", "elements", "description", NULL};
     lay_t lay;
     memset(&lay, 0, sizeof(lay));
+    lay.bc_field = -1;
 
     if (T(c, l)->type != ESL_JSON_OBJECT)
         return fail(c, "must be an object");
@@ -336,6 +397,9 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
         return fail(c, "needs %u rectangles (rect elements and inverted fields), the tag draws at most %d",
                     lay.rects, ESL_DRAW_MAX_RECTS);
     out->nfields[c->li] = lay.nfields;
+    out->bc_field[c->li] = lay.bc_field;
+    out->bc_sym[c->li] = lay.bc_sym;
+    out->bc_max[c->li] = lay.bc_max;
     return true;
 }
 
