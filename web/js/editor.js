@@ -61,13 +61,15 @@ function defaultSample(name) {
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
 
+// The sample values of the current layout. Always the same array for a layout (changed in
+// place), so the inputs that edit it stay connected to what is drawn.
 function samples() {
   const k = sampleKey();
   const names = fieldNames();
-  const s = state.samples[k] || [...(layout()?._sample || [])];
+  const s = (state.samples[k] ||= [...(layout()?._sample || [])]);
   while (s.length < names.length) s.push(defaultSample(names[s.length]));
-  state.samples[k] = s.slice(0, names.length);
-  return state.samples[k];
+  s.length = names.length;
+  return s;
 }
 
 // ---------- persistence ----------
