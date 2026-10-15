@@ -200,7 +200,7 @@ function compileAndDraw() {
   }
   paint(out.pixels, r.width, r.height);
   refreshMeters(res);
-  if (res.ok) setStatus(`OK: ${res.size} of 768 bytes for the tag, version ${res.version.toString(16).toUpperCase().padStart(8, "0")}`, "ok");
+  if (res.ok) setStatus(`✓ The AP accepts this file (version ${res.version.toString(16).toUpperCase().padStart(8, "0")})`, "ok");
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
 }
 
@@ -454,7 +454,7 @@ function refreshLayoutSelect() {
 function refreshLayoutForm() {
   const lay = layout();
   $("layout-panel").hidden = !lay;
-  $("add-row").hidden = !lay;
+  $("add-group").hidden = !lay;
   if (!lay) return;
   $("lay-name").value = lay.name || "";
   $("lay-fields").value = (lay.fields || []).join(", ");
@@ -500,12 +500,15 @@ function refreshElement() {
   box.replaceChildren();
   const e = element();
   $("el-panel").hidden = !layout();
-  $("el-del").disabled = $("el-dup").disabled = $("el-up").disabled = $("el-down").disabled = !e;
+  document.querySelector(".el-actions").hidden = !e;
+  $("el-up").disabled = !e || state.el === 0;
+  $("el-down").disabled = !e || state.el === layout().elements.length - 1;
+  $("el-title").textContent = e ? "· " + (e.type === "text" ? fieldLabel(e.field) : rectName(e)) : "";
   drawOverlay();
   if (!e) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = layout() ? "Click a box in the preview to edit it." : "Built-in layouts are part of the firmware and cannot be edited.";
+    p.textContent = layout() ? "Click a box in the preview or in the list above to edit it, or add one with the buttons over the preview." : "Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own.";
     box.append(p);
     return;
   }
@@ -546,15 +549,30 @@ function refreshElement() {
   box.append(pair);
   box.append(placeButtons(e));
   if (e.type === "text") {
+    // Up to three fonts on one row; the tag uses the first that fits the text.
     const fonts = e.fonts || ["small"];
+    const fl = document.createElement("label");
+    fl.textContent = "Fonts";
+    fl.title = "Tried in order: the tag uses the first font the text fits in";
+    const row = document.createElement("span");
+    row.className = "fonts";
     for (let i = 0; i < 3; i++) {
-      sel(i ? `then font` : "Font", "font" + i, i ? ["(none)", ...FONTS] : FONTS, fonts[i] || "(none)", (v) => {
+      const s = document.createElement("select");
+      s.setAttribute("aria-label", i ? `Font ${i + 1}, if the text does not fit` : "Font");
+      (i ? ["–", ...FONTS] : FONTS).forEach((o) => s.add(new Option(o, o)));
+      s.value = fonts[i] || "–";
+      s.disabled = i > fonts.length;
+      s.addEventListener("change", () => {
         const f = (e.fonts || ["small"]).slice();
-        if (v === "(none)") f.length = Math.min(f.length, i);
-        else f[i] = v;
+        if (s.value === "–") f.length = Math.min(f.length, i);
+        else f[i] = s.value;
         e.fonts = f.filter(Boolean);
+        changed({});
       });
+      row.append(s);
     }
+    fl.append(row);
+    box.append(fl);
     sel("Align", "align", ALIGN, e.align || "left", (v) => (v === "left" ? delete e.align : (e.align = v)));
     sel("Vertical", "valign", VALIGN, e.valign || "top", (v) => (v === "top" ? delete e.valign : (e.valign = v)));
     sel("Lines", "lines", ["0 (auto)", "1", "2", "3"], e.lines ? String(e.lines) : "0 (auto)", (v) => {
@@ -579,8 +597,8 @@ function placeButtons(e) {
     ["⤒", "Against the top", () => (e.y = 0)],
     ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
     ["⤓", "Against the bottom", () => (e.y = height - e.h)],
-    ["Full width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
-    ["Full height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
+    ["Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width))],
+    ["Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height))],
   ];
   for (const [label, title, act] of actions) {
     const b = document.createElement("button");
