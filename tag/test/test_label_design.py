@@ -82,17 +82,20 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(ld.to_latin1("Mer…"), b"Mer...")
         self.assertEqual(ld.to_latin1("Søn – stengt"), "Søn - stengt".encode("latin-1"))
         d = copy.deepcopy(PRICE)
-        d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
+        d["fields"] = {"name": "A" * 61, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
         with self.assertRaises(ld.DesignError):
-            ld.render(d, {})  # 93 bytes after "…" becomes "..."
+            ld.render(d, {})  # 94 bytes after "…" becomes "...", 93 is the limit with three fields
 
     def test_too_many_bytes(self):
         d = copy.deepcopy(PRICE)
         d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 20}
         with self.assertRaises(ld.DesignError):
             ld.render(d, {})
-        d["fields"]["subtitle"] = "C" * 12
-        ld.render(d, {})  # 92 bytes: exactly at the limit
+        d["fields"]["subtitle"] = "C" * 14
+        with self.assertRaises(ld.DesignError):
+            ld.render(d, {})
+        d["fields"]["subtitle"] = "C" * 13
+        ld.render(d, {})  # 93 bytes: exactly at the limit with three fields (96 - 3 length bytes)
 
 
 if __name__ == "__main__":
@@ -109,7 +112,7 @@ class LayoutFileTests(unittest.TestCase):
     def test_example_files_outline(self):
         for f in self.lf.values():
             ld.check_layout_file(f)
-            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva", "vare-ean"])
+            self.assertEqual([lay["name"] for lay in f["layouts"]], ["shelf", "sign", "vare", "vare-mva", "vare-ean", "vare-priser"])
 
     def test_render_uses_the_file_field_order(self):
         data = {"name": "Kaffe", "price": "49,90", "unit_price": "kr 99,80/kg", "note": "Tilbud"}
@@ -117,6 +120,13 @@ class LayoutFileTests(unittest.TestCase):
             out = ld.render(self.shelf, data, f)
             self.assertEqual(out, {"layout": "shelf", "fields": ["Kaffe", "49,90", "kr 99,80/kg", "Tilbud"],
                                    "price_highlight": True, "frame": False})
+
+    def test_two_prices(self):
+        d = ld.load(os.path.join(TAG, "designs", "vare-priser.json"))
+        data = {"brand": "Kramp", "name": "Spann", "item": "1626", "price_inc": "17,25", "price_ex": "13,80"}
+        for f in self.lf.values():
+            out = ld.render(d, data, f)
+            self.assertEqual(out["fields"], ["Kramp", "Spann", "1626", "17,25", "13,80"])
 
     def test_render_needs_the_layout(self):
         data = {"name": "a", "price": "1", "unit_price": "", "note": ""}
@@ -140,7 +150,7 @@ class LayoutFileTests(unittest.TestCase):
             "no layouts": lambda f: f.update(layouts=[]),
             "reserved name": lambda f: f["layouts"][0].update(name="price"),
             "duplicate name": lambda f: f["layouts"][1].update(name="shelf"),
-            "five fields": lambda f: f["layouts"][0].update(fields=["a", "b", "c", "d", "e"]),
+            "seven fields": lambda f: f["layouts"][0].update(fields=["a", "b", "c", "d", "e", "f", "g"]),
             "bad field": lambda f: f["layouts"][0].update(fields=["Name"]),
             "no elements": lambda f: f["layouts"][0].update(elements=[]),
         }

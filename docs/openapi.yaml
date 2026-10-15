@@ -53,8 +53,10 @@ info:
     | `507` | the tag table or the schedule is full |
 
     **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become
-    `?`) and rejects text that is too long with `422`: at most 92 bytes for all fields
-    together after the conversion (`ESL_MAX_TEXT_BYTES` in `shared/proto.h`).
+    `?`) and rejects text that is too long with `422`: the fields share 96 bytes, one length
+    byte per field plus the text after the conversion, so at most 92 bytes of text with four
+    fields and 90 with six (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`). Empty fields at
+    the end are dropped first and cost nothing.
 
 servers:
   - url: http://localhost:{port}
@@ -229,6 +231,9 @@ paths:
               named:
                 summary: A layout from the layout file
                 value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
+              two_prices:
+                summary: Price inc. and ex. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
+                value: { layout: vare-priser, fields: ["Kramp", "Lower ball joint, cat. 3/2", "1626-160602/439", "192,25", "153,80"], price_highlight: true }
               scheduled:
                 summary: A new price from 13:00 UTC on 2026-10-15
                 value: { layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"], at: 1792069200 }
@@ -795,7 +800,7 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: text too long (max 92 bytes after Latin-1 conversion) }
+          example: { error: "text too long: the fields share 96 bytes, one per field plus the text after Latin-1 conversion (92 bytes of text with four fields, 90 with six)" }
     BatchInvalid:
       description: A row is not valid; `index` is the row, and no tag was changed
       content:
@@ -872,9 +877,12 @@ components:
           items: { type: [string, "null"] }
           description: |
             The text, in the layout's field order; `null` counts as `""`. `price` takes at
-            most 3 fields, `text` at most 4, a named layout as many as its `fields`. At most
-            92 bytes together after the conversion to Latin-1. Empty fields at the end are
-            dropped, so `["a",""]` and `["a"]` are the same content.
+            most 3 fields, `text` at most 4, a named layout as many as its `fields` (up to 6).
+            The fields share 96 bytes: the text after the conversion to Latin-1 plus one byte
+            per field (92 bytes of text with four fields, 90 with six). Empty fields at the end
+            are dropped, so `["a",""]` and `["a"]` are the same content. The AP sends the text
+            as it is and works nothing out: for the price with and without VAT, use a layout
+            with a field for each (e.g. `vare-priser`) and send both.
         price_highlight:
           type: [boolean, "null"]
           default: false
@@ -1376,7 +1384,7 @@ components:
         fields:
           type: array
           minItems: 1
-          maxItems: 4
+          maxItems: 6
           items: { type: string, pattern: "^[a-z][a-z0-9_]{0,15}$" }
           description: The order clients send `fields` in
         elements:

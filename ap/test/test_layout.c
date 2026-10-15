@@ -244,7 +244,7 @@ static void test_errors(void)
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
              "\"fields\":[],\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
-             "\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\"],\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
+             "\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\"],\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
              "\"fields\":[\"a\",\"a\"],\"elements\":[]}]}", ESL_MODEL_29, "listed twice");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","

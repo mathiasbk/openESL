@@ -406,7 +406,8 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
 
     int fl = esl_json_obj_get(c->js, c->tok, l, "fields");
     if (fl < 0 || T(c, fl)->type != ESL_JSON_ARRAY || T(c, fl)->size < 1 || T(c, fl)->size > ESL_MAX_FIELDS)
-        return fail(c, "fields must list the layout's 1 to 4 text fields by name, in the order clients send them");
+        return fail(c, "fields must list the layout's 1 to %d text fields by name, in the order clients send them",
+                    ESL_MAX_FIELDS);
     int k = fl + 1;
     for (unsigned i = 0; i < T(c, fl)->size; i++, k = T(c, k)->next) {
         char *f = lay.fields[i];

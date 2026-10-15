@@ -54,9 +54,9 @@ So older tags never get a message type they do not know. Fields added later go a
 | content_id | 4 | new ID |
 | layout | 1 | 1 = Price, 2 = Text (built in), 0x10 + n = layout n of the tag's layout file (n = 0..15) |
 | flags | 1 | bit0 = highlighted price (white digits in a black box), bit1 = black frame around the screen |
-| fields | rest | up to 4 text fields, each as `length (1 byte)` + Latin-1 text |
+| fields | rest | up to 6 text fields (`ESL_MAX_FIELDS`), each as `length (1 byte)` + Latin-1 text |
 
-Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`; a file layout = the `fields` of that layout in the layout file (part 3), in that order. The text is at most about 96 bytes in total. Reserve 4 bytes for a future MIC (requirement T16), so the AP rejects anything over **about 90 bytes of text** (after conversion to Latin-1; exactly 92, `ESL_MAX_TEXT_BYTES`).
+Field meaning: layout 1 = `[name, price, subtitle]`; layout 2 = `[line1, line2, line3, line4]`; a file layout = the `fields` of that layout in the layout file (part 3), in that order. With 4 bytes reserved for a future MIC (requirement T16), the fields have **96 bytes** (`ESL_CONTENT_FIELD_SPACE`): the text after conversion to Latin-1 plus one length byte per field sent, so 92 bytes of text with four fields and 90 with six. The AP drops empty fields at the end, so they cost nothing. Tags with firmware v0.1.0 read only the first four fields and reject a layout file that uses a fifth or sixth (`layout_failed`), so flash new firmware before uploading such a file. A future MIC is checked and cut off before the fields are read, since the number of fields is not fixed.
 
 The AP only sends layout 0x10 + n to a tag that reports the AP's current layout file version in its POLL. A tag that gets a layout number it does not have (should not happen) shows the fields with the built-in Text layout.
 
@@ -239,7 +239,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. **Layout n in this list is sent as CONTENT layout 0x10 + n**; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
-| `fields` | 1–4 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
+| `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
 | `elements` | 1 or more, drawn in order (all rectangles, then the barcode, then all text, see `tag/src/draw.h`) |
 | `type` | `"text"` (one field in a box), `"rect"` (filled box) or `"barcode"` (one field as a barcode) |
 | `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen |

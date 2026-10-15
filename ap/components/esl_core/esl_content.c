@@ -71,7 +71,7 @@ esl_content_err_t esl_content_add_field(esl_content_t *c, const uint8_t *latin1,
     if (c->nfields >= esl_content_max_fields(c->layout))
         return ESL_CONTENT_ERR_TOO_MANY_FIELDS;
     size_t used = esl_content_text_len(c);
-    if (len > ESL_MAX_TEXT - used)
+    if (used + len + c->nfields + 1 > ESL_CONTENT_FIELD_SPACE)
         return ESL_CONTENT_ERR_TOO_LONG;
     memcpy(&c->text[used], latin1, len);
     c->len[c->nfields++] = (uint8_t)len;

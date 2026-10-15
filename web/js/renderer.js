@@ -41,7 +41,8 @@ async function create(model, base) {
     model,
     width,
     height,
-    maxText: call("web_max_text", "number", [], []),
+    // Text and one length byte per field sent share this many bytes in an update.
+    fieldSpace: call("web_max_text", "number", [], []),
     // The compiler's limits (web_limit in web_api.c).
     limits: {
       runs: call("web_limit", "number", ["number"], [0]),
@@ -59,6 +60,7 @@ async function create(model, base) {
       barcodeMinH: call("web_limit", "number", ["number"], [10]),
       barcodeModuleMax: call("web_limit", "number", ["number"], [11]),
       fixedTextBytes: call("web_limit", "number", ["number"], [12]),
+      fields: call("web_limit", "number", ["number"], [13]),
     },
 
     loadLayouts(text) {
@@ -87,11 +89,11 @@ async function create(model, base) {
     },
 
     render(layout, flags, fields) {
-      const f = fields.slice(0, 4).map((s) => String(s ?? ""));
+      const f = fields.slice(0, 6).map((s) => String(s ?? ""));
       const n = f.length;
-      while (f.length < 4) f.push("");
+      while (f.length < 6) f.push("");
       const ok = call("web_render", "number",
-        ["number", "number", "number", "string", "string", "string", "string"],
+        ["number", "number", "number", "string", "string", "string", "string", "string", "string"],
         [layout, flags, n, ...f]) === 1;
       if (!ok) return { ok, error: error() };
       const at = call("web_fb", "number", [], []);

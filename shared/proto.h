@@ -67,7 +67,7 @@
 #define ESL_CONTENT_OFF_CID  4      /* u32 ny content_id */
 #define ESL_CONTENT_OFF_LAYOUT 8    /* u8 */
 #define ESL_CONTENT_OFF_FLAGS  9    /* u8 */
-#define ESL_CONTENT_OFF_FIELDS 10   /* felt: lengde (u8) + Latin-1-tekst, inntil 4 */
+#define ESL_CONTENT_OFF_FIELDS 10   /* felt: lengde (u8) + Latin-1-tekst, inntil ESL_MAX_FIELDS */
 
 #define ESL_LAYOUT_PRICE     1      /* felt: navn, pris, undertekst */
 #define ESL_LAYOUT_TEXT      2      /* felt: linje1..linje4 */
@@ -92,11 +92,16 @@
 #define ESL_CFG_LOST_AP_MIN_S 60    /* grenser for lost_ap_s */
 #define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: vis aldri "No AP found" */
 
-#define ESL_MAX_FIELDS       4
+#define ESL_MAX_FIELDS       6      /* tekstfelt i CONTENT (tagger med v0.1.0 leser bare de fire første) */
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */
 #define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
-/* Største sum av tekstbytes AP-en kan sende når alle fire felt er med: 92 */
-#define ESL_MAX_TEXT_BYTES   (ESL_MAX_PAYLOAD - ESL_CONTENT_HDR_LEN - ESL_MAX_FIELDS - ESL_MIC_RESERVE)
+/* Plass til feltene i CONTENT: tekst + én lengdebyte per felt som sendes, 96.
+ * Altså 92 byte tekst med fire felt og 90 med seks. */
+#define ESL_CONTENT_FIELD_SPACE (ESL_MAX_PAYLOAD - ESL_CONTENT_HDR_LEN - ESL_MIC_RESERVE)
+/* Største sum av tekstbytes med n felt */
+#define ESL_MAX_TEXT_FOR(n)  (ESL_CONTENT_FIELD_SPACE - (n))
+/* Største sum av tekstbytes AP-en kan sende når alle felt er med: 90 */
+#define ESL_MAX_TEXT_BYTES   ESL_MAX_TEXT_FOR(ESL_MAX_FIELDS)
 
 /* ---- Layoutoverføring (docs/protokoll.md del 1, "Layout transfer") ---- */
 

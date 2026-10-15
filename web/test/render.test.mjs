@@ -78,8 +78,10 @@ for (const model of Object.keys(MODELS)) {
   test(`too much text, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     r.clearLayouts();
+    // the fields share 96 bytes with one length byte each; the empty one at the end is not sent
     const res = r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(20), ""]);
     assert.equal(res.ok, false);
-    assert.match(res.error, /at most 92/);
+    assert.match(res.error, /at most 93 with 3 fields/);
+    assert.ok(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(13), ""]).ok);
   });
 }

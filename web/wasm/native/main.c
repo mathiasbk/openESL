@@ -17,15 +17,16 @@ int web_height(void);
 const char *web_error(void);
 unsigned char *web_fb(void);
 int web_load_layouts(const char *json, int len);
-int web_render(int layout, int flags, int n, const char *f0, const char *f1, const char *f2, const char *f3);
+int web_render(int layout, int flags, int n, const char *f0, const char *f1, const char *f2, const char *f3,
+               const char *f4, const char *f5);
 
 int main(int argc, char **argv)
 {
     static char js[ESL_LAYOUT_MAX_SIZE + 1];
-    const char *f[4] = { "", "", "", "" };
+    const char *f[6] = { "", "", "", "", "", "" };
     int i, x, y, n;
 
-    if (argc < 4 || argc > 8) {
+    if (argc < 4 || argc > 10) {
         fprintf(stderr, "usage: web_render <layouts.json | -> <layout> <flags> [field ...]\n");
         return 2;
     }
@@ -46,7 +47,7 @@ int main(int argc, char **argv)
     n = argc - 4;
     for (i = 0; i < n; i++)
         f[i] = argv[4 + i];
-    if (!web_render(atoi(argv[2]), (int)strtol(argv[3], NULL, 0), n, f[0], f[1], f[2], f[3])) {
+    if (!web_render(atoi(argv[2]), (int)strtol(argv[3], NULL, 0), n, f[0], f[1], f[2], f[3], f[4], f[5])) {
         printf("error %s\n", web_error());
         return 1;
     }
