@@ -113,6 +113,7 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 
 .stage-bar, .add-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; }
 .add-row { gap: 6px; }
+#redo { margin-right: 10px; }
 .status { margin-left: auto; color: var(--muted); }
 .status.error { color: var(--error); }
 .status.ok { color: var(--ok); }

@@ -100,6 +100,8 @@
           <span id="status" class="status" role="status"></span>
         </div>
         <div class="add-row" id="add-row">
+          <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+          <button id="redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
           <button id="el-add-text">+ Text</button>
           <button id="el-add-invert" title="White text in a black box">+ Inverted text</button>
           <button id="el-add-hline">+ Line</button>
@@ -107,9 +109,10 @@
           <button id="el-add-rect" title="A filled box; put white text on a black box for an inverted area">+ Box</button>
           <button id="el-up" title="Draw earlier">↑</button>
           <button id="el-down" title="Draw later">↓</button>
-          <button id="el-del">Delete element</button>
+          <button id="el-dup" title="Copy the selected element (Ctrl+D)">Duplicate</button>
+          <button id="el-del" title="Delete the selected element (Delete)">Delete element</button>
         </div>
-        <p class="hint">Drag a box to move it, drag its corner to resize, arrow keys move the selected box by 1 px (Shift: 10 px). Lines are thin boxes; for a black area with white text, use a black box with text in white on top, or inverted text. A layout holds at most 5 boxes (inverted and highlighted text count as one each) and 8 lines of text. The preview is drawn by the tag's own code; the file is checked by the AP's own compiler.</p>
+        <p class="hint">Drag a box to move it, drag its corner to resize. Keys: arrows move the selected box by 1 px (Shift: 10 px), Tab picks the next box, Esc deselects, Delete removes it, Ctrl+D duplicates it, Ctrl+Z undoes and Ctrl+Shift+Z redoes. Lines are thin boxes; for a black area with white text, use a black box with text in white on top, or inverted text. A layout holds at most 5 boxes (inverted and highlighted text count as one each) and 8 lines of text. The preview is drawn by the tag's own code; the file is checked by the AP's own compiler.</p>
       </section>
 
       <section class="side">
