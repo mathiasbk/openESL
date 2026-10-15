@@ -859,6 +859,15 @@ static uint16_t query_u16(const char *uri, const char *key)
     return 0;
 }
 
+/* The ESL_HEALTH_* flags of one tag in the table. */
+static uint8_t tag_health(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, const esl_health_cfg_t *cfg)
+{
+    uint32_t v = 0;
+    if (t->seen && api->layouts)
+        esl_layouts_info(api->layouts, t->model, &v, NULL, NULL);
+    return esl_health_flags(t, esl_store_tag_poll_s(api->store, t->mac), v, now_ms, cfg);
+}
+
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
                    esl_sb_t *out)
 {
@@ -872,10 +881,7 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
                 prev[s] = 0;
             continue;
         }
-        uint32_t v = 0;
-        if (t.seen && api->layouts)
-            esl_layouts_info(api->layouts, t.model, &v, NULL, NULL);
-        uint8_t f = esl_health_flags(&t, esl_store_tag_poll_s(api->store, t.mac), v, now_ms, cfg);
+        uint8_t f = tag_health(api, &t, now_ms, cfg);
         tags++;
         if (prev) {
             if (prev[s] != f)
@@ -1131,10 +1137,24 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
                 api->fw_version ? strlen(api->fw_version) : 0);
     esl_sb_puts(out, ", up ");
     html_ago(out, now_ms / 1000);
-    esl_sb_printf(out, ", channel %u, %u of %u tags.</p>", (unsigned)api->channel,
+    esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)api->channel,
                   esl_store_count(api->store), api->store->cap);
+    unsigned attention = 0;
+    for (unsigned s = 0; s < api->store->cap; s++) {
+        esl_tag_t t;
+        if (esl_store_get_slot(api->store, s, &t) && tag_health(api, &t, now_ms, NULL))
+            attention++;
+    }
+    if (attention)
+        esl_sb_printf(out, ", <span class=\"p\">%u need attention</span>", attention);
+    esl_sb_puts(out, ".</p>");
     if (api->wifi)
         esl_sb_puts(out, "<p><a href=\"/setup\">WiFi and API token setup</a></p>");
+    if (api->notify && api->notify->url[0]) {
+        esl_sb_puts(out, "<p>Health report posted to ");
+        html_latin1(out, (const uint8_t *)api->notify->url, strlen(api->notify->url));
+        esl_sb_puts(out, " when it changes.</p>");
+    }
     if (api->layouts) {
         esl_sb_puts(out, "<p>Layout files:");
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
@@ -1151,7 +1171,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         esl_sb_puts(out, ".</p>");
     }
     esl_sb_puts(out, "<table><tr><th>MAC</th><th>Model</th><th>Seen</th><th>Battery</th><th>RSSI</th>"
-                     "<th>FW</th><th>Content</th><th>State</th></tr>");
+                     "<th>FW</th><th>Content</th><th>State</th><th>Attention</th></tr>");
 
     for (unsigned s = 0; s < api->store->cap; s++) {
         esl_tag_t t;
@@ -1200,7 +1220,20 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             else if (t.layout_ver != v)
                 esl_sb_puts(out, ", layout file pending");
         }
-        esl_sb_puts(out, "</td></tr>");
+        /* the same flags as GET /api/health, with spaces for the page */
+        uint8_t f = tag_health(api, &t, now_ms, NULL);
+        esl_sb_puts(out, f ? "</td><td class=\"p\">" : "</td><td>");
+        bool first = true;
+        for (unsigned b = 0; b < 8; b++) {
+            if (!(f & (1u << b)))
+                continue;
+            if (!first)
+                esl_sb_puts(out, ", ");
+            for (const char *n = esl_health_flag_name((uint8_t)(1u << b)); *n; n++)
+                esl_sb_putc(out, *n == '_' ? ' ' : *n);
+            first = false;
+        }
+        esl_sb_puts(out, f ? "</td></tr>" : "ok</td></tr>");
     }
     esl_sb_puts(out, "</table></body></html>");
     if (out->overflow) {

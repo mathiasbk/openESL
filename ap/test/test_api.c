@@ -490,9 +490,11 @@ static void test_status_page(void)
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(esl_api_status_page(&api, 1000 + 3 * 3600 * 1000, &sb), 200);
     CHECK(HAS(page, "<!DOCTYPE html>"));
-    CHECK(HAS(page, "Firmware 0.1.0, up 3 h, channel 25, 2 of 8 tags."));
+    CHECK(HAS(page, "Firmware 0.1.0, up 3 h, channel 25, 2 of 8 tags, <span class=\"p\">2 need attention</span>."));
     CHECK(HAS(page, "<td>" MAC1 "</td><td>-</td><td>-</td>"));
-    CHECK(HAS(page, "price: Br\xC3\xB8" "d &lt;b&gt;&amp;amp; | 9,90</td><td class=\"p\">pending"));
+    CHECK(HAS(page, "price: Br\xC3\xB8" "d &lt;b&gt;&amp;amp; | 9,90</td><td class=\"p\">pending</td>"
+                    "<td class=\"p\">unseen</td></tr>"));
+    CHECK(HAS(page, "<td>-</td><td>no content</td><td class=\"p\">silent</td></tr>")); /* seen 3 h ago */
     CHECK(HAS(page, "<p>Layout files: 2.9 none (built-in price and text only); 1.54 version "));
     CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
                     "<td>-</td><td>no content</td>"));
