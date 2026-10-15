@@ -19,6 +19,59 @@ The order is **risk first**: the hardest and most uncertain part (the tag's radi
 | 8 | Operational reliability | 3–6 evenings | 10 tags run for a week without any hanging or running out of battery |
 | **Total** | | **30–60 evenings** | About 3–6 months with 2–3 evenings a week |
 
+## Status checklist (2026-10-15)
+
+What is done and what is not, per phase. The details of each phase follow below.
+
+**Phase 0: Preparation**
+- [x] SDCC and ESP-IDF (v5.5.5) installed; the tag firmware and the AP build
+- [x] Flashing through ZBS_Flasher on a Wemos works (`tools/flash-tui`)
+- [x] Display controller found (ST-GM16XX2, 1.54"), pins mapped
+- [ ] Power budget for requirement T6 calculated from the real battery
+
+**Phase 1: Signs of life**
+- [x] Clock, calibrated delay, GPIO, UART, MAC read on the tag
+
+**Phase 2: Display**
+- [x] Panel init, drawing, fonts and layouts on the 1.54" (black/white only, no red)
+- [x] Display deep sleep after drawing
+
+**Phase 3: Radio**
+- [x] The tag sends and receives 802.15.4 frames with the C6
+- [x] RX after deep sleep works (the jig tag polls every ~60 s)
+
+**Phase 4: AP foundation**
+- [x] 802.15.4 on the C6 (channel 25, AP, sniffer and stub modes)
+- [x] Table of tags in NVS, HTTP API with a token, status page (A6)
+- [x] The API over the USB port (`esl-client --serial`), PR #5
+- [ ] WiFi on the C6 Super Mini: the board's WiFi is dead (hardware), so WiFi and coexistence are untested
+- [ ] Response time measured on hardware (requirement A3)
+
+**Phase 5: End to end**
+- [x] PUT → the right tag shows the new content, tested on hardware (PR #7)
+- [x] Same content, new content, unknown tag, tag restart, layout file over radio, AP gone for 5 min
+- [ ] CONTENT reply lost in the middle of an exchange
+- [ ] AP gone for an hour
+
+**Phase 6: Power**
+- [x] Deep sleep with timer wake-up on the tag
+- [ ] Measure sleep current, energy per POLL and per display update
+- [ ] Battery measurement (T8): not supported on this panel yet, reported as 0 mV; in progress (issue #4)
+- [x] Longer interval without the AP (T11): backoff up to 600 s
+
+**Phase 7: API polish and example client**
+- [x] Example client in Python (`tools/esl-client`)
+- [x] Status page on the AP (A6)
+- [ ] Web flasher and label designer (GitHub Pages): merged into the layout-config branch, not yet on master
+- [ ] API documentation checked against what runs on hardware
+
+**Phase 8: Operational reliability**
+- [x] Watchdog on the tag (T10)
+- [ ] Watchdog on the AP
+- [ ] Last content in the tag's flash (T12): flash writing works and the tag keeps its settings there, but not the content
+- [ ] Long-term test: 10 tags for a week
+- [ ] Flashing recipe and jig under a minute per tag
+
 ## Phase 0: Preparation
 - Install and pin the SDCC and ESP-IDF versions.
 - Back up (`read`) the original SoluM firmware on 2–3 tags before flashing anything else. It is the basis for the register study, and lets you restore the tags.
