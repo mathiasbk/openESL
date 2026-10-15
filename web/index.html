@@ -193,6 +193,8 @@
       <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
       <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings.</p>
       <p id="ap-fw-info" class="muted"></p>
+      <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
+      <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
       <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
         <button slot="activate">Connect and flash AP</button>
         <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
