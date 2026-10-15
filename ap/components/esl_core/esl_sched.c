@@ -24,6 +24,7 @@ static int find(const esl_sched_t *s, uint64_t mac, uint32_t at)
 static void drop(esl_sched_t *s, unsigned i)
 {
     s->e[i].used = false;
+    s->due_dirty = true;
     s->ops.erase(s->ops.ctx, i);
 }
 
@@ -56,6 +57,7 @@ bool esl_sched_restore(esl_sched_t *s, unsigned slot, const uint8_t *blob, size_
     if (at < ESL_SCHED_MIN_UNIX || find(s, mac, at) >= 0)
         return false;
     s->e[slot] = (esl_sched_entry_t){true, at, mac};
+    s->due_dirty = true;
     return true;
 }
 
@@ -65,6 +67,7 @@ void esl_sched_set_time(esl_sched_t *s, uint32_t unix_s, uint64_t now_ms, uint8_
     s->base_unix = unix_s;
     s->base_ms = now_ms;
     s->time_src = src;
+    s->due_dirty = true;
     unlock(s);
 }
 
@@ -107,6 +110,7 @@ esl_sched_err_t esl_sched_add(esl_sched_t *s, uint64_t mac, uint32_t at, const e
         return ESL_SCHED_FULL;
     }
     s->e[slot] = (esl_sched_entry_t){true, at, mac};
+    s->due_dirty = true;
     s->ops.save(s->ops.ctx, (unsigned)slot, blob, len);
     unlock(s);
     return ESL_SCHED_OK;
@@ -193,6 +197,16 @@ unsigned esl_sched_tick(esl_sched_t *s, esl_store_t *st, uint64_t now_ms)
         for (unsigned j = 0; j < s->cap; j++)
             if (s->e[j].used && s->e[j].mac == e->mac && s->e[j].at <= now)
                 drop(s, j); /* this one, and the earlier ones it replaces */
+    }
+    if (now && (s->due_dirty || now - s->due_sent >= 60)) {
+        /* due times in seconds since boot, as the store counts */
+        uint32_t boot_s = (uint32_t)(now_ms / 1000);
+        esl_store_clear_due(st);
+        for (unsigned i = 0; i < s->cap; i++)
+            if (s->e[i].used)
+                esl_store_note_due(st, s->e[i].mac, boot_s + (s->e[i].at - now));
+        s->due_dirty = false;
+        s->due_sent = now;
     }
     unlock(s);
     return applied;

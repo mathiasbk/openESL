@@ -100,15 +100,27 @@ static int env_find(const esl_layout_env_t *env, const char *name)
  *   4. IDLE
  * One message per POLL; the next item goes out in the next round (after a layout
  * download the tag polls again at once, so content follows in the same wake-up).
- * next_poll_s in every reply is the tag's own interval (eff.poll_s).
+ * next_poll_s in every reply is the tag's own interval (eff.poll_s), or shorter
+ * when scheduled content is due before then (next_poll).
  */
+static uint16_t next_poll(const esl_tag_t *t, uint16_t poll_s, uint64_t now_ms)
+{
+    uint32_t now_s = (uint32_t)(now_ms / 1000);
+    uint32_t interval = poll_s ? poll_s : ESL_TAG_BUILTIN_POLL_S;
+    if (!t->due_s)
+        return poll_s;
+    uint32_t wait = (t->due_s > now_s ? t->due_s - now_s : 0) + ESL_DUE_MARGIN_S;
+    return wait < interval ? (uint16_t)wait : poll_s;
+}
+
 static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll, const esl_layout_env_t *env,
-                          uint8_t *reply)
+                          uint64_t now_ms, uint8_t *reply)
 {
     uint32_t v = env ? env->version : 0;
     esl_tag_cfg_t eff;
 
     esl_tag_effective_cfg(t, st->next_poll_s, &eff);
+    uint16_t next = next_poll(t, eff.poll_s, now_ms);
     t->content_err = ESL_CERR_NONE;
     if (poll->has_layout_ver && poll->layout_ver == v)
         t->layout_failed = 0;
@@ -122,7 +134,7 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     }
     if (t->has_content && poll->content_id != t->content_id) {
         if (t->content.layout != ESL_LAYOUT_NAMED)
-            return esl_content_msg_build(reply, eff.poll_s, t->content_id, &t->content);
+            return esl_content_msg_build(reply, next, t->content_id, &t->content);
         int idx = env_find(env, t->content.name);
         if (!poll->has_layout_ver)
             t->content_err = ESL_CERR_NO_LAYOUTS;
@@ -133,13 +145,13 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
         if (!t->content_err) {
             esl_content_t sent;
             esl_content_resolve(&t->content, (uint8_t)idx, &sent);
-            return esl_content_msg_build(reply, eff.poll_s, t->content_id, &sent);
+            return esl_content_msg_build(reply, next, t->content_id, &sent);
         }
     }
     /* Only tags that send cfg_ver get CONFIG; older firmware would drop it. */
     if (esl_tag_cfg_pending(t, st->next_poll_s))
-        return esl_config_msg_build(reply, eff.poll_s, &eff);
-    return esl_idle_build(reply, eff.poll_s);
+        return esl_config_msg_build(reply, next, &eff);
+    return esl_idle_build(reply, next);
 }
 
 bool esl_tag_pending(const esl_tag_t *t)
@@ -262,6 +274,25 @@ esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_c
     return ESL_STORE_OK;
 }
 
+void esl_store_clear_due(esl_store_t *st)
+{
+    lock(st);
+    for (unsigned i = 0; i < st->cap; i++)
+        st->tags[i].due_s = 0;
+    unlock(st);
+}
+
+void esl_store_note_due(esl_store_t *st, uint64_t mac, uint32_t due_s)
+{
+    if (!due_s)
+        due_s = 1; /* 0 means none */
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0 && (!st->tags[idx].due_s || due_s < st->tags[idx].due_s))
+        st->tags[idx].due_s = due_s;
+    unlock(st);
+}
+
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply)
 {
@@ -293,7 +324,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->polls++;
         t->layout_capable = poll->has_layout_ver;
         t->layout_ver = poll->layout_ver;
-        n = poll_answer(st, t, poll, env, reply);
+        n = poll_answer(st, t, poll, env, now_ms, reply);
     }
     unlock(st);
     return n;

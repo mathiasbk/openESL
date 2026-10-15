@@ -142,7 +142,7 @@ Tag                                      AP
 - If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses).
 - The tag sends no separate acknowledgement. The next POLL carries the new `content_id`, and that is the acknowledgement. If CONTENT is lost, the AP sends it again at the next POLL.
 - Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG instead of IDLE. A new layout file and new content go first (see "Priority" below): CONFIG comes on the poll after they are done. The next POLL with the new `cfg_ver` is the acknowledgement, exactly as for content. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
-- `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG.
+- `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG. When scheduled content for the tag is due before that, `next_poll_s` is the time until it is due plus 2 s instead; the next reply brings the normal interval back.
 - Unknown MAC: the AP replies IDLE and adds the tag to the table with `content_id: 0`, so the client sees it in `GET /api/tags` and can give it content.
 
 ### Layout transfer (requirements G7, T17, A12)

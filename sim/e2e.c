@@ -361,6 +361,30 @@ int e2e_run(const char *out, const char *root)
     CHECK(sim_json_bool("pending") == 0, "confirmed");
     png("final");
 
+    /* ------------------------------------------------------------------ */
+    step("11. A price from a set time, with a 5-minute interval");
+    CHECK(sim_api("PUT", "/api/config", "{\"poll_s\":300}", &resp) == 200, "PUT /api/config poll_s 300");
+    run_for(61);
+    run_for(301);
+    CHECK(sim_tag_last_sleep_s() == 300, "the tag polls every 300 s, got %u", sim_tag_last_sleep_s());
+    CHECK(sim_api("PUT", "/api/time", "{\"time\":1792065600}", &resp) == 200, "PUT /api/time");
+    {
+        /* more than one interval ahead, so the tag polls once before it is due */
+        char body[160];
+        snprintf(body, sizeof(body),
+                 "{\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"17,90\",\"Kampanje\"],\"at\":%u}",
+                 1792065600u + 400);
+        CHECK(api("PUT", "", body) == 200 && sim_json_bool("scheduled") == 1, "scheduled for 400 s from now");
+    }
+    t0 = sim_now_ms;
+    CHECK(sim_tag_run_until_draw(t0 + 700000), "drew the scheduled price");
+    CHECK(sim_tag_last_draw_ms() >= t0 + 400000 && sim_tag_last_draw_ms() <= t0 + 410000,
+          "drawn just after it was due, not at the next 300 s poll: got %.1f s", (sim_tag_last_draw_ms() - t0) / 1000.0);
+    note("due after 400 s, drawn after %.1f s", (sim_tag_last_draw_ms() - t0) / 1000.0);
+    run_for(1);
+    CHECK(sim_tag_last_sleep_s() == 300, "back to 300 s, got %u", sim_tag_last_sleep_s());
+    png("11-scheduled");
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

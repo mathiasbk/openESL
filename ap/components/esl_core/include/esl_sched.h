@@ -57,6 +57,8 @@ typedef struct {
     uint8_t time_src;  /* ESL_TIME_* */
     uint32_t base_unix; /* the time was base_unix at base_ms since boot */
     uint64_t base_ms;
+    bool due_dirty;     /* entries or the time changed since the store last got the due times */
+    uint32_t due_sent;  /* Unix seconds when it last did */
 } esl_sched_t;
 
 typedef enum {
@@ -88,6 +90,9 @@ unsigned esl_sched_remove(esl_sched_t *s, uint64_t mac, bool all);
 bool esl_sched_get_slot(esl_sched_t *s, unsigned slot, uint64_t *mac, uint32_t *at, esl_content_t *c);
 
 /* Applies every entry that is due: the latest due entry per tag is set
- * (esl_store_set) and every due entry is removed. Call about once a second.
- * Returns how many were applied. */
+ * (esl_store_set) and every due entry is removed. Then, when the entries or
+ * the time have changed (and once a minute, for tags that joined the table
+ * since), tells the store when each tag's next entry is due
+ * (esl_store_note_due), so those tags poll just after it instead of after
+ * their full interval. Call about once a second. Returns how many were applied. */
 unsigned esl_sched_tick(esl_sched_t *s, esl_store_t *st, uint64_t now_ms);

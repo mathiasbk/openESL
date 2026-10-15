@@ -7,6 +7,7 @@
 #include "esl_api.h"
 #include "esl_persist.h"
 #include "esl_radio.h"
+#include "esl_sched.h"
 #include "sim.h"
 
 #define CAP 8
@@ -14,6 +15,8 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
+static esl_sched_entry_t sched_entries[CAP];
+static esl_sched_t sched;
 static bool ap_up;
 static uint64_t ap_boot_ms;
 
@@ -30,6 +33,8 @@ static struct {
     uint16_t poll_s;
     char layout[ESL_MODEL_COUNT][ESL_LAYOUT_MAX_SIZE];
     size_t layout_len[ESL_MODEL_COUNT];
+    uint8_t sched[CAP][ESL_SCHED_BLOB_MAX];
+    size_t sched_len[CAP];
 } nvs;
 
 static void nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
@@ -70,8 +75,32 @@ static void nvs_layout_erase(void *ctx, uint8_t model)
     nvs.layout_len[model] = 0;
 }
 
+static void nvs_sched_save(void *ctx, unsigned slot, const uint8_t *blob, size_t len)
+{
+    (void)ctx;
+    memcpy(nvs.sched[slot], blob, len);
+    nvs.sched_len[slot] = len;
+}
+
+static bool nvs_sched_load(void *ctx, unsigned slot, uint8_t *blob, size_t *len)
+{
+    (void)ctx;
+    if (!nvs.sched_len[slot] || nvs.sched_len[slot] > *len)
+        return false;
+    memcpy(blob, nvs.sched[slot], nvs.sched_len[slot]);
+    *len = nvs.sched_len[slot];
+    return true;
+}
+
+static void nvs_sched_erase(void *ctx, unsigned slot)
+{
+    (void)ctx;
+    nvs.sched_len[slot] = 0;
+}
+
 void sim_ap_boot(void)
 {
+    static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
     static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase};
     static bool first = true;
@@ -94,6 +123,10 @@ void sim_ap_boot(void)
         if (nvs.cfg_len[slot] && esl_persist_cfg_decode(nvs.cfg[slot], nvs.cfg_len[slot], &mac, &cfg))
             esl_store_restore_cfg(&st, slot, mac, &cfg);
     }
+    esl_sched_init(&sched, sched_entries, CAP, &sops);   /* as sched_start(): the time is unknown again */
+    for (unsigned slot = 0; slot < CAP; slot++)
+        if (nvs.sched_len[slot])
+            esl_sched_restore(&sched, slot, nvs.sched[slot], nvs.sched_len[slot]);
     for (uint8_t model = 1; model < ESL_MODEL_COUNT; model++)
         if (nvs.layout_len[model])
             esl_layouts_restore(&layouts, model, nvs.layout[model], nvs.layout_len[model]);
@@ -123,7 +156,7 @@ static char resp[ESL_API_RESP_SIZE(CAP)];
 
 int sim_api(const char *method, const char *uri, const char *body, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, NULL, NULL, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL};
     esl_sb_t out;
     int status;
 
@@ -132,6 +165,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
         esl_sb_puts(&out, "{\"error\":\"AP is off\"}");
         status = 503;
     } else {
+        esl_sched_tick(&sched, &st, ap_now_ms());
         status = esl_api_handle(&api, method, uri, "Bearer " SIM_TOKEN, body, body ? strlen(body) : 0,
                                 ap_now_ms(), &out);
     }
@@ -213,6 +247,8 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
     memcpy(psdu, frame, len);
     psdu[len] = psdu[len + 1] = 0;   /* FCS: checked by the radio hardware, not by esl_radio_handle */
     memset(&ev, 0, sizeof(ev));
+    /* the AP's sched task ticks once a second; here only time between frames matters */
+    esl_sched_tick(&sched, &st, ap_now_ms());
     n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, -55, ap_now_ms(), tx, &ev);
     if (ev.msg_type == ESL_MSG_POLL)
         sim_stats.polls++;

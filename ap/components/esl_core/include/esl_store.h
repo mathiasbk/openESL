@@ -55,7 +55,14 @@ typedef struct {
     uint32_t layout_ver;      /* layout file version from the last POLL */
     uint32_t layout_offered;  /* version the AP last offered it */
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
+    uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
 } esl_tag_t;
+
+/* What a tag polls with when the AP sends 0 (tag/src/config.h CFG_POLL_S) */
+#define ESL_TAG_BUILTIN_POLL_S 60
+/* A tag with scheduled content due before its next poll is told to come back
+ * this long after it is due, so the schedule has set it by then. */
+#define ESL_DUE_MARGIN_S 2
 
 /* Why content with a named layout is not sent to a tag */
 #define ESL_CERR_NONE         0
@@ -116,6 +123,13 @@ typedef struct {
     bool changed;
     bool pending; /* the tag understands CONFIG and has not confirmed these settings yet */
 } esl_cfg_result_t;
+
+/* Scheduled content (esl_sched): clear_due forgets every due time, note_due
+ * records one for a tag in the table (the earliest one wins). A tag whose
+ * content is due before its next poll gets a shorter next_poll_s in the reply
+ * (due + ESL_DUE_MARGIN_S), so a long interval does not delay it. */
+void esl_store_clear_due(esl_store_t *st);
+void esl_store_note_due(esl_store_t *st, uint64_t mac, uint32_t due_s);
 
 /* Replaces a tag's settings (all fields 0 = defaults), creating the tag if
  * needed, like esl_store_set. Values are not range-checked here. */
