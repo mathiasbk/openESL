@@ -42,7 +42,7 @@ AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c"]
 TAG_SOURCES = tag_build.CORE + tag_build.FONTS + ["test/fake_epd.c", "test/helpers.c"]
 MODELS = ["29", "154"]
-STATIC = ["index.html", "css", "js"]
+STATIC = ["index.html", "api.html", "css", "js"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
@@ -90,7 +90,6 @@ def build_native(model):
 
 
 def copy_static():
-    import apidocs
     for name in STATIC:
         src = os.path.join(HERE, name)
         dst = os.path.join(DIST, name)
@@ -99,16 +98,8 @@ def copy_static():
             shutil.copytree(src, dst)
         else:
             shutil.copy2(src, dst)
-    # the API tab, from docs/protokoll.md parts 2 and 3
-    index = os.path.join(DIST, "index.html")
-    with open(os.path.join(ROOT, "docs", "protokoll.md"), encoding="utf-8") as f:
-        docs = apidocs.api_section(f.read())
-    with open(index, encoding="utf-8") as f:
-        page = f.read()
-    if "<!-- API_DOCS -->" not in page:
-        sys.exit("index.html has no <!-- API_DOCS --> marker")
-    with open(index, "w", encoding="utf-8") as f:
-        f.write(page.replace("<!-- API_DOCS -->", docs))
+    # the API reference (api.html) reads the spec next to it
+    shutil.copy2(os.path.join(ROOT, "docs", "openapi.yaml"), DIST)
     # the example layout files, so the editor can open them
     lay = os.path.join(DIST, "designs", "layouts")
     os.makedirs(lay, exist_ok=True)

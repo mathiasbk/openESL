@@ -15,6 +15,9 @@ function showTab(name) {
   if (!TABS.includes(name)) name = "home";
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== "tab-" + name));
+  // the API reference is large: load it the first time its tab is shown
+  const frame = name === "api" && document.querySelector(".api-frame:not([src])");
+  if (frame) frame.src = frame.dataset.src;
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
 }
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));

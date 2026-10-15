@@ -1,0 +1,73 @@
+/* The AP's HTTP API on the host, for check_openapi.py: reads commands on stdin and
+ * runs them through the same esl_api_handle() the AP uses.
+ *
+ *   REQ <method> <uri> <auth|-> <len>\n<len bytes body>   ->  <status> <len>\n<body>\n
+ *   POLL <mac> <model> <layout_ver|-> <shown_content_id>  ->  OK\n
+ *   TIME <ms since boot>                                  ->  OK\n
+ *
+ * <auth> is the whole Authorization value with spaces as '+', '-' for none. POLL makes
+ * the tag poll as firmware with settings and (unless '-') layout files would. */
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "esl_api.h"
+
+#define CAP 8
+
+static esl_tag_t tags[CAP];
+static esl_store_t st;
+static esl_layouts_t layouts;
+
+int main(void)
+{
+    static char resp[ESL_API_RESP_SIZE(CAP)];
+    static char body[ESL_API_MAX_BODY + 64];
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron"};
+    uint64_t now_ms = 1000;
+    char line[512];
+
+    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_layouts_init(&layouts, NULL);
+
+    while (fgets(line, sizeof(line), stdin)) {
+        char method[16], uri[256], auth[128], mac_s[32], ver_s[16];
+        unsigned long len;
+        unsigned model;
+        uint32_t shown;
+        unsigned long long t;
+
+        if (sscanf(line, "REQ %15s %255s %127s %lu", method, uri, auth, &len) == 4) {
+            if (len > sizeof(body) || fread(body, 1, len, stdin) != len)
+                return 1;
+            for (char *p = auth; *p; p++)
+                if (*p == '+')
+                    *p = ' ';
+            esl_sb_t out;
+            esl_sb_init(&out, resp, sizeof(resp));
+            int status = esl_api_handle(&api, method, uri, strcmp(auth, "-") ? auth : NULL, len ? body : NULL,
+                                        len, now_ms, &out);
+            printf("%d %u\n", status, (unsigned)out.len);
+            fwrite(out.buf, 1, out.len, stdout);
+            putchar('\n');
+        } else if (sscanf(line, "POLL %31s %u %15s %" SCNu32, mac_s, &model, ver_s, &shown) == 4) {
+            uint64_t mac;
+            if (!esl_mac_parse(mac_s, strlen(mac_s), &mac))
+                return 1;
+            uint8_t reply[ESL_MAX_PAYLOAD];
+            esl_layout_env_t env;
+            esl_poll_t p = {2, 2950, shown, 0, (uint8_t)model, true, 0, strcmp(ver_s, "-") != 0,
+                            (uint32_t)strtoul(ver_s, NULL, 10)};
+            esl_layouts_env(&layouts, (uint8_t)model, &env);
+            esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
+            puts("OK");
+        } else if (sscanf(line, "TIME %llu", &t) == 1) {
+            now_ms = t;
+            puts("OK");
+        } else {
+            return 1;
+        }
+        fflush(stdout);
+    }
+    return 0;
+}

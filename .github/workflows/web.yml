@@ -38,6 +38,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - name: API spec against the AP code (docs/openapi.yaml)
+        run: |
+          python3 -c "import yaml" 2>/dev/null || sudo apt-get install -y python3-yaml
+          make -C ap/test openapi
       - name: Build the page and the renderer
         run: |
           python3 web/build.py

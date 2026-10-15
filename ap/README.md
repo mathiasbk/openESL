@@ -43,7 +43,7 @@ ap/
 
 ## HTTP API
 
-See [docs/protokoll.md](../docs/protokoll.md) part 2. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`).
+The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protokoll.md](../docs/protokoll.md) part 2 has an overview. `make openapi` in `test/` checks the spec against `esl_api.c`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`).
 
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
@@ -53,7 +53,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
 curl -H "Authorization: Bearer $TOKEN" http://openesl.local/api/tags
 ```
 
-Every tag object also has `"model"`, `"draw_failed"`, `"layout_version"`, `"layout_pending"`, `"layout_failed"` and `"content_error"` (protokoll.md part 2).
+Every tag object also has `"model"`, `"draw_failed"`, `"layout_version"`, `"layout_pending"`, `"layout_failed"` and `"content_error"` (the `Tag` schema in openapi.yaml).
 
 ### Layout files (krav A12-A14)
 

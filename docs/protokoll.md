@@ -177,116 +177,22 @@ The tag is awake for about 5–25 ms per round. Adjust the window from measureme
 
 Any software (the client) calls a small REST API on the AP when content changes. The AP never calls the client.
 
-**Prerequisite:** the client must be able to reach the AP on the network: same local network, or a VPN if the client runs elsewhere. Give the AP a fixed IP (DHCP reservation) or use the mDNS name `openesl.local`.
+**The reference is [openapi.yaml](openapi.yaml)** (OpenAPI 3.1): every endpoint, field, limit and error code, with examples. The API tab of the web page shows it with test requests (https://mathiasbk.github.io/openESL/#api), and `ap/test/openapi/check_openapi.py` runs its examples against the AP code (`esl_api.c`) and checks every reply against it, so the spec and the code cannot drift apart. Change the spec together with the code.
 
-**Authentication:** `Authorization: Bearer <token>`. The token is set in the AP (menuconfig or NVS) and in the client's configuration. Version 1 uses plain HTTP on the local network or VPN (an HTTPS server on the ESP32 is possible, but heavy). Replies without a valid token: `401`.
+In short:
+- **Reaching the AP:** HTTP on the local network or a VPN (`openesl.local`, or a fixed IP), or the same API over the AP's USB port as `@ESL` lines, with no token (`ap/README.md`, "Over the USB port"). `tools/esl-client` speaks both, and `esl_client.py serve` is a bridge on localhost that lets the web page send test requests.
+- **Authentication:** `Authorization: Bearer <token>`; the token is set in the AP (menuconfig or NVS). Without a valid token: `401`. A read-only status page at `/` needs no token (requirement A6).
+- **Errors:** `{"error":"<what is wrong>"}`, in a batch with `"index"` for the row.
 
-**Transports:** the API answers over HTTP on WiFi, and the same API (the same code, `esl_api.c`) answers on the AP's USB port as `@ESL` lines next to the log, with no token, for setups without WiFi (`ap/README.md`, "Over the USB port"; `tools/esl-client --serial`). Over the USB port a body that stops arriving gives `408`. A read-only status page at `/` needs no token (`ESL_STATUS_PAGE`, requirement A6).
-
-**Requests:** the paths below take an optional trailing `/`, and a query string is ignored. Bodies are JSON objects of at most 24,576 bytes and 1,024 JSON tokens (`413` above that; layout files have their own limit, see below). MACs are 16 hex digits, most significant byte first, upper or lower case.
-
-**Errors** come as `{"error":"<what is wrong>"}`, in a batch with `"index"` for the row:
-
-| Status | When |
+| Request | What it does |
 |---|---|
-| `400` | no body, invalid JSON, the body is not an object, a bad MAC in the path, a bad string escape |
-| `401` | missing or wrong token (also when the AP has no token set) |
-| `404` | unknown path, unknown tag on `GET`/`DELETE`, unknown model or no layout file |
-| `405` | a method the path does not have |
-| `413` | the body is too large |
-| `422` | the JSON is valid but a value is not (the message says which) |
-| `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
-| `507` | the tag table is full |
-
-Text is sent as UTF-8 JSON. The AP converts it to Latin-1 (unknown characters become `?`) and rejects text that is too long with `422`: at most 92 bytes for all fields together after the conversion (`ESL_MAX_TEXT_BYTES` in `shared/proto.h`).
-
-### `PUT /api/tags/{mac}`: set content for one tag
-```json
-{ "layout": "price", "fields": ["Semi-skimmed milk 1 L", "24.90", "NOK 24.90/L"], "price_highlight": true }
-```
-```json
-{ "layout": "text", "fields": ["Welcome", "Open 9–21", "", ""], "frame": true }
-```
-- `fields` is required: an array of strings, where `null` counts as `""`. `price` takes at most 3 fields (name, price, subtitle), `text` at most 4 lines. Empty fields at the end are dropped before `content_id` is calculated, so `["a",""]` and `["a"]` are the same content.
-- `price_highlight` (bool) highlights the price: white digits in a filled black box, as the stock firmware does (flag bit0 in CONTENT, only used by layout `price`). `frame` (bool) gives a black frame around the screen (flag bit1). Both are optional and default to `false`. The tags are black/white only; there is no red.
-- `layout` is `price`, `text` (the built-in layouts) or the **name of a layout in a layout file** (part 3, requirement A14), e.g. `shelf`. `fields` are then that layout's fields, in the order its `fields` list gives, and `price_highlight` drives its `highlight` elements. `422` if:
-  - the name is in no layout file (`layout "x" is not in any layout file`), or, once the tag has polled and its model is known, not in the file for that model (`... is not in the layout file for model 1.54`);
-  - there are more fields than the layout has (`layout sign takes at most 2 fields`);
-  - the tag's firmware cannot download layout files (its POLL is shorter than 18 bytes).
-
-  The same name may be used in both models' files (the tags get layout number n of their own file), so a client can send one body to every tag. Content with a named layout is stored by name; the AP looks the name up in the tag's file each time it sends it, and only sends it when the tag has the current file. If the file no longer has the name, the content stays `pending` and `content_error` says why.
-
-Reply `200`:
-```json
-{ "mac": "00000123456789A8", "content_id": 2914470401, "changed": true, "pending": true }
-```
-- The AP calculates `content_id` itself (CRC32 of layout, fields and flags). The same content twice gives `changed: false`, and the tag does not draw again. A client can therefore safely send everything every time without tracking what has changed.
-- `pending: true` means the tag has not fetched the content yet.
-- `content_id` of content with a named layout covers the name, not the layout number, so it is the same on both models and does not change when the layout file changes (the tag fetches the content again itself, see part 1).
-- An unknown MAC is accepted. The content is ready when the tag appears.
-
-### `PUT /api/tags`: set content for many tags (batch)
-```json
-{ "tags": [ { "mac": "00000123456789A8", "layout": "price", "fields": ["…","…","…"], "price_highlight": false }, … ] }
-```
-Reply `200` with one line per tag as above. Practical for the daily price job: one call instead of one per tag. Max 50 tags per call (limited by RAM on the AP). The batch is all-or-nothing: one invalid row gives `422` with `index` pointing at the row, and no tag is changed. `507` if the table becomes full.
-
-### `GET /api/tags`: status for all tags
-```json
-{
-  "ap": { "fw": "0.1.0", "uptime_s": 86400, "channel": 25, "max_tags": 64, "poll_s": 0, "reset": "poweron" },
-  "tags": [
-    { "mac": "00000123456789A8", "seen_s_ago": 12, "battery_mv": 2950, "rssi": -61,
-      "fw": 100, "model": "2.9", "draw_failed": false,
-      "content_id": 2914470401, "shown_content_id": 2914470401, "pending": false,
-      "poll_s": 120, "config": { "poll_s": 120, "max_poll_s": null, "lost_ap_s": null }, "config_pending": false,
-      "layout_version": 1167268903, "layout_pending": false, "layout_failed": false,
-      "content_error": null }
-  ]
-}
-```
-- `ap.poll_s` is the AP-wide default interval (`GET /api/config`; 0 = tags keep their built-in interval). `ap.reset` is why the AP last started: `poweron`, `ext`, `sw`, `usb`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `jtag`, `pwr_glitch`, `cpu_lockup` or `unknown`. `task_wdt` means a stuck AP task was restarted by the watchdog (`ap/README.md`, "Watchdog").
-- `shown_content_id` is what the tag reported in its last POLL. When it equals `content_id`, the tag shows the right content, and `pending` is `false`.
-- Tags that have sent POLL without any content set have `content_id: 0`. This is how a client finds new tags.
-- The AP has no clock, so it sends "seconds ago". The client converts this to a time.
-- `max_tags` is how many tags the AP has room for (set in `menuconfig`, default 64).
-- `seen_s_ago`, `battery_mv`, `rssi`, `fw`, `model` and `shown_content_id` are `null` for tags not seen since the AP started. `model` is also `null` for firmware that does not send it. `battery_mv` 0 means the tag cannot measure its battery (the 1.54", issue #4). `draw_failed` is bit1 of the flags in the last POLL. `fw` is the tag's `fw_ver` (100 = 0.1.0, see POLL).
-- `poll_s` is the interval the AP sends this tag (`null` = the tag's built-in one), `config` the tag's own settings (`null` = default, see `PUT /api/tags/{mac}/config`), and `config_pending` is `true` while a tag that understands CONFIG has not confirmed the current settings (always `false` for older firmware).
-- `layout_version` is the layout file version the tag reported (`null` for firmware without layout files). `layout_pending` is true while it differs from the AP's version for the tag's model (the tag is downloading the file), `layout_failed` when the tag rejected the AP's current file.
-- `content_error` is `null`, or why pending content with a named layout cannot be sent: the tag's firmware cannot download layout files, the layout is not in the file for the tag's model, or the tag rejected the file.
-
-### `GET /api/tags/{mac}`: status for one tag
-The same object as one line in the list above, plus the content (`layout`, `fields`, `price_highlight`, `frame`) when the tag has any. `404` for an unknown tag.
-
-### `PUT /api/tags/{mac}/config`: settings for one tag
-```json
-{ "poll_s": 120, "max_poll_s": 900, "lost_ap_s": null }
-```
-- Replaces the tag's settings. A missing or `null` field means the default: `poll_s` falls back to the AP default (`PUT /api/config`), the others to the tag's built-in values. `{}` resets everything.
-- `poll_s` and `max_poll_s`: whole seconds, 10–3600. `lost_ap_s`: 60–65535, where 65535 = never show "No AP found". Anything else gives `422`.
-- Kept in NVS, so they survive an AP restart. A tag with its own settings is not replaced when the table is full, like a tag with content. An unknown MAC is accepted.
-- Reply `200`: `{"mac":"…","poll_s":120,"config":{…},"config_pending":true,"changed":true}`. `GET /api/tags/{mac}/config` returns the same without `changed` (`404` for an unknown tag).
-- Interval and requirement G1: with `poll_s` above 120 s new content can take longer than 2 minutes to show.
-
-### `GET /api/config`, `PUT /api/config`: AP-wide default interval
-```json
-{ "poll_s": 120 }
-```
-- `poll_s` is required in `PUT` (`422` without it). The interval for tags without their own `poll_s`. `0` = tags keep their built-in interval (60 s), `10`–`3600` = that many seconds, `null` = back to the value set in `menuconfig` (`ESL_NEXT_POLL_S`, default 0). Stored in NVS (`cfg/poll_s`).
-- Reply `200` (both methods): `{"poll_s":120,"builtin_poll_s":0}`.
-
-### `DELETE /api/tags/{mac}`
-Removes the tag from the AP: its content and settings. The tag keeps what it shows until it gets new content; if it polls again it is added back without content. Reply `200`: `{"mac":"00000123456789A8","deleted":true}`, `404` for an unknown tag.
-
-### Layout files (part 3)
-| Request | Reply |
-|---|---|
-| `PUT /api/layouts/{model}` with the layout file (JSON) as body; `{model}` is `2.9` or `1.54` | `{"model":"2.9","version":1167268903,"size":2038,"binary_size":174,"layouts":["shelf","sign"],"changed":true}`. `400` if not a JSON object, `413` above 8192 bytes, `404` for an unknown model, `422` with the place and the reason if the file does not work on that model, e.g. `{"error":"layouts[0].elements[2]: x + w = 300 is past the right edge of the screen (296)"}`. The same file again gives `changed:false` and no NVS write. |
-| `GET /api/layouts` | `{"max_size":8192,"max_binary_size":768,"layouts":[{"model":"2.9","version":1167268903,"size":2038,"binary_size":174,"layouts":["shelf","sign"]},{"model":"1.54","version":null,"size":0,"binary_size":0,"layouts":[]}]}` |
-| `GET /api/layouts/{model}` | the file as uploaded, `404` if none |
-| `DELETE /api/layouts/{model}` | `{"model":"2.9","deleted":true}`, `404` if none. The tags of that model drop their file at the next POLL. |
-
-`version` is the version the tags get (part 1), `size` the JSON file, `binary_size` what each tag downloads. The file is stored in NVS and compiled again at boot.
+| `PUT /api/tags/{mac}` | Set the content of one tag: `{"layout":"price","fields":["Milk 1 L","24.90","NOK 24.90/L"],"price_highlight":true}`. The AP calculates `content_id` (CRC-32); the same content again is `changed:false` and the tag does not draw again |
+| `PUT /api/tags` | The same for up to 50 tags, all or nothing |
+| `GET /api/tags`, `GET /api/tags/{mac}` | The AP and its tags: last seen, battery, signal, model, what each tag shows, settings, layout file state |
+| `DELETE /api/tags/{mac}` | Forget a tag: its content and settings |
+| `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
+| `GET`/`PUT /api/config` | The AP-wide default poll interval |
+| `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
 
 ## 3. Layout files
 
