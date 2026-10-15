@@ -150,6 +150,9 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .el-list .ico { width: 14px; height: 10px; border: 1.5px solid var(--box); border-radius: 2px; }
 .el-list .ico.rect { background: var(--box-rect); border-color: var(--box-rect); }
 .el-list .ico.inv { background: var(--box); }
+.el-list .ico.barcode { border-color: var(--text); background: repeating-linear-gradient(90deg, var(--text) 0 2px, transparent 2px 4px); }
+.box.barcode { border-color: var(--muted); }
+.box.barcode .tag { background: var(--muted); }
 .el-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .el-list .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .guide { position: absolute; pointer-events: none; z-index: 3; }

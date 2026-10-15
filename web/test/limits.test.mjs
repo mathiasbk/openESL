@@ -32,6 +32,11 @@ for (const model of Object.keys(MODELS)) {
         ...Array.from({ length: n }, (_, i) => ({ type: "rect", x: i, y: 50, w: 4, h: 4 })),
       ]);
     }
+    for (let n = 1; n <= 2; n++) {
+      cases.push(Array.from({ length: n }, (_, i) => ({
+        type: "barcode", field: "a", symbology: "code128", x: 0, y: 20 * i, w: width, h: 16,
+      })));
+    }
     for (let seed = 1; seed < 40; seed++) {
       const elements = [];
       cases.push(elements);
@@ -48,7 +53,9 @@ for (const model of Object.keys(MODELS)) {
       const layout = { name: "t", fields: ["a"], elements };
       const res = r.loadLayouts(JSON.stringify({ format: "esl-layouts", version: 1, model, layouts: [layout] }));
       const u = layoutUsage(layout, r.limits);
-      if (u.runs > r.limits.runs) {
+      if (u.barcodes > r.limits.barcodes) {
+        assert.match(res.error, /at most \d+ barcode/, JSON.stringify(layout));
+      } else if (u.runs > r.limits.runs) {
         assert.match(res.error, new RegExp(`needs up to ${u.runs} lines`), JSON.stringify(layout));
       } else if (u.rects > r.limits.rects) {
         assert.match(res.error, new RegExp(`needs ${u.rects} rectangles`), JSON.stringify(layout));
