@@ -1,6 +1,7 @@
 """Tests for esl_client.py against a small fake AP (python3 -m unittest)."""
 
 import datetime
+import csv
 import io
 import json
 import os
@@ -189,6 +190,44 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("config", "--webhook", "", "--poll-s", "null")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"poll_s": None, "webhook": None}))
         self.assertIn("webhook off", out)
+
+    def test_log_and_report(self):
+        self.run_cli("price", "00000123456789A8", "Milk", "24.90")
+        FakeAp.tags["00000123456789A8"]["battery_mv"] = 2400       # low: listed by /api/health
+        self.run_cli("price", "00000123456789B9", "Bread", "32.00")
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            rc, out = self.run_cli("log", path, "--every", "1.1", "--rounds", "2")   # rounds are told apart by the second
+            self.assertEqual(rc, 0)
+            self.assertEqual(out.count("2 tags, 1 with problems, AP up 10 s"), 2)
+            with open(path, newline="") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(len(rows), 4)
+            self.assertEqual(rows[0]["mac"], "00000123456789A8")
+            self.assertEqual(rows[0]["problems"], "low_battery")
+            self.assertEqual(rows[1]["problems"], "")
+            self.assertEqual(rows[0]["ap_uptime_s"], "10")
+            # a third round appends without a second header
+            time.sleep(1.1)
+            rc, out = self.run_cli("log", path, "--every", "0", "--rounds", "1")
+            with open(path) as f:
+                self.assertEqual(f.read().count("time,ap_uptime_s"), 1)
+            # a round the AP did not answer, and an AP restart, hand-written as "log" writes them
+            with open(path, "a", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["2026-10-15 12:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
+                w.writerow(["2026-10-15 12:01:00", "5", "task_wdt", "00000123456789A8", "2.9", "700", "2400", "-60",
+                            "1", "1", "0", "1", "low_battery|silent"])
+            rc, out = self.run_cli("report", path)
+        self.assertEqual(rc, 1)
+        self.assertIn("4 rounds", out)
+        self.assertIn("AP did not answer 1 times, restarted 1 times (2026-10-15 12:01:00)", out)
+        a8 = next(l for l in out.splitlines() if l.startswith("00000123456789A8"))
+        self.assertIn("11 min", a8)          # the longest gap, 700 s
+        self.assertIn("2400 mV", a8)
+        self.assertIn("low_battery|silent", a8)
+        b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
+        self.assertIn("     3 ", b9)         # 3 rounds, no problems
 
     def test_ota(self):
         rc, out = self.run_cli("ota")
