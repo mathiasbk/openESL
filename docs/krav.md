@@ -12,7 +12,7 @@
 | G4 | The system tolerates power loss on the AP without losing content or requiring tags to be set up again. | MUST |
 | G5 | Builds of tag and AP firmware are reproducible from git (pinned SDCC and ESP-IDF versions). | MUST |
 | G6 | Supports both SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white). Neither has red: emphasis is black/white (an inverted field, white on black, and a black frame). Screen size is a per-tag parameter, not an assumption in the code. The display controller of the 1.54" is confirmed in phase 0. | MUST |
-| G7 | The screen design (layout) is made in a separate design tool (not built yet) and stored as a JSON file: fields, positions, fonts, colours. The firmware reads the layout from the file instead of having it fixed in the code. The fixed layouts ("Price", "Text") are the first step until the file format exists. | MUST |
+| G7 | The screen design (layout) is made in a separate design tool (the Design tab of the web page, `web/`) and stored as a JSON file: fields, positions, fonts, colours. The firmware reads the layout from the file instead of having it fixed in the code. Done: layout files are sent to the tags over radio ([protokoll.md](protokoll.md) part 3). | MUST |
 
 ## Tag (ZBS243)
 
@@ -30,7 +30,7 @@
 | T10 | Watchdog: if the firmware hangs, the tag restarts itself. | MUST |
 | T11 | Longer interval when the AP does not answer (e.g. 60 s → 10 min) to save battery. | SHOULD |
 | T12 | Shows the content again after a restart without waiting for the AP (stores the last content in flash). | SHOULD |
-| T13 | Barcode or QR code. | LATER |
+| T13 | Barcode or QR code. | LATER (Code 128 and EAN-13 done in layouts; no QR yet) |
 | T14 | Arbitrary images/logos sent through the API. | LATER |
 | T15 | Firmware update over radio (OTA). | LATER |
 | T16 | Encrypted/signed content (AES-CCM or similar). | LATER, but the packet format has room for it |
@@ -51,7 +51,7 @@
 | A7 | Fixed channel and PAN ID, configurable. | MUST |
 | A8 | Logging over USB serial. | MUST |
 | A9 | Several APs in the same location. | LATER |
-| A10 | OTA for the AP itself. | SHOULD (ESP-IDF has nearly all of this ready) |
+| A10 | OTA for the AP itself. | SHOULD (done: `POST /api/ota`, not yet tried on hardware) |
 | A11 | The same content sent again gives no new drawing (the AP compares `content_id`). | MUST |
 | A12 | Stores layout files per tag model, accepts new ones via the API and sends them to the tags over radio when the layout is new for the tag (G7). | MUST |
 | A13 | Knows the model of each tag and validates text length and layout against it (G6). | MUST |
@@ -59,4 +59,4 @@
 
 ## Not goals for version 1
 
-OTA, images, encryption, NFC, buttons/LED, several APs, roaming, tag models other than SoluM 2.9" and 1.54", client software (any program that speaks the HTTP API can be used).
+OTA for the tags, images, encryption, NFC, buttons/LED, several APs, roaming, tag models other than SoluM 2.9" and 1.54", client software beyond the example client in `tools/esl-client` (any program that speaks the HTTP API can be used).

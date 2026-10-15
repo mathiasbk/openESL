@@ -53,6 +53,8 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 9 | AP gone for more than 2 hours | "No AP found" (T9); content again when the AP is back |
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
 
+The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the tag and AP host tests, not end to end here.
+
 ## Serial port (`esl-sim serve`)
 
 ```

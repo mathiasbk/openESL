@@ -16,15 +16,16 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [fremdriftsplan.md](fremdriftsplan.md) | Phases, milestones, estimates and checkpoints |
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
 | [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |
+| [openapi.yaml](openapi.yaml) | The HTTP API as OpenAPI 3.1, the reference; checked against the AP code in CI and shown in the API tab of the web page |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
 
 ## The main choices (short version)
 
-1. **The tag draws the screen itself.** The AP sends only the text fields (name, price, subtitle) in one radio packet of about 100 bytes. The tag has a built-in font and draws directly into the display controller's memory. That avoids image transfer in many blocks, storage in EEPROM and resending lost parts, which is the most complicated part of similar designs.
+1. **The tag draws the screen itself.** The AP sends only the text fields (up to six per layout, e.g. name and the price with and without VAT) in one radio packet of about 100 bytes; the layout file goes to the tag once, when it is new. The tag has a built-in font and draws directly into the display controller's memory. That avoids image transfer in many blocks, storage in EEPROM and resending lost parts, which is the most complicated part of similar designs.
 2. **The tag asks, the AP answers.** The tag wakes every 60 seconds, sends "anything new?", listens for a few milliseconds and goes back to sleep. No synchronisation or fixed time slots.
 3. **One ESP32-C6 is the whole AP.** The C6 has both WiFi and an 802.15.4 radio, so no second chip is needed.
 4. **The AP is only an API.** It has a small HTTP API (`PUT /api/tags/{mac}`, `GET /api/tags`). Clients push content to it. The client must be able to reach the AP: same network, or a VPN.
-5. **No OTA in version 1.** New tag firmware is flashed with pogo pins.
+5. **No OTA for the tags in version 1.** New tag firmware is flashed with pogo pins. The AP itself can be updated over the API (`POST /api/ota`, `esl-client ota`).
 
 ## Equipment
 

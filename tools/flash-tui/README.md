@@ -37,7 +37,7 @@ Default paths are what `tag/tools/build.py` writes:
 | 2.9" | `python tag/tools/build.py fw` | `tag/build/fw/openesl.bin` |
 | 1.54" | `MODEL=154 python tag/tools/build.py fw` | `tag/build/fw154/openesl.bin` |
 
-A missing file is shown in red and nothing is sent to the flasher. The image must be below 0xFC00.
+A missing file is shown in red and nothing is sent to the flasher. The build keeps the code below 0xF400 (`CODE_SIZE` in `tag/tools/build.py`; above it are the layout store, the content store and, from 0xFC00, the stock MAC). `flash-tui` itself only refuses an image that reaches 0xFC00.
 
 ## Serial port
 
@@ -45,7 +45,7 @@ The debug Wemos ([tools/wemos-debug](../wemos-debug/)) is also a CH340, so the p
 
 - The picker (`p`) lists every port with its USB path (e.g. `1-2.1:1.0`) and VID:PID.
 - The choice is remembered by USB path in `~/.config/openesl/flash-tui.json` (also the model and
-  firmware paths), because `/dev/ttyUSB0`/`1` can swap. The same USB socket gives the same path.
+  firmware paths; `--config FILE` uses another file), because `/dev/ttyUSB0`/`1` can swap. The same USB socket gives the same path.
 - Before anything else, the port must answer a ZBS_Flasher version request. A port that does not
   (the debug Wemos, anything else) is rejected and the picker opens again. The version request does
   not touch the tag.

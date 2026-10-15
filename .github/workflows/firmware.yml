@@ -1,5 +1,5 @@
 # Builds the tag firmware (both models, after the host tests) and the AP firmware.
-# Called by web.yml (every push and pull request) and release.yml (tags v*), so CI and
+# Called by web.yml (every push and pull request) and release.yml (a VERSION bump merged to master, a tag v*, or by hand), so CI and
 # releases build the firmware the same way. Artifacts:
 #   tag-firmware: tag-29.bin, tag-154.bin
 #   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
