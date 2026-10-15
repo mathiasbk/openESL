@@ -40,3 +40,6 @@ private/
 
 # Web page build (web/build.py)
 web/dist/
+
+# Simulation (sim/)
+sim/build/

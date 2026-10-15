@@ -52,8 +52,10 @@ What is done and what is not, per phase. The details of each phase follow below.
 **Phase 5: End to end**
 - [x] PUT → the right tag shows the new content, tested on hardware (PR #7)
 - [x] Same content, new content, unknown tag, tag restart, layout file over radio, AP gone for 5 min
-- [ ] CONTENT reply lost in the middle of an exchange
-- [ ] AP gone for an hour
+- [x] End-to-end simulation in CI (`sim/`): the tag firmware against the AP core through the API, with simulated radio and time; the whole test matrix below, CONFIG, layout files and T12, screens saved as PNG
+- [x] CONTENT reply lost in the middle of an exchange: in the simulation (cases 4a–4d: one reply lost, both tries lost, the confirming POLL lost, the AP dying while it answers)
+- [x] AP gone for an hour: in the simulation (case 8)
+- [ ] Both of these provoked on hardware
 
 **Phase 6: Power**
 - [x] Deep sleep with timer wake-up on the tag
@@ -128,7 +130,19 @@ ESP32-C6 Super Mini as AP (API over USB, `esl-client --serial`), the 1.54" tag i
 | Layout file over radio | 2 blocks (174 bytes) and 8 blocks (684 bytes) in one wake-up without retries, about 80 ms for 8 blocks. After the last block the tag polls again at once and gets the content drawn with the new layout (`shelf` with a highlighted price shown) |
 | AP gone for 5 min with new content waiting | Content survives the AP restart (NVS). The tag had backed off (3 misses, then doubling) and polled 205 s after the AP came back, got CONTENT and went back to 60 s |
 
-Not tested yet: losing the CONTENT reply itself in the middle of an exchange, and the AP gone for an hour (the backoff reaches the 600 s maximum, so expect up to 10 min before the tag finds the AP again).
+Not tried on hardware yet: losing the CONTENT reply itself in the middle of an exchange, and the AP gone for an hour. Both run in the simulation below.
+
+### Results in the simulation (2026-10-15)
+`make -C sim` ([sim/README.md](../sim/README.md)): `tag/src/app.c` and `ap/components/esl_core` on the PC, joined by a simulated radio link, driven through `esl_api_handle()`, with simulated time. Both models, in CI on every push. The same numbers for the cases above (same content, new content, unknown tag, restart, layout file) as on hardware.
+
+| Case | Result |
+|---|---|
+| CONTENT reply lost once | The retry in the same wake-up (2–10 ms later) gets it; not counted as a miss |
+| CONTENT lost in both tries | One miss without backoff, CONTENT at the next wake-up 60 s later; the API shows `pending` until the tag confirms |
+| The POLL that confirms it is lost | `pending` stays true one interval longer; nothing is resent |
+| The AP dies while sending CONTENT, back after 3 min | The content survives in NVS; the tag gets it 60 s after the AP is back |
+| AP gone for an hour with new content waiting | 10 misses, the sleep reaches 600 s; the tag found the AP 390 s after it came back (at most 600 s) and went back to 60 s |
+| AP gone for more than 2 h | "No AP found" after 7020 s: `lost_s` counts the sleep the tag is about to start, so the screen comes up to one sleep (600 s) before the 2 h in T9 have passed. Content again within 600 s when the AP is back |
 
 ## Phase 6: Power
 - Find deep sleep with timer wake-up (SoluM backup + experiments).

@@ -23,6 +23,7 @@ Early work in progress. The protocol, the AP core with its HTTP API, and the dra
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [ap/](ap/) | AP firmware for the ESP32-C6 (ESP-IDF) with the HTTP API |
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |
+| [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link: end-to-end tests in CI, and a serial port for `esl-client` with no hardware |
 
 Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
