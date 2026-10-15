@@ -3,6 +3,8 @@
 
 Standard library only. URL and token come from --url/--token or the environment
 variables OPENESL_URL (default http://openesl.local) and OPENESL_TOKEN.
+With --serial PORT (or OPENESL_SERIAL) it talks to the AP over its USB port
+instead (Linux/macOS); no token is needed there.
 
   esl_client.py status
   esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
@@ -11,6 +13,7 @@ variables OPENESL_URL (default http://openesl.local) and OPENESL_TOKEN.
   esl_client.py delete 00000123456789A8
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
+  esl_client.py --serial /dev/ttyACM0 status
 
 CSV for sync: mac,layout,highlight,frame,field1,field2,... with a header row.
 highlight and frame are 1/0, true/false or empty.
@@ -21,6 +24,7 @@ import csv
 import json
 import os
 import re
+import select
 import sys
 import time
 import urllib.error
@@ -101,6 +105,77 @@ class Client:
             if time.monotonic() >= end:
                 return False
             time.sleep(poll_s)
+
+
+class SerialClient(Client):
+    """The same API over the AP's USB port (ap/main/serial_api.c). Requests and
+    replies are "@ESL" frames in the log stream; everything else is skipped."""
+
+    def __init__(self, port, timeout=10.0):
+        super().__init__("serial:" + port, "", timeout, retries=1)
+        self.port = port
+        self.seq = 0
+        self.fd = None
+
+    def _open(self):
+        import termios
+        fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY)
+        a = termios.tcgetattr(fd)
+        a[0] = 0                                          # iflag: raw
+        a[1] = 0                                          # oflag: raw
+        a[2] = (a[2] | termios.CLOCAL | termios.CREAD) & ~termios.HUPCL
+        a[3] = 0                                          # lflag: no echo, not canonical
+        a[6][termios.VMIN], a[6][termios.VTIME] = 1, 0
+        termios.tcsetattr(fd, termios.TCSANOW, a)
+        termios.tcflush(fd, termios.TCIFLUSH)
+        return fd
+
+    def _read(self, n, end):
+        out = b""
+        while len(out) < n:
+            left = end - time.monotonic()
+            if left <= 0 or not select.select([self.fd], [], [], left)[0]:
+                raise TimeoutError
+            chunk = os.read(self.fd, n - len(out))
+            if not chunk:
+                raise ConnectionError("serial port closed")
+            out += chunk
+        return out
+
+    def _readline(self, end):
+        line = b""
+        while not line.endswith(b"\n"):
+            line += self._read(1, end)
+        return line
+
+    def _request(self, method, path, body=None, raw=False):
+        data = b""
+        if body is not None:
+            data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+        try:
+            if self.fd is None:
+                self.fd = self._open()
+            self.seq += 1
+            os.write(self.fd, f"@ESL {self.seq} {method} {path} {len(data)}\n".encode() + data)
+            end = time.monotonic() + self.timeout
+            prefix = f"@ESL {self.seq} ".encode()
+            while True:
+                line = self._readline(end)
+                i = line.find(prefix)
+                if i >= 0:
+                    break
+            head = line[i + len(prefix):].split(b" ", 2)
+            status, length = int(head[0]), int(head[1])
+            # The body may contain newlines: take exactly length bytes
+            payload = (head[2] if len(head) > 2 else b"")
+            if len(payload) < length + 1:
+                payload += self._read(length + 1 - len(payload), end)
+            payload = payload[:length]
+        except (OSError, TimeoutError) as e:
+            raise ConnectionError(f"no answer on {self.port}: {e}") from None
+        if status >= 400:
+            raise ApiError(status, payload.decode("utf-8", "replace"))
+        return payload if raw else (json.loads(payload) if payload else None)
 
 
 def norm_mac(s):
@@ -189,6 +264,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="OpenESL AP example client")
     p.add_argument("--url", default=os.environ.get("OPENESL_URL", "http://openesl.local"))
     p.add_argument("--token", default=os.environ.get("OPENESL_TOKEN", ""))
+    p.add_argument("--serial", metavar="PORT", default=os.environ.get("OPENESL_SERIAL", ""),
+                   help="talk to the AP over its USB port, e.g. /dev/ttyACM0")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("status", help="list all tags")
@@ -216,9 +293,12 @@ def main(argv=None):
     s.add_argument("file")
 
     args = p.parse_args(argv)
-    if not args.token:
+    if args.serial:
+        cli = SerialClient(args.serial)
+    elif not args.token:
         p.error("no token: use --token or OPENESL_TOKEN")
-    cli = Client(args.url, args.token)
+    else:
+        cli = Client(args.url, args.token)
 
     try:
         if args.cmd == "status":

@@ -9,6 +9,9 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=128
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Log and serial API (ESL_SERIAL_API) on the built-in USB port
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_TASK_WDT_EN=y
 
 # Bigger NVS for tag content and layout files (partitions.csv)
