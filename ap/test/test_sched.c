@@ -153,6 +153,68 @@ static void test_core(void)
     CHECK_INT(esl_sched_count(&sched), 0);
 }
 
+static uint16_t poll_next(uint64_t mac, uint64_t now_ms, uint8_t *type)
+{
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    CHECK(esl_store_on_poll(&st, mac, &p, -61, now_ms, NULL, reply) > 0);
+    if (type)
+        *type = reply[ESL_OFF_TYPE];
+    return (uint16_t)(reply[ESL_OFF_NEXT_POLL] | reply[ESL_OFF_NEXT_POLL + 1] << 8);
+}
+
+/* Tags with an entry due before their next poll are told to come back just after it */
+static void test_wake(void)
+{
+    esl_content_t a;
+    uint8_t type;
+    price("A", &a);
+    reset();
+    esl_store_set_next_poll(&st, 300);
+    poll_next(1, 1000, NULL);
+
+    CHECK_INT(esl_sched_add(&sched, 1, T0 + 100, &a), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_add(&sched, 2, T0 + 90, &a), ESL_SCHED_OK);
+    esl_sched_tick(&sched, &st, 1000);
+    CHECK_INT(poll_next(1, 11000, NULL), 300); /* time unknown: nothing to wake for */
+
+    esl_sched_set_time(&sched, T0, 1000, ESL_TIME_NTP);
+    esl_sched_tick(&sched, &st, 1000);
+    CHECK_INT(poll_next(1, 11000, &type), 92); /* due at T0 + 100, now T0 + 10, plus the margin */
+    CHECK_INT(type, ESL_MSG_IDLE);
+
+    /* tag 2 was not in the table: it gets the hint at the refresh a minute later */
+    CHECK_INT(poll_next(2, 12000, NULL), 300);
+    esl_sched_tick(&sched, &st, 13000);
+    CHECK_INT(poll_next(2, 13000, NULL), 300);
+    esl_sched_tick(&sched, &st, 61000);
+    CHECK_INT(poll_next(2, 61000, NULL), 32);
+
+    CHECK_INT(poll_next(1, 100000, NULL), 3);  /* a bit early: come back in 3 s */
+    CHECK_INT(poll_next(1, 101500, NULL), 2);  /* due, but the tick has not run yet */
+    CHECK_INT(esl_sched_tick(&sched, &st, 101000), 2);
+    CHECK_INT(poll_next(1, 103000, &type), 300);
+    CHECK_INT(type, ESL_MSG_CONTENT);
+    CHECK(shows(2, "A"));
+
+    /* far away: the normal interval; removing the entry takes the hint away */
+    CHECK_INT(esl_sched_add(&sched, 1, T0 + 1000, &a), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_add(&sched, 2, T0 + 200, &a), ESL_SCHED_OK);
+    esl_sched_tick(&sched, &st, 104000);
+    CHECK_INT(poll_next(1, 104000, NULL), 300);
+    CHECK_INT(poll_next(2, 104000, NULL), 99);
+    CHECK_INT(esl_sched_remove(&sched, 2, false), 1);
+    esl_sched_tick(&sched, &st, 105000);
+    CHECK_INT(poll_next(2, 105000, NULL), 300);
+
+    /* the AP sends 0 (tags keep their built-in 60 s): shortened only below that */
+    esl_store_set_next_poll(&st, 0);
+    CHECK_INT(esl_sched_add(&sched, 2, T0 + 200, &a), ESL_SCHED_OK);
+    esl_sched_tick(&sched, &st, 106000);
+    CHECK_INT(poll_next(2, 106000, NULL), 0);
+    CHECK_INT(poll_next(2, 160000, NULL), 43);
+}
+
 static void test_api_time(void)
 {
     reset();
@@ -250,6 +312,7 @@ void test_sched(void)
     esl_sb_init(&out, resp, sizeof(resp));
     test_clock();
     test_core();
+    test_wake();
     test_api_time();
     test_api_schedule();
 }

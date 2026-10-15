@@ -218,7 +218,9 @@ paths:
         or `PUT /api/time`), else `409`. If the AP restarts without NTP, entries wait until
         the time is set again; those that came due meanwhile are set then, the latest per
         tag. Content sent without `at` does not remove scheduled entries
-        (`DELETE /api/schedule/{mac}` does).
+        (`DELETE /api/schedule/{mac}` does). A tag that polls between scheduling and `at`
+        is told to poll again 2 s after `at`, so the content shows within seconds of `at`
+        whatever its interval: schedule at least one interval ahead.
       requestBody:
         required: true
         content:
@@ -443,7 +445,9 @@ paths:
       operationId: setApConfig
       summary: Change the AP-wide default poll interval or the webhook
       description: |
-        `poll_s` is the interval for tags without their own `poll_s`. `webhook` is where the
+        `poll_s` is the interval for tags without their own `poll_s`; the tags get it in the
+        reply to their next poll, so all of them have it within one old interval. Content
+        scheduled with `at` still shows on time with a long interval. `webhook` is where the
         AP posts the health report (`GET /api/health`) when it changes. A key left out keeps
         its value; at least one must be there. Both are stored in NVS (`cfg/poll_s`, `cfg/webhook`).
       requestBody:

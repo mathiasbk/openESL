@@ -17,7 +17,7 @@
 
 #define ESL_HEALTH_BATTERY_MV_DEFAULT 2500 /* a CR2450 is nearly empty here */
 #define ESL_HEALTH_SILENT_X 3              /* default silent_s: this many poll intervals */
-#define ESL_HEALTH_TAG_DEFAULT_POLL_S 60   /* what a tag polls with when the AP sends 0 (tag/src/config.h) */
+#define ESL_HEALTH_TAG_DEFAULT_POLL_S ESL_TAG_BUILTIN_POLL_S /* what a tag polls with when the AP sends 0 */
 
 typedef struct {
     uint16_t silent_s;   /* seconds without a POLL before a tag is silent; 0 = ESL_HEALTH_SILENT_X x its interval */
