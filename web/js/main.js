@@ -42,7 +42,9 @@ async function firmwareInfo() {
 }
 
 firmwareInfo().then((info) => {
-  const built = info ? `Built from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.` : "";
+  const built = !info ? "" : info.release
+    ? `Release ${info.version}.`
+    : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
   $("home-fw").textContent = info ? "Firmware on this page: " + built : "";
   $("ap-fw-info").textContent = info?.ap ? built : "No AP firmware is published with this page yet.";
   $("tag-fw-info").textContent = info?.tag ? built : "No tag firmware is published with this page; choose a file.";

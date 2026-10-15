@@ -8,7 +8,8 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
   python web/build.py --firmware <tag-29.bin> <tag-154.bin> <ap.bin>
                                    copies firmware into web/dist/firmware/ with the AP's
                                    manifest for esp-web-tools and info.json (used by the
-                                   GitHub workflow; any of the three may be "-" for none)
+                                   GitHub workflow; any of the three may be "-" for none;
+                                   FIRMWARE_RELEASE=v1.2.3 marks them as that release)
 
 The renderer is web/wasm/web_api.c with the tag's drawing code and the AP's layout
 compiler, built with Emscripten (emcc) once per tag model:
@@ -17,8 +18,9 @@ compiler, built with Emscripten (emcc) once per tag model:
   dist/wasm/render-154.js/.wasm    1.54" (200 x 200)
 
 Firmware for the flasher is not built here. The GitHub workflow (.github/workflows/web.yml)
-builds it and adds it with --firmware; the AP image is the merged image (bootloader, partition
-table and app in one file, written at offset 0).
+adds it with --firmware: the files of the latest GitHub release, or, before the first release
+and on pull requests, the firmware built from the same commit. The AP image is the merged
+image (bootloader, partition table and app in one file, written at offset 0).
 """
 import datetime
 import importlib.util
@@ -118,7 +120,12 @@ def copy_static():
 def add_firmware(tag29, tag154, ap):
     out = os.path.join(DIST, "firmware")
     os.makedirs(out, exist_ok=True)
+    # FIRMWARE_RELEASE is the release tag (v1.2.3) when the files come from a GitHub release;
+    # otherwise they were built from this checkout and get the VERSION file's version + "-dev"
+    release = os.environ.get("FIRMWARE_RELEASE", "")
     info = {
+        "version": release or tag_build.read_version()[0] + "-dev",
+        "release": bool(release),
         "ref": os.environ.get("GITHUB_REF_NAME", "local"),
         "commit": os.environ.get("GITHUB_SHA", "0000000"),
         "date": datetime.date.today().isoformat(),
@@ -131,7 +138,7 @@ def add_firmware(tag29, tag154, ap):
     if ap != "-":
         manifest = {
             "name": "OpenESL AP",
-            "version": info["commit"][:7],
+            "version": info["version"],
             "new_install_prompt_erase": True,
             "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": "ap-openesl.bin", "offset": 0}]}],
         }

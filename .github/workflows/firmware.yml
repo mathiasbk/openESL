@@ -1,0 +1,59 @@
+# Builds the tag firmware (both models, after the host tests) and the AP firmware.
+# Called by web.yml (every push and pull request) and release.yml (tags v*), so CI and
+# releases build the firmware the same way. Artifacts:
+#   tag-firmware: tag-29.bin, tag-154.bin
+#   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0)
+name: Firmware
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tag-firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache SDCC 4.5.0
+        id: sdcc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/sdcc
+          key: sdcc-4.5.0-amd64
+      - name: Install SDCC 4.5.0
+        if: steps.sdcc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.5.0/sdcc-4.5.0-amd64-unknown-linux2.5.tar.bz2/download
+          mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
+      - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
+      - name: Host tests
+        run: python3 tag/tools/build.py test
+      - name: Build firmware (2.9" and 1.54")
+        run: |
+          MODEL=29 python3 tag/tools/build.py fw
+          MODEL=154 python3 tag/tools/build.py fw
+          mkdir -p out
+          cp tag/build/fw/openesl.bin out/tag-29.bin
+          cp tag/build/fw154/openesl.bin out/tag-154.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tag-firmware
+          path: out/
+
+  ap-firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32c6
+          path: ap
+          command: idf.py build && cd build && python -m esptool --chip esp32c6 merge_bin -o openesl-ap.bin @flash_args
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ap-firmware
+          path: ap/build/openesl-ap.bin

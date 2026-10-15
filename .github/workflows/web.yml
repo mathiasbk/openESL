@@ -1,9 +1,13 @@
-# Builds the web page (web/) with the tag and AP firmware, runs its tests, and publishes it
-# to GitHub Pages on every push to master. Pull requests build and test only; the finished
-# page is attached to the run as the "web-page" artifact.
+# CI for every push and pull request: builds and tests the tag and AP firmware (firmware.yml)
+# and the web page (web/). On master the page is published to GitHub Pages; pull requests
+# build and test only, and the finished page is attached to the run as the "web-page" artifact.
+#
+# The flasher on the published page serves the firmware of the latest GitHub release, so
+# people flash released firmware. Before the first release, and on pull requests, it serves
+# the firmware built in this run. release.yml starts this workflow after each release.
 #
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
-name: Web page
+name: CI and web page
 
 on:
   push:
@@ -19,53 +23,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tag-firmware:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install SDCC 4.5.0
-        run: |
-          curl -sSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.5.0/sdcc-4.5.0-amd64-unknown-linux2.5.tar.bz2/download
-          mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
-          echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
-      - name: Host tests
-        run: python3 tag/tools/build.py test
-      - name: Build firmware (2.9" and 1.54")
-        run: |
-          MODEL=29 python3 tag/tools/build.py fw
-          MODEL=154 python3 tag/tools/build.py fw
-          mkdir -p out
-          cp tag/build/fw/openesl.bin out/tag-29.bin
-          cp tag/build/fw154/openesl.bin out/tag-154.bin
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tag-firmware
-          path: out/
-
-  ap-firmware:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5.5
-          target: esp32c6
-          path: ap
-          command: idf.py build && cd build && python -m esptool --chip esp32c6 merge_bin -o openesl-ap.bin @flash_args
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ap-firmware
-          path: ap/build/openesl-ap.bin
+  firmware:
+    uses: ./.github/workflows/firmware.yml
 
   page:
-    needs: [tag-firmware, ap-firmware]
+    needs: firmware
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.74
+          actions-cache-folder: emsdk-cache
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -78,8 +47,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: fw
-      - name: Add the firmware
-        run: python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin
+      - name: Add the firmware (latest release, otherwise this build)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rel=""
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            rel=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+          fi
+          if [ -n "$rel" ]; then
+            echo "Firmware from release $rel"
+            gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin'
+            FIRMWARE_RELEASE="$rel" python3 web/build.py --firmware \
+              "rel/openesl-tag-2.9-$rel.bin" "rel/openesl-tag-1.54-$rel.bin" "rel/openesl-ap-esp32c6-$rel.bin"
+          else
+            echo "No release yet: firmware from this build"
+            python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin
+          fi
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:
@@ -91,7 +75,7 @@ jobs:
           path: web/dist
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     needs: page
     runs-on: ubuntu-24.04
     permissions:

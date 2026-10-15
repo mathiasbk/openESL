@@ -4,8 +4,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define FW_VERSION          1        /* sent in POLL (u16) and shown on the start screen */
-#define FW_VERSION_STR      "0.1.0"
+/* FW_VERSION (u16, sent in POLL) and FW_VERSION_STR (start screen) come from the VERSION file
+   at the top of the repository: tools/build.py passes them with -D. 1.2.3 is sent as 10203. */
+#if !defined(FW_VERSION) || !defined(FW_VERSION_STR)
+#error "FW_VERSION and FW_VERSION_STR are set by tools/build.py from the VERSION file"
+#endif
 
 #define CFG_CHANNEL         ESL_DEFAULT_CHANNEL
 #define CFG_PAN_ID          ESL_DEFAULT_PAN_ID

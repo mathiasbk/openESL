@@ -1,0 +1,70 @@
+# Publishes a GitHub release when a tag v<major>.<minor>.<patch> is pushed, for example:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The tag must match the VERSION file (bump VERSION on master first). The firmware is built
+# by firmware.yml from the tagged commit and attached to the release with SHA-256 sums; the
+# release notes are generated from the pull requests merged since the previous release.
+# A tag with a suffix (v0.2.0-rc1) becomes a pre-release, which the web page does not use.
+# After a normal release, web.yml runs again so the flasher on the page serves it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the VERSION file
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "${tag%%-*}" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION ($version). Bump VERSION on master and tag that commit."
+            exit 1
+          fi
+
+  firmware:
+    needs: check
+    uses: ./.github/workflows/firmware.yml
+
+  release:
+    needs: firmware
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+      - name: Name the files after the release
+        run: |
+          t="$GITHUB_REF_NAME"
+          mkdir out
+          cp fw/tag-firmware/tag-29.bin    "out/openesl-tag-2.9-$t.bin"
+          cp fw/tag-firmware/tag-154.bin   "out/openesl-tag-1.54-$t.bin"
+          cp fw/ap-firmware/openesl-ap.bin "out/openesl-ap-esp32c6-$t.bin"
+          (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" \
+            --title "OpenESL $GITHUB_REF_NAME" --generate-notes --verify-tag $pre
+      - name: Publish the web page with the new firmware
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run web.yml --repo "$GITHUB_REPOSITORY" --ref master

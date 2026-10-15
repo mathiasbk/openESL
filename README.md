@@ -26,6 +26,20 @@ Early work in progress. The protocol, the AP core with its HTTP API, and the dra
 
 Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
+## Releases
+
+The version is in [VERSION](VERSION). The tag firmware shows it on its start screen and sends it in POLL (1.2.3 as 10203), and the AP reports it as `ap.fw` in `GET /api/tags`.
+
+To make a release, bump `VERSION` on `master` in a pull request, then tag that commit:
+
+```
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+[release.yml](.github/workflows/release.yml) checks that the tag matches `VERSION`, builds the firmware, and publishes a GitHub release with the tag firmware for each model, the merged AP image, `SHA256SUMS.txt`, and notes listing the pull requests since the previous release. The web page is then published again, and its flashers serve that release. A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.
+
+Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml): host tests, both tag models, the AP and the web page with its tests.
+
 ## A clean implementation
 
 OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
