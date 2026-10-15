@@ -12,6 +12,7 @@
 #define PATH_TIME "/api/time"
 #define PATH_SCHEDULE "/api/schedule"
 #define PATH_HEALTH "/api/health"
+#define PATH_OTA "/api/ota"
 
 _Static_assert(ESL_MAX_TEXT == 92, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -59,8 +60,10 @@ const char *esl_api_status_line(int status)
     case 401: return "401 Unauthorized";
     case 404: return "404 Not Found";
     case 405: return "405 Method Not Allowed";
+    case 409: return "409 Conflict";
     case 413: return "413 Payload Too Large";
     case 422: return "422 Unprocessable Entity";
+    case 501: return "501 Not Implemented";
     case 507: return "507 Insufficient Storage";
     default:  return "500 Internal Server Error";
     }
@@ -68,7 +71,7 @@ const char *esl_api_status_line(int status)
 
 /* ---- auth ---------------------------------------------------------------- */
 
-static bool auth_ok(const char *token, const char *auth)
+bool esl_api_auth_ok(const char *token, const char *auth)
 {
     if (!token || !*token || !auth)
         return false;
@@ -1217,7 +1220,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
 
     if (plen < 5 || memcmp(uri, "/api/", 5) != 0)
         return api_error(out, 404, "not found");
-    if (!auth_ok(api->token, auth))
+    if (!esl_api_auth_ok(api->token, auth))
         return api_error(out, 401, "unauthorized");
 
     const size_t lbase = sizeof(PATH_LAYOUTS) - 1;
@@ -1233,6 +1236,15 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     if ((plen == cbase || (plen == cbase + 1 && uri[cbase] == '/')) && memcmp(uri, PATH_CONFIG, cbase) == 0) {
         int status = ap_config(api, method, body, body_len, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    /* OTA is handled by the transport (main/ota.c) before the request gets
+       here, since the body is a firmware image; this answers where it is not */
+    const size_t obase = sizeof(PATH_OTA) - 1;
+    if ((plen == obase || (plen == obase + 1 && uri[obase] == '/')) && memcmp(uri, PATH_OTA, obase) == 0) {
+        if (strcmp(method, "GET") == 0 || strcmp(method, "POST") == 0)
+            return api_error(out, 501, "no OTA on this transport or build");
+        return api_error(out, 405, "method not allowed");
     }
 
     const size_t hbase = sizeof(PATH_HEALTH) - 1;

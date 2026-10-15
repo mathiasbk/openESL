@@ -15,6 +15,7 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py delete 00000123456789A8
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
+  esl_client.py ota build/esl_ap.bin    # new AP firmware; "ota" alone shows the slots
   esl_client.py --serial /dev/ttyACM0 status
   esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
@@ -38,6 +39,7 @@ import urllib.error
 import urllib.request
 
 BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
+OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 
 
@@ -55,11 +57,11 @@ class Client:
         self.timeout = timeout
         self.retries = retries
 
-    def send(self, method, path, data=None, auth=None):
+    def send(self, method, path, data=None, auth=None, content_type="application/json"):
         """One request as it is: returns (status, body bytes). auth replaces the token."""
         headers = {"Authorization": auth or f"Bearer {self.token}"}
         if data is not None:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = content_type
         last = None
         for attempt in range(self.retries):
             req = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
@@ -124,6 +126,19 @@ class Client:
     def wifi(self):
         return self._request("GET", "/api/wifi")
 
+    def ota_info(self):
+        return self._request("GET", "/api/ota")
+
+    def ota(self, image, progress=None):
+        """Sends a new AP firmware (build/esl_ap.bin) in one POST; the AP restarts
+        into it a second after the reply. progress(sent, total) is called as it goes."""
+        status, payload = self.send("POST", "/api/ota", image, content_type="application/octet-stream")
+        if status >= 400:
+            raise ApiError(status, payload.decode("utf-8", "replace"))
+        if progress:
+            progress(len(image), len(image))
+        return json.loads(payload)
+
     def set_wifi(self, ssid, password=""):
         return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
 
@@ -173,6 +188,21 @@ class SerialClient(Client):
         termios.tcsetattr(fd, termios.TCSANOW, a)
         termios.tcflush(fd, termios.TCIFLUSH)
         return fd
+
+    def ota(self, image, progress=None):
+        """The serial driver drops bytes when its buffer is full, so the image
+        goes in parts of OTA_PART bytes, each acknowledged before the next."""
+        total = len(image)
+        reply = None
+        for off in range(0, total, OTA_PART):
+            part = image[off:off + OTA_PART]
+            status, payload = self.send("POST", f"/api/ota?offset={off}&total={total}", part)
+            if status >= 400:
+                raise ApiError(status, payload.decode("utf-8", "replace"))
+            reply = json.loads(payload)
+            if progress:
+                progress(off + len(part), total)
+        return reply
 
     def _read(self, n, end):
         out = b""
@@ -522,6 +552,12 @@ def print_config(c):
     print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}")
 
 
+def print_ota(o):
+    other = f"{o.get('other_slot')} holds {o.get('other_version') or 'nothing'}" if o.get("other_slot") else "no second slot"
+    print(f"running {o.get('version')} from {o.get('slot')}, slot size {o.get('slot_size')} bytes, {other}"
+          + (", upload in progress" if o.get("uploading") else ""))
+
+
 def print_wifi(w):
     line = f"WiFi {w.get('mode')}: "
     if w.get("connected"):
@@ -678,6 +714,9 @@ def main(argv=None):
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
 
+    s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or show the app slots")
+    s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release")
+
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
@@ -731,6 +770,19 @@ def main(argv=None):
             if args.webhook is not None:
                 kw["webhook"] = args.webhook or None
             print_config(cli.set_config(**kw) if kw else cli.config())
+        elif args.cmd == "ota":
+            if args.image is None:
+                print_ota(cli.ota_info())
+            else:
+                with open(args.image, "rb") as f:
+                    image = f.read()
+                if image[:1] != b"\xe9":
+                    print(f"error: {args.image} is not an ESP32 app image (use esl_ap.bin, not the merged flash image)",
+                          file=sys.stderr)
+                    return 2
+                print(f"sending {len(image)} bytes ...", flush=True)
+                r = cli.ota(image, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True))
+                print(f"written to {r.get('slot')}: version {r.get('version')}, the AP is restarting")
         elif args.cmd == "wifi":
             if args.ssid is None:
                 print_wifi(cli.wifi())

@@ -39,6 +39,19 @@ class FakeAp(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n)) if n else None
 
+    def do_POST(self):
+        if not self._auth():
+            return
+        if self.path == "/api/ota":
+            n = int(self.headers.get("Content-Length", 0))
+            image = self.rfile.read(n)
+            self.calls.append((self.path, self.headers.get("Content-Type"), image))
+            if image[:1] != b"\xe9":
+                return self._send(422, {"error": "the image is not valid for this chip"})
+            self._send(200, {"received": n, "total": n, "slot": "ota_1", "version": "0.2.0", "restarting": True})
+        else:
+            self._send(404, {"error": "not found"})
+
     def _auth(self):
         if self.headers.get("Authorization") != f"Bearer {TOKEN}":
             self._send(401, {"error": "unauthorized"})
@@ -67,6 +80,9 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, {"time": FakeAp.time, "max_scheduled": 256, "scheduled": FakeAp.sched})
         elif self.path == "/api/config":
             self._send(200, self.config)
+        elif self.path == "/api/ota":
+            self._send(200, {"slot": "ota_0", "version": "0.1.0", "slot_size": 1572864, "other_slot": "ota_1",
+                             "other_version": None, "uploading": False})
         elif self.path.startswith("/api/health"):
             self.calls.append((self.path, None))
             problems = [{"mac": m, "problems": ["low_battery"], "seen_s_ago": t["seen_s_ago"],
@@ -173,6 +189,23 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("config", "--webhook", "", "--poll-s", "null")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"poll_s": None, "webhook": None}))
         self.assertIn("webhook off", out)
+
+    def test_ota(self):
+        rc, out = self.run_cli("ota")
+        self.assertEqual((rc, out), (0, "running 0.1.0 from ota_0, slot size 1572864 bytes, ota_1 holds nothing\n"))
+        image = b"\xe9" + bytes(range(256)) * 100
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(image)
+            f.flush()
+            rc, out = self.run_cli("ota", f.name)
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls[-1], ("/api/ota", "application/octet-stream", image))
+        self.assertIn("written to ota_1: version 0.2.0, the AP is restarting", out)
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(b"not an image")
+            f.flush()
+            rc, out = self.run_cli("ota", f.name)
+        self.assertEqual(rc, 2)
 
     def test_same_content_is_unchanged(self):
         self.run_cli("text", "00000123456789A8", "Hello", "--frame")

@@ -89,6 +89,14 @@ tags:
       `webhook` set in `PUT /api/config`, the AP checks every 30 s and `POST`s the same
       report (plus `changed`) to that URL whenever any tag's problems change, so nothing
       needs to poll it.
+  - name: Firmware
+    description: |
+      New firmware for the AP itself over the API (`esl-client ota esl_ap.bin`). The image
+      goes to the app slot that is not running, which becomes the boot slot; the AP restarts
+      a second after the reply, and the bootloader goes back to the old slot if the new image
+      does not come up. The AP's own tag content, settings and layout files stay (they are in
+      NVS). The image is `esl_ap.bin` from a build, or `openesl-ap-esp32c6-<version>-ota.bin`
+      from a release (not the merged flash image, which has the bootloader in front).
   - name: WiFi
     description: |
       The network the AP joins. With no network saved the AP opens its own network
@@ -476,6 +484,78 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/ServerError" }
 
+  /api/ota:
+    get:
+      tags: [Firmware]
+      operationId: getOta
+      summary: Which app slot runs, and what the other holds
+      x-host-status: 501
+      responses:
+        "200":
+          description: The app slots
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OtaInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501": { $ref: "#/components/responses/NoOta" }
+    post:
+      tags: [Firmware]
+      operationId: postOta
+      summary: Write new AP firmware and restart into it
+      description: |
+        The body is the app image, whole in one request (no query), or in parts with
+        `offset` and `total`: a part at offset 0 starts a new upload, every other part must
+        start where the last one ended (otherwise `409` says which offset is expected, and
+        the upload stays open so the part can be sent again). The USB port takes parts of at
+        most 24,576 bytes (`esl-client` sends 16 KB), since its driver drops bytes when its
+        buffer is full; over WiFi one request is fine. The last byte makes the new slot the
+        boot slot; the reply names it and its version, and the AP restarts one second later.
+        Content-Type is not checked.
+      x-host-status: 501
+      parameters:
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+          description: Where in the image this part starts (with `total`)
+        - name: total
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: The size of the whole image (with `offset`)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The part is written; `restarting` is in the reply when it was the last one
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OtaReply" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: expected offset 32768 of 1048576 }
+        "413":
+          description: The image does not fit the app slot (`slot_size` in `GET /api/ota`), or the parts add up to more than `total`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: the image does not fit the app slot }
+        "422":
+          description: An empty body, `offset` without `total` or the other way round, or an image that is not an app image for this chip
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: the image is not valid for this chip }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "501": { $ref: "#/components/responses/NoOta" }
+
   /api/wifi:
     get:
       tags: [WiFi]
@@ -720,6 +800,12 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: nothing scheduled }
+    NoOta:
+      description: This build has no OTA (`ESL_OTA` off, or the partition table has one app slot)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: no OTA on this transport or build }
 
   schemas:
     Error:
@@ -1150,6 +1236,31 @@ components:
         rssi: -58
         setup_ssid: null
         networks: [{ ssid: Butikken, rssi: -58 }, { ssid: Gjest, rssi: -71 }]
+
+    OtaInfo:
+      type: object
+      additionalProperties: false
+      required: [slot, version, slot_size, other_slot, other_version, uploading]
+      properties:
+        slot: { type: string, description: "The app slot that runs, `ota_0` or `ota_1`" }
+        version: { type: string, description: The running firmware's version (the VERSION file) }
+        slot_size: { type: integer, minimum: 0, description: Bytes an image may have }
+        other_slot: { type: [string, "null"], description: "The slot a new image goes to; `null` with a one-slot partition table" }
+        other_version: { type: [string, "null"], description: "The version in the other slot, `null` when it holds no valid image" }
+        uploading: { type: boolean, description: An upload in parts is in progress }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, uploading: false }
+
+    OtaReply:
+      type: object
+      additionalProperties: false
+      required: [received, total]
+      properties:
+        received: { type: integer, minimum: 0, description: Bytes written so far }
+        total: { type: integer, minimum: 1 }
+        slot: { type: string, description: "After the last part: the slot the AP restarts into" }
+        version: { type: string, description: "After the last part: the version of the new image" }
+        restarting: { type: boolean, description: "After the last part: the AP restarts in one second" }
+      example: { received: 1048576, total: 1048576, slot: ota_1, version: 0.2.0, restarting: true }
 
     ModelName:
       type: string

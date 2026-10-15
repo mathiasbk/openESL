@@ -101,4 +101,9 @@ void app_main(void)
        the configuration; this shows how much room is left for a bigger one. */
     ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
              (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
+#if CONFIG_ESL_OTA
+    /* Everything started: an image that gets here is good enough to keep (the
+       bootloader would otherwise go back to the previous one on the next reset) */
+    ota_confirm_running();
+#endif
 }

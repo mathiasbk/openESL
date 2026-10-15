@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
@@ -45,6 +46,18 @@ esp_err_t display_start(const esl_api_t *api);
  * webhook URL whenever it changes. Returns the notify struct for api->notify,
  * NULL if the task could not start. Call once api->store is filled in. */
 esl_notify_t *health_start(const esl_api_t *api);
+
+/* ota.c (ESL_OTA): new AP firmware over the API. ota_part() writes len bytes
+ * at offset of an image of size bytes to the other app slot and writes the
+ * JSON reply (offset 0 starts an upload; the last part selects the slot and
+ * restarts the AP after a second). ota_info() writes GET /api/ota.
+ * ota_parse_query() reads ?offset=N&total=T from a URI (false when only one
+ * is given). ota_confirm_running() tells the bootloader the running image
+ * works; call it once the AP is up. */
+int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t *out);
+int ota_info(esl_sb_t *out);
+bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
+void ota_confirm_running(void);
 
 /* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
  * sent to the tags in blocks) may be NULL. */

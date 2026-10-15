@@ -3,7 +3,8 @@
 # releases build the firmware the same way. Artifacts:
 #   tag-firmware: tag-29.bin, tag-154.bin
 #   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
-#                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd)
+#                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
+#                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
 name: Firmware
 
 on:
@@ -74,7 +75,9 @@ jobs:
           command: >-
             mkdir -p out &&
             idf.py build && (cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args) &&
+            cp build/esl_ap.bin out/openesl-ap-ota.bin &&
             idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build &&
+            cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin &&
             cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args
       - uses: actions/upload-artifact@v7
         with:

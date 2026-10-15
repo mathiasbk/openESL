@@ -247,6 +247,9 @@ def main():
             uri = uri.replace("{%s}" % name, values.get(name, p.get("example", "")))
         status, reply = ap.req(method, uri, body, auth)
         label = f"{method.upper()} {uri}{' ' + what if what else ''}"
+        if "x-host-status" in op and auth == AUTH:
+            # the host build has no transport for this (OTA): it answers this status to everything
+            expect = op["x-host-status"]
         responses = op["responses"]
         if str(status) not in responses:
             fail(f"{label}: the code answers {status}, which the spec does not list ({', '.join(responses)})")
@@ -283,7 +286,7 @@ def main():
                 continue
             body_ex = []
             rb = o.get("requestBody")
-            if rb:
+            if rb and "application/json" in rb["content"]:
                 body_ex = list(examples_of(rb["content"]["application/json"]))
                 if not body_ex:
                     fail(f"{m.upper()} {path}: no request example")
@@ -320,7 +323,7 @@ def main():
         if "model" in names:
             call(path, m, o, params, values={"model": "4.2"}, expect=404, what="unknown model",
                  body=b"{}" if m == "put" else None)
-        if "requestBody" in o:
+        if "requestBody" in o and "application/json" in o["requestBody"]["content"]:
             call(path, m, o, params, body=b"", expect=400, what="without a body")
             call(path, m, o, params, body=b'{"a":', expect=400, what="broken JSON")
             call(path, m, o, params, body=b"[1]", expect=400, what="not an object")
