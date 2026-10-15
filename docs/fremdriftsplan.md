@@ -81,7 +81,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [ ] Watchdog on the AP verified on hardware (a stuck task gives a restart, and `GET /api/tags` shows `"reset":"task_wdt"`)
 - [x] Last content in the tag's flash (T12): the content and the layout file are kept in flash and drawn again at start-up, tested on PC (`tag/README.md`, "Flash")
 - [ ] T12 verified on hardware: a tag restarted after new content (and with a layout file) shows it without the AP; `hwtest` shows "layout store kept" on the second boot
-- [ ] Long-term test: 10 tags for a week
+- [ ] Long-term test: 10 tags for a week (`esl-client log week.csv` on a PC by the AP, then `esl-client report week.csv`: gaps, battery, problems, AP restarts)
 - [ ] Flashing recipe and jig under a minute per tag
 
 **Improvements after v0.1.0** (the list from 2026-10-15)

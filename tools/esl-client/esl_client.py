@@ -16,6 +16,8 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
   esl_client.py ota build/esl_ap.bin    # new AP firmware; "ota" alone shows the slots
+  esl_client.py log week.csv --every 60 # long-term test: one row per tag per minute
+  esl_client.py report week.csv         # gaps, battery, problems and AP restarts from that log
   esl_client.py --serial /dev/ttyACM0 status
   esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
@@ -602,6 +604,125 @@ def print_schedule(sc):
           + ("" if sc.get("time") else "; the AP does not know the time, so nothing is applied"))
 
 
+# ---- long-term test: log and report -------------------------------------------------------
+
+LOG_COLUMNS = ["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+               "content_id", "shown_content_id", "pending", "draw_failed", "problems"]
+
+
+def log_round(cli, writer, now=None):
+    """One round of the long-term test: a row per tag from GET /api/tags, with the
+    problems GET /api/health lists for it. When the AP does not answer, one row
+    with an empty mac is written, so the outage is in the log too. Returns a one-line
+    summary."""
+    now = now or time.time()
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+    try:
+        st = cli.tags()
+        problems = {t["mac"]: t.get("problems", []) for t in cli.health().get("problems", [])}
+    except (ApiError, ConnectionError) as e:
+        writer.writerow([stamp, "", "no answer", "", "", "", "", "", "", "", "", "", str(e)[:80]])
+        return f"{stamp}  AP did not answer: {e}"
+    ap = st.get("ap", {})
+    tags = st.get("tags", [])
+    for t in tags:
+        writer.writerow([stamp, ap.get("uptime_s", ""), ap.get("reset", ""), t["mac"], t.get("model") or "",
+                         t.get("seen_s_ago", ""), t.get("battery_mv", ""), t.get("rssi", ""),
+                         t.get("content_id", ""), t.get("shown_content_id", ""),
+                         int(bool(t.get("pending"))), int(bool(t.get("draw_failed"))),
+                         "|".join(problems.get(t["mac"], []))])
+    if not tags:
+        writer.writerow([stamp, ap.get("uptime_s", ""), ap.get("reset", ""), "", "", "", "", "", "", "", "", "", ""])
+    with_problems = sum(1 for t in tags if problems.get(t["mac"]))
+    return (f"{stamp}  {len(tags)} tags, {with_problems} with problems, AP up {fmt_ago(ap.get('uptime_s'))}"
+            + (f", reset {ap['reset']}" if ap.get("reset") else ""))
+
+
+def log_loop(cli, path, every_s, rounds=None, sleep=time.sleep):
+    """Appends a round to path every every_s seconds until Ctrl-C (or rounds rounds)."""
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(LOG_COLUMNS)
+        n = 0
+        try:
+            while rounds is None or n < rounds:
+                started = time.monotonic()
+                print(log_round(cli, w), flush=True)
+                f.flush()
+                n += 1
+                if rounds is not None and n >= rounds:
+                    break
+                sleep(max(0.0, every_s - (time.monotonic() - started)))
+        except KeyboardInterrupt:
+            print(f"stopped after {n} rounds; report with: esl_client.py report {path}")
+    return 0
+
+
+def read_log(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        if "mac" not in r:
+            raise CsvError(f"{path}: not a log from esl_client.py log (no mac column)")
+    return rows
+
+
+def report(rows):
+    """Per tag: samples, the longest time without a poll, lowest battery, rounds with
+    problems and with a failed drawing; and for the AP: rounds without an answer and
+    restarts (uptime went down). Returns (lines, ok)."""
+    def num(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    outages = [r for r in rows if r["mac"] == "" and r["ap_reset"] == "no answer"]
+    answered = [r for r in rows if r["ap_reset"] != "no answer"]
+    rounds = sorted({r["time"] for r in answered})
+    restarts = []
+    last_up = None
+    for stamp in rounds:
+        up = next((num(r["ap_uptime_s"]) for r in answered if r["time"] == stamp), None)
+        if up is not None and last_up is not None and up < last_up:
+            restarts.append(stamp)
+        last_up = up if up is not None else last_up
+
+    per = {}
+    for r in answered:
+        if not r["mac"]:
+            continue
+        t = per.setdefault(r["mac"], {"model": r["model"], "n": 0, "gap": 0, "batt": None, "problems": 0,
+                                       "draw_failed": 0, "last_problems": ""})
+        t["n"] += 1
+        gap = num(r["seen_s_ago"])
+        if gap is not None and gap > t["gap"]:
+            t["gap"] = gap
+        b = num(r["battery_mv"])
+        if b and (t["batt"] is None or b < t["batt"]):
+            t["batt"] = b
+        if r["problems"]:
+            t["problems"] += 1
+            t["last_problems"] = r["problems"]
+        if r["draw_failed"] == "1":
+            t["draw_failed"] += 1
+
+    span = f"{rows[0]['time']} to {rows[-1]['time']}" if rows else "empty log"
+    lines = [f"{len(rounds)} rounds, {span}; AP did not answer {len(outages)} times, restarted {len(restarts)} times"
+             + (f" ({', '.join(restarts)})" if restarts else "")]
+    lines.append(f"{'MAC':16}  {'model':5}  {'rounds':>6}  {'max gap':>8}  {'min batt':>8}  {'problems':>8}  {'draw fail':>9}  last problem")
+    ok = not outages and not restarts
+    for mac, t in sorted(per.items()):
+        lines.append(f"{mac:16}  {t['model'] or '-':5}  {t['n']:>6}  {fmt_ago(t['gap']):>8}  "
+                     f"{(str(t['batt']) + ' mV') if t['batt'] else '-':>8}  {t['problems']:>8}  {t['draw_failed']:>9}  "
+                     f"{t['last_problems']}")
+        if t["problems"] or t["draw_failed"]:
+            ok = False
+    return lines, ok
+
+
 def set_one(cli, args, c):
     if args.at:
         ensure_time(cli)
@@ -717,11 +838,26 @@ def main(argv=None):
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or show the app slots")
     s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release")
 
+    s = sub.add_parser("log", help="long-term test: append a row per tag to a CSV file every --every seconds, until Ctrl-C")
+    s.add_argument("file", help="the CSV log (created with a header if new, otherwise appended to)")
+    s.add_argument("--every", type=float, default=60, metavar="S", help="seconds between rounds (default 60)")
+    s.add_argument("--rounds", type=int, help="stop after this many rounds (default: run until Ctrl-C)")
+    s = sub.add_parser("report", help="summarise a log from \"log\": gaps, battery, problems, AP restarts (exit 1 on any)")
+    s.add_argument("file")
+
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
 
     args = p.parse_args(argv)
+    if args.cmd == "report":
+        try:
+            lines, ok = report(read_log(args.file))
+        except (OSError, CsvError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0 if ok else 1
     if args.serial:
         cli = SerialClient(args.serial)
     elif not args.token and args.cmd != "serve":
@@ -770,6 +906,8 @@ def main(argv=None):
             if args.webhook is not None:
                 kw["webhook"] = args.webhook or None
             print_config(cli.set_config(**kw) if kw else cli.config())
+        elif args.cmd == "log":
+            return log_loop(cli, args.file, args.every, args.rounds)
         elif args.cmd == "ota":
             if args.image is None:
                 print_ota(cli.ota_info())
