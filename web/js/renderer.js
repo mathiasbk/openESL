@@ -55,6 +55,9 @@ async function create(model, base) {
         mid: call("web_limit", "number", ["number"], [7]),
         large: call("web_limit", "number", ["number"], [8]),
       },
+      barcodes: call("web_limit", "number", ["number"], [9]),
+      barcodeMinH: call("web_limit", "number", ["number"], [10]),
+      barcodeModuleMax: call("web_limit", "number", ["number"], [11]),
     },
 
     loadLayouts(text) {

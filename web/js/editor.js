@@ -61,6 +61,7 @@ const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?
 function defaultSample(name) {
   if (/price|pris/i.test(name)) return "49,90";
   if (/unit|enhet/i.test(name)) return "kr 99,80/kg";
+  if (/ean|gtin|barcode|strek|code/i.test(name)) return "7038010009457";
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
 
@@ -211,10 +212,13 @@ function refreshMeters(res) {
   const lim = r.limits;
   const lay = layout();
   const meters = [];
+  $("el-add-barcode").disabled = false;
   if (lay) {
     const u = layoutUsage(lay, lim);
     meters.push(["Text lines", u.runs, lim.runs, "Lines of text the tag may draw for this layout (each text box counts the most lines its fonts can fit)"]);
     meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
+    if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
+    $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
   meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
   meters.push(["Sample text", samples().reduce((a, s) => a + r.textBytes(s), 0), r.maxText, "Bytes of text in one update from the AP"]);
@@ -265,7 +269,7 @@ function drawOverlay() {
   if (!lay) return;
   lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (e.type === "rect" ? " rect" : "") + (i === state.el ? " sel" : "");
+    b.className = "box" + (e.type === "rect" ? " rect" : e.type === "barcode" ? " barcode" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
       width: (100 * e.w) / width + "%", height: (100 * e.h) / height + "%",
@@ -273,7 +277,7 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "rect" ? "rect" : fieldLabel(e.field);
+    tag.textContent = e.type === "rect" ? "rect" : e.type === "barcode" ? "▥ " + fieldLabel(e.field) : fieldLabel(e.field);
     b.append(tag);
     for (const h of HANDLES) {
       const g = document.createElement("span");
@@ -299,10 +303,10 @@ function refreshList() {
     li.dataset.i = i;
     const ico = document.createElement("span");
     const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight");
-    ico.className = "ico" + (e.type === "rect" ? " rect" : inverted ? " inv" : "");
+    ico.className = "ico" + (e.type === "rect" ? " rect" : e.type === "barcode" ? " barcode" : inverted ? " inv" : "");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = e.type === "text" ? fieldLabel(e.field) + (e.color && e.color !== "black" ? ` (${e.color})` : "") : rectName(e);
+    name.textContent = elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
     const u = usage[i];
@@ -311,6 +315,12 @@ function refreshList() {
     li.append(ico, name, dim);
     return li;
   }));
+}
+
+function elementName(e) {
+  if (e.type === "barcode") return `barcode (${fieldLabel(e.field)}, ${e.symbology === "ean13" ? "EAN-13" : "Code 128"})`;
+  if (e.type !== "text") return rectName(e);
+  return fieldLabel(e.field) + (e.color && e.color !== "black" ? ` (${e.color})` : "");
 }
 
 function rectName(e) {
@@ -510,7 +520,7 @@ function refreshElement() {
   document.querySelector(".el-actions").hidden = !e;
   $("el-up").disabled = !e || state.el === 0;
   $("el-down").disabled = !e || state.el === layout().elements.length - 1;
-  $("el-title").textContent = e ? "· " + (e.type === "text" ? fieldLabel(e.field) : rectName(e)) : "";
+  $("el-title").textContent = e ? "· " + elementName(e) : "";
   drawOverlay();
   if (!e) {
     const p = document.createElement("p");
@@ -551,7 +561,7 @@ function refreshElement() {
     l.append(g);
     box.append(l);
   };
-  if (e.type === "text") {
+  if (e.type === "text" || e.type === "barcode") {
     sel("Field", "field", lay.fields, fieldLabel(e.field), (v) => (e.field = v));
   }
   // position and size
@@ -609,6 +619,28 @@ function refreshElement() {
       if (n) e.lines = n;
       else delete e.lines;
     });
+  }
+  if (e.type === "barcode") {
+    seg("Code", [["code128", "", "Code 128"], ["ean13", "", "EAN-13"]], e.symbology,
+      (v) => (e.symbology = v));
+    const lim = state.renderer.limits;
+    sel("Module", "module", ["auto", ...Array.from({ length: lim.barcodeModuleMax }, (_, i) => i + 1 + " px")],
+      e.module ? e.module + " px" : "auto", (v) => {
+        const n = parseInt(v, 10);
+        if (n) e.module = n;
+        else delete e.module;
+      });
+    seg("Align", [["left", "⯇", "Left"], ["center", "≡", "Centre"], ["right", "⯈", "Right"]], e.align || "left",
+      (v) => (v === "left" ? delete e.align : (e.align = v)));
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = (e.symbology === "ean13"
+      ? "EAN-13 takes 12 digits (the tag adds the check digit) or 13. "
+      : "Code 128 takes letters, digits and signs; digits only give the shortest code. ") +
+      `The bars fill the box, which must be at least ${lim.barcodeMinH} px high; "auto" uses the widest module that fits. ` +
+      "On the 2.9\", 2 px modules scan reliably.";
+    box.append(p);
+    return;
   }
   sel("Colour", "color", e.type === "text" ? TEXT_COLORS : RECT_COLORS, e.color || "black",
     (v) => (v === "black" ? delete e.color : (e.color = v)));
@@ -696,6 +728,7 @@ function addElement(kind) {
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
     hline: { type: "rect", x: 4, y: Math.floor(height / 2), w: width - 8, h: 2 },
     vline: { type: "rect", x: Math.floor(width / 2), y: 4, w: 2, h: height - 8 },
+    barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },
   }[kind];
   lay.elements.push(e);
   state.el = lay.elements.length - 1;
@@ -907,7 +940,7 @@ function initActions() {
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
   $("el-add-text").addEventListener("click", () => addElement("text"));
-  for (const k of ["invert", "rect", "hline", "vline"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["invert", "rect", "hline", "vline", "barcode"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-del").addEventListener("click", deleteElement);
   $("el-dup").addEventListener("click", duplicateElement);
   $("undo").addEventListener("click", () => undoRedo(false));
