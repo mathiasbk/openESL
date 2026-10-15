@@ -67,7 +67,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 
 **Phase 8: Operational reliability**
 - [x] Watchdog on the tag (T10)
-- [ ] Watchdog on the AP
+- [ ] Watchdog on the AP: the ESP-IDF task watchdog is on, but the AP's own tasks are not registered with it
 - [ ] Last content in the tag's flash (T12): flash writing works and the tag keeps its settings there, but not the content
 - [ ] Long-term test: 10 tags for a week
 - [ ] Flashing recipe and jig under a minute per tag
