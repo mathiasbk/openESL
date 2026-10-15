@@ -61,7 +61,7 @@ function defaultSample(name) {
 function samples() {
   const k = sampleKey();
   const names = fieldNames();
-  const s = state.samples[k] || [];
+  const s = state.samples[k] || [...(layout()?._sample || [])];
   while (s.length < names.length) s.push(defaultSample(names[s.length]));
   state.samples[k] = s.slice(0, names.length);
   return state.samples[k];
@@ -81,6 +81,27 @@ async function exampleDoc(model) {
   return r.json();
 }
 
+// The layouts of the example file, offered as templates. Their "_sample" values (ignored by
+// the AP) fill the preview.
+const templates = {};
+
+async function refreshTemplates(model) {
+  try {
+    templates[model] ||= (await exampleDoc(model)).layouts || [];
+  } catch {
+    templates[model] = [];
+  }
+  if (model !== state.model) return;
+  const sel = $("layout-template");
+  sel.length = 1;
+  templates[model].forEach((l, i) => {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = l.name + (l.description ? " - " + l.description : "");
+    sel.append(o);
+  });
+}
+
 async function loadModel(model) {
   state.model = model;
   if (!state.docs[model]) {
@@ -97,6 +118,7 @@ async function loadModel(model) {
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
   state.el = -1;
   refreshAll();
+  refreshTemplates(model);
 }
 
 // ---------- drawing ----------
@@ -486,6 +508,18 @@ function initActions() {
     const d = emptyDoc(state.model).layouts[0];
     d.name = uniqueName("layout");
     doc().layouts.push(d);
+    state.sel = "file:" + (doc().layouts.length - 1);
+    state.el = -1;
+    refreshAll();
+    save();
+  });
+  $("layout-template").addEventListener("change", (ev) => {
+    const t = templates[state.model]?.[+ev.target.value];
+    ev.target.value = "";
+    if (!t) return;
+    const c = structuredClone(t);
+    c.name = uniqueName(c.name);
+    doc().layouts.push(c);
     state.sel = "file:" + (doc().layouts.length - 1);
     state.el = -1;
     refreshAll();

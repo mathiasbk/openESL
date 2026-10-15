@@ -1,0 +1,13 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "vare-eks-mva",
+  "layout": "vare-mva",
+  "fields": {
+    "brand": "{brand}",
+    "name": "{name}",
+    "note": "inkl. mva {price_inc}",
+    "price": "{price_ex}"
+  },
+  "style": { "price_highlight": true, "frame": false }
+}
