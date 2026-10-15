@@ -106,6 +106,12 @@ Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF
 
 Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel, does not answer, no WiFi), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download layout files like the tag firmware does).
 
+## Watchdog
+
+The ESP-IDF task watchdog restarts the AP when a watched task has not checked in for 10 s (`sdkconfig.defaults`). It watches the idle task, the radio task (`radio_ieee802154.c`, or the stub task in `radio_stub.c`) and the serial API task (`serial_api.c`). Each of these waits at most a second for work before it checks in again, so only a task that is stuck (a lock never released, a driver call that never returns, a loop that never yields) trips it. The HTTP server task belongs to ESP-IDF and is not watched. After such a restart `GET /api/tags` shows `"reset":"task_wdt"` under `"ap"`, and the tag table and content come back from NVS.
+
+A `sdkconfig` made before this change keeps its old watchdog settings (no restart, only a log line); delete it or set them in menuconfig (Component config -> ESP System Settings).
+
 ## Build and flash
 
 Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) assumes 2 MB flash with one 1.875 MB app slot; OTA (A10) would need two app slots and a 4 MB layout.

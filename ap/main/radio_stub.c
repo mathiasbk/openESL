@@ -1,6 +1,7 @@
 #include "app.h"
 #include "esl_radio.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,7 +17,10 @@
  * file downloads included (esl_faketag_round). Odd tags report model 2.9",
  * even tags 1.54".
  *
- * Simulated MACs: 00000000FAC70001, 00000000FAC70002, ... */
+ * Simulated MACs: 00000000FAC70001, 00000000FAC70002, ...
+ *
+ * The task feeds the task watchdog every second while it waits, like the real
+ * radio task. */
 
 static const char *TAG = "radio_stub";
 
@@ -34,6 +38,7 @@ static void stub_task(void *arg)
         esl_faketag_init(&tags[i], STUB_MAC_BASE + 1 + (uint64_t)i, 1, (uint16_t)(3000 - 10 * i),
                          i % 2 ? ESL_MODEL_154 : ESL_MODEL_29);
 
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         for (int i = 0; i < CONFIG_ESL_STUB_TAGS; i++) {
             esl_faketag_t *t = &tags[i];
@@ -52,7 +57,10 @@ static void stub_task(void *arg)
                 ESP_LOGI(TAG, "%s got CONFIG ver=%04X, interval now %u s", mac, (unsigned)t->cfg_ver,
                          (unsigned)t->interval_s);
         }
-        vTaskDelay(pdMS_TO_TICKS(CONFIG_ESL_STUB_INTERVAL_S * 1000));
+        for (int s = 0; s < CONFIG_ESL_STUB_INTERVAL_S; s++) {
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
 }
 
