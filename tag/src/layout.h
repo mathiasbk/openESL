@@ -92,8 +92,8 @@ typedef struct {
 
 /*
  * Downloaded layout file (docs/protokoll.md part 1). One buffer in XRAM, filled block by
- * block by app.c; layout_file_ver is 0 while nothing valid is in it. Flash writing is not
- * done yet, so after a restart the tag starts without a file and downloads it again.
+ * block by app.c; layout_file_ver is 0 while nothing valid is in it. app.c keeps a copy in
+ * flash (requirement T12) and puts it back with layout_file_restore() after a restart.
  */
 extern uint8_t __xdata layout_file[ESL_LBIN_MAX];
 extern uint16_t __xdata layout_file_len;
@@ -105,6 +105,13 @@ extern uint32_t __xdata layout_file_ver;
  * Installs it (layout_file_ver = ver) and returns true, or clears it and returns false.
  */
 bool layout_file_install(uint16_t len, uint32_t ver);
+
+/*
+ * layout_file[] holds bytes read back from flash (a file, or anything else). Finds the
+ * file's length from its structure and installs it with its CRC-32 as the version, so it
+ * gets every check a download gets. Returns true if a file is installed.
+ */
+bool layout_file_restore(void);
 
 /* Forgets the downloaded file. */
 void layout_file_clear(void);

@@ -155,19 +155,50 @@ static void infopage_read(uint16_t ofs, uint8_t __xdata *dst, uint8_t len)
 }
 
 /*
- * Persistent store: flash page 0x3E (0xF800-0xFBFF), kept out of the firmware by
- * CODE_SIZE in build.py. Record: 0xA5, length, data, sum of the data bytes.
+ * Persistent stores, kept out of the firmware by CODE_SIZE in build.py:
+ *   page 0x3E (0xF800-0xFBFF): the record (hal_store_*): 0xA5, length, data, sum of the data bytes
+ *   page 0x3D (0xF400-0xF7FF): the layout file (hal_layout_store_*), raw
  * Main flash reads directly as code memory.
  */
 #define STORE_PAGE      0x3E
+#define LSTORE_PAGE     0x3D
 #define STORE_MAGIC     0xA5
 static __code const uint8_t __at (STORE_PAGE * 0x400u) store_flash[4 + HAL_STORE_MAX];
+static __code const uint8_t __at (LSTORE_PAGE * 0x400u) lstore_flash[HAL_LAYOUT_STORE_MAX];
 static __xdata uint8_t store_buf[3 + HAL_STORE_MAX];
+
+/* Erases flash page `page` and writes len (1..1024) bytes from XRAM at src to its start.
+   False if the controller did not finish. */
+static bool flash_write_page(uint8_t page, uint16_t src, uint16_t len)
+{
+    uint8_t speed;
+    uint32_t t = 0x40000;             /* erase + 1 KB write takes some tens of ms */
+
+    speed = CLKSPEED;
+    CLKSPEED = 0x21;                  /* flash operations only work at this speed */
+    CFGPAGE = 4;
+    SETTINGS |= 0x38;                 /* erase the page, then write */
+    FWRTHREE = 3;
+    FPGNO = page;
+    FWRDSTL = 0;
+    FWRDSTH = 0;
+    FWRLENL = (uint8_t)(len - 1);
+    FWRLENH = (uint8_t)((len - 1) >> 8);
+    FWRSRCL = (uint8_t)src;
+    FWRSRCH = (uint8_t)(src >> 8);
+    TRIGGER |= 0x08;
+    while (!(TCON2 & 0x08) && --t)
+        ;
+    TCON2 &= (uint8_t)~0x48;
+    SETTINGS &= (uint8_t)~0x10;
+    CFGPAGE = 0;
+    CLKSPEED = speed;
+    return t != 0;
+}
 
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {
-    uint8_t i, sum = 0, speed;
-    uint16_t t = 0xFFFF, src = (uint16_t)store_buf;
+    uint8_t i, sum = 0;
 
     if (len > HAL_STORE_MAX)
         return false;
@@ -178,27 +209,32 @@ bool hal_store_write(const uint8_t *data, uint8_t len)
         sum += data[i];
     }
     store_buf[2 + len] = sum;
+    return flash_write_page(STORE_PAGE, (uint16_t)store_buf, (uint16_t)len + 3) &&
+           hal_store_read(store_buf, HAL_STORE_MAX) == len;
+}
 
-    speed = CLKSPEED;
-    CLKSPEED = 0x21;                  /* flash operations only work at this speed */
-    CFGPAGE = 4;
-    SETTINGS |= 0x38;                 /* erase the page, then write */
-    FWRTHREE = 3;
-    FPGNO = STORE_PAGE;
-    FWRDSTL = 0;
-    FWRDSTH = 0;
-    FWRLENL = (uint8_t)(len + 2);     /* length - 1 of len + 3 bytes */
-    FWRLENH = 0;
-    FWRSRCL = (uint8_t)src;
-    FWRSRCH = (uint8_t)(src >> 8);
-    TRIGGER |= 0x08;
-    while (!(TCON2 & 0x08) && --t)     /* erase + write takes a few ms */
-        ;
-    TCON2 &= (uint8_t)~0x48;
-    SETTINGS &= (uint8_t)~0x10;
-    CFGPAGE = 0;
-    CLKSPEED = speed;
-    return t != 0 && hal_store_read(store_buf, HAL_STORE_MAX) == len;
+bool hal_layout_store_write(const uint8_t __xdata *data, uint16_t len)
+{
+    uint16_t i;
+
+    if (len == 0 || len > HAL_LAYOUT_STORE_MAX)
+        return false;
+    if (!flash_write_page(LSTORE_PAGE, (uint16_t)data, len))
+        return false;
+    for (i = 0; i < len; i++)
+        if (lstore_flash[i] != data[i])
+            return false;
+    return true;
+}
+
+void hal_layout_store_read(uint8_t __xdata *data, uint16_t len)
+{
+    uint16_t i;
+
+    if (len > HAL_LAYOUT_STORE_MAX)
+        len = HAL_LAYOUT_STORE_MAX;
+    for (i = 0; i < len; i++)
+        data[i] = lstore_flash[i];
 }
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)

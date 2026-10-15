@@ -69,7 +69,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Watchdog on the tag (T10)
 - [x] Watchdog on the AP: the radio task and the serial API task are registered with the ESP-IDF task watchdog, which restarts the AP after 10 s (`ap/README.md`, "Watchdog")
 - [ ] Watchdog on the AP verified on hardware (a stuck task gives a restart, and `GET /api/tags` shows `"reset":"task_wdt"`)
-- [ ] Last content in the tag's flash (T12): flash writing works and the tag keeps its settings there, but not the content
+- [x] Last content in the tag's flash (T12): the content and the layout file are kept in flash and drawn again at start-up, tested on PC (`tag/README.md`, "Flash")
+- [ ] T12 verified on hardware: a tag restarted after new content (and with a layout file) shows it without the AP; `hwtest` shows "layout store kept" on the second boot
 - [ ] Long-term test: 10 tags for a week
 - [ ] Flashing recipe and jig under a minute per tag
 

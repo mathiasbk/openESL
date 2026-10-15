@@ -573,6 +573,187 @@ static void test_layout_content_config(void)
     CHECK_EQ(fake_tx_count, 3);
 }
 
+/* ---- Last content in flash (requirement T12) ---- */
+
+#define STORE_TEST_TYPE_OFF (14 + ESL_OFF_TYPE)   /* record header in app.c, then the payload */
+
+static uint8_t fb_before[DRAW_H][DRAW_W];
+
+/* A restart: RAM is gone, flash (fake_store, fake_lstore) is kept */
+static void restart(void)
+{
+    fake_radio_reset();
+    fake_draw_count = 0;
+    memset(&app, 0x5A, sizeof(app));
+    layout_file_clear();
+    memset(layout_file, 0x5A, sizeof(layout_file));
+    app_init();
+}
+
+static void test_restart_shows_stored_content(void)
+{
+    fresh();
+    push_config(0, 3, 120, 0, 0);
+    app_poll_once();
+    fake_radio_reset();
+    push_content(1111, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT, 3, price);
+    app_poll_once();
+    CHECK_EQ(app.shown_id, 1111);
+    CHECK_EQ(fake_store_writes, 2);             /* settings, then the content */
+    CHECK_EQ(fake_lstore_writes, 0);            /* no layout file came or went */
+    memcpy(fb_before, fake_fb, sizeof(fb_before));
+
+    /* After a restart the same picture is drawn at once, without the AP */
+    restart();
+    CHECK_EQ(fake_draw_count, 1);
+    CHECK(memcmp(fb_before, fake_fb, sizeof(fb_before)) == 0);
+    CHECK_EQ(app.shown_id, 1111);
+    CHECK_EQ(app.cfg.ver, 3);                   /* the settings are still there */
+    CHECK_EQ(app.interval_s, 120);
+    CHECK_EQ(fake_tx_count, 0);
+
+    /* The first POLL reports the content, so the AP answers IDLE and nothing is redrawn */
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_CID), 1111);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_FLAGS], ESL_POLL_F_BOOTED);
+    CHECK_EQ(fake_draw_count, 1);
+
+    /* New content replaces it in flash; the same content again writes nothing */
+    fake_radio_reset();
+    push_content(2222, ESL_LAYOUT_TEXT, 0, 3, price2);
+    app_poll_once();
+    CHECK_EQ(fake_store_writes, 3);
+    fake_radio_reset();
+    push_content(2222, ESL_LAYOUT_TEXT, 0, 3, price2);
+    app_poll_once();
+    CHECK_EQ(fake_store_writes, 3);
+    memcpy(fb_before, fake_fb, sizeof(fb_before));
+    restart();
+    CHECK_EQ(app.shown_id, 2222);
+    CHECK(memcmp(fb_before, fake_fb, sizeof(fb_before)) == 0);
+    CHECK(!fake_store_radio_on_write);
+}
+
+static void test_restart_with_layout_file(void)
+{
+    uint8_t len;
+
+    fresh();
+    lsize = make_test_layout_file(lfile, &lver);
+    push_all_blocks();
+    push_content(4242, ESL_LAYOUT_FILE + 0, ESL_CF_PRICE_HIGHLIGHT, 4, shelf);
+    app_poll_once();
+    CHECK_EQ(app.shown_id, 4242);
+    CHECK_EQ(fake_lstore_writes, 1);
+    CHECK(memcmp(fake_lstore, lfile, lsize) == 0);
+    memcpy(fb_before, fake_fb, sizeof(fb_before));
+
+    /* The file and the content drawn with it both come back */
+    restart();
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(layout_file_len, lsize);
+    CHECK_EQ(app.shown_id, 4242);
+    CHECK_EQ(fake_draw_count, 1);
+    CHECK(memcmp(fb_before, fake_fb, sizeof(fb_before)) == 0);
+    push_idle(0);
+    app_poll_once();
+    CHECK(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_LAYOUT_VER) == lver);   /* no new download */
+    CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_CID), 4242);
+    CHECK_EQ(fake_lstore_writes, 1);
+
+    /* A new file arrives but the content for it does not: after a restart the tag has the
+       new file and does not draw the old content with it */
+    fake_radio_reset();
+    lfile[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_H] = 40;
+    lver = proto_crc32(0, lfile, lsize);
+    push_all_blocks();
+    push_idle(0);
+    app_poll_once();
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(fake_lstore_writes, 2);
+    restart();
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(fake_draw_count, 1);               /* the start screen */
+    CHECK(fake_ink_count(1) > 100);
+
+    /* The AP drops the file: it is gone from flash too */
+    fake_radio_reset();
+    len = make_layout_block(pl, 0, 0, 0, 0, lfile, 0);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, len));
+    push_idle(0);
+    app_poll_once();
+    CHECK(layout_file_ver == 0);
+    CHECK_EQ(fake_lstore_writes, 3);
+    restart();
+    CHECK(layout_file_ver == 0);
+    CHECK(!fake_store_radio_on_write);
+}
+
+static void test_restart_bad_flash(void)
+{
+    /* Settings-only record from older firmware (format 1): settings kept, start screen */
+    fresh();
+    fake_store[0] = 1;
+    ESL_PUT_U16(fake_store + 1, 9);
+    ESL_PUT_U16(fake_store + 3, 90);
+    ESL_PUT_U16(fake_store + 5, 0);
+    ESL_PUT_U16(fake_store + 7, 0);
+    fake_store_len = 9;
+    restart();
+    CHECK_EQ(app.cfg.ver, 9);
+    CHECK_EQ(app.interval_s, 90);
+    CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(fake_draw_count, 1);
+
+    /* Content whose length does not match the record: ignored */
+    fresh();
+    push_content(55, ESL_LAYOUT_PRICE, 0, 3, price);
+    app_poll_once();
+    fake_store[9]++;
+    restart();
+    CHECK_EQ(app.shown_id, 0);
+    fake_store[9]--;
+    fake_store[STORE_TEST_TYPE_OFF] = ESL_MSG_IDLE;     /* not CONTENT */
+    restart();
+    CHECK_EQ(app.shown_id, 0);
+
+    /* A layout page with something else in it is not installed */
+    fresh();
+    lsize = make_test_layout_file(lfile, &lver);
+    memcpy(fake_lstore, lfile, lsize / 2);              /* a write cut off half way */
+    restart();
+    CHECK(layout_file_ver == 0);
+    memcpy(fake_lstore, lfile, lsize);
+    fake_lstore[2] = 200;                               /* too many layouts */
+    restart();
+    CHECK(layout_file_ver == 0);
+    memset(fake_lstore, 0, sizeof(fake_lstore));
+    fake_lstore[0] = ESL_LBIN_FORMAT;
+    fake_lstore[1] = MODEL_CODE;
+    fake_lstore[2] = ESL_LAYOUT_FILE_MAX;
+    memset(fake_lstore + 4, 0xFF, sizeof(fake_lstore) - 4);   /* runs past the buffer */
+    restart();
+    CHECK(layout_file_ver == 0);
+    memcpy(fake_lstore, lfile, lsize);                  /* and a good one is */
+    restart();
+    CHECK(layout_file_ver == lver);
+
+    /* The stored content cannot be drawn: reported like any failed drawing */
+    fresh();
+    push_content(66, ESL_LAYOUT_PRICE, 0, 3, price);
+    app_poll_once();
+    fake_epd_ok = false;
+    restart();
+    fake_epd_ok = true;
+    CHECK_EQ(app.shown_id, 0);
+    push_idle(0);
+    app_poll_once();
+    CHECK(sent_poll(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_DRAWFAIL);
+}
+
 void test_app(void)
 {
     RUN(test_boot);
@@ -592,4 +773,7 @@ void test_app(void)
     RUN(test_config_from_ap);
     RUN(test_config_backoff_and_lost);
     RUN(test_layout_content_config);
+    RUN(test_restart_shows_stored_content);
+    RUN(test_restart_with_layout_file);
+    RUN(test_restart_bad_flash);
 }

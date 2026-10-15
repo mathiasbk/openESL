@@ -84,42 +84,84 @@ static uint16_t base_poll_s(void)
 }
 
 /*
- * app.cfg in flash (requirement T12), so a restarted tag uses the AP's settings
- * even before it reaches the AP. One record through hal_store_* (hal.h):
- *   0 CFG_STORE_FORMAT   1-2 ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
- * all of app_cfg_t, ver included: the tag reports ver in POLL, so a stale or
- * missing copy only costs one extra CONFIG from the AP. Written only when the
- * settings change (the AP sends CONFIG only then), and with the radio off.
- * The layout file is not kept here (768 bytes > HAL_STORE_MAX).
+ * Flash (requirement T12): a restarted tag uses the AP's settings and shows its last
+ * content again before it reaches the AP. One record through hal_store_* (hal.h):
+ *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
+ *   9 content length (0 = none)   10-13 layout file version when it was drawn   14.. content
+ * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
+ * stale or missing copy only costs one extra CONFIG from the AP. The content is the
+ * CONTENT payload as received, written after it was drawn; the tag reports its id in
+ * POLL, so a stale copy is replaced at the next poll. Content drawn with a layout from
+ * the file is shown again only if the same file is back (hal_layout_store_*, saved by
+ * save_layout_file()). Format 1 records (settings only, 9 bytes) are still read.
+ * Written only when something changes, and with the radio off.
  */
-#define CFG_STORE_FORMAT 1
-#define CFG_STORE_LEN    9
+#define STORE_FORMAT     2
+#define STORE_FORMAT_V1  1
+#define STORE_CFG_LEN    9
+#define STORE_HDR_LEN    14
 
-static uint8_t __xdata cfg_rec[CFG_STORE_LEN];
+static uint8_t __xdata store_rec[STORE_HDR_LEN + ESL_MAX_PAYLOAD];
+static uint8_t content_len;          /* length of content[], 0 = nothing worth keeping */
+static uint32_t __xdata content_lay_ver;
+static const uint8_t __xdata zero_byte = 0;
+static uint32_t __xdata stored_lay_ver;   /* version of the layout file in flash, 0 = none */
 
-static void app_cfg_load(void)
+static void app_store_load(void)
 {
-    if (hal_store_read(cfg_rec, CFG_STORE_LEN) == CFG_STORE_LEN && cfg_rec[0] == CFG_STORE_FORMAT) {
-        app.cfg.ver = ESL_GET_U16(cfg_rec + 1);
-        app.cfg.poll_s = ESL_GET_U16(cfg_rec + 3);
-        app.cfg.max_poll_s = ESL_GET_U16(cfg_rec + 5);
-        app.cfg.lost_ap_s = ESL_GET_U16(cfg_rec + 7);
+    uint8_t n = hal_store_read(store_rec, sizeof(store_rec));
+    uint8_t i;
+
+    content_len = 0;
+    if (n >= STORE_CFG_LEN && (store_rec[0] == STORE_FORMAT || store_rec[0] == STORE_FORMAT_V1)) {
+        app.cfg.ver = ESL_GET_U16(store_rec + 1);
+        app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
+        app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
+        app.cfg.lost_ap_s = ESL_GET_U16(store_rec + 7);
     } else {
         app.cfg.ver = 0;
         app.cfg.poll_s = 0;
         app.cfg.max_poll_s = 0;
         app.cfg.lost_ap_s = 0;
+        return;
     }
+    if (store_rec[0] != STORE_FORMAT || n < STORE_HDR_LEN || store_rec[9] != n - STORE_HDR_LEN ||
+        store_rec[9] > ESL_MAX_PAYLOAD)
+        return;
+    content_len = store_rec[9];
+    content_lay_ver = ESL_GET_U32(store_rec + 10);
+    for (i = 0; i < content_len; i++)
+        content[i] = store_rec[STORE_HDR_LEN + i];
 }
 
-static void app_cfg_save(void)
+static void app_store_save(void)
 {
-    cfg_rec[0] = CFG_STORE_FORMAT;
-    ESL_PUT_U16(cfg_rec + 1, app.cfg.ver);
-    ESL_PUT_U16(cfg_rec + 3, app.cfg.poll_s);
-    ESL_PUT_U16(cfg_rec + 5, app.cfg.max_poll_s);
-    ESL_PUT_U16(cfg_rec + 7, app.cfg.lost_ap_s);
-    hal_store_write(cfg_rec, CFG_STORE_LEN);   /* a failed write only costs a CONFIG after a restart */
+    uint8_t i;
+
+    store_rec[0] = STORE_FORMAT;
+    ESL_PUT_U16(store_rec + 1, app.cfg.ver);
+    ESL_PUT_U16(store_rec + 3, app.cfg.poll_s);
+    ESL_PUT_U16(store_rec + 5, app.cfg.max_poll_s);
+    ESL_PUT_U16(store_rec + 7, app.cfg.lost_ap_s);
+    store_rec[9] = content_len;
+    ESL_PUT_U32(store_rec + 10, content_lay_ver);
+    for (i = 0; i < content_len; i++)
+        store_rec[STORE_HDR_LEN + i] = content[i];
+    /* a failed write only costs a CONFIG and a CONTENT after a restart */
+    hal_store_write(store_rec, STORE_HDR_LEN + content_len);
+}
+
+/* The layout file changed (installed or dropped): keep the flash copy the same.
+   Called with the radio off. */
+static void save_layout_file(void)
+{
+    if (layout_file_ver == stored_lay_ver)
+        return;
+    if (layout_file_ver)
+        hal_layout_store_write(layout_file, layout_file_len);
+    else
+        hal_layout_store_write(&zero_byte, 1);     /* format 0: no file */
+    stored_lay_ver = layout_file_ver;              /* a failed write is not retried */
 }
 
 static uint16_t at_least(uint16_t v, uint16_t min)
@@ -142,7 +184,7 @@ static void apply_config(void)
     app.cfg.lost_ap_s = lost;
     app.interval_s = base_poll_s();
     if (changed)
-        app_cfg_save();
+        app_store_save();
 }
 
 uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses)
@@ -297,21 +339,44 @@ static uint16_t on_miss(void)
     return sleep;
 }
 
+/* Draws content[0..content_len) (parsed into shown). true = it is on the screen. */
+static bool draw_content(void)
+{
+    layout_build(&scene, &shown, content);
+    if (epd_draw(&scene)) {
+        app.shown_id = shown.content_id;
+        app.poll_flags &= (uint8_t)~ESL_POLL_F_DRAWFAIL;
+        return true;
+    }
+    app.poll_flags |= ESL_POLL_F_DRAWFAIL;
+    return false;
+}
+
 static void show_content(void)
 {
     uint8_t i;
 
     for (i = 0; i < rx_plen; i++)
         content[i] = rxbuf[rx_off + i];
+    content_len = 0;
     if (proto_parse_reply(content, rx_plen, &shown) != PROTO_OK)
         return;
-    layout_build(&scene, &shown, content);
-    if (epd_draw(&scene)) {
-        app.shown_id = shown.content_id;
-        app.poll_flags &= (uint8_t)~ESL_POLL_F_DRAWFAIL;
-    } else {
-        app.poll_flags |= ESL_POLL_F_DRAWFAIL;
+    if (draw_content()) {
+        content_len = rx_plen;
+        content_lay_ver = layout_file_ver;
+        app_store_save();
     }
+}
+
+/* After a restart: the content from flash, if it can be drawn as it was (T12). */
+static bool show_stored_content(void)
+{
+    if (!content_len || proto_parse_reply(content, content_len, &shown) != PROTO_OK ||
+        shown.type != ESL_MSG_CONTENT || !shown.content_id)
+        return false;
+    if (shown.layout >= ESL_LAYOUT_FILE && content_lay_ver != layout_file_ver)
+        return false;    /* drawn with a layout file the tag no longer has */
+    return draw_content();
 }
 
 /* ---- Public ---- */
@@ -321,7 +386,7 @@ void app_init(void)
     uint8_t i;
 
     hal_mac_read(app.mac);
-    app_cfg_load();
+    app_store_load();
     app.shown_id = 0;
     app.interval_s = base_poll_s();
     app.misses = 0;
@@ -338,11 +403,14 @@ void app_init(void)
     app.dl_size = 0;
     app.dl_got = 0;
     app.lay_rejected = 0;
-    layout_file_clear();     /* not kept in flash yet: fetched again after every restart */
+    hal_layout_store_read(layout_file, ESL_LBIN_MAX);
+    layout_file_restore();
+    stored_lay_ver = layout_file_ver;
     shown.layout = 0;
 
     radio_init(CFG_CHANNEL);
-    if (!draw_status(msg_waiting))
+    /* The last content if flash has it, else the start screen (T9) */
+    if (!show_stored_content() && !draw_status(msg_waiting))
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;
 }
 
@@ -365,6 +433,7 @@ uint16_t app_poll_once(void)
         hal_wdt_kick();
     }
     radio_off();
+    save_layout_file();
 
     if (!got)
         return on_miss();
