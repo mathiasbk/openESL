@@ -1,0 +1,13 @@
+{
+  "format": "esl-label",
+  "version": 1,
+  "id": "vare-standard",
+  "layout": "vare",
+  "fields": {
+    "brand": "{brand}",
+    "name": "{name}",
+    "info": "{article} {ean}",
+    "price": "{price}"
+  },
+  "style": { "price_highlight": true, "frame": false }
+}

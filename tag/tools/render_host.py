@@ -53,7 +53,7 @@ def compile_host(name, model):
     out_dir = os.path.join(build.BUILD, "host-%s" % model)
     os.makedirs(out_dir, exist_ok=True)
     exe = os.path.join(out_dir, name + (".exe" if os.name == "nt" else ""))
-    flags = ["-std=c99", "-Wall", "-Wextra", "-O1", "-g", "-DMODEL=%s" % model]
+    flags = ["-std=c99", "-Wall", "-Wextra", "-O1", "-g", "-DMODEL=%s" % model] + build.version_defines()
     srcs = [os.path.join(build.TAG, s) for s in build.HOST_TARGETS[name]]
     build.run(cc + flags + ["-I" + i for i in build.INCLUDES] + srcs + ["-o", exe])
     return exe

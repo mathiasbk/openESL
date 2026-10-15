@@ -5,11 +5,13 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
   python web/build.py              renderer (WebAssembly) + page into web/dist/
   python web/build.py --native     only the native test build of web_api.c (no Emscripten),
                                    used by web/test/render.test.mjs
-  python web/build.py --firmware <tag-29.bin> <tag-154.bin> <ap.bin>
+  python web/build.py --firmware <tag-29.bin> <tag-154.bin> <ap.bin> [<ap-lcd.bin>]
                                    copies firmware into web/dist/firmware/ with the AP's
-                                   manifest for esp-web-tools and info.json (used by the
-                                   GitHub workflow; any of the three may be "-" for none;
-                                   FIRMWARE_RELEASE=v1.2.3 marks them as that release)
+                                   manifests for esp-web-tools and info.json (used by the
+                                   GitHub workflow; any of them may be "-" for none;
+                                   ap-lcd.bin is the AP with the status screen, offered
+                                   by a checkbox on the page; FIRMWARE_RELEASE=v1.2.3
+                                   marks them as that release)
 
 The renderer is web/wasm/web_api.c with the tag's drawing code and the AP's layout
 compiler, built with Emscripten (emcc) once per tag model:
@@ -108,7 +110,18 @@ def copy_static():
     os.makedirs(os.path.join(DIST, "firmware"), exist_ok=True)
 
 
-def add_firmware(tag29, tag154, ap):
+def ap_manifest(out, name, version, path):
+    manifest = {
+        "name": name,
+        "version": version,
+        "new_install_prompt_erase": True,
+        "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": path, "offset": 0}]}],
+    }
+    with open(os.path.join(out, path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")), "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def add_firmware(tag29, tag154, ap, ap_lcd="-"):
     out = os.path.join(DIST, "firmware")
     os.makedirs(out, exist_ok=True)
     # FIRMWARE_RELEASE is the release tag (v1.2.3) when the files come from a GitHub release;
@@ -122,26 +135,24 @@ def add_firmware(tag29, tag154, ap):
         "date": datetime.date.today().isoformat(),
         "tag": tag29 != "-" or tag154 != "-",
         "ap": ap != "-",
+        "ap_lcd": ap_lcd != "-" and os.path.exists(ap_lcd),
     }
-    for src, name in ((tag29, "tag-29.bin"), (tag154, "tag-154.bin"), (ap, "ap-openesl.bin")):
+    for src, name in ((tag29, "tag-29.bin"), (tag154, "tag-154.bin"), (ap, "ap-openesl.bin"),
+                      (ap_lcd if info["ap_lcd"] else "-", "ap-openesl-lcd.bin")):
         if src != "-":
             shutil.copy2(src, os.path.join(out, name))
+    # ap-manifest.json and ap-lcd-manifest.json
     if ap != "-":
-        manifest = {
-            "name": "OpenESL AP",
-            "version": info["version"],
-            "new_install_prompt_erase": True,
-            "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": "ap-openesl.bin", "offset": 0}]}],
-        }
-        with open(os.path.join(out, "ap-manifest.json"), "w") as f:
-            json.dump(manifest, f, indent=2)
+        ap_manifest(out, "OpenESL AP", info["version"], "ap-openesl.bin")
+    if info["ap_lcd"]:
+        ap_manifest(out, "OpenESL AP with status screen", info["version"], "ap-openesl-lcd.bin")
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)
 
 
 def main():
-    if len(sys.argv) == 5 and sys.argv[1] == "--firmware":
+    if len(sys.argv) in (5, 6) and sys.argv[1] == "--firmware":
         add_firmware(*sys.argv[2:])
         return
     if sys.argv[1:] == ["--native"]:

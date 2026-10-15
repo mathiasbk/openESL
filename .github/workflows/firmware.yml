@@ -2,7 +2,8 @@
 # Called by web.yml (every push and pull request) and release.yml (tags v*), so CI and
 # releases build the firmware the same way. Artifacts:
 #   tag-firmware: tag-29.bin, tag-154.bin
-#   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0)
+#   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
+#                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd)
 name: Firmware
 
 on:
@@ -55,14 +56,20 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Host tests (AP core, with AddressSanitizer)
+        run: make -C ap/test SAN=1
       - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
           target: esp32c6
           path: ap
-          command: idf.py build && cd build && python -m esptool --chip esp32c6 merge_bin -o openesl-ap.bin @flash_args
+          command: >-
+            mkdir -p out &&
+            idf.py build && (cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args) &&
+            idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build &&
+            cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args
       - uses: actions/upload-artifact@v7
         with:
           name: ap-firmware
-          path: ap/build/openesl-ap.bin
+          path: ap/out/

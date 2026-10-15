@@ -48,6 +48,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] WiFi setup without menuconfig: setup network `openesl-XXXX` with a form at `/setup`, `GET/PUT /api/wifi` (also over USB, `esl-client wifi`), token set from the form; host-tested and built (`ap/README.md`, "WiFi setup")
 - [ ] WiFi setup tried on hardware (needs a C6 with working WiFi): first start opens the setup network, the form joins the network, a wrong password brings the setup network back after 180 s, `PUT /api/wifi` over USB
 - [ ] Response time measured on hardware (requirement A3)
+- [x] Status screen for C6 boards with a 0.96" ST7789 LCD (`ESL_DISPLAY`, `ap/sdkconfig.lcd`, CI builds `openesl-ap-lcd.bin`); host-tested and built
+- [ ] Status screen on the new board: check the pins (guessed), the gaps with the start-up frame, colours and rotation; then WiFi setup and coexistence on its working WiFi
 
 **Phase 5: End to end**
 - [x] PUT → the right tag shows the new content, tested on hardware (PR #7)

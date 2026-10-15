@@ -50,6 +50,11 @@ firmwareInfo().then((info) => {
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
   $("home-fw").textContent = info ? "Firmware on this page: " + built : "";
   $("ap-fw-info").textContent = info?.ap ? built : "No AP firmware is published with this page yet.";
+  // The AP with the status screen is optional: a checkbox picks its manifest
+  $("ap-lcd-choice").hidden = $("ap-lcd-note").hidden = !info?.ap_lcd;
+  $("ap-lcd").onchange = () => {
+    $("ap-install").setAttribute("manifest", $("ap-lcd").checked ? "firmware/ap-lcd-manifest.json" : "firmware/ap-manifest.json");
+  };
   $("tag-fw-info").textContent = info?.tag ? built : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });

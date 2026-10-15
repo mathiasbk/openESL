@@ -1,0 +1,12 @@
+# Extra defaults for ESP32-C6 boards with a 0.96" 160x80 ST7789 LCD (ESL_DISPLAY).
+# Build with:
+#   idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build
+# The pins are a guess (the Waveshare ESP32-C6-LCD layout); check them against the
+# board and change them here or in menuconfig.
+CONFIG_ESL_DISPLAY=y
+CONFIG_ESL_LCD_PIN_MOSI=6
+CONFIG_ESL_LCD_PIN_SCLK=7
+CONFIG_ESL_LCD_PIN_CS=14
+CONFIG_ESL_LCD_PIN_DC=15
+CONFIG_ESL_LCD_PIN_RST=21
+CONFIG_ESL_LCD_PIN_BL=22

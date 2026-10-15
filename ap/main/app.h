@@ -29,6 +29,10 @@ esp_err_t http_api_start(const esl_api_t *api);
 /* serial_api.c: the same API over the USB serial port */
 esp_err_t serial_api_start(const esl_api_t *api);
 
+/* display.c (ESL_DISPLAY): AP status on a small ST7789 LCD. Call once api is
+ * filled in; it refreshes on its own. */
+esp_err_t display_start(const esl_api_t *api);
+
 /* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
  * sent to the tags in blocks) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);

@@ -6,13 +6,13 @@
 
 CC      ?= cc
 CORE    := ../components/esl_core
-CFLAGS  := -std=c11 -Wall -Wextra -Wpedantic -Werror -g -O1 -I$(CORE)/include -I../../shared
+CFLAGS  := -std=c11 -Wall -Wextra -Wpedantic -Werror -g -O1 -I$(CORE)/include -I../../shared -I../../tag/src
 ifeq ($(SAN),1)
 CFLAGS  += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 
-SRCS := $(wildcard $(CORE)/*.c) $(wildcard *.c)
+SRCS := $(wildcard $(CORE)/*.c) $(wildcard *.c) ../../tag/fonts/font_small.c
 BIN  := build/esl_tests
 
 .PHONY: all test openapi clean
@@ -27,7 +27,7 @@ test: $(BIN)
 
 build/api_host: $(wildcard $(CORE)/*.c) openapi/api_host.c $(wildcard $(CORE)/include/*.h) ../../shared/proto.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(wildcard $(CORE)/*.c) openapi/api_host.c $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(wildcard $(CORE)/*.c) ../../tag/fonts/font_small.c openapi/api_host.c $(LDFLAGS) -o $@
 
 openapi:
 	python3 openapi/check_openapi.py
