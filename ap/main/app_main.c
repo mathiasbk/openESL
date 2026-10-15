@@ -84,5 +84,11 @@ void app_main(void)
     ESP_ERROR_CHECK(serial_api_start(&api));
 #endif
 
+#if CONFIG_ESL_DISPLAY
+    err = display_start(&api);
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "display: %s", esp_err_to_name(err)); /* the AP works without it */
+#endif
+
     ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
 }

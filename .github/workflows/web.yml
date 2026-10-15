@@ -63,10 +63,12 @@ jobs:
             echo "Firmware from release $rel"
             gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin'
             FIRMWARE_RELEASE="$rel" python3 web/build.py --firmware \
-              "rel/openesl-tag-2.9-$rel.bin" "rel/openesl-tag-1.54-$rel.bin" "rel/openesl-ap-esp32c6-$rel.bin"
+              "rel/openesl-tag-2.9-$rel.bin" "rel/openesl-tag-1.54-$rel.bin" "rel/openesl-ap-esp32c6-$rel.bin" \
+              "rel/openesl-ap-esp32c6-lcd-$rel.bin"
           else
             echo "No release yet: firmware from this build"
-            python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin
+            python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin \
+              fw/ap-firmware/openesl-ap-lcd.bin
           fi
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'

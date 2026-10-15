@@ -60,6 +60,80 @@ menu "OpenESL AP"
             built-in USB port next to the log (tools/esl-client --serial).
             Needs no token: whoever has the cable has the device.
 
+    menuconfig ESL_DISPLAY
+        bool "AP status on a small ST7789 LCD"
+        default n
+        help
+            For ESP32-C6 boards with a 0.96" 160x80 ST7789 screen: shows the
+            firmware version, channel, number of tags and how many are pending,
+            the IP address or the setup network, and the uptime. Off by
+            default, so boards without a screen (the C6 Super Mini) are
+            unchanged. The pins below are a guess for such boards (the
+            Waveshare ESP32-C6-LCD layout); check them against your board.
+            At start a frame is drawn around the edge for two seconds: if a
+            side is missing or doubled, adjust the gaps.
+
+    if ESL_DISPLAY
+        config ESL_LCD_WIDTH
+            int "Width in pixels (as mounted)"
+            default 160
+        config ESL_LCD_HEIGHT
+            int "Height in pixels (as mounted)"
+            default 80
+        config ESL_LCD_PIN_MOSI
+            int "MOSI (SDA) GPIO"
+            default 6
+        config ESL_LCD_PIN_SCLK
+            int "SCLK (SCL) GPIO"
+            default 7
+        config ESL_LCD_PIN_CS
+            int "CS GPIO"
+            default 14
+        config ESL_LCD_PIN_DC
+            int "DC GPIO"
+            default 15
+        config ESL_LCD_PIN_RST
+            int "RST GPIO (-1 = none)"
+            default 21
+        config ESL_LCD_PIN_BL
+            int "Backlight GPIO (-1 = always on)"
+            default 22
+        config ESL_LCD_BL_ON_LEVEL
+            int "Backlight on level"
+            range 0 1
+            default 1
+        choice ESL_LCD_ROTATION
+            prompt "Rotation"
+            default ESL_LCD_ROTATE_90
+            config ESL_LCD_ROTATE_0
+                bool "0 (portrait panel used as is)"
+            config ESL_LCD_ROTATE_90
+                bool "90 (landscape)"
+            config ESL_LCD_ROTATE_270
+                bool "270 (landscape, upside down)"
+        endchoice
+        config ESL_LCD_GAP_X
+            int "Column offset into the controller's memory"
+            default 1
+            help
+                0.96" 80x160 panels sit off-centre in the controller's RAM;
+                1/26 (landscape) is the usual offset. Use the start-up frame
+                to find it.
+        config ESL_LCD_GAP_Y
+            int "Row offset into the controller's memory"
+            default 26
+        config ESL_LCD_INVERT
+            bool "Invert colours (IPS panels)"
+            default y
+        config ESL_LCD_BGR
+            bool "BGR colour order"
+            default y
+        config ESL_LCD_REFRESH_MS
+            int "Refresh interval (ms)"
+            range 200 60000
+            default 2000
+    endif
+
     config ESL_CHANNEL
         int "802.15.4 channel"
         range 11 26
