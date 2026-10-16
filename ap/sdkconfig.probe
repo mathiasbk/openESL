@@ -1,0 +1,5 @@
+# Experiment: sniffer that also answers stock SoluM search frames (41 88 ... AF 10 E0 xx) with a guessed
+# reply, to see whether an unpaired stock tag reacts. Same channel stepping as sdkconfig.sniffer.
+# Build with:
+#   idf.py -B build-probe -D SDKCONFIG=build-probe/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer;sdkconfig.probe" build
+CONFIG_ESL_SNIFF_PROBE_REPLY=y

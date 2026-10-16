@@ -246,6 +246,16 @@ menu "OpenESL AP"
             Above 0 the sniffer steps through channels 11-26 and stays this long on each, to find
             what a tag with unknown settings (for example the stock SoluM firmware) sends and where.
 
+    config ESL_SNIFF_PROBE_REPLY
+        bool "Sniffer: answer stock SoluM search frames with a guessed reply (experiment)"
+        depends on ESL_RADIO_SNIFFER
+        default n
+        help
+            When a frame 41 88 <seq> 34 12 FF FF AF 10 E0 <model> arrives, send a data frame with a
+            guessed AP answer (message type E1) straight back on the same channel, and log which
+            variant was sent. Used to see whether an unpaired stock tag reacts. The stock firmware
+            is not touched; the tag only receives a frame like any other.
+
     config ESL_STUB_TAGS
         int "Simulated tags"
         depends on ESL_RADIO_STUB

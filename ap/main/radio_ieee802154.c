@@ -44,11 +44,18 @@ static const char *TAG = "radio";
 #define HOP_MS 0
 #endif
 
+#if SNIFFER && defined(CONFIG_ESL_SNIFF_PROBE_REPLY)
+#define PROBE_REPLY 1
+#else
+#define PROBE_REPLY 0
+#endif
+
 typedef struct {
     uint8_t len; /* PSDU length incl. FCS */
     uint8_t psdu[ESL_PSDU_MAX];
     int8_t rssi;
     uint8_t channel;
+    uint8_t variant; /* guessed reply sent to this frame (0 = none) */
     int64_t rx_us;
 } rx_item_t;
 
@@ -59,6 +66,40 @@ static esl_layouts_t *layouts;
 static uint16_t pan;
 static volatile uint8_t cur_channel;
 static uint8_t tx_buf[1 + ESL_PSDU_MAX]; /* length byte + PSDU */
+
+#if PROBE_REPLY
+/* Search frame of an unpaired stock tag: FCF 41 88, seq, PAN 1234, dest FFFF, source 10AF, E0 <model> */
+static bool is_stock_probe(const uint8_t *p, uint8_t len) /* len incl. 2 FCS bytes */
+{
+    static const uint8_t head[2] = { 0x41, 0x88 };
+    static const uint8_t addr[6] = { 0x34, 0x12, 0xFF, 0xFF, 0xAF, 0x10 };
+    return len == 13 && !memcmp(p, head, 2) && !memcmp(&p[3], addr, 6) && p[9] == 0xE0;
+}
+
+/* Guessed answer: data frame, PAN compression, short dest 10AF, long source (AP address),
+ * then message type E1 and zeros. Variants differ in payload length only. */
+static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t variant)
+{
+    static const uint8_t payload_len[] = { 26, 40, 70 };
+    uint8_t n = 0;
+    out[1 + n++] = 0x41;
+    out[1 + n++] = 0xC8;
+    out[1 + n++] = probe[2]; /* sequence number of the search frame */
+    out[1 + n++] = 0x34;
+    out[1 + n++] = 0x12;
+    out[1 + n++] = 0xAF;
+    out[1 + n++] = 0x10;
+    static const uint8_t src[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
+    memcpy(&out[1 + n], src, 8);
+    n += 8;
+    out[1 + n++] = 0xE1;
+    uint8_t zeros = payload_len[(variant - 1) % 3] - 1;
+    memset(&out[1 + n], 0, zeros);
+    n += zeros;
+    out[0] = n + 2; /* PSDU length incl. 2 FCS bytes, which the hardware fills in */
+    return n;
+}
+#endif
 
 static struct {
     uint32_t rx, polls, blocks, replies, tx_failed, dropped;
@@ -77,8 +118,22 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     memcpy(item.psdu, &frame[1], item.len);
     item.rssi = info->rssi;
     item.channel = cur_channel;
+    item.variant = 0;
     item.rx_us = esp_timer_get_time();
+#if PROBE_REPLY
+    static uint8_t probe_count;
+    static uint8_t reply_buf[1 + ESL_PSDU_MAX];
+    bool probe = is_stock_probe(item.psdu, item.len);
+    if (probe) {
+        item.variant = 1 + probe_count++ % 3;
+        build_probe_reply(reply_buf, item.psdu, item.variant);
+    }
     esp_ieee802154_receive_handle_done(frame);
+    if (probe)
+        esp_ieee802154_transmit(reply_buf, false);
+#else
+    esp_ieee802154_receive_handle_done(frame);
+#endif
     if (xQueueSendFromISR(rx_queue, &item, &woken) != pdTRUE)
         stats.dropped++;
     portYIELD_FROM_ISR(woken);
@@ -115,6 +170,8 @@ static void __attribute__((unused)) log_frame(const rx_item_t *it)
         snprintf(&hex[3 * i], 4, "%02X ", it->psdu[i]);
     hex[3 * it->len] = '\0';
     ESP_LOGI(TAG, "rx ch %u %u B rssi %d: %s", it->channel, it->len, it->rssi, hex);
+    if (it->variant)
+        ESP_LOGI(TAG, "reply variant %u sent on ch %u", it->variant, it->channel);
 }
 
 static void __attribute__((unused)) handle_poll(const rx_item_t *it)

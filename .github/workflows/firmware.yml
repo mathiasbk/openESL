@@ -7,6 +7,7 @@
 #                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
 #                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
 #                 openesl-ap-sniffer.bin (the sniffer build, ap/sdkconfig.sniffer, for development only; not in releases)
+#                 openesl-ap-probe.bin (sniffer that also answers stock tag search frames, ap/sdkconfig.probe, experiment; not in releases)
 name: Firmware
 
 on:
@@ -84,7 +85,9 @@ jobs:
             cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin &&
             (cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args) &&
             idf.py -B build-sniffer -D SDKCONFIG=build-sniffer/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer" build &&
-            cd build-sniffer && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-sniffer.bin @flash_args
+            (cd build-sniffer && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-sniffer.bin @flash_args) &&
+            idf.py -B build-probe -D SDKCONFIG=build-probe/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer;sdkconfig.probe" build &&
+            cd build-probe && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-probe.bin @flash_args
       - uses: actions/upload-artifact@v7
         with:
           name: ap-firmware
