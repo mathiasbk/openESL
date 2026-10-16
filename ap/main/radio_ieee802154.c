@@ -152,7 +152,10 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
         out[1 + n + 1] = 0xFF;
         out[1 + n + 2] = 0xFF;
     }
-    (void)mark;
+    /* F9/FA: 7EBD reads the byte at payload+2 as a chunk index vs F490.
+     * Index 1 is the first-chunk path; zeros fail and jump to 2AE2. */
+    if ((type == 0xF9 || type == 0xFA) && mark)
+        out[1 + n] = mark;
     n += 38;
     out[0] = n + 2;
     return n;
@@ -160,7 +163,7 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
 
 /* Answers found on air (2026-10-16): D7 <- 80 02 then D8. AA <- F5 00 starts the *image* path
  * (F4 + white screen) and is the wrong road for firmware replacement. DE on AA sends the tag
- * back to searching. Next: one firmware-shaped answer per AA (F9, FA, A7, AD). */
+ * back to searching. Isolated AD FFFF leaves the tag on AA. Next: AD then F9/FA in one window. */
 #endif
 
 static struct {
@@ -256,10 +259,15 @@ static void send_probe_reply(const rx_item_t *it)
         send_frame(it, 0xD8, 0, it->psdu[2] + 1, 0);
         ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
     } else if (it->kind == 3) {
-        /* Empty F9/FA/A7/AD are rejected (flash.bin). AD with size FFFF at payload[3:4]
-         * is subtype 15 when F560 is smaller, and should set state 0x0B. */
-        send_frame(it, 0xAD, 0, it->psdu[2] + 1, 0);
-        ESP_LOGI(TAG, "reply to AA request: AD size FFFF after %lld us", (long long)us);
+        /* Documented firmware chain in one listen window (stock-ota.md):
+         * AD first (F833 + size FFFF), then F9/FA (7EBD, first-chunk index 1).
+         * F9 success calls 2ECE → state 8 (data-receive, not the F5 picture path).
+         * Isolated AD FFFF left the tag on AA (probe12). */
+        uint8_t seq = (uint8_t)(it->psdu[2] + 1);
+        send_frame(it, 0xAD, 0, seq, 0);
+        send_frame(it, 0xF9, 0, (uint8_t)(seq + 1), 1);
+        send_frame(it, 0xFA, 0, (uint8_t)(seq + 2), 1);
+        ESP_LOGI(TAG, "reply to AA request: AD FFFF, F9, FA after %lld us", (long long)us);
     } else if (it->kind == 4) {
         /* Image path. Do not answer: F4 + D0-D2 push was rejected (probe11). */
         ESP_LOGI(TAG, "F4 image request ignored (not the firmware path) after %lld us", (long long)us);
