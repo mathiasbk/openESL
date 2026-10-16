@@ -69,7 +69,7 @@ static uint8_t tx_buf[1 + ESL_PSDU_MAX]; /* length byte + PSDU */
 
 #if PROBE_REPLY
 /* Search frame of an unpaired stock tag: FCF 41 88, seq, PAN 1234, dest FFFF, source 10AF, E0 <model> */
-static bool is_stock_probe(const uint8_t *p, uint8_t len) /* len incl. 2 FCS bytes */
+static bool IRAM_ATTR is_stock_probe(const uint8_t *p, uint8_t len) /* len incl. 2 FCS bytes */
 {
     static const uint8_t head[2] = { 0x41, 0x88 };
     static const uint8_t addr[6] = { 0x34, 0x12, 0xFF, 0xFF, 0xAF, 0x10 };
@@ -78,7 +78,7 @@ static bool is_stock_probe(const uint8_t *p, uint8_t len) /* len incl. 2 FCS byt
 
 /* Guessed answer: data frame, PAN compression, short dest 10AF, long source (AP address),
  * then message type E1 and zeros. Variants differ in payload length only. */
-static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t variant)
+static uint8_t IRAM_ATTR build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t variant)
 {
     static const uint8_t payload_len[] = { 26, 40, 70 };
     uint8_t n = 0;
