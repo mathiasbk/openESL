@@ -56,7 +56,7 @@ typedef struct {
     int8_t rssi;
     uint8_t channel;
     uint8_t variant; /* guessed reply sent to this frame (0 = none) */
-    uint8_t kind;    /* 1 = stock search frame, 2 = D7, 3 = AA, 4 = F4 request */
+    uint8_t kind;    /* 1 = stock search, 2 = D7, 3 = AA, 4 = F4, 5 = other 61 CC request */
     int64_t rx_us;
 } rx_item_t;
 
@@ -101,12 +101,11 @@ static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t var
     return n;
 }
 
-/* The tag's requests after our search reply: FCF 61 CC (ack requested, long addresses), seq, PAN,
- * destination (the address we gave as source), source (the tag's EUI-64), payload D7 <model> ... first,
- * later AA <model> ... Returns the payload's first byte, or 0 when the frame is not such a request. */
+/* The tag's requests after our search reply: FCF 61 CC (ack requested, long addresses).
+ * Returns the first payload byte, or 0 when the frame is not such a request. */
 static uint8_t IRAM_ATTR tag_request_type(const uint8_t *p, uint8_t len)
 {
-    if (len >= 23 && p[0] == 0x61 && p[1] == 0xCC && (p[21] == 0xD7 || p[21] == 0xAA || p[21] == 0xF4))
+    if (len >= 23 && p[0] == 0x61 && p[1] == 0xCC)
         return p[21];
     return 0;
 }
@@ -147,17 +146,15 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
     out[1 + n++] = type;
     out[1 + n++] = second;
     memset(&out[1 + n], 0, 38);
-    if (mark) { /* bytes 7 and 8 of the payload: FF 01, the shape the stock block handlers test for */
-        out[1 + n + 5] = 0xFF;
-        out[1 + n + 6] = 0x01;
-    }
+    (void)mark;
     n += 38;
     out[0] = n + 2;
     return n;
 }
 
-/* Answers found on air (2026-10-16): D7 request <- 80 02 then D8; AA request <- F5 00 (DE sends the tag
- * back to searching); the tag then sends an F4 request and clears its screen. */
+/* Answers found on air (2026-10-16): D7 <- 80 02 then D8. AA <- F5 00 starts the *image* path
+ * (F4 + white screen) and is the wrong road for firmware replacement. DE on AA sends the tag
+ * back to searching. Next: one firmware-shaped answer per AA (F9, FA, A7, AD). */
 #endif
 
 static struct {
@@ -188,7 +185,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
         item.variant = 1 + probe_count++ % 3;
     } else if (tag_request_type(item.psdu, item.len) && is_target(item.psdu)) {
         uint8_t t = tag_request_type(item.psdu, item.len);
-        item.kind = t == 0xD7 ? 2 : t == 0xAA ? 3 : 4;
+        item.kind = t == 0xD7 ? 2 : t == 0xAA ? 3 : t == 0xF4 ? 4 : 5;
         item.variant = 1;
     }
     esp_ieee802154_receive_handle_done(frame);
@@ -253,22 +250,20 @@ static void send_probe_reply(const rx_item_t *it)
         send_frame(it, 0xD8, 0, it->psdu[2] + 1, 0);
         ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
     } else if (it->kind == 3) {
-        send_frame(it, 0xF5, 0, it->psdu[2] + 1, 0);
-        ESP_LOGI(TAG, "reply to AA request: F5 00 sent after %lld us", (long long)us);
+        /* F5 00 is the image announcement (probe9-11). These four are the remaining dispatcher
+         * types that can still be a firmware-available answer. One per AA; battery out/in for the next. */
+        static const uint8_t aa_type[] = { 0xF9, 0xFA, 0xA7, 0xAD };
+        static uint8_t aa_n;
+        uint8_t type = aa_type[aa_n++ % (sizeof(aa_type) / sizeof(aa_type[0]))];
+        send_frame(it, type, 0, it->psdu[2] + 1, 0);
+        ESP_LOGI(TAG, "reply to AA request: %02X 00 (fw candidate %u) sent after %lld us", type,
+                 (unsigned)((aa_n - 1) % (sizeof(aa_type) / sizeof(aa_type[0]))) + 1, (long long)us);
+    } else if (it->kind == 4) {
+        /* Image path. Do not answer: F4 + D0-D2 push was rejected (probe11). */
+        ESP_LOGI(TAG, "F4 image request ignored (not the firmware path) after %lld us", (long long)us);
     } else {
-        /* DE puts the stock tag into its data-receive state (reading of the dispatcher); then try the
-         * three block types D1, D0, D2 with the shape the handlers seem to test for, and D1 plain. */
-        static const struct {
-            uint8_t type, mark;
-        } push[] = { { 0xD1, 1 }, { 0xD0, 1 }, { 0xD2, 1 }, { 0xD1, 0 } };
-        uint8_t seq = it->psdu[2] + 1;
-        send_frame(it, 0xDE, 0, seq, 0);
-        ESP_LOGI(TAG, "reply to F4 request: DE 00 sent after %lld us", (long long)us);
-        for (unsigned i = 0; i < sizeof(push) / sizeof(push[0]); i++) {
-            vTaskDelay(pdMS_TO_TICKS(150));
-            send_frame(it, push[i].type, 0, ++seq, push[i].mark);
-            ESP_LOGI(TAG, "push %02X mark %u sent", push[i].type, push[i].mark);
-        }
+        ESP_LOGI(TAG, "unhandled 61 CC request type %02X, no answer, after %lld us", it->psdu[21],
+                 (long long)us);
     }
 }
 #endif

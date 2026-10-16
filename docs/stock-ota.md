@@ -1,6 +1,22 @@
 # Study: flashing stock tags over the radio
 
-Goal: put OpenESL on a tag that still runs the stock SoluM firmware, without pogo pins, by using the stock firmware's own update path. Started 2026-10-16. This page holds what is known, what is open, and the plan. Facts that the code ends up using also go in [kildelogg.md](kildelogg.md).
+Goal: put OpenESL on a tag that still runs the stock SoluM firmware, without pogo pins, by using the stock firmware's own **firmware** update path. Started 2026-10-16. This page holds what is known, what is open, and the plan. Facts that the code ends up using also go in [kildelogg.md](kildelogg.md). Raw on-air logs stay outside git (`openESL-captures/`, next to this repo).
+
+## Status (read this first)
+
+Handshake that works, on channel 25, PAN 0x1234, our AP address `00…01`:
+
+| Tag sends | We answer | Result |
+|---|---|---|
+| `E0` search (`41 88`, source `10AF`) | `E1` + zeros, FCF `41 C8` | Tag binds and sends `D7` |
+| `D7` request (`61 CC`) | `80 02` then `D8` | Tag sends `AA` |
+| `AA` request | `F5 00` | **Image path**, not firmware: tag sends `F4` and the screen goes white |
+| `AA` request | `DE` | Tag goes back to searching |
+| `F4` then our `DE` + `D0`/`D1`/`D2` push | — | Push discarded. Tag stays silent. |
+
+`F5` / `F4` / `D0`–`D2` is the stock **picture** transfer. The study follows the firmware path instead: answer `AA` with the remaining dispatcher types `F9`, `FA`, `A7`, `AD` (one per battery restart). Target tag on air: `BB950702FF94BAC8` (`CONFIG_ESL_SNIFF_TARGET`).
+
+Dispatcher first-byte cases (stock backup, 0x4D35): `80` (second byte 1 or 2), `A7` (needs 0xA5 in a state variable), `AD`, `D0`–`D2` (only states 8/9, sender must be the stored AP), `D8`, `DE` (sets 8 or 9), `F5`, `F9`, `FA`. `D0`–`D2` as answers to `D7`/`AA` were not accepted because those types belong to the later data-receive states.
 
 ## What is known
 
@@ -66,7 +82,8 @@ dest PAN 0x1234, dest 0xFFFF (broadcast), source 0x10AF, payload E0 85 (2 bytes)
 
 - Fourth run (2026-10-16, probe9): `DE` as answer to the AA request sent the tag back to searching; `F5 00` was accepted. The tag then sent a new request type `F4`: `61 CC <seq> ... F4 85 00 00 00 00 F5 00 00 00 00 00 00` (13 byte payload, F5 echoed) and its screen went white (it clears the display before new content). Without an answer to `F4` it timed out after a while and fell back to the unpaired default. The stock code builds `F4` in state 7 (state table entry 0x405E, builder 0x8FBC). Dispatcher cases by first byte: 80, A7, AD, D0-D2 (only in states 8/9), D8, DE (sets state 8 or 9, probably start of the data transfer), F5, F9, FA. The next build answers each `F4` request with one candidate (DE, D8, F9, FA, AD, A7, 80 01, 80 02, D0, D1, D2, F5 01), rotating, and logs which.
 
-- Fifth run (2026-10-16, probe10): a second stock tag in the room disturbed the rotation, so the probe can now be locked to one tag (`CONFIG_ESL_SNIFF_TARGET`, the tag's address as on air). Three F4 answers (DE, D8, FA) all gave the same result: the tag sends F4 once, the screen turns white, then silence. Reading of the stock code: `DE` leads to the data-receive state (8 or 9), where only `D0`, `D1` and `D2` are accepted, so the tag is probably waiting for the AP to push. In the handler, `D0`, `D1` and `D2` take different routes (`D1` is also echoed back by the tag), and bytes 7 and 8 of the payload are tested against `FF`. The next build answers F4 with `DE` and then pushes `D1`, `D0`, `D2` (payload bytes 7, 8 = `FF 01`) and a plain `D1`, 150 ms apart, and logs each; a new frame from the tag or a screen change shows which one it reacts to.
+- Fifth run (2026-10-16, probe10): a second stock tag in the room disturbed the rotation, so the probe can now be locked to one tag (`CONFIG_ESL_SNIFF_TARGET`, the tag's address as on air). F4 answers `DE`, `D8`, `F9` and `FA` all gave the same result: the tag sends F4 once, the screen turns white, then silence. Reading of the stock code: `DE` leads to the data-receive state (8 or 9), where only `D0`, `D1` and `D2` are accepted, so the next idea was that the tag waits for the AP to push.
 
-- Sixth run (2026-10-16, probe11, tag lock confirmed working): same two rounds, both identical. After `F4` answered with `DE`, pushing `D1`, `D0`, `D2` (payload bytes 7, 8 = `FF 01`) and a plain `D1` (about 0.2 ms apart) was not accepted: the tag sent `F4` once more, then went quiet, no screen change. The `AA` request's counters rise between pairings (persistent state in the tag's own flash); the `D7` request's trailing bytes vary between attempts; the `F4` request itself is always `F4 85 00 00 00 00 F5 00 00 00 00 00 00`.
-- Decision 2026-10-16: the handshake above (search, D7, AA, F4) is documented as far as it goes. Work on finding or guessing the next step — whatever gets the stock tag to accept pushed block/firmware data over this protocol — has stopped; it is not something this session will build further, on this hardware or any other. The jig-based flashing path (PR #53/#54, v0.3.0) remains the supported way to install openESL.
+- Sixth run (2026-10-16, probe11 / probe11b, tag lock confirmed): same handshake, then F4 answered with `DE` and a push of `D1`, `D0`, `D2` (payload bytes 7–8 = `FF 01`) and a plain `D1`, 150 ms apart. The tag sent nothing back. No new frame type, no D1 echo, no further F4. The push was discarded. Two repeats, same tag (`BB950702FF94BAC8`). After F4 the log shows only the four pushes and then stats (`rx 4`). The `AA` counters rise between pairings (persistent state in the tag's flash); the `D7` tail varies; `F4` is always `F4 85 00 00 00 00 F5 00 00 00 00 00 00`. Course correction: `F5 00` → `F4` + white screen is the stock **image** path. Firmware replacement has to leave that road. The next build answers each `AA` with one of `F9`, `FA`, `A7`, `AD` (the dispatcher types not yet tried as a single AA answer) and ignores `F4`. A new request type, a return to `E0`, or a screen change other than white shows which type it reacts to. Battery out and in for each trial; leave the C6 running so the candidate counter advances.
+
+- Payload notes from the same runs (1.54" tag, model byte `85`): `D7` is `D7 85 1F 00 00 TT 00 00` with tail `TT` rising across wakes (`00`, `01`, `03`, `07`). `AA` is 32 bytes after the type: `AA 85 1F 00 <status> … <counter> FF FF FF FF FF … <pair that rises> … 15|16 10 10 00 00`. The rising fields are counters, not a fixed join token. `F4` echoes the `F5` we sent.
