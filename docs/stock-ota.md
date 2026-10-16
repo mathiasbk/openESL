@@ -20,6 +20,20 @@ Read-only study of the flash backup. Addresses are code addresses in the 64 KB m
 - Not found yet: what enters the loader (no `LJMP`/`LCALL` to 0xE800 or 0xE803 in the main firmware, so it is a jump through a pointer, a reset-time check, or the chip's boot ROM), and where the main firmware receives the image over the radio and writes it to the SPI flash. Those two answer open questions 2 and 3.
 - Nothing seen yet about a CRC, signature or key on the image. Question 4 is still open.
 
+## What a new stock tag sends (sniffer capture, 2026-10-16)
+
+Tag: new, 1.54", factory firmware, plastic battery tab pulled at t = 174 s. Sniffer on an ESP32-C6 (build from `ap/sdkconfig.sniffer`, 2 s on each channel in the first capture), tag next to the C6, no AP in range. 9 frames in 10 minutes, all of this form (11 bytes; the driver adds RSSI and LQI):
+
+```
+41 88 <seq> 34 12 FF FF AF 10 E0 85
+FCF 0x8841: data frame, PAN ID compression, short destination and source addresses
+dest PAN 0x1234, dest 0xFFFF (broadcast), source 0x10AF, payload E0 85 (2 bytes)
+```
+
+- The first frame came about 8 s after the battery went in. The tag sends one frame on every channel 11-26 in a sweep (about 20 ms between frames, sequence number +1 per channel, +16 per sweep, no gaps). Seen sweeps at 182, 212, 246, 275, 477, 501, 534 and 549 s: about 30 s apart, with one pause of 202 s that looks like a back-off.
+- Meaning (a reading, not confirmed): a search for an AP. The tag probably listens for a short time after each frame, so a reply has to come on the same channel right after it.
+- Not yet known: whether 0x10AF and `E0 85` depend on the tag (MAC, model) or are constant, what the AP's reply looks like, what a used tag sends. A real factory AP exists (no software; Ethernet port); it can be powered on next to the sniffer to see its replies.
+
 ## Open questions, in order
 
 1. Does a stock tag without its AP transmit anything (scan, join request), and on which channel and PAN? The sniffer answers this: AP firmware in radio mode `Sniffer` with `ESL_SNIFF_HOP_MS` above 0 steps through channels 11-26.
