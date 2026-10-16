@@ -163,7 +163,8 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
 
 /* Answers found on air (2026-10-16): D7 <- 80 02 then D8. AA <- F5 00 starts the *image* path
  * (F4 + white screen) and is the wrong road for firmware replacement. DE on AA sends the tag
- * back to searching. Isolated AD FFFF leaves the tag on AA. Next: AD then F9/FA in one window. */
+ * back to searching. Isolated AD FFFF (probe12) and AD+F9/FA with payload[1]=0 (probe13)
+     * both left the tag on AA. Next: same chain with F9/FA payload[1]=1 (7EBD runner). */
 #endif
 
 static struct {
@@ -262,12 +263,15 @@ static void send_probe_reply(const rx_item_t *it)
         /* Documented firmware chain in one listen window (stock-ota.md):
          * AD first (F833 + size FFFF), then F9/FA (7EBD, first-chunk index 1).
          * F9 success calls 2ECE → state 8 (data-receive, not the F5 picture path).
-         * Isolated AD FFFF left the tag on AA (probe12). */
+         * Isolated AD FFFF (probe12) and this chain with payload[1]=0 (probe13)
+         * both left the tag on AA. */
         uint8_t seq = (uint8_t)(it->psdu[2] + 1);
         send_frame(it, 0xAD, 0, seq, 0);
-        send_frame(it, 0xF9, 0, (uint8_t)(seq + 1), 1);
-        send_frame(it, 0xFA, 0, (uint8_t)(seq + 2), 1);
-        ESP_LOGI(TAG, "reply to AA request: AD FFFF, F9, FA after %lld us", (long long)us);
+        /* Runner: 7EBD returns 1 only with payload[1]=1 and index 1 at payload[2].
+         * Probe13 (second=0) left the tag on AA. */
+        send_frame(it, 0xF9, 1, (uint8_t)(seq + 1), 1);
+        send_frame(it, 0xFA, 1, (uint8_t)(seq + 2), 1);
+        ESP_LOGI(TAG, "reply to AA request: AD FFFF, F9 01 01, FA 01 01 after %lld us", (long long)us);
     } else if (it->kind == 4) {
         /* Image path. Do not answer: F4 + D0-D2 push was rejected (probe11). */
         ESP_LOGI(TAG, "F4 image request ignored (not the firmware path) after %lld us", (long long)us);
