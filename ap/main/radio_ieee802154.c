@@ -165,7 +165,7 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
  * (F4 + white screen) and is the wrong road for firmware replacement. DE on AA sends the tag
  * back to searching. AD FFFF alone (probe12), AD+F9/FA payload[1]=0 (probe13) and
  * AD+F9/FA payload[1]=1 (probe14) all left the tag on AA. F9 01 01 alone (probe15) advances
- * the tag to state 8 (silent, ~19 min timeout). Probe16: F9 01 01 then a D0 block. */
+ * the tag to state 8 (silent, ~5 min timeout). Probe16: F9 01 01 then a D0 block. */
 #endif
 
 static struct {
@@ -263,7 +263,7 @@ static void send_probe_reply(const rx_item_t *it)
     } else if (it->kind == 3) {
         /* Probe16: F9 01 01 alone advances the tag to state 8 (data receive):
          * one AA, then silence, screen redraws the default content (probe15).
-         * State 8 waits ~19 min for data, then falls back to E0 searching, so it
+         * State 8 waits ~5 min for data, then falls back to E0 searching, so it
          * takes an unsolicited D0/D1/D2 push while it listens. Push one D0 block
          * right behind the F9 and watch for a reaction (new request, screen
          * change, early E0, or nothing). */
