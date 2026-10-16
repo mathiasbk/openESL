@@ -78,7 +78,7 @@ static bool IRAM_ATTR is_stock_probe(const uint8_t *p, uint8_t len) /* len incl.
 
 /* Guessed answer: data frame, PAN compression, short dest 10AF, long source (AP address),
  * then message type E1 and zeros. Variants differ in payload length only. */
-static uint8_t IRAM_ATTR build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t variant)
+static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t variant)
 {
     static const uint8_t payload_len[] = { 26, 40, 70 };
     uint8_t n = 0;
@@ -122,15 +122,10 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
     static uint8_t probe_count;
-    static uint8_t reply_buf[1 + ESL_PSDU_MAX];
-    bool probe = is_stock_probe(item.psdu, item.len);
-    if (probe) {
+    /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
+    if (is_stock_probe(item.psdu, item.len))
         item.variant = 1 + probe_count++ % 3;
-        build_probe_reply(reply_buf, item.psdu, item.variant);
-    }
     esp_ieee802154_receive_handle_done(frame);
-    if (probe)
-        esp_ieee802154_transmit(reply_buf, false);
 #else
     esp_ieee802154_receive_handle_done(frame);
 #endif
@@ -163,6 +158,23 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
 /* ---- task ---- */
 
 /* Only one of these is used, depending on the radio mode. */
+#if PROBE_REPLY
+static void send_probe_reply(const rx_item_t *it)
+{
+    if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
+        return;
+    build_probe_reply(tx_buf, it->psdu, it->variant);
+    if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
+        stats.tx_failed++;
+        xSemaphoreGive(tx_idle);
+        return;
+    }
+    stats.replies++;
+    ESP_LOGI(TAG, "reply variant %u sent on ch %u after %lld us", it->variant, it->channel,
+             (long long)(esp_timer_get_time() - it->rx_us));
+}
+#endif
+
 static void __attribute__((unused)) log_frame(const rx_item_t *it)
 {
     char hex[3 * ESL_PSDU_MAX + 1];
@@ -170,8 +182,6 @@ static void __attribute__((unused)) log_frame(const rx_item_t *it)
         snprintf(&hex[3 * i], 4, "%02X ", it->psdu[i]);
     hex[3 * it->len] = '\0';
     ESP_LOGI(TAG, "rx ch %u %u B rssi %d: %s", it->channel, it->len, it->rssi, hex);
-    if (it->variant)
-        ESP_LOGI(TAG, "reply variant %u sent on ch %u", it->variant, it->channel);
 }
 
 static void __attribute__((unused)) handle_poll(const rx_item_t *it)
@@ -249,6 +259,10 @@ static void radio_task(void *arg)
         if (xQueueReceive(rx_queue, &it, wait) == pdTRUE) {
             stats.rx++;
 #if SNIFFER
+#if PROBE_REPLY
+            if (it.variant)
+                send_probe_reply(&it);
+#endif
             log_frame(&it);
 #else
             handle_poll(&it);
