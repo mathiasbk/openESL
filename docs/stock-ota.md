@@ -14,7 +14,7 @@ Handshake that works, on channel 25, PAN 0x1234, our AP address `00…01`:
 | `AA` request | `DE` | Tag goes back to searching |
 | `F4` then our `DE` + `D0`/`D1`/`D2` push | — | Push discarded. Tag stays silent. |
 
-`F5` / `F4` / `D0`–`D2` is the stock **picture** transfer. Empty `F9`/`FA`/`A7`/`AD` as `AA` answers are rejected. `AD` decides its subtype from a 16-bit **big-endian size at payload bytes 3–4**, compared with XRAM `F560` (`0x4481`): smaller → `01` (return, but `F833` is already set); larger → `15` (state `0x0B`); equal → `02` or `00`. Isolated `AD` + size `FFFF` (probe12, C6 reflashed from CI `38892416632`): handshake still `E0`/`D7`/`AA`, then `AA` every ~230 ms, our `AD` in 13 µs, **no new request type, no `F4`, no white screen**. Tag stayed in state 6. So `AD` alone is not the rest of the path. Next probe: the documented chain in one listen window — `AD` `FFFF`, then `F9` and `FA` with chunk index 1 at payload[2] (`7EBD`). `F9` success calls `2ECE` (state 8). Target: `BB950702FF94BAC8`.
+`F5` / `F4` / `D0`–`D2` is the stock **picture** transfer. Empty `F9`/`FA`/`A7`/`AD` as `AA` answers are rejected. `AD` decides its subtype from a 16-bit **big-endian size at payload bytes 3–4**, compared with XRAM `F560` (`0x4481`): smaller → `01` (return); larger → `15` (state `0x0B`); equal → `02` or `00`. Isolated `AD` + size `FFFF` (probe12, CI `38892416632`): handshake still `E0`/`D7`/`AA`, then `AA` every ~230 ms, our `AD` in 13 µs, **no new request type, no `F4`, no white screen**. Continuous `AA` means the tag was still sending from state 6. That does **not** prove subtype 15 was rejected: `15`/`02` with a later checksum fail go to state `0x0B` then `41D4`/`47BD` (state 3). Staying on `AA` means that path did not stick, or the frame never passed the earlier checks. Next on-air trial (probe13): `AD` `FFFF`, then `F9` and `FA` with chunk index 1 at payload[2], in one listen window. Built at `f5576f6`, CI `38894030644`. Target: `BB950702FF94BAC8`. Battery out until the C6 is reflashed and the serial log is open.
 
 Dispatcher first-byte cases (stock backup, 0x4D35): `80` (second byte 1 or 2), `A7` (rejected in state 4, needs `FDA0 == A5`), `AD` (subtype in `F831` must be `15` or `02`), `D0`–`D2` (only states 8/9, sender must be the stored AP), `D8`, `DE` (sets 8 or 9), `F5`, `F9`, `FA` (both gated by `7EBD`). `D0`–`D2` as answers to `D7`/`AA` were not accepted because those types belong to the later data-receive states.
 
@@ -48,22 +48,57 @@ State variable is XRAM `FD9F`. The table at `0x4014` is indexed by `state - 2`:
 | 6 | `AA` request (`0x88E0`) |
 | 7 | `F4` request (`0x8FBC`, hardcoded `F4 85`, echoes `F66F`) |
 | 8 or 9 | data-receive (accepts `D0`/`D1`/`D2`) |
-| `0x0B` | set by `AD` when subtype is `15` or `02` |
+| `0x0B` | set by `AD` when subtype is `15` or `02`; table goes to `41D4` → state 3 |
+| `0x0C` | set by `7C1A` after `A7`/`7BEE` when `FB7D == 0`; table goes to `41B9` → `5817` |
 | `0x0D` | sets `FB64 = 1` (`0x4063`) |
+| `0x0E` | `40C4`: clears `FB64`, not the page-0 rewrite |
 
 `F5` at `0x5255` is the fork: if `FB64 != 1` it writes `F5` into `F66F`, sets state 7, and the screen goes white (the path we hit with `F5 00`). If `FB64 == 1` and a length byte is 0 it calls `2ECE` (state 8) instead — same receive state as `DE`, but after the `AD` path has marked “not a picture”. That is the best firmware-shaped reading so far.
 
-Empty answers the current probe would send, and why they fail:
+Empty answers the current probe would send, and why they fail (second pass; see the third pass for what was wrong here):
 
-- `F9`/`FA` (`0x9168` / `0x91A3`) call `7EBD`. That routine needs a pointer in `F833` (written by `AD` at `0x285F`) and a chunk index / count that ends with `F491 == F836`. On failure it returns 0 and both handlers jump to `0x2AE2` (back to waiting). A type byte plus zeros never passes.
-- `A7` (`0x4DCF`) is allowed in the `AA` state (it only rejects state 4) but needs `FDA0 == 0xA5`. That flag is written at `0x31AD` after a check we have not completed. The body at `0x41FA` looks like a size/bitmask command (compares a 16-bit value to `0x0259`), not a firmware blob.
-- `AD` (`0x2823`) stores the packet pointer in `F82F` and `F833` first (so even a no-op `AD` leaves `F833` set for a later `F9`/`FA`). `0x4481` then sets `F831` from a 16-bit BE size at payload offset 3–4 vs XRAM `F560`: size < `F560` → `01` and return; size > `F560` → `15` (calls `0x6C6B`, sets state `0x0B`, `0x246D`); size equal → `02` if a remaining count ≥ `0x1000`, else `00`. `15`/`02` with a checksum mismatch also go to state `0x0B`. The long success path at `0x2AA1` sets state 7, writes `AD` into `F66F` (so the next `F4` would echo `AD`, not `F5`) and calls `0x2803` (`FDA0 = A5`, which unlocks `A7`). Zero-padded `AD` has size 0 and becomes subtype `01` or `00`, which is why it did nothing.
+- `F9`/`FA` (`0x9168` / `0x91A3`) call `7EBD`. On failure it returns 0 and both handlers jump to `0x2AE2`. A type byte plus zeros never passes. `7EBD` does **not** need a leftover `AD` pointer: it writes `F833` from the current packet (`4798`).
+- `A7` (`0x4DCF`) is allowed in the `AA` state (it only rejects state 4) but needs `FDA0 == 0xA5`. It is a command, not a firmware blob.
+- `AD` (`0x2823`) stores the packet pointer in `F82F` first. `0x4481` then sets `F831` from a 16-bit BE size at payload offset 3–4 vs XRAM `F560`: size < `F560` → `01` and return; size > `F560` → `15` (calls `0x6C6B`, sets state `0x0B`); size equal → `02` if a remaining count ≥ `0x1000`, else `00`. `15`/`02` with a checksum mismatch also go to state `0x0B`. The long success path at `0x2AA1` sets state 7, writes `AD` into `F66F` and calls `0x2803` (`FDA0 = A5`, which unlocks `A7`). Zero-padded `AD` has size 0 and becomes subtype `01` or `00`.
 
-`DE` without `FDA0 == A5` still sets state 8 (`0x4ED0`). `D0`–`D2` are then accepted (`0x4D74`: state 8 or 9, then sender check `0x9D04`). Split: `D1` → `0x4933`, `D2` → `0x4A79`, `D0` → `0x7CA1`. Probe11’s push after `F4` was therefore the right types in the wrong session: the tag had gone through state 7 (picture) and likely stopped listening before the 150 ms push, and `F833` was never set up as `AD` would have done.
+`DE` without `FDA0 == A5` still sets state 8 (`0x4ED0`). `D0`–`D2` are then accepted (`0x4D74`: state 8 or 9, then sender check `0x9D04`). Split: `D1` → `0x4933`, `D2` → `0x4A79`, `D0` → `0x7CA1`. Probe11’s push after `F4` was therefore the right types in the wrong session: the tag had gone through state 7 (picture) and likely stopped listening before the 150 ms push.
 
-The program at `0xE800` is a UART factory loader, not radio OTA. Reset goes `E800 → E806 → F2D5` and sits in `SJMP F2EF` waiting for the UART vector at `E803`. The main firmware can write its own flash: `0xA16E` / `0xA1E7` do `C7 = 0x38` (SETTINGS), `DF = 3` (FWRTHREE), page in `D8`, wait `CF.3`. Radio firmware replacement, if it exists, stays in the main program (receive → SPI and/or this page write). Nothing in the main firmware jumps to `0xE800`. No `LJMP 0000`. No signature check found on the radio path yet (question 4 still open).
+The program at `0xE800` is a UART factory loader, not radio OTA. Reset goes `E800 → E806 → F2D5` and sits in `SJMP F2EF` waiting for the UART vector at `E803`. Nothing in the main firmware jumps to `0xE800`. `A16E` is also not radio OTA (only caller is `A131` from `63BA`).
 
-On-air chain to try next (one listen window, same as `80`+`D8` after `D7`): `AD` with size `FFFF`, then `F9`/`FA` with payload[2] = 1. `7EBD` treats that byte as the chunk index vs `F490`; index 1 is the first-chunk path, and a passing `F9` calls `2ECE` (state 8). Isolated `AD` `FFFF` did not leave state 6, so the later frames have to go out in the same window. Still to read: what sets `FDA0 = A5` (`0x31AD`), and callers of `0xA16E`. State `0x0B` runs `41D4`, which writes state 3 — if subtype 15 had stuck, the next request would not have been `AA`.
+On-air chain to try next (one listen window, same as `80`+`D8` after `D7`): `AD` with size `FFFF`, then `F9`/`FA` with payload[2] = 1. Isolated `AD` `FFFF` did not leave the `AA` request, so the later frames have to go out in the same window.
+
+## Reading of flash.bin (2026-10-16, third pass)
+
+Same dump. Several second-pass readings were wrong. Bounded runner: `openESL-captures/stock-dump/trace8051.py` (instruction-level, not a chip emulator; peripherals must be hooked).
+
+`7EBD` (`F9`/`FA` gate):
+
+- Starts by writing the current packet pointer into `F833` via `4798`. An earlier `AD` is not required for that store.
+- Reads the byte at payload+2 as a chunk index and compares it with `F490`. Index 1 takes the first-chunk path (`7EF1`). Other values go to `7F47`.
+- Failure returns 0; `9168`/`91A3` then `LJMP 2AE2`. Success (`R7 == 1`) calls `2ECE` (state 8, data-receive).
+- Runner: empty `F9` with only index 1 still returns 0. `payload[1] = 1` plus index 1 returned 1. The committed probe (`f5576f6`) sets only payload[2] = 1 and leaves payload[1] = 0, so this trial can still fail `7EBD` even if the tag hears the chain. Record what happens on air before changing that byte.
+
+`AD` (`2823`) and `FDA0`:
+
+- `FDA0 = A5` is written at `2803` (called from the long `AD` success at `2AC4`) and at `31AD` after `F723 == 1` and a compare at `0B1C`.
+- Runner fixture (hooks only on peripherals / `3145` / `246D`): zero-padded `AD` with payload[1:3] = `0001` took the equal / subtype `00` path, set state 7, wrote `F66F = AD`, did **not** set `FDA0 = A5`, and visited `2943 → 299B → 2AD0` with `F832 = 0x22`. That is a fixture, not an on-air result.
+- First-record layout (`3599` / `F4A4` slot, checksum at `F49C`) is still unread.
+
+`A7` is a command, not an image:
+
+- `4DCF` rejects state 4 and needs `FDA0 == A5`, then jumps to `41FA`.
+- `41FA` copies the packet pointer, reads fields into `FB75`/`FB79`, compares a 16-bit value with `0x0259`, and can set `FB64 = 1`.
+- On the empty-size path (`FB79:FB7A == 0`) it calls `7BE7` with `R6 = 0x70` (SPI base `0x7000`).
+- `7BEE` then looks at `FB7D`: zero → `7C1A` sets state `0x0C`; nonzero → state 8 (`7C22`).
+
+Firmware-shaped install after that (reading of the dump, not seen on air):
+
+- State `0x0C` → `41B9` → `5817`. `5817` writes `F832 = E400`, clears `EA`, and calls `A1C9`.
+- `A1C9` is the internal-flash **page 0** programmer: `SETTINGS |= 0x38`, `FWRTHREE = 3`, `FPGNO = 0`, 256 bytes, wait `TCON2.3`. Helper `A22D` points at xdata `E800` (the same 256-byte buffer the UART loader uses). It rewrites page 0 only, not the whole image.
+- OpenESL OTA never rewrites page 0 (`ljmp 0x0400` in `tag/boot/boot_zbs243.c`). A stock radio install that goes through `5817` apparently does.
+- `D2` at `4AF6` XORs a payload word with code `053C` (`1F 85`). `D0` is `7CA1`; `D1` is `4933`. Those stay the later data path, picture or otherwise.
+
+Still open from the dump: exact on-air `AD`/`F9`/`FA`/`A7` layouts and checksums; what belongs in the SPI slot at `0x7000`; whether a CRC/signature/key sits on that slot (question 4).
 
 ## What a new stock tag sends (sniffer capture, 2026-10-16)
 
@@ -96,10 +131,10 @@ dest PAN 0x1234, dest 0xFFFF (broadcast), source 0x10AF, payload E0 85 (2 bytes)
 ## Open questions, in order
 
 1. Does a stock tag without its AP transmit anything (scan, join request), and on which channel and PAN? The sniffer answers this: AP firmware in radio mode `Sniffer` with `ESL_SNIFF_HOP_MS` above 0 steps through channels 11-26.
-2. Where is the OTA image in the stock flash, and what starts it (a frame from the AP, a flag in flash, a timer)?
+2. Where is the OTA image in the stock flash, and what starts it (a frame from the AP, a flag in flash, a timer)? Reading: UART loader at `E800`; radio path looks like `AD`/`F9`/`FA` then `A7` staging SPI around `0x7000`, then state `0x0C` → `5817` → `A1C9` rewrites page 0. Not seen on air.
 3. What frames does it accept: addressing, packet format, block size, acknowledgements.
 4. Is the image checked (CRC, length, version, signature, key)? If it needs a key we cannot get, the study stops here.
-5. Which flash range does it write? Our image is the bootloader at page 0 plus the application, and must keep the MAC at 0xFC06 (stock tags have no MAC in the info page; our firmware reads it from there today).
+5. Which flash range does it write? Our image is the bootloader at page 0 plus the application, and must keep the MAC at 0xFC06 (stock tags have no MAC in the info page; our firmware reads it from the info page today, `0x10–0x17`). Stock radio install through `A1C9` rewrites page 0. That is a real conflict with OpenESL’s “page 0 is never rewritten” split, if this path is the one used on air.
 
 ## Plan
 
@@ -113,7 +148,9 @@ dest PAN 0x1234, dest 0xFFFF (broadcast), source 0x10AF, payload E0 85 (2 bytes)
 
 - Fifth run (2026-10-16, probe10): a second stock tag in the room disturbed the rotation, so the probe can now be locked to one tag (`CONFIG_ESL_SNIFF_TARGET`, the tag's address as on air). F4 answers `DE`, `D8`, `F9` and `FA` all gave the same result: the tag sends F4 once, the screen turns white, then silence. Reading of the stock code: `DE` leads to the data-receive state (8 or 9), where only `D0`, `D1` and `D2` are accepted, so the next idea was that the tag waits for the AP to push.
 
-- Seventh run (2026-10-16, probe12, C6 flashed with `openesl-ap-probe.bin` from CI `38892416632`): battery in on `BB950702FF94BAC8`. First logged frames were already `AA` (handshake happened before the serial read). Every `AA` got `AD` size `FFFF` in 13 µs. The tag sent only `AA`, ~230 ms apart, counters `0C`…`79` and up, rssi −66…−75. No `F4`, no `F9`/`FA` request, no return to `E0`. Pulling `AD` out of the documented chain and sending it alone does not advance the tag. Next build sends `AD` then `F9` then `FA` in that window.
+- Seventh run (2026-10-16, probe12, C6 flashed with `openesl-ap-probe.bin` from CI `38892416632`): battery in on `BB950702FF94BAC8`. First logged frames were already `AA` (handshake happened before the serial read). Every `AA` got `AD` size `FFFF` in 13 µs. The tag sent only `AA`, ~230 ms apart, counters `0C`…`79` and up, rssi −66…−75. No `F4`, no `F9`/`FA` request, no return to `E0`. Isolated `AD` did not change the next request. Continuous `AA` is not proof that subtype 15 was rejected (see status).
+
+- Eighth run prepared (probe13): C6 to be flashed with `openesl-ap-probe.bin` from CI `38894030644` (`f5576f6`, SHA256 `B08BBAA8…`). Same handshake, then each `AA` gets `AD FFFF`, `F9` (payload[2]=1), `FA` (payload[2]=1) in one window. Log from startup with the battery still out. Watch for a new request type, changed timing, or return to `E0`. Do not treat the chain as proven. The runner says this `F9`/`FA` may still fail `7EBD` because payload[1] is 0.
 
 - Sixth run (2026-10-16, probe11 / probe11b, tag lock confirmed): same handshake, then F4 answered with `DE` and a push of `D1`, `D0`, `D2` (payload bytes 7–8 = `FF 01`) and a plain `D1`, 150 ms apart. The tag sent nothing back. No new frame type, no D1 echo, no further F4. The push was discarded. Two repeats, same tag (`BB950702FF94BAC8`). After F4 the log shows only the four pushes and then stats (`rx 4`). The `AA` counters rise between pairings (persistent state in the tag's flash); the `D7` tail varies; `F4` is always `F4 85 00 00 00 00 F5 00 00 00 00 00 00`. Course correction: `F5 00` → `F4` + white screen is the stock **image** path. Firmware replacement has to leave that road. The next build answers each `AA` with one of `F9`, `FA`, `A7`, `AD` (the dispatcher types not yet tried as a single AA answer) and ignores `F4`. A new request type, a return to `E0`, or a screen change other than white shows which type it reacts to. Battery out and in for each trial; leave the C6 running so the candidate counter advances.
 
