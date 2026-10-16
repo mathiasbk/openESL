@@ -3,3 +3,6 @@
 # Build with:
 #   idf.py -B build-probe -D SDKCONFIG=build-probe/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer;sdkconfig.probe" build
 CONFIG_ESL_SNIFF_PROBE_REPLY=y
+# Stay on one channel (the AP channel): a stock tag sends its search frame on every channel 11-26 in each
+# sweep, so one channel hears one frame per sweep and the reply can follow at once on that channel.
+CONFIG_ESL_SNIFF_HOP_MS=0
