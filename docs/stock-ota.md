@@ -14,9 +14,9 @@ Handshake that works, on channel 25, PAN 0x1234, our AP address `00…01`:
 | `AA` request | `DE` | Tag goes back to searching |
 | `F4` then our `DE` + `D0`/`D1`/`D2` push | — | Push discarded. Tag stays silent. |
 
-`F5` / `F4` / `D0`–`D2` is the stock **picture** transfer. The study follows the firmware path instead: answer `AA` with the remaining dispatcher types `F9`, `FA`, `A7`, `AD` (one per battery restart). Target tag on air: `BB950702FF94BAC8` (`CONFIG_ESL_SNIFF_TARGET`).
+`F5` / `F4` / `D0`–`D2` is the stock **picture** transfer. Empty `F9`/`FA`/`A7`/`AD` as `AA` answers will be rejected (reading of this dump, 2026-10-16): `F9`/`FA` need a chunk header and a pointer `AD` sets first; `A7` needs pairing flag `FDA0 == A5`; `AD` needs subtype `02` or `15`. Do not burn battery cycles on zero-padded guesses of those four. Target tag on air: `BB950702FF94BAC8` (`CONFIG_ESL_SNIFF_TARGET`).
 
-Dispatcher first-byte cases (stock backup, 0x4D35): `80` (second byte 1 or 2), `A7` (needs 0xA5 in a state variable), `AD`, `D0`–`D2` (only states 8/9, sender must be the stored AP), `D8`, `DE` (sets 8 or 9), `F5`, `F9`, `FA`. `D0`–`D2` as answers to `D7`/`AA` were not accepted because those types belong to the later data-receive states.
+Dispatcher first-byte cases (stock backup, 0x4D35): `80` (second byte 1 or 2), `A7` (rejected in state 4, needs `FDA0 == A5`), `AD` (subtype in `F831` must be `15` or `02`), `D0`–`D2` (only states 8/9, sender must be the stored AP), `D8`, `DE` (sets 8 or 9), `F5`, `F9`, `FA` (both gated by `7EBD`). `D0`–`D2` as answers to `D7`/`AA` were not accepted because those types belong to the later data-receive states.
 
 ## What is known
 
@@ -35,6 +35,35 @@ Read-only study of the flash backup. Addresses are code addresses in the 64 KB m
 - Nothing in the main firmware jumps to 0xE800 or 0xE803 directly or by an obvious computed jump; the constants that look like 0xE803 are 1000 (0x03E8). The startup code at 0x10B1 is plain compiler startup. The entry is probably decided before the main firmware runs (a flag checked at reset) or by a path that is not a plain jump. Static tracing is slow because the compiler shares code tails between functions.
 - Not found yet: what enters the loader (no `LJMP`/`LCALL` to 0xE800 or 0xE803 in the main firmware, so it is a jump through a pointer, a reset-time check, or the chip's boot ROM), and where the main firmware receives the image over the radio and writes it to the SPI flash. Those two answer open questions 2 and 3.
 - Nothing seen yet about a CRC, signature or key on the image. Question 4 is still open.
+
+## Reading of flash.bin (2026-10-16, second pass)
+
+Dump from the user, kept next to the repo (not in git): `openESL-captures/stock-dump/flash.bin` (64 KB) and `info.bin` (1 KB). Reset `LJMP 10B1`. MAC at `0xFC00` is `ADD2C8BA94FF 020793500102` (not the tag on air). Info page is calibration, no MAC.
+
+State variable is XRAM `FD9F`. The table at `0x4014` is indexed by `state - 2`:
+
+| `FD9F` | Sends / does |
+|---|---|
+| 4 | `D7` request (`0x8A89`) |
+| 6 | `AA` request (`0x88E0`) |
+| 7 | `F4` request (`0x8FBC`, hardcoded `F4 85`, echoes `F66F`) |
+| 8 or 9 | data-receive (accepts `D0`/`D1`/`D2`) |
+| `0x0B` | set by `AD` when subtype is `15` or `02` |
+| `0x0D` | sets `FB64 = 1` (`0x4063`) |
+
+`F5` at `0x5255` is the fork: if `FB64 != 1` it writes `F5` into `F66F`, sets state 7, and the screen goes white (the path we hit with `F5 00`). If `FB64 == 1` and a length byte is 0 it calls `2ECE` (state 8) instead — same receive state as `DE`, but after the `AD` path has marked “not a picture”. That is the best firmware-shaped reading so far.
+
+Empty answers the current probe would send, and why they fail:
+
+- `F9`/`FA` (`0x9168` / `0x91A3`) call `7EBD`. That routine needs a pointer in `F833` (written by `AD` at `0x285F`) and a chunk index / count that ends with `F491 == F836`. On failure it returns 0 and both handlers jump to `0x2AE2` (back to waiting). A type byte plus zeros never passes.
+- `A7` (`0x4DCF`) is allowed in the `AA` state (it only rejects state 4) but needs `FDA0 == 0xA5`. That flag is written at `0x31AD` after a check we have not completed. The body at `0x41FA` looks like a size/bitmask command (compares a 16-bit value to `0x0259`), not a firmware blob.
+- `AD` (`0x2823`) stores the packet pointer, then treats `F831` as a subtype: `15` or `02` can set state `0x0B` and later `FB64`. Any other subtype falls through and usually ends at `0x2AE2`. `AD 00` is the other subtype.
+
+`DE` without `FDA0 == A5` still sets state 8 (`0x4ED0`). `D0`–`D2` are then accepted (`0x4D74`: state 8 or 9, then sender check `0x9D04`). Split: `D1` → `0x4933`, `D2` → `0x4A79`, `D0` → `0x7CA1`. Probe11’s push after `F4` was therefore the right types in the wrong session: the tag had gone through state 7 (picture) and likely stopped listening before the 150 ms push, and `F833` was never set up as `AD` would have done.
+
+The program at `0xE800` is a UART factory loader, not radio OTA. Reset goes `E800 → E806 → F2D5` and sits in `SJMP F2EF` waiting for the UART vector at `E803`. The main firmware can write its own flash: `0xA16E` / `0xA1E7` do `C7 = 0x38` (SETTINGS), `DF = 3` (FWRTHREE), page in `D8`, wait `CF.3`. Radio firmware replacement, if it exists, stays in the main program (receive → SPI and/or this page write). Nothing in the main firmware jumps to `0xE800`. No `LJMP 0000`. No signature check found on the radio path yet (question 4 still open).
+
+Next, in this order: (1) finish `AD` so `F831` is decoded and we can send subtype `02` or `15`; (2) find what sets `FDA0 = A5` (`0x31AD`); (3) list callers of `0xA16E`. Do not restart a tag on the C6 until the probe sends one of those shaped frames — the C6 still has the probe11 image path unless it was reflashed, and zero-padded `F9`/`FA`/`A7`/`AD` will only confirm this reading.
 
 ## What a new stock tag sends (sniffer capture, 2026-10-16)
 
