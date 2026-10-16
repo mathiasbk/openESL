@@ -56,7 +56,7 @@ typedef struct {
     int8_t rssi;
     uint8_t channel;
     uint8_t variant; /* guessed reply sent to this frame (0 = none) */
-    uint8_t kind;    /* 1 = stock search frame, 2 = tag request (D7) */
+    uint8_t kind;    /* 1 = stock search frame, 2 = D7, 3 = AA, 4 = F4 request */
     int64_t rx_us;
 } rx_item_t;
 
@@ -106,7 +106,7 @@ static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t var
  * later AA <model> ... Returns the payload's first byte, or 0 when the frame is not such a request. */
 static uint8_t IRAM_ATTR tag_request_type(const uint8_t *p, uint8_t len)
 {
-    if (len >= 23 && p[0] == 0x61 && p[1] == 0xCC && (p[21] == 0xD7 || p[21] == 0xAA))
+    if (len >= 23 && p[0] == 0x61 && p[1] == 0xCC && (p[21] == 0xD7 || p[21] == 0xAA || p[21] == 0xF4))
         return p[21];
     return 0;
 }
@@ -133,20 +133,17 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
     return n;
 }
 
-/* Answers tried so far (static reading of the stock dispatcher, then on-air results):
- *  D7 request: 80 02 then D8 moved the tag on to the AA request.
- *  AA request: not known; every AA request gets a burst of three candidates, three bursts per round. */
+/* Answers found on air (2026-10-16): D7 request <- 80 02 then D8; AA request <- F5 00 (DE sends the tag
+ * back to searching); the tag then sends an F4 request. Candidates for the answer to F4, one per request,
+ * rotating (the tag has to be restarted for each one): */
 typedef struct {
     uint8_t type, second;
 } answer_t;
-static const answer_t aa_candidates[] = {
-    { 0xDE, 0 }, { 0xF5, 0 }, { 0xA7, 0 },
-    { 0xAD, 0 }, { 0xF9, 0 }, { 0xFA, 0 },
-    { 0x80, 1 }, { 0x80, 2 }, { 0xD0, 0 },
-    { 0xD1, 0 }, { 0xD2, 0 }, { 0xE1, 0 },
+static const answer_t f4_candidates[] = {
+    { 0xDE, 0 }, { 0xD8, 0 }, { 0xF9, 0 }, { 0xFA, 0 }, { 0xAD, 0 }, { 0xA7, 0 },
+    { 0x80, 1 }, { 0x80, 2 }, { 0xD0, 0 }, { 0xD1, 0 }, { 0xD2, 0 }, { 0xF5, 1 },
 };
-#define AA_CANDIDATES (sizeof(aa_candidates) / sizeof(aa_candidates[0]))
-#define AA_BURST 1 /* the tag listens only briefly after its own frame; one answer per request */
+#define F4_CANDIDATES (sizeof(f4_candidates) / sizeof(f4_candidates[0]))
 #endif
 
 static struct {
@@ -170,15 +167,15 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.kind = 0;
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
-    static uint8_t probe_count, aa_count;
+    static uint8_t probe_count, f4_count;
     /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
     if (is_stock_probe(item.psdu, item.len)) {
         item.kind = 1;
         item.variant = 1 + probe_count++ % 3;
     } else if (tag_request_type(item.psdu, item.len)) {
         uint8_t t = tag_request_type(item.psdu, item.len);
-        item.kind = t == 0xD7 ? 2 : 3;
-        item.variant = t == 0xD7 ? 1 : 1 + aa_count++;
+        item.kind = t == 0xD7 ? 2 : t == 0xAA ? 3 : 4;
+        item.variant = t == 0xF4 ? 1 + f4_count++ : 1;
     }
     esp_ieee802154_receive_handle_done(frame);
 #else
@@ -241,14 +238,14 @@ static void send_probe_reply(const rx_item_t *it)
         send_frame(it, 0x80, 2, it->psdu[2]);
         send_frame(it, 0xD8, 0, it->psdu[2] + 1);
         ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
+    } else if (it->kind == 3) {
+        send_frame(it, 0xF5, 0, it->psdu[2] + 1);
+        ESP_LOGI(TAG, "reply to AA request: F5 00 sent after %lld us", (long long)us);
     } else {
-        unsigned first = (unsigned)(it->variant - 1) * AA_BURST % AA_CANDIDATES;
-        for (unsigned i = 0; i < AA_BURST; i++) {
-            const answer_t *c = &aa_candidates[(first + i) % AA_CANDIDATES];
-            send_frame(it, c->type, c->second, it->psdu[2] + 1 + i);
-            ESP_LOGI(TAG, "reply to AA request: %02X %02X sent (burst %u) after %lld us", c->type, c->second,
-                     it->variant, (long long)(esp_timer_get_time() - it->rx_us));
-        }
+        const answer_t *c = &f4_candidates[(it->variant - 1) % F4_CANDIDATES];
+        send_frame(it, c->type, c->second, it->psdu[2] + 1);
+        ESP_LOGI(TAG, "reply to F4 request: %02X %02X sent (candidate %u) after %lld us", c->type, c->second,
+                 it->variant, (long long)us);
     }
 }
 #endif
