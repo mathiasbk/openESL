@@ -38,9 +38,23 @@ static uint8_t ram[2][RAM_Y][RAM_X];
 static int n_written[2], n_out_of_window, busy_polls;
 static bool asleep, busy_stuck;
 
+/* One counter step: from start towards end, then back to start (wrapped = true).
+   A counter that runs backwards has its start at the high end (start > end). */
+static uint16_t step(uint16_t c, uint16_t start, uint16_t end, bool up, bool *wrapped)
+{
+    *wrapped = c == end;
+    if (*wrapped)
+        return start;
+    return up ? c + 1 : c - 1;
+}
+
 static void ram_write(uint8_t plane, uint8_t b)
 {
-    if (xc >= RAM_X || yc >= RAM_Y || xc < xs || xc > xe || yc < ys || yc > ye) {
+    uint8_t xlo = xs < xe ? xs : xe, xhi = xs < xe ? xe : xs;
+    uint16_t ylo = ys < ye ? ys : ye, yhi = ys < ye ? ye : ys;
+    bool wrapped;
+
+    if (xc >= RAM_X || yc >= RAM_Y || xc < xlo || xc > xhi || yc < ylo || yc > yhi) {
         n_out_of_window++;
         return;
     }
@@ -48,17 +62,13 @@ static void ram_write(uint8_t plane, uint8_t b)
     n_written[plane]++;
     /* Advance: bit0 = X up, bit1 = Y up, bit2 = 0 means X changes first */
     if (!(entry & 0x04)) {
-        if (entry & 0x01) {
-            if (xc == xe) { xc = xs; yc = (entry & 0x02) ? yc + 1 : yc - 1; } else xc++;
-        } else {
-            if (xc == xs) { xc = xe; yc = (entry & 0x02) ? yc + 1 : yc - 1; } else xc--;
-        }
+        xc = (uint8_t)step(xc, xs, xe, entry & 0x01, &wrapped);
+        if (wrapped)
+            yc = (entry & 0x02) ? yc + 1 : yc - 1;
     } else {
-        if (entry & 0x02) {
-            if (yc == ye) { yc = ys; xc = (entry & 0x01) ? xc + 1 : xc - 1; } else yc++;
-        } else {
-            if (yc == ys) { yc = ye; xc = (entry & 0x01) ? xc + 1 : xc - 1; } else yc--;
-        }
+        yc = step(yc, ys, ye, entry & 0x02, &wrapped);
+        if (wrapped)
+            xc = (entry & 0x01) ? xc + 1 : xc - 1;
     }
 }
 
@@ -126,9 +136,11 @@ static void reset_model(void)
 static int ram_pixel(int x, int y)
 {
 #if MODEL == 154
-    /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE) */
-    uint8_t m = (uint8_t)(0x80 >> (x & 7));
-    return (ram[0][y][x >> 3] & m) ? 0 : 1;
+    /* 1.54": RAM line = screen row, MSB first along it (epd.c EPD_TRANSPOSE), and the
+       panel shows RAM (0, 0) in the bottom right corner (seen on the tag 2026-10-16) */
+    int rx = DRAW_W - 1 - x, ry = DRAW_H - 1 - y;
+    uint8_t m = (uint8_t)(0x80 >> (rx & 7));
+    return (ram[0][ry][rx >> 3] & m) ? 0 : 1;
 #else
     uint8_t m = (uint8_t)(0x80 >> (y & 7));
     return (ram[0][x][y >> 3] & m) ? 0 : 1;      /* black plane: 1 = white */
@@ -175,12 +187,14 @@ static void test_epd_stream(const char *out)
     CHECK(epd_draw(&sc));
     CHECK_EQ(first_cmd, 0x12);                   /* software reset first */
     CHECK_EQ(gate_lines, DRAW_W);
-    CHECK_EQ(xs, 0);
 #if MODEL == 154
-    CHECK_EQ(xe, (DRAW_W + 7) / 8 - 1);
-    CHECK_EQ(ys, 0);
-    CHECK_EQ(ye, DRAW_H - 1);
+    CHECK_EQ(entry, 0x04);                       /* both counters backwards, Y first */
+    CHECK_EQ(xs, (DRAW_W + 7) / 8 - 1);
+    CHECK_EQ(xe, 0);
+    CHECK_EQ(ys, DRAW_H - 1);
+    CHECK_EQ(ye, 0);
 #else
+    CHECK_EQ(xs, 0);
     CHECK_EQ(xe, DRAW_COL_BYTES - 1);
     CHECK_EQ(ys, 0);
     CHECK_EQ(ye, DRAW_W - 1);

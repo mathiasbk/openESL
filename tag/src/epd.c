@@ -5,7 +5,7 @@
  * command codes below are the common ones in the SSD1680 family and must be checked
  * against the datasheet of the controller actually fitted, before they are entered
  * in docs/kildelogg.md. The same applies to polarity (EPD_BW_INVERT) and RAM
- * direction (EPD_DATA_ENTRY).
+ * direction (EPD_DATA_ENTRY) on the 2.9".
  * No custom waveform: the update uses the display's OTP waveform.
  *
  * The window and line count come from model.h (DRAW_W lines of DRAW_H pixels). On a
@@ -51,13 +51,23 @@
  * On this panel a RAM line (Y) is a screen row, so one layout column cannot be
  * one RAM line: that gave a transposed image (rotated and mirrored, seen on the
  * tag 2026-10-14). Instead 8 layout columns are transposed into one RAM byte
- * column (X), and the counter runs down Y first. Confirmed right way round on the tag.
+ * column (X), and the counter runs down Y first.
+ * With X+ and Y+ (0x07) the image came out upside down (rotated 180 degrees, seen
+ * on the tag 2026-10-16), so both counters now run backwards from the far corner
+ * of the window, and the bits in each byte are reversed (EPD_BIT_REVERSE): layout
+ * pixel (x, y) lands in RAM at (DRAW_W-1-x, DRAW_H-1-y). draw_column is still
+ * called with x increasing, so drawing costs the same.
  */
 #define EPD_TRANSPOSE       1
-#define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
+#define EPD_DATA_ENTRY      0x04   /* X- and Y-, Y first */
+#define EPD_BIT_REVERSE     1      /* layout column x+k is bit k (LSB first) */
+#if DRAW_W % 8
+#error "EPD_BIT_REVERSE needs DRAW_W to be a multiple of 8"
+#endif
 #else
 #define EPD_TRANSPOSE       0
 #define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first */
+#define EPD_BIT_REVERSE     0
 #endif
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
@@ -110,27 +120,33 @@ static bool wait_busy(uint16_t timeout_ms)
 #define RAM_Y_LINES     DRAW_W               /* RAM Y = layout x */
 #endif
 
+/* Window start and end: a counter that runs backwards starts at the high end */
+#define RAM_X_START     ((EPD_DATA_ENTRY & 0x01) ? 0 : RAM_X_BYTES - 1)
+#define RAM_X_END       ((EPD_DATA_ENTRY & 0x01) ? RAM_X_BYTES - 1 : 0)
+#define RAM_Y_START     ((EPD_DATA_ENTRY & 0x02) ? 0 : RAM_Y_LINES - 1)
+#define RAM_Y_END       ((EPD_DATA_ENTRY & 0x02) ? RAM_Y_LINES - 1 : 0)
+
 static void set_window(void)
 {
     cmd(CMD_DATA_ENTRY);
     data(EPD_DATA_ENTRY);
     cmd(CMD_RAM_X_RANGE);              /* X in bytes */
-    data(0);
-    data(RAM_X_BYTES - 1);
+    data(RAM_X_START);
+    data(RAM_X_END);
     cmd(CMD_RAM_Y_RANGE);              /* Y in lines */
-    data(0);
-    data(0);
-    data((uint8_t)(RAM_Y_LINES - 1));
-    data((uint8_t)((RAM_Y_LINES - 1) >> 8));
+    data((uint8_t)RAM_Y_START);
+    data((uint8_t)(RAM_Y_START >> 8));
+    data((uint8_t)RAM_Y_END);
+    data((uint8_t)(RAM_Y_END >> 8));
 }
 
 static void set_cursor(void)
 {
     cmd(CMD_RAM_X_COUNTER);
-    data(0);
+    data(RAM_X_START);
     cmd(CMD_RAM_Y_COUNTER);
-    data(0);
-    data(0);
+    data((uint8_t)RAM_Y_START);
+    data((uint8_t)(RAM_Y_START >> 8));
 }
 
 #if EPD_TRANSPOSE
@@ -153,7 +169,7 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
             rows[y] = 0;
         for (k = 0; k < 8 && x + k < DRAW_W; k++) {
             draw_column(s, x + k, col_black, col_red);
-            m = (uint8_t)(0x80 >> k);
+            m = EPD_BIT_REVERSE ? (uint8_t)(0x01 << k) : (uint8_t)(0x80 >> k);
             for (y = 0; y < DRAW_H; y++)
                 if (col[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
                     rows[y] |= m;
