@@ -126,8 +126,12 @@ static void reset_model(void)
 static int ram_pixel(int x, int y)
 {
 #if MODEL == 154
-    /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE) */
-    uint8_t m = (uint8_t)(0x80 >> (x & 7));
+    /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE),
+       with RAM (0, 0) in the bottom right corner (EPD_ROTATE_180) */
+    uint8_t m;
+    x = DRAW_W - 1 - x;
+    y = DRAW_H - 1 - y;
+    m = (uint8_t)(0x80 >> (x & 7));
     return (ram[0][y][x >> 3] & m) ? 0 : 1;
 #else
     uint8_t m = (uint8_t)(0x80 >> (y & 7));
