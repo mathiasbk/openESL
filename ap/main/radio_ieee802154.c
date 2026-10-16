@@ -101,40 +101,52 @@ static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t var
     return n;
 }
 
-/* The tag's answer to our search reply: FCF 61 CC (ack requested, long addresses), seq, PAN, destination
- * (the address we gave as source), source (the tag's EUI-64), payload D7 <model> ... */
-static bool IRAM_ATTR is_tag_request(const uint8_t *p, uint8_t len)
+/* The tag's requests after our search reply: FCF 61 CC (ack requested, long addresses), seq, PAN,
+ * destination (the address we gave as source), source (the tag's EUI-64), payload D7 <model> ... first,
+ * later AA <model> ... Returns the payload's first byte, or 0 when the frame is not such a request. */
+static uint8_t IRAM_ATTR tag_request_type(const uint8_t *p, uint8_t len)
 {
-    return len >= 23 && p[0] == 0x61 && p[1] == 0xCC && p[21] == 0xD7;
+    if (len >= 23 && p[0] == 0x61 && p[1] == 0xCC && (p[21] == 0xD7 || p[21] == 0xAA))
+        return p[21];
+    return 0;
 }
 
-/* Guessed next step. The stock firmware looks at the first payload byte of an answer to its request
- * (static reading: 0x80 followed by 1 or 2, 0xA7, 0xAD, 0xD8, 0xDE, 0xF5, 0xF9, 0xFA, and 0xD0-0xD2 in
- * later states). Each variant sends one of them with zero bytes after it; the tag's next request shows
- * whether it reacted. */
-#define REQUEST_VARIANTS 9
-static uint8_t build_request_reply(uint8_t *out, const uint8_t *req, uint8_t variant)
+/* One answer to a tag request: data frame to the tag, from the address it sent to; payload is the
+ * message type, a second byte and zeros up to 40 bytes. */
+static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8_t type, uint8_t second)
 {
-    static const uint8_t type[REQUEST_VARIANTS] = { 0x80, 0x80, 0xAD, 0xD8, 0xDE, 0xF5, 0xF9, 0xFA, 0xA7 };
-    static const uint8_t second[REQUEST_VARIANTS] = { 1, 2, 0, 0, 0, 0, 0, 0, 0 };
-    uint8_t k = (variant - 1) % REQUEST_VARIANTS;
     uint8_t n = 0;
     out[1 + n++] = 0x41;
     out[1 + n++] = 0xCC;
-    out[1 + n++] = req[2];
+    out[1 + n++] = seq;
     out[1 + n++] = 0x34;
     out[1 + n++] = 0x12;
     memcpy(&out[1 + n], &req[13], 8); /* destination: the tag */
     n += 8;
     memcpy(&out[1 + n], &req[5], 8); /* source: the address the tag sent to */
     n += 8;
-    out[1 + n++] = type[k];
-    out[1 + n++] = second[k];
+    out[1 + n++] = type;
+    out[1 + n++] = second;
     memset(&out[1 + n], 0, 38);
     n += 38;
     out[0] = n + 2;
     return n;
 }
+
+/* Answers tried so far (static reading of the stock dispatcher, then on-air results):
+ *  D7 request: 80 02 then D8 moved the tag on to the AA request.
+ *  AA request: not known; every AA request gets a burst of three candidates, three bursts per round. */
+typedef struct {
+    uint8_t type, second;
+} answer_t;
+static const answer_t aa_candidates[] = {
+    { 0xF9, 0 }, { 0xFA, 0 }, { 0xAD, 0 },
+    { 0xDE, 0 }, { 0xF5, 0 }, { 0xA7, 0 },
+    { 0x80, 1 }, { 0x80, 2 }, { 0xD0, 0 },
+    { 0xD1, 0 }, { 0xD2, 0 }, { 0xE1, 0 },
+};
+#define AA_CANDIDATES (sizeof(aa_candidates) / sizeof(aa_candidates[0]))
+#define AA_BURST 3
 #endif
 
 static struct {
@@ -158,14 +170,15 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.kind = 0;
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
-    static uint8_t probe_count;
+    static uint8_t probe_count, request_count;
     /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
     if (is_stock_probe(item.psdu, item.len)) {
         item.kind = 1;
         item.variant = 1 + probe_count++ % 3;
-    } else if (is_tag_request(item.psdu, item.len)) {
-        item.kind = 2;
-        item.variant = 1 + probe_count++ % REQUEST_VARIANTS;
+    } else if (tag_request_type(item.psdu, item.len)) {
+        uint8_t t = tag_request_type(item.psdu, item.len);
+        item.kind = t == 0xD7 ? 2 : 3;
+        item.variant = 1 + request_count++;
     }
     esp_ieee802154_receive_handle_done(frame);
 #else
@@ -201,23 +214,42 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
 
 /* Only one of these is used, depending on the radio mode. */
 #if PROBE_REPLY
-static void send_probe_reply(const rx_item_t *it)
+static void send_frame(const rx_item_t *it, uint8_t type, uint8_t second, uint8_t seq)
 {
     if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
         return;
-    if (it->kind == 2)
-        build_request_reply(tx_buf, it->psdu, it->variant);
-    else
+    if (it->kind == 1)
         build_probe_reply(tx_buf, it->psdu, it->variant);
+    else
+        build_answer(tx_buf, it->psdu, seq, type, second);
     if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
         stats.tx_failed++;
         xSemaphoreGive(tx_idle);
         return;
     }
     stats.replies++;
-    ESP_LOGI(TAG, "reply %s variant %u sent on ch %u after %lld us", it->kind == 2 ? "to request" : "to search",
-             it->variant, it->channel,
-             (long long)(esp_timer_get_time() - it->rx_us));
+}
+
+static void send_probe_reply(const rx_item_t *it)
+{
+    int64_t us = esp_timer_get_time() - it->rx_us;
+    if (it->kind == 1) {
+        send_frame(it, 0, 0, 0);
+        ESP_LOGI(TAG, "reply to search variant %u sent on ch %u after %lld us", it->variant, it->channel,
+                 (long long)us);
+    } else if (it->kind == 2) {
+        send_frame(it, 0x80, 2, it->psdu[2]);
+        send_frame(it, 0xD8, 0, it->psdu[2] + 1);
+        ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
+    } else {
+        unsigned first = (unsigned)(it->variant - 1) * AA_BURST % AA_CANDIDATES;
+        for (unsigned i = 0; i < AA_BURST; i++) {
+            const answer_t *c = &aa_candidates[(first + i) % AA_CANDIDATES];
+            send_frame(it, c->type, c->second, it->psdu[2] + 1 + i);
+            ESP_LOGI(TAG, "reply to AA request: %02X %02X sent (burst %u) after %lld us", c->type, c->second,
+                     it->variant, (long long)(esp_timer_get_time() - it->rx_us));
+        }
+    }
 }
 #endif
 
