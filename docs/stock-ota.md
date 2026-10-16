@@ -8,6 +8,16 @@ Goal: put OpenESL on a tag that still runs the stock SoluM firmware, without pog
 - The protocol between a SoluM AP and a stock tag (joining, binding to a store network, how an update starts, any CRC or signature on the image, any encryption in the main firmware) is not published anywhere we have found. OpenEPaperLink and other projects flash ZBS243 tags with pogo pins only.
 - We have backups of stock flash from our own tags (`backup/<MAC>.bin` and `.info.bin`, written by `tools/flash-tui`).
 
+## Findings from a stock backup (2026-10-16, tag 000002079350341C)
+
+Read-only study of the flash backup. Addresses are code addresses in the 64 KB main flash.
+
+- The stock flash holds two programs. The main firmware is at 0x0000-0xDA7F (reset vector `LJMP 10B1`). A second, separate program sits at 0xE800-0xF8FF with its own vector table (reset at 0xE800 sets SP and jumps to 0xF2D5). Pages 0xDC00-0xE7FF are empty.
+- The second program is a flash loader, not a radio program. It has the page write routine (0xF382-0xF3AC: SETTINGS |= 0x38, FPGNO = page, FWRTHREE = 3, 1 KB from xdata 0xE800, wait for TCON2 bit 3), a UART interrupt handler (0xF3F8: SCON, SBUF into ring buffers at xdata 0xE400), and SPI flash code that uses P1.1 as nCS (0xEEC0-0xEF74), the same pin and kind of chip as our W25Q80.
+- Reading: the stock OTA most likely stores the new image in the external SPI flash, and this loader copies it into internal flash page by page. That is the same split as our own OTA (slots in SPI flash, bootloader copies).
+- Not found yet: what enters the loader (no `LJMP`/`LCALL` to 0xE800 or 0xE803 in the main firmware, so it is a jump through a pointer, a reset-time check, or the chip's boot ROM), and where the main firmware receives the image over the radio and writes it to the SPI flash. Those two answer open questions 2 and 3.
+- Nothing seen yet about a CRC, signature or key on the image. Question 4 is still open.
+
 ## Open questions, in order
 
 1. Does a stock tag without its AP transmit anything (scan, join request), and on which channel and PAN? The sniffer answers this: AP firmware in radio mode `Sniffer` with `ESL_SNIFF_HOP_MS` above 0 steps through channels 11-26.
