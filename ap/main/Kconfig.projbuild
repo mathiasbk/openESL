@@ -252,9 +252,9 @@ menu "OpenESL AP"
         default n
         help
             Answers a stock search (E0) with E1, a D7 request with 80 02 + D8, and each AA request
-            with one remaining firmware-shaped type (F9, FA, A7, AD). F5 is the image path and is
-            not sent. Used to find the stock firmware-update answer. The stock firmware is not
-            touched; the tag only receives a frame like any other.
+            with AD and a 16-bit size FFFF (the stock subtype-15 announcement). F5 is the image
+            path and is not sent. Used to find the stock firmware-update answer. The stock
+            firmware is not touched; the tag only receives a frame like any other.
 
     config ESL_SNIFF_TARGET
         string "Sniffer probe: only answer the stock tag with this source address (16 hex digits)"

@@ -1,5 +1,6 @@
-# Experiment: sniffer that answers a stock tag through join (E0/E1, D7/80+D8) and then tries
-# firmware-shaped AA answers (F9, FA, A7, AD). F5 is the image path and is not sent.
+# Experiment: sniffer that answers a stock tag through join (E0/E1, D7/80+D8) and then
+# answers AA with AD plus a 16-bit size FFFF (subtype 15 in the stock handler). F5 is
+# the image path and is not sent.
 # Build with:
 #   idf.py -B build-probe -D SDKCONFIG=build-probe/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer;sdkconfig.probe" build
 CONFIG_ESL_SNIFF_PROBE_REPLY=y

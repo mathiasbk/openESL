@@ -146,6 +146,12 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
     out[1 + n++] = type;
     out[1 + n++] = second;
     memset(&out[1 + n], 0, 38);
+    /* AD: 16-bit BE size at payload[3:4]. 4481 compares it with XRAM F560.
+     * Greater → subtype 15 (state 0x0B). Equal → 02 or 00. Smaller → 01 (no-op). */
+    if (type == 0xAD) {
+        out[1 + n + 1] = 0xFF;
+        out[1 + n + 2] = 0xFF;
+    }
     (void)mark;
     n += 38;
     out[0] = n + 2;
@@ -250,14 +256,10 @@ static void send_probe_reply(const rx_item_t *it)
         send_frame(it, 0xD8, 0, it->psdu[2] + 1, 0);
         ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
     } else if (it->kind == 3) {
-        /* F5 00 is the image announcement (probe9-11). These four are the remaining dispatcher
-         * types that can still be a firmware-available answer. One per AA; battery out/in for the next. */
-        static const uint8_t aa_type[] = { 0xF9, 0xFA, 0xA7, 0xAD };
-        static uint8_t aa_n;
-        uint8_t type = aa_type[aa_n++ % (sizeof(aa_type) / sizeof(aa_type[0]))];
-        send_frame(it, type, 0, it->psdu[2] + 1, 0);
-        ESP_LOGI(TAG, "reply to AA request: %02X 00 (fw candidate %u) sent after %lld us", type,
-                 (unsigned)((aa_n - 1) % (sizeof(aa_type) / sizeof(aa_type[0]))) + 1, (long long)us);
+        /* Empty F9/FA/A7/AD are rejected (flash.bin). AD with size FFFF at payload[3:4]
+         * is subtype 15 when F560 is smaller, and should set state 0x0B. */
+        send_frame(it, 0xAD, 0, it->psdu[2] + 1, 0);
+        ESP_LOGI(TAG, "reply to AA request: AD size FFFF after %lld us", (long long)us);
     } else if (it->kind == 4) {
         /* Image path. Do not answer: F4 + D0-D2 push was rejected (probe11). */
         ESP_LOGI(TAG, "F4 image request ignored (not the firmware path) after %lld us", (long long)us);
