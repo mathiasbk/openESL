@@ -56,6 +56,7 @@ typedef struct {
     int8_t rssi;
     uint8_t channel;
     uint8_t variant; /* guessed reply sent to this frame (0 = none) */
+    uint8_t kind;    /* 1 = stock search frame, 2 = tag request (D7) */
     int64_t rx_us;
 } rx_item_t;
 
@@ -99,6 +100,37 @@ static uint8_t build_probe_reply(uint8_t *out, const uint8_t *probe, uint8_t var
     out[0] = n + 2; /* PSDU length incl. 2 FCS bytes, which the hardware fills in */
     return n;
 }
+
+/* The tag's answer to our search reply: FCF 61 CC (ack requested, long addresses), seq, PAN, destination
+ * (the address we gave as source), source (the tag's EUI-64), payload D7 <model> ... */
+static bool IRAM_ATTR is_tag_request(const uint8_t *p, uint8_t len)
+{
+    return len >= 23 && p[0] == 0x61 && p[1] == 0xCC && p[21] == 0xD7;
+}
+
+/* Guessed next step: a data frame to the tag with one of the message types the stock firmware knows
+ * (D0, D1, D2, E1) and as many zero bytes as its minimum length. */
+static uint8_t build_request_reply(uint8_t *out, const uint8_t *req, uint8_t variant)
+{
+    static const uint8_t type[] = { 0xD0, 0xD1, 0xD2, 0xE1 };
+    static const uint8_t payload_len[] = { 33, 37, 68, 26 };
+    uint8_t k = (variant - 1) % 4;
+    uint8_t n = 0;
+    out[1 + n++] = 0x41;
+    out[1 + n++] = 0xCC;
+    out[1 + n++] = req[2];
+    out[1 + n++] = 0x34;
+    out[1 + n++] = 0x12;
+    memcpy(&out[1 + n], &req[13], 8); /* destination: the tag */
+    n += 8;
+    memcpy(&out[1 + n], &req[5], 8); /* source: the address the tag sent to */
+    n += 8;
+    out[1 + n++] = type[k];
+    memset(&out[1 + n], 0, payload_len[k] - 1);
+    n += payload_len[k] - 1;
+    out[0] = n + 2;
+    return n;
+}
 #endif
 
 static struct {
@@ -119,12 +151,18 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.rssi = info->rssi;
     item.channel = cur_channel;
     item.variant = 0;
+    item.kind = 0;
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
     static uint8_t probe_count;
     /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
-    if (is_stock_probe(item.psdu, item.len))
+    if (is_stock_probe(item.psdu, item.len)) {
+        item.kind = 1;
         item.variant = 1 + probe_count++ % 3;
+    } else if (is_tag_request(item.psdu, item.len)) {
+        item.kind = 2;
+        item.variant = 1 + probe_count++ % 4;
+    }
     esp_ieee802154_receive_handle_done(frame);
 #else
     esp_ieee802154_receive_handle_done(frame);
@@ -163,14 +201,18 @@ static void send_probe_reply(const rx_item_t *it)
 {
     if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
         return;
-    build_probe_reply(tx_buf, it->psdu, it->variant);
+    if (it->kind == 2)
+        build_request_reply(tx_buf, it->psdu, it->variant);
+    else
+        build_probe_reply(tx_buf, it->psdu, it->variant);
     if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
         stats.tx_failed++;
         xSemaphoreGive(tx_idle);
         return;
     }
     stats.replies++;
-    ESP_LOGI(TAG, "reply variant %u sent on ch %u after %lld us", it->variant, it->channel,
+    ESP_LOGI(TAG, "reply %s variant %u sent on ch %u after %lld us", it->kind == 2 ? "to request" : "to search",
+             it->variant, it->channel,
              (long long)(esp_timer_get_time() - it->rx_us));
 }
 #endif
@@ -297,7 +339,16 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     esp_ieee802154_set_txpower(CONFIG_ESL_TX_POWER_DBM);
     esp_ieee802154_set_panid(pan_id);
     esp_ieee802154_set_short_address(AP_SHORT_ADDR);
+#if PROBE_REPLY
+    /* Not promiscuous: the hardware only acknowledges frames addressed to it, and the tag asks for an
+     * acknowledgement of its request. The tag sends to the address we gave in the search reply. */
+    static const uint8_t probe_ext_addr[8] = { 0, 0, 0, 0, 0, 0, 0, 1 };
+    esp_ieee802154_set_panid(0x1234);
+    esp_ieee802154_set_extended_address(probe_ext_addr);
+    esp_ieee802154_set_promiscuous(false);
+#else
     esp_ieee802154_set_promiscuous(SNIFFER);
+#endif
     esp_ieee802154_set_rx_when_idle(true);
 
     /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack */
