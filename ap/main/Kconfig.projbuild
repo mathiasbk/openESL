@@ -256,6 +256,14 @@ menu "OpenESL AP"
             variant was sent. Used to see whether an unpaired stock tag reacts. The stock firmware
             is not touched; the tag only receives a frame like any other.
 
+    config ESL_SNIFF_TARGET
+        string "Sniffer probe: only answer the stock tag with this source address (16 hex digits)"
+        depends on ESL_SNIFF_PROBE_REPLY
+        default ""
+        help
+            The tag's EUI-64 as it appears in its own frames (byte order on air). Empty answers every
+            stock tag in range. Several tags in one room otherwise disturb a test.
+
     config ESL_STUB_TAGS
         int "Simulated tags"
         depends on ESL_RADIO_STUB

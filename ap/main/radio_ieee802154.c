@@ -111,9 +111,28 @@ static uint8_t IRAM_ATTR tag_request_type(const uint8_t *p, uint8_t len)
     return 0;
 }
 
+/* True when the request comes from the tag we test with (all tags when no target is configured). */
+static bool IRAM_ATTR is_target(const uint8_t *p)
+{
+    static const char want[] = CONFIG_ESL_SNIFF_TARGET;
+    if (want[0] == '\0')
+        return true;
+    for (int i = 0; i < 8; i++) {
+        unsigned v = 0;
+        for (int k = 0; k < 2; k++) {
+            char c = want[2 * i + k];
+            v = v * 16 + (c >= 'A' ? (c & 0xDF) - 'A' + 10 : c - '0');
+        }
+        if (p[13 + i] != v)
+            return false;
+    }
+    return true;
+}
+
 /* One answer to a tag request: data frame to the tag, from the address it sent to; payload is the
  * message type, a second byte and zeros up to 40 bytes. */
-static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8_t type, uint8_t second)
+static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8_t type, uint8_t second,
+                            uint8_t mark)
 {
     uint8_t n = 0;
     out[1 + n++] = 0x41;
@@ -128,22 +147,17 @@ static uint8_t build_answer(uint8_t *out, const uint8_t *req, uint8_t seq, uint8
     out[1 + n++] = type;
     out[1 + n++] = second;
     memset(&out[1 + n], 0, 38);
+    if (mark) { /* bytes 7 and 8 of the payload: FF 01, the shape the stock block handlers test for */
+        out[1 + n + 5] = 0xFF;
+        out[1 + n + 6] = 0x01;
+    }
     n += 38;
     out[0] = n + 2;
     return n;
 }
 
 /* Answers found on air (2026-10-16): D7 request <- 80 02 then D8; AA request <- F5 00 (DE sends the tag
- * back to searching); the tag then sends an F4 request. Candidates for the answer to F4, one per request,
- * rotating (the tag has to be restarted for each one): */
-typedef struct {
-    uint8_t type, second;
-} answer_t;
-static const answer_t f4_candidates[] = {
-    { 0xDE, 0 }, { 0xD8, 0 }, { 0xF9, 0 }, { 0xFA, 0 }, { 0xAD, 0 }, { 0xA7, 0 },
-    { 0x80, 1 }, { 0x80, 2 }, { 0xD0, 0 }, { 0xD1, 0 }, { 0xD2, 0 }, { 0xF5, 1 },
-};
-#define F4_CANDIDATES (sizeof(f4_candidates) / sizeof(f4_candidates[0]))
+ * back to searching); the tag then sends an F4 request and clears its screen. */
 #endif
 
 static struct {
@@ -167,15 +181,15 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.kind = 0;
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
-    static uint8_t probe_count, f4_count;
+    static uint8_t probe_count;
     /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
     if (is_stock_probe(item.psdu, item.len)) {
         item.kind = 1;
         item.variant = 1 + probe_count++ % 3;
-    } else if (tag_request_type(item.psdu, item.len)) {
+    } else if (tag_request_type(item.psdu, item.len) && is_target(item.psdu)) {
         uint8_t t = tag_request_type(item.psdu, item.len);
         item.kind = t == 0xD7 ? 2 : t == 0xAA ? 3 : 4;
-        item.variant = t == 0xF4 ? 1 + f4_count++ : 1;
+        item.variant = 1;
     }
     esp_ieee802154_receive_handle_done(frame);
 #else
@@ -211,14 +225,14 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
 
 /* Only one of these is used, depending on the radio mode. */
 #if PROBE_REPLY
-static void send_frame(const rx_item_t *it, uint8_t type, uint8_t second, uint8_t seq)
+static void send_frame(const rx_item_t *it, uint8_t type, uint8_t second, uint8_t seq, uint8_t mark)
 {
     if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
         return;
     if (it->kind == 1)
         build_probe_reply(tx_buf, it->psdu, it->variant);
     else
-        build_answer(tx_buf, it->psdu, seq, type, second);
+        build_answer(tx_buf, it->psdu, seq, type, second, mark);
     if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
         stats.tx_failed++;
         xSemaphoreGive(tx_idle);
@@ -231,21 +245,30 @@ static void send_probe_reply(const rx_item_t *it)
 {
     int64_t us = esp_timer_get_time() - it->rx_us;
     if (it->kind == 1) {
-        send_frame(it, 0, 0, 0);
+        send_frame(it, 0, 0, 0, 0);
         ESP_LOGI(TAG, "reply to search variant %u sent on ch %u after %lld us", it->variant, it->channel,
                  (long long)us);
     } else if (it->kind == 2) {
-        send_frame(it, 0x80, 2, it->psdu[2]);
-        send_frame(it, 0xD8, 0, it->psdu[2] + 1);
+        send_frame(it, 0x80, 2, it->psdu[2], 0);
+        send_frame(it, 0xD8, 0, it->psdu[2] + 1, 0);
         ESP_LOGI(TAG, "reply to D7 request: 80 02, D8 sent after %lld us", (long long)us);
     } else if (it->kind == 3) {
-        send_frame(it, 0xF5, 0, it->psdu[2] + 1);
+        send_frame(it, 0xF5, 0, it->psdu[2] + 1, 0);
         ESP_LOGI(TAG, "reply to AA request: F5 00 sent after %lld us", (long long)us);
     } else {
-        const answer_t *c = &f4_candidates[(it->variant - 1) % F4_CANDIDATES];
-        send_frame(it, c->type, c->second, it->psdu[2] + 1);
-        ESP_LOGI(TAG, "reply to F4 request: %02X %02X sent (candidate %u) after %lld us", c->type, c->second,
-                 it->variant, (long long)us);
+        /* DE puts the stock tag into its data-receive state (reading of the dispatcher); then try the
+         * three block types D1, D0, D2 with the shape the handlers seem to test for, and D1 plain. */
+        static const struct {
+            uint8_t type, mark;
+        } push[] = { { 0xD1, 1 }, { 0xD0, 1 }, { 0xD2, 1 }, { 0xD1, 0 } };
+        uint8_t seq = it->psdu[2] + 1;
+        send_frame(it, 0xDE, 0, seq, 0);
+        ESP_LOGI(TAG, "reply to F4 request: DE 00 sent after %lld us", (long long)us);
+        for (unsigned i = 0; i < sizeof(push) / sizeof(push[0]); i++) {
+            vTaskDelay(pdMS_TO_TICKS(150));
+            send_frame(it, push[i].type, 0, ++seq, push[i].mark);
+            ESP_LOGI(TAG, "push %02X mark %u sent", push[i].type, push[i].mark);
+        }
     }
 }
 #endif
