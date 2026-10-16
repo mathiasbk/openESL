@@ -52,6 +52,8 @@ test("stock tag: backup, MAC to info page, firmware, verify, reset", async () =>
   assert.equal(r.macSource, "stock flash");
   assert.equal(r.backup, "saved");
   assert.deepEqual(backups.m.get(r.mac).flash, stock);
+  assert.equal(r.barcode, wf.barcodeFromStock(stock.slice(0xfc06, 0xfc0c)));
+  assert.equal(backups.m.get(r.mac).barcode, r.barcode);
   assert.deepEqual(tag.flash.slice(0, image.length), image);
   assert.equal(wf.macStr(wf.macFromInfo(tag.info)), r.mac);
   assert.equal(tag.eraseCount[1], 0, "the info page must never be erased");
@@ -63,7 +65,27 @@ test("stock tag: backup, MAC to info page, firmware, verify, reset", async () =>
   assert.ok(r2.ok);
   assert.equal(r2.macSource, "info page");
   assert.equal(r2.backup, "exists");
+  assert.equal(r2.barcode, r.barcode, "barcode from the backup");
   assert.deepEqual(backups.m.get(r.mac).flash, stock);
+
+  // a backup stored before barcodes were filled in gets it on the next run
+  backups.m.get(r.mac).barcode = "";
+  const r3 = await wf.flashTag(fl, "2.9", image, backups);
+  assert.equal(r3.barcode, r.barcode);
+  assert.equal(backups.m.get(r.mac).barcode, r.barcode);
+});
+
+test("barcode on the label from the stock bytes", () => {
+  const h = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
+  // label of 0000020663463415: Code 128 "020663461013"; the first 8 digits are in its MAC
+  assert.equal(wf.barcodeFromStock(h("020663461013")), "020663461013");
+  assert.equal(wf.macStr(wf.macFromStock(h("020663461013"), "1.54")), "0000020663463415");
+  assert.equal(wf.barcodeFromStock(new Uint8Array(6).fill(0xff)), "");
+  assert.equal(wf.barcodeFromStock(new Uint8Array(6)), "");
+  const flash = new Uint8Array(0x10000).fill(0xff);
+  flash.set(h("020663461013"), 0xfc06);
+  assert.equal(wf.barcodeFromBackup(flash, h("0000020663463415")), "020663461013");
+  assert.equal(wf.barcodeFromBackup(flash, h("000002079350341C")), "", "backup of another tag");
 });
 
 test("no tag", async () => {
