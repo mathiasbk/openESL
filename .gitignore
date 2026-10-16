@@ -17,6 +17,7 @@ backup/
 # AP (ESP-IDF)
 ap/build/
 ap/build-lcd/
+ap/build-probe/
 ap/out/
 ap/sdkconfig
 ap/sdkconfig.old
