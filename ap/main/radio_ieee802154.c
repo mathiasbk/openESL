@@ -108,13 +108,16 @@ static bool IRAM_ATTR is_tag_request(const uint8_t *p, uint8_t len)
     return len >= 23 && p[0] == 0x61 && p[1] == 0xCC && p[21] == 0xD7;
 }
 
-/* Guessed next step: a data frame to the tag with one of the message types the stock firmware knows
- * (D0, D1, D2, E1) and as many zero bytes as its minimum length. */
+/* Guessed next step. The stock firmware looks at the first payload byte of an answer to its request
+ * (static reading: 0x80 followed by 1 or 2, 0xA7, 0xAD, 0xD8, 0xDE, 0xF5, 0xF9, 0xFA, and 0xD0-0xD2 in
+ * later states). Each variant sends one of them with zero bytes after it; the tag's next request shows
+ * whether it reacted. */
+#define REQUEST_VARIANTS 9
 static uint8_t build_request_reply(uint8_t *out, const uint8_t *req, uint8_t variant)
 {
-    static const uint8_t type[] = { 0xD0, 0xD1, 0xD2, 0xE1 };
-    static const uint8_t payload_len[] = { 33, 37, 68, 26 };
-    uint8_t k = (variant - 1) % 4;
+    static const uint8_t type[REQUEST_VARIANTS] = { 0x80, 0x80, 0xAD, 0xD8, 0xDE, 0xF5, 0xF9, 0xFA, 0xA7 };
+    static const uint8_t second[REQUEST_VARIANTS] = { 1, 2, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t k = (variant - 1) % REQUEST_VARIANTS;
     uint8_t n = 0;
     out[1 + n++] = 0x41;
     out[1 + n++] = 0xCC;
@@ -126,8 +129,9 @@ static uint8_t build_request_reply(uint8_t *out, const uint8_t *req, uint8_t var
     memcpy(&out[1 + n], &req[5], 8); /* source: the address the tag sent to */
     n += 8;
     out[1 + n++] = type[k];
-    memset(&out[1 + n], 0, payload_len[k] - 1);
-    n += payload_len[k] - 1;
+    out[1 + n++] = second[k];
+    memset(&out[1 + n], 0, 38);
+    n += 38;
     out[0] = n + 2;
     return n;
 }
@@ -161,7 +165,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
         item.variant = 1 + probe_count++ % 3;
     } else if (is_tag_request(item.psdu, item.len)) {
         item.kind = 2;
-        item.variant = 1 + probe_count++ % 4;
+        item.variant = 1 + probe_count++ % REQUEST_VARIANTS;
     }
     esp_ieee802154_receive_handle_done(frame);
 #else
