@@ -1,0 +1,6 @@
+# Extra defaults for a sniffer build: logs every 802.15.4 frame on the channel with its
+# channel number, steps through channels 11-26 (2 s on each), does not answer, no WiFi.
+# Build with:
+#   idf.py -B build-sniffer -D SDKCONFIG=build-sniffer/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sniffer" build
+CONFIG_ESL_RADIO_SNIFFER=y
+CONFIG_ESL_SNIFF_HOP_MS=2000
