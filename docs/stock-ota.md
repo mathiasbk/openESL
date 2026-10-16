@@ -61,3 +61,5 @@ dest PAN 0x1234, dest 0xFFFF (broadcast), source 0x10AF, payload E0 85 (2 bytes)
 1. Sniff a stock tag with the hopping sniffer (needs a tag that still runs stock firmware).
 2. Disassemble one stock backup (`tag/tools/dis51.py`), find the OTA image and answer 2-5.
 3. If nothing blocks: a "stock" radio mode on the C6 that speaks enough of the stock protocol to hand over our image, and a firmware fallback that reads the MAC from 0xFC06 when the info page is blank.
+
+- Third run (2026-10-16, probe8): after `80 02` + `D8` and a burst `DE`, `F5`, `A7` (sent 31 us, 2.3 ms and 5.2 ms after the request) the tag sent the `AA` request only once (length byte 0x41, last status byte 0x16, earlier runs 0x36 and 0x14/0x15), then went silent, and its screen did a full refresh back to the default content. Only the first frame arrived within the tag's short listening window, so `DE` is the likely accepted type. Next build sends one answer per AA request, starting with `DE`, then `F5`, `A7`, `AD`, `F9`, `FA`, `80 01`, `80 02`, `D0`, `D1`, `D2`, `E1`; the tag must be restarted (battery out and in) for each trial.

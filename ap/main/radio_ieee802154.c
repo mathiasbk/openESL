@@ -140,13 +140,13 @@ typedef struct {
     uint8_t type, second;
 } answer_t;
 static const answer_t aa_candidates[] = {
-    { 0xF9, 0 }, { 0xFA, 0 }, { 0xAD, 0 },
     { 0xDE, 0 }, { 0xF5, 0 }, { 0xA7, 0 },
+    { 0xAD, 0 }, { 0xF9, 0 }, { 0xFA, 0 },
     { 0x80, 1 }, { 0x80, 2 }, { 0xD0, 0 },
     { 0xD1, 0 }, { 0xD2, 0 }, { 0xE1, 0 },
 };
 #define AA_CANDIDATES (sizeof(aa_candidates) / sizeof(aa_candidates[0]))
-#define AA_BURST 3
+#define AA_BURST 1 /* the tag listens only briefly after its own frame; one answer per request */
 #endif
 
 static struct {
@@ -170,7 +170,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     item.kind = 0;
     item.rx_us = esp_timer_get_time();
 #if PROBE_REPLY
-    static uint8_t probe_count, request_count;
+    static uint8_t probe_count, aa_count;
     /* The reply is sent from radio_task: esp_ieee802154_transmit asserts when called from this callback. */
     if (is_stock_probe(item.psdu, item.len)) {
         item.kind = 1;
@@ -178,7 +178,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
     } else if (tag_request_type(item.psdu, item.len)) {
         uint8_t t = tag_request_type(item.psdu, item.len);
         item.kind = t == 0xD7 ? 2 : 3;
-        item.variant = 1 + request_count++;
+        item.variant = t == 0xD7 ? 1 : 1 + aa_count++;
     }
     esp_ieee802154_receive_handle_done(frame);
 #else
