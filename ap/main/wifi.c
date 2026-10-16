@@ -352,8 +352,10 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
         w.setup_ssid[0] = 0;
         return &ops;
     }
-    /* Power save would delay API replies; the AP runs on USB power anyway. */
-    esp_wifi_set_ps(WIFI_PS_NONE);
+    /* Modem sleep is what gives 802.15.4 its turns on the shared radio: with
+       WIFI_PS_NONE WiFi holds it and the AP hears no tags. It delays API
+       replies a little (up to a beacon interval). */
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     if (!w.ssid[0])
         start_scan();
     else if (CONFIG_ESL_WIFI_SETUP_AFTER_S)

@@ -20,8 +20,8 @@
 Added after the plan, all described in ap/README.md: the API over the USB port (`ESL_SERIAL_API`), scheduled content and the AP's clock (`/api/schedule`, `/api/time`, NTP), the health report and webhook (`/api/health`), OTA for the AP (`/api/ota`, A10), the token lockout, the optional LCD status screen, and the task watchdog.
 
 ## Coexistence (WiFi + 802.15.4 on the same chip)
-- The C6 shares one 2.4 GHz radio between WiFi and 802.15.4 by time-division. Software coexistence is on (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE` in `ap/sdkconfig.defaults`).
-- WiFi is mostly quiet; traffic only comes when a client sends content or reads status, so the conflict should be small. Turn off WiFi power save (`esp_wifi_set_ps(WIFI_PS_NONE)`) so the API responds quickly. The tag's single extra attempt covers most collisions.
+- The C6 shares one 2.4 GHz radio between WiFi and 802.15.4 by time-division. Software coexistence is compiled in (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE` in `ap/sdkconfig.defaults`) and switched on at run time with `esp_coex_wifi_i154_enable()` in `radio_start()`, as Espressif's Zigbee gateway and Thread border router examples do. Without that call, 802.15.4 receiving makes WiFi deaf: scans find nothing (or only a network or two on one channel), joining fails with "no AP found", and a joined AP gets no traffic. The state outlives a USB or software reset, so a board that ran firmware without the call stays deaf until firmware with it starts (tested on the C6 Super Mini, 2026-10-16).
+- WiFi uses modem sleep (`WIFI_PS_MIN_MODEM`). It is what gives 802.15.4 its turns: with `WIFI_PS_NONE` WiFi holds the radio and the AP hears no tags. API replies can wait up to a beacon interval. The tag's single extra attempt covers most collisions.
 - Measure packet loss in phase 4. If it is above a few percent, move the radio to the second C6 (connected by UART) as [risiko.md](risiko.md) describes.
 
 ## Test tools you get almost for free
