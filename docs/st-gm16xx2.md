@@ -62,6 +62,8 @@ The stock firmware never sends `0x18` (temperature sensor select). It writes the
 
 Polarity: in the BW RAM, `1` = white and `0` = black.
 
+Orientation: RAM (0, 0) is the bottom right corner when the tag is held the right way up. `tag/src/epd.c` turns the image 180 degrees while streaming it (`EPD_ROTATE_180`).
+
 ## ZBS243 detail found on the way
 
 Reading a port pin that is set as an output (for example `P2_2`, the EPD D/C line) does not return the level the code wrote. Code must keep its own copy of an output state if it needs it later.
