@@ -38,10 +38,17 @@ static const char *TAG = "radio";
 #define SNIFFER 0
 #endif
 
+#if SNIFFER && CONFIG_ESL_SNIFF_HOP_MS > 0
+#define HOP_MS CONFIG_ESL_SNIFF_HOP_MS
+#else
+#define HOP_MS 0
+#endif
+
 typedef struct {
     uint8_t len; /* PSDU length incl. FCS */
     uint8_t psdu[ESL_PSDU_MAX];
     int8_t rssi;
+    uint8_t channel;
     int64_t rx_us;
 } rx_item_t;
 
@@ -50,6 +57,7 @@ static SemaphoreHandle_t tx_idle;
 static esl_store_t *store;
 static esl_layouts_t *layouts;
 static uint16_t pan;
+static volatile uint8_t cur_channel;
 static uint8_t tx_buf[1 + ESL_PSDU_MAX]; /* length byte + PSDU */
 
 static struct {
@@ -68,6 +76,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
         item.len = ESL_PSDU_MAX;
     memcpy(item.psdu, &frame[1], item.len);
     item.rssi = info->rssi;
+    item.channel = cur_channel;
     item.rx_us = esp_timer_get_time();
     esp_ieee802154_receive_handle_done(frame);
     if (xQueueSendFromISR(rx_queue, &item, &woken) != pdTRUE)
@@ -105,7 +114,7 @@ static void __attribute__((unused)) log_frame(const rx_item_t *it)
     for (unsigned i = 0; i < it->len; i++)
         snprintf(&hex[3 * i], 4, "%02X ", it->psdu[i]);
     hex[3 * it->len] = '\0';
-    ESP_LOGI(TAG, "rx %u B rssi %d: %s", it->len, it->rssi, hex);
+    ESP_LOGI(TAG, "rx ch %u %u B rssi %d: %s", it->channel, it->len, it->rssi, hex);
 }
 
 static void __attribute__((unused)) handle_poll(const rx_item_t *it)
@@ -167,10 +176,20 @@ static void radio_task(void *arg)
     (void)arg;
     rx_item_t it;
     int64_t last_stats = esp_timer_get_time();
+    int64_t last_hop = last_stats;
+    TickType_t wait = pdMS_TO_TICKS(HOP_MS > 0 && HOP_MS < 1000 ? HOP_MS : 1000);
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
-        if (xQueueReceive(rx_queue, &it, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (HOP_MS > 0 && esp_timer_get_time() - last_hop >= HOP_MS * 1000LL) {
+            last_hop = esp_timer_get_time();
+            uint8_t ch = cur_channel >= 26 ? 11 : cur_channel + 1;
+            esp_ieee802154_set_channel(ch);
+            cur_channel = ch;
+            esp_ieee802154_receive();
+            ESP_LOGD(TAG, "channel %u", ch);
+        }
+        if (xQueueReceive(rx_queue, &it, wait) == pdTRUE) {
             stats.rx++;
 #if SNIFFER
             log_frame(&it);
@@ -203,6 +222,7 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     if (err != ESP_OK)
         return err;
     esp_ieee802154_set_channel(channel);
+    cur_channel = channel;
     esp_ieee802154_set_txpower(CONFIG_ESL_TX_POWER_DBM);
     esp_ieee802154_set_panid(pan_id);
     esp_ieee802154_set_short_address(AP_SHORT_ADDR);
@@ -215,5 +235,7 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     err = esp_ieee802154_receive();
     ESP_LOGI(TAG, "802.15.4 %s on channel %u, PAN 0x%04X",
              SNIFFER ? "sniffer" : "AP", channel, pan_id);
+    if (HOP_MS > 0)
+        ESP_LOGI(TAG, "sniffer steps through channels 11-26, %d ms each", HOP_MS);
     return err;
 }

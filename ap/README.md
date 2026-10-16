@@ -170,7 +170,7 @@ Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF
 
 `idf.py menuconfig` -> «OpenESL AP»: WiFi, setup network (`ESL_WIFI_SETUP_AFTER_S`, `ESL_WIFI_SETUP_PASSWORD`, `ESL_WIFI_CAPTIVE`), token, mDNS name (`openesl`), status page, channel (25), PAN ID (0x4553), `ESL_NEXT_POLL_S` (0 = the tags keep their own interval), max tags, TX power, radio mode (`ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub), the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`). `ESL_NEXT_POLL_S` is the built-in default interval; `PUT /api/config` overrides it at run time. SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`), which the setup page and `PUT /api/wifi` write.
 
-Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel, does not answer, no WiFi), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download layout files like the tag firmware does).
+Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel with its channel number, does not answer, no WiFi; with `ESL_SNIFF_HOP_MS` above 0 it steps through channels 11-26 instead, to see what a tag with unknown settings such as the stock firmware sends), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download layout files like the tag firmware does).
 
 ## Watchdog
 
