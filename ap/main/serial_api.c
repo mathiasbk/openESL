@@ -104,6 +104,7 @@ static void handle_ota(const char *seq, const char *method, const char *uri, uns
     int status;
     if (strcmp(method, "GET") == 0) {
         read_body(NULL, len);
+        ota_confirm_running();
         status = ota_info(&out);
     } else if (strcmp(method, "POST") != 0) {
         read_body(NULL, len);

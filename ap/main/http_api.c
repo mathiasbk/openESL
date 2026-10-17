@@ -31,6 +31,10 @@ int api_handle(const esl_api_t *api, const char *method, const char *uri, const 
     xSemaphoreTake(api_mutex, portMAX_DELAY);
     int status = esl_api_handle(api, method, uri, auth, body, body_len, now_ms, out);
     xSemaphoreGive(api_mutex);
+#if CONFIG_ESL_OTA
+    if (status != 401 && status != 429)
+        ota_confirm_running(); /* the API answers: new firmware is kept */
+#endif
     return status;
 }
 
@@ -192,6 +196,7 @@ static esp_err_t ota_get(httpd_req_t *req)
 {
     if (!ota_auth(req))
         return ESP_OK;
+    ota_confirm_running();
     char buf[256];
     esl_sb_t out;
     esl_sb_init(&out, buf, sizeof(buf));

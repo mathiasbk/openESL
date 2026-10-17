@@ -7,7 +7,7 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
-import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -179,10 +179,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   function renderFirmware() {
     const { ota, tagfw } = last;
-    $("dash-ota").replaceChildren(...(!ota ? [] : [
-      ["AP firmware", `${ota.version} (${ota.slot})`],
+    const facts = !ota ? [] : [
+      ["AP firmware", `${ota.version} (${ota.slot}${ota.confirmed === false ? ", not confirmed yet" : ""})`],
       ["Other slot", ota.other_slot ? `${ota.other_slot}: ${ota.other_version || "empty"}` : "none (old partition table)"],
-    ]).map(([k, v]) => {
+    ];
+    if (ota && typeof ota.display === "boolean") facts.push(["Status screen", ota.display ? "yes" : "no"]);
+    $("dash-ota").replaceChildren(...facts.map(([k, v]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
@@ -191,6 +193,19 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       d.append(dt, dd);
       return d;
     }));
+    // A newer release on this page than the AP runs: a button that sends the image that fits it
+    const img = ota && ota.other_slot ? apImageFor(ota, pageInfo) : null;
+    if (img?.newer) {
+      const dd = $("dash-ota").querySelector("dd");
+      const b = document.createElement("button");
+      b.className = "small fw-up";
+      b.textContent = "\u2191 " + img.version; // arrow up
+      b.title = `Update the AP to ${img.version}` + (img.file.includes("lcd") ? " (with the status screen)" : "");
+      b.setAttribute("aria-label", "Update the AP to " + img.version);
+      b.disabled = sending;
+      b.onclick = () => sendPageApFirmware(img);
+      dd.append(" ", b);
+    }
     const rows = tagFirmwareRows(tagfw);
     $("dash-tagfw").replaceChildren(...rows.map((r) => {
       const tr = document.createElement("tr");
@@ -232,6 +247,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The tag images published with this page, read once: model -> { data, kind }
   const pageImgs = {};
   const pageData = {};
+  let pageInfo = null;    // firmware/info.json
   async function loadPageTagImages(info) {
     for (const k of ["tag-29", "tag-154"]) {
       if (!info?.ota?.[k]) continue;
@@ -257,6 +273,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((info) => {
+      pageInfo = info;
       const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${info.version}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
@@ -266,15 +283,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         return o;
       }));
       loadPageTagImages(info);
+      if (last) renderFirmware();
     });
+
+  async function pageFile(v) {
+    const r = await fetch(`${firmwareBase}firmware/${v}.bin`, { cache: "no-cache" });
+    if (!r.ok) throw new Error(`could not load ${firmwareBase}firmware/${v}.bin (${r.status})`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
 
   async function chosenFile() {
     const v = $("fw-src").value;
-    if (v !== "file") {
-      const r = await fetch(`${firmwareBase}firmware/${v}.bin`, { cache: "no-cache" });
-      if (!r.ok) throw new Error(`could not load ${firmwareBase}firmware/${v}.bin (${r.status})`);
-      return new Uint8Array(await r.arrayBuffer());
-    }
+    if (v !== "file") return pageFile(v);
     const f = $("fw-file").files[0];
     if (!f) return null;
     return new Uint8Array(await f.arrayBuffer());
@@ -301,7 +321,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       $("fw-file").click();
       return;
     }
-    return sendData(data);
+    const v = $("fw-src").value;
+    return sendData(data, v === "ap-openesl-lcd-ota" ? true : v === "ap-openesl-ota" ? false : null);
+  }
+
+  // The arrow-up button next to the AP's firmware
+  async function sendPageApFirmware(img) {
+    if (!client || sending) return;
+    let data;
+    try {
+      data = await pageFile(img.file);
+    } catch (e) {
+      return fwMsg("Could not read the firmware: " + e.message, "error");
+    }
+    $("fw-msg").scrollIntoView({ block: "nearest" });
+    return sendData(data, img.file.includes("lcd"));
   }
 
   // The arrow-up button in the tag table
@@ -312,11 +346,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return sendData(pageData[model]);
   }
 
-  async function sendData(data) {
+  // lcd: whether an AP image is the one with the status screen (null: a file of your own)
+  async function sendData(data, lcd = null) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
-    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"` : "AP firmware";
-    if (kind.kind === "ap" && !confirm("Send new firmware to the AP? It restarts into it when the upload is done.")) return;
+    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"` : `AP firmware${kind.version ? " " + kind.version : ""}`;
+    if (kind.kind === "ap" && !confirm(apSendQuestion(kind, last?.ota, lcd))) return;
     setSending(true);
     clearTimeout(timer);
     const progress = (sent, total) => {
