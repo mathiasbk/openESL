@@ -142,6 +142,16 @@ Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml
 
 OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
 
+## Contributing
+
+Help is welcome, and most of all with hardware we have not tried yet:
+
+- **Other labels:** more SoluM sizes and models, other labels built on the ZBS243, and labels with other chips too. Photos of the board, the chip and display type, and a flash backup are a good start.
+- **Other access points:** other ESP32 boards, or radios other than the ESP32-C6.
+- **Other flashers:** boards and jigs other than the Wemos D1 mini and our pogo-pin jig.
+
+Open an issue with what you have, or a pull request. Bug reports and fixes for everything else are just as welcome.
+
 ## Credits
 
 This project would be much harder without the people who opened up these tags first:
