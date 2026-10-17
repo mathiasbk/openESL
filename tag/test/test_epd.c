@@ -34,6 +34,7 @@ static uint8_t cur_cmd = 0xFF, first_cmd = 0xFF, last_cmd = 0xFF;
 static uint8_t param[8], nparam;
 static uint8_t entry = 0x03, xs, xe = RAM_X - 1, xc;
 static uint16_t ys, ye = RAM_Y - 1, yc, gate_lines;
+static uint8_t gate_scan;        /* 0x01 byte 3: bit 0 = TB, gates scanned from the last line */
 static uint8_t ram[2][RAM_Y][RAM_X];
 static int n_written[2], n_out_of_window, busy_polls;
 static bool asleep, busy_stuck;
@@ -82,7 +83,8 @@ static void on_byte(uint8_t b)
     if (nparam < sizeof(param))
         param[nparam++] = b;
     switch (cur_cmd) {
-    case 0x01: if (nparam == 2) gate_lines = (uint16_t)(param[0] | (param[1] << 8)) + 1; break;
+    case 0x01: if (nparam == 2) gate_lines = (uint16_t)(param[0] | (param[1] << 8)) + 1;
+               if (nparam == 3) gate_scan = param[2]; break;
     case 0x10: if (nparam == 1) asleep = (param[0] & 0x03) != 0; break;
     case 0x11: if (nparam == 1) entry = param[0]; break;
     case 0x44: if (nparam == 2) { xs = param[0]; xe = param[1]; } break;
@@ -119,10 +121,11 @@ static void reset_model(void)
     n_written[0] = n_written[1] = n_out_of_window = 0;
     first_cmd = last_cmd = cur_cmd = 0xFF;
     gate_lines = 0;
+    gate_scan = 0;
 }
 
 /* Pixel (x, y) of the screen as the controller holds it: 0 white, 1 black.
-   Screen column x = gate line x; row y = bit y of the source direction, MSB first. */
+   2.9": screen column x = gate line x with TB = 1; row y = bit y of the source direction, MSB first. */
 static int ram_pixel(int x, int y)
 {
 #if MODEL == 154
@@ -134,8 +137,11 @@ static int ram_pixel(int x, int y)
     m = (uint8_t)(0x80 >> (x & 7));
     return (ram[0][y][x >> 3] & m) ? 0 : 1;
 #else
+    /* 2.9": the panel shows gate G0 at the right edge (mirrored text, seen on the tag
+       2026-10-17), so the image reads left to right only with TB = 1 */
     uint8_t m = (uint8_t)(0x80 >> (y & 7));
-    return (ram[0][x][y >> 3] & m) ? 0 : 1;      /* black plane: 1 = white */
+    int g = (gate_scan & 0x01) ? x : DRAW_W - 1 - x;
+    return (ram[0][g][y >> 3] & m) ? 0 : 1;      /* black plane: 1 = white */
 #endif
 }
 
