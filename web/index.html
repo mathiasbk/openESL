@@ -172,6 +172,11 @@
         <details open id="ap-panel">
           <summary>Send to AP</summary>
           <div class="form">
+            <ol class="hint steps">
+              <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
+              <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
+              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
+            </ol>
             <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
             <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
             <div class="buttons tight">
@@ -184,7 +189,7 @@
               <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
             </div>
             <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>).</p>
+            <p class="hint">A web page cannot reach the AP by itself, and on https (such as GitHub Pages) the browser only lets it call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
           </div>
         </details>
         <details>
