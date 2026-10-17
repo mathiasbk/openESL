@@ -69,6 +69,8 @@ jobs:
       contents: write
       actions: write
     steps:
+      # for the model list (shared/models.json) and the AP boards (ap/boards/), which name the files
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: fw
@@ -77,14 +79,16 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
         run: |
           mkdir out
-          cp fw/tag-firmware/tag-29.bin    "out/openesl-tag-2.9-$TAG.bin"
-          cp fw/tag-firmware/tag-154.bin   "out/openesl-tag-1.54-$TAG.bin"
-          cp fw/tag-firmware/tag-29-ota.bin  "out/openesl-tag-2.9-$TAG-ota.bin"
-          cp fw/tag-firmware/tag-154-ota.bin "out/openesl-tag-1.54-$TAG-ota.bin"
-          cp fw/ap-firmware/openesl-ap.bin "out/openesl-ap-esp32c6-$TAG.bin"
-          cp fw/ap-firmware/openesl-ap-lcd.bin "out/openesl-ap-esp32c6-lcd-$TAG.bin"
-          cp fw/ap-firmware/openesl-ap-ota.bin "out/openesl-ap-esp32c6-$TAG-ota.bin"
-          cp fw/ap-firmware/openesl-ap-lcd-ota.bin "out/openesl-ap-esp32c6-lcd-$TAG-ota.bin"
+          # tags: openesl-tag-<name>-$TAG.bin per model in shared/models.json (2.9, 1.54, ...)
+          python3 shared/models.py names | while read -r build name; do
+            cp "fw/tag-firmware/tag-$build.bin" "out/openesl-tag-$name-$TAG.bin"
+            cp "fw/tag-firmware/tag-$build-ota.bin" "out/openesl-tag-$name-$TAG-ota.bin"
+          done
+          # AP: "release" in ap/boards/*/board.json (openesl-ap-esp32c6-$TAG.bin, ...)
+          python3 ap/build.py --release | while read -r artifact release; do
+            cp "fw/ap-firmware/$artifact.bin" "out/$release-$TAG.bin"
+            cp "fw/ap-firmware/$artifact-ota.bin" "out/$release-$TAG-ota.bin"
+          done
           (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
         env:

@@ -18,8 +18,8 @@ Steps:
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client and power-budget tests
   openapi   docs/openapi.yaml against the AP code
-  ap-fw     AP firmware with ESP-IDF v5.5.5, plain and with the LCD screen (idf.py on PATH,
-            otherwise the espressif/idf:v5.5.5 Docker image)
+  ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
+            on PATH, otherwise the espressif/idf:v5.5.5 Docker image)
   web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
@@ -147,14 +147,7 @@ def step_openapi():
     run(["make", "-C", "ap/test", "openapi"])
 
 
-AP_BUILD = " && ".join([
-    "idf.py build",
-    "(cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args)",
-    "cp build/esl_ap.bin out/openesl-ap-ota.bin",
-    'idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.lcd" build',
-    "cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin",
-    "(cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args)",
-])
+AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
 def step_ap_fw():
@@ -168,7 +161,7 @@ def step_ap_fw():
         if not docker_ok():
             raise Skip("neither idf.py (ESP-IDF v5.5.5) nor a running Docker")
         run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", AP_BUILD])
-    for name in ("openesl-ap.bin", "openesl-ap-ota.bin", "openesl-ap-lcd.bin", "openesl-ap-lcd-ota.bin"):
+    for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
 
 

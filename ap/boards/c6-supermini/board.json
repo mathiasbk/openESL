@@ -1,0 +1,12 @@
+{
+  "id": "c6-supermini",
+  "label": "ESP32-C6 (4 MB flash), e.g. the C6 Super Mini",
+  "target": "esp32c6",
+  "chip_family": "ESP32-C6",
+  "flash_mb": 4,
+  "psram_mb": 0,
+  "antenna": "on the board",
+  "artifact": "openesl-ap",
+  "release": "openesl-ap-esp32c6",
+  "status": "supported"
+}
