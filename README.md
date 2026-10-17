@@ -1,14 +1,67 @@
 # OpenESL
 
+<p align="center">
+  <img src="docs/images/tag-154-front.jpg" alt="A SoluM 1.54-inch tag running OpenESL: its start screen shows the MAC, FW 0.2.0 and Waiting for content" width="300">
+</p>
+
 Open firmware for the SoluM ST-GM29XX2 (2.9") and ST-GM16XX2 (1.54") price tags (ZBS243) and an access point (AP) on the ESP32-C6. The AP exposes a small HTTP API, so any software can send price and text straight to the tags.
 
-```
-your software ──HTTP + token──► ESP32-C6 (AP) ──802.15.4──► tags (ZBS243)
+**Web page:** [mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/) has the label designer, the flashers for tags and the AP, the dashboard, the setup guide and the API documentation, all in the browser.
+
+## How it works
+
+```mermaid
+flowchart LR
+    client["Your software<br/>(script, web shop, home automation)"]
+    ap["ESP32-C6 access point<br/>HTTP API · stores text per tag"]
+    tags["Tags (ZBS243)<br/>2.9&quot; and 1.54&quot; e-paper"]
+    client -- "HTTP + token<br/>(WiFi or USB)" --> ap
+    ap -- "802.15.4 radio" --> tags
 ```
 
 The AP is only an API. It does not know about products, shops or databases: it stores text fields per tag MAC and hands them to the tags. Anything that can make an HTTP request (a script, a web shop, a home automation system) can be a client.
 
-**Setting up the AP** (first start, WiFi, the API token): the Set up tab of the web page, [mathiasbk.github.io/openESL/#setup](https://mathiasbk.github.io/openESL/#setup). **API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api): interactive, with test requests against your own AP through `tools/esl-client` (`esl_client.py serve`). The reference is [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1), checked against the AP code in CI. The same page has the label designer and the flashers. An example client is in [tools/esl-client](tools/esl-client/README.md).
+```bash
+curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
+```
+
+The tag picks the new content up at its next poll and draws it with the built-in `price` layout, or with your own layouts from the designer. These are the tag's own drawings, from the firmware running on the PC in [sim/](sim/README.md):
+
+<p align="center">
+  <img src="docs/images/tag-screens.png" alt="Three tag screens drawn by the tag firmware: two 2.9-inch labels and one 1.54-inch label with a product name, a large price and a unit price" width="720">
+</p>
+
+## The web page
+
+**Design** draws the layout files for each tag model. The preview is drawn by the tag's own code built to WebAssembly, so it is what the tag will show, pixel for pixel, and the meters under it show how much of the tag's limits the layout uses.
+
+![The label designer with a 2.9-inch shelf layout: a black name band, a price in an inverted box and a unit price](docs/images/web-designer.png)
+
+**Dashboard** shows the AP's state and every tag (last poll, signal, battery, firmware, what it waits for), over USB or through the bridge in `tools/esl-client`, and sends new firmware to the AP and to the tags over the radio. The screenshot is of the simulator in [sim/](sim/README.md).
+
+![The dashboard: the access point's firmware, uptime, radio channel and poll interval, and a table with one tag that is OK](docs/images/web-dashboard.png)
+
+**Flash tag** and **Flash AP** put the firmware on the hardware over Web Serial, and **Set up** and **API** cover the first start and the HTTP API.
+
+**Setting up the AP** (first start, WiFi, the API token): the Set up tab of the web page, [mathiasbk.github.io/openESL/#setup](https://mathiasbk.github.io/openESL/#setup). **API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api): interactive, with test requests against your own AP through `tools/esl-client` (`esl_client.py serve`). The reference is [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1), checked against the AP code in CI. An example client is in [tools/esl-client](tools/esl-client/README.md).
+
+## Hardware
+
+| | |
+|---|---|
+| **Tags** | SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), black and white e-paper, ZBS243 (8051 with an 802.15.4 radio). The 1.54" takes one CR2450, the 2.9" two. Notes: [docs/st-gm16xx2.md](docs/st-gm16xx2.md). |
+| **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD can show a status screen. |
+| **Flashing tags** | A Wemos D1 mini with atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) and a pogo-pin jig on the test pads behind the battery. |
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/pcb-154.jpg" alt="The circuit board of a 1.54-inch tag with the ZBS243 and the display connector" width="260"><br><sub>1.54" board: ZBS243 and display connector</sub></td>
+    <td align="center"><img src="docs/images/tag-154-back.jpg" alt="The back of a 1.54-inch tag with the battery removed, showing the test pads" width="260"><br><sub>1.54" back: test pads behind the CR2450</sub></td>
+    <td align="center"><img src="docs/images/tag-29-back.jpg" alt="The back of a 2.9-inch tag with the batteries removed, showing the test pads" width="150"><br><sub>2.9" back: two batteries, test pads</sub></td>
+  </tr>
+</table>
 
 ## Status
 
