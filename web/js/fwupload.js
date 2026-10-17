@@ -104,21 +104,40 @@ async function sendPart(ap, method, path, part) {
 
 // Sends data in parts: a part at offset 0 starts the upload, every other part goes on from
 // the last. progress(sent, total) after each. Returns the AP's answer to the last part.
-export async function uploadParts(ap, method, path, data, progress = () => {}, part = PART) {
+// query: more of the query string for every part, such as "&to=...".
+export async function uploadParts(ap, method, path, data, progress = () => {}, part = PART, query = "") {
   const total = data.length;
   let reply = null;
   for (let off = 0; off < total; off += part) {
     const chunk = data.subarray(off, Math.min(off + part, total));
-    reply = await sendPart(ap, method, `${path}?offset=${off}&total=${total}`, chunk);
+    reply = await sendPart(ap, method, `${path}?offset=${off}&total=${total}${query}`, chunk);
     progress(Math.min(off + part, total), total);
   }
   return reply;
 }
 
-// New tag firmware: the AP keeps it and offers it to the tags of its model.
-// Returns { model, version, size, crc, ... }.
-export function sendTagFirmware(ap, data, progress) {
-  return uploadParts(ap, "PUT", "/api/tag-firmware", data, progress);
+// New tag firmware: the AP keeps it and offers it to the tags of its model, or with to (a
+// tag's MAC) to that tag alone. Returns { model, version, size, crc, ... }.
+export function sendTagFirmware(ap, data, progress, to = null) {
+  return uploadParts(ap, "PUT", "/api/tag-firmware", data, progress, PART, to ? "&to=" + encodeURIComponent(to) : "");
+}
+
+// The image the AP has for a model goes to one more tag (its MAC), or to all of them ("all").
+// Returns GET /api/tag-firmware/{model}.
+export function chooseTagFirmware(ap, model, to) {
+  return ap.call("POST", `/api/tag-firmware/${encodeURIComponent(model)}?to=${encodeURIComponent(to)}`);
+}
+
+// The AP's image is for this tag ("to" in GET /api/tag-firmware)
+const isFor = (img, mac) => img?.to === "all" || (Array.isArray(img?.to) && img.to.includes(mac));
+
+// How far a download is: { fraction, text }, fraction null while nothing has arrived
+export function fwProgress(received, size) {
+  if (!size) return { fraction: null, text: "waiting" };
+  if (received >= size) return { fraction: null, text: "installing" };
+  if (!received) return { fraction: null, text: "waiting for its next poll" };
+  const fraction = received / size;
+  return { fraction, text: `${Math.floor(fraction * 100)} %` };
 }
 
 // New AP firmware: written to the other app slot; the AP restarts into it a second after
@@ -127,29 +146,45 @@ export function sendApFirmware(ap, data, progress) {
   return uploadParts(ap, "POST", "/api/ota", data, progress);
 }
 
-// For a tag in the dashboard's table: null when there is nothing to offer it, { update: version }
-// when the page has newer firmware for its model than it runs and it takes firmware over the
-// radio, or { text } when the AP already offers that version. pageImgs: model -> firmwareKind()
+// For a tag in the dashboard's table, or null when there is nothing to say:
+// { updating: version, fraction, text } while it fetches the AP's image (fw_update in GET
+// /api/tags), { update: version } when the page has newer firmware for its model and the AP
+// does not have it yet, { choose: version } when the AP has it but not for this tag, and
+// { text } when it is for the tag and the tag rejected it. pageImgs: model -> firmwareKind()
 // of the page's file; tagfw: GET /api/tag-firmware.
 export function tagUpdate(tag, pageImgs, tagfw) {
+  const u = tag.fw_update;
+  if (u) return { updating: u.version, ...fwProgress(u.received, u.size) };
   const img = pageImgs?.[tag.model];
   if (!tag.ota || !img || tag.fw == null || tag.fw >= img.ver) return null;
   const onAp = (tagfw?.images || []).find((i) => i.model === tag.model);
-  if (onAp?.version === img.version) return { text: `updating to ${img.version}` };
-  return { update: img.version };
+  if (onAp?.version !== img.version) return { update: img.version };
+  // AP firmware from before "to" and fw_update: it offers the image to every tag, and says no more
+  if (!onAp.to) return { text: `updating to ${img.version}` };
+  // fw_update is null for a tag the image is for: it rejected it
+  if (isFor(onAp, tag.mac)) return { text: `${img.version} failed` };
+  return { choose: img.version };
 }
 
 // Rows for the tag firmware table from GET /api/tag-firmware
+// { model, version, text, to, progress, toAll }: to says which tags the image is for,
+// progress how far they are together (fwProgress, or null when none is updating), toAll
+// whether other tags of the model could still get it.
 export function tagFirmwareRows(reply) {
   return (reply?.images || []).map((i) => {
     const t = i.tags || {};
+    if (!i.version) return { model: i.model, version: null, text: "no firmware on the AP", to: null, progress: null, toAll: false };
+    const p = i.progress;
     return {
       model: i.model,
-      version: i.version || null,
-      text: i.version
-        ? `${t.updated || 0} updated, ${t.pending || 0} waiting, ${t.failed || 0} failed` +
-          (t.no_ota ? `, ${t.no_ota} without radio updates` : "")
-        : "no firmware on the AP",
+      version: i.version,
+      text:
+        `${t.updated || 0} updated, ${t.pending || 0} updating, ${t.failed || 0} failed` +
+        (t.not_chosen ? `, ${t.not_chosen} not chosen` : "") +
+        (t.no_ota ? `, ${t.no_ota} without radio updates` : ""),
+      to: Array.isArray(i.to) ? `${i.to.length} chosen ${i.to.length === 1 ? "tag" : "tags"}` : "all tags",
+      progress: !t.pending || !p?.total ? null : p.received ? fwProgress(p.received, p.total) : { fraction: null, text: "waiting for their polls" },
+      toAll: Array.isArray(i.to) && !!t.not_chosen,
     };
   });
 }

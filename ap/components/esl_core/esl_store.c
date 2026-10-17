@@ -412,6 +412,17 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     return offer;
 }
 
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        st->tags[idx].fw_got_ver = ver;
+        st->tags[idx].fw_got = end;
+    }
+    unlock(st);
+}
+
 void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out)
 {
     memset(out, 0, sizeof(*out));
