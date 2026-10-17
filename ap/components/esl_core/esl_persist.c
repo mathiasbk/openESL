@@ -87,3 +87,36 @@ bool esl_persist_cfg_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_ta
     cfg->lost_ap_s = (uint16_t)(in[13] | (in[14] << 8));
     return true;
 }
+
+size_t esl_persist_seen_encode(uint64_t mac, const esl_seen_t *s, uint8_t *out)
+{
+    size_t o = 0;
+    out[o++] = ESL_PERSIST_SEEN_VER;
+    for (int i = 0; i < 8; i++)
+        out[o++] = (uint8_t)(mac >> (8 * i));
+    out[o++] = s->model;
+    out[o++] = (uint8_t)s->fw;
+    out[o++] = (uint8_t)(s->fw >> 8);
+    out[o++] = (uint8_t)s->battery_mv;
+    out[o++] = (uint8_t)(s->battery_mv >> 8);
+    out[o++] = (uint8_t)s->rssi;
+    for (int i = 0; i < 4; i++)
+        out[o++] = (uint8_t)(s->unix_s >> (8 * i));
+    return o;
+}
+
+bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_seen_t *s)
+{
+    if (len != ESL_PERSIST_SEEN_LEN || in[0] != ESL_PERSIST_SEEN_VER)
+        return false;
+    uint64_t m = 0;
+    for (int i = 8; i >= 1; i--)
+        m = (m << 8) | in[i];
+    *mac = m;
+    s->model = in[9];
+    s->fw = (uint16_t)(in[10] | (in[11] << 8));
+    s->battery_mv = (uint16_t)(in[12] | (in[13] << 8));
+    s->rssi = (int8_t)in[14];
+    s->unix_s = (uint32_t)in[15] | ((uint32_t)in[16] << 8) | ((uint32_t)in[17] << 16) | ((uint32_t)in[18] << 24);
+    return true;
+}

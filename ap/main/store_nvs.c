@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "esp_timer.h"
 #include "nvs.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
@@ -23,6 +25,15 @@ static const char *NS_TAGS = "esl_tags";
 static const char *NS_LAYOUTS = "esl_layouts";
 
 static SemaphoreHandle_t mutex;
+static esl_store_t *store_ref;
+static esl_sched_t *clock_ref;
+
+/* What the AP last heard from each tag ("s<slot>", esl_persist.h) is saved
+ * when a tag is new or changes model or firmware, every SEEN_SAVE_S for the
+ * tags heard since, and before an OTA restart (store_nvs_flush). So a tag that
+ * only polls is not forgotten, and one that has gone quiet still shows when it
+ * was last heard. At most one small write per tag per hour. */
+#define SEEN_SAVE_S 3600
 
 static void lock(void *ctx)
 {
@@ -109,6 +120,53 @@ static void persist_next_poll(void *ctx, const uint16_t *next_poll_s)
         ESP_LOGE(TAG, "saving cfg/poll_s failed: %s", esp_err_to_name(err));
 }
 
+static void seen_key(unsigned slot, char key[8])
+{
+    snprintf(key, 8, "s%u", slot);
+}
+
+static void persist_seen(void *ctx, unsigned slot, uint64_t mac, const esl_seen_t *rec)
+{
+    (void)ctx;
+    uint8_t blob[ESL_PERSIST_SEEN_LEN];
+    char key[8];
+    seen_key(slot, key);
+    if (rec)
+        blob_write(NS_TAGS, key, blob, esl_persist_seen_encode(mac, rec, blob));
+    else
+        blob_write(NS_TAGS, key, NULL, 0);
+}
+
+static uint32_t unix_now(void *ctx)
+{
+    (void)ctx;
+    return clock_ref ? esl_sched_now(clock_ref, (uint64_t)esp_timer_get_time() / 1000, NULL) : 0;
+}
+
+static void seen_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(SEEN_SAVE_S * 1000));
+        unsigned n = esl_store_save_seen(store_ref);
+        if (n)
+            ESP_LOGI(TAG, "saved %u tags' last poll", n);
+    }
+}
+
+void store_nvs_set_clock(esl_sched_t *sched)
+{
+    clock_ref = sched;
+}
+
+void store_nvs_flush(void)
+{
+    if (store_ref) {
+        unsigned n = esl_store_save_seen(store_ref);
+        ESP_LOGI(TAG, "saved %u tags' last poll before the restart", n);
+    }
+}
+
 static void layout_key(uint8_t model, char key[8])
 {
     snprintf(key, 8, "m%u", (unsigned)model);
@@ -133,15 +191,18 @@ static void layout_erase(void *ctx, uint8_t model)
 esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
-                                        persist_next_poll};
+                                        persist_next_poll, persist_seen, unix_now};
     esl_tag_t *tags = calloc(cap, sizeof(esl_tag_t));
     mutex = xSemaphoreCreateMutex();
     if (!tags || !mutex)
         return ESP_ERR_NO_MEM;
     esl_store_init(st, tags, cap, &ops, next_poll_s);
+    store_ref = st;
+    if (xTaskCreate(seen_task, "store_seen", 4096, NULL, 2, NULL) != pdPASS)
+        return ESP_ERR_NO_MEM;
 
     nvs_handle_t h;
-    unsigned loaded = 0, configs = 0;
+    unsigned loaded = 0, configs = 0, heard = 0;
     if (nvs_open("cfg", NVS_READONLY, &h) == ESP_OK) {
         uint16_t v;
         if (nvs_get_u16(h, "poll_s", &v) == ESP_OK) {
@@ -177,9 +238,19 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
             else
                 ESP_LOGW(TAG, "ignoring bad stored settings in slot %u", slot);
         }
+
+        /* after content and settings: a record with another MAC than the slot's
+           content is an older tag that slot held, and is skipped */
+        esl_seen_t rec;
+        len = sizeof(blob);
+        seen_key(slot, key);
+        if (nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_seen_decode(blob, len, &mac, &rec) &&
+            esl_store_restore_seen(st, slot, mac, &rec))
+            heard++;
     }
     nvs_close(h);
-    ESP_LOGI(TAG, "loaded %u tags and %u tag settings from NVS", loaded, configs);
+    ESP_LOGI(TAG, "loaded %u tags with content, %u tag settings and %u tags' last poll from NVS", loaded, configs,
+             heard);
     return ESP_OK;
 }
 
