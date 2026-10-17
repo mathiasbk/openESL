@@ -32,7 +32,7 @@ AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c 
 DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(ROOT)/shared/*.h) \
             $(TAG_SRCS) $(AP_SRCS) $(ROOT)/VERSION
 
-MODELS := 154 29
+MODELS := $(shell python3 ../shared/models.py builds)   # shared/models.json
 BINS   := $(MODELS:%=build/%/esl-sim)
 
 .PHONY: all test serial clean

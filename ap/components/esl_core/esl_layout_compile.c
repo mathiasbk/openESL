@@ -258,6 +258,10 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "x + w = %u is past the right edge of the screen (%u)", x + w, (unsigned)c->scr_w);
     if (y + h > c->scr_h)
         return fail(c, "y + h = %u is past the bottom of the screen (%u)", y + h, (unsigned)c->scr_h);
+    if (y > 255 || h > 255)
+        /* ESL_LE_OFF_Y and ESL_LE_OFF_H are one byte each in this format: a screen taller
+           than 255 pixels needs a new layout format, not a silently cut coordinate */
+        return fail(c, "y and h must be at most 255 (the layout format has one byte for each)");
 
     memset(out, 0, ESL_LE_SIZE);
     out[ESL_LE_OFF_KIND] = text ? ESL_LE_TEXT : barcode ? ESL_LE_BARCODE : ESL_LE_RECT;

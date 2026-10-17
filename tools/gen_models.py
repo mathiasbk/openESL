@@ -59,6 +59,15 @@ def validate(ms):
             errors.append("%s: mac_code is one byte" % where)
         if "photo" in m and not os.path.exists(os.path.join(ROOT, "web", m["photo"].get("file", ""))):
             errors.append("%s: photo %s is not in web/" % (where, m["photo"].get("file")))
+        if m["chip"] == "zbs243" and m["height"] > 248:
+            # tag/src/model.h: a column is indexed with uint8_t, and the layout format has u8 Y/H
+            errors.append("%s: the ZBS243 firmware draws at most 248 pixels high (needs layout format 2)" % where)
+        if "red" in m["colors"] or "yellow" in m["colors"]:
+            errors.append("%s: the firmware does not draw red or yellow yet (plan-flere-tagtyper 2b)" % where)
+        layout = os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
+        if not os.path.exists(layout):
+            errors.append("%s: no example layout file %s (the simulator and web page use it)" %
+                          (where, os.path.relpath(layout, ROOT)))
     if errors:
         return errors
     codes = [m["code"] for m in ms]
