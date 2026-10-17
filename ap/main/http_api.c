@@ -7,6 +7,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
+#if CONFIG_ESL_WEB_DASHBOARD
+#include "webui.h"
+#endif
 
 /* esp_http_server glue: reads the request and hands it to esl_api_handle().
  * The server runs all handlers in one task; api_handle() also keeps them apart
@@ -379,6 +382,30 @@ static esp_err_t page_handler(httpd_req_t *req)
 }
 #endif
 
+#if CONFIG_ESL_WEB_DASHBOARD
+/* GET /dashboard and /ui/...: the web page's dashboard, gzipped in flash
+ * (webui.h). No token: the page asks for it and sends it with each API call. */
+static esp_err_t webui_handler(httpd_req_t *req)
+{
+    char path[64];
+    strlcpy(path, req->uri, sizeof(path));
+    char *q = strchr(path, '?');
+    if (q)
+        *q = 0;
+    for (const webui_file_t *f = webui_files; f->path; f++) {
+        if (strcmp(f->path, path) != 0)
+            continue;
+        httpd_resp_set_type(req, f->type);
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+        /* new firmware brings new files; the browser asks again after an update */
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+        return httpd_resp_send(req, (const char *)f->gz, (ssize_t)f->len);
+    }
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+    return ESP_OK;
+}
+#endif
+
 #if CONFIG_ESL_WIFI_CAPTIVE
 /* Any other GET while the setup network is open, asked for by a name that is
  * not the AP's own address (a phone's connectivity probe, which captive.c's
@@ -415,7 +442,7 @@ esp_err_t http_api_start(const esl_api_t *api)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
-    cfg.max_uri_handlers = 13; /* two for /api/ota, three for the /api wildcard, two for /setup, / and the rest */
+    cfg.max_uri_handlers = 15; /* two for /api/ota, three for the /api wildcard, two for /setup, /, two for the dashboard, and the rest */
 
     esp_err_t err = httpd_start(&server, &cfg);
     if (err != ESP_OK)
@@ -462,6 +489,17 @@ esp_err_t http_api_start(const esl_api_t *api)
     err = httpd_register_uri_handler(server, &page);
     if (err != ESP_OK)
         return err;
+#endif
+#if CONFIG_ESL_WEB_DASHBOARD
+    httpd_uri_t ui[] = {
+        {.uri = "/dashboard", .method = HTTP_GET, .handler = webui_handler, .user_ctx = (void *)api},
+        {.uri = "/ui/*", .method = HTTP_GET, .handler = webui_handler, .user_ctx = (void *)api},
+    };
+    for (size_t i = 0; i < sizeof(ui) / sizeof(ui[0]); i++) {
+        err = httpd_register_uri_handler(server, &ui[i]);
+        if (err != ESP_OK)
+            return err;
+    }
 #endif
 #if CONFIG_ESL_WIFI_CAPTIVE
     if (api->wifi) {

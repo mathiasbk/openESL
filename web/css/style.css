@@ -74,6 +74,8 @@ label { display: inline-flex; gap: 6px; align-items: center; }
   padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
 }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tabs a { padding: 6px 12px; border-radius: 6px; color: inherit; text-decoration: none; }
+.tabs a:hover { background: var(--hover, rgba(0,0,0,.06)); }
 .tabs button { border: none; border-radius: 6px; background: none; padding: 6px 12px; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); }
 .repo { margin-left: auto; color: var(--muted); }

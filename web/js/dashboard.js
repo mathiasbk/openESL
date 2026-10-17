@@ -1,6 +1,8 @@
 // dashboard.js - the Dashboard tab: the AP's state, its WiFi and every tag, from GET /api/tags,
 // /api/health and /api/wifi. Over the AP's USB port (js/apport.js, shared with the WiFi card)
-// or over HTTP through the bridge in tools/esl-client (js/apclient.js).
+// or over HTTP through the bridge in tools/esl-client (js/apclient.js). The AP also serves
+// this dashboard itself at /dashboard (js/apdash.js): then it calls its own /api/ directly,
+// with { sameOrigin: true }.
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
@@ -15,7 +17,7 @@ const store = {
   set: (k, v) => { try { localStorage.setItem("openesl." + k, v); } catch { /* private window */ } },
 };
 
-export function initDashboard() {
+export function initDashboard({ sameOrigin = false } = {}) {
   let client = null;      // anything with call(method, path)
   let timer = null;
   let loading = false;
@@ -33,7 +35,15 @@ export function initDashboard() {
   };
   $("dash-src").value = store.get("dash.src") || (hasSerial() ? "serial" : "http");
   $("dash-url").value = store.get("dash.url");
+  if (sameOrigin) {
+    // On the AP's own page: its API is right here, only the token is asked for
+    $("dash-src").value = "http";
+    $("dash-src").closest("label").hidden = true;
+    $("dash-token").placeholder = "the AP's API token";
+    $("dash-token").value = store.get("dash.token");
+  }
   showSrc();
+  if (sameOrigin) $("dash-url-label").hidden = true;
   $("dash-src").addEventListener("change", () => {
     store.set("dash.src", src());
     showSrc();
@@ -377,9 +387,16 @@ export function initDashboard() {
         msg("Waiting for the AP ...");
         setConnected(serialAp() || (await connectSerial()));
       } else {
+        const token = $("dash-token").value.trim();
+        if (sameOrigin) {
+          if (!token) throw new Error("enter the AP's API token (set when it was flashed, or on its /setup page).");
+          store.set("dash.token", token);  // kept in this browser, for this AP's address only
+          setConnected(new ApClient("", token));
+          return;
+        }
         const { base, error } = apBase($("dash-url").value);
         if (error) throw new Error(error);
-        setConnected(new ApClient(base, $("dash-token").value.trim()));
+        setConnected(new ApClient(base, token));
       }
     } catch (e) {
       msg(e.name === "NotFoundError" ? "" : "Could not connect: " + e.message, "error");
@@ -387,4 +404,7 @@ export function initDashboard() {
       $("dash-connect").disabled = false;
     }
   });
+
+  // The AP's own page with a remembered token: connect at once
+  if (sameOrigin && $("dash-token").value) $("dash-connect").click();
 }

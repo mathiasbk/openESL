@@ -49,7 +49,7 @@ static esl_tagfw_t fw;
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
