@@ -3,9 +3,12 @@
 // in parts that each get an answer before the next. No DOM here, so test/fwupload.test.mjs
 // can check it against a simulated AP.
 
-// Parts of 16 KB: below the AP's 24 KB body limit, and its USB driver drops bytes when a
-// bigger request fills its buffer (OTA_PART and TAGFW_PART in esl_client.py)
+// Parts of 16 KB for AP firmware: below the AP's 24 KB body limit, and its USB driver drops
+// bytes when a bigger request fills its buffer (OTA_PART in esl_client.py). The AP writes
+// those to flash as they come. A tag firmware part it holds in RAM, in one block, so those
+// are 8 KB (TAGFW_PART).
 export const PART = 16384;
+export const TAGFW_PART = 8192;
 
 const TAGFW_MAGIC = [0x4f, 0x53, 0x46, 0x57]; // "OSFW" (shared/proto.h ESL_FWF_MAGIC)
 const TAG_MODELS = { 1: "2.9", 2: "1.54" };
@@ -119,7 +122,7 @@ export async function uploadParts(ap, method, path, data, progress = () => {}, p
 // New tag firmware: the AP keeps it and offers it to the tags of its model, or with to (a
 // tag's MAC) to that tag alone. Returns { model, version, size, crc, ... }.
 export function sendTagFirmware(ap, data, progress, to = null) {
-  return uploadParts(ap, "PUT", "/api/tag-firmware", data, progress, PART, to ? "&to=" + encodeURIComponent(to) : "");
+  return uploadParts(ap, "PUT", "/api/tag-firmware", data, progress, TAGFW_PART, to ? "&to=" + encodeURIComponent(to) : "");
 }
 
 // The image the AP has for a model goes to one more tag (its MAC), or to all of them ("all").
