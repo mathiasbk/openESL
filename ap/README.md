@@ -40,8 +40,12 @@ ap/
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
     health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
     ota.c               new AP firmware through POST /api/ota (ESL_OTA)
-    display.c           status on a small ST7789 LCD (ESL_DISPLAY, sdkconfig.lcd)
-  partitions.csv          4 MB: NVS of 468 KB for tag content and layout files, two app slots for OTA, 128 KB for tag firmware
+    display.c           status on a small ST7789 LCD (ESL_DISPLAY, boards/c6-supermini-lcd)
+  boards/                 one folder per AP board: board.json, sdkconfig.defaults, partitions.csv (boards/README.md)
+    c6-supermini/       ESP32-C6, 4 MB: NVS of 468 KB, two app slots for OTA, 128 KB for tag firmware (the default)
+    c6-supermini-lcd/   the same with the 0.96" status screen
+    c5-wroom-1u-n16r8/  ESP32-C5 with 16 MB flash and 8 MB PSRAM, external antenna (experimental)
+  build.py                builds one or every board into out/ (merged image and OTA image)
   test/                   host unit tests (Makefile)
 ```
 
@@ -145,11 +149,11 @@ up 3 d 4 h, 9 seen               uptime and tags heard from in the last 10 min; 
 It is off by default, so the C6 Super Mini build is unchanged. Build with the screen:
 
 ```sh
-idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build
-idf.py -B build-lcd -p /dev/ttyACM0 flash monitor
+python build.py c6-supermini-lcd
+idf.py -B build-c6-supermini-lcd -p /dev/ttyACM0 flash monitor
 ```
 
-CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in `sdkconfig.lcd` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are a guess from the Waveshare ESP32-C6-LCD boards, since the seller gives no pinout; check them against the board's silkscreen or schematic. At start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`. The text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
+CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in `boards/c6-supermini-lcd/sdkconfig.defaults` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are a guess from the Waveshare ESP32-C6-LCD boards, since the seller gives no pinout; check them against the board's silkscreen or schematic. At start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`. The text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
 
 ## How many tags
 
@@ -188,14 +192,18 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 ## Build and flash
 
-Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components. The custom partition table (`partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the partitions moved. Erasing takes the stored tags, layout files and settings with it: `esl-client backup ap.json` before and `esl-client restore ap.json` after keeps them (`tools/esl-client/README.md`).
+Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components (for the ESP32-C6; other chips get `dependencies.lock.<chip>` on their first build, to be committed too). Each board in `boards/` has its chip, flash size, partition table and options; see [boards/README.md](boards/README.md). The C6 Super Mini's partition table (`boards/c6-supermini/partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web flasher, which always erases), since the partitions moved. Erasing takes the stored tags, layout files and settings with it: `esl-client backup ap.json` before and `esl-client restore ap.json` after keeps them (`tools/esl-client/README.md`).
 
 ```bash
 cd ap
-idf.py set-target esp32c6
-idf.py menuconfig
+idf.py menuconfig                  # the ESP32-C6 Super Mini (boards/c6-supermini), as before
 idf.py build flash monitor
+python build.py --list             # the boards
+python build.py c5-wroom-1u-n16r8  # one board: build-<board>/, and out/<artifact>.bin + -ota.bin
+idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
 ```
+
+The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed.
 
 ## Tests on the PC
 

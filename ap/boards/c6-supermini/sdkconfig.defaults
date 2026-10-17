@@ -1,0 +1,9 @@
+# ESP32-C6 Super Mini (ESP32-C6FH4: 512 KB SRAM, no PSRAM, 4 MB flash in the package).
+# The board the AP was written for; any ESP32-C6 board with 4 MB flash works the same.
+CONFIG_IDF_TARGET="esp32c6"
+
+# 4 MB flash: bigger NVS for tag content and layout files, two app slots for OTA and
+# two tag firmware slots (partitions.csv in this folder)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/c6-supermini/partitions.csv"

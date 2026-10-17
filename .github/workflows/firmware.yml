@@ -1,11 +1,13 @@
-# Builds the tag firmware (both models, after the host tests) and the AP firmware.
+# Builds the tag firmware (every model in shared/models.json, after the host tests) and the AP
+# firmware (every board in ap/boards/).
 # Called by web.yml (every push and pull request) and release.yml (a VERSION bump merged to master, a tag v*, or by hand), so CI and
 # releases build the firmware the same way. Artifacts:
-#   tag-firmware: tag-29.bin, tag-154.bin (bootloader and application, for the flasher),
-#                 tag-29-ota.bin, tag-154-ota.bin (the application with its header, for PUT /api/tag-firmware)
-#   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
-#                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
-#                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
+#   tag-firmware: tag-<build>.bin (bootloader and application, for the flasher) and tag-<build>-ota.bin
+#                 (the application with its header, for PUT /api/tag-firmware): tag-29*.bin, tag-154*.bin
+#   ap-firmware:  <artifact>.bin (bootloader, partition table and app merged, written at 0) and
+#                 <artifact>-ota.bin (the app alone, for POST /api/ota) per board (ap/build.py):
+#                 openesl-ap*.bin (C6), openesl-ap-lcd*.bin (C6 with the status screen),
+#                 openesl-ap-c5-n16r8*.bin (ESP32-C5 with PSRAM)
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
 
@@ -32,6 +34,8 @@ jobs:
           curl -sSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.5.0/sdcc-4.5.0-amd64-unknown-linux2.5.tar.bz2/download
           mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
       - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
+      - name: Model registry (the generated files match shared/models.json)
+        run: python3 tools/gen_models.py --check
       - name: Host tests
         run: |
           # zxing-cpp reads back the barcodes the tag code draws (tag/test/test_label_barcode.py)
@@ -46,15 +50,8 @@ jobs:
         with:
           name: sim-screens
           path: sim/build/*/screens/
-      - name: Build firmware (2.9" and 1.54")
-        run: |
-          MODEL=29 python3 tag/tools/build.py fw
-          MODEL=154 python3 tag/tools/build.py fw
-          mkdir -p out
-          cp tag/build/fw/openesl.bin out/tag-29.bin
-          cp tag/build/fw154/openesl.bin out/tag-154.bin
-          cp tag/build/fw/openesl-ota.bin out/tag-29-ota.bin
-          cp tag/build/fw154/openesl-ota.bin out/tag-154-ota.bin
+      - name: Build firmware (every model in shared/models.json)
+        run: python3 tools/check.py --strict tag-fw   # writes out/tag-<build>.bin and out/tag-<build>-ota.bin
       - uses: actions/upload-artifact@v7
         with:
           name: tag-firmware
@@ -70,19 +67,13 @@ jobs:
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
-      - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
+      - name: Build AP for every board (ESP-IDF v5.5.5), each merged into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
-          target: esp32c6
+          target: esp32c6   # only for the action; ap/build.py takes the chip from each board
           path: ap
-          command: >-
-            mkdir -p out &&
-            idf.py build && (cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args) &&
-            cp build/esl_ap.bin out/openesl-ap-ota.bin &&
-            idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build &&
-            cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin &&
-            cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args
+          command: python build.py
       - uses: actions/upload-artifact@v7
         with:
           name: ap-firmware

@@ -18,7 +18,7 @@
  * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex.
  *
  * Up to 2 x 8 KB of layouts plus one ~120-byte blob per tag needs more than the
- * default 24 KB NVS partition; see partitions.csv. */
+ * default 24 KB NVS partition; see boards/<board>/partitions.csv. */
 
 static const char *TAG = "store";
 static const char *NS_TAGS = "esl_tags";
