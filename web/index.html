@@ -211,11 +211,11 @@
       <h3 class="sub">1. Choose the tag model</h3>
       <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
         <button type="button" class="model" role="radio" data-model="2.9" aria-checked="true">
-          <canvas width="296" height="128"></canvas>
+          <img src="img/tag-29.jpg" width="529" height="280" alt="Photo of the 2.9&quot; tag">
           <span class="name">2.9"</span><span class="muted">296 × 128, ST-GM29XX2</span>
         </button>
         <button type="button" class="model" role="radio" data-model="1.54" aria-checked="false">
-          <canvas width="200" height="200"></canvas>
+          <img src="img/tag-154.jpg" width="245" height="280" alt="Photo of the 1.54&quot; tag">
           <span class="name">1.54"</span><span class="muted">200 × 200, ST-GM16XX2</span>
         </button>
       </div>
@@ -269,7 +269,8 @@
     <section class="card">
       <h2>Flash the access point (ESP32-C6)</h2>
       <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings. An AP that already runs OpenESL can be updated without a cable instead: <code>esl-client ota openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code> (the <code>-ota.bin</code> file of a release) writes the new firmware over the API and keeps everything stored. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards.</p>
+      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
+      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
       <p id="ap-fw-info" class="muted"></p>
       <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
       <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
