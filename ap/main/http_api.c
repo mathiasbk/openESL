@@ -2,6 +2,7 @@
 #include <string.h>
 #include "app.h"
 #include "esp_http_server.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -31,6 +32,10 @@ int api_handle(const esl_api_t *api, const char *method, const char *uri, const 
     xSemaphoreTake(api_mutex, portMAX_DELAY);
     int status = esl_api_handle(api, method, uri, auth, body, body_len, now_ms, out);
     xSemaphoreGive(api_mutex);
+#if CONFIG_ESL_OTA
+    if (status != 401 && status != 429)
+        ota_confirm_running(); /* the API answers: new firmware is kept */
+#endif
     return status;
 }
 
@@ -81,9 +86,33 @@ static esp_err_t send_reply(httpd_req_t *req, int status, esl_sb_t *out, const c
             return ESP_FAIL;
         return httpd_resp_send_chunk(req, NULL, 0);
     }
+    if (out->overflow) {
+        static const char msg[] = "{\"error\":\"reply too large\"}";
+        ESP_LOGE(TAG, "%s: reply larger than its buffer", req->uri);
+        return send_json(req, 500, msg, sizeof(msg) - 1);
+    }
     httpd_resp_set_status(req, esl_api_status_line(status));
     httpd_resp_set_type(req, type);
     return httpd_resp_send(req, out->buf, (ssize_t)out->len);
+}
+
+/* The buffer a request's reply is written into. A GET never needs the whole
+ * ESL_API_STREAM_BUF (23 KB, sized for a batch reply): what grows with the
+ * table is streamed, and the largest reply that is not is a layout file. The
+ * dashboard asks for five GETs every 10 s, so asking the heap for the smaller
+ * size keeps a fragmented heap from answering them with "out of memory". */
+#define GET_BUF (ESL_LAYOUT_MAX_SIZE + 2048)
+
+static size_t reply_buf_size(const char *method)
+{
+    return strcmp(method, "GET") == 0 ? GET_BUF : ESL_API_STREAM_BUF;
+}
+
+static void log_oom(const char *what, size_t want)
+{
+    ESP_LOGE(TAG, "%s: out of memory for %u bytes (free %u, largest block %u)", what, (unsigned)want,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
 static const char *method_name(int method)
@@ -112,8 +141,10 @@ static esp_err_t api_handler(httpd_req_t *req)
 
     if (len) {
         body = malloc(len);
-        if (!body)
+        if (!body) {
+            log_oom(req->uri, len);
             goto oom;
+        }
         size_t got = 0;
         while (got < len) {
             int r = httpd_req_recv(req, body + got, len - got);
@@ -136,12 +167,15 @@ static esp_err_t api_handler(httpd_req_t *req)
         }
     }
 
-    resp = malloc(ESL_API_STREAM_BUF);
-    if (!resp)
+    size_t cap = reply_buf_size(method);
+    resp = malloc(cap);
+    if (!resp) {
+        log_oom(req->uri, cap);
         goto oom;
+    }
     esl_sb_t out;
     sink_t sink = {req, "application/json"};
-    esl_sb_init(&out, resp, ESL_API_STREAM_BUF);
+    esl_sb_init(&out, resp, cap);
     esl_sb_set_sink(&out, http_sink, &sink);
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
     int status = api_handle(api, method, req->uri, auth, body, len, now_ms, &out);
@@ -150,7 +184,6 @@ static esp_err_t api_handler(httpd_req_t *req)
     goto done;
 
 oom:
-    ESP_LOGE(TAG, "%s %s: out of memory", method, req->uri);
     {
         static const char msg[] = "{\"error\":\"out of memory\"}";
         ret = send_json(req, 500, msg, sizeof(msg) - 1);
@@ -192,6 +225,7 @@ static esp_err_t ota_get(httpd_req_t *req)
 {
     if (!ota_auth(req))
         return ESP_OK;
+    ota_confirm_running();
     char buf[256];
     esl_sb_t out;
     esl_sb_init(&out, buf, sizeof(buf));
@@ -366,14 +400,15 @@ static esp_err_t page_handler(httpd_req_t *req)
             return httpd_resp_send(req, NULL, 0);
         }
     }
-    char *page = malloc(ESL_API_STREAM_BUF);
+    char *page = malloc(GET_BUF); /* streamed: grows with the table in pieces of this size */
     if (!page) {
+        log_oom("/", GET_BUF);
         httpd_resp_set_status(req, "500 Internal Server Error");
         return httpd_resp_sendstr(req, "out of memory");
     }
     esl_sb_t out;
     sink_t sink = {req, "text/html; charset=utf-8"};
-    esl_sb_init(&out, page, ESL_API_STREAM_BUF);
+    esl_sb_init(&out, page, GET_BUF);
     esl_sb_set_sink(&out, http_sink, &sink);
     int status = esl_api_status_page(api, (uint64_t)esp_timer_get_time() / 1000, &out);
     esp_err_t ret = send_reply(req, status, &out, status == 200 ? sink.type : "text/plain");

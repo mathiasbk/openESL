@@ -17,7 +17,7 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 export const fmtVer = (v) => `${Math.floor(v / 10000)}.${Math.floor(v / 100) % 100}.${v % 100}`;
 
 // What a firmware file is: { kind: "tag", model, version, size } for openesl-tag-*-ota.bin,
-// { kind: "ap", size } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin), or
+// { kind: "ap", size, version } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin), or
 // { kind: null, error } for anything else, such as the flasher's openesl.bin or the
 // AP's merged image.
 export function firmwareKind(data) {
@@ -27,11 +27,61 @@ export function firmwareKind(data) {
     return { kind: "tag", model, version: fmtVer(u16(data, 6)), ver: u16(data, 6), size: u32(data, 8) };
   }
   // The AP checks the rest (chip, app description) and refuses what it cannot boot
-  if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length };
+  if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length, version: appVersion(data) };
   return {
     kind: null,
     error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-esp32c6-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
   };
+}
+
+// The version in an ESP32 app image (the VERSION file it was built from), or null: the image
+// header (24 bytes) and the first segment's header (8) come before esp_app_desc_t, whose
+// magic word is followed by the version at offset 16.
+function appVersion(data) {
+  if (data.length < 80 || u32(data, 32) !== 0xabcd5432) return null;
+  const v = data.subarray(48, 80);
+  const end = v.indexOf(0);
+  return dec.decode(end < 0 ? v : v.subarray(0, end)) || null;
+}
+
+// Compares two versions such as "0.4.3", "v0.4.3" or "0.4.3-dev" by their numbers: < 0, 0 or
+// > 0, or null when either is not one
+export function cmpVersion(a, b) {
+  const nums = (v) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? ""));
+    return m && m.slice(1).map(Number);
+  };
+  const x = nums(a), y = nums(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
+// The AP image on this page that fits the AP, from GET /api/ota and the page's info.json:
+// the one with the status screen when the AP has one ("display" in GET /api/ota; an AP
+// whose firmware does not say gets the plain one, as most have no screen).
+// { file, version, newer } or null when the page has no AP image.
+export function apImageFor(ota, info) {
+  const lcd = ota?.display === true && info?.ota?.["ap-openesl-lcd"];
+  const file = lcd ? "ap-openesl-lcd-ota" : info?.ota?.["ap-openesl"] ? "ap-openesl-ota" : null;
+  if (!file) return null;
+  const c = cmpVersion(info.version, ota?.version);
+  return { file, version: String(info.version).replace(/^v/, ""), newer: info.release === true && c !== null && c > 0 };
+}
+
+// What to ask before new AP firmware goes out: kind is firmwareKind() of the image, ota
+// GET /api/ota, lcd whether the image is the one with the status screen (null: not known).
+export function apSendQuestion(kind, ota, lcd = null) {
+  const lines = [];
+  const running = ota?.version;
+  const c = cmpVersion(kind.version, running);
+  lines.push(kind.version && running ? `Send AP firmware ${kind.version} to the AP? It runs ${running} now.` : "Send new firmware to the AP?");
+  if (c === 0) lines.push(`That is the version it already runs.`);
+  else if (c < 0) lines.push(`That is older than what it runs.`);
+  if (lcd !== null && typeof ota?.display === "boolean" && lcd !== ota.display)
+    lines.push(ota.display ? "This image has no status screen, and this AP has one: the screen goes dark." : "This image is for an AP with a status screen, and this AP has none.");
+  lines.push("It restarts into it when the upload is done, and goes back to the old one by itself if the new one cannot be reached.");
+  return lines.join("\n\n");
 }
 
 // One request with a binary body through anything with send(method, path, bytes) that
