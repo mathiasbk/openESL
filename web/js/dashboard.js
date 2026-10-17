@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
+import { fmtTagFw, fmtBattery, lastCheckin, nextCheckin, tagRows, healthLine, apFacts } from "./dashdata.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -139,10 +139,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
     $("dash-tags").replaceChildren(...rows.map(({ tag, state }) => {
       const tr = document.createElement("tr");
+      const next = nextCheckin(tag);
       const cells = [
         [tag.mac, "mono"],
         [tag.model ? tag.model + '"' : "–"],
-        [fmtAgo(tag.seen_s_ago)],
+        [lastCheckin(tag)],
+        [next ? next.text : "–", next?.late ? "state-bad" : ""],
         [tag.rssi == null ? "–" : `${tag.rssi} dBm`],
         [fmtBattery(tag.battery_mv)],
         [fmtTagFw(tag.fw), "fw"],
@@ -182,7 +184,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!list.tags.length) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 7;
+      td.colSpan = 8;
       td.className = "muted";
       td.textContent = "No tags yet. A tag shows up here after its first poll.";
       tr.append(td);

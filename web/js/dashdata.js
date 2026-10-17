@@ -10,6 +10,37 @@ export function fmtAgo(s) {
   return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`;
 }
 
+// What a tag polls with when the AP sends it no interval (poll_s null): tag/src/config.h
+// CFG_POLL_S, ESL_TAG_BUILTIN_POLL_S on the AP
+export const TAG_BUILTIN_POLL_S = 60;
+
+// The clock time offset_s seconds from now (negative = in the past), with the date when it
+// is not today: "13:41:05", "16.10. 09:12:00"
+export function fmtClock(offset_s, now = Date.now()) {
+  const d = new Date(now + offset_s * 1000);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (d.toDateString() === new Date(now).toDateString()) return time;
+  return d.toLocaleDateString([], { day: "2-digit", month: "2-digit" }) + " " + time;
+}
+
+// The tag's last poll: "13:41:05 (2 min ago)", or "never"
+export function lastCheckin(tag, now = Date.now()) {
+  if (tag.seen_s_ago == null) return "never";
+  return `${fmtClock(-tag.seen_s_ago, now)} (${fmtAgo(tag.seen_s_ago)} ago)`;
+}
+
+// When the tag should poll next: its last poll plus the interval the AP gives it (poll_s,
+// or the tag's own when null). The AP may tell it to come sooner when scheduled content is
+// due, so this is the latest it is expected. { left_s, late, text }, null when never seen
+export const CHECKIN_GRACE_S = 15; // radio retries and clock drift: not late yet
+export function nextCheckin(tag, now = Date.now()) {
+  if (tag.seen_s_ago == null) return null;
+  const left = (tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
+  if (left >= 0) return { left_s: left, late: false, text: `${fmtClock(left, now)} (in ${fmtAgo(left)})` };
+  if (-left <= CHECKIN_GRACE_S) return { left_s: left, late: false, text: "any moment now" };
+  return { left_s: left, late: true, text: `${fmtAgo(-left)} late` };
+}
+
 // The tag's fw_ver (major*10000 + minor*100 + patch): 100 -> "0.1.0"
 export function fmtTagFw(v) {
   if (v == null) return "–";
