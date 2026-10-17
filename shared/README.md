@@ -1,3 +1,29 @@
 # Shared code
 
 `proto.h` holds the packet definitions used by both the tag (SDCC) and the AP (GCC). Fixed-width types, no bit-fields, explicit little-endian. See [docs/protokoll.md](../docs/protokoll.md).
+
+## Tag models: `models.json`
+
+The one list of tag models. Everything else is generated from it or reads it, so a new model
+is one entry here, an example layout file (`tag/designs/layouts/<name>.json`) and
+`python tools/gen_models.py`:
+
+| Field | Meaning |
+|---|---|
+| `code` | the model byte in POLL and in tag firmware images; 1, 2, 3, ... without gaps (0 is "unknown") |
+| `build` | `-DMODEL=<build>` for the tag firmware and the web renderer; `ESL_MODEL_<build>` in C |
+| `name` | the name in the API, layout files and release files (`/api/layouts/2.9`, `openesl-tag-2.9-v1.0.0.bin`) |
+| `id` | a stable id for the model (`solum-m2-29-bw`), for when two models share a size |
+| `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
+| `chip`, `radio` | the tag's chip and radio; only `zbs243` is built so far |
+| `width`, `height` | the screen in the orientation the layouts use |
+| `colors` | `black`, `white` (red and yellow are refused until the firmware draws them) |
+| `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
+| `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
+| `status` | `supported`, `experimental` or `planned` |
+
+`tools/gen_models.py` checks the file and writes `models_gen.h` (here; `ESL_MODEL_*`,
+`ESL_MODEL_COUNT`, `ESL_MODEL_LIST`, included by `proto.h`), `tag/src/model_gen.h`,
+`web/js/models.js` and the model block in `tools/esl-client/esl_client.py`. The generated
+files are checked in; `tools/check.py models` and CI fail when they are out of date. The
+Python tools in the repository read the JSON through `models.py`.
