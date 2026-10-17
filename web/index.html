@@ -175,7 +175,7 @@
             <ol class="hint steps">
               <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
               <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
-              <li>Pick a tag, then upload the layout file and send.</li>
+              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
             </ol>
             <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
             <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
