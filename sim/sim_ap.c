@@ -131,7 +131,7 @@ void sim_ap_boot(void)
 {
     static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
-    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
+    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase};
     static bool first = true;
 

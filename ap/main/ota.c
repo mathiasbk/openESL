@@ -57,6 +57,7 @@ static void unlock(void)
 static void restart_cb(void *arg)
 {
     (void)arg;
+    store_nvs_flush(); /* the tags' last poll survives the update */
     ESP_LOGI(TAG, "restarting into the new firmware");
     esp_restart();
 }
@@ -218,6 +219,7 @@ static void give_up_cb(void *arg)
     if (kept)
         return;
     ESP_LOGE(TAG, "the new firmware was not reachable for %d s: back to the old one", CONFIRM_S);
+    store_nvs_flush();
     esp_ota_mark_app_invalid_rollback_and_reboot();
 }
 

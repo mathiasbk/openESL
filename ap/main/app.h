@@ -10,6 +10,10 @@
 
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
 esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s);
+/* The clock for the time a tag was last heard (stored with it); call after sched_start(). */
+void store_nvs_set_clock(esl_sched_t *sched);
+/* Saves every tag's last poll now: before a planned restart (OTA). */
+void store_nvs_flush(void);
 /* The layout files per model, same mutex; call after store_nvs_init(). */
 esp_err_t layouts_nvs_init(esl_layouts_t *ls);
 /* Reads a string from NVS namespace "cfg", falling back to def. */
