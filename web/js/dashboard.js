@@ -118,7 +118,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!last) return;
     const { list, health, wifi } = last;
     renderFirmware();
-    renderSendTags();
     $("dash-body").hidden = false;
 
     $("dash-ap").replaceChildren(...apFacts(list.ap).concat([["Tags", `${list.tags.length} of ${list.ap.max_tags}`]]).map(([k, v]) => {
@@ -141,6 +140,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
     $("dash-tags").replaceChildren(...rows.map(({ tag, state }) => {
       const tr = document.createElement("tr");
+      tr.append(stCheckCell(tag.mac));
       const cells = [
         [tag.mac, "mono"],
         [tag.model ? tag.model + '"' : "–"],
@@ -184,39 +184,58 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!list.tags.length) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 7;
+      td.colSpan = 8;
       td.className = "muted";
       td.textContent = "No tags yet. A tag shows up here after its first poll.";
       tr.append(td);
       $("dash-tags").append(tr);
     }
+    renderSendTags();
   }
 
-  // ---- Send info card ----
+  // ---- Send info to the tags ticked in the tag table ----
 
   const stMsg = (text, cls = "") => {
     $("st-msg").textContent = text;
     $("st-msg").className = "hint" + (cls ? " " + cls : "");
   };
   const stLineInputs = [1, 2, 3, 4].map((i) => $("st-l" + i));
-  const stLines = () => stLineInputs.map((el) => el.value);
-  const stChecked = () => [...$("st-tags").querySelectorAll("input:checked")].map((el) => el.value);
-  const stTags = () => {
-    const macs = new Set(stChecked());
-    return (last?.list.tags || []).filter((t) => macs.has(t.mac));
-  };
+  const stWhat = () => $("st-what").value;
+  // The lines: ready-made for the list's choices, the inputs for "Your own text"
+  const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()]);
+  const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
+  const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
   const stRows = (tags = stTags()) => infoRows(tags, stLines(), {
     days: Number($("st-days").value) || 1, frame: $("st-frame").checked,
     ap: last?.list.ap, wifi: last?.wifi, total: last?.list.tags.length,
   });
   const stSave = () => {
-    store.set("st.macs", stChecked().join(","));
-    store.set("st.lines", JSON.stringify(stLines()));
+    store.set("st.macs", [...stSel].join(","));
+    store.set("st.what", stWhat());
+    store.set("st.lines", JSON.stringify(stLineInputs.map((el) => el.value)));
   };
+  if ([...$("st-what").options].some((o) => o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
   try {
     const saved = JSON.parse(store.get("st.lines") || "null");
     if (Array.isArray(saved)) saved.slice(0, 4).forEach((v, i) => (stLineInputs[i].value = String(v)));
   } catch { /* nothing saved */ }
+
+  // The tick box in the first column of a tag's row
+  function stCheckCell(mac) {
+    const td = document.createElement("td");
+    td.className = "sel";
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = stSel.has(mac);
+    c.setAttribute("aria-label", "Tick " + mac);
+    c.onchange = () => {
+      if (c.checked) stSel.add(mac);
+      else stSel.delete(mac);
+      stChanged();
+    };
+    td.append(c);
+    return td;
+  }
 
   // Buttons that put a placeholder where the cursor was in the last line used
   let stFocus = stLineInputs[0];
@@ -237,42 +256,32 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return b;
   }));
 
-  // The tag list keeps the ticked tags across refreshes
+  // Called after the tag table is drawn
   function renderSendTags() {
-    const keep = new Set($("st-tags").children.length ? stChecked() : store.get("st.macs").split(",").filter(Boolean));
-    $("st-tags").replaceChildren(...last.list.tags.map((t) => {
-      const l = document.createElement("label");
-      const c = document.createElement("input");
-      c.type = "checkbox";
-      c.value = t.mac;
-      c.checked = keep.has(t.mac);
-      const s = document.createElement("span");
-      s.className = "mono";
-      s.textContent = t.mac;
-      l.append(c, s, " " + (t.model ? t.model + '"' : "") + (t.battery_mv ? ", " + fmtBattery(t.battery_mv) : ""));
-      return l;
-    }));
-    if (!last.list.tags.length) $("st-tags").textContent = "No tags yet.";
+    const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
+    $("st-all").checked = rows.length > 0 && rows.every((c) => c.checked);
+    $("st-all").indeterminate = !$("st-all").checked && rows.some((c) => c.checked);
     stPreview();
   }
 
   function stChanged() {
     stSave();
-    stPreview();
+    renderSendTags();
   }
 
   let stSeq = 0;
   async function stPreview() {
     const tags = stTags();
     const lines = stLines();
-    const date = usesDate(lines);
-    $("st-days-label").hidden = !date;
+    $("st-own").hidden = stWhat() !== "text";
+    $("st-days-label").hidden = !usesDate(lines);
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length;
-    $("st-send").textContent = tags.length > 1 ? `Send to ${tags.length} tags` : "Send";
+    $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
+    $("st-show").hidden = !tags.length;
 
     // What each tag gets today
-    const rows = stRows().filter((r) => !r.at);
+    const rows = stRows(tags).filter((r) => !r.at);
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
@@ -287,8 +296,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       tr.append(td1, td2);
       return tr;
     }));
-    $("st-for").textContent = !tags.length ? "Tick one or more tags." : tags.length > 1 ? `The preview is ${tags[0].mac}.` : "";
 
+    // The first ticked tag, drawn by the tag's own code
     const row = rows[0];
     const model = tags[0]?.model || "2.9";
     const seq = ++stSeq;
@@ -313,6 +322,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         img.data.set([v, v, v, 255], i * 4);
       }
       ctx.putImageData(img, 0, 0);
+      c.title = "Preview: " + row.mac;
       $("st-preview").hidden = false;
     } catch {
       $("st-preview").hidden = true; // no renderer (a page built without it): only the list
@@ -346,18 +356,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   $("st-form").addEventListener("submit", sendText);
   $("st-form").addEventListener("input", stChanged);
-  $("st-preset").addEventListener("change", () => {
-    const p = PRESETS[$("st-preset").value];
-    if (p) p.forEach((v, i) => (stLineInputs[i].value = v));
-    $("st-preset").value = "";
-    stChanged();
-  });
-  const stAll = (on) => {
-    for (const c of $("st-tags").querySelectorAll("input")) c.checked = on;
+  $("st-form").addEventListener("change", stChanged);
+  // The header's tick box: every tag the table shows now (after Find and the problems filter)
+  $("st-all").onchange = () => {
+    const on = $("st-all").checked;
+    for (const c of $("dash-tags").querySelectorAll("td.sel input")) {
+      const mac = c.closest("tr").querySelector("td.mono").textContent;
+      c.checked = on;
+      if (on) stSel.add(mac);
+      else stSel.delete(mac);
+    }
     stChanged();
   };
-  $("st-all").onclick = () => stAll(true);
-  $("st-none").onclick = () => stAll(false);
 
   // ---- Firmware card ----
 

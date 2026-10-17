@@ -302,14 +302,12 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 
 /* Dashboard: send info to tags */
 .send-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.send-text label[hidden], .st-preview[hidden] { display: none; }
+.st-preview[hidden] { display: none; }
 .st-preview canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); image-rendering: pixelated; background: #fff; }
 @media (max-width: 720px) { .send-text { grid-template-columns: minmax(0, 1fr); } }
-.st-tags { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 0; }
-.st-tags legend { padding: 0 4px; }
-#st-tags { display: grid; gap: 2px; max-height: 180px; overflow-y: auto; }
-#st-tags label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-#st-tags label input { width: auto; }
+.st-bar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.st-bar [hidden], #st-own[hidden], #st-show[hidden] { display: none; }
+.dash-tags th.sel, .dash-tags td.sel { width: 1%; padding-right: 6px; }
 .st-ph { display: flex; flex-wrap: wrap; gap: 4px; }
 .st-ph button { font-family: ui-monospace, Consolas, monospace; }
 .st-list td { font-size: 12px; vertical-align: top; white-space: normal; }
