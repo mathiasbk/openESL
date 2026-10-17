@@ -52,6 +52,14 @@ class WorkflowTest(unittest.TestCase):
                          "000001C280923B15")
         self.assertIsNone(wf.mac_from_stock(b"\xff" * 6, "29"))
 
+    def test_barcode_from_stock(self):
+        # Label of 0000020663463415: Code 128 "020663461013"; the first 8 digits are in its MAC
+        raw = bytes.fromhex("020663461013")
+        self.assertEqual(wf.barcode_from_stock(raw), "020663461013")
+        self.assertEqual(wf.mac_str(wf.mac_from_stock(raw, "154")), "0000020663463415")
+        self.assertEqual(wf.barcode_from_stock(b"\xff" * 6), "")
+        self.assertEqual(wf.barcode_from_stock(b"\x00" * 6), "")
+
     def test_mac_from_info_lsb_first(self):
         info = bytearray(b"\xff" * 0x400)
         info[0x10:0x18] = bytes.fromhex("1c34509307020000")
@@ -68,6 +76,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(r.mac, mac)
         self.assertEqual(r.mac_source, "stock flash")
         self.assertEqual(r.backup, "saved")
+        self.assertEqual(r.barcode, self.stock_flash[0xFC06:0xFC0C].hex().upper())
         # backup is the untouched stock flash and info page
         with open(os.path.join(self.backup, wf.mac_str(mac) + ".bin"), "rb") as f:
             self.assertEqual(f.read(), self.stock_flash)
@@ -97,6 +106,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(r2.mac, r1.mac)
         self.assertEqual(r2.mac_source, "info page")
         self.assertEqual(r2.backup, "exists")
+        self.assertEqual(r2.barcode, r1.barcode)        # from the backup, the flash is ours now
         self.assertEqual(os.stat(path).st_mtime_ns, mtime)
         with open(path, "rb") as f:
             self.assertEqual(f.read(), self.stock_flash)
@@ -225,8 +235,24 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(rows[0]["mac"], wf.mac_str(r.mac))
         self.assertEqual(rows[0]["result"], "OK")
         self.assertEqual(rows[0]["backup"], "saved")
+        self.assertEqual(rows[0]["barcode"], r.barcode)
         self.assertEqual(rows[1]["result"], "FAILED")
         self.assertTrue(rows[1]["message"].startswith("contact"))
+
+    def test_csv_log_from_before_the_barcode_column(self):
+        os.makedirs(self.backup)
+        old = wf.LOG_FIELDS[:-1]
+        with open(os.path.join(self.backup, wf.LOG_NAME), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=old)
+            w.writeheader()
+            w.writerow({k: "x" for k in old})
+        r = self.run_job()
+        wf.append_log(self.backup, r.log_row())
+        with open(os.path.join(self.backup, wf.LOG_NAME)) as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(rows[0]["mac"], "x")
+        self.assertEqual(rows[0]["barcode"], "")
+        self.assertEqual(rows[1]["barcode"], r.barcode)
 
     def test_progress_reported(self):
         seen = []

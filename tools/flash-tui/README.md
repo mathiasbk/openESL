@@ -59,6 +59,11 @@ The debug Wemos ([tools/wemos-debug](../wemos-debug/)) is also a CH340, so the p
    refused. If those bytes are blank (0xFF), the tag still runs the stock firmware: the MAC is
    built from flash 0xFC06–0xFC0B the same way as ZBS_Flasher's `mac` command
    (`00 00` + the 6 bytes, byte 6 = model code, byte 7 = 0x10 with a XOR checksum in the low nibble).
+   **Barcode.** The same 6 bytes as 12 hex digits are the Code 128 barcode printed on the label
+   (tag 0000020663463415 has `020663461013`). The MAC keeps only the first 4 of them, so the
+   barcode comes from the stock flash, or later from the tag's backup. It is shown in the table,
+   the log and the CSV. That the last 4 digits are stock bytes 4–5 is inferred from one label and
+   not yet checked against its backup.
 4. **Backup.** If there is no `backup/<MAC>.bin` yet (an older `backup/<MAC>/flash.bin` from
    `flash_loop.py` also counts), the whole 64 KB main flash is read twice, compared, and saved as
    `backup/<MAC>.bin`, with the info page as `backup/<MAC>.info.bin`. If anything goes wrong here,
@@ -86,7 +91,8 @@ The info page is never erased: the protocol module does not even have the comman
 | `tests/` | unittest tests against the simulation |
 
 `backup/flash_log.csv` columns: time, mac, model, mac_source, backup (saved/exists/failed),
-firmware, fw_sha256 (first 16 hex digits), result, message, seconds.
+firmware, fw_sha256 (first 16 hex digits), result, message, seconds, barcode. A log from before the
+barcode column is given the new header the next time a line is added.
 
 ## Tests
 

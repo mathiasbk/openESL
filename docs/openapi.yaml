@@ -61,6 +61,15 @@ info:
     fields and 90 with six (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`). Empty fields at
     the end are dropped first and cost nothing.
 
+    **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
+    `model` (`"2.9"` or `"1.54"`, from its poll). The 12 hex digits under the barcode on the
+    label (e.g. `020663461013`) give the MAC without the AP: `0000`, the first 8 digits, the
+    model code (`3B` for 2.9", `34` for 1.54"), then `1` and a check digit: the XOR of the
+    11 hex digits between `0000` and it (so `0000020663463415`). The last 4
+    digits of the label are not part of the MAC. A client that only knows the label can
+    work out both candidates and use the one the AP knows. `esl_client.py mac 020663461013`
+    does the same ([docs/tag-firmware.md](https://github.com/mathiasbk/openesl/blob/master/docs/tag-firmware.md), "Tag identity").
+
 servers:
   - url: http://localhost:{port}
     description: The bridge in tools/esl-client (esl_client.py serve), to the AP over USB or WiFi

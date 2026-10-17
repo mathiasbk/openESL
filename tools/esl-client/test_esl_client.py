@@ -192,6 +192,28 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, self._set(self.path.rsplit("/", 1)[1], body))
 
 
+class BarcodeTest(unittest.TestCase):
+    def test_mac_from_barcode(self):
+        # labels read on real tags, MACs from the flashers (tools/flash-tui)
+        self.assertEqual(esl_client.mac_from_barcode("020663461013", "1.54"), "0000020663463415")
+        self.assertEqual(esl_client.mac_from_barcode("020793500102", "1.54"), "000002079350341C")
+        self.assertEqual(esl_client.mac_from_barcode("01c2 8092 0102", "2.9"), "000001C280923B15")
+        with self.assertRaises(ValueError):
+            esl_client.mac_from_barcode("0206634610", "1.54")
+
+    def test_mac_command(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013", "--model", "1.54"]), 0)
+        self.assertEqual(out.getvalue().split()[0], "0000020663463415")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013"]), 0)
+        self.assertEqual(len(out.getvalue().splitlines()), 2)
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(esl_client.main(["mac", "xyz"]), 2)
+
+
 class ClientTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

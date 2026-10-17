@@ -52,6 +52,12 @@
 - Everything that depends on the display is collected in one model description: width, height, column height in bytes, controller type, init sequence, default layouts. `epd`, `draw` and `layout` read the values from there and have no fixed numbers for 296×128.
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
+## Tag identity: MAC, model and barcode
+- The stock firmware keeps 6 bytes at flash 0xFC06–0xFC0B. Printed as 12 hex digits, they are the number under the Code 128 barcode on the label: tag 0000020663463415 has `020663461013` (barcode decoded from a photo, 2026-10-16; its first 8 digits are in the MAC, the last 4 are inferred and not yet checked against a backup).
+- The flashers (`tools/flash-tui`, the Flash tag page) build the MAC from those bytes the same way as ZBS_Flasher: `00 00`, the first 4 bytes, the model code (0x3B = 2.9", 0x34 = 1.54"), and 0x10 with the XOR of the nibbles of bytes 2–7 in the low nibble. They write it to info page 0x10–0x17 before the main flash (and with it the stock bytes) is erased. They also show the barcode, log it (`flash_log.csv`) and keep it with the backup.
+- So the MAC follows from the label and the model alone: `esl_client.py mac <12 digits> [--model 2.9|1.54]`, or the rule in the API description (`docs/openapi.yaml`, "Which tag is which"). A client that links products to tags by scanning the label does not need the flash log.
+- The model is also reported by the tag itself in POLL and shown as `model` in `GET /api/tags`.
+
 ## Layout from file (requirements G7, T17)
 - The layouts come from a file made in the design tool, not fixed in the code. The AP checks the JSON file and turns it into a binary format; the tag downloads that in blocks when the AP reports a new version ([protokoll.md](protokoll.md) part 1, "Layout transfer", and part 3).
 - `layout.c` interprets a list of elements (text field, filled rectangle, barcode, fixed text from the file) with position, fonts, colour, alignment and line count. "Price" and "Text" are such lists in flash; a downloaded file holds up to 16 more in the 14-byte wire format, drawn straight from XRAM with `layout_apply_bin()`.
