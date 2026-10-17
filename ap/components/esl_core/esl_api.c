@@ -455,14 +455,25 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     char m[17];
     esl_mac_format(t->mac, m);
     esl_sb_printf(out, "{\"mac\":\"%s\",", m);
+    /* A tag not heard since this boot, from NVS: what it said last, and when
+     * (wall clock) if both that and the time now are known */
+    uint32_t unix_now = (!t->seen && t->seen_unix && api->sched) ? esl_sched_now(api->sched, now_ms, NULL) : 0;
+    bool known = t->seen || t->fw; /* fw 0: nothing stored from a POLL */
     if (t->seen)
-        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu64 ",\"battery_mv\":%u,\"rssi\":%d,\"fw\":%u,",
-                      (now_ms - t->last_seen_ms) / 1000, (unsigned)t->battery_mv, (int)t->rssi, (unsigned)t->fw);
+        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu64 ",", (now_ms - t->last_seen_ms) / 1000);
+    else if (unix_now >= t->seen_unix && unix_now)
+        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu32 ",", unix_now - t->seen_unix);
     else
-        esl_sb_puts(out, "\"seen_s_ago\":null,\"battery_mv\":null,\"rssi\":null,\"fw\":null,");
-    /* model: null until the tag has polled, and for firmware that does not
-     * send it; draw_failed: the tag's last POLL said its last drawing failed */
-    const char *model = t->seen ? esl_model_name(t->model) : NULL;
+        esl_sb_puts(out, "\"seen_s_ago\":null,");
+    if (known)
+        esl_sb_printf(out, "\"battery_mv\":%u,\"rssi\":%d,\"fw\":%u,", (unsigned)t->battery_mv, (int)t->rssi,
+                      (unsigned)t->fw);
+    else
+        esl_sb_puts(out, "\"battery_mv\":null,\"rssi\":null,\"fw\":null,");
+    /* model: null until the tag has polled (now or before a restart), and for
+     * firmware that does not send it; draw_failed: the tag's last POLL said its
+     * last drawing failed */
+    const char *model = known ? esl_model_name(t->model) : NULL;
     if (model)
         esl_sb_printf(out, "\"model\":\"%s\",", model);
     else

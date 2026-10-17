@@ -47,6 +47,7 @@ static void unlock(void)
 static void restart_cb(void *arg)
 {
     (void)arg;
+    store_nvs_flush(); /* the tags' last poll survives the update */
     ESP_LOGI(TAG, "restarting into the new firmware");
     esp_restart();
 }
