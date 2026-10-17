@@ -133,9 +133,10 @@ export function initDashboard() {
         const td = tr.querySelector("td.fw");
         if (up.update) {
           const b = document.createElement("button");
-          b.className = "small";
-          b.textContent = "Update to " + up.update;
-          b.title = `Gives firmware ${up.update} to the AP; every ${tag.model}" tag takes it at its next polls`;
+          b.className = "small fw-up";
+          b.textContent = "\u2191"; // arrow up
+          b.title = `Update to ${up.update}: gives the firmware to the AP; every ${tag.model}" tag takes it at its next polls`;
+          b.setAttribute("aria-label", "Update to " + up.update);
           b.disabled = sending;
           b.onclick = () => sendPageTagFirmware(tag.model);
           td.append(" ", b);
@@ -293,7 +294,7 @@ export function initDashboard() {
     return sendData(data);
   }
 
-  // The "Update to" button in the tag table
+  // The arrow-up button in the tag table
   function sendPageTagFirmware(model) {
     if (!client || sending || !pageData[model]) return;
     if (!confirm(`Give ${model}" firmware ${pageImgs[model].version} to the AP? Every ${model}" tag that takes firmware over the radio updates itself over its next polls.`)) return;

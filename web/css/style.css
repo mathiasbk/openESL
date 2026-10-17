@@ -292,3 +292,4 @@ h3.sub { margin-top: 16px; }
 .form label.check > input { width: auto; }
 
 button.small { padding: 2px 8px; font-size: 13px; }
+button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 4px; }
