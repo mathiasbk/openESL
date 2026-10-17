@@ -293,3 +293,9 @@ h3.sub { margin-top: 16px; }
 
 button.small { padding: 2px 8px; font-size: 13px; }
 button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 4px; }
+
+/* Dashboard: send text to a tag */
+.send-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.send-text label[hidden], .st-preview[hidden] { display: none; }
+.st-preview canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); image-rendering: pixelated; background: #fff; }
+@media (max-width: 720px) { .send-text { grid-template-columns: minmax(0, 1fr); } }

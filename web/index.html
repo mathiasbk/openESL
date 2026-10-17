@@ -333,6 +333,26 @@
         </div>
       </section>
       <section class="card wide">
+        <h3>Send text to a tag</h3>
+        <p class="muted">Up to four lines with the built-in layout <code>text</code>. "Today's date" puts the weekday and the date (in Norwegian) on the first two lines; with more than one day, the AP puts each next day's date on the tag by itself at midnight (scheduled content), so this page does not have to stay open. The same as <code>esl_client.py text</code> and <code>esl_client.py date</code>. The preview is the tag's own drawing.</p>
+        <div class="send-text">
+          <form id="st-form" class="form">
+            <label>Tag <select id="st-mac"></select></label>
+            <label class="check"><input type="checkbox" id="st-date"> Today's date on lines 1 and 2</label>
+            <label>Line 1 <input id="st-l1" autocomplete="off" maxlength="94"></label>
+            <label>Line 2 <input id="st-l2" autocomplete="off" maxlength="94"></label>
+            <label>Line 3 <input id="st-l3" autocomplete="off" maxlength="94"></label>
+            <label>Line 4 <input id="st-l4" autocomplete="off" maxlength="94"></label>
+            <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP)"></label>
+            <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
+            <p id="st-count" class="count"></p>
+            <div class="buttons tight"><button id="st-send" type="submit">Send</button></div>
+          </form>
+          <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
+        </div>
+        <p id="st-msg" class="hint" role="status"></p>
+      </section>
+      <section class="card wide">
         <h3>Firmware</h3>
         <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start. Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         <dl id="dash-ota" class="facts"></dl>

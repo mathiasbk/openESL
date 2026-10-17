@@ -5,6 +5,8 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
+import { loadRenderer, MODELS, LAYOUT_TEXT, FLAG_FRAME } from "./renderer.js";
+import { contentRows, sendRows, textBytes, TEXT_BYTES, MAX_DAYS } from "./sendtext.js";
 import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -90,6 +92,7 @@ export function initDashboard() {
     if (!last) return;
     const { list, health, wifi } = last;
     renderFirmware();
+    renderSendTags();
     $("dash-body").hidden = false;
 
     $("dash-ap").replaceChildren(...apFacts(list.ap).concat([["Tags", `${list.tags.length} of ${list.ap.max_tags}`]]).map(([k, v]) => {
@@ -159,6 +162,94 @@ export function initDashboard() {
       $("dash-tags").append(tr);
     }
   }
+
+  // ---- Send text card ----
+
+  const stMsg = (text, cls = "") => {
+    $("st-msg").textContent = text;
+    $("st-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  const stLines = () => [1, 2, 3, 4].map((i) => $("st-l" + i).value);
+  const stModel = () => last?.list.tags.find((t) => t.mac === $("st-mac").value)?.model || "2.9";
+  const stRows = () => contentRows($("st-mac").value, stLines(), {
+    date: $("st-date").checked, days: Number($("st-days").value) || 1, frame: $("st-frame").checked,
+  });
+  $("st-mac").value = store.get("st.mac");
+
+  // The tag list keeps the chosen tag across refreshes
+  function renderSendTags() {
+    const keep = $("st-mac").value || store.get("st.mac");
+    $("st-mac").replaceChildren(...last.list.tags.map((t) => {
+      const o = document.createElement("option");
+      o.value = t.mac;
+      o.textContent = t.mac + (t.model ? ` (${t.model}")` : "");
+      return o;
+    }));
+    if (last.list.tags.some((t) => t.mac === keep)) $("st-mac").value = keep;
+    $("st-send").disabled = !last.list.tags.length;
+    stPreview();
+  }
+
+  let stSeq = 0;
+  async function stPreview() {
+    const date = $("st-date").checked;
+    $("st-days-label").hidden = !date;
+    $("st-l1").disabled = $("st-l2").disabled = date;
+    const row = stRows()[0];
+    if (date) [$("st-l1").value, $("st-l2").value] = row.fields;
+    const n = textBytes(row.fields);
+    $("st-count").textContent = `${n} of ${TEXT_BYTES} bytes`;
+    $("st-count").className = "count" + (n > TEXT_BYTES ? " error" : "");
+    const model = stModel();
+    const seq = ++stSeq;
+    try {
+      const r = await loadRenderer(model);
+      if (seq !== stSeq) return;
+      const out = r.render(LAYOUT_TEXT, row.frame ? FLAG_FRAME : 0, row.fields);
+      if (!out.ok) {
+        $("st-preview").hidden = true;
+        return;
+      }
+      const { width: w, height: h } = MODELS[model];
+      const c = $("st-screen");
+      if (c.width !== w || c.height !== h) [c.width, c.height] = [w, h];
+      const ctx = c.getContext("2d");
+      const img = ctx.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        const v = out.pixels[i] ? 17 : 255;
+        img.data.set([v, v, v, 255], i * 4);
+      }
+      ctx.putImageData(img, 0, 0);
+      $("st-preview").hidden = false;
+    } catch {
+      $("st-preview").hidden = true; // no renderer (a page built without it): no preview
+    }
+  }
+
+  async function sendText(ev) {
+    ev.preventDefault();
+    if (!client || !$("st-mac").value) return;
+    const rows = stRows();
+    if (textBytes(rows[0].fields) > TEXT_BYTES) return stMsg(`Too much text: the lines share ${TEXT_BYTES} bytes.`, "error");
+    $("st-send").disabled = true;
+    try {
+      const { replies, note } = await sendRows(client, rows);
+      const later = replies.filter((r) => r.scheduled).length;
+      stMsg((replies[0]?.pending ? "Sent; the tag shows it at its next poll." : "Sent; the tag already shows this.") +
+        (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
+        (note ? " " + note : ""), "ok");
+    } catch (e) {
+      stMsg("Not sent: " + e.message, "error");
+    } finally {
+      $("st-send").disabled = false;
+      refresh();
+    }
+  }
+
+  $("st-days").max = MAX_DAYS;
+  $("st-form").addEventListener("submit", sendText);
+  $("st-form").addEventListener("input", stPreview);
+  $("st-mac").addEventListener("change", () => store.set("st.mac", $("st-mac").value));
 
   // ---- Firmware card ----
 
