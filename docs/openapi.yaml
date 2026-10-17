@@ -1196,7 +1196,7 @@ components:
                  poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
-        seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll; null: not seen since the AP started" }
+        seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll. For a tag not heard since the AP started, counted from the time of its last poll before the restart (kept in NVS) once the AP knows the time; null when that is not known" }
         battery_mv: { type: [integer, "null"], minimum: 0, description: "Battery voltage; 0 = the tag cannot measure it (the 1.54\")" }
         rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
         fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
