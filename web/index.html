@@ -71,10 +71,7 @@
   <main id="tab-design" class="tab" role="tabpanel" hidden>
     <section class="toolbar">
       <label>Tag
-        <select id="model">
-          <option value="2.9">2.9" (296 × 128)</option>
-          <option value="1.54">1.54" (200 × 200)</option>
-        </select>
+        <select id="model"><!-- one option per model in js/models.js (editor.js) --></select>
       </label>
       <label>Layout <select id="layout-select"></select></label>
       <button id="layout-add" title="New empty layout">New</button>
@@ -210,14 +207,7 @@
       <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
       <h3 class="sub">1. Choose the tag model</h3>
       <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
-        <button type="button" class="model" role="radio" data-model="2.9" aria-checked="true">
-          <img src="img/tag-29.jpg" width="529" height="280" alt="Photo of the 2.9&quot; tag">
-          <span class="name">2.9"</span><span class="muted">296 × 128, ST-GM29XX2</span>
-        </button>
-        <button type="button" class="model" role="radio" data-model="1.54" aria-checked="false">
-          <img src="img/tag-154.jpg" width="245" height="280" alt="Photo of the 1.54&quot; tag">
-          <span class="name">1.54"</span><span class="muted">200 × 200, ST-GM16XX2</span>
-        </button>
+        <!-- one button per model in js/models.js (main.js) -->
       </div>
       <h3 class="sub">2. Firmware and flasher</h3>
       <div class="form row">

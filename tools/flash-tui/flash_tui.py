@@ -10,7 +10,7 @@ pogo-pin jig.
                                        a tag with no MAC left: the barcode from its label (or the
                                        whole MAC), used for the next such tag
 
-Keys: space/enter flash the tag in the jig, m switch model (2.9" / 1.54"), f firmware file
+Keys: space/enter flash the tag in the jig, m switch model (2.9" / 1.54" / ...), f firmware file
 for the model, p choose serial port, a auto-detect on/off, q quit.
 
 Per tag: MAC -> backup of the stock flash (if none yet) -> MAC to info page (stock tags)
@@ -308,7 +308,8 @@ class FlashApp(App):
     def action_model(self):
         if self.busy:
             return
-        self.cfg["model"] = "154" if self.cfg["model"] == "29" else "29"
+        order = list(workflow.MODELS)
+        self.cfg["model"] = order[(order.index(self.cfg["model"]) + 1) % len(order)]
         self.save_cfg()
         self.say("Model: %s" % workflow.MODELS[self.cfg["model"]]["name"])
         self.update_status()

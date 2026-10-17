@@ -861,6 +861,8 @@ function applyZoom() {
 }
 
 function initActions() {
+  for (const [name, m] of Object.entries(MODELS))
+    $("model").append(new Option(`${name}" (${m.width} × ${m.height})`, name));
   $("zoom").value = store.get("zoom") || "fit";
   $("zoom").addEventListener("change", () => {
     store.set("zoom", $("zoom").value);
@@ -1138,5 +1140,5 @@ export async function initEditor() {
   initList();
   initAp();
   const m = store.get("model");
-  await loadModel(MODELS[m] ? m : "2.9");
+  await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
 }

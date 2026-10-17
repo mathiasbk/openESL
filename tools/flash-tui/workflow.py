@@ -31,6 +31,7 @@ import datetime
 import hashlib
 import os
 import re
+import sys
 import time
 
 import zbs_proto as zp
@@ -38,11 +39,14 @@ import zbs_proto as zp
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 
+sys.path.insert(0, os.path.join(ROOT, "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
+
+# By build ("29", "154"): name, size, the MAC code in byte 6 and the firmware tag/tools/build.py makes
 MODELS = {
-    "29": {"name": '2.9"', "size": "296x128", "mac_code": 0x3B,
-           "firmware": os.path.join(ROOT, "tag", "build", "fw", "openesl.bin")},
-    "154": {"name": '1.54"', "size": "200x200", "mac_code": 0x34,
-            "firmware": os.path.join(ROOT, "tag", "build", "fw154", "openesl.bin")},
+    m["build"]: {"name": m["name"] + '"', "size": "%dx%d" % (m["width"], m["height"]), "mac_code": m["mac_code"],
+                 "firmware": os.path.join(ROOT, "tag", "build", models.fw_dir(m), "openesl.bin")}
+    for m in models.load()
 }
 MAC_CODE_TO_MODEL = {m["mac_code"]: k for k, m in MODELS.items()}
 

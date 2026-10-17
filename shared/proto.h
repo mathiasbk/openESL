@@ -55,10 +55,11 @@
 #define ESL_POLL_OFF_LAYOUT_VER 14  /* u32 versjon av layoutfila tagen har (0 = ingen, bare innebygde) */
 
 /* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
- * så AP-en leser den som "ukjent" og alt virker som før. */
+ * så AP-en leser den som "ukjent" og alt virker som før. De kjente modellene
+ * (ESL_MODEL_29, ESL_MODEL_154, ..., ESL_MODEL_COUNT, skjermstørrelsene og
+ * ESL_MODEL_LIST) kommer fra modellregisteret shared/models.json. */
 #define ESL_MODEL_UNKNOWN    0
-#define ESL_MODEL_29         1      /* SoluM 2.9" (ST-GM29XX2), = MODEL_CODE i tag/src/model.h */
-#define ESL_MODEL_154        2      /* SoluM 1.54" (ST-GM16XX2), = MODEL_CODE i tag/src/model.h */
+#include "models_gen.h"
 
 /* IDLE, 4 byte */
 #define ESL_IDLE_LEN         4
@@ -251,12 +252,6 @@
 #define ESL_DRAW_MAX_RUNS    16     /* = DRAW_MAX_RUNS i tag/src/draw.h: tekstlinjer per skjerm */
 #define ESL_DRAW_MAX_RECTS   10     /* = DRAW_MAX_RECTS: rektangler og inverterte felt per skjerm */
 #define ESL_LE_MAX_LINES     3      /* = LAYOUT_MAX_LINES */
-
-/* Skjermstørrelse per modell (= DRAW_W/DRAW_H i tag/src/model.h) */
-#define ESL_MODEL_29_W       296
-#define ESL_MODEL_29_H       128
-#define ESL_MODEL_154_W      200
-#define ESL_MODEL_154_H      200
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
 

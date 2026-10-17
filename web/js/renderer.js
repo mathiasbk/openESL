@@ -5,10 +5,12 @@
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
 //   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black) }
 
-export const MODELS = {
-  "2.9": { file: "29", name: '2.9"', width: 296, height: 128 },
-  "1.54": { file: "154", name: '1.54"', width: 200, height: 200 },
-};
+import { MODELS as REGISTRY } from "./models.js";
+
+// Per model name: the renderer file (render-<file>.js), the name to show, the screen size
+export const MODELS = Object.fromEntries(
+  Object.entries(REGISTRY).map(([n, m]) => [n, { file: m.build, name: n + '"', width: m.width, height: m.height }]),
+);
 
 export const LAYOUT_PRICE = 1;
 export const LAYOUT_TEXT = 2;

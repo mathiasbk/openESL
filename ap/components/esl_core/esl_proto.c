@@ -362,22 +362,29 @@ void esl_mac_format(uint64_t mac, char out[17])
     out[16] = '\0';
 }
 
+/* One row per model from shared/models.json, index code - 1 (the generator checks the
+ * codes run 1, 2, 3, ...) */
+static const struct {
+    const char *name;
+    uint16_t w, h;
+} models[ESL_MODEL_COUNT - 1] = {
+#define ESL_MODEL_ROW(code, name, id, w, h, red) {name, w, h},
+    ESL_MODEL_LIST(ESL_MODEL_ROW)
+#undef ESL_MODEL_ROW
+};
+
 const char *esl_model_name(uint8_t model)
 {
-    switch (model) {
-    case ESL_MODEL_29:  return "2.9";
-    case ESL_MODEL_154: return "1.54";
-    default:            return NULL;
-    }
+    return model > ESL_MODEL_UNKNOWN && model < ESL_MODEL_COUNT ? models[model - 1].name : NULL;
 }
 
 bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h)
 {
-    switch (model) {
-    case ESL_MODEL_29:  *w = ESL_MODEL_29_W;  *h = ESL_MODEL_29_H;  return true;
-    case ESL_MODEL_154: *w = ESL_MODEL_154_W; *h = ESL_MODEL_154_H; return true;
-    default:            return false;
-    }
+    if (!esl_model_name(model))
+        return false;
+    *w = models[model - 1].w;
+    *h = models[model - 1].h;
+    return true;
 }
 
 uint8_t esl_model_parse(const char *s, size_t len)
