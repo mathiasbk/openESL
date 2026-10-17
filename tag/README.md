@@ -53,7 +53,7 @@ tag/
   tools/
     build.py            builds the firmware, runs the tests and the preview (default model)
     render_host.py      tests and previews for every model, including the JSON designs
-    gen_font.py         font generator (Pillow)
+    gen_font.py         font generator (freetype-py + Pillow)
     label_design.py     checks label designs and turns them into AP fields
 ```
 
@@ -61,7 +61,7 @@ tag/
 
 ## Build and test
 
-Requires Python 3 with Pillow. Without `make`, run `python tools/build.py <target>` from `tag/`.
+Requires Python 3 with Pillow (and freetype-py to regenerate the fonts). Without `make`, run `python tools/build.py <target>` from `tag/`.
 
 | Command | What it does |
 |---|---|
@@ -74,7 +74,7 @@ Requires Python 3 with Pillow. Without `make`, run `python tools/build.py <targe
 **Tool versions (requirement G5):**
 - SDCC **4.5.0** (`winget install SDCC.SDCC --version 4.5.0`). `build.py` warns if another version is used. Flags: `-mmcs51 --model-large --stack-auto --std-c99 --opt-code-size`, and the code is linked below `0xF400` (`CODE_SIZE`): 0x0000-0x03FF holds the bootloader (`boot/`, built with `--model-small`, must stay under 1 KB), the application starts at 0x0400, 0xF400-0xF7FF holds the layout file, 0xF800-0xFBFF the record, and the stock MAC is at `0xFC06`.
 - Host compiler: `CC`, otherwise gcc, clang, cc, or `python -m ziglang cc`.
-- The fonts are generated with Pillow 11.1.0 from Inter 3.019. The generated files are checked in, so the build is the same even if Pillow changes. The output also depends on the FreeType build inside Pillow (Windows and Linux differ by a few pixels), so regenerate only the font you change: `python tools/gen_font.py mid`. `font_mid.c` was made with Pillow 11.1.0 / FreeType 2.13.2 on Linux, the others on Windows.
+- The fonts are generated from Inter 3.019 with freetype-py 2.5.1 (FreeType 2.13.2): FreeType's auto-hinter, light target, thresholded from grey. Inter has no hinting of its own, and plain monochrome rendering gave ragged small text. Size, height and baseline are fixed in `tools/gen_font.py`, so the metrics are the same on every machine; the generated files are checked in. Regenerate with `pip install freetype-py pillow` and `python tools/gen_font.py`.
 - Model: `-DMODEL=29` (default) or `-DMODEL=154`. `render_host.py` builds both on the PC. `MODEL=154 python tools/build.py fw` builds the 1.54" to `build/fw154/openesl.bin`; the default is the 2.9" in `build/fw/`.
 
 Flash with [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) (`write build/fw/openesl.bin`). Back up the original firmware with `read` first. After that, new firmware can go over the radio: `esl-client tag-ota build/fw/openesl-ota.bin` hands it to the AP, which sends it to the tags ([docs/tag-ota.md](../docs/tag-ota.md)). Tags flashed before 0.3.0 have no bootloader and need one more pass with the flasher.
