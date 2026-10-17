@@ -483,7 +483,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
           return;
         }
         const { base, error } = apBase($("dash-url").value);
-        if (error) throw new Error(error);
+        if (error) throw new Error(error + " Or use USB.");
         setConnected(new ApClient(base, token));
       }
     } catch (e) {

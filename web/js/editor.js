@@ -6,7 +6,7 @@
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
-import { ApClient } from "./apclient.js";
+import { ApClient, apBase } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -997,7 +997,9 @@ function initActions() {
 const ap = { tags: [], fileVersion: null };
 
 function apClient() {
-  return new ApClient($("ap-url").value.trim() || "http://localhost:8080", $("ap-token").value.trim());
+  const { base, error } = apBase($("ap-url").value);
+  if (error) throw new Error(error);
+  return new ApClient(base, $("ap-token").value.trim());
 }
 
 function apStatus(text, cls = "") {

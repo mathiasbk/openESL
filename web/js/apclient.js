@@ -21,7 +21,7 @@ export function apBase(input, pageProtocol = globalThis.location?.protocol) {
     return {
       error: `this page is on https, so the browser will not let it call ${u.origin} directly. ` +
         `Run the bridge on this computer: python3 tools/esl-client/esl_client.py --url ${u.origin} --token <token> serve, ` +
-        "and connect to http://localhost:8080. Or use USB.",
+        "and connect to http://localhost:8080.",
     };
   return { base: u.origin + u.pathname.replace(/\/+$/, "") };
 }

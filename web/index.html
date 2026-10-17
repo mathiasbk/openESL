@@ -184,7 +184,7 @@
               <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
             </div>
             <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>).</p>
+            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>). On https, such as GitHub Pages, the browser only lets the page call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
           </div>
         </details>
         <details>
