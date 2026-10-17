@@ -154,8 +154,10 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["webhook"] = body["webhook"] or None
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
-            FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
-                           "setup_ssid": None, "networks": []}
+            FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
+                           "connected": False, "setup_ssid": None,
+                           "token_set": bool(body.get("token")) or FakeAp.wifi.get("token_set", False),
+                           "networks": []}
             self._send(200, FakeAp.wifi)
         elif self.path.startswith("/api/layouts/"):
             model = self.path.rsplit("/", 1)[1]
@@ -574,6 +576,15 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Butikken", "password": "hemmelig123"}))
         self.assertIn("trying to join 'Butikken'", out)
+        self.assertIn("no API token set", out)
+        rc, out = self.run_cli("wifi", "--new-token", "lang-hemmelig")
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"token": "lang-hemmelig"}))
+        self.assertIn("trying to join 'Butikken'", out)
+        self.assertNotIn("no API token set", out)
+        self.assertIn("API token changed", out)
+        rc, out = self.run_cli("wifi", "Home", "--password", "hemmelig123", "--new-token", "lang-hemmelig")
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Home", "password": "hemmelig123", "token": "lang-hemmelig"}))
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)

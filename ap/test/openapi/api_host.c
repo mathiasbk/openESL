@@ -22,7 +22,7 @@ static esl_notify_t notify;
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
-                                 .scan_count = 1, .scan = {"Butikken"}, .scan_rssi = {-58}};
+                                 .scan_count = 1, .scan = {"Butikken"}, .scan_rssi = {-58}, .token_set = true};
 
 static void wifi_status(void *ctx, esl_wifi_status_t *out)
 {
@@ -39,7 +39,15 @@ static int wifi_set(void *ctx, const char *ssid, const char *pass)
     return 0;
 }
 
-static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, NULL, NULL};
+/* Takes the token but keeps answering to "s3cret", so the later checks still get in */
+static int wifi_set_token(void *ctx, const char *token)
+{
+    (void)ctx;
+    (void)token;
+    return 0;
+}
+
+static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, wifi_set_token, NULL};
 
 /* Scheduled content kept in RAM */
 static esl_sched_entry_t sched_e[CAP];

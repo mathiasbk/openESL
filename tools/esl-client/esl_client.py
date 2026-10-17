@@ -183,8 +183,12 @@ class Client:
     def delete_tag_firmware(self, model):
         return self._request("DELETE", f"/api/tag-firmware/{model}")
 
-    def set_wifi(self, ssid, password=""):
-        return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
+    def set_wifi(self, ssid, password="", token=None):
+        """ssid None with a token keeps the network and sets only the token."""
+        body = {} if ssid is None else {"ssid": ssid, "password": password}
+        if token:
+            body["token"] = token
+        return self._request("PUT", "/api/wifi", body)
 
     def time(self):
         return self._request("GET", "/api/time")
@@ -661,6 +665,8 @@ def print_wifi(w):
         line += "no network saved"
     if w.get("setup_ssid"):
         line += f"; setup network {w['setup_ssid']!r} open (http://192.168.4.1/setup)"
+    if w.get("token_set") is False:
+        line += "; no API token set (wifi --new-token sets one)"
     print(line)
     for n in w.get("networks", []):
         print(f"  {n.get('rssi'):>4} dBm  {n.get('ssid')}")
@@ -1083,6 +1089,8 @@ def main(argv=None):
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
+    s.add_argument("--new-token", help="also set a new API token (8-128 characters, no spaces); "
+                   "without ssid only the token changes")
 
     args = p.parse_args(argv)
     if args.cmd == "report":
@@ -1200,10 +1208,12 @@ def main(argv=None):
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":
-            if args.ssid is None:
+            if args.ssid is None and not args.new_token:
                 print_wifi(cli.wifi())
             else:
-                print_wifi(cli.set_wifi(args.ssid, args.password))
+                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token))
+                if args.new_token:
+                    print("API token changed: later HTTP requests need --token with the new one")
         elif args.cmd == "layouts":
             print(json.dumps(cli.layouts(), indent=2))
         elif args.cmd == "layout-put":

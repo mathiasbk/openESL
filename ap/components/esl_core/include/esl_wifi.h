@@ -9,7 +9,8 @@
  * JSON, so the host tests can cover it.
  *
  * Three ways in:
- *   - GET/PUT /api/wifi with the API token (and over the USB port),
+ *   - GET/PUT /api/wifi with the API token (and over the USB port, which needs
+ *     none); PUT can also set a new token,
  *   - the setup page at /setup, on the AP's own network "openesl-XXXX" (open
  *     while no WiFi is saved, or the saved one has not answered for a while)
  *     and on the normal network; once a token is set, it asks for it,
@@ -40,6 +41,7 @@ typedef struct {
     unsigned scan_count;     /* networks found by the last scan */
     char scan[ESL_WIFI_SCAN_MAX][ESL_WIFI_SSID_MAX + 1];
     int8_t scan_rssi[ESL_WIFI_SCAN_MAX];
+    bool token_set;          /* an API token is set (the token itself is never shown) */
 } esl_wifi_status_t;
 
 typedef struct {
@@ -59,12 +61,17 @@ const char *esl_wifi_mode_name(esl_wifi_mode_t m);
 /* Checks a network name and passphrase. Returns NULL or an error message. */
 const char *esl_wifi_check(const char *ssid, size_t ssid_len, const char *pass, size_t pass_len);
 
+/* Checks a new API token: 8 to 128 printable ASCII characters, no spaces.
+ * Returns NULL or an error message. */
+const char *esl_wifi_check_token(const char *token, size_t len);
+
 /* Finds key in an application/x-www-form-urlencoded body and decodes it into
  * out (NUL-terminated). Returns the decoded length, -1 if the key is missing,
  * -2 if it does not fit, -3 for a bad %-escape or a NUL byte. */
 int esl_form_get(const char *body, size_t len, const char *key, char *out, size_t out_max);
 
-/* The JSON for GET /api/wifi. Never contains the password. */
+/* The JSON for GET /api/wifi. Never contains the password or the token, only
+ * whether a token is set. */
 void esl_wifi_write_json(esl_sb_t *out, const esl_wifi_status_t *st);
 
 /* The setup page (GET /setup). msg is an HTML-safe line shown on top, or NULL.

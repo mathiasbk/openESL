@@ -138,8 +138,12 @@ export class SerialAp {
     return this.call("GET", "/api/wifi", undefined, timeoutMs);
   }
 
-  setWifi(ssid, password = "") {
-    return this.call("PUT", "/api/wifi", { ssid, password });
+  // ssid undefined with a token keeps the network and sets only the token; token empty or
+  // missing keeps the current one
+  setWifi(ssid, password = "", token = "") {
+    const body = ssid === undefined ? {} : { ssid, password };
+    if (token) body.token = token;
+    return this.call("PUT", "/api/wifi", body);
   }
 
   // Opening the port can restart the AP, which then takes a few seconds to answer:
@@ -164,7 +168,23 @@ export function describeWifi(w) {
   else s = "No network saved";
   if (w.mode === "off") s += " (WiFi did not start)";
   if (w.setup_ssid) s += `. Setup network "${w.setup_ssid}" is open`;
+  if (w.token_set === false) s += ". No API token set yet";
   return s + ".";
+}
+
+// The same checks as esl_wifi_check_token() on the AP
+export function checkToken(token) {
+  if (token.length < 8 || token.length > 128) return "The API token must be 8 to 128 characters.";
+  if (/[^\x21-\x7e]/.test(token)) return "The API token must be printable ASCII without spaces.";
+  return null;
+}
+
+// A new random token: 24 characters from letters and digits (about 143 bits)
+export function newToken(random = (n) => crypto.getRandomValues(new Uint8Array(n))) {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  let t = "";
+  while (t.length < 24) for (const b of random(32)) if (b < 4 * abc.length && t.length < 24) t += abc[b % abc.length];
+  return t;
 }
 
 // The same checks as esl_wifi_check() on the AP, so the form can say what is wrong first
