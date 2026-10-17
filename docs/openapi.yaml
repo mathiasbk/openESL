@@ -737,8 +737,10 @@ paths:
 
         `token` sets a new API token (NVS `cfg/token`), which every later HTTP request must
         carry. The web page sets the network and the token this way over the USB port right
-        after flashing. With a token, `ssid` may be left out to keep the network. A bad token
-        saves nothing.
+        after flashing. `hostname` is the AP's name on the network: what it tells the router
+        (DHCP) and its mDNS name (`<hostname>.local`); stored in NVS (`cfg/hostname`), and the
+        AP rejoins at once so the router hears it. With a token or a hostname, `ssid` may be
+        left out to keep the network. Anything invalid saves nothing.
       requestBody:
         required: true
         content:
@@ -760,6 +762,9 @@ paths:
               token_only:
                 summary: Only a new API token; the network stays
                 value: { token: lang-hemmelig-token }
+              hostname:
+                summary: A new name on the network (butikk.local)
+                value: { hostname: butikk }
       responses:
         "200":
           description: The WiFi state after the change
@@ -1382,7 +1387,7 @@ components:
 
     WifiSet:
       type: object
-      description: "`ssid` is required unless `token` is given"
+      description: "`ssid` is required unless `token` or `hostname` is given"
       properties:
         ssid:
           type: [string, "null"]
@@ -1397,6 +1402,12 @@ components:
           minLength: 8
           maxLength: 128
           description: A new API token, 8–128 printable ASCII characters without spaces; missing or `null` keeps the current one
+        hostname:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 32
+          pattern: "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
+          description: The AP's name on the network (DHCP and mDNS), letters, digits and `-`; missing or `null` keeps it
 
     WifiStatus:
       type: object
@@ -1416,6 +1427,7 @@ components:
         rssi: { type: integer, description: "Signal of the saved network in dBm, only while connected" }
         setup_ssid: { type: [string, "null"], description: "The setup network's name while it is open, e.g. `openesl-1A2B`" }
         token_set: { type: boolean, description: "An API token is set; until then every HTTP request gets `401`. The token itself is never shown" }
+        hostname: { type: string, description: "The AP's name on the network, `openesl` unless changed: what the router shows, and `<hostname>.local`" }
         networks:
           type: array
           maxItems: 16
@@ -1435,6 +1447,7 @@ components:
         rssi: -58
         setup_ssid: null
         token_set: true
+        hostname: openesl
         networks: [{ ssid: Butikken, rssi: -58 }, { ssid: Gjest, rssi: -71 }]
 
     OtaInfo:

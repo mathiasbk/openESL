@@ -282,6 +282,7 @@
         <label><span></span><span><input type="checkbox" id="apwifi-show"> Show password</span></label>
         <label>API token <input id="apwifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
         <label><span></span><span><button id="apwifi-gen" type="button">New random token</button></span></label>
+        <label id="apwifi-hostname-label" hidden>Name <input id="apwifi-hostname" autocomplete="off" maxlength="32" spellcheck="false" placeholder="openesl" title="The AP's name on the network: what the router shows, and NAME.local"></label>
         <div class="buttons tight">
           <button id="apwifi-save" type="submit">Save</button>
           <button id="apwifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
@@ -371,13 +372,14 @@
         <label><span></span><span><input type="checkbox" id="wifi-show"> Show password</span></label>
         <label>API token <input id="wifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
         <label><span></span><span><button id="wifi-gen" type="button">New random token</button></span></label>
+        <label id="wifi-hostname-label" hidden>Name <input id="wifi-hostname" autocomplete="off" maxlength="32" spellcheck="false" placeholder="openesl" title="The AP's name on the network: what the router shows, and NAME.local"></label>
         <div class="buttons tight">
           <button id="wifi-save" type="submit">Save</button>
           <button id="wifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
         </div>
       </form>
       <p id="wifi-msg" class="hint wifi-msg" role="status"></p>
-      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
+      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. "Name" is the AP's name on the network: what your router lists, and <code>http://NAME.local/</code>. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
     </section>
 
     <section class="card wide">

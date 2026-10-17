@@ -183,11 +183,13 @@ class Client:
     def delete_tag_firmware(self, model):
         return self._request("DELETE", f"/api/tag-firmware/{model}")
 
-    def set_wifi(self, ssid, password="", token=None):
-        """ssid None with a token keeps the network and sets only the token."""
+    def set_wifi(self, ssid, password="", token=None, hostname=None):
+        """ssid None with a token or hostname keeps the network."""
         body = {} if ssid is None else {"ssid": ssid, "password": password}
         if token:
             body["token"] = token
+        if hostname:
+            body["hostname"] = hostname
         return self._request("PUT", "/api/wifi", body)
 
     def time(self):
@@ -687,6 +689,8 @@ def print_wifi(w):
         line += "no network saved"
     if w.get("setup_ssid"):
         line += f"; setup network {w['setup_ssid']!r} open (http://192.168.4.1/setup)"
+    if w.get("hostname"):
+        line += f"; name {w['hostname']!r} ({w['hostname']}.local)"
     if w.get("token_set") is False:
         line += "; no API token set (wifi --new-token sets one)"
     print(line)
@@ -1116,6 +1120,7 @@ def main(argv=None):
     s.add_argument("--password", default="", help="empty for an open network")
     s.add_argument("--new-token", help="also set a new API token (8-128 characters, no spaces); "
                    "without ssid only the token changes")
+    s.add_argument("--hostname", help="the AP's name on the network (DHCP and NAME.local)")
 
     args = p.parse_args(argv)
     if args.cmd == "mac":
@@ -1241,10 +1246,10 @@ def main(argv=None):
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":
-            if args.ssid is None and not args.new_token:
+            if args.ssid is None and not args.new_token and not args.hostname:
                 print_wifi(cli.wifi())
             else:
-                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token))
+                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token, args.hostname))
                 if args.new_token:
                     print("API token changed: later HTTP requests need --token with the new one")
         elif args.cmd == "layouts":

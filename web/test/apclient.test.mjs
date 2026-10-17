@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { ApClient } from "../js/apclient.js";
+import { ApClient, apBase } from "../js/apclient.js";
 
 function fakeAp() {
   const seen = [];
@@ -37,4 +37,16 @@ test("calls go to the right paths, with the token and JSON", async () => {
 test("no answer gives a hint about the bridge", async () => {
   const ap = new ApClient("http://127.0.0.1:1");
   await assert.rejects(ap.tags(), /bridge/);
+});
+
+test("apBase: a bare address gets http://, https pages are sent to the bridge", () => {
+  assert.deepEqual(apBase("", "https:"), { base: "http://localhost:8080" });
+  assert.deepEqual(apBase("localhost:8080/", "https:"), { base: "http://localhost:8080" });
+  assert.deepEqual(apBase("http://127.0.0.1:9000", "https:"), { base: "http://127.0.0.1:9000" });
+  assert.deepEqual(apBase("192.168.3.169", "http:"), { base: "http://192.168.3.169" });
+  assert.deepEqual(apBase(" openesl.local ", "http:"), { base: "http://openesl.local" });
+  assert.match(apBase("192.168.3.169", "https:").error, /--url http:\/\/192\.168\.3\.169 .*serve/);
+  assert.match(apBase("http://openesl.local", "https:").error, /localhost:8080/);
+  assert.match(apBase("ftp://x", "http:").error, /not an http address/);
+  assert.match(apBase("http://", "http:").error, /not an address/);
 });
