@@ -6,6 +6,7 @@
 #   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
 #                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
 #                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
+# tools/check.py runs the same steps locally: change both together.
 name: Firmware
 
 on:

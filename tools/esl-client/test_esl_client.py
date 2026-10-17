@@ -147,7 +147,7 @@ class FakeAp(BaseHTTPRequestHandler):
         if self.path == "/api/time":
             FakeAp.time = body["time"]
             self._send(200, {"time": FakeAp.time, "source": "api"})
-        if self.path == "/api/config":
+        elif self.path == "/api/config":
             if "poll_s" in body:
                 FakeAp.config["poll_s"] = body["poll_s"] or 0
             if "webhook" in body:
@@ -401,9 +401,8 @@ class ClientTest(unittest.TestCase):
         self.assertIn("the AP offers 1.54 firmware 0.3.0 to the tags", out)
         self.assertEqual(FakeAp.tagfw["data"], data)
         parts = [c for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
-        self.assertEqual([c[0] for c in parts], ["/api/tag-firmware?offset=0&total=40976",
-                                                 "/api/tag-firmware?offset=16384&total=40976",
-                                                 "/api/tag-firmware?offset=32768&total=40976"])
+        self.assertEqual([c[0] for c in parts], [f"/api/tag-firmware?offset={o}&total=40976"
+                                                 for o in range(0, 40976, esl_client.TAGFW_PART)])
         self.assertEqual(parts[0][1], "application/octet-stream")
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"\x02\x00" + bytes(100))   # the flasher image, not the OTA file
@@ -458,6 +457,34 @@ class ClientTest(unittest.TestCase):
     def test_wait_returns_when_shown(self):
         rc, _ = self.run_cli("price", "00000123456789A8", "A", "1", "--wait", "--wait-s", "1")
         self.assertEqual(rc, 0)
+
+    def test_date_fields(self):
+        self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 17), ["Velkommen"]),
+                         ["Lørdag", "17. oktober 2026", "Velkommen"])
+
+    def test_date_today(self):
+        rc, out = self.run_cli("date", "0000000000000001", "Velkommen", "--frame")
+        self.assertEqual(rc, 0, out)
+        path, body = FakeAp.calls[0]
+        self.assertEqual(path, "/api/tags/0000000000000001")
+        self.assertEqual(body, {"layout": "text", "frame": True,
+                                "fields": esl_client.date_fields(datetime.date.today(), ["Velkommen"])})
+
+    def test_date_days_are_scheduled_at_midnight(self):
+        rc, out = self.run_cli("date", "0000000000000001", "--days", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[0][0], "/api/time")   # the AP's clock is checked first
+        rows = FakeAp.calls[-1][1]["tags"]
+        today = datetime.date.today()
+        days = [today + datetime.timedelta(days=i) for i in range(3)]
+        self.assertEqual([r["fields"] for r in rows], [esl_client.date_fields(d) for d in days])
+        self.assertNotIn("at", rows[0])
+        self.assertEqual([r["at"] for r in rows[1:]],
+                         [int(datetime.datetime.combine(d, datetime.time()).timestamp()) for d in days[1:]])
+
+    def test_date_too_many_lines(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_cli("date", "0000000000000001", "a", "b", "c")
 
     def test_text_too_long_is_error(self):
         rc, _ = self.run_cli("text", "00000123456789A8", "x" * 100)

@@ -1076,11 +1076,21 @@ async function apSend() {
   const content = { layout: name, fields: samples().slice() };
   if ($("opt-highlight").checked) content.price_highlight = true;
   if ($("opt-frame").checked) content.frame = true;
-  const r = await apClient().putContent(mac, content);
-  let note = "";
+  let r, uploaded = false;
+  try {
+    r = await apClient().putContent(mac, content);
+  } catch (e) {
+    // The AP does not have this layout (no layout file for the model yet, or an older one
+    // without it): upload the editor's file, then send again
+    if (isBuiltin() || !/^422: layout .* is not in (the|any) layout file/.test(e.message)) throw e;
+    await apUpload();
+    r = await apClient().putContent(mac, content);
+    uploaded = true;
+  }
+  let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  if (!isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
+  if (!uploaded && !isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
     note = " The tag has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];

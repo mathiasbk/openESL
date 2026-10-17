@@ -96,16 +96,25 @@ static esp_err_t send_reply(httpd_req_t *req, int status, esl_sb_t *out, const c
     return httpd_resp_send(req, out->buf, (ssize_t)out->len);
 }
 
-/* The buffer a request's reply is written into. A GET never needs the whole
- * ESL_API_STREAM_BUF (23 KB, sized for a batch reply): what grows with the
- * table is streamed, and the largest reply that is not is a layout file. The
- * dashboard asks for five GETs every 10 s, so asking the heap for the smaller
- * size keeps a fragmented heap from answering them with "out of memory". */
-#define GET_BUF (ESL_LAYOUT_MAX_SIZE + 2048)
+/* The buffer a request's reply is written into. Only a batch (PUT /api/tags)
+ * needs the whole ESL_API_STREAM_BUF (23 KB): what grows with the table is
+ * streamed, the largest other reply a GET gives is a layout file, and a PUT or
+ * DELETE of one thing answers in at most a kilobyte or two. Asking the heap for no
+ * more than that keeps a fragmented heap from answering "out of memory": the
+ * dashboard's five GETs every 10 s, and a tag firmware part (16 KB body). */
+#define GET_BUF   (ESL_LAYOUT_MAX_SIZE + 2048)
+#define SMALL_BUF 4096
 
-static size_t reply_buf_size(const char *method)
+static size_t reply_buf_size(const char *method, const char *uri)
 {
-    return strcmp(method, "GET") == 0 ? GET_BUF : ESL_API_STREAM_BUF;
+    if (strcmp(method, "GET") == 0)
+        return GET_BUF;
+    size_t n = strcspn(uri, "?");
+    if (n && uri[n - 1] == '/')
+        n--;
+    if (strcmp(method, "PUT") == 0 && n == sizeof("/api/tags") - 1 && memcmp(uri, "/api/tags", n) == 0)
+        return ESL_API_STREAM_BUF;
+    return SMALL_BUF;
 }
 
 static void log_oom(const char *what, size_t want)
@@ -167,7 +176,7 @@ static esp_err_t api_handler(httpd_req_t *req)
         }
     }
 
-    size_t cap = reply_buf_size(method);
+    size_t cap = reply_buf_size(method, req->uri);
     resp = malloc(cap);
     if (!resp) {
         log_oom(req->uri, cap);
@@ -477,6 +486,10 @@ esp_err_t http_api_start(const esl_api_t *api)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
+    /* A browser keeps connections open, and the dashboard's page loads its files over
+       several at once: let a new one close the oldest instead of being refused when
+       all are taken. Each open socket also holds RAM in lwIP. */
+    cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 15; /* two for /api/ota, three for the /api wildcard, two for /setup, /, two for the dashboard, and the rest */
 
     esp_err_t err = httpd_start(&server, &cfg);
