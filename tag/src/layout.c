@@ -7,9 +7,8 @@
     FONT_MID != ESL_FONT_MID || FONT_COUNT != ESL_FONT_COUNT
 #error "font numbers in font.h and shared/proto.h differ"
 #endif
-#if (MODEL_CODE == ESL_MODEL_29 && (DRAW_W != ESL_MODEL_29_W || DRAW_H != ESL_MODEL_29_H)) || \
-    (MODEL_CODE == ESL_MODEL_154 && (DRAW_W != ESL_MODEL_154_W || DRAW_H != ESL_MODEL_154_H))
-#error "screen size in model.h and shared/proto.h differ"
+#if DRAW_W != MODEL_ESL_W || DRAW_H != MODEL_ESL_H
+#error "screen size in model_gen.h and shared/models_gen.h differ (run tools/gen_models.py)"
 #endif
 #if LAYOUT_INVERT_PAD != ESL_INVERT_PAD || DRAW_MAX_RUNS != ESL_DRAW_MAX_RUNS || \
     DRAW_MAX_RECTS != ESL_DRAW_MAX_RECTS || LAYOUT_MAX_LINES != ESL_LE_MAX_LINES || \

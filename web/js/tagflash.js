@@ -19,11 +19,11 @@
 // and can be downloaded from the page; the flash-tui's backup folder works the same way.
 
 import * as zp from "./zbs.js";
+import { MODELS as REGISTRY } from "./models.js";
 
-export const MODELS = {
-  "2.9": { name: '2.9"', macCode: 0x3b, firmware: "firmware/tag-29.bin" },
-  "1.54": { name: '1.54"', macCode: 0x34, firmware: "firmware/tag-154.bin" },
-};
+export const MODELS = Object.fromEntries(
+  Object.entries(REGISTRY).map(([n, m]) => [n, { name: n + '"', macCode: m.macCode, firmware: `firmware/tag-${m.build}.bin` }]),
+);
 
 // tag/tools/build.py CODE_SIZE: from 0xF400 the tag keeps its layout file (0xF400) and its
 // last content (0xF800), and the stock MAC sits at 0xFC00

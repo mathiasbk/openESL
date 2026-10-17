@@ -16,10 +16,11 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
                                    through the API
 
 The renderer is web/wasm/web_api.c with the tag's drawing code and the AP's layout
-compiler, built with Emscripten (emcc) once per tag model:
+compiler, built with Emscripten (emcc) once per tag model in shared/models.json:
 
   dist/wasm/render-29.js/.wasm     2.9"  (296 x 128)
   dist/wasm/render-154.js/.wasm    1.54" (200 x 200)
+  dist/wasm/render-<build>.js/.wasm for any other model
 
 Firmware for the flasher is not built here. The GitHub workflow (.github/workflows/web.yml)
 adds it with --firmware: the files of the latest GitHub release, or, before the first release
@@ -45,7 +46,7 @@ DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c"]
 TAG_SOURCES = tag_build.CORE + tag_build.FONTS + ["test/fake_epd.c", "test/helpers.c"]
-MODELS = ["29", "154"]
+MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
@@ -107,7 +108,7 @@ def copy_static():
     # the example layout files, so the editor can open them
     lay = os.path.join(DIST, "designs", "layouts")
     os.makedirs(lay, exist_ok=True)
-    for m in ("2.9", "1.54"):
+    for m in (m["name"] for m in tag_build.models.load()):
         shutil.copy2(os.path.join(tag_build.TAG, "designs", "layouts", m + ".json"), lay)
     os.makedirs(os.path.join(DIST, "firmware"), exist_ok=True)
 

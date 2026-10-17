@@ -13,7 +13,7 @@ import os
 import re
 import sys
 
-JS = ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js", "fwupload.js", "sendtext.js"]
+JS = ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js", "fwupload.js", "sendtext.js", "models.js"]
 
 PAGE = """<!doctype html>
 <html lang="en">

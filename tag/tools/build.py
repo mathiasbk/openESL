@@ -7,7 +7,8 @@ Build script for the tag firmware. Works with and without make (the Makefile onl
   python tools/build.py fw        firmware with SDCC -> build/fw/openesl.bin (bootloader + application,
                                   for the flasher) and build/fw/openesl-ota.bin (the application
                                   with the OTA header, for the AP; docs/tag-ota.md)
-                                  (MODEL=154 for the 1.54" -> build/fw154/; default 29)
+                                  (MODEL=<build> from shared/models.json: 154 for the 1.54"
+                                  -> build/fw154/; default 29)
   python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
                                   (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead)
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
@@ -26,6 +27,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TAG = os.path.dirname(HERE)
 ROOT = os.path.dirname(TAG)
 BUILD = os.path.join(TAG, "build")
+
+sys.path.insert(0, os.path.join(ROOT, "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
 CODE_SIZE = 0xF400              # 0xF400-0xF7FF: layout file store, 0xF800-0xFBFF: record store (hal_*store_*); 0xFC00 up: the stock MAC
@@ -218,17 +222,19 @@ def cmd_fw():
          openesl.bin      both, written at 0 by the flasher (the jig)
          openesl-ota.bin  the OTA file for the AP: ESL_FWF_* header + the application"""
     import struct
-    model = os.environ.get("MODEL", "29")
-    if model not in ("29", "154"):
-        sys.exit("MODEL must be 29 or 154")
-    subdir = "fw" if model == "29" else "fw" + model
+    ms = models.load()
+    m = models.by_build(os.environ.get("MODEL", ms[0]["build"]), ms)
+    if not m:
+        sys.exit("MODEL must be one of %s (shared/models.json)" % ", ".join(x["build"] for x in ms))
+    model = m["build"]
+    subdir = models.fw_dir(m)
     boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
     app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE)
     app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
     out = os.path.join(BUILD, subdir)
     with open(os.path.join(out, "openesl.bin"), "wb") as f:
         f.write(boot + b"\xFF" * (BOOT_SIZE - len(boot)) + app)
-    code = {"29": 1, "154": 2}[model]      # ESL_MODEL_* in shared/proto.h
+    code = m["code"]                        # ESL_MODEL_* in shared/models_gen.h
     _, fw_ver = read_version()
     hdr = struct.pack("<IBBHII", OTA_FILE_MAGIC, OTA_FILE_FORMAT, code, fw_ver, len(app), crc32(app))
     with open(os.path.join(out, "openesl-ota.bin"), "wb") as f:

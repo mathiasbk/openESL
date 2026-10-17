@@ -1,8 +1,8 @@
 #include "proto_tag.h"
 #include "model.h"
 
-#if (MODEL == 29 && MODEL_CODE != ESL_MODEL_29) || (MODEL == 154 && MODEL_CODE != ESL_MODEL_154)
-#error "MODEL_CODE in model.h does not match ESL_MODEL_* in shared/proto.h"
+#if MODEL_CODE != MODEL_ESL_CODE
+#error "MODEL_CODE in model_gen.h does not match ESL_MODEL_* in shared/models_gen.h (run tools/gen_models.py)"
 #endif
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,

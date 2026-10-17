@@ -1,0 +1,37 @@
+{
+  "_comment": "The tag models openESL knows. Everything else (C headers, the web page, the tools, CI) is generated from or reads this file: run python tools/gen_models.py after a change. See shared/README.md.",
+  "models": [
+    {
+      "code": 1,
+      "build": "29",
+      "name": "2.9",
+      "id": "solum-m2-29-bw",
+      "label": "SoluM 2.9\" black/white",
+      "product": "ST-GM29XX2",
+      "chip": "zbs243",
+      "radio": "802.15.4",
+      "width": 296,
+      "height": 128,
+      "colors": ["black", "white"],
+      "mac_code": "0x3B",
+      "photo": {"file": "img/tag-29.jpg", "width": 529, "height": 280},
+      "status": "supported"
+    },
+    {
+      "code": 2,
+      "build": "154",
+      "name": "1.54",
+      "id": "solum-m2-154-bw",
+      "label": "SoluM 1.54\" black/white",
+      "product": "ST-GM16XX2",
+      "chip": "zbs243",
+      "radio": "802.15.4",
+      "width": 200,
+      "height": 200,
+      "colors": ["black", "white"],
+      "mac_code": "0x34",
+      "photo": {"file": "img/tag-154.jpg", "width": 245, "height": 280},
+      "status": "supported"
+    }
+  ]
+}

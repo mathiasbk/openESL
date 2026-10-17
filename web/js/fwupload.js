@@ -11,7 +11,7 @@ export const PART = 16384;
 export const TAGFW_PART = 8192;
 
 const TAGFW_MAGIC = [0x4f, 0x53, 0x46, 0x57]; // "OSFW" (shared/proto.h ESL_FWF_MAGIC)
-const TAG_MODELS = { 1: "2.9", 2: "1.54" };
+import { MODEL_BY_CODE as TAG_MODELS } from "./models.js";
 const dec = new TextDecoder();
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);

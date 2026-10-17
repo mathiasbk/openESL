@@ -1,0 +1,43 @@
+"""
+The tag model registry (shared/models.json) for the Python tools in this repository.
+
+  import models                      (with shared/ on sys.path)
+  models.load()                      -> list of model dicts, ordered by code
+  models.by_build("154")             -> the model built with MODEL=154
+  models.by_name("1.54")             -> the model the API calls "1.54"
+  models.fw_dir(m)                   -> the build folder under tag/build/ ("fw", "fw154")
+
+Fields are described in shared/README.md. tools/gen_models.py checks the file.
+"""
+import json
+import os
+
+PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models.json")
+
+
+def load(path=PATH):
+    with open(path, encoding="utf-8") as f:
+        ms = json.load(f)["models"]
+    for m in ms:
+        m["mac_code"] = int(m["mac_code"], 16)
+        m["has_red"] = "red" in m["colors"]
+    return sorted(ms, key=lambda m: m["code"])
+
+
+def by_build(build, ms=None):
+    for m in ms or load():
+        if m["build"] == str(build):
+            return m
+    return None
+
+
+def by_name(name, ms=None):
+    for m in ms or load():
+        if m["name"] == name:
+            return m
+    return None
+
+
+def fw_dir(m):
+    # The first model keeps the folder it always had (CI, tools/check.py and the flash-tui use it)
+    return "fw" if m["code"] == 1 else "fw" + m["build"]

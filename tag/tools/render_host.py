@@ -3,7 +3,7 @@
 Host checks of drawing and layout for every tag model, without hardware.
 
   python tools/render_host.py            tests + previews for all models
-  python tools/render_host.py 154        only one model (29 or 154)
+  python tools/render_host.py 154        only one model (a build from shared/models.json)
 
 For each model (src/model.h) it compiles the host tests and the preview tool with a
 normal C compiler and -DMODEL=<model>, runs the tests (including test_epd, which rebuilds
@@ -38,9 +38,9 @@ sys.path.insert(0, HERE)
 import build  # noqa: E402
 import label_design  # noqa: E402
 
-MODELS = ["29", "154"]
-MODEL_NAME = {"29": "2.9", "154": "1.54"}        # as in the API and the layout files
-MODEL_CODE = {"29": 1, "154": 2}                 # ESL_MODEL_* in shared/proto.h
+MODELS = [m["build"] for m in build.models.load()]                       # -DMODEL=<build>
+MODEL_NAME = {m["build"]: m["name"] for m in build.models.load()}        # as in the API and the layout files
+MODEL_CODE = {m["build"]: m["code"] for m in build.models.load()}        # ESL_MODEL_* in shared/models_gen.h
 LAYOUT_IDS = {"price": 1, "text": 2}
 LAYOUT_FILE = 0x10                               # ESL_LAYOUT_FILE: layout n of the file is 0x10 + n
 FLAG_BITS = {"price_highlight": 0x01, "frame": 0x02}

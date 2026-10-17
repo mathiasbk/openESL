@@ -22,7 +22,7 @@ def default_path():
 DEFAULTS = {
     "port_location": "",
     "port_device": "",
-    "model": "29",
+    "model": next(iter(workflow.MODELS)),
     "firmware": {k: m["firmware"] for k, m in workflow.MODELS.items()},
     "backup_dir": workflow.DEFAULT_BACKUP_DIR,
 }
@@ -44,7 +44,7 @@ def load(path=None):
             if isinstance(data["firmware"].get(k), str) and data["firmware"][k]:
                 cfg["firmware"][k] = data["firmware"][k]
     if cfg["model"] not in workflow.MODELS:
-        cfg["model"] = "29"
+        cfg["model"] = next(iter(workflow.MODELS))
     return cfg
 
 

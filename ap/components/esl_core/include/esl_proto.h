@@ -167,8 +167,8 @@ bool esl_frame_parse_to_tag(const uint8_t *psdu, size_t psdu_len, esl_ap_frame_t
 bool esl_mac_parse(const char *s, size_t len, uint64_t *out);
 void esl_mac_format(uint64_t mac, char out[17]);
 
-/* ---- tag model: "2.9" / "1.54" as used in the API ---------------------- */
-#define ESL_MODEL_COUNT 3 /* ESL_MODEL_UNKNOWN .. ESL_MODEL_154 */
+/* ---- tag model: "2.9" / "1.54" as used in the API ----------------------
+ * The models and ESL_MODEL_COUNT come from shared/models.json (shared/models_gen.h). */
 /* Name of a known model, NULL for ESL_MODEL_UNKNOWN or anything else. */
 const char *esl_model_name(uint8_t model);
 /* Screen size of a known model in pixels (the layout coordinates); false otherwise. */

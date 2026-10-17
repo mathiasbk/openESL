@@ -5,6 +5,7 @@ import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS 
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initDashboard } from "./dashboard.js";
+import { MODELS } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -76,9 +77,34 @@ let transport = null;
 let backups = null;
 let busy = false;
 let lastMacSeen = false;
-let tagModel = "2.9";
+let tagModel = Object.keys(MODELS)[0];
 
-// ---------- model picker: a photo of each tag ----------
+// ---------- model picker: a photo of each tag, one button per model in the registry
+// (shared/models.json -> js/models.js); a model without a photo gets an empty box of its
+// screen's shape ----------
+
+for (const [name, m] of Object.entries(MODELS)) {
+  const b = document.createElement("button");
+  Object.assign(b, { type: "button", className: "model" });
+  b.setAttribute("role", "radio");
+  b.dataset.model = name;
+  b.setAttribute("aria-checked", name === tagModel);
+  const c = m.photo
+    ? Object.assign(document.createElement("img"), {
+        src: m.photo.file,
+        width: m.photo.width,
+        height: m.photo.height,
+        alt: `Photo of the ${name}" tag`,
+      })
+    : Object.assign(document.createElement("canvas"), { width: m.width, height: m.height });
+  const n = Object.assign(document.createElement("span"), { className: "name", textContent: name + '"' });
+  const d = Object.assign(document.createElement("span"), {
+    className: "muted",
+    textContent: `${m.width} × ${m.height}, ${m.product}`,
+  });
+  b.append(c, n, d);
+  $("tag-models").append(b);
+}
 
 function selectModel(model) {
   if (busy) return;

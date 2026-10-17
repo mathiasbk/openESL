@@ -41,8 +41,12 @@ Usage:
   python tools/label_design.py render designs/hylle-tilbud.json data.json designs/layouts/2.9.json
 """
 import json
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
 
 FORMAT = "esl-label"
 VERSION = 1
@@ -55,7 +59,7 @@ STYLE_KEYS = {"price_highlight", "frame"}
 LAYOUT_FILE_FORMAT = "esl-layouts"
 LAYOUT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,30}$")    # esl_layout_name_valid on the AP
 FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
-MODELS = ("2.9", "1.54")
+MODELS = tuple(m["name"] for m in models.load())   # as in the API and the layout files
 MAX_FIELDS = 6             # ESL_MAX_FIELDS in shared/proto.h
 FIELD_SPACE = 96           # ESL_CONTENT_FIELD_SPACE: text + one length byte per field sent
 MAX_FIELD_BYTES = 255      # the length is one byte in the packet

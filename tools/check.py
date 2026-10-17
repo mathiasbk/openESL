@@ -11,9 +11,10 @@ machine, so a change can be checked before it is pushed.
   python tools/check.py --strict      a step whose tools are missing fails instead of being skipped
 
 Steps:
+  models    the generated model files match shared/models.json (tools/gen_models.py --check)
   tag       tag host tests (tag/tools/build.py test)
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
-  tag-fw    tag firmware for both models with SDCC 4.5.0
+  tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client and power-budget tests
   openapi   docs/openapi.yaml against the AP code
@@ -43,6 +44,8 @@ EMSCRIPTEN_VERSION = "3.1.74"
 IDF_IMAGE = "espressif/idf:v5.5.5"
 DEV_IMAGE = "openesl-dev"
 PY = sys.executable or "python3"
+sys.path.insert(0, os.path.join(ROOT, "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
 WINDOWS = os.name == "nt"
 
 
@@ -99,6 +102,10 @@ def copy_out(src, name):
     shutil.copyfile(os.path.join(ROOT, src), os.path.join(OUT, name))
 
 
+def step_models():
+    run([PY, "tools/gen_models.py", "--check"])
+
+
 def step_tag():
     need_host_cc()
     need_python("zxingcpp", "zxing-cpp==3.1.1")
@@ -117,10 +124,10 @@ def step_tag_fw():
     version = subprocess.run([sdcc, "--version"], capture_output=True, text=True).stdout
     if " %s " % SDCC_VERSION not in version:
         raise Skip("SDCC %s needed, found: %s" % (SDCC_VERSION, version.splitlines()[0] if version else "?"))
-    for model, build in (("29", "fw"), ("154", "fw154")):
-        run([PY, "tag/tools/build.py", "fw"], env={"MODEL": model})
-        copy_out("tag/build/%s/openesl.bin" % build, "tag-%s.bin" % model)
-        copy_out("tag/build/%s/openesl-ota.bin" % build, "tag-%s-ota.bin" % model)
+    for m in models.load():
+        run([PY, "tag/tools/build.py", "fw"], env={"MODEL": m["build"]})
+        copy_out("tag/build/%s/openesl.bin" % models.fw_dir(m), "tag-%s.bin" % m["build"])
+        copy_out("tag/build/%s/openesl-ota.bin" % models.fw_dir(m), "tag-%s-ota.bin" % m["build"])
 
 
 def step_ap_test():
@@ -180,6 +187,7 @@ def step_web():
 
 
 STEPS = {
+    "models": (step_models, "Python"),
     "tag": (step_tag, "C compiler, pip: zxing-cpp pillow"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
