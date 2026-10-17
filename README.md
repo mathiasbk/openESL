@@ -52,4 +52,4 @@ This project would be much harder without the people who opened up these tags fi
 
 ## Licence
 
-Not decided yet.
+OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), and ESP-IDF and its components keep theirs (Apache-2.0).
