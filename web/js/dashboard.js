@@ -17,7 +17,7 @@ const store = {
   set: (k, v) => { try { localStorage.setItem("openesl." + k, v); } catch { /* private window */ } },
 };
 
-export function initDashboard({ sameOrigin = false } = {}) {
+export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
   let timer = null;
   let loading = false;
@@ -236,7 +236,7 @@ export function initDashboard({ sameOrigin = false } = {}) {
     for (const k of ["tag-29", "tag-154"]) {
       if (!info?.ota?.[k]) continue;
       try {
-        const r = await fetch(`firmware/${k}-ota.bin`, { cache: "no-cache" });
+        const r = await fetch(`${firmwareBase}firmware/${k}-ota.bin`, { cache: "no-cache" });
         if (!r.ok) continue;
         const data = new Uint8Array(await r.arrayBuffer());
         const kind = firmwareKind(data);
@@ -253,7 +253,7 @@ export function initDashboard({ sameOrigin = false } = {}) {
     if (last) render();
   }
 
-  fetch("firmware/info.json", { cache: "no-cache" })
+  fetch(`${firmwareBase}firmware/info.json`, { cache: "no-cache" })
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((info) => {
@@ -271,8 +271,8 @@ export function initDashboard({ sameOrigin = false } = {}) {
   async function chosenFile() {
     const v = $("fw-src").value;
     if (v !== "file") {
-      const r = await fetch(`firmware/${v}.bin`, { cache: "no-cache" });
-      if (!r.ok) throw new Error(`could not load firmware/${v}.bin (${r.status})`);
+      const r = await fetch(`${firmwareBase}firmware/${v}.bin`, { cache: "no-cache" });
+      if (!r.ok) throw new Error(`could not load ${firmwareBase}firmware/${v}.bin (${r.status})`);
       return new Uint8Array(await r.arrayBuffer());
     }
     const f = $("fw-file").files[0];

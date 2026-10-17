@@ -165,7 +165,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 ## Dashboard on the AP
 
-`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with what needs attention, and the firmware card (AP OTA and tag firmware from a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
+`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
 
 The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 23 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 
