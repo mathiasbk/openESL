@@ -9,6 +9,7 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py status
   esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
   esl_client.py text  00000123456789A8 "Opening hours" "Mon-Fri 9-21" "Sat 9-18" --frame
+  esl_client.py date  00000123456789A8 "Velkommen" --days 7   # today's date, and the next 6 days at midnight
   esl_client.py sync prices.csv          # full send, chunks of 50
   esl_client.py sync prices.csv --at "2026-10-19 07:00"   # the new prices from Monday 07:00
   esl_client.py schedule                 # what is scheduled
@@ -454,6 +455,42 @@ def content(layout, fields, highlight=False, frame=False):
     if frame:
         c["frame"] = True
     return c
+
+
+WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
+MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
+          "oktober", "november", "desember")
+
+
+def date_fields(d, extra=()):
+    """Layout text for the date command: "Lørdag", "17. oktober 2026", then the caller's lines."""
+    return [WEEKDAYS[d.weekday()].capitalize(), f"{d.day}. {MONTHS[d.month - 1]} {d.year}", *extra]
+
+
+def send_date(cli, args, today=None):
+    """Today's date now; with --days N also the next N-1 days, scheduled on the AP for
+    local midnight, so the tag changes by itself without this computer."""
+    today = today or datetime.date.today()
+    if args.days == 1:
+        args.at = None
+        return set_one(cli, args, content("text", date_fields(today, args.lines), False, args.frame))
+    ensure_time(cli)
+    rows = []
+    for i in range(args.days):
+        d = today + datetime.timedelta(days=i)
+        r = {"mac": args.mac, **content("text", date_fields(d, args.lines), False, args.frame)}
+        if i:
+            r["at"] = int(datetime.datetime.combine(d, datetime.time()).timestamp())
+        rows.append(r)
+    res = cli.set_many(rows)
+    for r in res:
+        print_result(r)
+    if args.wait and res and res[0].get("pending"):
+        print("waiting for the tag to show it ...", flush=True)
+        ok = cli.wait_shown(args.mac, res[0]["content_id"], timeout_s=args.wait_s)
+        print("shown" if ok else f"not shown after {args.wait_s} s")
+        return 0 if ok else 1
+    return 0
 
 
 class CsvError(Exception):
@@ -1059,6 +1096,15 @@ def main(argv=None):
         s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
         s.add_argument("--wait-s", type=int, default=120)
 
+    s = sub.add_parser("date", help="layout text: today's date (\"Lørdag\", \"17. oktober 2026\") and up to two lines")
+    s.add_argument("mac", type=norm_mac)
+    s.add_argument("lines", nargs="*", help="up to two more lines under the date")
+    s.add_argument("--days", type=int, default=1, metavar="N",
+                   help="also schedule the next N-1 days on the AP, at midnight (default 1: today only)")
+    s.add_argument("--frame", action="store_true", help="black frame")
+    s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
+    s.add_argument("--wait-s", type=int, default=120)
+
     s = sub.add_parser("sync", help="full send from CSV (chunks of 50)")
     s.add_argument("csv")
     s.add_argument("--tags", metavar="CSV", help="mac,item file: the CSV has an item column instead of mac")
@@ -1123,6 +1169,8 @@ def main(argv=None):
     s.add_argument("--hostname", help="the AP's name on the network (DHCP and NAME.local)")
 
     args = p.parse_args(argv)
+    if args.cmd == "date" and (len(args.lines) > 2 or not 1 <= args.days <= 100):
+        p.error("date takes at most two lines, and --days 1 to 100")
     if args.cmd == "mac":
         try:
             for m in [args.model] if args.model else sorted(MODEL_MAC_CODE, reverse=True):
@@ -1157,6 +1205,8 @@ def main(argv=None):
             return set_one(cli, args, content("price", args.fields, args.highlight, args.frame))
         elif args.cmd == "text":
             return set_one(cli, args, content("text", args.fields, False, args.frame))
+        elif args.cmd == "date":
+            return send_date(cli, args)
         elif args.cmd == "sync":
             return sync(cli, args)
         elif args.cmd == "schedule":

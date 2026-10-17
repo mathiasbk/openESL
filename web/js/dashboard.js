@@ -7,6 +7,7 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtTagFw, fmtBattery, lastCheckin, nextCheckin, tagRows, healthLine, apFacts } from "./dashdata.js";
+import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -139,6 +140,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
     $("dash-tags").replaceChildren(...rows.map(({ tag, state }) => {
       const tr = document.createElement("tr");
+      tr.append(stCheckCell(tag.mac));
       const next = nextCheckin(tag);
       const cells = [
         [tag.mac, "mono"],
@@ -184,13 +186,190 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!list.tags.length) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 8;
+      td.colSpan = 9;
       td.className = "muted";
       td.textContent = "No tags yet. A tag shows up here after its first poll.";
       tr.append(td);
       $("dash-tags").append(tr);
     }
+    renderSendTags();
   }
+
+  // ---- Send info to the tags ticked in the tag table ----
+
+  const stMsg = (text, cls = "") => {
+    $("st-msg").textContent = text;
+    $("st-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  const stLineInputs = [1, 2, 3, 4].map((i) => $("st-l" + i));
+  const stWhat = () => $("st-what").value;
+  // The lines: ready-made for the list's choices, the inputs for "Your own text"
+  const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()]);
+  const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
+  const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
+  const stRows = (tags = stTags()) => infoRows(tags, stLines(), {
+    days: Number($("st-days").value) || 1, frame: $("st-frame").checked,
+    ap: last?.list.ap, wifi: last?.wifi, total: last?.list.tags.length,
+  });
+  const stSave = () => {
+    store.set("st.macs", [...stSel].join(","));
+    store.set("st.what", stWhat());
+    store.set("st.lines", JSON.stringify(stLineInputs.map((el) => el.value)));
+  };
+  if ([...$("st-what").options].some((o) => o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
+  try {
+    const saved = JSON.parse(store.get("st.lines") || "null");
+    if (Array.isArray(saved)) saved.slice(0, 4).forEach((v, i) => (stLineInputs[i].value = String(v)));
+  } catch { /* nothing saved */ }
+
+  // The tick box in the first column of a tag's row
+  function stCheckCell(mac) {
+    const td = document.createElement("td");
+    td.className = "sel";
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = stSel.has(mac);
+    c.setAttribute("aria-label", "Tick " + mac);
+    c.onchange = () => {
+      if (c.checked) stSel.add(mac);
+      else stSel.delete(mac);
+      stChanged();
+    };
+    td.append(c);
+    return td;
+  }
+
+  // Buttons that put a placeholder where the cursor was in the last line used
+  let stFocus = stLineInputs[0];
+  for (const el of stLineInputs) el.addEventListener("focus", () => (stFocus = el));
+  $("st-ph").replaceChildren(...PLACEHOLDERS.map(([name, what]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "small";
+    b.textContent = `{${name}}`;
+    b.title = "Puts in " + what;
+    b.onclick = () => {
+      const el = stFocus;
+      const at = el.selectionStart ?? el.value.length;
+      el.setRangeText(`{${name}}`, at, el.selectionEnd ?? at, "end");
+      el.focus();
+      stChanged();
+    };
+    return b;
+  }));
+
+  // Called after the tag table is drawn
+  function renderSendTags() {
+    const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
+    $("st-all").checked = rows.length > 0 && rows.every((c) => c.checked);
+    $("st-all").indeterminate = !$("st-all").checked && rows.some((c) => c.checked);
+    stPreview();
+  }
+
+  function stChanged() {
+    stSave();
+    renderSendTags();
+  }
+
+  let stSeq = 0;
+  async function stPreview() {
+    const tags = stTags();
+    const lines = stLines();
+    $("st-own").hidden = stWhat() !== "text";
+    $("st-days-label").hidden = !usesDate(lines);
+    $("st-days").max = maxDays(tags.length);
+    $("st-send").disabled = !client || !tags.length;
+    $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
+    $("st-show").hidden = !tags.length;
+
+    // What each tag gets today
+    const rows = stRows(tags).filter((r) => !r.at);
+    const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
+    $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
+    $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
+    $("st-list").replaceChildren(...rows.map((r) => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      const td2 = document.createElement("td");
+      td1.className = "mono";
+      td1.textContent = r.mac;
+      td2.textContent = r.fields.join(" / ");
+      if (textBytes(r.fields) > TEXT_BYTES) td2.className = "error";
+      tr.append(td1, td2);
+      return tr;
+    }));
+
+    // The first ticked tag, drawn by the tag's own code
+    const row = rows[0];
+    const model = tags[0]?.model || "2.9";
+    const seq = ++stSeq;
+    if (!row) return ($("st-preview").hidden = true);
+    try {
+      // On the AP's own page the renderer comes from the published page
+      const R = await import(firmwareBase ? new URL("js/renderer.js", firmwareBase).href : "./renderer.js");
+      const r = await R.loadRenderer(model, firmwareBase ? new URL("wasm/", firmwareBase) : undefined);
+      if (seq !== stSeq) return;
+      const out = r.render(R.LAYOUT_TEXT, row.frame ? R.FLAG_FRAME : 0, row.fields);
+      if (!out.ok) {
+        $("st-preview").hidden = true;
+        return;
+      }
+      const { width: w, height: h } = R.MODELS[model];
+      const c = $("st-screen");
+      if (c.width !== w || c.height !== h) [c.width, c.height] = [w, h];
+      const ctx = c.getContext("2d");
+      const img = ctx.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        const v = out.pixels[i] ? 17 : 255;
+        img.data.set([v, v, v, 255], i * 4);
+      }
+      ctx.putImageData(img, 0, 0);
+      c.title = "Preview: " + row.mac;
+      $("st-preview").hidden = false;
+    } catch {
+      $("st-preview").hidden = true; // no renderer (a page built without it): only the list
+    }
+  }
+
+  async function sendText(ev) {
+    ev.preventDefault();
+    const tags = stTags();
+    if (!client || !tags.length) return;
+    const rows = stRows(tags);
+    const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
+    if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
+    $("st-send").disabled = true;
+    try {
+      const { replies, note } = await sendRows(client, rows);
+      const now = replies.filter((r) => !r.scheduled);
+      const later = replies.length - now.length;
+      const waiting = now.filter((r) => r.pending !== false).length;
+      const who = tags.length === 1 ? "The tag shows" : `${tags.length} tags show`;
+      stMsg((waiting ? `Sent. ${who} it at the next poll.` : "Sent; the tags already show this.") +
+        (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
+        (note ? " " + note : ""), "ok");
+    } catch (e) {
+      stMsg("Not sent: " + e.message, "error");
+    } finally {
+      $("st-send").disabled = false;
+      refresh();
+    }
+  }
+
+  $("st-form").addEventListener("submit", sendText);
+  $("st-form").addEventListener("input", stChanged);
+  $("st-form").addEventListener("change", stChanged);
+  // The header's tick box: every tag the table shows now (after Find and the problems filter)
+  $("st-all").onchange = () => {
+    const on = $("st-all").checked;
+    for (const c of $("dash-tags").querySelectorAll("td.sel input")) {
+      const mac = c.closest("tr").querySelector("td.mono").textContent;
+      c.checked = on;
+      if (on) stSel.add(mac);
+      else stSel.delete(mac);
+    }
+    stChanged();
+  };
 
   // ---- Firmware card ----
 

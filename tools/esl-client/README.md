@@ -7,6 +7,8 @@ export OPENESL_URL=http://openesl.local OPENESL_TOKEN=...
 python3 esl_client.py status
 python3 esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
 python3 esl_client.py text 00000123456789A8 "Opening hours" "Mon-Fri 9-21" "Sat 9-18" --frame
+python3 esl_client.py date 00000123456789A8 "Velkommen"            # "Lørdag", "17. oktober 2026", "Velkommen"
+python3 esl_client.py date 00000123456789A8 "Velkommen" --days 7   # ... and the next 6 days, set by the AP at midnight
 python3 esl_client.py sync prices.csv
 python3 esl_client.py sync prices.csv --tags tags.csv --dry-run   # price list by item number
 python3 esl_client.py sync prices.csv --at "2026-10-19 07:00"     # the AP sets the new prices Monday 07:00
@@ -24,6 +26,7 @@ python3 esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..."   # 
 
 - Scheduled content: `--at WHEN` on `price`, `text` and `sync` (or an `at` column in the CSV, per row) makes the AP set it at that time by itself ("at" in the API). WHEN is local time (`"2026-10-19 07:00"`, `2026-10-19` = midnight), ISO with an offset, or Unix seconds. Before it schedules anything the client checks the AP's clock (`GET /api/time`) and sets it from the computer if the AP does not know the time (no WiFi, so no NTP), and warns if the clocks differ by more than 2 minutes. The same MAC (or item) may be in one file once per time, so a sale and the price after it can be one file. `schedule` lists what is waiting, `schedule-clear [MAC]` removes it, `time [--set]` shows or sets the AP's clock.
 - Other commands: `show MAC` and `delete MAC` read or remove one tag; `layouts` lists the layout files and `layout-put {2.9,1.54} FILE` uploads one; `health` lists the tags that need attention (`GET /api/health`, thresholds `--silent-s` and `--battery-mv`) and exits 1 if there are any; `config` shows or sets the AP's default poll interval (`--poll-s`, `0` = tags keep their own, `null` = the built-in value) and the webhook (`--webhook URL`, `""` turns it off).
+- `date MAC [LINE [LINE]]` sends today's date with layout `text`: the weekday and the date in Norwegian, then up to two lines of your own. With `--days N` the next N-1 days are scheduled on the AP for local midnight (as `--at`), so the tag changes date by itself without this computer; `--days 7` once a week keeps it going.
 - `--wait` polls the tag until it reports the new content as shown (requirement G1: within 2 minutes).
 - `sync` is the periodic full send: `PUT /api/tags` in chunks of 50. Unchanged tags cost nothing, since the AP compares `content_id`.
 - CSV for `sync`: the header row names the columns, in any order. `mac` and `layout` are needed (`--layout price` instead gives rows without one a layout), `highlight` and `frame` are optional (1/0, true/false or empty), and every other column is a field, in column order. So `mac,layout,highlight,frame,name,price,info` from earlier versions still works.
