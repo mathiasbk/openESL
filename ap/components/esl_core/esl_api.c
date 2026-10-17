@@ -1314,6 +1314,8 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     if (attention)
         esl_sb_printf(out, ", <span class=\"p\">%u need attention</span>", attention);
     esl_sb_puts(out, ".</p>");
+    if (api->dashboard)
+        esl_sb_puts(out, "<p><a href=\"/dashboard\">Dashboard</a> (needs the API token)</p>");
     if (api->wifi)
         esl_sb_puts(out, "<p><a href=\"/setup\">WiFi and API token setup</a></p>");
     if (api->notify && api->notify->url[0]) {

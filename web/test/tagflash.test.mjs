@@ -152,6 +152,50 @@ test("no MAC anywhere", async () => {
   assert.equal(tag.eraseCount[0], 0);
 });
 
+test("MAC typed in from the label or as a whole MAC", () => {
+  assert.equal(wf.macStr(wf.macFromEntry("0207 9350 0102", "1.54").mac), "000002079350341C");
+  assert.equal(wf.macFromEntry("020793500102", "1.54").barcode, "020793500102");
+  const whole = wf.macFromEntry("00-00-02-07-93-50-34-1c", "1.54");
+  assert.equal(wf.macStr(whole.mac), "000002079350341C");
+  assert.equal(whole.barcode, "");
+  assert.throws(() => wf.macFromEntry("000002079350341D", "1.54"), /does not fit/);
+  assert.throws(() => wf.macFromEntry("000002079350341C", "2.9"), /does not fit/);
+  assert.throws(() => wf.macFromEntry("0207935001", "1.54"), /neither/);
+  assert.throws(() => wf.macFromEntry("FFFFFFFFFFFF", "1.54"), /blank/);
+});
+
+test("no MAC anywhere: a typed MAC is written to the info page and the tag flashed", async () => {
+  const tag = new FakeTag(new Uint8Array(zp.FLASH_SIZE).fill(0x12));
+  tag.flash.fill(0xff, 0xfc00, 0xfc10);
+  const { fl, backups } = setup(tag);
+  const r = await wf.flashTag(fl, "1.54", fw(), backups, { manualMac: "020793500102" });
+  assert.ok(r.ok, r.message);
+  assert.equal(r.macSource, "typed in");
+  assert.equal(r.mac, "000002079350341C");
+  assert.equal(r.barcode, "020793500102");
+  assert.equal(r.backup, "saved");
+  assert.equal(wf.macStr(wf.macFromInfo(tag.info)), "000002079350341C");
+  // next time the MAC comes from the info page
+  const r2 = await wf.flashTag(fl, "1.54", fw(), backups);
+  assert.equal(r2.macSource, "info page");
+  assert.equal(r2.mac, r.mac);
+});
+
+test("a typed MAC is not used on a tag that has its own, and a bad one touches nothing", async () => {
+  const { fl, backups } = setup();
+  const lines = [];
+  const r = await wf.flashTag(fl, "2.9", fw(), backups, { manualMac: "020793500102", log: (t) => lines.push(t) });
+  assert.ok(r.ok, r.message);
+  assert.equal(r.macSource, "stock flash");
+  assert.ok(lines.some((l) => l.includes("not used")));
+  const tag = new FakeTag(new Uint8Array(zp.FLASH_SIZE).fill(0x12));
+  tag.flash.fill(0xff, 0xfc00, 0xfc10);
+  const s = setup(tag);
+  const bad = await wf.flashTag(s.fl, "1.54", fw(), s.backups, { manualMac: "123" });
+  assert.equal(bad.step, "setup");
+  assert.equal(tag.eraseCount[0], 0);
+});
+
 test("firmware must end below the tag's layout and content store at 0xF400", () => {
   assert.equal(wf.CODE_LIMIT, 0xf400);
   const ok = new Uint8Array(0xf400).fill(0x12);

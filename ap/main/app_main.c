@@ -79,6 +79,9 @@ void app_main(void)
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
+#if CONFIG_ESL_WEB_DASHBOARD
+    api.dashboard = true;
+#endif
     /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)

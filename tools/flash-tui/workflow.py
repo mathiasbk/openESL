@@ -12,6 +12,9 @@ Order and rules:
      0xFC06-0xFC0B the same way as ZBS_Flasher's "mac" command (00 00 + 6 bytes, with
      byte 6/7 set to the model code and the low nibble of byte 7 a XOR checksum).
      The same 6 bytes as hex are the barcode printed on the label (see barcode_from_stock).
+     If both are blank (an earlier build was written with a plain erase, which wiped
+     0xFC06), the MAC can be typed in (manual_mac): the barcode from the label or the
+     whole MAC, see mac_from_entry. It is then written to the info page as in step 5.
   4. Backup: if backup/<MAC>.bin does not exist yet, read the whole 64 KB main flash
      (twice, must match) and save it as <MAC>.bin plus the info page as <MAC>.info.bin.
      Any failure here stops the job before anything is written.
@@ -27,6 +30,7 @@ import csv
 import datetime
 import hashlib
 import os
+import re
 import time
 
 import zbs_proto as zp
@@ -114,6 +118,31 @@ def barcode_from_backup(path, mac):
     if not model or mac_from_stock(raw, model) != bytes(mac):
         return ""
     return barcode_from_stock(raw)
+
+
+def mac_from_entry(text, model):
+    """MAC typed in for a tag that has none: (mac8, barcode). Raises ValueError.
+
+    Takes the 12 hex digits of the barcode on the label (the stock bytes, see
+    barcode_from_stock) or the whole 16-digit MAC; spaces, ':' and '-' are ignored. A whole
+    MAC must be one mac_from_stock could have made for this model (00 00 prefix, model code,
+    checksum), which catches typos.
+    """
+    clean = re.sub(r"[\s:-]", "", text or "").upper()
+    if not re.fullmatch(r"[0-9A-F]{12}|[0-9A-F]{16}", clean):
+        raise ValueError("%r is neither the 12-digit barcode from the label nor a 16-digit MAC"
+                         % text)
+    raw = bytes.fromhex(clean)
+    if len(raw) == 6:
+        mac = mac_from_stock(raw, model)
+        if mac is None:
+            raise ValueError("barcode %s is blank" % clean)
+        return mac, clean
+    expect = mac_from_stock(raw[2:8], model)
+    if expect != raw:
+        raise ValueError("MAC %s does not fit a %s tag (from its bytes it would be %s)"
+                         % (clean, MODELS[model]["name"], mac_str(expect) if expect else "none"))
+    return raw, ""
 
 
 def model_of_mac(mac8):
@@ -267,10 +296,12 @@ def _read_twice(fl, page, addr, length, what, progress=None):
 
 
 def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac=True,
-              log=print, progress=None, reset_after=True):
+              log=print, progress=None, reset_after=True, manual_mac=None):
     """Run the whole job on the tag in the jig. Never raises for tag problems: returns TagResult.
 
     log(text) gets one line per step; progress(label, done, total) drives a progress bar.
+    manual_mac (barcode or MAC, see mac_from_entry) is used only if the tag has no MAC of its
+    own; res.mac_source is then "typed in".
     """
     res = TagResult(model, firmware_path)
     t0 = time.monotonic()
@@ -285,6 +316,12 @@ def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac
         if model not in MODELS:
             raise JobError("setup", "unknown model %r" % model)
         fw = load_firmware(firmware_path)
+        typed = None
+        if manual_mac:
+            try:
+                typed = mac_from_entry(manual_mac, model)
+            except ValueError as e:
+                raise JobError("setup", str(e))
         res.fw_sha256 = hashlib.sha256(fw).hexdigest()
         log("Firmware %s: %d bytes" % (os.path.basename(firmware_path), len(fw)))
 
@@ -297,6 +334,7 @@ def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac
         info = _read_twice(fl, zp.PAGE_INFO, 0, zp.INFO_SIZE, "info page")
         mac = mac_from_info(info)
         need_mac_write = False
+        raw = None                  # stock bytes, when the MAC came from them
         if mac is not None:
             res.mac_source = "info page"
             tag_model = model_of_mac(mac)
@@ -308,14 +346,22 @@ def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac
         else:
             if info[INFO_MAC_ADDR:INFO_MAC_ADDR + 8] != b"\xff" * 8:
                 raise JobError("mac", "info page MAC bytes are all 0x00; not touching this tag")
-            raw = _read_twice(fl, zp.PAGE_MAIN, STOCK_MAC_ADDR, 6, "stock MAC")
-            mac = mac_from_stock(raw, model)
-            if mac is None:
-                raise JobError("mac", "no MAC in the info page and none at 0x%04X (%s). "
-                               "Not stock firmware and no MAC written?" % (STOCK_MAC_ADDR, raw.hex(" ")))
-            res.mac_source = "stock flash"
-            res.barcode = barcode_from_stock(raw)
+            stock = _read_twice(fl, zp.PAGE_MAIN, STOCK_MAC_ADDR, 6, "stock MAC")
+            mac = mac_from_stock(stock, model)
+            if mac is not None:
+                raw = stock
+                res.mac_source = "stock flash"
+                res.barcode = barcode_from_stock(raw)
+            elif typed:
+                mac, res.barcode = typed
+                res.mac_source = "typed in"
+            else:
+                raise JobError("mac", "no MAC in the info page and none at 0x%04X (%s). Not stock "
+                               "firmware and no MAC written? Type in the barcode from the label "
+                               "or the MAC" % (STOCK_MAC_ADDR, stock.hex(" ")))
             need_mac_write = True
+        if typed and res.mac_source != "typed in":
+            log("The tag has its own MAC; the typed one (%s) is not used" % manual_mac)
         res.mac = mac
         log("MAC %s (from %s)" % (mac_str(mac), res.mac_source))
         if res.barcode:
@@ -334,7 +380,7 @@ def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac
             try:
                 flash = _read_twice(fl, zp.PAGE_MAIN, 0, zp.FLASH_SIZE, "main flash",
                                     prog("Backup"))
-                if need_mac_write and flash[STOCK_MAC_ADDR:STOCK_MAC_ADDR + 6] != raw:
+                if raw is not None and flash[STOCK_MAC_ADDR:STOCK_MAC_ADDR + 6] != raw:
                     raise JobError("backup", "backup does not contain the MAC bytes read before")
                 if flash.count(0xFF) == len(flash):
                     raise JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup")
