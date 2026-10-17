@@ -9,6 +9,7 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py status
   esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
   esl_client.py text  00000123456789A8 "Opening hours" "Mon-Fri 9-21" "Sat 9-18" --frame
+  esl_client.py date  00000123456789A8 "Velkommen" --days 7   # today's date, and the next 6 days at midnight
   esl_client.py sync prices.csv          # full send, chunks of 50
   esl_client.py sync prices.csv --at "2026-10-19 07:00"   # the new prices from Monday 07:00
   esl_client.py schedule                 # what is scheduled
@@ -44,7 +45,7 @@ import urllib.request
 
 BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
-TAGFW_PART = 16384      # bytes per PUT /api/tag-firmware part (below the AP's 24 KB body limit)
+TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: the AP holds it in RAM in one block
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 
@@ -183,11 +184,13 @@ class Client:
     def delete_tag_firmware(self, model):
         return self._request("DELETE", f"/api/tag-firmware/{model}")
 
-    def set_wifi(self, ssid, password="", token=None):
-        """ssid None with a token keeps the network and sets only the token."""
+    def set_wifi(self, ssid, password="", token=None, hostname=None):
+        """ssid None with a token or hostname keeps the network."""
         body = {} if ssid is None else {"ssid": ssid, "password": password}
         if token:
             body["token"] = token
+        if hostname:
+            body["hostname"] = hostname
         return self._request("PUT", "/api/wifi", body)
 
     def time(self):
@@ -395,6 +398,28 @@ def serve(cli, port, extra_origins=()):
     return 0
 
 
+# Model code in byte 6 of the MAC, as tools/flash-tui/workflow.py MODELS
+MODEL_MAC_CODE = {"2.9": 0x3B, "1.54": 0x34}
+
+
+def mac_from_barcode(barcode, model):
+    """The tag's MAC from the 12-digit number under the barcode on its label, for one model.
+
+    The number is the 6 stock bytes at flash 0xFC06 as hex. The flashers build the MAC the
+    way ZBS_Flasher does: 00 00 + the first 4 of those bytes + the model code + 0x10 with a
+    XOR checksum in the low nibble. The last 2 bytes of the number are not in the MAC.
+    """
+    b = barcode.strip().replace(" ", "").upper()
+    if not re.fullmatch(r"[0-9A-F]{12}", b):
+        raise ValueError(f"not a 12-digit tag barcode: {barcode}")
+    mac = bytearray(bytes.fromhex("0000" + b[:8]) + bytes([MODEL_MAC_CODE[model], 0x10]))
+    chk = 0
+    for x in mac[2:8]:
+        chk ^= (x & 0x0F) ^ (x >> 4)
+    mac[7] |= chk
+    return mac.hex().upper()
+
+
 def norm_mac(s):
     mac = s.replace(":", "").replace("-", "").upper()
     if not MAC_RE.match(mac):
@@ -430,6 +455,42 @@ def content(layout, fields, highlight=False, frame=False):
     if frame:
         c["frame"] = True
     return c
+
+
+WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
+MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
+          "oktober", "november", "desember")
+
+
+def date_fields(d, extra=()):
+    """Layout text for the date command: "Lørdag", "17. oktober 2026", then the caller's lines."""
+    return [WEEKDAYS[d.weekday()].capitalize(), f"{d.day}. {MONTHS[d.month - 1]} {d.year}", *extra]
+
+
+def send_date(cli, args, today=None):
+    """Today's date now; with --days N also the next N-1 days, scheduled on the AP for
+    local midnight, so the tag changes by itself without this computer."""
+    today = today or datetime.date.today()
+    if args.days == 1:
+        args.at = None
+        return set_one(cli, args, content("text", date_fields(today, args.lines), False, args.frame))
+    ensure_time(cli)
+    rows = []
+    for i in range(args.days):
+        d = today + datetime.timedelta(days=i)
+        r = {"mac": args.mac, **content("text", date_fields(d, args.lines), False, args.frame)}
+        if i:
+            r["at"] = int(datetime.datetime.combine(d, datetime.time()).timestamp())
+        rows.append(r)
+    res = cli.set_many(rows)
+    for r in res:
+        print_result(r)
+    if args.wait and res and res[0].get("pending"):
+        print("waiting for the tag to show it ...", flush=True)
+        ok = cli.wait_shown(args.mac, res[0]["content_id"], timeout_s=args.wait_s)
+        print("shown" if ok else f"not shown after {args.wait_s} s")
+        return 0 if ok else 1
+    return 0
 
 
 class CsvError(Exception):
@@ -665,6 +726,8 @@ def print_wifi(w):
         line += "no network saved"
     if w.get("setup_ssid"):
         line += f"; setup network {w['setup_ssid']!r} open (http://192.168.4.1/setup)"
+    if w.get("hostname"):
+        line += f"; name {w['hostname']!r} ({w['hostname']}.local)"
     if w.get("token_set") is False:
         line += "; no API token set (wifi --new-token sets one)"
     print(line)
@@ -1033,6 +1096,15 @@ def main(argv=None):
         s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
         s.add_argument("--wait-s", type=int, default=120)
 
+    s = sub.add_parser("date", help="layout text: today's date (\"Lørdag\", \"17. oktober 2026\") and up to two lines")
+    s.add_argument("mac", type=norm_mac)
+    s.add_argument("lines", nargs="*", help="up to two more lines under the date")
+    s.add_argument("--days", type=int, default=1, metavar="N",
+                   help="also schedule the next N-1 days on the AP, at midnight (default 1: today only)")
+    s.add_argument("--frame", action="store_true", help="black frame")
+    s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
+    s.add_argument("--wait-s", type=int, default=120)
+
     s = sub.add_parser("sync", help="full send from CSV (chunks of 50)")
     s.add_argument("csv")
     s.add_argument("--tags", metavar="CSV", help="mac,item file: the CSV has an item column instead of mac")
@@ -1086,13 +1158,27 @@ def main(argv=None):
     s.add_argument("file")
     s.add_argument("--dry-run", action="store_true", help="show what would be restored")
 
+    s = sub.add_parser("mac", help="the MAC of a tag from the number under the barcode on its label (no AP needed)")
+    s.add_argument("barcode", help="the 12 digits on the label, e.g. 020663461013")
+    s.add_argument("--model", choices=sorted(MODEL_MAC_CODE), help="the tag's size; without it, both")
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
     s.add_argument("--new-token", help="also set a new API token (8-128 characters, no spaces); "
                    "without ssid only the token changes")
+    s.add_argument("--hostname", help="the AP's name on the network (DHCP and NAME.local)")
 
     args = p.parse_args(argv)
+    if args.cmd == "date" and (len(args.lines) > 2 or not 1 <= args.days <= 100):
+        p.error("date takes at most two lines, and --days 1 to 100")
+    if args.cmd == "mac":
+        try:
+            for m in [args.model] if args.model else sorted(MODEL_MAC_CODE, reverse=True):
+                print(f'{mac_from_barcode(args.barcode, m)}  {m}"')
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == "report":
         try:
             lines, ok = report(read_log(args.file))
@@ -1119,6 +1205,8 @@ def main(argv=None):
             return set_one(cli, args, content("price", args.fields, args.highlight, args.frame))
         elif args.cmd == "text":
             return set_one(cli, args, content("text", args.fields, False, args.frame))
+        elif args.cmd == "date":
+            return send_date(cli, args)
         elif args.cmd == "sync":
             return sync(cli, args)
         elif args.cmd == "schedule":
@@ -1208,10 +1296,10 @@ def main(argv=None):
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":
-            if args.ssid is None and not args.new_token:
+            if args.ssid is None and not args.new_token and not args.hostname:
                 print_wifi(cli.wifi())
             else:
-                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token))
+                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token, args.hostname))
                 if args.new_token:
                     print("API token changed: later HTTP requests need --token with the new one")
         elif args.cmd == "layouts":

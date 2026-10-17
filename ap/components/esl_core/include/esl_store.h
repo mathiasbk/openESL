@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "esl_content.h"
 #include "esl_layout.h"
+#include "esl_persist.h"
 #include "esl_proto.h"
 
 /* Table of tags: MAC -> content + settings + last reported status.
@@ -27,6 +28,12 @@ typedef struct {
     /* The default interval set at run time; NULL = back to the built-in one
      * from esl_store_init(), erase the stored value. */
     void (*persist_next_poll)(void *ctx, const uint16_t *next_poll_s);
+    /* What the AP last heard from a tag (esl_persist.h); s NULL = erase. Written
+     * when a tag is new or its model or firmware changes, and for every tag heard
+     * since the last save by esl_store_save_seen(). May be NULL. */
+    void (*persist_seen)(void *ctx, unsigned slot, uint64_t mac, const esl_seen_t *s);
+    /* The wall-clock time in seconds, 0 while unknown (no NTP yet). May be NULL. */
+    uint32_t (*unix_now)(void *ctx);
 } esl_store_ops_t;
 
 typedef struct {
@@ -57,7 +64,11 @@ typedef struct {
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
+    uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
+    uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
     uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
+    uint32_t seen_unix;       /* wall-clock second of its last POLL (also from NVS after a restart), 0 = unknown */
+    bool seen_dirty;          /* polled since its record was last saved (esl_store_save_seen) */
 } esl_tag_t;
 
 /* What a tag polls with when the AP sends 0 (tag/src/config.h CFG_POLL_S) */
@@ -100,6 +111,15 @@ void esl_store_init(esl_store_t *st, esl_tag_t *tags, unsigned cap, const esl_st
 
 /* Loads persisted content at boot. Does not call persist_save. */
 bool esl_store_restore(esl_store_t *st, unsigned slot, uint64_t mac, const esl_content_t *c);
+
+/* Loads what the AP last heard from a tag at boot (esl_persist.h): the tag is
+ * back in the table, not seen since this boot, with its model, firmware,
+ * battery, signal and the time it was last heard. Does not call persist_seen. */
+bool esl_store_restore_seen(esl_store_t *st, unsigned slot, uint64_t mac, const esl_seen_t *s);
+
+/* Saves the record of every tag heard since its last save (persist_seen). For
+ * a planned restart (OTA) and now and then; returns how many were written. */
+unsigned esl_store_save_seen(esl_store_t *st);
 
 /* Loads persisted settings at boot, into the slot's tag if esl_store_restore
  * already put the same MAC there. Does not call persist_cfg. */
@@ -161,6 +181,9 @@ uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
  * (ESL_POLL_F_OTA), runs another version, and has not rejected this one. A
  * POLL with ESL_POLL_F_FWFAIL marks the version last offered as rejected. */
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver);
+
+/* A FW block of image ver up to byte end went to the tag (esl_radio). */
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
 
 typedef struct {
     unsigned updated;  /* tags of the model that run the version */

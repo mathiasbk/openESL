@@ -61,6 +61,15 @@ info:
     fields and 90 with six (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`). Empty fields at
     the end are dropped first and cost nothing.
 
+    **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
+    `model` (`"2.9"` or `"1.54"`, from its poll). The 12 hex digits under the barcode on the
+    label (e.g. `020663461013`) give the MAC without the AP: `0000`, the first 8 digits, the
+    model code (`3B` for 2.9", `34` for 1.54"), then `1` and a check digit: the XOR of the
+    11 hex digits between `0000` and it (so `0000020663463415`). The last 4
+    digits of the label are not part of the MAC. A client that only knows the label can
+    work out both candidates and use the one the AP knows. `esl_client.py mac 020663461013`
+    does the same ([docs/tag-firmware.md](https://github.com/mathiasbk/openesl/blob/master/docs/tag-firmware.md), "Tag identity").
+
 servers:
   - url: http://localhost:{port}
     description: The bridge in tools/esl-client (esl_client.py serve), to the AP over USB or WiFi
@@ -550,6 +559,8 @@ paths:
         most 24,576 bytes (`esl-client` sends 16 KB), since its driver drops bytes when its
         buffer is full; over WiFi one request is fine. The last byte makes the new slot the
         boot slot; the reply names it and its version, and the AP restarts one second later.
+        The new firmware is kept once it can be reached (`confirmed` in `GET /api/ota`);
+        otherwise the AP goes back to the old one after three minutes.
         Content-Type is not checked.
       x-host-status: 501
       parameters:
@@ -613,7 +624,7 @@ paths:
     put:
       tags: [Tag firmware]
       operationId: putTagFirmware
-      summary: Upload tag firmware; the AP offers it to the tags of its model
+      summary: Upload tag firmware; the AP offers it to the tags of its model, or to one of them
       description: |
         The body is the file, whole in one request (no query), or in parts with `offset` and
         `total`, as for `POST /api/ota`: a part at offset 0 starts a new upload (the model is
@@ -621,7 +632,9 @@ paths:
         A part may have at most 24,576 bytes (`part_max`), so an image (about 54 KB) goes in
         parts; `esl-client` sends 16 KB. From the first part on, the model's old image is no
         longer offered; after the last one the AP checks the CRC-32 and offers the new one.
-        Content-Type is not checked.
+        With `to` set to a tag's MAC (read with the part at offset 0), it is offered to that
+        tag alone; `POST /api/tag-firmware/{model}` gives it to more. Without `to`, or with
+        `to=all`, every tag of the model gets it. Content-Type is not checked.
       parameters:
         - name: offset
           in: query
@@ -633,6 +646,7 @@ paths:
           required: false
           schema: { type: integer, minimum: 1, maximum: 61456 }
           description: The size of the whole file (with `offset`)
+        - $ref: "#/components/parameters/fw_to"
       requestBody:
         required: true
         content:
@@ -645,7 +659,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TagFirmwareReply" }
         "400":
-          description: No body, `offset` without `total` or the other way round, a first part shorter than the header, or `total` not the size in the header
+          description: No body, `offset` without `total` or the other way round, a first part shorter than the header, `total` not the size in the header, or a `to` that is neither `all` nor a MAC
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -688,6 +702,37 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoTagFirmware" }
+    post:
+      tags: [Tag firmware]
+      operationId: chooseTagFirmware
+      summary: Offer the model's image to one more tag, or to all of them
+      description: |
+        `to` is a tag's MAC, added to the tags the image is for (`to` in the reply), or `all`.
+        At most 16 tags can be chosen one by one; after that only `all` is taken. The choice is
+        kept across a restart, and a new upload starts it again.
+      parameters:
+        - $ref: "#/components/parameters/fw_to"
+      responses:
+        "200":
+          description: The image, and who it is for now
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TagFirmware" }
+        "400":
+          description: No `to`, or one that is neither `all` nor a MAC
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: "give to=all or to= a tag's MAC (16 hex digits)" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/NoTagFirmware" }
+        "409":
+          description: 16 tags are chosen one by one already
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: "too many tags chosen one by one: give it to all of them (to=all)" }
     delete:
       tags: [Tag firmware]
       operationId: deleteTagFirmware
@@ -728,8 +773,10 @@ paths:
 
         `token` sets a new API token (NVS `cfg/token`), which every later HTTP request must
         carry. The web page sets the network and the token this way over the USB port right
-        after flashing. With a token, `ssid` may be left out to keep the network. A bad token
-        saves nothing.
+        after flashing. `hostname` is the AP's name on the network: what it tells the router
+        (DHCP) and its mDNS name (`<hostname>.local`); stored in NVS (`cfg/hostname`), and the
+        AP rejoins at once so the router hears it. With a token or a hostname, `ssid` may be
+        left out to keep the network. Anything invalid saves nothing.
       requestBody:
         required: true
         content:
@@ -751,6 +798,9 @@ paths:
               token_only:
                 summary: Only a new API token; the network stays
                 value: { token: lang-hemmelig-token }
+              hostname:
+                summary: A new name on the network (butikk.local)
+                value: { hostname: butikk }
       responses:
         "200":
           description: The WiFi state after the change
@@ -863,6 +913,13 @@ components:
       required: true
       description: The tag's MAC, 16 hex digits, most significant byte first
       schema: { type: string, pattern: "^[0-9A-Fa-f]{16}$" }
+      example: "00000123456789A8"
+    fw_to:
+      name: to
+      in: query
+      required: false
+      description: "`all`, or the MAC of the tag the image is for (16 hex digits)"
+      schema: { type: string, pattern: "^(all|[0-9A-Fa-f]{16})$" }
       example: "00000123456789A8"
     scheduled_mac:
       name: mac
@@ -1179,10 +1236,10 @@ components:
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota]
+                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota, fw_update]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
-        seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll; null: not seen since the AP started" }
+        seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll. For a tag not heard since the AP started, counted from the time of its last poll before the restart (kept in NVS) once the AP knows the time; null when that is not known" }
         battery_mv: { type: [integer, "null"], minimum: 0, description: "Battery voltage; 0 = the tag cannot measure it (the 1.54\")" }
         rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
         fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
@@ -1206,6 +1263,17 @@ components:
             - the tag rejected the layout file
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
+        fw_update:
+          description: "The AP's firmware for its model, which the tag takes and is for it: how many bytes it has fetched (the AP has sent up to there). null when it runs it, cannot take it, rejected it, or it is not for it. Kept in RAM only, so 0 again after a restart until its next block"
+          oneOf:
+            - { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [version, received, size]
+              properties:
+                version: { type: string }
+                received: { type: integer, minimum: 0 }
+                size: { type: integer, minimum: 1024 }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]
@@ -1260,6 +1328,7 @@ components:
             layout_failed: false
             content_error: null
             ota: true
+            fw_update: { version: 0.3.0, received: 21840, size: 53248 }
 
     TagDeleted:
       type: object
@@ -1373,7 +1442,7 @@ components:
 
     WifiSet:
       type: object
-      description: "`ssid` is required unless `token` is given"
+      description: "`ssid` is required unless `token` or `hostname` is given"
       properties:
         ssid:
           type: [string, "null"]
@@ -1388,6 +1457,12 @@ components:
           minLength: 8
           maxLength: 128
           description: A new API token, 8–128 printable ASCII characters without spaces; missing or `null` keeps the current one
+        hostname:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 32
+          pattern: "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
+          description: The AP's name on the network (DHCP and mDNS), letters, digits and `-`; missing or `null` keeps it
 
     WifiStatus:
       type: object
@@ -1407,6 +1482,7 @@ components:
         rssi: { type: integer, description: "Signal of the saved network in dBm, only while connected" }
         setup_ssid: { type: [string, "null"], description: "The setup network's name while it is open, e.g. `openesl-1A2B`" }
         token_set: { type: boolean, description: "An API token is set; until then every HTTP request gets `401`. The token itself is never shown" }
+        hostname: { type: string, description: "The AP's name on the network, `openesl` unless changed: what the router shows, and `<hostname>.local`" }
         networks:
           type: array
           maxItems: 16
@@ -1426,20 +1502,29 @@ components:
         rssi: -58
         setup_ssid: null
         token_set: true
+        hostname: openesl
         networks: [{ ssid: Butikken, rssi: -58 }, { ssid: Gjest, rssi: -71 }]
 
     OtaInfo:
       type: object
       additionalProperties: false
-      required: [slot, version, slot_size, other_slot, other_version, uploading]
+      required: [slot, version, slot_size, other_slot, other_version, confirmed, display, uploading]
       properties:
         slot: { type: string, description: "The app slot that runs, `ota_0` or `ota_1`" }
         version: { type: string, description: The running firmware's version (the VERSION file) }
         slot_size: { type: integer, minimum: 0, description: Bytes an image may have }
         other_slot: { type: [string, "null"], description: "The slot a new image goes to; `null` with a one-slot partition table" }
         other_version: { type: [string, "null"], description: "The version in the other slot, `null` when it holds no valid image" }
+        confirmed:
+          type: boolean
+          description: |
+            The running firmware is kept. A new image is kept once WiFi has an address or an
+            API request was answered (this one counts); one that gets to neither within three
+            minutes is given up, and the AP restarts into the old one. Older firmware
+            does not say.
+        display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
-      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, uploading: false }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, uploading: false }
 
     OtaReply:
       type: object
@@ -1500,17 +1585,31 @@ components:
         version: { type: [string, "null"], description: "The firmware version (the VERSION file it was built from); null: no image" }
         size: { type: integer, minimum: 1024, maximum: 61440, description: Bytes each tag downloads }
         crc: { type: string, pattern: "^[0-9A-F]{8}$", description: CRC-32 of the image }
+        to:
+          description: "Who it is offered to: every tag of the model (`all`), or these tags"
+          oneOf:
+            - { type: string, const: all }
+            - { type: array, maxItems: 16, items: { $ref: "#/components/schemas/Mac" } }
         tags:
           type: object
           additionalProperties: false
-          required: [updated, pending, failed, no_ota]
+          required: [updated, pending, failed, no_ota, not_chosen]
           description: The tags of this model the AP has seen since it started
           properties:
             updated: { type: integer, minimum: 0, description: Run this version }
-            pending: { type: integer, minimum: 0, description: "Run another version and take updates; they get it at their next polls" }
+            pending: { type: integer, minimum: 0, description: "Run another version, take updates and the image is for them; they get it over their next polls" }
             failed: { type: integer, minimum: 0, description: "Rejected it, or went back to their old firmware; not offered it again" }
             no_ota: { type: integer, minimum: 0, description: "Run another version and cannot take updates (older firmware, or no SPI flash)" }
-      example: { model: "1.54", version: 0.3.0, size: 53248, crc: 1A2B3C4D, tags: { updated: 12, pending: 3, failed: 0, no_ota: 1 } }
+            not_chosen: { type: integer, minimum: 0, description: "Run another version, and the image is not for them (`to`)" }
+        progress:
+          type: object
+          additionalProperties: false
+          required: [received, total]
+          description: "Bytes the tags it is for have fetched, out of the bytes they need: `updated` among them count whole, `failed` not at all"
+          properties:
+            received: { type: integer, minimum: 0 }
+            total: { type: integer, minimum: 0 }
+      example: { model: "1.54", version: 0.3.0, size: 53248, crc: 1A2B3C4D, to: all, tags: { updated: 12, pending: 3, failed: 0, no_ota: 1, not_chosen: 0 }, progress: { received: 700416, total: 798720 } }
 
     TagFirmwareList:
       type: object

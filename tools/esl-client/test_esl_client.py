@@ -147,7 +147,7 @@ class FakeAp(BaseHTTPRequestHandler):
         if self.path == "/api/time":
             FakeAp.time = body["time"]
             self._send(200, {"time": FakeAp.time, "source": "api"})
-        if self.path == "/api/config":
+        elif self.path == "/api/config":
             if "poll_s" in body:
                 FakeAp.config["poll_s"] = body["poll_s"] or 0
             if "webhook" in body:
@@ -157,6 +157,7 @@ class FakeAp(BaseHTTPRequestHandler):
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
                            "connected": False, "setup_ssid": None,
                            "token_set": bool(body.get("token")) or FakeAp.wifi.get("token_set", False),
+                           "hostname": body.get("hostname") or FakeAp.wifi.get("hostname", "openesl"),
                            "networks": []}
             self._send(200, FakeAp.wifi)
         elif self.path.startswith("/api/layouts/"):
@@ -190,6 +191,28 @@ class FakeAp(BaseHTTPRequestHandler):
                 self._send(422, {"error": "text too long"})
                 return
             self._send(200, self._set(self.path.rsplit("/", 1)[1], body))
+
+
+class BarcodeTest(unittest.TestCase):
+    def test_mac_from_barcode(self):
+        # labels read on real tags, MACs from the flashers (tools/flash-tui)
+        self.assertEqual(esl_client.mac_from_barcode("020663461013", "1.54"), "0000020663463415")
+        self.assertEqual(esl_client.mac_from_barcode("020793500102", "1.54"), "000002079350341C")
+        self.assertEqual(esl_client.mac_from_barcode("01c2 8092 0102", "2.9"), "000001C280923B15")
+        with self.assertRaises(ValueError):
+            esl_client.mac_from_barcode("0206634610", "1.54")
+
+    def test_mac_command(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013", "--model", "1.54"]), 0)
+        self.assertEqual(out.getvalue().split()[0], "0000020663463415")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013"]), 0)
+        self.assertEqual(len(out.getvalue().splitlines()), 2)
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(esl_client.main(["mac", "xyz"]), 2)
 
 
 class ClientTest(unittest.TestCase):
@@ -378,9 +401,8 @@ class ClientTest(unittest.TestCase):
         self.assertIn("the AP offers 1.54 firmware 0.3.0 to the tags", out)
         self.assertEqual(FakeAp.tagfw["data"], data)
         parts = [c for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
-        self.assertEqual([c[0] for c in parts], ["/api/tag-firmware?offset=0&total=40976",
-                                                 "/api/tag-firmware?offset=16384&total=40976",
-                                                 "/api/tag-firmware?offset=32768&total=40976"])
+        self.assertEqual([c[0] for c in parts], [f"/api/tag-firmware?offset={o}&total=40976"
+                                                 for o in range(0, 40976, esl_client.TAGFW_PART)])
         self.assertEqual(parts[0][1], "application/octet-stream")
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"\x02\x00" + bytes(100))   # the flasher image, not the OTA file
@@ -435,6 +457,34 @@ class ClientTest(unittest.TestCase):
     def test_wait_returns_when_shown(self):
         rc, _ = self.run_cli("price", "00000123456789A8", "A", "1", "--wait", "--wait-s", "1")
         self.assertEqual(rc, 0)
+
+    def test_date_fields(self):
+        self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 17), ["Velkommen"]),
+                         ["Lørdag", "17. oktober 2026", "Velkommen"])
+
+    def test_date_today(self):
+        rc, out = self.run_cli("date", "0000000000000001", "Velkommen", "--frame")
+        self.assertEqual(rc, 0, out)
+        path, body = FakeAp.calls[0]
+        self.assertEqual(path, "/api/tags/0000000000000001")
+        self.assertEqual(body, {"layout": "text", "frame": True,
+                                "fields": esl_client.date_fields(datetime.date.today(), ["Velkommen"])})
+
+    def test_date_days_are_scheduled_at_midnight(self):
+        rc, out = self.run_cli("date", "0000000000000001", "--days", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[0][0], "/api/time")   # the AP's clock is checked first
+        rows = FakeAp.calls[-1][1]["tags"]
+        today = datetime.date.today()
+        days = [today + datetime.timedelta(days=i) for i in range(3)]
+        self.assertEqual([r["fields"] for r in rows], [esl_client.date_fields(d) for d in days])
+        self.assertNotIn("at", rows[0])
+        self.assertEqual([r["at"] for r in rows[1:]],
+                         [int(datetime.datetime.combine(d, datetime.time()).timestamp()) for d in days[1:]])
+
+    def test_date_too_many_lines(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_cli("date", "0000000000000001", "a", "b", "c")
 
     def test_text_too_long_is_error(self):
         rc, _ = self.run_cli("text", "00000123456789A8", "x" * 100)
@@ -585,6 +635,9 @@ class ClientTest(unittest.TestCase):
         self.assertIn("API token changed", out)
         rc, out = self.run_cli("wifi", "Home", "--password", "hemmelig123", "--new-token", "lang-hemmelig")
         self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Home", "password": "hemmelig123", "token": "lang-hemmelig"}))
+        rc, out = self.run_cli("wifi", "--hostname", "butikk")
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"hostname": "butikk"}))
+        self.assertIn("name 'butikk' (butikk.local)", out)
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)

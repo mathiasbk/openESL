@@ -17,6 +17,8 @@ The approach is our own; the SPI flash pins and the idea of staging an image in 
 5. The bootloader in page 0 (`tag/boot/`) checks the image again, copies it page by page into 0x0400–0xF3FF and jumps to it. The new firmware draws the stored content again (T12) and polls.
 6. The first answered POLL confirms the new image. If it is started 9 times without that (resets, not wake-ups from sleep), the bootloader copies the old application back and marks the update as rolled back; the old firmware then reports POLL flag bit4, and the AP stops offering that version.
 
+The image can go to one tag instead of all of its model: `PUT /api/tag-firmware?...&to=<MAC>` uploads it for that tag alone, and `POST /api/tag-firmware/<model>?to=<MAC>` (or `?to=all`) gives the image the AP already has to one more tag (or to all). The list (at most 16 tags) is kept in NVS (`tagfw/to<model>`), so a restart does not turn it into an update for all; an image from before the list is for all. The dashboard's arrow next to a tag does this for that tag, and the Firmware card's "to all" button for the model. The AP notes how far each tag has fetched the image (RAM only), and `GET /api/tags` has it as `fw_update` (`received` of `size`), `GET /api/tag-firmware` as `progress` for the model; the dashboard shows both as bars and reads every 5 s while a tag is updating.
+
 `esl-client tag-ota` without a file shows each image and how many tags run it, still need it, rejected it, or cannot take updates (firmware from before this, or no SPI flash).
 
 ## What decides the design

@@ -9,18 +9,25 @@ Output: tag/fonts/font_<name>.c, one file per font, in the format described by s
     first byte is the top pixel.
   - character 0x7F (DEL, unused in Latin-1) is used for "…" (U+2026) when truncating.
 
+Glyphs are drawn with FreeType's auto-hinter (light target, vertical snapping only, so the
+widths stay the font's own advances) and thresholded from grey. Inter has no hinting of its
+own, and FreeType's plain monochrome rendering of it at small sizes gives stems of uneven
+thickness, broken curves and dropped details: "small" and "medium" looked ragged on the tag.
+
 Run from tag/:  python tools/gen_font.py [name ...]
 With names (e.g. "mid"), only those fonts are regenerated.
 
-Requires Pillow. The output depends on the FreeType build inside Pillow, not only on the
-Pillow version: Pillow 11.1.0 on Windows and on Linux (FreeType 2.13.2) give a few pixels'
-difference in some glyphs. The generated files are checked into git and are the reference,
-so regenerate only the font you are changing, and look at preview_<name>.png afterwards.
+Requires freetype-py and Pillow (pip install freetype-py pillow). freetype-py carries its own
+FreeType, and size, height and baseline are fixed in FONTS below, so the metrics do not move
+between machines; a different FreeType build can still change a few pixels in some glyphs.
+The generated files are checked into git and are the reference, so regenerate only the font
+you are changing, and look at preview_<name>.png afterwards.
 """
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+import freetype
+from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TAG = os.path.dirname(HERE)
@@ -29,16 +36,23 @@ OUT = os.path.join(TAG, "fonts")
 
 ELLIPSIS_CODE = 0x7F
 
+# Grey level (0-255) from which a pixel is drawn black. Below the middle, so thin parts
+# of a glyph (the bowl of "d", the dot on "i") are kept rather than dropped.
+THRESHOLD = 110
+LOAD_FLAGS = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_FORCE_AUTOHINT | freetype.FT_LOAD_TARGET_LIGHT
+
 LATIN1 = [c for c in range(0x20, 0x7F)] + [ELLIPSIS_CODE] + [c for c in range(0xA0, 0x100)]
 PRICE = [ord(c) for c in " ,-.0123456789:"]
 
-# name, source font, max height in pixels, character set
+# name, source font, pixel size, height, baseline row, character set.
+# Size, height and baseline are fixed so the fonts keep the same metrics (and the layouts
+# the same fit) whichever FreeType build generates them.
 FONTS = [
-    ("small", "Inter-SemiBold.ttf", 17, LATIN1),
-    ("medium", "Inter-SemiBold.ttf", 24, LATIN1),
-    ("large", "Inter-Bold.ttf", 52, PRICE),
+    ("small", "Inter-SemiBold.ttf", 13, 17, 13, LATIN1),
+    ("medium", "Inter-SemiBold.ttf", 19, 24, 19, LATIN1),
+    ("large", "Inter-Bold.ttf", 56, 52, 42, PRICE),
     # Price font between medium and large: "129,90" fits the 1.54" (152 px) and long prices the 2.9"
-    ("mid", "Inter-Bold.ttf", 36, PRICE),
+    ("mid", "Inter-Bold.ttf", 39, 36, 29, PRICE),
 ]
 
 
@@ -46,38 +60,45 @@ def unicode_for(code):
     return "…" if code == ELLIPSIS_CODE else bytes([code]).decode("latin-1")
 
 
-def vertical_bounds(font, codes):
-    top, bottom = 0, 0
+def ink_rows(face, ch):
+    """Rows above and below the baseline that the glyph actually draws (after the threshold)."""
+    face.load_char(ch, LOAD_FLAGS)
+    g = face.glyph
+    bmp = g.bitmap
+    buf = bytes(bmp.buffer)
+    rows = [r for r in range(bmp.rows)
+            if max(buf[r * bmp.pitch:r * bmp.pitch + bmp.width], default=0) >= THRESHOLD]
+    if not rows:
+        return 0, 0
+    return g.bitmap_top - rows[0], rows[-1] - g.bitmap_top + 1
+
+
+def check_fit(face, codes, baseline, height):
+    """Warn about characters that are clipped because they reach outside the cell."""
     for c in codes:
         ch = unicode_for(c)
-        if ch.strip() == "" and ch != " ":
+        if ch.strip() == "":
             continue
-        l, t, r, b = font.getbbox(ch, anchor="ls")
-        top, bottom = min(top, t), max(bottom, b)
-    return top, bottom
+        above, below = ink_rows(face, ch)
+        if above > baseline or below > height - baseline:
+            print("  note: %r is clipped (%d px above, %d below the baseline)" % (ch, above, below))
 
 
-def pick_size(path, max_h, codes):
-    """Largest pixel size where all the characters fit within max_h."""
-    size = max_h * 2
-    while size > 4:
-        font = ImageFont.truetype(path, size)
-        top, bottom = vertical_bounds(font, codes)
-        if bottom - top <= max_h:
-            return font, size, top, bottom - top
-        size -= 1
-    raise SystemExit("no size found for %s" % path)
-
-
-def render_glyph(font, code, top, height):
+def render_glyph(face, code, top, height):
     ch = unicode_for(code)
-    adv = int(round(font.getlength(ch)))
+    face.load_char(ch, LOAD_FLAGS)
+    g = face.glyph
+    adv = int(round(g.linearHoriAdvance / 65536.0))
     if adv <= 0:
         return 0, []
     img = Image.new("1", (adv, height), 0)
-    d = ImageDraw.Draw(img)
-    d.fontmode = "1"  # no anti-aliasing: the display only has on/off
-    d.text((0, -top), ch, font=font, fill=1, anchor="ls")
+    bmp = g.bitmap
+    for r in range(bmp.rows):
+        y = -top - g.bitmap_top + r
+        for c in range(bmp.width):
+            x = g.bitmap_left + c
+            if 0 <= x < adv and 0 <= y < height and bmp.buffer[r * bmp.pitch + c] >= THRESHOLD:
+                img.putpixel((x, y), 1)
     bpc = (height + 7) // 8
     cols = []
     px = img.load()
@@ -97,16 +118,19 @@ def c_array(name, ctype, values, per_line=16):
     return "static const %s __code %s[] = {\n%s\n};\n" % (ctype, name, "\n".join(lines))
 
 
-def generate(name, src, max_h, codes):
+def generate(name, src, size, height, baseline, codes):
     path = os.path.join(FONT_SRC, src)
-    font, size, top, height = pick_size(path, max_h, codes)
+    face = freetype.Face(path)
+    face.set_pixel_sizes(0, size)
+    check_fit(face, codes, baseline, height)
+    top = -baseline
     bpc = (height + 7) // 8
     first, last = min(codes), max(codes)
     widths, offsets, bitmap = [], [], []
     glyphs = {}
     for c in range(first, last + 1):
         if c in codes:
-            adv, cols = render_glyph(font, c, top, height)
+            adv, cols = render_glyph(face, c, top, height)
         else:
             adv, cols = 0, []
         glyphs[c] = (adv, cols)

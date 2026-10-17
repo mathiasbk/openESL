@@ -56,14 +56,14 @@ static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_tag_t tags[CAP];
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
 /* AP boot: empty table, then everything from fake NVS. */
 static void ap_boot(void)
 {
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
     esl_store_init(&st, tags, CAP, &ops, 0);
     if (nvs.has_next_poll)
         esl_store_restore_next_poll(&st, nvs.next_poll_s);

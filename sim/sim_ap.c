@@ -129,9 +129,9 @@ static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *data, size_t l
 
 void sim_ap_boot(void)
 {
-    static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
+    static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
-    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll};
+    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase};
     static bool first = true;
 
@@ -195,7 +195,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false};
     esl_sb_t out;
     int status;
 

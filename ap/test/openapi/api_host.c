@@ -22,7 +22,8 @@ static esl_notify_t notify;
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
-                                 .scan_count = 1, .scan = {"Butikken"}, .scan_rssi = {-58}, .token_set = true};
+                                 .scan_count = 1, .scan = {"Butikken"}, .scan_rssi = {-58}, .token_set = true,
+                                 .hostname = "openesl"};
 
 static void wifi_status(void *ctx, esl_wifi_status_t *out)
 {
@@ -47,7 +48,14 @@ static int wifi_set_token(void *ctx, const char *token)
     return 0;
 }
 
-static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, wifi_set_token, NULL};
+static int wifi_set_hostname(void *ctx, const char *name)
+{
+    (void)ctx;
+    strcpy(wifi.hostname, name);
+    return 0;
+}
+
+static const esl_wifi_ops_t wifi_ops = {NULL, wifi_status, wifi_set, wifi_set_token, NULL, wifi_set_hostname};
 
 /* Scheduled content kept in RAM */
 static esl_sched_entry_t sched_e[CAP];
@@ -107,7 +115,7 @@ static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
     return true;
 }
 
-static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
+static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
 
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
@@ -115,7 +123,7 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false};
     uint64_t now_ms = 1000;
     char line[512];
 

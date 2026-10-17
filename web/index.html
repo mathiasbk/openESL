@@ -172,6 +172,11 @@
         <details open id="ap-panel">
           <summary>Send to AP</summary>
           <div class="form">
+            <ol class="hint steps">
+              <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
+              <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
+              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
+            </ol>
             <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
             <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
             <div class="buttons tight">
@@ -184,7 +189,7 @@
               <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
             </div>
             <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>).</p>
+            <p class="hint">A web page cannot reach the AP by itself, and on https (such as GitHub Pages) the browser only lets it call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
           </div>
         </details>
         <details>
@@ -230,17 +235,24 @@
         <button id="tag-flash" disabled>Flash tag in jig</button>
         <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
       </div>
+      <div id="tag-mac-ask" class="mac-ask" hidden>
+        <p class="warn">This tag has no MAC left: not in its info page and not at 0xFC06, where the stock firmware kept it (an earlier build was written over it). Type the 12 digits under the barcode on its label, or its whole MAC (16 digits), and flash it again. The MAC is written to the info page, so this is needed only once.</p>
+        <div class="buttons">
+          <input id="tag-mac" class="mono" placeholder="020793500102 or 000002079350341C" autocomplete="off" spellcheck="false">
+          <button id="tag-mac-go">Flash with this MAC</button>
+        </div>
+      </div>
       <progress id="tag-progress" max="1" value="0" hidden></progress>
       <pre id="tag-log" class="log" aria-live="polite"></pre>
     </section>
     <section class="card">
       <h2>After this: updates over the radio</h2>
-      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file, or the Firmware card on the <a href="#dashboard">Dashboard</a> tab, gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. In the Dashboard's tag table, a tag with older firmware than this page has gets an "Update to" button that does the same. If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
+      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file, or the Firmware card on the <a href="#dashboard">Dashboard</a> tab, gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. In the Dashboard's tag table, a tag with older firmware than this page has gets a small arrow-up button in its firmware column that does the same (hover it to see the version). If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
       <p class="muted">Tried on two 1.54" tags on 2026-10-15: updates up and down took 4 to 8 minutes each at one poll a minute, and the tag kept its price through every restart. The AP needs one flash over USB with such a release first, for its tag firmware storage. There is no radio security yet (T16). Details: <a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">docs/tag-ota.md</a>.</p>
     </section>
     <section class="card">
       <h2>Backups in this browser</h2>
-      <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode is optional; type or scan the one on the tag to know which label is which.</p>
+      <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode on the tag's label is filled in from the stock firmware when the tag is backed up; you can also type or scan it.</p>
       <div class="table-wrap">
         <table class="backups"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
       </div>
@@ -282,6 +294,7 @@
         <label><span></span><span><input type="checkbox" id="apwifi-show"> Show password</span></label>
         <label>API token <input id="apwifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
         <label><span></span><span><button id="apwifi-gen" type="button">New random token</button></span></label>
+        <label id="apwifi-hostname-label" hidden>Name <input id="apwifi-hostname" autocomplete="off" maxlength="32" spellcheck="false" placeholder="openesl" title="The AP's name on the network: what the router shows, and NAME.local"></label>
         <div class="buttons tight">
           <button id="apwifi-save" type="submit">Save</button>
           <button id="apwifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
@@ -295,7 +308,7 @@
   <main id="tab-dashboard" class="tab" role="tabpanel" hidden>
     <section class="card wide">
       <h2>AP dashboard</h2>
-      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer), or through the bridge in <code>tools/esl-client</code>: a page on the web may not call an AP on your network itself, so over WiFi run <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code> and connect to <code>http://localhost:8080</code>.</p>
+      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address), since a page on the web may not call an AP on your network. The bridge in <code>tools/esl-client</code> also works: <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>.</p>
       <div class="form row">
         <label>Connect over
           <select id="dash-src">
@@ -326,14 +339,43 @@
         </div>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>MAC</th><th>Model</th><th>Last poll</th><th>Signal</th><th>Battery</th><th>Firmware</th><th>State</th></tr></thead>
+            <thead><tr><th class="sel"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th>MAC</th><th>Model</th><th>Last check-in</th><th>Next check-in</th><th>Signal</th><th>Battery</th><th>Firmware</th><th>State</th></tr></thead>
             <tbody id="dash-tags"></tbody>
           </table>
         </div>
+        <form id="st-form" class="st-bar">
+          <div class="form row">
+            <label>Send <select id="st-what">
+              <option value="ap">The AP's address and WiFi</option>
+              <option value="tag">The tag's own info</option>
+              <option value="date">Today's date</option>
+              <option value="text">Your own text</option>
+            </select></label>
+            <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
+            <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
+            <button id="st-send" type="submit" disabled>Send</button>
+          </div>
+          <div id="st-own" class="form" hidden>
+            <label>Line 1 <input id="st-l1" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 2 <input id="st-l2" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 3 <input id="st-l3" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 4 <input id="st-l4" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <p class="muted">A word in braces is filled in for each tag: the buttons put one in where the cursor is.</p>
+            <div id="st-ph" class="st-ph"></div>
+          </div>
+          <div id="st-show" class="send-text" hidden>
+            <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
+            <div>
+              <p id="st-count" class="count"></p>
+              <table class="dash-tags st-list"><tbody id="st-list"></tbody></table>
+            </div>
+          </div>
+          <p id="st-msg" class="hint" role="status">Tick tags in the list to send them the AP's address, their own info, the date or your own text (the built-in layout <code>text</code>).</p>
+        </form>
       </section>
       <section class="card wide">
         <h3>Firmware</h3>
-        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start. Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         <dl id="dash-ota" class="facts"></dl>
         <div class="table-wrap">
           <table class="dash-tags">
@@ -371,13 +413,14 @@
         <label><span></span><span><input type="checkbox" id="wifi-show"> Show password</span></label>
         <label>API token <input id="wifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
         <label><span></span><span><button id="wifi-gen" type="button">New random token</button></span></label>
+        <label id="wifi-hostname-label" hidden>Name <input id="wifi-hostname" autocomplete="off" maxlength="32" spellcheck="false" placeholder="openesl" title="The AP's name on the network: what the router shows, and NAME.local"></label>
         <div class="buttons tight">
           <button id="wifi-save" type="submit">Save</button>
           <button id="wifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
         </div>
       </form>
       <p id="wifi-msg" class="hint wifi-msg" role="status"></p>
-      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
+      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. "Name" is the AP's name on the network: what your router lists, and <code>http://NAME.local/</code>. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
     </section>
 
     <section class="card wide">
@@ -386,7 +429,7 @@
         <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab can give it your WiFi and an API token over the same cable; then skip to step 4.</li>
         <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi and token over USB above instead.</li>
         <li><strong>Fill in the form:</strong> pick your WiFi from the scan list, enter its password, and choose an <strong>API token</strong> (8 to 128 characters, letters, digits and punctuation, no spaces). The AP saves all three and joins your network at once; the setup network closes a minute later.</li>
-        <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name is <code>ESL_MDNS_HOSTNAME</code> in menuconfig) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token.</li>
+        <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name can be changed with "Name" in the WiFi card) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token. The dashboard is at <code>http://openesl.local/dashboard</code>: it asks for the token once.</li>
         <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; status</code>.</li>
       </ol>
       <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi and token can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>

@@ -52,6 +52,14 @@ class WorkflowTest(unittest.TestCase):
                          "000001C280923B15")
         self.assertIsNone(wf.mac_from_stock(b"\xff" * 6, "29"))
 
+    def test_barcode_from_stock(self):
+        # Label of 0000020663463415: Code 128 "020663461013"; the first 8 digits are in its MAC
+        raw = bytes.fromhex("020663461013")
+        self.assertEqual(wf.barcode_from_stock(raw), "020663461013")
+        self.assertEqual(wf.mac_str(wf.mac_from_stock(raw, "154")), "0000020663463415")
+        self.assertEqual(wf.barcode_from_stock(b"\xff" * 6), "")
+        self.assertEqual(wf.barcode_from_stock(b"\x00" * 6), "")
+
     def test_mac_from_info_lsb_first(self):
         info = bytearray(b"\xff" * 0x400)
         info[0x10:0x18] = bytes.fromhex("1c34509307020000")
@@ -68,6 +76,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(r.mac, mac)
         self.assertEqual(r.mac_source, "stock flash")
         self.assertEqual(r.backup, "saved")
+        self.assertEqual(r.barcode, self.stock_flash[0xFC06:0xFC0C].hex().upper())
         # backup is the untouched stock flash and info page
         with open(os.path.join(self.backup, wf.mac_str(mac) + ".bin"), "rb") as f:
             self.assertEqual(f.read(), self.stock_flash)
@@ -97,6 +106,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(r2.mac, r1.mac)
         self.assertEqual(r2.mac_source, "info page")
         self.assertEqual(r2.backup, "exists")
+        self.assertEqual(r2.barcode, r1.barcode)        # from the backup, the flash is ours now
         self.assertEqual(os.stat(path).st_mtime_ns, mtime)
         with open(path, "rb") as f:
             self.assertEqual(f.read(), self.stock_flash)
@@ -207,6 +217,48 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.tag.erase_count, [0, 0])
         self.assertEqual(self.tag.writes, [0, 0])
 
+    def test_mac_from_entry(self):
+        mac, barcode = wf.mac_from_entry("0207 9350 0102", "154")
+        self.assertEqual(wf.mac_str(mac), "000002079350341C")
+        self.assertEqual(barcode, "020793500102")
+        mac, barcode = wf.mac_from_entry("00:00:02:07:93:50:34:1c", "154")
+        self.assertEqual(wf.mac_str(mac), "000002079350341C")
+        self.assertEqual(barcode, "")
+        for bad, model in (("000002079350341D", "154"), ("000002079350341C", "29"),
+                           ("0207935001", "154"), ("FFFFFFFFFFFF", "154")):
+            with self.assertRaises(ValueError):
+                wf.mac_from_entry(bad, model)
+
+    def test_no_mac_anywhere_typed_mac(self):
+        self.tag.flash[0xFC06:0xFC0C] = b"\xff" * 6
+        r = self.run_job("154", manual_mac="020793500102")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.mac_source, "typed in")
+        self.assertEqual(wf.mac_str(r.mac), "000002079350341C")
+        self.assertEqual(r.barcode, "020793500102")
+        self.assertEqual(r.backup, "saved")
+        self.assertEqual(wf.mac_str(wf.mac_from_info(self.tag.info)), "000002079350341C")
+        r2 = self.run_job("154")
+        self.assertEqual(r2.mac_source, "info page")
+
+    def test_empty_flash_with_typed_mac_needs_no_backup(self):
+        self.tag.flash[:] = b"\xff" * len(self.tag.flash)
+        r = self.run_job("154", manual_mac="000002079588341F")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.backup, "blank")
+        self.assertFalse(os.path.exists(self.backup) and os.listdir(self.backup)
+                         and any(f.endswith(".bin") for f in os.listdir(self.backup)))
+        self.assertEqual(wf.mac_str(wf.mac_from_info(self.tag.info)), "000002079588341F")
+
+    def test_typed_mac_ignored_when_tag_has_one_and_bad_one_touches_nothing(self):
+        r = self.run_job(manual_mac="020793500102")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.mac_source, "stock flash")
+        self.assertTrue(any("not used" in s for s in self.lines))
+        r = self.run_job(manual_mac="123")
+        self.assertEqual(r.step, "setup")
+        self.assertEqual(self.tag.erase_count, [1, 0])
+
     def test_no_mac_write_option(self):
         r = self.run_job(write_mac=False)
         self.assertTrue(r.ok, r.message)
@@ -225,8 +277,24 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(rows[0]["mac"], wf.mac_str(r.mac))
         self.assertEqual(rows[0]["result"], "OK")
         self.assertEqual(rows[0]["backup"], "saved")
+        self.assertEqual(rows[0]["barcode"], r.barcode)
         self.assertEqual(rows[1]["result"], "FAILED")
         self.assertTrue(rows[1]["message"].startswith("contact"))
+
+    def test_csv_log_from_before_the_barcode_column(self):
+        os.makedirs(self.backup)
+        old = wf.LOG_FIELDS[:-1]
+        with open(os.path.join(self.backup, wf.LOG_NAME), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=old)
+            w.writeheader()
+            w.writerow({k: "x" for k in old})
+        r = self.run_job()
+        wf.append_log(self.backup, r.log_row())
+        with open(os.path.join(self.backup, wf.LOG_NAME)) as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(rows[0]["mac"], "x")
+        self.assertEqual(rows[0]["barcode"], "")
+        self.assertEqual(rows[1]["barcode"], r.barcode)
 
     def test_progress_reported(self):
         seen = []

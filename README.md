@@ -91,6 +91,14 @@ The same workflow can be started by hand (Actions → Release → Run workflow) 
 
 Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml): host tests, both tag models, the AP and the web page with its tests.
 
+## Building and testing locally
+
+`python tools/check.py` builds and tests the same things as CI, on your own machine, and puts the firmware in `out/` with the names CI gives it. `--list` shows the steps; name some to run only those (`python tools/check.py tag web`). A step whose tools are missing is skipped and says what it needs.
+
+- **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) into `~/.cache/openesl`, and the Python packages. The AP firmware is built with `idf.py` if ESP-IDF v5.5.5 is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
+- **Windows or macOS:** with Docker Desktop running, `python tools/check.py --docker` runs every step in one image with all the toolchains ([tools/dev/Dockerfile](tools/dev/Dockerfile)). The first run builds the image.
+- **Cloud development sessions** run `tools/dev/setup.sh` at start ([.claude/hooks/session-start.sh](.claude/hooks/session-start.sh)), so changes are checked with `tools/check.py` before they are pushed.
+
 ## A clean implementation
 
 OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
@@ -105,4 +113,4 @@ This project would be much harder without the people who opened up these tags fi
 
 ## Licence
 
-Not decided yet.
+OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), and ESP-IDF and its components keep theirs (Apache-2.0).

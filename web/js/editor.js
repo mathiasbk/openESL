@@ -6,7 +6,7 @@
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
-import { ApClient } from "./apclient.js";
+import { ApClient, apBase } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "medium", "mid", "large"];
@@ -994,10 +994,26 @@ function initActions() {
 
 // ---------- send to the AP ----------
 
-const ap = { tags: [], fileVersion: null };
+const ap = { tags: [], fileVersion: null, connected: false };
+
+// Upload, send and check only work once Connect has reached the AP (through the bridge)
+function apButtons(busy = false) {
+  $("ap-connect").disabled = busy;
+  for (const id of ["ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected;
+}
+
+function apDisconnected() {
+  ap.connected = false;
+  ap.tags = [];
+  refreshApTags();
+  apButtons();
+  apStatus("Not connected. Start the bridge (step 1), then press Connect.");
+}
 
 function apClient() {
-  return new ApClient($("ap-url").value.trim() || "http://localhost:8080", $("ap-token").value.trim());
+  const { base, error } = apBase($("ap-url").value);
+  if (error) throw new Error(error);
+  return new ApClient(base, $("ap-token").value.trim());
 }
 
 function apStatus(text, cls = "") {
@@ -1025,18 +1041,20 @@ function refreshApTags() {
 
 async function apRun(what, fn) {
   apStatus(what + "…");
-  for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = true;
+  apButtons(true);
   try {
     apStatus(...(await fn()));
   } catch (e) {
     apStatus(e.message, "error");
   } finally {
-    for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = false;
+    apButtons();
   }
 }
 
 async function apConnect() {
+  ap.connected = false;
   const r = await apClient().tags();
+  ap.connected = true;
   ap.tags = r.tags || [];
   refreshApTags();
   const n = ap.tags.filter((t) => t.model === state.model).length;
@@ -1058,11 +1076,21 @@ async function apSend() {
   const content = { layout: name, fields: samples().slice() };
   if ($("opt-highlight").checked) content.price_highlight = true;
   if ($("opt-frame").checked) content.frame = true;
-  const r = await apClient().putContent(mac, content);
-  let note = "";
+  let r, uploaded = false;
+  try {
+    r = await apClient().putContent(mac, content);
+  } catch (e) {
+    // The AP does not have this layout (no layout file for the model yet, or an older one
+    // without it): upload the editor's file, then send again
+    if (isBuiltin() || !/^422: layout .* is not in (the|any) layout file/.test(e.message)) throw e;
+    await apUpload();
+    r = await apClient().putContent(mac, content);
+    uploaded = true;
+  }
+  let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  if (!isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
+  if (!uploaded && !isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
     note = " The tag has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
@@ -1090,12 +1118,13 @@ function initAp() {
   };
   $("ap-url").value = store.get("ap.url") || "";
   $("ap-token").value = sess.get("ap.token");
-  $("ap-url").addEventListener("change", () => store.set("ap.url", $("ap-url").value.trim()));
-  $("ap-token").addEventListener("change", () => sess.set("ap.token", $("ap-token").value.trim()));
+  $("ap-url").addEventListener("change", () => { store.set("ap.url", $("ap-url").value.trim()); apDisconnected(); });
+  $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
   $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
   $("ap-send").addEventListener("click", () => apRun("Sending", apSend));
   $("ap-refresh").addEventListener("click", () => apRun("Asking the AP", apCheck));
+  apDisconnected();
 }
 
 export async function initEditor() {

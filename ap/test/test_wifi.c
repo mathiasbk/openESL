@@ -38,7 +38,14 @@ static int fake_set_token(void *ctx, const char *token)
     return 0;
 }
 
-static const esl_wifi_ops_t ops = {NULL, fake_status, fake_set, fake_set_token, NULL};
+static int fake_set_hostname(void *ctx, const char *name)
+{
+    (void)ctx;
+    strcpy(fake.st.hostname, name);
+    return 0;
+}
+
+static const esl_wifi_ops_t ops = {NULL, fake_status, fake_set, fake_set_token, NULL, fake_set_hostname};
 
 static void reset_fake(void)
 {
@@ -201,7 +208,7 @@ static void test_api_wifi(void)
     static char resp[ESL_API_RESP_SIZE(4)];
     esl_sb_t out;
     esl_store_init(&st, tags, 4, NULL, 0);
-    esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+    esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false};
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi", AUTH, NULL, 0, 0, &out), 404);
@@ -276,6 +283,32 @@ static void test_api_wifi(void)
     CHECK_INT(REQ("PUT", longtok), 422);
     CHECK_INT(fake.sets, sets);
     CHECK_STR(fake.token, "kept");
+
+    /* the name on the network */
+    strcpy(fake.st.hostname, "openesl");
+    CHECK_INT(REQ("GET", NULL), 200);
+    CHECK(HAS(resp, "\"token_set\":true,\"hostname\":\"openesl\","));
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"Butikk-AP-2\"}"), 200);
+    CHECK_STR(fake.st.hostname, "Butikk-AP-2");
+    CHECK_INT(fake.sets, sets);
+    CHECK(HAS(resp, "\"hostname\":\"Butikk-AP-2\""));
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Home\",\"hostname\":\"butikk\",\"token\":\"newtoken9\"}"), 200);
+    CHECK_STR(fake.st.hostname, "butikk");
+    CHECK_STR(fake.token, "newtoken9");
+    CHECK_INT(fake.sets, sets + 1);
+    sets = fake.sets;
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"-ap\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"ap-\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"my ap\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"butikk.local\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":\"123456789012345678901234567890123\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"hostname\":5}"), 422);
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Other\",\"hostname\":\"bad name\"}"), 422);
+    CHECK_INT(fake.sets, sets);
+    CHECK_STR(fake.st.hostname, "butikk");
+    CHECK_INT(REQ("PUT", "{\"hostname\":null,\"ssid\":\"Home\"}"), 200);
+    CHECK_STR(fake.st.hostname, "butikk");
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi/", AUTH, NULL, 0, 0, &out), 200);

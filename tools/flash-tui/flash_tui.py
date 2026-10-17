@@ -6,6 +6,9 @@ pogo-pin jig.
   python tools/flash-tui/flash_tui.py                 normal use
   python tools/flash-tui/flash_tui.py --fake          simulated flasher and tag, no hardware
   python tools/flash-tui/flash_tui.py --no-mac-write  never program the MAC into the info page
+  python tools/flash-tui/flash_tui.py --mac 020793500102
+                                       a tag with no MAC left: the barcode from its label (or the
+                                       whole MAC), used for the next such tag
 
 Keys: space/enter flash the tag in the jig, m switch model (2.9" / 1.54"), f firmware file
 for the model, p choose serial port, a auto-detect on/off, q quit.
@@ -137,13 +140,14 @@ class FlashApp(App):
     ]
 
     def __init__(self, cfg, cfg_path=None, lister=zp.list_ports, opener=zp.open_port,
-                 write_mac=True, probe_wait=3.0):
+                 write_mac=True, probe_wait=3.0, manual_mac=None):
         super().__init__()
         self.cfg = cfg
         self.cfg_path = cfg_path
         self.lister = lister
         self.opener = opener
         self.write_mac = write_mac
+        self.manual_mac = manual_mac  # --mac: for the next tag without a MAC of its own, then dropped
         self.probe_wait = probe_wait
         self.port = None            # open serial object
         self.port_info = None       # dict from list_ports
@@ -170,7 +174,7 @@ class FlashApp(App):
 
     def on_mount(self):
         t = self.query_one(DataTable)
-        t.add_columns("#", "Time", "MAC", "Model", "MAC from", "Backup", "Result", "s")
+        t.add_columns("#", "Time", "MAC", "Barcode", "Model", "MAC from", "Backup", "Result", "s")
         self.update_status()
         self.set_interval(1.0, self.auto_tick)
         self.say("Backups and log go to %s" % self.cfg["backup_dir"])
@@ -227,6 +231,9 @@ class FlashApp(App):
         ]
         if not self.write_mac:
             lines.append("[yellow]--no-mac-write: stock MACs are not copied to the info page[/]")
+        if self.manual_mac:
+            lines.append("[yellow]--mac %s: for the next tag that has no MAC of its own[/]"
+                         % self.manual_mac)
         self.query_one("#status", Static).update("\n".join(lines))
 
     def set_progress(self, label, done, total):
@@ -361,7 +368,7 @@ class FlashApp(App):
         with self.lock:
             res = workflow.flash_tag(
                 self.flasher, model, fw, backup_dir=self.cfg["backup_dir"], write_mac=self.write_mac,
-                log=self.say_from_thread,
+                manual_mac=self.manual_mac, log=self.say_from_thread,
                 progress=lambda label, d, t: self.call_from_thread(self.set_progress, label, d, t))
             try:
                 workflow.append_log(self.cfg["backup_dir"], res.log_row())
@@ -371,13 +378,15 @@ class FlashApp(App):
 
     def _job_done(self, res):
         self.busy = False
+        if res.mac_source == "typed in":
+            self.manual_mac = None
         self.results.append(res)
         t = self.query_one(DataTable)
         result = "[green]OK[/]" if res.ok else "[red]%s[/]" % res.result
         backup = {"saved": "[green]saved[/]", "exists": "exists",
                   "failed": "[red]failed[/]"}.get(res.backup, "-")
         t.add_row(str(len(self.results)), res.time.strftime("%H:%M:%S"),
-                  workflow.mac_str(res.mac) if res.mac else "-",
+                  workflow.mac_str(res.mac) if res.mac else "-", res.barcode or "-",
                   workflow.MODELS[res.model]["name"], res.mac_source or "-", backup, result,
                   "%.0f" % res.seconds)
         t.move_cursor(row=t.row_count - 1)
@@ -461,6 +470,10 @@ def main(argv=None):
     ap.add_argument("--fake", action="store_true", help="simulated flasher and tag (no hardware)")
     ap.add_argument("--no-mac-write", action="store_true",
                     help="do not program the stock MAC into the blank info page")
+    ap.add_argument("--mac", metavar="BARCODE_OR_MAC",
+                    help="for a tag with no MAC in its info page or stock flash (an earlier build "
+                         "wiped it): the 12-digit barcode from its label or its 16-digit MAC; "
+                         "used for one tag")
     ap.add_argument("--config", help="settings file (default %s)" % settings.default_path())
     ap.add_argument("--backup-dir", help="backup folder (default %s)" % workflow.DEFAULT_BACKUP_DIR)
     args = ap.parse_args(argv)
@@ -475,6 +488,12 @@ def main(argv=None):
     elif args.fake:
         cfg["backup_dir"] = os.path.join(os.path.dirname(cfg_path), "backup")
     kw = {}
+    if args.mac:
+        try:
+            workflow.mac_from_entry(args.mac, cfg["model"])
+        except ValueError as e:
+            ap.error("--mac: %s" % e)
+        kw["manual_mac"] = args.mac
     if args.fake:
         kw["lister"], kw["opener"] = fake_setup(cfg["model"])
         kw["probe_wait"] = 0.3

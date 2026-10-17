@@ -11,7 +11,7 @@ static const char *TAG = "app";
 
 static esl_store_t store;
 static esl_api_t api;
-static char ssid[33], password[65], token[129];
+static char ssid[33], password[65], token[129], hostname[33];
 
 static const char *reset_reason_name(esp_reset_reason_t r)
 {
@@ -63,13 +63,15 @@ void app_main(void)
     cfg_get_str("ssid", CONFIG_ESL_WIFI_SSID, ssid, sizeof(ssid));
     cfg_get_str("pass", CONFIG_ESL_WIFI_PASSWORD, password, sizeof(password));
     cfg_get_str("token", CONFIG_ESL_API_TOKEN, token, sizeof(token));
+    cfg_get_str("hostname", CONFIG_ESL_MDNS_HOSTNAME, hostname, sizeof(hostname));
     if (!token[0])
         ESP_LOGE(TAG, "No API token set (setup page, menuconfig or NVS cfg/token): every HTTP API request gets 401");
 
-    api.wifi = wifi_start(ssid, password, CONFIG_ESL_MDNS_HOSTNAME, token, sizeof(token));
+    api.wifi = wifi_start(ssid, password, hostname, token, sizeof(token));
 
 #if CONFIG_ESL_MAX_SCHEDULED
     api.sched = sched_start(&store, CONFIG_ESL_MAX_SCHEDULED);
+    store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;
     api.token = token;
@@ -78,6 +80,9 @@ void app_main(void)
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
+#if CONFIG_ESL_WEB_DASHBOARD
+    api.dashboard = true;
+#endif
     /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
@@ -106,8 +111,9 @@ void app_main(void)
     ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
              (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
 #if CONFIG_ESL_OTA
-    /* Everything started: an image that gets here is good enough to keep (the
-       bootloader would otherwise go back to the previous one on the next reset) */
-    ota_confirm_running();
+    /* Everything started. A new image with a WiFi network to join is kept once
+       it can be reached (wifi.c, api_handle()), otherwise it is good enough now;
+       the bootloader goes back to the previous one if it is not kept. */
+    ota_watch_running(ssid[0] != 0);
 #endif
 }

@@ -12,7 +12,7 @@ static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_sched_entry_t entries[CAP];
 static esl_sched_t sched;
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, NULL, NULL, NULL, &sched, NULL, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, NULL, NULL, NULL, &sched, NULL, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -307,6 +307,27 @@ static void test_api_schedule(void)
     CHECK_INT(req("DELETE", "/api/schedule", NULL, 1000), 404);
 }
 
+/* A tag back from NVS after a restart, not heard since: GET /api/tags shows what
+   it said last, and how long ago in wall-clock time once the AP knows the time */
+static void test_api_restored_tag(void)
+{
+    reset();
+    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, T0 - 7200};
+    CHECK(esl_store_restore_seen(&st, 1, 0x2, &rec));
+    CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"seen_s_ago\":null,\"battery_mv\":2600,\"rssi\":-88,\"fw\":1025,\"model\":\"1.54\"") != NULL);
+    CHECK_INT(req("PUT", "/api/time", "{\"time\":1792065600}", 1000), 200);
+    CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"seen_s_ago\":7200,") != NULL);
+    /* a clock behind the stored time: unknown rather than negative */
+    reset();
+    rec.unix_s = T0 + 100;
+    CHECK(esl_store_restore_seen(&st, 1, 0x2, &rec));
+    CHECK_INT(req("PUT", "/api/time", "{\"time\":1792065600}", 1000), 200);
+    CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"seen_s_ago\":null,") != NULL);
+}
+
 void test_sched(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -315,4 +336,5 @@ void test_sched(void)
     test_wake();
     test_api_time();
     test_api_schedule();
+    test_api_restored_tag();
 }

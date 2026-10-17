@@ -449,20 +449,81 @@ static void write_content(esl_sb_t *out, const esl_content_t *c)
                   (c->flags & ESL_CFLAG_FRAME) ? "true" : "false");
 }
 
+/* ?key=value in the query string: the value and its length, or NULL if absent */
+static const char *query_str(const char *uri, const char *key, size_t *len)
+{
+    const char *q = strchr(uri, '?');
+    size_t kl = strlen(key);
+    while (q) {
+        q++;
+        if (strncmp(q, key, kl) == 0 && q[kl] == '=') {
+            const char *v = q + kl + 1;
+            *len = strcspn(v, "&");
+            return v;
+        }
+        q = strchr(q, '&');
+    }
+    return NULL;
+}
+
+/* ?to=: 0 for "all" (or absent), the MAC otherwise; false if it is neither */
+static bool query_to(const char *uri, uint64_t *mac)
+{
+    size_t len;
+    const char *v = query_str(uri, "to", &len);
+    *mac = 0;
+    if (!v || (len == 3 && strncmp(v, "all", 3) == 0))
+        return true;
+    return esl_mac_parse(v, len, mac) && *mac;
+}
+
+/* Where one tag is with the model's image: a tag it is not for, or that cannot or
+   will not take it, is not updating. Bytes it has so far in *got. */
+typedef enum { FWU_NONE, FWU_UPDATED, FWU_NO_OTA, FWU_FAILED, FWU_NOT_CHOSEN, FWU_UPDATING } fwu_t;
+
+static fwu_t tag_fw_update(const esl_api_t *api, const esl_tag_t *t, const esl_tagfw_img_t *img, uint16_t *got)
+{
+    *got = 0;
+    if (!img->ver)
+        return FWU_NONE;
+    if (t->fw == img->ver)
+        return FWU_UPDATED;
+    if (!(t->poll_flags & ESL_POLL_F_OTA))
+        return FWU_NO_OTA;
+    if (t->fw_failed == img->ver)
+        return FWU_FAILED;
+    if (!esl_tagfw_for(api->tagfw, t->model, t->mac))
+        return FWU_NOT_CHOSEN;
+    if (t->fw_got_ver == img->ver)
+        *got = t->fw_got < img->size ? t->fw_got : img->size;
+    return FWU_UPDATING;
+}
+
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
                       uint16_t default_poll_s, bool with_content)
 {
     char m[17];
     esl_mac_format(t->mac, m);
     esl_sb_printf(out, "{\"mac\":\"%s\",", m);
+    /* A tag not heard since this boot, from NVS: what it said last, and when
+     * (wall clock) if both that and the time now are known */
+    uint32_t unix_now = (!t->seen && t->seen_unix && api->sched) ? esl_sched_now(api->sched, now_ms, NULL) : 0;
+    bool known = t->seen || t->fw; /* fw 0: nothing stored from a POLL */
     if (t->seen)
-        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu64 ",\"battery_mv\":%u,\"rssi\":%d,\"fw\":%u,",
-                      (now_ms - t->last_seen_ms) / 1000, (unsigned)t->battery_mv, (int)t->rssi, (unsigned)t->fw);
+        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu64 ",", (now_ms - t->last_seen_ms) / 1000);
+    else if (unix_now >= t->seen_unix && unix_now)
+        esl_sb_printf(out, "\"seen_s_ago\":%" PRIu32 ",", unix_now - t->seen_unix);
     else
-        esl_sb_puts(out, "\"seen_s_ago\":null,\"battery_mv\":null,\"rssi\":null,\"fw\":null,");
-    /* model: null until the tag has polled, and for firmware that does not
-     * send it; draw_failed: the tag's last POLL said its last drawing failed */
-    const char *model = t->seen ? esl_model_name(t->model) : NULL;
+        esl_sb_puts(out, "\"seen_s_ago\":null,");
+    if (known)
+        esl_sb_printf(out, "\"battery_mv\":%u,\"rssi\":%d,\"fw\":%u,", (unsigned)t->battery_mv, (int)t->rssi,
+                      (unsigned)t->fw);
+    else
+        esl_sb_puts(out, "\"battery_mv\":null,\"rssi\":null,\"fw\":null,");
+    /* model: null until the tag has polled (now or before a restart), and for
+     * firmware that does not send it; draw_failed: the tag's last POLL said its
+     * last drawing failed */
+    const char *model = known ? esl_model_name(t->model) : NULL;
     if (model)
         esl_sb_printf(out, "\"model\":\"%s\",", model);
     else
@@ -497,6 +558,16 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, "null");
     /* the tag takes firmware over the radio (docs/tag-ota.md) */
     esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
+    /* the firmware it is fetching from the AP: how far it is (null: none for it) */
+    esl_tagfw_img_t img;
+    uint16_t got;
+    if (t->seen && esl_tagfw_get(api->tagfw, t->model, &img) && tag_fw_update(api, t, &img, &got) == FWU_UPDATING) {
+        esl_sb_puts(out, ",\"fw_update\":{\"version\":");
+        esl_sb_printf(out, "\"%u.%u.%u\"", img.ver / 10000u, img.ver / 100u % 100u, img.ver % 100u);
+        esl_sb_printf(out, ",\"received\":%u,\"size\":%u}", (unsigned)got, (unsigned)img.size);
+    } else {
+        esl_sb_puts(out, ",\"fw_update\":null");
+    }
 
     if (with_content && t->has_content)
         write_content(out, &t->content);
@@ -980,8 +1051,9 @@ static int get_health(const esl_api_t *api, const char *method, const char *uri,
 /* GET/PUT /api/wifi: the network the AP joins (krav A1). The password is never
  * shown. ssid "" or null forgets the network, and the AP opens its setup
  * network again. "token" sets a new API token (the page sets both right after
- * flashing, over the USB port); with a token, ssid may be left out to keep the
- * network. The token is checked before anything is saved. */
+ * flashing, over the USB port); "hostname" is the AP's name on the network
+ * (DHCP and mDNS). With a token or a hostname, ssid may be left out to keep
+ * the network. Everything is checked before anything is saved. */
 static int ap_wifi(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
 {
     esl_wifi_status_t ws;
@@ -990,17 +1062,22 @@ static int ap_wifi(const esl_api_t *api, const char *method, const char *body, s
         int status = parse_json(body, len, &tok, out);
         if (status == 0) {
             char ssid[ESL_WIFI_SSID_MAX + 1] = "", pass[ESL_WIFI_PASS_MAX + 1] = "";
-            char token[ESL_WIFI_TOKEN_MAX + 1] = "";
+            char token[ESL_WIFI_TOKEN_MAX + 1] = "", host[ESL_WIFI_HOSTNAME_MAX + 1] = "";
             int s = esl_json_obj_get(body, tok, 0, "ssid");
+            int h = esl_json_obj_get(body, tok, 0, "hostname");
             int p = esl_json_obj_get(body, tok, 0, "password");
             int t = esl_json_obj_get(body, tok, 0, "token");
-            int sl = 0, pl = 0, tl = 0;
+            int sl = 0, pl = 0, tl = 0, hl = 0;
             const char *err = NULL;
             if (t >= 0 && tok[t].type == ESL_JSON_STRING)
                 tl = esl_json_str_decode(body, &tok[t], token, sizeof(token) - 1);
             else if (t >= 0 && tok[t].type != ESL_JSON_NULL)
                 err = "token must be a string";
-            if (!err && s < 0 && t < 0)
+            if (!err && h >= 0 && tok[h].type == ESL_JSON_STRING)
+                hl = esl_json_str_decode(body, &tok[h], host, sizeof(host) - 1);
+            else if (!err && h >= 0 && tok[h].type != ESL_JSON_NULL)
+                err = "hostname must be a string";
+            if (!err && s < 0 && t < 0 && h < 0)
                 err = "ssid is required (null or \"\" forgets the saved network)";
             else if (!err && s >= 0 && tok[s].type == ESL_JSON_STRING)
                 sl = esl_json_str_decode(body, &tok[s], ssid, sizeof(ssid) - 1);
@@ -1016,14 +1093,21 @@ static int ap_wifi(const esl_api_t *api, const char *method, const char *body, s
                 err = "password must be empty (open network) or 8 to 63 characters";
             else if (!err && tl == -2)
                 err = "token must be 8 to 128 characters";
-            else if (!err && (sl < 0 || pl < 0 || tl < 0))
-                err = "bad escape in ssid, password or token";
+            else if (!err && hl == -2)
+                err = "hostname must be 1 to 32 characters";
+            else if (!err && (sl < 0 || pl < 0 || tl < 0 || hl < 0))
+                err = "bad escape in ssid, password, token or hostname";
             if (!err) {
                 ssid[sl] = 0;
                 pass[pl] = 0;
                 token[tl] = 0;
+                host[hl] = 0;
                 err = esl_wifi_check(ssid, (size_t)sl, pass, (size_t)pl);
             }
+            if (!err && h >= 0 && tok[h].type == ESL_JSON_STRING)
+                err = esl_wifi_check_hostname(host, (size_t)hl);
+            if (!err && hl && !api->wifi->set_hostname)
+                err = "this AP cannot change its hostname";
             if (!err && tl)
                 err = esl_wifi_check_token(token, (size_t)tl);
             if (!err && tl && !api->wifi->set_token)
@@ -1032,6 +1116,8 @@ static int ap_wifi(const esl_api_t *api, const char *method, const char *body, s
                 status = api_error(out, 422, err);
             else if (tl && api->wifi->set_token(api->wifi->ctx, token) != 0)
                 status = api_error(out, 500, "could not save the token");
+            else if (hl && api->wifi->set_hostname(api->wifi->ctx, host) != 0)
+                status = api_error(out, 500, "could not save the hostname");
             else if (s >= 0 && api->wifi->set(api->wifi->ctx, ssid, pass) != 0)
                 status = api_error(out, 500, "could not save the network");
         }
@@ -1174,16 +1260,47 @@ static bool query_size(const char *uri, const char *key, size_t *v)
 static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model)
 {
     esl_tagfw_img_t img;
-    if (!esl_tagfw_get(api->tagfw, model, &img)) {
+    esl_tagfw_to_t to;
+    if (!esl_tagfw_get(api->tagfw, model, &img) || !esl_tagfw_get_to(api->tagfw, model, &to)) {
         esl_sb_printf(out, "{\"model\":\"%s\",\"version\":null}", esl_model_name(model));
         return;
     }
-    esl_fw_counts_t c;
-    esl_store_fw_counts(api->store, model, img.ver, &c);
+    /* the seen tags of the model; progress counts the bytes of those it is for */
+    unsigned n[FWU_UPDATING + 1] = {0};
+    uint32_t received = 0, total = 0;
+    for (unsigned s = 0; s < api->store->cap; s++) {
+        esl_tag_t t;
+        uint16_t got;
+        if (!esl_store_get_slot(api->store, s, &t) || !t.seen || t.model != model)
+            continue;
+        fwu_t u = tag_fw_update(api, &t, &img, &got);
+        n[u]++;
+        if (u == FWU_UPDATED && esl_tagfw_for(api->tagfw, model, t.mac)) {
+            received += img.size;
+            total += img.size;
+        } else if (u == FWU_UPDATING) {
+            received += got;
+            total += img.size;
+        }
+    }
     esl_sb_putc(out, '{');
     esl_tagfw_write_fields(out, model, &img);
-    esl_sb_printf(out, ",\"tags\":{\"updated\":%u,\"pending\":%u,\"failed\":%u,\"no_ota\":%u}}", c.updated,
-                  c.pending, c.failed, c.no_ota);
+    esl_sb_puts(out, ",\"to\":");
+    if (to.all) {
+        esl_sb_puts(out, "\"all\"");
+    } else {
+        esl_sb_putc(out, '[');
+        for (unsigned i = 0; i < to.n; i++) {
+            char m[17];
+            esl_mac_format(to.mac[i], m);
+            esl_sb_printf(out, "%s\"%s\"", i ? "," : "", m);
+        }
+        esl_sb_putc(out, ']');
+    }
+    esl_sb_printf(out,
+                  ",\"tags\":{\"updated\":%u,\"pending\":%u,\"failed\":%u,\"no_ota\":%u,\"not_chosen\":%u},"
+                  "\"progress\":{\"received\":%" PRIu32 ",\"total\":%" PRIu32 "}}",
+                  n[FWU_UPDATED], n[FWU_UPDATING], n[FWU_FAILED], n[FWU_NO_OTA], n[FWU_NOT_CHOSEN], received, total);
 }
 
 static int handle_tagfw(const esl_api_t *api, const char *method, const char *uri, size_t plen,
@@ -1213,7 +1330,10 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
             return api_error(out, 400, "missing body: the tag firmware file (openesl-tag-<model>-<version>-ota.bin)");
         if (total > ESL_FWF_HDR_LEN + ESL_FW_MAX)
             return api_error(out, 413, "the file is larger than a tag image can be");
-        return esl_tagfw_part(api->tagfw, offset, total, (const uint8_t *)body, body_len, out);
+        uint64_t only;
+        if (!query_to(uri, &only))
+            return api_error(out, 400, "to must be all or a tag's MAC (16 hex digits)");
+        return esl_tagfw_part(api->tagfw, offset, total, (const uint8_t *)body, body_len, only, out);
     }
     if (uri[base] != '/')
         return api_error(out, 404, "not found");
@@ -1226,6 +1346,19 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
     if (strcmp(method, "GET") == 0) {
         if (!esl_tagfw_get(api->tagfw, model, NULL))
             return api_error(out, 404, "no tag firmware for this model");
+        write_tagfw_model(api, out, model);
+        return 200;
+    }
+    if (strcmp(method, "POST") == 0) {
+        uint64_t mac;
+        size_t tl;
+        if (!query_str(uri, "to", &tl) || !query_to(uri, &mac))
+            return api_error(out, 400, "give to=all or to= a tag's MAC (16 hex digits)");
+        int status = esl_tagfw_choose(api->tagfw, model, mac);
+        if (status == 404)
+            return api_error(out, 404, "no tag firmware for this model");
+        if (status == 409)
+            return api_error(out, 409, "too many tags chosen one by one: give it to all of them (to=all)");
         write_tagfw_model(api, out, model);
         return 200;
     }
@@ -1299,6 +1432,8 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     if (attention)
         esl_sb_printf(out, ", <span class=\"p\">%u need attention</span>", attention);
     esl_sb_puts(out, ".</p>");
+    if (api->dashboard)
+        esl_sb_puts(out, "<p><a href=\"/dashboard\">Dashboard</a> (needs the API token)</p>");
     if (api->wifi)
         esl_sb_puts(out, "<p><a href=\"/setup\">WiFi and API token setup</a></p>");
     if (api->notify && api->notify->url[0]) {

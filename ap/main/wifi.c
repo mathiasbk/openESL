@@ -35,6 +35,8 @@ static struct {
     char pass[ESL_WIFI_PASS_MAX + 1];
     char ip[16];
     char setup_ssid[ESL_WIFI_SSID_MAX + 1];
+    char hostname[ESL_WIFI_HOSTNAME_MAX + 1];
+    esp_netif_t *netif;
     unsigned scan_count;
     char scan[ESL_WIFI_SCAN_MAX][ESL_WIFI_SSID_MAX + 1];
     int8_t scan_rssi[ESL_WIFI_SCAN_MAX];
@@ -197,6 +199,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         snprintf(w.ip, sizeof(w.ip), IPSTR, IP2STR(&ip->ip_info.ip));
         taskEXIT_CRITICAL(&w.mux);
         ESP_LOGI(TAG, "connected to \"%s\", IP %s", w.ssid, w.ip);
+#if CONFIG_ESL_OTA
+        ota_confirm_running(); /* reachable over WiFi: new firmware is kept */
+#endif
         esp_timer_stop(w.fallback);
         if (w.setup_ssid[0])
             arm(w.setup_off, SETUP_OFF_AFTER_S);
@@ -241,6 +246,7 @@ static void ops_status(void *ctx, esl_wifi_status_t *out)
     taskEXIT_CRITICAL(&w.mux);
     out->rssi = have_rssi ? ap.rssi : 0;
     out->token_set = w.token && w.token[0];
+    strcpy(out->hostname, w.hostname);
 }
 
 static int ops_set(void *ctx, const char *ssid, const char *pass)
@@ -289,6 +295,24 @@ static int ops_set_token(void *ctx, const char *token)
     return 0;
 }
 
+static int ops_set_hostname(void *ctx, const char *name)
+{
+    (void)ctx;
+    if (w.mode == ESL_WIFI_OFF || !w.netif)
+        return -1;
+    nvs_put("hostname", name);
+    taskENTER_CRITICAL(&w.mux);
+    strlcpy(w.hostname, name, sizeof(w.hostname));
+    taskEXIT_CRITICAL(&w.mux);
+    esp_netif_set_hostname(w.netif, w.hostname);
+    mdns_hostname_set(w.hostname);
+    ESP_LOGI(TAG, "hostname now \"%s\" (%s.local)", w.hostname, w.hostname);
+    /* DHCP sends the name when it asks for an address: rejoin so the router hears it */
+    if (w.connected)
+        esp_wifi_disconnect();
+    return 0;
+}
+
 static void ops_scan(void *ctx)
 {
     (void)ctx;
@@ -296,7 +320,7 @@ static void ops_scan(void *ctx)
         start_scan();
 }
 
-static const esl_wifi_ops_t ops = {NULL, ops_status, ops_set, ops_set_token, ops_scan};
+static const esl_wifi_ops_t ops = {NULL, ops_status, ops_set, ops_set_token, ops_scan, ops_set_hostname};
 
 const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const char *hostname, char *token,
                                  size_t token_cap)
@@ -313,8 +337,10 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
         ESP_LOGE(TAG, "netif: %s", esp_err_to_name(err));
         return &ops; /* mode stays OFF; the API still answers over USB */
     }
+    strlcpy(w.hostname, hostname, sizeof(w.hostname));
     esp_netif_t *netif = esp_netif_create_default_wifi_sta();
-    esp_netif_set_hostname(netif, hostname);
+    w.netif = netif;
+    esp_netif_set_hostname(netif, w.hostname);
     esp_netif_create_default_wifi_ap();
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
@@ -364,9 +390,9 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 
     err = mdns_init();
     if (err == ESP_OK) {
-        mdns_hostname_set(hostname);
+        mdns_hostname_set(w.hostname);
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
-        ESP_LOGI(TAG, "mDNS: %s.local", hostname);
+        ESP_LOGI(TAG, "mDNS: %s.local", w.hostname);
     } else {
         ESP_LOGW(TAG, "mDNS failed: %s", esp_err_to_name(err));
     }

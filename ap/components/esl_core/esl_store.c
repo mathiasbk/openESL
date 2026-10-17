@@ -200,6 +200,56 @@ bool esl_store_restore(esl_store_t *st, unsigned slot, uint64_t mac, const esl_c
     return t != NULL;
 }
 
+bool esl_store_restore_seen(esl_store_t *st, unsigned slot, uint64_t mac, const esl_seen_t *s)
+{
+    lock(st);
+    esl_tag_t *t = restore_slot(st, slot, mac);
+    if (t) {
+        t->model = s->model;
+        t->fw = s->fw;
+        t->battery_mv = s->battery_mv;
+        t->rssi = s->rssi;
+        t->seen_unix = s->unix_s;
+    }
+    unlock(st);
+    return t != NULL;
+}
+
+static void seen_record(const esl_tag_t *t, esl_seen_t *s)
+{
+    s->model = t->model;
+    s->fw = t->fw;
+    s->battery_mv = t->battery_mv;
+    s->rssi = t->rssi;
+    s->unix_s = t->seen_unix;
+}
+
+unsigned esl_store_save_seen(esl_store_t *st)
+{
+    if (!st->ops.persist_seen)
+        return 0;
+    unsigned n = 0;
+    for (unsigned i = 0; i < st->cap; i++) {
+        esl_seen_t s;
+        uint64_t mac;
+        bool dirty;
+        lock(st);
+        esl_tag_t *t = &st->tags[i];
+        dirty = t->used && t->seen_dirty;
+        if (dirty) {
+            mac = t->mac;
+            seen_record(t, &s);
+            t->seen_dirty = false;
+        }
+        unlock(st);
+        if (dirty) {
+            st->ops.persist_seen(st->ops.ctx, i, mac, &s);
+            n++;
+        }
+    }
+    return n;
+}
+
 bool esl_store_restore_cfg(esl_store_t *st, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
 {
     lock(st);
@@ -297,6 +347,9 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply)
 {
     size_t n;
+    uint32_t unix_s = st->ops.unix_now ? st->ops.unix_now(st->ops.ctx) : 0;
+    bool save = false; /* new tag, or another model or firmware: its record now */
+    esl_seen_t rec;
     lock(st);
     int idx = find(st, mac);
     if (idx < 0) {
@@ -305,12 +358,17 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
             memset(&st->tags[idx], 0, sizeof(esl_tag_t));
             st->tags[idx].used = true;
             st->tags[idx].mac = mac;
+            save = true;
         }
     }
     if (idx < 0) {
         n = esl_idle_build(reply, st->next_poll_s);
     } else {
         esl_tag_t *t = &st->tags[idx];
+        if (t->model != poll->model || t->fw != poll->fw_ver)
+            save = true;
+        if (unix_s)
+            t->seen_unix = unix_s;
         t->seen = true;
         t->last_seen_ms = now_ms;
         t->shown_content_id = poll->content_id;
@@ -325,8 +383,13 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->layout_capable = poll->has_layout_ver;
         t->layout_ver = poll->layout_ver;
         n = poll_answer(st, t, poll, env, now_ms, reply);
+        t->seen_dirty = !save;
+        if (save)
+            seen_record(t, &rec);
     }
     unlock(st);
+    if (save && st->ops.persist_seen)
+        st->ops.persist_seen(st->ops.ctx, (unsigned)idx, mac, &rec);
     return n;
 }
 
@@ -347,6 +410,17 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     }
     unlock(st);
     return offer;
+}
+
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        st->tags[idx].fw_got_ver = ver;
+        st->tags[idx].fw_got = end;
+    }
+    unlock(st);
 }
 
 void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out)
@@ -384,6 +458,8 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
         st->ops.persist_erase(st->ops.ctx, (unsigned)idx);
     if (idx >= 0 && had_cfg && st->ops.persist_cfg)
         st->ops.persist_cfg(st->ops.ctx, (unsigned)idx, mac, NULL);
+    if (idx >= 0 && st->ops.persist_seen)
+        st->ops.persist_seen(st->ops.ctx, (unsigned)idx, mac, NULL);
     return idx >= 0;
 }
 

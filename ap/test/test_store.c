@@ -78,13 +78,119 @@ static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, 
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
+/* What the AP last heard from each tag survives a restart (esl_persist.h "seen") */
+typedef struct {
+    fake_t f;
+    int writes, erases;
+    unsigned slot;
+    uint64_t mac;
+    esl_seen_t rec;
+    uint32_t clock;
+} seenfake_t;
+
+static void s_seen(void *ctx, unsigned slot, uint64_t mac, const esl_seen_t *rec)
+{
+    seenfake_t *g = ctx;
+    CHECK_INT(g->f.depth, 0); /* outside the lock */
+    if (rec) {
+        g->writes++;
+        g->rec = *rec;
+    } else {
+        g->erases++;
+    }
+    g->slot = slot;
+    g->mac = mac;
+}
+
+static uint32_t s_clock(void *ctx)
+{
+    return ((seenfake_t *)ctx)->clock;
+}
+
+static void test_store_seen(void)
+{
+    enum { CAP = 4 };
+    esl_tag_t tags[CAP];
+    esl_store_t st;
+    seenfake_t g = {0};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock};
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    esl_tag_t t;
+    esl_store_init(&st, tags, CAP, &ops, 0);
+
+    /* a new tag is saved at once, with the time when the clock is known */
+    g.clock = 1792000000;
+    poll(&st, 0xA1, 0, 1000, reply);
+    CHECK_INT(g.writes, 1);
+    CHECK(g.mac == 0xA1);
+    CHECK_INT(g.slot, 0);
+    CHECK_INT(g.rec.model, ESL_MODEL_29);
+    CHECK_INT(g.rec.fw, 3);
+    CHECK_INT(g.rec.battery_mv, 2950);
+    CHECK_INT(g.rec.rssi, -61);
+    CHECK(g.rec.unix_s == 1792000000u);
+
+    /* the same tag again: nothing written until esl_store_save_seen */
+    g.clock = 1792000060;
+    poll(&st, 0xA1, 0, 61000, reply);
+    CHECK_INT(g.writes, 1);
+    CHECK_INT(esl_store_save_seen(&st), 1);
+    CHECK_INT(g.writes, 2);
+    CHECK(g.rec.unix_s == 1792000060u);
+    CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
+
+    /* other firmware: saved at once */
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
+    CHECK_INT(g.writes, 3);
+    CHECK_INT(g.rec.fw, 4);
+    CHECK_INT(esl_store_save_seen(&st), 0);
+
+    /* the clock unknown: the last known time is kept */
+    g.clock = 0;
+    esl_store_on_poll(&st, 0xA1, &p, -70, 63000, NULL, reply);
+    CHECK_INT(esl_store_save_seen(&st), 1);
+    CHECK(g.rec.unix_s == 1792000060u);
+
+    /* deleting a tag erases its record */
+    CHECK(esl_store_delete(&st, 0xA1));
+    CHECK_INT(g.erases, 1);
+    CHECK_INT(g.slot, 0);
+
+    /* after a restart: back in its slot, not seen since boot, with what it said */
+    esl_store_t st2;
+    esl_tag_t tags2[CAP];
+    esl_store_init(&st2, tags2, CAP, &ops, 0);
+    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000};
+    CHECK(esl_store_restore_seen(&st2, 2, 0xB2, &rec));
+    CHECK(!esl_store_restore_seen(&st2, 2, 0xC3, &rec)); /* slot holds another tag */
+    CHECK(!esl_store_restore_seen(&st2, CAP, 0xC3, &rec));
+    CHECK(esl_store_get_slot(&st2, 2, &t));
+    CHECK(t.mac == 0xB2);
+    CHECK(!t.seen);
+    CHECK_INT(t.model, ESL_MODEL_154);
+    CHECK_INT(t.fw, 0x0401);
+    CHECK(t.seen_unix == 1792000000u);
+    CHECK(!t.has_content);
+    /* its first POLL with the same model and firmware writes nothing at once */
+    int w = g.writes;
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    g.clock = 1792003600;
+    esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
+    CHECK_INT(g.writes, w);
+    CHECK(esl_store_get(&st2, 0xB2, &t) && t.seen);
+    CHECK_INT(esl_store_save_seen(&st2), 1);
+    CHECK_INT(g.slot, 2);
+    CHECK_INT(g.f.locks, g.f.unlocks);
+}
+
 void test_store(void)
 {
     enum { CAP = 4 };
     esl_tag_t tags[CAP];
     esl_store_t st;
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
@@ -221,7 +327,7 @@ void test_store(void)
 
     /* ---- per-tag settings and the default interval ---- */
     fake_t g = {0};
-    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL};
     esl_cfg_result_t cr;
     esl_store_init(&st, tags, CAP, &cops, 0);
     esl_tag_cfg_t c120 = {120, 0, 0}, none = {0, 0, 0};
@@ -294,4 +400,6 @@ void test_store(void)
     CHECK_INT(ESL_GET_U16(&rb[ESL_OFF_NEXT_POLL]), 120);
     CHECK_INT(st.next_poll_builtin, 60);
     CHECK_INT(g.locks, g.unlocks);
+
+    test_store_seen();
 }
