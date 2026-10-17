@@ -44,8 +44,8 @@
 |---|---|
 | **Labels** | SoluM ST-GM29XX2 (2.9") or ST-GM16XX2 (1.54"). The 1.54" runs on one CR2450 battery, the 2.9" on two. |
 | **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD also shows a status screen. |
-| **For flashing labels** | A Wemos D1 mini with atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), and a pogo-pin jig for the test pads behind the battery. |
-| **A browser** | Chrome or Edge on a computer, for flashing over Web Serial. The designer works in any modern browser. |
+| **For flashing labels** | A small board running atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), and a pogo-pin jig for the test pads behind the battery. OpenESL is tested with a Wemos D1 mini, but ZBS_Flasher also runs on an ESP32 or an Arduino Nano, and on most boards with about eight free pins and a serial port. |
+| **A browser** | A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer. The designer works in any modern browser. |
 
 ## Getting started
 
@@ -137,7 +137,6 @@ Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml
 
 - **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) into `~/.cache/openesl`, and the Python packages. The AP firmware is built with `idf.py` if ESP-IDF v5.5.5 is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
 - **Windows or macOS:** with Docker Desktop running, `python tools/check.py --docker` runs every step in one image with all the toolchains ([tools/dev/Dockerfile](tools/dev/Dockerfile)). The first run builds the image.
-- **Cloud development sessions** run `tools/dev/setup.sh` at start ([.claude/hooks/session-start.sh](.claude/hooks/session-start.sh)), so changes are checked with `tools/check.py` before they are pushed.
 
 ## A clean implementation
 
