@@ -2,6 +2,7 @@
 #include <string.h>
 #include "app.h"
 #include "esl_radio.h"
+#include "esp_coexist.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -202,6 +203,16 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     esp_err_t err = esp_ieee802154_enable();
     if (err != ESP_OK)
         return err;
+#if CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+    /* Without this the arbiter never shares the radio: 802.15.4 receiving
+       keeps WiFi deaf (no scan results, "no AP found", no traffic), and the
+       state outlives a USB or software reset. The sniffer runs without WiFi. */
+    if (!SNIFFER) {
+        err = esp_coex_wifi_i154_enable();
+        if (err != ESP_OK)
+            ESP_LOGE(TAG, "WiFi/802.15.4 coexistence: %s", esp_err_to_name(err));
+    }
+#endif
     esp_ieee802154_set_channel(channel);
     esp_ieee802154_set_txpower(CONFIG_ESL_TX_POWER_DBM);
     esp_ieee802154_set_panid(pan_id);

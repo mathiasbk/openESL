@@ -45,7 +45,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] 802.15.4 on the C6 (channel 25, AP, sniffer and stub modes)
 - [x] Table of tags in NVS, HTTP API with a token, status page (A6)
 - [x] The API over the USB port (`esl-client --serial`), PR #5
-- [ ] WiFi on the C6 Super Mini: the board's WiFi is dead (hardware), so WiFi and coexistence are untested
+- [x] WiFi on the C6 Super Mini: it was not dead but turned off by 802.15.4, because coexistence was never switched on (`esp_coex_wifi_i154_enable()`, and modem sleep so 802.15.4 gets its turns). Tried on the board: joins the network, NTP, rejoins, and a tag gets new content while WiFi is up
 - [x] WiFi setup without menuconfig: setup network `openesl-XXXX` with a form at `/setup`, `GET/PUT /api/wifi` (also over USB, `esl-client wifi`), token set from the form; host-tested and built (`ap/README.md`, "WiFi setup")
 - [x] Setting up the AP explained on the web page (Sett opp tab: first start, the API token, WiFi, daily use)
 - [x] The API token guarded: five wrong tokens in a row lock the API and the `/setup` form for 60 s (`429`); the USB port is exempt

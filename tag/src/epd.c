@@ -51,9 +51,12 @@
  * On this panel a RAM line (Y) is a screen row, so one layout column cannot be
  * one RAM line: that gave a transposed image (rotated and mirrored, seen on the
  * tag 2026-10-14). Instead 8 layout columns are transposed into one RAM byte
- * column (X), and the counter runs down Y first. Confirmed right way round on the tag.
+ * column (X), and the counter runs down Y first.
+ * RAM (0, 0) is the bottom right corner when the tag is held the right way up, so
+ * the image is also turned 180 degrees (it was upside down on the tag 2026-10-16).
  */
 #define EPD_TRANSPOSE       1
+#define EPD_ROTATE_180      1
 #define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
 #else
 #define EPD_TRANSPOSE       0
@@ -134,39 +137,66 @@ static void set_cursor(void)
 }
 
 #if EPD_TRANSPOSE
+#if EPD_ROTATE_180 && (DRAW_W % 8)
+#error "EPD_ROTATE_180 needs DRAW_W to be a multiple of 8"
+#endif
 static uint8_t __xdata rows[DRAW_H];    /* 8 layout columns, one byte per row */
 
-/* Streams one plane: red = 0 gives the black plane, 1 gives the red plane. */
+/*
+ * Streams one plane: red = 0 gives the black plane, 1 gives the red plane.
+ * Layout columns are always computed left to right (draw_column is fastest that
+ * way). With EPD_ROTATE_180 each group of 8 columns goes to RAM byte column
+ * RAM_X_BYTES-1-g with the bits and the rows in reverse order, so the cursor is set
+ * before each group.
+ */
 static void stream_plane(draw_scene_t *s, uint8_t red)
 {
     uint16_t x;
     uint8_t y, k, m, b;
     const uint8_t *col = red ? col_red : col_black;
 
+#if !EPD_ROTATE_180
     set_cursor();
     cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
-    hal_epd_dc(1);
-    hal_epd_cs(0);
+#endif
     draw_begin(s);
     for (x = 0; x < DRAW_W; x += 8) {
+#if EPD_ROTATE_180
+        cmd(CMD_RAM_X_COUNTER);
+        data((uint8_t)(RAM_X_BYTES - 1 - (x >> 3)));
+        cmd(CMD_RAM_Y_COUNTER);
+        data(0);
+        data(0);
+        cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
+#endif
         for (y = 0; y < DRAW_H; y++)
             rows[y] = 0;
         for (k = 0; k < 8 && x + k < DRAW_W; k++) {
             draw_column(s, x + k, col_black, col_red);
+#if EPD_ROTATE_180
+            m = (uint8_t)(0x01 << k);
+#else
             m = (uint8_t)(0x80 >> k);
+#endif
             for (y = 0; y < DRAW_H; y++)
                 if (col[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
                     rows[y] |= m;
         }
+        hal_epd_dc(1);
+        hal_epd_cs(0);
         for (y = 0; y < DRAW_H; y++) {
+#if EPD_ROTATE_180
+            b = rows[DRAW_H - 1 - y];
+#else
             b = rows[y];
+#endif
             if (!red && EPD_BW_INVERT)
                 b = (uint8_t)~b;
             spi_byte(b);
         }
+        hal_epd_cs(1);
         hal_wdt_kick();
     }
-    hal_epd_cs(1);
 }
 #else
 /* Streams one plane: red = 0 gives the black plane, 1 gives the red plane. */
