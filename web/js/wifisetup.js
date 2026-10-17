@@ -32,7 +32,8 @@ export function initWifiSetup(prefix) {
     $("networks").replaceChildren(...(w.networks || []).map((n) => {
       const o = document.createElement("option");
       o.value = n.ssid;
-      o.label = `${n.rssi} dBm`;
+      // Firefox shows only the label in the list, Chrome both: the name must be in it
+      o.label = `${n.ssid} (${n.rssi} dBm)`;
       return o;
     }));
     if (!$("ssid").value && w.ssid) $("ssid").value = w.ssid;
