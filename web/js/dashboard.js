@@ -1,7 +1,7 @@
 // dashboard.js - the Dashboard tab: the AP's state, its WiFi and every tag, from GET /api/tags,
 // /api/health and /api/wifi. Over the AP's USB port (js/apport.js, shared with the WiFi card)
 // or over HTTP through the bridge in tools/esl-client (js/apclient.js).
-import { ApClient } from "./apclient.js";
+import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
@@ -377,8 +377,9 @@ export function initDashboard() {
         msg("Waiting for the AP ...");
         setConnected(serialAp() || (await connectSerial()));
       } else {
-        const url = $("dash-url").value.trim() || "http://localhost:8080";
-        setConnected(new ApClient(url, $("dash-token").value.trim()));
+        const { base, error } = apBase($("dash-url").value);
+        if (error) throw new Error(error);
+        setConnected(new ApClient(base, $("dash-token").value.trim()));
       }
     } catch (e) {
       msg(e.name === "NotFoundError" ? "" : "Could not connect: " + e.message, "error");

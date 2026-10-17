@@ -11,7 +11,7 @@ static const char *TAG = "app";
 
 static esl_store_t store;
 static esl_api_t api;
-static char ssid[33], password[65], token[129];
+static char ssid[33], password[65], token[129], hostname[33];
 
 static const char *reset_reason_name(esp_reset_reason_t r)
 {
@@ -63,10 +63,11 @@ void app_main(void)
     cfg_get_str("ssid", CONFIG_ESL_WIFI_SSID, ssid, sizeof(ssid));
     cfg_get_str("pass", CONFIG_ESL_WIFI_PASSWORD, password, sizeof(password));
     cfg_get_str("token", CONFIG_ESL_API_TOKEN, token, sizeof(token));
+    cfg_get_str("hostname", CONFIG_ESL_MDNS_HOSTNAME, hostname, sizeof(hostname));
     if (!token[0])
         ESP_LOGE(TAG, "No API token set (setup page, menuconfig or NVS cfg/token): every HTTP API request gets 401");
 
-    api.wifi = wifi_start(ssid, password, CONFIG_ESL_MDNS_HOSTNAME, token, sizeof(token));
+    api.wifi = wifi_start(ssid, password, hostname, token, sizeof(token));
 
 #if CONFIG_ESL_MAX_SCHEDULED
     api.sched = sched_start(&store, CONFIG_ESL_MAX_SCHEDULED);

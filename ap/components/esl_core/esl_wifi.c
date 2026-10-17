@@ -37,6 +37,21 @@ const char *esl_wifi_check_token(const char *token, size_t len)
     return NULL;
 }
 
+const char *esl_wifi_check_hostname(const char *name, size_t len)
+{
+    if (len < 1 || len > ESL_WIFI_HOSTNAME_MAX)
+        return "hostname must be 1 to 32 characters";
+    for (size_t i = 0; i < len; i++) {
+        char c = name[i];
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-';
+        if (!ok)
+            return "hostname may only hold letters, digits and '-'";
+    }
+    if (name[0] == '-' || name[len - 1] == '-')
+        return "hostname must not start or end with '-'";
+    return NULL;
+}
+
 /* ---- form parsing ---------------------------------------------------------- */
 
 static int hexval(char c)
@@ -122,6 +137,10 @@ void esl_wifi_write_json(esl_sb_t *out, const esl_wifi_status_t *st)
     else
         esl_sb_puts(out, "null");
     esl_sb_printf(out, ",\"token_set\":%s", st->token_set ? "true" : "false");
+    if (st->hostname[0]) {
+        esl_sb_puts(out, ",\"hostname\":");
+        esl_sb_json_str(out, st->hostname);
+    }
     esl_sb_puts(out, ",\"networks\":[");
     for (unsigned i = 0; i < st->scan_count && i < ESL_WIFI_SCAN_MAX; i++) {
         if (i)
