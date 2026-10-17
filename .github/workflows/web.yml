@@ -8,6 +8,7 @@
 # the firmware built in this run. release.yml starts this workflow after each release.
 #
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+# tools/check.py runs the same steps locally: change both together.
 name: CI and web page
 
 on:
