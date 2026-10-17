@@ -138,11 +138,12 @@ export class SerialAp {
     return this.call("GET", "/api/wifi", undefined, timeoutMs);
   }
 
-  // ssid undefined with a token keeps the network and sets only the token; token empty or
-  // missing keeps the current one
-  setWifi(ssid, password = "", token = "") {
+  // ssid undefined keeps the network (with a token or a hostname); token or hostname empty
+  // or missing keeps the current one
+  setWifi(ssid, password = "", token = "", hostname = "") {
     const body = ssid === undefined ? {} : { ssid, password };
     if (token) body.token = token;
+    if (hostname) body.hostname = hostname;
     return this.call("PUT", "/api/wifi", body);
   }
 
@@ -185,6 +186,13 @@ export function newToken(random = (n) => crypto.getRandomValues(new Uint8Array(n
   let t = "";
   while (t.length < 24) for (const b of random(32)) if (b < 4 * abc.length && t.length < 24) t += abc[b % abc.length];
   return t;
+}
+
+// The same checks as esl_wifi_check_hostname() on the AP
+export function checkHostname(name) {
+  if (!/^[A-Za-z0-9]([A-Za-z0-9-]{0,30}[A-Za-z0-9])?$/.test(name))
+    return "The name on the network must be 1 to 32 letters, digits and '-', not starting or ending with '-'.";
+  return null;
 }
 
 // The same checks as esl_wifi_check() on the AP, so the form can say what is wrong first

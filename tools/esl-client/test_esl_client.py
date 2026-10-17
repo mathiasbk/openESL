@@ -157,6 +157,7 @@ class FakeAp(BaseHTTPRequestHandler):
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
                            "connected": False, "setup_ssid": None,
                            "token_set": bool(body.get("token")) or FakeAp.wifi.get("token_set", False),
+                           "hostname": body.get("hostname") or FakeAp.wifi.get("hostname", "openesl"),
                            "networks": []}
             self._send(200, FakeAp.wifi)
         elif self.path.startswith("/api/layouts/"):
@@ -607,6 +608,9 @@ class ClientTest(unittest.TestCase):
         self.assertIn("API token changed", out)
         rc, out = self.run_cli("wifi", "Home", "--password", "hemmelig123", "--new-token", "lang-hemmelig")
         self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Home", "password": "hemmelig123", "token": "lang-hemmelig"}))
+        rc, out = self.run_cli("wifi", "--hostname", "butikk")
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"hostname": "butikk"}))
+        self.assertIn("name 'butikk' (butikk.local)", out)
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)

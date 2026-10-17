@@ -2,7 +2,7 @@
 // with Web Serial (js/apserial.js). The same card is on the Flash AP tab (step 2, right after
 // flashing) and on the Set up tab; initWifiSetup(prefix) wires one of them, by the prefix of
 // its element ids. Both share the one port (js/apport.js).
-import { describeWifi, checkWifi, checkToken, newToken } from "./apserial.js";
+import { describeWifi, checkWifi, checkToken, checkHostname, newToken } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -27,6 +27,7 @@ export function initWifiSetup(prefix) {
     for (const id of ["save", "forget", "connect", "gen"]) $(id).disabled = on;
   };
 
+  let current = "";      // the AP's name on the network, as it last said
   const show = (w) => {
     $("state").textContent = describeWifi(w);
     $("networks").replaceChildren(...(w.networks || []).map((n) => {
@@ -37,6 +38,11 @@ export function initWifiSetup(prefix) {
       return o;
     }));
     if (!$("ssid").value && w.ssid) $("ssid").value = w.ssid;
+    if (w.hostname) {
+      current = w.hostname;
+      if (!$("hostname").value) $("hostname").value = w.hostname;
+    }
+    $("hostname-label").hidden = !w.hostname;  // older firmware cannot change it
   };
 
   // The port opened or closed, here or in the other card or on the dashboard
@@ -85,13 +91,14 @@ export function initWifiSetup(prefix) {
 
   // After a change: watch the AP until it has joined, or give up after JOIN_WAIT_MS.
   // ssid undefined changes only the token; null forgets the network.
-  async function change(ssid, password, token) {
+  async function change(ssid, password, token, hostname = "") {
     const ap = serialAp();
     if (!ap) return;
     busy(true);
-    const saved = token ? ` The API token is now ${token} (it cannot be read back from the AP).` : "";
+    const saved = (token ? ` The API token is now ${token} (it cannot be read back from the AP).` : "") +
+      (hostname ? ` Its name on the network is now ${hostname} (http://${hostname}.local/).` : "");
     try {
-      let w = await ap.setWifi(ssid, password, token);
+      let w = await ap.setWifi(ssid, password, token, hostname);
       show(w);
       if (token) $("token").value = "";
       if (ssid === undefined) {
@@ -111,7 +118,7 @@ export function initWifiSetup(prefix) {
         show(w);
       }
       if (w.connected)
-        msg(`Done: the AP is on "${w.ssid}" at http://${w.ip}/ (also http://openesl.local/).` + saved +
+        msg(`Done: the AP is on "${w.ssid}" at http://${w.ip}/ (also http://${w.hostname || "openesl"}.local/).` + saved +
             (w.token_set ? "" : ` No API token is set yet: choose one here or at http://${w.ip}/setup.`), "ok");
       else
         msg(`Saved, but the AP has not joined "${ssid}" yet. Check the name and password; it keeps trying, and opens its setup network again if it cannot join.` + saved, "error");
@@ -127,16 +134,19 @@ export function initWifiSetup(prefix) {
     const ssid = $("ssid").value;
     const pass = $("pass").value;
     const token = $("token").value.trim();
-    if (!ssid && !token) {
-      msg("Enter the network name, a new API token, or both.", "error");
+    const typed = $("hostname").value.trim();
+    const hostname = typed && typed !== current ? typed : "";
+    if (!ssid && !token && !hostname) {
+      msg("Enter the network name, a new API token or a new name on the network.", "error");
       return;
     }
-    const err = (ssid ? checkWifi(ssid, pass) : null) || (token ? checkToken(token) : null);
+    const err = (ssid ? checkWifi(ssid, pass) : null) || (token ? checkToken(token) : null) ||
+      (hostname ? checkHostname(hostname) : null);
     if (err) {
       msg(err, "error");
       return;
     }
-    change(ssid || undefined, pass, token);
+    change(ssid || undefined, pass, token, hostname);
   });
 
   $("forget").addEventListener("click", () => {

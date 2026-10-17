@@ -2,7 +2,7 @@
 // like ap/main/serial_api.c, with log lines in between.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SerialAp, describeWifi, checkWifi, checkToken, newToken } from "../js/apserial.js";
+import { SerialAp, describeWifi, checkWifi, checkToken, checkHostname, newToken } from "../js/apserial.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -83,10 +83,12 @@ test("PUT /api/wifi with a token, or only a token", async () => {
   await ap.setWifi("Butikken", "hemmelig123", "lang-hemmelig");
   await ap.setWifi(undefined, "", "lang-hemmelig");
   await ap.setWifi("Butikken", "hemmelig123", "");
+  await ap.setWifi(undefined, "", "", "butikk");
   assert.deepEqual(t.seen.map((r) => r.body), [
     { ssid: "Butikken", password: "hemmelig123", token: "lang-hemmelig" },
     { token: "lang-hemmelig" },
     { ssid: "Butikken", password: "hemmelig123" },
+    { hostname: "butikk" },
   ]);
 });
 
@@ -137,6 +139,11 @@ test("describeWifi and checkWifi", () => {
   assert.match(checkToken("x".repeat(129)), /8 to 128/);
   assert.match(checkToken("med mellomrom"), /without spaces/);
   assert.match(checkToken("hemmelig-æøå"), /ASCII/);
+  assert.equal(checkHostname("openesl"), null);
+  assert.equal(checkHostname("Butikk-AP-2"), null);
+  assert.equal(checkHostname("a"), null);
+  for (const bad of ["", "-ap", "ap-", "my ap", "butikk.local", "æøå", "x".repeat(33)]) assert.ok(checkHostname(bad), bad);
+  assert.equal(checkHostname("x".repeat(32)), null);
   const tok = newToken();
   assert.equal(tok.length, 24);
   assert.equal(checkToken(tok), null);
