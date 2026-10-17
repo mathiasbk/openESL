@@ -994,7 +994,21 @@ function initActions() {
 
 // ---------- send to the AP ----------
 
-const ap = { tags: [], fileVersion: null };
+const ap = { tags: [], fileVersion: null, connected: false };
+
+// Upload, send and check only work once Connect has reached the AP (through the bridge)
+function apButtons(busy = false) {
+  $("ap-connect").disabled = busy;
+  for (const id of ["ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected;
+}
+
+function apDisconnected() {
+  ap.connected = false;
+  ap.tags = [];
+  refreshApTags();
+  apButtons();
+  apStatus("Not connected. Start the bridge (step 1), then press Connect.");
+}
 
 function apClient() {
   const { base, error } = apBase($("ap-url").value);
@@ -1027,18 +1041,20 @@ function refreshApTags() {
 
 async function apRun(what, fn) {
   apStatus(what + "…");
-  for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = true;
+  apButtons(true);
   try {
     apStatus(...(await fn()));
   } catch (e) {
     apStatus(e.message, "error");
   } finally {
-    for (const id of ["ap-connect", "ap-upload", "ap-send", "ap-refresh"]) $(id).disabled = false;
+    apButtons();
   }
 }
 
 async function apConnect() {
+  ap.connected = false;
   const r = await apClient().tags();
+  ap.connected = true;
   ap.tags = r.tags || [];
   refreshApTags();
   const n = ap.tags.filter((t) => t.model === state.model).length;
@@ -1092,12 +1108,13 @@ function initAp() {
   };
   $("ap-url").value = store.get("ap.url") || "";
   $("ap-token").value = sess.get("ap.token");
-  $("ap-url").addEventListener("change", () => store.set("ap.url", $("ap-url").value.trim()));
-  $("ap-token").addEventListener("change", () => sess.set("ap.token", $("ap-token").value.trim()));
+  $("ap-url").addEventListener("change", () => { store.set("ap.url", $("ap-url").value.trim()); apDisconnected(); });
+  $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
   $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
   $("ap-send").addEventListener("click", () => apRun("Sending", apSend));
   $("ap-refresh").addEventListener("click", () => apRun("Asking the AP", apCheck));
+  apDisconnected();
 }
 
 export async function initEditor() {
