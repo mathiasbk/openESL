@@ -16,6 +16,7 @@ Steps:
   tag-fw    tag firmware for both models with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client and power-budget tests
+  flash-tui flash-tui tests against its simulated flasher (tools/flash-tui/tests)
   openapi   docs/openapi.yaml against the AP code
   ap-fw     AP firmware with ESP-IDF v5.5.5, plain and with the LCD screen (idf.py on PATH,
             otherwise the espressif/idf:v5.5.5 Docker image)
@@ -133,6 +134,12 @@ def step_tools():
     run([PY, "-m", "unittest", "test_power_budget"], cwd=os.path.join(ROOT, "tools", "power-budget"))
 
 
+def step_flash_tui():
+    need_python("serial", "pyserial")
+    need_python("textual", "textual")
+    run([PY, "-m", "unittest", "discover", "-s", "tests"], cwd=os.path.join(ROOT, "tools", "flash-tui"))
+
+
 def step_openapi():
     need("make", "GNU make")
     need_host_cc()
@@ -185,6 +192,7 @@ STEPS = {
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows)"),
     "tools": (step_tools, "Python"),
+    "flash-tui": (step_flash_tui, "pip: pyserial textual"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker"),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
@@ -237,7 +245,7 @@ def main():
     a = p.parse_args()
     if a.list:
         for name, (_, needs) in STEPS.items():
-            print("%-8s %s" % (name, needs))
+            print("%-9s %s" % (name, needs))
         return
     unknown = [s for s in a.steps if s not in STEPS]
     if unknown:
@@ -261,7 +269,7 @@ def main():
 
     print("\n=== Summary")
     for name, state, why, secs in results:
-        print("%-8s %-8s %5.0fs  %s" % (name, state, secs, why))
+        print("%-9s %-8s %5.0fs  %s" % (name, state, secs, why))
     if any(r[1] == "FAILED" for r in results):
         sys.exit(1)
 

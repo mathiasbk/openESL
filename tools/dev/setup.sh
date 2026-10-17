@@ -62,8 +62,8 @@ BINARYEN_ROOT = '$DIR/$EM/install'
 NODE_JS = '$NODE'
 EOF
 
-PY_PACKAGES="zxing-cpp==3.1.1 pillow pyyaml"
-if ! python3 -c "import zxingcpp, PIL, yaml" 2> /dev/null; then
+PY_PACKAGES="zxing-cpp==3.1.1 pillow pyyaml pyserial textual"
+if ! python3 -c "import zxingcpp, PIL, yaml, serial, textual" 2> /dev/null; then
   echo "Installing $PY_PACKAGES"
   # --user, except in a virtual environment (such as ESP-IDF's, in the Docker image)
   USER_FLAG=$(python3 -c 'import sys; print("" if sys.prefix != sys.base_prefix else "--user")')

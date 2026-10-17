@@ -66,10 +66,12 @@ jobs:
       - uses: actions/checkout@v7
       - name: Host tests (AP core, with AddressSanitizer)
         run: make -C ap/test SAN=1
-      - name: Tool tests (esl-client against a fake AP, power budget)
+      - name: Tool tests (esl-client against a fake AP, power budget, flash-tui against a fake flasher)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
+          python3 -m pip install --user pyserial textual
+          (cd tools/flash-tui && python3 -m unittest discover -v -s tests)
       - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
