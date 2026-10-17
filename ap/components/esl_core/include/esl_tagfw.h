@@ -20,6 +20,7 @@
  * it, on a slot that is not offered meanwhile. One upload at a time. */
 
 #define ESL_TAGFW_SLOT 0x10000u   /* bytes per model in the store */
+#define ESL_TAGFW_CHOSEN 16       /* tags that can be chosen for an image; more: all of them */
 
 typedef struct {
     void *ctx;
@@ -30,6 +31,11 @@ typedef struct {
     bool (*erase)(void *ctx, uint8_t model);
     bool (*write)(void *ctx, uint8_t model, uint32_t off, const void *data, size_t len);
     bool (*read)(void *ctx, uint8_t model, uint32_t off, void *data, size_t len);
+    /* Which tags an image is for (esl_tagfw_to_t), kept across restarts.
+       save with to NULL erases it; load returns false when nothing is kept.
+       Both may be NULL (RAM only). */
+    void (*save_to)(void *ctx, uint8_t model, const void *to, size_t len);
+    bool (*load_to)(void *ctx, uint8_t model, void *to, size_t len);
 } esl_tagfw_ops_t;
 
 typedef struct {
@@ -38,11 +44,22 @@ typedef struct {
     uint32_t crc;    /* CRC-32 of the application */
 } esl_tagfw_img_t;
 
+/* The tags an image is offered to: all of the model, or the n in mac. ver is
+   the image's, so a kept list for another image counts for nothing. */
+typedef struct {
+    uint16_t ver;
+    uint8_t all;
+    uint8_t n;
+    uint64_t mac[ESL_TAGFW_CHOSEN];
+} esl_tagfw_to_t;
+
 typedef struct {
     esl_tagfw_img_t img[ESL_MODEL_COUNT - 1];   /* index model - 1 */
+    esl_tagfw_to_t to[ESL_MODEL_COUNT - 1];     /* who img is for */
     esl_tagfw_ops_t ops;
     uint8_t up_model;                           /* upload in progress, 0 = none */
     uint32_t up_got, up_total;
+    uint64_t up_only;                           /* the upload is for this tag only, 0 = all */
 } esl_tagfw_t;
 
 /* Reads what the store holds and keeps each image whose header and CRC are
@@ -51,15 +68,25 @@ void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops);
 
 /* One part of an upload: len bytes at offset of an OTA file of total bytes.
    Offset 0 starts an upload (the model comes from the header in this part),
-   every other part must follow the last. The model's old image is no longer
+   every other part must follow the last. only (read with the part at offset 0)
+   offers the new image to that tag alone, 0 to every tag of the model. The model's old image is no longer
    offered from the first part on. Returns the HTTP status, with a JSON reply
    in out: {"received","total"} on the way, with the image's fields
    (esl_tagfw_write_fields) when the last part made it whole, or {"error"}. */
-int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *data, size_t len, esl_sb_t *out);
+int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *data, size_t len, uint64_t only,
+                   esl_sb_t *out);
 
 /* The image for a model; false (and *img zeroed) if none. img may be NULL. */
 bool esl_tagfw_get(esl_tagfw_t *fw, uint8_t model, esl_tagfw_img_t *img);
 bool esl_tagfw_delete(esl_tagfw_t *fw, uint8_t model);
+/* Whether the model's image is offered to this tag. False when there is none. */
+bool esl_tagfw_for(esl_tagfw_t *fw, uint8_t model, uint64_t mac);
+/* Who the model's image is for; false (and *to zeroed) if there is no image. */
+bool esl_tagfw_get_to(esl_tagfw_t *fw, uint8_t model, esl_tagfw_to_t *to);
+/* Offers the model's image to one more tag (mac), or to every tag (mac 0).
+   0 when done, 404 when the model has no image, 409 when ESL_TAGFW_CHOSEN
+   tags are chosen already. */
+int esl_tagfw_choose(esl_tagfw_t *fw, uint8_t model, uint64_t mac);
 /* "model","version","size","crc" of one image (version as "1.2.3"), without braces */
 void esl_tagfw_write_fields(esl_sb_t *out, uint8_t model, const esl_tagfw_img_t *img);
 

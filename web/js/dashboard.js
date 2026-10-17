@@ -7,10 +7,26 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, tagRows, healthLine, apFacts } from "./dashdata.js";
-import { firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
+const REFRESH_UPDATING_MS = 5000; // while tags fetch firmware, so the bars move
+
+// A bar for a download: fraction 0..1, or null for one that moves to and fro (nothing to count yet)
+function progressBar({ fraction, text }) {
+  const span = document.createElement("span");
+  span.className = "fw-prog";
+  const bar = document.createElement("progress");
+  bar.max = 1;
+  if (fraction != null) bar.value = fraction;
+  bar.setAttribute("aria-label", text);
+  const t = document.createElement("span");
+  t.className = "muted";
+  t.textContent = text;
+  span.append(bar, t);
+  return span;
+}
 
 const store = {
   get: (k) => { try { return localStorage.getItem("openesl." + k) || ""; } catch { return ""; } },
@@ -86,7 +102,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       msg("No answer: " + e.message, "error");
     } finally {
       loading = false;
-      if (client && $("dash-auto").checked) timer = setTimeout(tick, REFRESH_MS);
+      const updating = last?.list?.tags?.some((t) => t.fw_update);
+      if (client && $("dash-auto").checked) timer = setTimeout(tick, updating ? REFRESH_UPDATING_MS : REFRESH_MS);
     }
   }
 
@@ -137,18 +154,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         if (cls) td.className = cls;
         tr.append(td);
       }
-      // Newer firmware on this page for its model: a button that gives it to the AP
+      // Firmware for it: how far it is, or a button that gives it the page's newer firmware
       const up = tagUpdate(tag, pageImgs, last.tagfw);
       if (up) {
         const td = tr.querySelector("td.fw");
-        if (up.update) {
+        if (up.updating) {
+          td.append(" \u2192 " + up.updating + " ", progressBar(up));
+        } else if (up.update || up.choose) {
+          const v = up.update || up.choose;
           const b = document.createElement("button");
           b.className = "small fw-up";
           b.textContent = "\u2191"; // arrow up
-          b.title = `Update to ${up.update}: gives the firmware to the AP; every ${tag.model}" tag takes it at its next polls`;
-          b.setAttribute("aria-label", "Update to " + up.update);
+          b.title = `Update this tag to ${v}` + (up.update ? ": gives the firmware to the AP for this tag only" : "");
+          b.setAttribute("aria-label", "Update this tag to " + v);
           b.disabled = sending;
-          b.onclick = () => sendPageTagFirmware(tag.model);
+          b.onclick = () => (up.update ? sendPageTagFirmware(tag.model, tag.mac) : chooseTag(tag.model, tag.mac, v));
           td.append(" ", b);
         } else {
           const s = document.createElement("span");
@@ -209,20 +229,31 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const rows = tagFirmwareRows(tagfw);
     $("dash-tagfw").replaceChildren(...rows.map((r) => {
       const tr = document.createElement("tr");
-      for (const text of [r.model + '"', r.version || "–", r.text]) {
+      for (const text of [r.model + '"', r.version ? `${r.version}, for ${r.to}` : "–"]) {
         const td = document.createElement("td");
         td.textContent = text;
         tr.append(td);
       }
+      const tags = document.createElement("td");
+      tags.textContent = r.text;
+      if (r.progress) tags.append(" ", progressBar(r.progress));
+      tr.append(tags);
       const td = document.createElement("td");
-      if (r.version) {
+      const button = (text, title, onclick) => {
         const b = document.createElement("button");
-        b.textContent = "Remove";
-        b.title = "Stop updating the tags of this model";
+        b.textContent = text;
+        b.title = title;
         b.disabled = sending;
-        b.onclick = () => removeTagFirmware(r.model);
-        td.append(b);
-      }
+        b.onclick = onclick;
+        td.append(b, " ");
+      };
+      // The page has newer firmware for the model than the AP: all its tags at once
+      const page = pageImgs[r.model];
+      if (page && (!r.version || cmpVersion(page.version, r.version) > 0))
+        button("\u2191 " + page.version + " to all", `Give ${r.model}" firmware ${page.version} to the AP for every ${r.model}" tag`, () => sendPageTagFirmware(r.model));
+      else if (r.toAll)
+        button("To all", `Every ${r.model}" tag gets ${r.version}, not only the chosen ones`, () => chooseTag(r.model, "all", r.version));
+      if (r.version) button("Remove", "Stop updating the tags of this model", () => removeTagFirmware(r.model));
       tr.append(td);
       return tr;
     }));
@@ -338,16 +369,36 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return sendData(data, img.file.includes("lcd"));
   }
 
-  // The arrow-up button in the tag table
-  function sendPageTagFirmware(model) {
+  // The arrow-up buttons: in the tag table for one tag (mac), in the firmware table for all
+  function sendPageTagFirmware(model, mac = null) {
     if (!client || sending || !pageData[model]) return;
-    if (!confirm(`Give ${model}" firmware ${pageImgs[model].version} to the AP? Every ${model}" tag that takes firmware over the radio updates itself over its next polls.`)) return;
+    const v = pageImgs[model].version;
+    const onAp = (last?.tagfw?.images || []).find((i) => i.model === model && i.version);
+    const q = mac
+      ? `Update tag ${mac} to ${model}" firmware ${v}? The AP gets the firmware for this tag only, and the tag updates itself over its next polls.` +
+        (onAp ? ` It replaces ${onAp.version} on the AP, so tags still fetching that one stop.` : "")
+      : `Give ${model}" firmware ${v} to the AP? Every ${model}" tag that takes firmware over the radio updates itself over its next polls.`;
+    if (!confirm(q)) return;
     $("fw-msg").scrollIntoView({ block: "nearest" });
-    return sendData(pageData[model]);
+    return sendData(pageData[model], null, mac);
   }
 
-  // lcd: whether an AP image is the one with the status screen (null: a file of your own)
-  async function sendData(data, lcd = null) {
+  // The AP has the firmware already: it goes to one more tag, or (to "all") to every one
+  async function chooseTag(model, to, version) {
+    if (!client || sending) return;
+    if (to === "all" && !confirm(`Give ${model}" firmware ${version} to every ${model}" tag, not only the chosen ones?`)) return;
+    try {
+      await chooseTagFirmware(client, model, to);
+      fwMsg(to === "all" ? `Every ${model}" tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
+    } catch (e) {
+      fwMsg("Could not choose it: " + e.message, "error");
+    }
+    refresh();
+  }
+
+  // lcd: whether an AP image is the one with the status screen (null: a file of your own);
+  // to: the one tag a tag image is for (null: all of its model)
+  async function sendData(data, lcd = null, to = null) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
     const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"` : `AP firmware${kind.version ? " " + kind.version : ""}`;
@@ -361,8 +412,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const c = client;
     try {
       if (kind.kind === "tag") {
-        const r = await sendTagFirmware(c, data, progress);
-        fwMsg(`The AP now offers ${r.model}" firmware ${r.version}. Each tag takes it over its next polls; the table shows how far they are.`, "ok");
+        const r = await sendTagFirmware(c, data, progress, to);
+        fwMsg(to
+          ? `The AP now has ${r.model}" firmware ${r.version} for tag ${to}. It takes it over its next polls; the table shows how far it is.`
+          : `The AP now offers ${r.model}" firmware ${r.version}. Each tag takes it over its next polls; the table shows how far they are.`, "ok");
       } else {
         const r = await sendApFirmware(c, data, progress);
         fwMsg(`Written to ${r.slot}: version ${r.version}. The AP is restarting ...`);

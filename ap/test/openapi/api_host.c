@@ -115,7 +115,7 @@ static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
     return true;
 }
 
-static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read};
+static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
 
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 

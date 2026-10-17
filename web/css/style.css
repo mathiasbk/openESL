@@ -294,6 +294,8 @@ h3.sub { margin-top: 16px; }
 .form label.check > input { width: auto; }
 
 button.small { padding: 2px 8px; font-size: 13px; }
+.fw-prog { white-space: nowrap; }
+.fw-prog progress { width: 80px; height: 10px; vertical-align: middle; margin: 0 6px 0 2px; }
 button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 4px; }
 .mac-ask[hidden] { display: none; }
 #tag-mac { width: 18em; max-width: 100%; }

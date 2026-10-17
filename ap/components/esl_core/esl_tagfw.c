@@ -59,6 +59,13 @@ static bool check_slot(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_img_t *im
     return crc == img->crc;
 }
 
+/* Keeps who an image is for. Outside the lock: NVS writes are slow. */
+static void save_to(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_to_t *to)
+{
+    if (fw->ops.save_to)
+        fw->ops.save_to(fw->ops.ctx, model, to, to ? sizeof(*to) : 0);
+}
+
 void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops)
 {
     memset(fw, 0, sizeof(*fw));
@@ -69,8 +76,15 @@ void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops)
         esl_tagfw_img_t img;
         const char *err;
         if (fw->ops.read(fw->ops.ctx, m, 0, h, sizeof(h)) && parse_header(h, &model, &img, &err) &&
-            model == m && check_slot(fw, m, &img))
+            model == m && check_slot(fw, m, &img)) {
             fw->img[m - 1] = img;
+            /* An image without a kept list (from before the list existed) is for all */
+            esl_tagfw_to_t to;
+            if (!fw->ops.load_to || !fw->ops.load_to(fw->ops.ctx, m, &to, sizeof(to)) || to.ver != img.ver ||
+                to.n > ESL_TAGFW_CHOSEN || (!to.all && !to.n))
+                to = (esl_tagfw_to_t){.ver = img.ver, .all = 1};
+            fw->to[m - 1] = to;
+        }
     }
     unlock(fw);
 }
@@ -100,7 +114,8 @@ static int error(esl_sb_t *out, int status, const char *msg)
 /* The store is erased, written and checked outside the lock: the radio task takes
    it for every POLL, and a slot being uploaded is not offered (its version is 0),
    so the radio never reads it meanwhile. One upload at a time. */
-int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *data, size_t len, esl_sb_t *out)
+int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *data, size_t len, uint64_t only,
+                   esl_sb_t *out)
 {
     const char *err = NULL;
     int status = 409;
@@ -128,6 +143,7 @@ int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *
         fw->up_model = model;
         fw->up_got = 0;
         fw->up_total = (uint32_t)total;
+        fw->up_only = only;
         unlock(fw);
     }
 
@@ -170,9 +186,17 @@ int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *
     if (!fw->ops.read(fw->ops.ctx, model, 0, h, sizeof(h)) || !parse_header(h, &m, &img, &err) || m != model ||
         !check_slot(fw, model, &img))
         return error(out, 422, "the image does not match the CRC in its header");
+    esl_tagfw_to_t to = {.ver = img.ver, .all = 1};
     lock(fw);
+    if (fw->up_only) {
+        to.all = 0;
+        to.n = 1;
+        to.mac[0] = fw->up_only;
+    }
     fw->img[model - 1] = img;
+    fw->to[model - 1] = to;
     unlock(fw);
+    save_to(fw, model, &to);
     esl_sb_putc(out, '{');
     esl_tagfw_write_fields(out, model, &img);
     esl_sb_printf(out, ",\"received\":%u,\"total\":%u}", (unsigned)got, (unsigned)all);
@@ -202,9 +226,68 @@ bool esl_tagfw_delete(esl_tagfw_t *fw, uint8_t model)
     if (fw->up_model == model)
         fw->up_model = 0;
     unlock(fw);
-    if (had)
+    if (had) {
         fw->ops.erase(fw->ops.ctx, model); /* outside the lock, as in esl_tagfw_part */
+        save_to(fw, model, NULL);
+    }
     return had;
+}
+
+bool esl_tagfw_get_to(esl_tagfw_t *fw, uint8_t model, esl_tagfw_to_t *to)
+{
+    esl_tagfw_to_t v = {0};
+    bool has = false;
+    if (fw && model_ok(model)) {
+        lock(fw);
+        has = fw->img[model - 1].ver != 0;
+        if (has)
+            v = fw->to[model - 1];
+        unlock(fw);
+    }
+    if (to)
+        *to = v;
+    return has;
+}
+
+static bool chosen(const esl_tagfw_to_t *to, uint64_t mac)
+{
+    if (to->all)
+        return true;
+    for (unsigned i = 0; i < to->n; i++)
+        if (to->mac[i] == mac)
+            return true;
+    return false;
+}
+
+bool esl_tagfw_for(esl_tagfw_t *fw, uint8_t model, uint64_t mac)
+{
+    esl_tagfw_to_t to;
+    return esl_tagfw_get_to(fw, model, &to) && chosen(&to, mac);
+}
+
+int esl_tagfw_choose(esl_tagfw_t *fw, uint8_t model, uint64_t mac)
+{
+    if (!fw || !model_ok(model))
+        return 404;
+    int status = 0;
+    esl_tagfw_to_t to;
+    lock(fw);
+    esl_tagfw_to_t *t = &fw->to[model - 1];
+    if (fw->img[model - 1].ver == 0)
+        status = 404;
+    else if (!mac)
+        t->all = 1;
+    else if (chosen(t, mac))
+        ; /* already */
+    else if (t->n >= ESL_TAGFW_CHOSEN)
+        status = 409;
+    else
+        t->mac[t->n++] = mac;
+    to = *t;
+    unlock(fw);
+    if (status == 0)
+        save_to(fw, model, &to);
+    return status;
 }
 
 size_t esl_tagfw_block(esl_tagfw_t *fw, uint8_t model, uint16_t ver, uint32_t crc, uint16_t pos, uint8_t max,
