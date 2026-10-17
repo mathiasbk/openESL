@@ -5,7 +5,9 @@
 //   2. Read the info page twice; the reads must match.
 //   3. MAC from info page 0x10-0x17 (LSB first), whose model code must match the chosen model,
 //      or, on a tag with stock firmware (blank bytes), from flash 0xFC06-0xFC0B. The same 6 bytes
-//      as hex are the barcode printed on the label (barcodeFromStock).
+//      as hex are the barcode printed on the label (barcodeFromStock). If both are blank (an
+//      earlier build was written with a plain erase, which wiped 0xFC06), the MAC can be typed
+//      in (manualMac): the barcode from the label or the whole MAC, see macFromEntry.
 //   4. Backup: unless one is already stored for this MAC, read the whole 64 KB main flash
 //      twice (must match) and store it with the info page. Any failure stops the job before
 //      anything is written.
@@ -74,6 +76,26 @@ export function barcodeFromBackup(flash, mac) {
   return m && zp.bytesEqual(m, mac) ? barcodeFromStock(raw) : "";
 }
 
+// MAC typed in for a tag that has none: { mac, barcode }. Throws Error. Takes the 12 hex digits
+// of the barcode on the label (the stock bytes) or the whole 16-digit MAC; spaces, ':' and '-'
+// are ignored. A whole MAC must be one macFromStock could have made for this model (00 00
+// prefix, model code, checksum), which catches typos.
+export function macFromEntry(text, model) {
+  const clean = String(text || "").replace(/[\s:-]/g, "").toUpperCase();
+  if (!/^([0-9A-F]{12}|[0-9A-F]{16})$/.test(clean))
+    throw new Error(`"${text}" is neither the 12-digit barcode from the label nor a 16-digit MAC`);
+  const raw = Uint8Array.from(clean.match(/../g), (x) => parseInt(x, 16));
+  if (raw.length === 6) {
+    const mac = macFromStock(raw, model);
+    if (!mac) throw new Error(`barcode ${clean} is blank`);
+    return { mac, barcode: clean };
+  }
+  const expect = macFromStock(raw.slice(2, 8), model);
+  if (!expect || !zp.bytesEqual(expect, raw))
+    throw new Error(`MAC ${clean} does not fit a ${MODELS[model].name} tag (from its bytes it would be ${expect ? macStr(expect) : "none"})`);
+  return { mac: raw, barcode: "" };
+}
+
 export function modelOfMac(mac) {
   return Object.keys(MODELS).find((k) => MODELS[k].macCode === mac[6]) || null;
 }
@@ -98,9 +120,11 @@ async function readTwice(fl, page, addr, length, what, progress) {
 }
 
 // Runs the whole job on the tag in the jig. Never throws for tag problems: returns a result.
+// manualMac (barcode or MAC, see macFromEntry) is used only if the tag has no MAC of its own;
+// res.macSource is then "typed in".
 // backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info, model, barcode) -> Promise,
 //            and optionally get(macHex) -> Promise<{ flash, barcode }>, setBarcode(macHex, barcode) }
-export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, writeMac = true, resetAfter = true } = {}) {
+export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, writeMac = true, resetAfter = true, manualMac = "" } = {}) {
   const res = { model, mac: null, macSource: "", barcode: "", backup: "", ok: false, step: "", message: "", seconds: 0 };
   const t0 = Date.now();
   const prog = (label) => progress && ((d, t) => progress(label, d, t));
@@ -109,6 +133,14 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
     if (!MODELS[model]) throw new JobError("setup", "unknown model " + model);
     const fw = checkFirmware(firmware);
     log(`Firmware: ${fw.length} bytes`);
+    let typed = null;
+    if (manualMac) {
+      try {
+        typed = macFromEntry(manualMac, model);
+      } catch (e) {
+        throw new JobError("setup", e.message);
+      }
+    }
 
     try {
       await fl.begin();
@@ -121,7 +153,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
     const info = await readTwice(fl, zp.PAGE_INFO, 0, zp.INFO_SIZE, "info page");
     let mac = macFromInfo(info);
     let needMacWrite = false;
-    let raw;
+    let raw = null; // stock bytes, when the MAC came from them
     if (mac) {
       res.macSource = "info page";
       const tagModel = modelOfMac(mac);
@@ -132,14 +164,21 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
     } else {
       if (!info.slice(INFO_MAC_ADDR, INFO_MAC_ADDR + 8).every((b) => b === 0xff))
         throw new JobError("mac", "info page MAC bytes are all 0x00; not touching this tag");
-      raw = await readTwice(fl, zp.PAGE_MAIN, STOCK_MAC_ADDR, 6, "stock MAC");
-      mac = macFromStock(raw, model);
-      if (!mac)
-        throw new JobError("mac", `no MAC in the info page and none at 0x${zp.hex(STOCK_MAC_ADDR, 4)}. Not stock firmware and no MAC written?`);
-      res.macSource = "stock flash";
-      res.barcode = barcodeFromStock(raw);
+      const stock = await readTwice(fl, zp.PAGE_MAIN, STOCK_MAC_ADDR, 6, "stock MAC");
+      mac = macFromStock(stock, model);
+      if (mac) {
+        raw = stock;
+        res.macSource = "stock flash";
+        res.barcode = barcodeFromStock(raw);
+      } else if (typed) {
+        ({ mac, barcode: res.barcode } = typed);
+        res.macSource = "typed in";
+      } else {
+        throw new JobError("mac", `no MAC in the info page and none at 0x${zp.hex(STOCK_MAC_ADDR, 4)}. Not stock firmware and no MAC written? Type in the barcode from the label or the MAC`);
+      }
       needMacWrite = true;
     }
+    if (typed && res.macSource !== "typed in") log(`The tag has its own MAC; the typed one (${manualMac}) is not used`);
     res.mac = macStr(mac);
     log(`MAC ${res.mac} (from ${res.macSource})`);
     if (res.barcode) log("Barcode " + res.barcode);
@@ -159,7 +198,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
       log("Reading the whole flash for the backup (two passes) ...");
       try {
         const flash = await readTwice(fl, zp.PAGE_MAIN, 0, zp.FLASH_SIZE, "main flash", prog("Backup"));
-        if (needMacWrite && !zp.bytesEqual(flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6), raw))
+        if (raw && !zp.bytesEqual(flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6), raw))
           throw new JobError("backup", "backup does not contain the MAC bytes read before");
         if (flash.every((b) => b === 0xff)) throw new JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup");
         await backups.save(res.mac, flash, info, model, res.barcode);
