@@ -4,7 +4,8 @@
 //   1. ZBS_BEGIN; no answer from the tag -> stop.
 //   2. Read the info page twice; the reads must match.
 //   3. MAC from info page 0x10-0x17 (LSB first), whose model code must match the chosen model,
-//      or, on a tag with stock firmware (blank bytes), from flash 0xFC06-0xFC0B.
+//      or, on a tag with stock firmware (blank bytes), from flash 0xFC06-0xFC0B. The same 6 bytes
+//      as hex are the barcode printed on the label (barcodeFromStock).
 //   4. Backup: unless one is already stored for this MAC, read the whole 64 KB main flash
 //      twice (must match) and store it with the info page. Any failure stops the job before
 //      anything is written.
@@ -55,6 +56,24 @@ export function macFromStock(raw6, model) {
   return mac;
 }
 
+// The barcode printed on the label: the 6 stock bytes at 0xFC06 as 12 hex digits, "" if blank.
+// Seen on 0000020663463415: its label is Code 128 "020663461013", whose first 8 digits are MAC bytes
+// 2-5 (= stock bytes 0-3). That the last 4 digits are stock bytes 4-5 is inferred, not yet checked
+// against a backup; those two bytes are not in the MAC, so only the stock flash or its backup has them.
+export function barcodeFromStock(raw6) {
+  if (!raw6 || raw6.length !== 6 || raw6.every((b) => b === 0xff) || raw6.every((b) => b === 0)) return "";
+  return zp.toHex(raw6);
+}
+
+// Barcode from a stored stock backup of the main flash, if its 0xFC06 bytes give this MAC; else "".
+export function barcodeFromBackup(flash, mac) {
+  if (!flash || flash.length < STOCK_MAC_ADDR + 6) return "";
+  const raw = flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6);
+  const model = modelOfMac(mac);
+  const m = model && macFromStock(raw, model);
+  return m && zp.bytesEqual(m, mac) ? barcodeFromStock(raw) : "";
+}
+
 export function modelOfMac(mac) {
   return Object.keys(MODELS).find((k) => MODELS[k].macCode === mac[6]) || null;
 }
@@ -79,9 +98,10 @@ async function readTwice(fl, page, addr, length, what, progress) {
 }
 
 // Runs the whole job on the tag in the jig. Never throws for tag problems: returns a result.
-// backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info, model) -> Promise }
+// backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info, model, barcode) -> Promise,
+//            and optionally get(macHex) -> Promise<{ flash, barcode }>, setBarcode(macHex, barcode) }
 export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, writeMac = true, resetAfter = true } = {}) {
-  const res = { model, mac: null, macSource: "", backup: "", ok: false, step: "", message: "", seconds: 0 };
+  const res = { model, mac: null, macSource: "", barcode: "", backup: "", ok: false, step: "", message: "", seconds: 0 };
   const t0 = Date.now();
   const prog = (label) => progress && ((d, t) => progress(label, d, t));
   let touched = false;
@@ -117,14 +137,24 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
       if (!mac)
         throw new JobError("mac", `no MAC in the info page and none at 0x${zp.hex(STOCK_MAC_ADDR, 4)}. Not stock firmware and no MAC written?`);
       res.macSource = "stock flash";
+      res.barcode = barcodeFromStock(raw);
       needMacWrite = true;
     }
     res.mac = macStr(mac);
     log(`MAC ${res.mac} (from ${res.macSource})`);
+    if (res.barcode) log("Barcode " + res.barcode);
 
     if (await backups.has(res.mac)) {
       res.backup = "exists";
       log("A backup of this tag is already stored");
+      const stored = backups.get && (await backups.get(res.mac));
+      if (stored) {
+        if (!res.barcode) {
+          res.barcode = barcodeFromBackup(stored.flash, mac);
+          if (res.barcode) log("Barcode " + res.barcode + " (from the backup)");
+        }
+        if (res.barcode && !stored.barcode && backups.setBarcode) await backups.setBarcode(res.mac, res.barcode);
+      }
     } else {
       log("Reading the whole flash for the backup (two passes) ...");
       try {
@@ -132,7 +162,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
         if (needMacWrite && !zp.bytesEqual(flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6), raw))
           throw new JobError("backup", "backup does not contain the MAC bytes read before");
         if (flash.every((b) => b === 0xff)) throw new JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup");
-        await backups.save(res.mac, flash, info, model);
+        await backups.save(res.mac, flash, info, model, res.barcode);
         if (!(await backups.has(res.mac))) throw new JobError("backup", "the stored backup cannot be found again");
       } catch (e) {
         res.backup = "failed";
@@ -224,9 +254,9 @@ export class BackupStore {
     return this.tx("readonly", (s) => s.get(mac));
   }
 
-  async save(mac, flash, info, model = "") {
+  async save(mac, flash, info, model = "", barcode = "") {
     if (await this.has(mac)) throw new Error("refusing to overwrite the existing backup of " + mac);
-    await this.tx("readwrite", (s) => s.add({ mac, model, barcode: "", time: new Date().toISOString(), flash, info }));
+    await this.tx("readwrite", (s) => s.add({ mac, model, barcode, time: new Date().toISOString(), flash, info }));
   }
 
   // Changes the barcode (or other notes) of a stored backup; the flash itself is never changed.

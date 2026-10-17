@@ -183,8 +183,12 @@ class Client:
     def delete_tag_firmware(self, model):
         return self._request("DELETE", f"/api/tag-firmware/{model}")
 
-    def set_wifi(self, ssid, password=""):
-        return self._request("PUT", "/api/wifi", {"ssid": ssid, "password": password})
+    def set_wifi(self, ssid, password="", token=None):
+        """ssid None with a token keeps the network and sets only the token."""
+        body = {} if ssid is None else {"ssid": ssid, "password": password}
+        if token:
+            body["token"] = token
+        return self._request("PUT", "/api/wifi", body)
 
     def time(self):
         return self._request("GET", "/api/time")
@@ -389,6 +393,28 @@ def serve(cli, port, extra_origins=()):
     except KeyboardInterrupt:
         pass
     return 0
+
+
+# Model code in byte 6 of the MAC, as tools/flash-tui/workflow.py MODELS
+MODEL_MAC_CODE = {"2.9": 0x3B, "1.54": 0x34}
+
+
+def mac_from_barcode(barcode, model):
+    """The tag's MAC from the 12-digit number under the barcode on its label, for one model.
+
+    The number is the 6 stock bytes at flash 0xFC06 as hex. The flashers build the MAC the
+    way ZBS_Flasher does: 00 00 + the first 4 of those bytes + the model code + 0x10 with a
+    XOR checksum in the low nibble. The last 2 bytes of the number are not in the MAC.
+    """
+    b = barcode.strip().replace(" ", "").upper()
+    if not re.fullmatch(r"[0-9A-F]{12}", b):
+        raise ValueError(f"not a 12-digit tag barcode: {barcode}")
+    mac = bytearray(bytes.fromhex("0000" + b[:8]) + bytes([MODEL_MAC_CODE[model], 0x10]))
+    chk = 0
+    for x in mac[2:8]:
+        chk ^= (x & 0x0F) ^ (x >> 4)
+    mac[7] |= chk
+    return mac.hex().upper()
 
 
 def norm_mac(s):
@@ -661,6 +687,8 @@ def print_wifi(w):
         line += "no network saved"
     if w.get("setup_ssid"):
         line += f"; setup network {w['setup_ssid']!r} open (http://192.168.4.1/setup)"
+    if w.get("token_set") is False:
+        line += "; no API token set (wifi --new-token sets one)"
     print(line)
     for n in w.get("networks", []):
         print(f"  {n.get('rssi'):>4} dBm  {n.get('ssid')}")
@@ -1080,11 +1108,24 @@ def main(argv=None):
     s.add_argument("file")
     s.add_argument("--dry-run", action="store_true", help="show what would be restored")
 
+    s = sub.add_parser("mac", help="the MAC of a tag from the number under the barcode on its label (no AP needed)")
+    s.add_argument("barcode", help="the 12 digits on the label, e.g. 020663461013")
+    s.add_argument("--model", choices=sorted(MODEL_MAC_CODE), help="the tag's size; without it, both")
     s = sub.add_parser("wifi", help="show the AP's WiFi, or set the network it joins")
     s.add_argument("ssid", nargs="?", help="network to join; \"\" forgets the saved one")
     s.add_argument("--password", default="", help="empty for an open network")
+    s.add_argument("--new-token", help="also set a new API token (8-128 characters, no spaces); "
+                   "without ssid only the token changes")
 
     args = p.parse_args(argv)
+    if args.cmd == "mac":
+        try:
+            for m in [args.model] if args.model else sorted(MODEL_MAC_CODE, reverse=True):
+                print(f'{mac_from_barcode(args.barcode, m)}  {m}"')
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == "report":
         try:
             lines, ok = report(read_log(args.file))
@@ -1200,10 +1241,12 @@ def main(argv=None):
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":
-            if args.ssid is None:
+            if args.ssid is None and not args.new_token:
                 print_wifi(cli.wifi())
             else:
-                print_wifi(cli.set_wifi(args.ssid, args.password))
+                print_wifi(cli.set_wifi(args.ssid, args.password, args.new_token))
+                if args.new_token:
+                    print("API token changed: later HTTP requests need --token with the new one")
         elif args.cmd == "layouts":
             print(json.dumps(cli.layouts(), indent=2))
         elif args.cmd == "layout-put":

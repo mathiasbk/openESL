@@ -240,6 +240,7 @@ static void ops_status(void *ctx, esl_wifi_status_t *out)
     memcpy(out->scan_rssi, w.scan_rssi, sizeof(out->scan_rssi));
     taskEXIT_CRITICAL(&w.mux);
     out->rssi = have_rssi ? ap.rssi : 0;
+    out->token_set = w.token && w.token[0];
 }
 
 static int ops_set(void *ctx, const char *ssid, const char *pass)

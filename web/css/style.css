@@ -161,9 +161,10 @@ label { display: inline-flex; gap: 6px; align-items: center; }
 .buttons.tight { margin: 0; gap: 6px; }
 #ap-status.error { color: var(--error); }
 #ap-status.ok { color: var(--ok); }
-#wifi-msg.error { color: var(--error); }
-#wifi-msg.ok { color: var(--ok); }
-#wifi-form { max-width: 480px; }
+.wifi-msg.error { color: var(--error); }
+.wifi-msg.ok { color: var(--ok); }
+.wifi-form { max-width: 480px; }
+.wifi-form[hidden] { display: none; }
 .add-group { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .add-group[hidden] { display: none; }
 .group-label { color: var(--muted); font-size: 13px; margin-left: 6px; }
@@ -291,3 +292,4 @@ h3.sub { margin-top: 16px; }
 .form label.check > input { width: auto; }
 
 button.small { padding: 2px 8px; font-size: 13px; }
+button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 4px; }
