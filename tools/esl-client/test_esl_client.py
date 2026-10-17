@@ -401,9 +401,8 @@ class ClientTest(unittest.TestCase):
         self.assertIn("the AP offers 1.54 firmware 0.3.0 to the tags", out)
         self.assertEqual(FakeAp.tagfw["data"], data)
         parts = [c for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
-        self.assertEqual([c[0] for c in parts], ["/api/tag-firmware?offset=0&total=40976",
-                                                 "/api/tag-firmware?offset=16384&total=40976",
-                                                 "/api/tag-firmware?offset=32768&total=40976"])
+        self.assertEqual([c[0] for c in parts], [f"/api/tag-firmware?offset={o}&total=40976"
+                                                 for o in range(0, 40976, esl_client.TAGFW_PART)])
         self.assertEqual(parts[0][1], "application/octet-stream")
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"\x02\x00" + bytes(100))   # the flasher image, not the OTA file
