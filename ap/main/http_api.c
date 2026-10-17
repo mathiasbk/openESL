@@ -486,6 +486,10 @@ esp_err_t http_api_start(const esl_api_t *api)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
+    /* A browser keeps connections open, and the dashboard's page loads its files over
+       several at once: let a new one close the oldest instead of being refused when
+       all are taken. Each open socket also holds RAM in lwIP. */
+    cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 15; /* two for /api/ota, three for the /api wildcard, two for /setup, /, two for the dashboard, and the rest */
 
     esp_err_t err = httpd_start(&server, &cfg);
