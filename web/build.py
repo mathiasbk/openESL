@@ -24,13 +24,15 @@ compiler, built with Emscripten (emcc) once per tag model:
 Firmware for the flasher is not built here. The GitHub workflow (.github/workflows/web.yml)
 adds it with --firmware: the files of the latest GitHub release, or, before the first release
 and on pull requests, the firmware built from the same commit. The AP image is the merged
-image (bootloader, partition table and app in one file, written at offset 0).
+image (bootloader, partition table and app in one file); the manifest flashes its parts one by
+one so the AP's stored settings survive (split_ap_image).
 """
 import datetime
 import importlib.util
 import json
 import os
 import shutil
+import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -112,13 +114,64 @@ def copy_static():
     os.makedirs(os.path.join(DIST, "firmware"), exist_ok=True)
 
 
-def ap_manifest(out, name, version, path):
+# The merged AP image is written at offset 0 and is 0xFF everywhere in between, so writing it
+# whole also wipes the NVS partition (WiFi, API token, tags, layout files). The manifest instead
+# lists the parts of the image that hold something: bootloader, partition table, otadata (blank,
+# so the board starts the new app in ota_0) and the app. NVS, phy_init, ota_1 and tagfw are left
+# alone, so flashing without "Erase device" in esp-web-tools keeps everything the AP has stored.
+# This relies on the board already having the same partition table; an AP with an older layout
+# must be flashed with "Erase device" (the page says so).
+PT_OFFSET = 0x8000
+PT_SIZE = 0x1000
+
+
+def partitions(img):
+    """(label, type, subtype, offset, size) of each entry in the image's partition table."""
+    table = img[PT_OFFSET:PT_OFFSET + PT_SIZE]
+    out = []
+    for i in range(0, len(table), 32):
+        e = table[i:i + 32]
+        if e[:2] != b"\xaa\x50":
+            break
+        ptype, sub, off, size = struct.unpack("<BBII", e[2:12])
+        out.append((e[12:28].rstrip(b"\0").decode(), ptype, sub, off, size))
+    return out
+
+
+def split_ap_image(src, out, name):
+    """Writes the parts of the merged image src that are flashed: [(file name, offset)]."""
+    img = open(src, "rb").read()
+    parts = [(0, img[:PT_OFFSET]), (PT_OFFSET, img[PT_OFFSET:PT_OFFSET + PT_SIZE])]
+    table = partitions(img)
+    if not table:
+        sys.exit(src + ": no partition table at 0x8000")
+    for label, ptype, sub, off, size in table:
+        if ptype == 1 and sub == 0:            # otadata: written blank, whole
+            parts.append((off, b"\xff" * size))
+        elif ptype == 0 and sub in (0x00, 0x10):  # factory or ota_0: the app of the merged image
+            parts.append((off, img[off:off + size]))
+    if not any(off >= 0x10000 and data for off, data in parts):
+        sys.exit(src + ": no app in the merged image")
+    files = []
+    for off, data in parts:
+        data += b"\xff" * (-len(data) % 4)
+        fname = "%s-0x%x.bin" % (name[:-4], off)
+        with open(os.path.join(out, fname), "wb") as f:
+            f.write(data)
+        files.append((fname, off))
+    return files
+
+
+def ap_manifest(out, name, version, path, parts):
     manifest = {
         "name": name,
         "version": version,
+        # esp-web-tools asks "Erase device?" before installing (not ticked by default); without
+        # it only the parts below are written and the AP keeps its settings and tags
         "new_install_prompt_erase": True,
         # the version in the address keeps a browser from flashing an image cached from an older release
-        "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": path + "?v=" + version, "offset": 0}]}],
+        "builds": [{"chipFamily": "ESP32-C6",
+                    "parts": [{"path": f + "?v=" + version, "offset": off} for f, off in parts]}],
     }
     with open(os.path.join(out, path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")), "w") as f:
         json.dump(manifest, f, indent=2)
@@ -153,9 +206,10 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
                 info["ota"][name[:-4]] = True
     # ap-manifest.json and ap-lcd-manifest.json
     if ap != "-":
-        ap_manifest(out, "OpenESL AP", info["version"], "ap-openesl.bin")
+        ap_manifest(out, "OpenESL AP", info["version"], "ap-openesl.bin", split_ap_image(ap, out, "ap-openesl.bin"))
     if info["ap_lcd"]:
-        ap_manifest(out, "OpenESL AP with status screen", info["version"], "ap-openesl-lcd.bin")
+        ap_manifest(out, "OpenESL AP with status screen", info["version"], "ap-openesl-lcd.bin",
+                    split_ap_image(ap_lcd, out, "ap-openesl-lcd.bin"))
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)
