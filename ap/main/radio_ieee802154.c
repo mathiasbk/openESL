@@ -4,6 +4,7 @@
 #include "esl_radio.h"
 #include "esp_coexist.h"
 #include "esp_ieee802154.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
@@ -181,6 +182,10 @@ static void radio_task(void *arg)
         }
         if (esp_timer_get_time() - last_stats > 60 * 1000000LL) {
             last_stats = esp_timer_get_time();
+            ESP_LOGI(TAG, "heap: free %u, largest block %u, lowest free %u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
             ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu dropped %lu worst %lld us",
                      (unsigned long)stats.rx, (unsigned long)stats.polls, (unsigned long)stats.blocks,
                      (unsigned long)stats.replies,

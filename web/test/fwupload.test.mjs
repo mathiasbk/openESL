@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion } from "../js/fwupload.js";
+import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -65,25 +65,26 @@ test("what a file is", () => {
   assert.equal(fmtVer(10203), "1.2.3");
 });
 
-test("tag firmware goes in 16 KB parts, each after the one before", async () => {
+test("tag firmware goes in 8 KB parts, each after the one before", async () => {
   const ap = simAp();
   const file = tagFile(2, 290, 54272); // a whole 1.54" image
   const seen = [];
   const r = await sendTagFirmware(ap, file, (sent, total) => seen.push([sent, total]));
   assert.deepEqual(r, { model: "1.54", version: "0.2.90", size: 54272, crc: "00000000", received: file.length, total: file.length });
   assert.deepEqual(ap.done, file);
-  assert.deepEqual(ap.requests.map((q) => [q.method, q.path, q.offset]), [
-    ["PUT", "/api/tag-firmware", 0], ["PUT", "/api/tag-firmware", PART], ["PUT", "/api/tag-firmware", 2 * PART], ["PUT", "/api/tag-firmware", 3 * PART],
-  ]);
-  assert.ok(ap.requests.every((q) => q.len <= PART));
+  const n = Math.ceil(file.length / TAGFW_PART);
+  assert.deepEqual(ap.requests.map((q) => [q.method, q.path, q.offset]),
+    Array.from({ length: n }, (_, i) => ["PUT", "/api/tag-firmware", i * TAGFW_PART]));
+  assert.ok(ap.requests.every((q) => q.len <= TAGFW_PART));
   assert.deepEqual(seen.at(-1), [file.length, file.length]);
-  assert.equal(seen.length, 4);
+  assert.equal(seen.length, n);
 });
 
 test("tag firmware for one tag: every part names it", async () => {
   const ap = simAp();
   await sendTagFirmware(ap, tagFile(2, 290, 40000), undefined, "00000123456789A8");
-  assert.deepEqual(ap.requests.map((q) => q.to), ["00000123456789A8", "00000123456789A8", "00000123456789A8"]);
+  assert.equal(ap.requests.length, Math.ceil(40000 / TAGFW_PART));
+  assert.ok(ap.requests.every((q) => q.to === "00000123456789A8"));
   const calls = [];
   await chooseTagFirmware({ call: async (...a) => calls.push(a) }, "1.54", "all");
   assert.deepEqual(calls, [["POST", "/api/tag-firmware/1.54?to=all"]]);

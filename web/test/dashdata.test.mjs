@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, healthLine, apFacts } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -53,4 +53,21 @@ test("AP facts", () => {
   assert.equal(f["AP time"], "not set");
   assert.equal(f.Scheduled, "1 of 64");
   assert.ok(!("AP time" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
+});
+
+test("last and next check-in", () => {
+  const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
+  assert.equal(lastCheckin(tag("A", { seen_s_ago: null }), now), "never");
+  assert.equal(lastCheckin(tag("A", { seen_s_ago: 125 }), now), `${fmtClock(-125, now)} (2 min ago)`);
+  assert.equal(nextCheckin(tag("A", { seen_s_ago: null }), now), null);
+  // poll_s null: the tag's own 60 s
+  const n = nextCheckin(tag("A", { seen_s_ago: 15 }), now);
+  assert.deepEqual([n.left_s, n.late], [45, false]);
+  assert.equal(n.text, `${fmtClock(45, now)} (in 45 s)`);
+  assert.equal(nextCheckin(tag("A", { seen_s_ago: 100, poll_s: 300 }), now).left_s, 200);
+  assert.equal(nextCheckin(tag("A", { seen_s_ago: 70 }), now).text, "any moment now");
+  const late = nextCheckin(tag("A", { seen_s_ago: 245 }), now);
+  assert.deepEqual([late.late, late.text], [true, "3 min late"]);
+  // another day: the date too
+  assert.ok(fmtClock(-86400, now).length > fmtClock(0, now).length);
 });

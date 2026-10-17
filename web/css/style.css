@@ -197,6 +197,8 @@ kbd { font: 12px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .place button { padding: 2px 6px; font-size: 14px; }
 .box.hover { border-style: solid; border-width: 2px; }
 .hint, .muted { color: var(--muted); font-size: 13px; }
+.steps { margin: 0 0 4px; padding-left: 20px; }
+.steps li { margin-bottom: 4px; }
 .warn { color: var(--warn); }
 
 .side details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; }
@@ -299,3 +301,16 @@ button.small { padding: 2px 8px; font-size: 13px; }
 button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 4px; }
 .mac-ask[hidden] { display: none; }
 #tag-mac { width: 18em; max-width: 100%; }
+
+/* Dashboard: send info to tags */
+.send-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.st-preview[hidden] { display: none; }
+.st-preview canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); image-rendering: pixelated; background: #fff; }
+@media (max-width: 720px) { .send-text { grid-template-columns: minmax(0, 1fr); } }
+.st-bar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.st-bar [hidden], #st-own[hidden], #st-show[hidden] { display: none; }
+.dash-tags th.sel, .dash-tags td.sel { width: 1%; padding-right: 6px; }
+.st-ph { display: flex; flex-wrap: wrap; gap: 4px; }
+.st-ph button { font-family: ui-monospace, Consolas, monospace; }
+.st-list td { font-size: 12px; vertical-align: top; white-space: normal; }
+.st-list td.mono { white-space: nowrap; }

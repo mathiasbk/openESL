@@ -172,6 +172,11 @@
         <details open id="ap-panel">
           <summary>Send to AP</summary>
           <div class="form">
+            <ol class="hint steps">
+              <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
+              <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
+              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
+            </ol>
             <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
             <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
             <div class="buttons tight">
@@ -184,7 +189,7 @@
               <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
             </div>
             <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself. Start the bridge on the computer the AP is plugged into: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (over WiFi: <code>--url http://openesl.local</code> instead of <code>--serial</code>).</p>
+            <p class="hint">A web page cannot reach the AP by itself, and on https (such as GitHub Pages) the browser only lets it call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
           </div>
         </details>
         <details>
@@ -334,10 +339,39 @@
         </div>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>MAC</th><th>Model</th><th>Last poll</th><th>Signal</th><th>Battery</th><th>Firmware</th><th>State</th></tr></thead>
+            <thead><tr><th class="sel"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th>MAC</th><th>Model</th><th>Last check-in</th><th>Next check-in</th><th>Signal</th><th>Battery</th><th>Firmware</th><th>State</th></tr></thead>
             <tbody id="dash-tags"></tbody>
           </table>
         </div>
+        <form id="st-form" class="st-bar">
+          <div class="form row">
+            <label>Send <select id="st-what">
+              <option value="ap">The AP's address and WiFi</option>
+              <option value="tag">The tag's own info</option>
+              <option value="date">Today's date</option>
+              <option value="text">Your own text</option>
+            </select></label>
+            <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
+            <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
+            <button id="st-send" type="submit" disabled>Send</button>
+          </div>
+          <div id="st-own" class="form" hidden>
+            <label>Line 1 <input id="st-l1" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 2 <input id="st-l2" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 3 <input id="st-l3" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 4 <input id="st-l4" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <p class="muted">A word in braces is filled in for each tag: the buttons put one in where the cursor is.</p>
+            <div id="st-ph" class="st-ph"></div>
+          </div>
+          <div id="st-show" class="send-text" hidden>
+            <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
+            <div>
+              <p id="st-count" class="count"></p>
+              <table class="dash-tags st-list"><tbody id="st-list"></tbody></table>
+            </div>
+          </div>
+          <p id="st-msg" class="hint" role="status">Tick tags in the list to send them the AP's address, their own info, the date or your own text (the built-in layout <code>text</code>).</p>
+        </form>
       </section>
       <section class="card wide">
         <h3>Firmware</h3>

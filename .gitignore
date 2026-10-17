@@ -45,3 +45,6 @@ web/dist/
 
 # Simulation (sim/)
 sim/build/
+
+# tools/check.py
+out/
