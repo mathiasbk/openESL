@@ -253,9 +253,9 @@ h3.sub { margin-top: 16px; }
   padding: 10px; border: 2px solid var(--line); border-radius: 8px; background: var(--panel);
   text-align: left; min-width: 0;
 }
-.model canvas {
-  display: block; height: 110px; width: auto; max-width: 100%;
-  image-rendering: pixelated; background: var(--paper); border: 1px solid var(--line); border-radius: 3px;
+.model img {
+  display: block; height: 140px; width: auto; max-width: 100%; object-fit: contain;
+  border: 1px solid var(--line); border-radius: 3px;
 }
 .model .name { font-weight: 600; }
 .model[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }

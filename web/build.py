@@ -48,7 +48,7 @@ AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c"]
 TAG_SOURCES = tag_build.CORE + tag_build.FONTS + ["test/fake_epd.c", "test/helpers.c"]
 MODELS = ["29", "154"]
-STATIC = ["index.html", "api.html", "css", "js"]
+STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
