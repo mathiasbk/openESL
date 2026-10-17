@@ -2,7 +2,7 @@
 // like ap/main/serial_api.c, with log lines in between.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SerialAp, describeWifi, checkWifi } from "../js/apserial.js";
+import { SerialAp, describeWifi, checkWifi, checkToken, newToken } from "../js/apserial.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -77,6 +77,19 @@ test("PUT /api/wifi sends ssid and password as JSON; a body may hold newlines an
   assert.deepEqual(t.seen[0].body, { ssid: "Kjøkken ✓", password: "hemmelig123" });
 });
 
+test("PUT /api/wifi with a token, or only a token", async () => {
+  const t = fakeAp((r) => frame(r.seq, 200, JSON.stringify({ ...WIFI, token_set: true })));
+  const ap = new SerialAp(t, { timeoutMs: 500 });
+  await ap.setWifi("Butikken", "hemmelig123", "lang-hemmelig");
+  await ap.setWifi(undefined, "", "lang-hemmelig");
+  await ap.setWifi("Butikken", "hemmelig123", "");
+  assert.deepEqual(t.seen.map((r) => r.body), [
+    { ssid: "Butikken", password: "hemmelig123", token: "lang-hemmelig" },
+    { token: "lang-hemmelig" },
+    { ssid: "Butikken", password: "hemmelig123" },
+  ]);
+});
+
 test("a reply in pieces is joined, with log lines between the pieces", async () => {
   const json = JSON.stringify(WIFI);
   const t = fakeAp((r) => frame(r.seq, 200, json.slice(0, 20), true) + "W (1) log line\n" + frame(r.seq, 200, json.slice(20)));
@@ -117,4 +130,20 @@ test("describeWifi and checkWifi", () => {
   assert.match(checkWifi("x".repeat(33), ""), /32 bytes/);
   assert.match(checkWifi("Butikken", "kort"), /8 to 63/);
   assert.match(checkWifi("Butikken", "hemmelig æøå"), /ASCII/);
+  assert.equal(describeWifi({ ...WIFI, token_set: false }), 'No network saved. Setup network "openesl-1A2B" is open. No API token set yet.');
+  assert.equal(describeWifi({ ...WIFI, token_set: true }), 'No network saved. Setup network "openesl-1A2B" is open.');
+  assert.equal(checkToken("lang-hemmelig"), null);
+  assert.match(checkToken("kort"), /8 to 128/);
+  assert.match(checkToken("x".repeat(129)), /8 to 128/);
+  assert.match(checkToken("med mellomrom"), /without spaces/);
+  assert.match(checkToken("hemmelig-æøå"), /ASCII/);
+  const tok = newToken();
+  assert.equal(tok.length, 24);
+  assert.equal(checkToken(tok), null);
+  assert.notEqual(newToken(), tok);
+  // bytes of 228 and up are skipped, so every character is equally likely
+  let calls = 0;
+  const rnd = (n) => (++calls === 1 ? new Uint8Array(n).fill(250) : Uint8Array.from({ length: n }, (_, i) => i + 57));
+  assert.equal(newToken(rnd), "ABCDEFGHJKLMNPQRSTUVWXYZ");
+  assert.equal(calls, 2);
 });

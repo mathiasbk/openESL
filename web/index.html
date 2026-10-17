@@ -259,7 +259,6 @@
       <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
       <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings. An AP that already runs OpenESL can be updated without a cable instead: <code>esl-client ota openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code> (the <code>-ota.bin</code> file of a release) writes the new firmware over the API and keeps everything stored. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards.</p>
       <p id="ap-fw-info" class="muted"></p>
-      <p class="muted">After flashing, the AP opens its own WiFi network so you can give it your network and an API token: see <a href="#setup">Set up</a>. The WiFi can also be set right here over the same USB cable, under <a href="#setup">Set up</a> → "Set the WiFi over USB".</p>
       <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
       <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
       <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
@@ -267,6 +266,28 @@
         <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
         <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
       </esp-web-install-button>
+    </section>
+    <section class="card">
+      <h2>Then: WiFi and API token</h2>
+      <p>When the flashing is done, close its window and press Connect AP: over the same USB cable, give the AP your network and an API token (a new random one is filled in for an AP that has none). Keep a copy of the token: every HTTP request needs it, and it cannot be read back. This can also be done later on the <a href="#setup">Set up</a> tab, or from a phone on the AP's own setup network <code>openesl-XXXX</code>.</p>
+      <p id="apwifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="#setup">Set up</a>).</p>
+      <div class="buttons">
+        <button id="apwifi-connect">Connect AP</button>
+        <span id="apwifi-state" class="muted" role="status"></span>
+      </div>
+      <form id="apwifi-form" class="form wifi-form" hidden>
+        <label>Network <input id="apwifi-ssid" list="apwifi-networks" autocomplete="off" maxlength="32" spellcheck="false"></label>
+        <datalist id="apwifi-networks"></datalist>
+        <label>Password <input id="apwifi-pass" type="password" autocomplete="off" maxlength="63"></label>
+        <label><span></span><span><input type="checkbox" id="apwifi-show"> Show password</span></label>
+        <label>API token <input id="apwifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
+        <label><span></span><span><button id="apwifi-gen" type="button">New random token</button></span></label>
+        <div class="buttons tight">
+          <button id="apwifi-save" type="submit">Save</button>
+          <button id="apwifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
+        </div>
+      </form>
+      <p id="apwifi-msg" class="hint wifi-msg" role="status"></p>
     </section>
   </main>
 
@@ -336,49 +357,51 @@
   <!-- ===================== Set up ===================== -->
   <main id="tab-setup" class="tab" role="tabpanel" hidden>
     <section class="card wide">
-      <h2>Set the WiFi over USB</h2>
-      <p>With the AP plugged into this computer, its WiFi can be set from here, without its setup network. Chrome or Edge on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
-      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the setup network below.</p>
+      <h2>WiFi and API token over USB</h2>
+      <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome or Edge on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
+      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="#setup">Set up</a>).</p>
       <div class="buttons">
         <button id="wifi-connect">Connect AP</button>
         <span id="wifi-state" class="muted" role="status"></span>
       </div>
-      <form id="wifi-form" class="form" hidden>
+      <form id="wifi-form" class="form wifi-form" hidden>
         <label>Network <input id="wifi-ssid" list="wifi-networks" autocomplete="off" maxlength="32" spellcheck="false"></label>
         <datalist id="wifi-networks"></datalist>
         <label>Password <input id="wifi-pass" type="password" autocomplete="off" maxlength="63"></label>
         <label><span></span><span><input type="checkbox" id="wifi-show"> Show password</span></label>
+        <label>API token <input id="wifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
+        <label><span></span><span><button id="wifi-gen" type="button">New random token</button></span></label>
         <div class="buttons tight">
-          <button id="wifi-save" type="submit">Save WiFi</button>
+          <button id="wifi-save" type="submit">Save</button>
           <button id="wifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
         </div>
       </form>
-      <p id="wifi-msg" class="hint" role="status"></p>
-      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..."</code> does. Opening the port can restart the AP; the page waits for it. The API token cannot be set over USB: once the AP is on your network, open <code>http://openesl.local/setup</code> (or its IP) and choose one there.</p>
+      <p id="wifi-msg" class="hint wifi-msg" role="status"></p>
+      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
     </section>
 
     <section class="card wide">
       <h2>First start</h2>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger.</li>
-        <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi over USB above instead.</li>
+        <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab can give it your WiFi and an API token over the same cable; then skip to step 4.</li>
+        <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi and token over USB above instead.</li>
         <li><strong>Fill in the form:</strong> pick your WiFi from the scan list, enter its password, and choose an <strong>API token</strong> (8 to 128 characters, letters, digits and punctuation, no spaces). The AP saves all three and joins your network at once; the setup network closes a minute later.</li>
         <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name is <code>ESL_MDNS_HOSTNAME</code> in menuconfig) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token.</li>
         <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; status</code>.</li>
       </ol>
-      <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..."</code>.</p>
+      <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi and token can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>
     </section>
 
     <section class="card wide">
       <h2>The API token</h2>
       <p>One shared secret for the whole AP. There are no users or roles: whoever has the token can read and change everything, so treat it like a password and keep the AP on your local network or VPN (the API is plain HTTP, there is no HTTPS).</p>
       <ul>
-        <li><strong>Where it is set.</strong> The setup form writes it to the AP's flash (NVS, <code>cfg/token</code>). A token can also be built into the firmware with <code>ESL_API_TOKEN</code> in menuconfig; the flash value wins when both exist. There is no default: with no token set, every API request gets <code>401</code> and the AP logs an error at start.</li>
+        <li><strong>Where it is set.</strong> The setup form, or "WiFi and API token over USB" above (also right after flashing, on the Flash AP tab), writes it to the AP's flash (NVS, <code>cfg/token</code>). A token can also be built into the firmware with <code>ESL_API_TOKEN</code> in menuconfig; the flash value wins when both exist. There is no default: with no token set, every API request gets <code>401</code> and the AP logs an error at start.</li>
         <li><strong>How it is sent.</strong> <code>Authorization: Bearer &lt;token&gt;</code> on every request to <code>/api/...</code>, also <code>POST /api/ota</code>. <code>esl-client</code> takes it as <code>--token</code> or the <code>OPENESL_TOKEN</code> environment variable.</li>
         <li><strong>What needs no token.</strong> The status page at <code>/</code> (it only reads; <code>ESL_STATUS_PAGE</code> in menuconfig turns it off) and the USB serial port: whoever has the cable has the device.</li>
         <li><strong>Wrong tokens lock the API.</strong> Five wrong tokens in a row lock the HTTP API for 60 seconds: every request, even with the right token, answers <code>429</code> with the seconds left. Wrong tokens in the setup form count in the same lock. The USB port is never locked.</li>
-        <li><strong>Changing it.</strong> Open the setup form (it is linked from the status page, or reachable on the setup network) and enter the current token and a new one. Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet. <code>ESL_WIFI_SETUP_PASSWORD</code> in menuconfig puts WPA2 on the setup network as well.</li>
-        <li><strong>Lost it?</strong> The token cannot be read back. Save the AP's contents over USB, which needs no token (<code>esl_client.py --serial /dev/ttyACM0 backup ap.json</code>), erase and flash the AP from the <a href="#ap">Flash AP</a> tab, set a new token on the first start, and put the contents back with <code>restore ap.json</code>.</li>
+        <li><strong>Changing it.</strong> Over USB: "WiFi and API token over USB" above with only a new token, or <code>esl_client.py --serial /dev/ttyACM0 wifi --new-token "..."</code>; no old token is needed, since whoever has the cable has the device. Over WiFi: <code>PUT /api/wifi</code> with <code>{"token": "..."}</code> and the current token, or open the setup form (it is linked from the status page, or reachable on the setup network) and enter the current token and a new one. Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet. <code>ESL_WIFI_SETUP_PASSWORD</code> in menuconfig puts WPA2 on the setup network as well.</li>
+        <li><strong>Lost it?</strong> The token cannot be read back, but a new one can be set over USB at any time, as above. Nothing stored is lost.</li>
       </ul>
     </section>
 

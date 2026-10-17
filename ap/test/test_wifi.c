@@ -34,6 +34,7 @@ static int fake_set_token(void *ctx, const char *token)
 {
     (void)ctx;
     strcpy(fake.token, token);
+    fake.st.token_set = true;
     return 0;
 }
 
@@ -212,7 +213,7 @@ static void test_api_wifi(void)
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi", NULL, NULL, 0, 0, &out), 401);
     CHECK_INT(REQ("GET", NULL), 200);
-    CHECK_STR(resp, "{\"mode\":\"setup\",\"ssid\":null,\"connected\":false,\"setup_ssid\":\"openesl-1A2B\",\"networks\":[]}");
+    CHECK_STR(resp, "{\"mode\":\"setup\",\"ssid\":null,\"connected\":false,\"setup_ssid\":\"openesl-1A2B\",\"token_set\":false,\"networks\":[]}");
 
     CHECK_INT(REQ("PUT", "{\"ssid\":\"Home\",\"password\":\"secret12\"}"), 200);
     CHECK_STR(fake.pass, "secret12");
@@ -224,7 +225,7 @@ static void test_api_wifi(void)
     fake.st.rssi = -55;
     fake.st.setup_ssid[0] = 0;
     CHECK_INT(REQ("GET", NULL), 200);
-    CHECK(HAS(resp, "\"connected\":true,\"ip\":\"10.0.0.7\",\"rssi\":-55,\"setup_ssid\":null"));
+    CHECK(HAS(resp, "\"connected\":true,\"ip\":\"10.0.0.7\",\"rssi\":-55,\"setup_ssid\":null,\"token_set\":false"));
 
     /* open network, escapes, forgetting */
     CHECK_INT(REQ("PUT", "{\"ssid\":\"Caf\\u00e9 \\\"x\\\"\"}"), 200);
@@ -247,6 +248,34 @@ static void test_api_wifi(void)
     CHECK_INT(fake.sets, sets);
     fake.fail = 1;
     CHECK_INT(REQ("PUT", "{\"ssid\":\"Home\"}"), 500);
+    fake.fail = 0;
+
+    /* a new token, with or without the network (the page sets both after flashing) */
+    sets = fake.sets;
+    CHECK_INT(REQ("PUT", "{\"token\":\"newtoken9\"}"), 200);
+    CHECK_STR(fake.token, "newtoken9");
+    CHECK_INT(fake.sets, sets);
+    CHECK(!HAS(resp, "newtoken9"));
+    CHECK(HAS(resp, "\"token_set\":true"));
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Home\",\"password\":\"secret12\",\"token\":\"tok-\\u0041bcdefg\"}"), 200);
+    CHECK_STR(fake.token, "tok-Abcdefg");
+    CHECK_STR(fake.st.ssid, "Home");
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Home\",\"token\":null}"), 200);
+    CHECK_STR(fake.token, "tok-Abcdefg");
+    /* a bad token saves nothing, not even the network */
+    sets = fake.sets;
+    strcpy(fake.token, "kept");
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Other\",\"token\":\"short\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Other\",\"token\":\"has space1\"}"), 422);
+    CHECK_INT(REQ("PUT", "{\"token\":12345678}"), 422);
+    CHECK_INT(REQ("PUT", "{\"ssid\":\"Other\",\"password\":\"short\",\"token\":\"newtoken9\"}"), 422);
+    char longtok[200] = "{\"token\":\"";
+    for (int i = 0; i < 129; i++)
+        strcat(longtok, "x");
+    strcat(longtok, "\"}");
+    CHECK_INT(REQ("PUT", longtok), 422);
+    CHECK_INT(fake.sets, sets);
+    CHECK_STR(fake.token, "kept");
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi/", AUTH, NULL, 0, 0, &out), 200);
