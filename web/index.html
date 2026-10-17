@@ -230,6 +230,13 @@
         <button id="tag-flash" disabled>Flash tag in jig</button>
         <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
       </div>
+      <div id="tag-mac-ask" class="mac-ask" hidden>
+        <p class="warn">This tag has no MAC left: not in its info page and not at 0xFC06, where the stock firmware kept it (an earlier build was written over it). Type the 12 digits under the barcode on its label, or its whole MAC (16 digits), and flash it again. The MAC is written to the info page, so this is needed only once.</p>
+        <div class="buttons">
+          <input id="tag-mac" class="mono" placeholder="020793500102 or 000002079350341C" autocomplete="off" spellcheck="false">
+          <button id="tag-mac-go">Flash with this MAC</button>
+        </div>
+      </div>
       <progress id="tag-progress" max="1" value="0" hidden></progress>
       <pre id="tag-log" class="log" aria-live="polite"></pre>
     </section>
