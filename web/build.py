@@ -117,7 +117,8 @@ def ap_manifest(out, name, version, path):
         "name": name,
         "version": version,
         "new_install_prompt_erase": True,
-        "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": path, "offset": 0}]}],
+        # the version in the address keeps a browser from flashing an image cached from an older release
+        "builds": [{"chipFamily": "ESP32-C6", "parts": [{"path": path + "?v=" + version, "offset": 0}]}],
     }
     with open(os.path.join(out, path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")), "w") as f:
         json.dump(manifest, f, indent=2)
