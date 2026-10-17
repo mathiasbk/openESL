@@ -559,6 +559,8 @@ paths:
         most 24,576 bytes (`esl-client` sends 16 KB), since its driver drops bytes when its
         buffer is full; over WiFi one request is fine. The last byte makes the new slot the
         boot slot; the reply names it and its version, and the AP restarts one second later.
+        The new firmware is kept once it can be reached (`confirmed` in `GET /api/ota`);
+        otherwise the AP goes back to the old one after three minutes.
         Content-Type is not checked.
       x-host-status: 501
       parameters:
@@ -1453,15 +1455,23 @@ components:
     OtaInfo:
       type: object
       additionalProperties: false
-      required: [slot, version, slot_size, other_slot, other_version, uploading]
+      required: [slot, version, slot_size, other_slot, other_version, confirmed, display, uploading]
       properties:
         slot: { type: string, description: "The app slot that runs, `ota_0` or `ota_1`" }
         version: { type: string, description: The running firmware's version (the VERSION file) }
         slot_size: { type: integer, minimum: 0, description: Bytes an image may have }
         other_slot: { type: [string, "null"], description: "The slot a new image goes to; `null` with a one-slot partition table" }
         other_version: { type: [string, "null"], description: "The version in the other slot, `null` when it holds no valid image" }
+        confirmed:
+          type: boolean
+          description: |
+            The running firmware is kept. A new image is kept once WiFi has an address or an
+            API request was answered (this one counts); one that gets to neither within three
+            minutes is given up, and the AP restarts into the old one. Older firmware
+            does not say.
+        display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
-      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, uploading: false }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, uploading: false }
 
     OtaReply:
       type: object

@@ -53,12 +53,16 @@ esl_notify_t *health_start(const esl_api_t *api);
  * JSON reply (offset 0 starts an upload; the last part selects the slot and
  * restarts the AP after a second). ota_info() writes GET /api/ota.
  * ota_parse_query() reads ?offset=N&total=T from a URI (false when only one
- * is given). ota_confirm_running() tells the bootloader the running image
- * works; call it once the AP is up. */
+ * is given). ota_watch_running(wait) is called once the AP is up: a new
+ * image is kept at once without wait, otherwise once ota_confirm_running()
+ * is called (WiFi got an address, an API request was answered) within a few
+ * minutes, or the AP goes back to the old one. ota_confirm_running() is cheap
+ * after the first call. */
 int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t *out);
 int ota_info(esl_sb_t *out);
 bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
+void ota_watch_running(bool wait);
 
 /* tagfw.c: the store for tag firmware images (the "tagfw" partition). NULL
  * when the partition table has none. */

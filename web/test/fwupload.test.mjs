@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, tagUpdate, firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer } from "../js/fwupload.js";
+import { PART, tagUpdate, firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -14,9 +14,15 @@ function tagFile(model, ver, size) {
   return d;
 }
 
-function apImage(size) {
+// An ESP32 app image: the header byte, and with version the app description after the
+// image and segment headers (esp_app_desc_t: magic word, then the version at 16)
+function apImage(size, version) {
   const d = new Uint8Array(size);
   d[0] = 0xe9;
+  if (version) {
+    d.set([0x32, 0x54, 0xcd, 0xab], 32);
+    d.set(enc.encode(version), 48);
+  }
   return d;
 }
 
@@ -132,4 +138,41 @@ test("update button for a tag with older firmware", () => {
   assert.equal(tagUpdate(tag({ fw: null }), imgs, null), null);          // not seen yet
   const offered = { images: [{ model: "1.54", version: "0.3.0" }] };
   assert.deepEqual(tagUpdate(tag(), imgs, offered), { text: "updating to 0.3.0" });
+});
+
+test("the version in an AP image", () => {
+  assert.equal(firmwareKind(apImage(4096, "0.4.3")).version, "0.4.3");
+  assert.equal(firmwareKind(apImage(4096)).version, null); // no app description where it belongs
+});
+
+test("versions compare by their numbers", () => {
+  assert.equal(cmpVersion("v0.4.3", "0.4.3"), 0);
+  assert.ok(cmpVersion("0.4.10", "0.4.9") > 0);
+  assert.ok(cmpVersion("0.4.2", "v0.5.0") < 0);
+  assert.equal(cmpVersion("0.4.3-dev", "0.4.3"), 0);
+  assert.equal(cmpVersion("", "0.4.3"), null);
+});
+
+test("the page's AP image that fits the AP", () => {
+  const info = { version: "v0.4.4", release: true, ota: { "ap-openesl": true, "ap-openesl-lcd": true } };
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: true }, info), { file: "ap-openesl-lcd-ota", version: "0.4.4", newer: true });
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, info), { file: "ap-openesl-ota", version: "0.4.4", newer: true });
+  assert.equal(apImageFor({ version: "0.4.3" }, info).file, "ap-openesl-ota");        // older firmware does not say
+  assert.equal(apImageFor({ version: "0.4.4", display: false }, info).newer, false);  // already runs it
+  assert.equal(apImageFor({ version: "0.4.3" }, { ...info, version: "0.4.4-dev", release: false }).newer, false); // not a release
+  assert.equal(apImageFor({ version: "0.4.3" }, { ...info, ota: {} }), null);
+  assert.equal(apImageFor({ version: "0.4.3" }, null), null);
+});
+
+test("what is asked before AP firmware goes out", () => {
+  const ota = { version: "0.4.3", display: false };
+  let q = apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), ota, false);
+  assert.match(q, /Send AP firmware 0\.4\.4 to the AP\? It runs 0\.4\.3 now\./);
+  assert.doesNotMatch(q, /already runs|older|status screen/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.3")), ota), /already runs/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.1")), ota), /older than/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), ota, true), /for an AP with a status screen/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { ...ota, display: true }, false), /screen goes dark/);
+  assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { version: "0.4.3" }, true), /status screen/); // the AP does not say
+  assert.match(apSendQuestion(firmwareKind(apImage(4096)), null), /^Send new firmware to the AP\?/);
 });

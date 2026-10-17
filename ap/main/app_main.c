@@ -110,8 +110,9 @@ void app_main(void)
     ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
              (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
 #if CONFIG_ESL_OTA
-    /* Everything started: an image that gets here is good enough to keep (the
-       bootloader would otherwise go back to the previous one on the next reset) */
-    ota_confirm_running();
+    /* Everything started. A new image with a WiFi network to join is kept once
+       it can be reached (wifi.c, api_handle()), otherwise it is good enough now;
+       the bootloader goes back to the previous one if it is not kept. */
+    ota_watch_running(ssid[0] != 0);
 #endif
 }

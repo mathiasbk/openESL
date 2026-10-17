@@ -226,7 +226,9 @@ menu "OpenESL AP"
             The app image (build/esl_ap.bin, openesl-ap-ota.bin in a
             release) is written to the app slot that is not running, which
             becomes the boot slot; the AP restarts and the bootloader goes
-            back to the old slot if the new image does not come up.
+            back to the old slot if the new image does not come up, or
+            (with a WiFi network to join) gets neither a WiFi address nor
+            an API request within three minutes.
             Needs the two-slot partition table (ap/partitions.csv) on a
             4 MB flash. Off: POST /api/ota answers 501.
 
