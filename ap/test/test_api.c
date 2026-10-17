@@ -99,7 +99,7 @@ static void test_put_one(void)
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
              "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
              "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
-             "\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
+             "\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id);
     CHECK_STR(resp, expect);
@@ -321,7 +321,8 @@ static void test_batch_and_list(void)
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
                     "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
                     "\"config_pending\":false,"
-                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false}"));
+                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
+                    "\"fw_update\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
     /* delete */

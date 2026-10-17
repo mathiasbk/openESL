@@ -449,6 +449,56 @@ static void write_content(esl_sb_t *out, const esl_content_t *c)
                   (c->flags & ESL_CFLAG_FRAME) ? "true" : "false");
 }
 
+/* ?key=value in the query string: the value and its length, or NULL if absent */
+static const char *query_str(const char *uri, const char *key, size_t *len)
+{
+    const char *q = strchr(uri, '?');
+    size_t kl = strlen(key);
+    while (q) {
+        q++;
+        if (strncmp(q, key, kl) == 0 && q[kl] == '=') {
+            const char *v = q + kl + 1;
+            *len = strcspn(v, "&");
+            return v;
+        }
+        q = strchr(q, '&');
+    }
+    return NULL;
+}
+
+/* ?to=: 0 for "all" (or absent), the MAC otherwise; false if it is neither */
+static bool query_to(const char *uri, uint64_t *mac)
+{
+    size_t len;
+    const char *v = query_str(uri, "to", &len);
+    *mac = 0;
+    if (!v || (len == 3 && strncmp(v, "all", 3) == 0))
+        return true;
+    return esl_mac_parse(v, len, mac) && *mac;
+}
+
+/* Where one tag is with the model's image: a tag it is not for, or that cannot or
+   will not take it, is not updating. Bytes it has so far in *got. */
+typedef enum { FWU_NONE, FWU_UPDATED, FWU_NO_OTA, FWU_FAILED, FWU_NOT_CHOSEN, FWU_UPDATING } fwu_t;
+
+static fwu_t tag_fw_update(const esl_api_t *api, const esl_tag_t *t, const esl_tagfw_img_t *img, uint16_t *got)
+{
+    *got = 0;
+    if (!img->ver)
+        return FWU_NONE;
+    if (t->fw == img->ver)
+        return FWU_UPDATED;
+    if (!(t->poll_flags & ESL_POLL_F_OTA))
+        return FWU_NO_OTA;
+    if (t->fw_failed == img->ver)
+        return FWU_FAILED;
+    if (!esl_tagfw_for(api->tagfw, t->model, t->mac))
+        return FWU_NOT_CHOSEN;
+    if (t->fw_got_ver == img->ver)
+        *got = t->fw_got < img->size ? t->fw_got : img->size;
+    return FWU_UPDATING;
+}
+
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
                       uint16_t default_poll_s, bool with_content)
 {
@@ -508,6 +558,16 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, "null");
     /* the tag takes firmware over the radio (docs/tag-ota.md) */
     esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
+    /* the firmware it is fetching from the AP: how far it is (null: none for it) */
+    esl_tagfw_img_t img;
+    uint16_t got;
+    if (t->seen && esl_tagfw_get(api->tagfw, t->model, &img) && tag_fw_update(api, t, &img, &got) == FWU_UPDATING) {
+        esl_sb_puts(out, ",\"fw_update\":{\"version\":");
+        esl_sb_printf(out, "\"%u.%u.%u\"", img.ver / 10000u, img.ver / 100u % 100u, img.ver % 100u);
+        esl_sb_printf(out, ",\"received\":%u,\"size\":%u}", (unsigned)got, (unsigned)img.size);
+    } else {
+        esl_sb_puts(out, ",\"fw_update\":null");
+    }
 
     if (with_content && t->has_content)
         write_content(out, &t->content);
@@ -1200,16 +1260,47 @@ static bool query_size(const char *uri, const char *key, size_t *v)
 static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model)
 {
     esl_tagfw_img_t img;
-    if (!esl_tagfw_get(api->tagfw, model, &img)) {
+    esl_tagfw_to_t to;
+    if (!esl_tagfw_get(api->tagfw, model, &img) || !esl_tagfw_get_to(api->tagfw, model, &to)) {
         esl_sb_printf(out, "{\"model\":\"%s\",\"version\":null}", esl_model_name(model));
         return;
     }
-    esl_fw_counts_t c;
-    esl_store_fw_counts(api->store, model, img.ver, &c);
+    /* the seen tags of the model; progress counts the bytes of those it is for */
+    unsigned n[FWU_UPDATING + 1] = {0};
+    uint32_t received = 0, total = 0;
+    for (unsigned s = 0; s < api->store->cap; s++) {
+        esl_tag_t t;
+        uint16_t got;
+        if (!esl_store_get_slot(api->store, s, &t) || !t.seen || t.model != model)
+            continue;
+        fwu_t u = tag_fw_update(api, &t, &img, &got);
+        n[u]++;
+        if (u == FWU_UPDATED && esl_tagfw_for(api->tagfw, model, t.mac)) {
+            received += img.size;
+            total += img.size;
+        } else if (u == FWU_UPDATING) {
+            received += got;
+            total += img.size;
+        }
+    }
     esl_sb_putc(out, '{');
     esl_tagfw_write_fields(out, model, &img);
-    esl_sb_printf(out, ",\"tags\":{\"updated\":%u,\"pending\":%u,\"failed\":%u,\"no_ota\":%u}}", c.updated,
-                  c.pending, c.failed, c.no_ota);
+    esl_sb_puts(out, ",\"to\":");
+    if (to.all) {
+        esl_sb_puts(out, "\"all\"");
+    } else {
+        esl_sb_putc(out, '[');
+        for (unsigned i = 0; i < to.n; i++) {
+            char m[17];
+            esl_mac_format(to.mac[i], m);
+            esl_sb_printf(out, "%s\"%s\"", i ? "," : "", m);
+        }
+        esl_sb_putc(out, ']');
+    }
+    esl_sb_printf(out,
+                  ",\"tags\":{\"updated\":%u,\"pending\":%u,\"failed\":%u,\"no_ota\":%u,\"not_chosen\":%u},"
+                  "\"progress\":{\"received\":%" PRIu32 ",\"total\":%" PRIu32 "}}",
+                  n[FWU_UPDATED], n[FWU_UPDATING], n[FWU_FAILED], n[FWU_NO_OTA], n[FWU_NOT_CHOSEN], received, total);
 }
 
 static int handle_tagfw(const esl_api_t *api, const char *method, const char *uri, size_t plen,
@@ -1239,7 +1330,10 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
             return api_error(out, 400, "missing body: the tag firmware file (openesl-tag-<model>-<version>-ota.bin)");
         if (total > ESL_FWF_HDR_LEN + ESL_FW_MAX)
             return api_error(out, 413, "the file is larger than a tag image can be");
-        return esl_tagfw_part(api->tagfw, offset, total, (const uint8_t *)body, body_len, out);
+        uint64_t only;
+        if (!query_to(uri, &only))
+            return api_error(out, 400, "to must be all or a tag's MAC (16 hex digits)");
+        return esl_tagfw_part(api->tagfw, offset, total, (const uint8_t *)body, body_len, only, out);
     }
     if (uri[base] != '/')
         return api_error(out, 404, "not found");
@@ -1252,6 +1346,19 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
     if (strcmp(method, "GET") == 0) {
         if (!esl_tagfw_get(api->tagfw, model, NULL))
             return api_error(out, 404, "no tag firmware for this model");
+        write_tagfw_model(api, out, model);
+        return 200;
+    }
+    if (strcmp(method, "POST") == 0) {
+        uint64_t mac;
+        size_t tl;
+        if (!query_str(uri, "to", &tl) || !query_to(uri, &mac))
+            return api_error(out, 400, "give to=all or to= a tag's MAC (16 hex digits)");
+        int status = esl_tagfw_choose(api->tagfw, model, mac);
+        if (status == 404)
+            return api_error(out, 404, "no tag firmware for this model");
+        if (status == 409)
+            return api_error(out, 409, "too many tags chosen one by one: give it to all of them (to=all)");
         write_tagfw_model(api, out, model);
         return 200;
     }

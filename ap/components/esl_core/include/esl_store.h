@@ -64,6 +64,8 @@ typedef struct {
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
+    uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
+    uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
     uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
     uint32_t seen_unix;       /* wall-clock second of its last POLL (also from NVS after a restart), 0 = unknown */
     bool seen_dirty;          /* polled since its record was last saved (esl_store_save_seen) */
@@ -179,6 +181,9 @@ uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
  * (ESL_POLL_F_OTA), runs another version, and has not rejected this one. A
  * POLL with ESL_POLL_F_FWFAIL marks the version last offered as rejected. */
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver);
+
+/* A FW block of image ver up to byte end went to the tag (esl_radio). */
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
 
 typedef struct {
     unsigned updated;  /* tags of the model that run the version */

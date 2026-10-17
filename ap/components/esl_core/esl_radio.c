@@ -9,6 +9,16 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw)
     tagfw = fw;
 }
 
+/* How far a tag has the image, from the FW block it gets (for the dashboard) */
+static void note_fw_sent(esl_store_t *st, uint64_t mac, const uint8_t *reply, size_t n)
+{
+    if (n < ESL_FW_HDR_LEN || reply[ESL_OFF_TYPE] != ESL_MSG_FW)
+        return;
+    uint16_t ver = (uint16_t)(reply[ESL_FW_OFF_VER] | reply[ESL_FW_OFF_VER + 1] << 8);
+    uint16_t pos = (uint16_t)(reply[ESL_FW_OFF_POS] | reply[ESL_FW_OFF_POS + 1] << 8);
+    esl_store_fw_sent(st, mac, ver, (uint16_t)(pos + (n - ESL_FW_HDR_LEN)));
+}
+
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev)
 {
@@ -29,9 +39,13 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
                               reply);
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
-        n = esl_tagfw_block(tagfw, freq.model, freq.ver, freq.crc, freq.pos, freq.max, next, reply);
+        n = 0;
+        if (esl_tagfw_for(tagfw, freq.model, f.src_mac))
+            n = esl_tagfw_block(tagfw, freq.model, freq.ver, freq.crc, freq.pos, freq.max, next, reply);
         if (n == 0)
-            n = esl_idle_build(reply, next); /* the image is gone: the tag stops */
+            n = esl_idle_build(reply, next); /* the image is gone, or not for it: the tag stops */
+        else
+            note_fw_sent(st, f.src_mac, reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
@@ -41,16 +55,19 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         if (n == 0)
             n = esl_layouts_block(ls, poll.model, 0, 0, ESL_LAYOUT_CHUNK_MAX, esl_store_tag_poll_s(st, f.src_mac),
                                   reply);
-        /* Nothing else for the tag: new firmware, if there is some for it */
+        /* Nothing else for the tag: new firmware, if there is some for it (ver 0
+         * still notes a rejection, ESL_POLL_F_FWFAIL) */
         esl_tagfw_img_t img;
-        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && esl_tagfw_get(tagfw, poll.model, &img) &&
-            esl_store_fw_offer(st, f.src_mac, &poll, img.ver)) {
-            size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX,
-                                       esl_store_tag_poll_s(st, f.src_mac), reply);
-            if (m)
-                n = m;
-        } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_FWFAIL)) {
-            esl_store_fw_offer(st, f.src_mac, &poll, 0); /* note the rejection */
+        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE) {
+            bool has = esl_tagfw_get(tagfw, poll.model, &img) && esl_tagfw_for(tagfw, poll.model, f.src_mac);
+            if (esl_store_fw_offer(st, f.src_mac, &poll, has ? img.ver : 0)) {
+                size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX,
+                                           esl_store_tag_poll_s(st, f.src_mac), reply);
+                if (m) {
+                    n = m;
+                    note_fw_sent(st, f.src_mac, reply, n);
+                }
+            }
         }
     } else {
         return 0;
