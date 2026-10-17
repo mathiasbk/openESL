@@ -382,14 +382,23 @@ def flash_tag(fl, model, firmware_path, backup_dir=DEFAULT_BACKUP_DIR, write_mac
                                     prog("Backup"))
                 if raw is not None and flash[STOCK_MAC_ADDR:STOCK_MAC_ADDR + 6] != raw:
                     raise JobError("backup", "backup does not contain the MAC bytes read before")
-                if flash.count(0xFF) == len(flash):
+                blank = flash.count(0xFF) == len(flash)
+                # A tag with its stock MAC never reads blank, so all 0xFF there means a bad
+                # read. A tag whose MAC had to be typed in has lost its stock firmware already;
+                # all 0xFF there is an empty flash (an earlier erase), with nothing to keep.
+                if blank and res.mac_source != "typed in":
                     raise JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup")
-                res.backup_path = save_backup(backup_dir, mac, flash, info)
+                if not blank:
+                    res.backup_path = save_backup(backup_dir, mac, flash, info)
             except (JobError, zp.FlasherError, OSError) as e:
                 res.backup = "failed"
                 raise JobError("backup", "backup failed, nothing written: %s" % e)
-            res.backup = "saved"
-            log("Backup saved: %s" % res.backup_path)
+            if blank:
+                res.backup = "blank"
+                log("The flash is empty (all 0xFF): nothing to back up")
+            else:
+                res.backup = "saved"
+                log("Backup saved: %s" % res.backup_path)
 
         if need_mac_write:
             if not write_mac:
