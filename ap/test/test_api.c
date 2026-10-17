@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -576,6 +576,12 @@ static void test_status_page(void)
     CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
                     "<td>-</td><td>no content</td>"));
     CHECK(!HAS(page, "<b>"));
+    CHECK(!HAS(page, "/dashboard"));
+    api.dashboard = true;
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_status_page(&api, 1000, &sb), 200);
+    CHECK(HAS(page, "<a href=\"/dashboard\">Dashboard</a>"));
+    api.dashboard = false;
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];

@@ -32,7 +32,8 @@ ap/
   main/                   ESP-IDF glue
     app_main.c  startup         store_nvs.c  mutex + NVS storage (tags and layouts)
     sched.c     scheduled content in NVS, its task, NTP
-    wifi.c      WiFi, setup network, mDNS     http_api.c   esp_http_server -> esl_api_handle(), status page
+    wifi.c      WiFi, setup network, mDNS     http_api.c   esp_http_server -> esl_api_handle(), status page, /dashboard
+    webui.py    packs web/'s dashboard into the firmware at build time (ESL_WEB_DASHBOARD)
     captive.c   DNS server of the setup network (captive portal)
     radio_ieee802154.c  AP and sniffer modes, calls esl_radio_handle()
     radio_stub.c        simulated tags (esl_faketag), no radio
@@ -161,6 +162,12 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 ## Status page
 
 `http://openesl.local/` shows the layout files per model (version, size for the tags, layout names), the webhook when one is set, and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why named content is not sent, layout file pending/rejected, and an Attention column with the same flags as `GET /api/health`: silent, unseen, low battery, ...; the heading counts the tags that need it) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
+
+## Dashboard on the AP
+
+`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with what needs attention, and the firmware card (AP OTA and tag firmware from a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
+
+The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 23 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 
 ## Tag model in POLL
 
