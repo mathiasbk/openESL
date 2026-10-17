@@ -199,6 +199,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         snprintf(w.ip, sizeof(w.ip), IPSTR, IP2STR(&ip->ip_info.ip));
         taskEXIT_CRITICAL(&w.mux);
         ESP_LOGI(TAG, "connected to \"%s\", IP %s", w.ssid, w.ip);
+#if CONFIG_ESL_OTA
+        ota_confirm_running(); /* reachable over WiFi: new firmware is kept */
+#endif
         esp_timer_stop(w.fallback);
         if (w.setup_ssid[0])
             arm(w.setup_off, SETUP_OFF_AFTER_S);

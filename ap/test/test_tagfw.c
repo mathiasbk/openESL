@@ -44,12 +44,33 @@ static bool st_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
     return true;
 }
 
-static const esl_tagfw_ops_t ops = {NULL, NULL, NULL, st_erase, st_write, st_read};
+/* Who an image is for, kept as NVS would across a restart */
+static esl_tagfw_to_t kept[ESL_MODEL_COUNT - 1];
+static bool has_kept[ESL_MODEL_COUNT - 1];
+
+static void st_save_to(void *ctx, uint8_t model, const void *to, size_t len)
+{
+    (void)ctx;
+    has_kept[model - 1] = to && len == sizeof(esl_tagfw_to_t);
+    if (has_kept[model - 1])
+        memcpy(&kept[model - 1], to, len);
+}
+
+static bool st_load_to(void *ctx, uint8_t model, void *to, size_t len)
+{
+    (void)ctx;
+    if (!has_kept[model - 1] || len != sizeof(esl_tagfw_to_t))
+        return false;
+    memcpy(to, &kept[model - 1], len);
+    return true;
+}
+
+static const esl_tagfw_ops_t ops = {NULL, NULL, NULL, st_erase, st_write, st_read, st_save_to, st_load_to};
 static esl_tagfw_t fw;
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -95,6 +116,7 @@ static int upload(size_t total)
 static void reset(void)
 {
     memset(mem, 0xFF, sizeof(mem));
+    memset(has_kept, 0, sizeof(has_kept));
     erases = 0;
     fail_write = false;
     esl_tagfw_init(&fw, &ops);
@@ -156,7 +178,8 @@ static void test_upload(void)
     CHECK_INT(img.size, 51200);
     CHECK(img.crc == esl_crc32(file + ESL_FWF_HDR_LEN, 51200));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(out.buf, "\"tags\":{\"updated\":0,\"pending\":0,\"failed\":0,\"no_ota\":0}"));
+    CHECK(HAS(out.buf, "\"to\":\"all\",\"tags\":{\"updated\":0,\"pending\":0,\"failed\":0,\"no_ota\":0,\"not_chosen\":0},"
+                     "\"progress\":{\"received\":0,\"total\":0}"));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/1.54", AUTH, NULL, 0, 0, &out), 404);
 
     /* After a restart the AP finds it in the store again */
@@ -247,7 +270,7 @@ static void test_offer(void)
     CHECK_INT(bad.fw_blocks, 6 * 1024 / ESL_FW_CHUNK_MAX + 1);
 
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(out.buf, "\"tags\":{\"updated\":1,\"pending\":0,\"failed\":1,\"no_ota\":1}"));
+    CHECK(HAS(out.buf, "\"tags\":{\"updated\":1,\"pending\":0,\"failed\":1,\"no_ota\":1,\"not_chosen\":0}"));
 
     /* A newer image is offered to the failed tag again */
     total = make_file(ESL_MODEL_29, 102, 2048, 4);
@@ -285,11 +308,108 @@ static void test_offer(void)
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
 }
 
+/* One POLL, and the FW block the AP answers it with */
+static uint8_t poll_once(esl_faketag_t *t)
+{
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    size_t n = esl_faketag_poll(t, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 0, tx, NULL);
+    return (uint8_t)esl_faketag_receive(t, tx, m);
+}
+
+/* An image for one tag, then one more, then all; how far each one is */
+static void test_choose(void)
+{
+    esl_faketag_t a, b, c;
+    reset();
+    esl_faketag_init(&a, MAC, 100, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, MAC + 1, 100, 3000, ESL_MODEL_29);
+    esl_faketag_init(&c, MAC + 2, 100, 3000, ESL_MODEL_29);
+    a.ota = b.ota = c.ota = true;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+
+    /* For tag a only */
+    size_t total = make_file(ESL_MODEL_29, 101, 2048, 6);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tag-firmware?offset=0&total=2064&to=00000123456789", AUTH,
+                             (const char *)file, total, 0, &out), 400);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tag-firmware?offset=0&total=2064&to=0000012345678901", AUTH,
+                             (const char *)file, total, 0, &out), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"to\":[\"0000012345678901\"],\"tags\":{\"updated\":0,\"pending\":1,\"failed\":0,"
+                       "\"no_ota\":0,\"not_chosen\":2},\"progress\":{\"received\":0,\"total\":2048}"));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678901", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"fw_update\":{\"version\":\"0.1.1\",\"received\":0,\"size\":2048}"));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678902", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"fw_update\":null"));
+
+    /* b is not offered it, and a FW_REQ of its own gets IDLE */
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    CHECK_INT(b.fw_blocks, 0);
+    /* a: the first block, and the API says how far it is */
+    CHECK_INT(poll_once(&a), ESL_MSG_FW);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678901", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"received\":91,\"size\":2048}"));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"progress\":{\"received\":91,\"total\":2048}"));
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
+    CHECK_INT(a.fw, 101);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678901", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"fw_update\":null"));
+
+    /* b too: kept across a restart */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 400);
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=xyz", AUTH, NULL, 0, 0, &out), 400);
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/1.54?to=all", AUTH, NULL, 0, 0, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345678902", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"to\":[\"0000012345678901\",\"0000012345678902\"]"));
+    CHECK(HAS(out.buf, "\"updated\":1,\"pending\":1,\"failed\":0,\"no_ota\":0,\"not_chosen\":1}"));
+    CHECK(HAS(out.buf, "\"progress\":{\"received\":2048,\"total\":4096}"));
+    esl_tagfw_init(&fw, &ops);
+    CHECK(!esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 2));
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 1));
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
+    CHECK_INT(b.fw, 101);
+
+    /* Then all of them */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=all", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"to\":\"all\""));
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
+    CHECK_INT(c.fw, 101);
+
+    /* A new image for all (no to=) is for all, even with a list kept before */
+    total = make_file(ESL_MODEL_29, 102, 1024, 7);
+    CHECK_INT(upload(total), 200);
+    esl_tagfw_init(&fw, &ops);
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 2));
+    /* A list kept for an older image counts for nothing */
+    kept[0].ver = 101;
+    kept[0].all = 0;
+    esl_tagfw_init(&fw, &ops);
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 2));
+
+    /* At most ESL_TAGFW_CHOSEN one by one */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tag-firmware?to=0000012345678901", AUTH, (const char *)file, total, 0,
+                             &out), 200);
+    for (unsigned i = 1; i < ESL_TAGFW_CHOSEN; i++)
+        CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC + 100 + i), 0);
+    CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC), 0);       /* already chosen */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345678999", AUTH, NULL, 0, 0, &out), 409);
+    CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, 0), 0);
+    /* Deleting it forgets the list */
+    esl_tagfw_delete(&fw, ESL_MODEL_29);
+    CHECK(!has_kept[0]);
+}
+
 void test_tagfw(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
     test_messages();
     test_upload();
     test_offer();
+    test_choose();
     esl_radio_set_tagfw(NULL);
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "esl_json.h"
@@ -29,6 +30,7 @@ typedef struct {
     esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
     struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
     esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
+    bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

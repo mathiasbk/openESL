@@ -64,6 +64,12 @@ The debug Wemos ([tools/wemos-debug](../wemos-debug/)) is also a CH340, so the p
    barcode comes from the stock flash, or later from the tag's backup. It is shown in the table,
    the log and the CSV. That the last 4 digits are stock bytes 4–5 is inferred from one label and
    not yet checked against its backup.
+   **No MAC at all.** If 0xFC06 is blank too (an earlier build was written with a plain erase,
+   e.g. `zbs_flasher.py write`), the tag is refused with "no MAC in the info page and none at
+   0xFC06". Start the tool with `--mac <barcode>` (the 12 digits under the label's barcode) or
+   `--mac <MAC>` (16 digits, checked against the model code and checksum): the next tag without a
+   MAC gets it, and it is written to the info page as in step 5, so it is needed once per tag.
+   The web page's Flash tag tab asks for it in a field that appears only after such a failure.
 4. **Backup.** If there is no `backup/<MAC>.bin` yet (an older `backup/<MAC>/flash.bin` from
    `flash_loop.py` also counts), the whole 64 KB main flash is read twice, compared, and saved as
    `backup/<MAC>.bin`, with the info page as `backup/<MAC>.info.bin`. If anything goes wrong here,

@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -99,7 +99,7 @@ static void test_put_one(void)
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
              "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
              "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
-             "\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
+             "\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id);
     CHECK_STR(resp, expect);
@@ -321,7 +321,8 @@ static void test_batch_and_list(void)
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
                     "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
                     "\"config_pending\":false,"
-                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false}"));
+                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
+                    "\"fw_update\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
     /* delete */
@@ -576,6 +577,12 @@ static void test_status_page(void)
     CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
                     "<td>-</td><td>no content</td>"));
     CHECK(!HAS(page, "<b>"));
+    CHECK(!HAS(page, "/dashboard"));
+    api.dashboard = true;
+    esl_sb_init(&sb, page, sizeof(page));
+    CHECK_INT(esl_api_status_page(&api, 1000, &sb), 200);
+    CHECK(HAS(page, "<a href=\"/dashboard\">Dashboard</a>"));
+    api.dashboard = false;
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];

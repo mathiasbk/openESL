@@ -230,6 +230,13 @@
         <button id="tag-flash" disabled>Flash tag in jig</button>
         <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
       </div>
+      <div id="tag-mac-ask" class="mac-ask" hidden>
+        <p class="warn">This tag has no MAC left: not in its info page and not at 0xFC06, where the stock firmware kept it (an earlier build was written over it). Type the 12 digits under the barcode on its label, or its whole MAC (16 digits), and flash it again. The MAC is written to the info page, so this is needed only once.</p>
+        <div class="buttons">
+          <input id="tag-mac" class="mono" placeholder="020793500102 or 000002079350341C" autocomplete="off" spellcheck="false">
+          <button id="tag-mac-go">Flash with this MAC</button>
+        </div>
+      </div>
       <progress id="tag-progress" max="1" value="0" hidden></progress>
       <pre id="tag-log" class="log" aria-live="polite"></pre>
     </section>
@@ -296,7 +303,7 @@
   <main id="tab-dashboard" class="tab" role="tabpanel" hidden>
     <section class="card wide">
       <h2>AP dashboard</h2>
-      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer), or through the bridge in <code>tools/esl-client</code>: a page on the web may not call an AP on your network itself, so over WiFi run <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code> and connect to <code>http://localhost:8080</code>.</p>
+      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address), since a page on the web may not call an AP on your network. The bridge in <code>tools/esl-client</code> also works: <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>.</p>
       <div class="form row">
         <label>Connect over
           <select id="dash-src">
@@ -333,28 +340,42 @@
         </div>
       </section>
       <section class="card wide">
-        <h3>Send text to a tag</h3>
-        <p class="muted">Up to four lines with the built-in layout <code>text</code>. "Today's date" puts the weekday and the date (in Norwegian) on the first two lines; with more than one day, the AP puts each next day's date on the tag by itself at midnight (scheduled content), so this page does not have to stay open. The same as <code>esl_client.py text</code> and <code>esl_client.py date</code>. The preview is the tag's own drawing.</p>
+        <h3>Send info to tags</h3>
+        <p class="muted">Up to four lines with the built-in layout <code>text</code>, to the tags you tick. A word in braces is filled in for each tag when it is sent: <code>{ap_ip}</code> becomes the AP's IP address, <code>{mac}</code> the tag's MAC, <code>{date}</code> today's date, and so on (the buttons under the lines put them in). "Ready-made" fills in the lines for the AP's address, the tag's own info or today's date. When a line has <code>{weekday}</code> or <code>{date}</code>, the AP puts each next day's date on the tags by itself at midnight (scheduled content), so this page does not have to stay open. The preview is the tag's own drawing.</p>
         <div class="send-text">
           <form id="st-form" class="form">
-            <label>Tag <select id="st-mac"></select></label>
-            <label class="check"><input type="checkbox" id="st-date"> Today's date on lines 1 and 2</label>
-            <label>Line 1 <input id="st-l1" autocomplete="off" maxlength="94"></label>
-            <label>Line 2 <input id="st-l2" autocomplete="off" maxlength="94"></label>
-            <label>Line 3 <input id="st-l3" autocomplete="off" maxlength="94"></label>
-            <label>Line 4 <input id="st-l4" autocomplete="off" maxlength="94"></label>
+            <fieldset class="st-tags">
+              <legend>Tags <button type="button" id="st-all" class="small">All</button> <button type="button" id="st-none" class="small">None</button></legend>
+              <div id="st-tags"></div>
+            </fieldset>
+            <label>Ready-made <select id="st-preset">
+              <option value="">Choose to fill in the lines</option>
+              <option value="ap">The AP's address and WiFi</option>
+              <option value="tag">The tag's own info</option>
+              <option value="date">Today's date</option>
+              <option value="clear">Empty lines</option>
+            </select></label>
+            <label>Line 1 <input id="st-l1" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 2 <input id="st-l2" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 3 <input id="st-l3" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <label>Line 4 <input id="st-l4" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
+            <div id="st-ph" class="st-ph" aria-label="Put in"></div>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP)"></label>
             <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
             <p id="st-count" class="count"></p>
             <div class="buttons tight"><button id="st-send" type="submit">Send</button></div>
           </form>
-          <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
+          <div>
+            <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
+            <p id="st-for" class="muted"></p>
+            <table class="dash-tags st-list"><tbody id="st-list"></tbody></table>
+          </div>
         </div>
         <p id="st-msg" class="hint" role="status"></p>
       </section>
       <section class="card wide">
         <h3>Firmware</h3>
-        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start. Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         <dl id="dash-ota" class="facts"></dl>
         <div class="table-wrap">
           <table class="dash-tags">
@@ -408,7 +429,7 @@
         <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab can give it your WiFi and an API token over the same cable; then skip to step 4.</li>
         <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi and token over USB above instead.</li>
         <li><strong>Fill in the form:</strong> pick your WiFi from the scan list, enter its password, and choose an <strong>API token</strong> (8 to 128 characters, letters, digits and punctuation, no spaces). The AP saves all three and joins your network at once; the setup network closes a minute later.</li>
-        <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name is <code>ESL_MDNS_HOSTNAME</code> in menuconfig) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token.</li>
+        <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name can be changed with "Name" in the WiFi card) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token. The dashboard is at <code>http://openesl.local/dashboard</code>: it asks for the token once.</li>
         <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; status</code>.</li>
       </ol>
       <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi and token can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>

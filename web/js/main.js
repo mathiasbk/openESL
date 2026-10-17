@@ -1,7 +1,7 @@
 // main.js - tabs, and the two flasher pages around js/tagflash.js and esp-web-tools.
 import { initEditor } from "./editor.js";
 import * as zp from "./zbs.js";
-import { flashTag, checkFirmware, BackupStore, modelOfMac, MODELS as TAG_MODELS } from "./tagflash.js";
+import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS as TAG_MODELS } from "./tagflash.js";
 import { loadRenderer, LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT } from "./renderer.js";
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
@@ -57,9 +57,15 @@ firmwareInfo().then((info) => {
   $("ap-fw-info").textContent = info?.ap ? built : "No AP firmware is published with this page yet.";
   // The AP with the status screen is optional: a checkbox picks its manifest
   $("ap-lcd-choice").hidden = $("ap-lcd-note").hidden = !info?.ap_lcd;
-  $("ap-lcd").onchange = () => {
-    $("ap-install").setAttribute("manifest", $("ap-lcd").checked ? "firmware/ap-lcd-manifest.json" : "firmware/ap-manifest.json");
+  // The install button fetches the manifest and the image without asking the server again, so a
+  // browser that cached them from an earlier visit would offer the previous release (GitHub Pages
+  // lets files be cached for 10 minutes): the version in the address makes each release new to it
+  const v = info ? "?v=" + encodeURIComponent(info.version) : "";
+  const manifest = () => {
+    $("ap-install").setAttribute("manifest", ($("ap-lcd").checked ? "firmware/ap-lcd-manifest.json" : "firmware/ap-manifest.json") + v);
   };
+  manifest();
+  $("ap-lcd").onchange = manifest;
   $("tag-fw-info").textContent = info?.tag ? built : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });
@@ -175,13 +181,35 @@ async function waitForTag(stopped) {
   }
 }
 
-$("tag-flash").addEventListener("click", async () => {
+$("tag-flash").addEventListener("click", () => {
   if (busy) {
     busy = false;           // the loop stops after the current tag
     $("tag-flash").textContent = "Stopping after this tag ...";
     return;
   }
+  flashTags();
+});
+
+// Shown only after a tag turned out to have no MAC at all (an earlier build wiped it): the
+// barcode from its label or its MAC, then the same tag is flashed again with it.
+$("tag-mac-go").addEventListener("click", () => {
+  const text = $("tag-mac").value.trim();
+  try {
+    macFromEntry(text, tagModel);
+  } catch (e) {
+    log(e.message, "err");
+    return;
+  }
+  if (!busy && flasher) flashTags(text);
+});
+
+$("tag-mac").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") $("tag-mac-go").click();
+});
+
+async function flashTags(manualMac = "") {
   busy = true;
+  $("tag-mac-ask").hidden = true;
   $("tag-flash").textContent = "Stop";
   const bar = $("tag-progress");
   try {
@@ -201,11 +229,19 @@ $("tag-flash").addEventListener("click", async () => {
       const res = await flashTag(flasher, model, fw, backups, {
         log: (t) => log(t, t.startsWith("FAILED") ? "err" : t.startsWith("OK") ? "good" : ""),
         progress: (label, d, t) => { bar.max = t; bar.value = d; },
+        manualMac,
       });
+      manualMac = "";       // typed for this one tag only
       bar.hidden = true;
       lastMac = res.mac;
       lastMacSeen = true;
       refreshBackups();
+      if (res.step === "mac" && !res.mac) {
+        $("tag-mac").value = "";
+        $("tag-mac-ask").hidden = false;
+        $("tag-mac").focus();
+        break;              // leave the tag in the jig for the typed MAC
+      }
       if (!res.ok && !lastMac) lastMac = "?";
     } while (busy && $("tag-loop").checked);
   } catch (e) {
@@ -218,7 +254,7 @@ $("tag-flash").addEventListener("click", async () => {
     bar.hidden = true;
     $("tag-flash").textContent = "Flash tag in jig";
   }
-});
+}
 
 // After a job the flasher has reset the tag; a tag still in the jig answers ZBS_BEGIN.
 async function tagStillThere() {

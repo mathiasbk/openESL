@@ -1,6 +1,7 @@
-# CI for every push and pull request: builds and tests the tag and AP firmware (firmware.yml)
-# and the web page (web/). On master the page is published to GitHub Pages; pull requests
-# build and test only, and the finished page is attached to the run as the "web-page" artifact.
+# CI for every pull request: builds and tests the tag and AP firmware (firmware.yml) and the
+# web page (web/), and attaches the finished page to the run as the "web-page" artifact.
+# On master the page is built, tested and published to GitHub Pages; the firmware is not
+# built again there (its pull requests did that), unless there is no release yet.
 #
 # The flasher on the published page serves the firmware of the latest GitHub release, so
 # people flash released firmware. Before the first release, and on pull requests, it serves
@@ -23,11 +24,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which firmware the page serves: the latest release, or (pull requests, or before the
+  # first release) the firmware built in this run. On master the firmware was already built
+  # and tested on its pull requests, so it is only built again when there is no release.
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.rel.outputs.release }}
+    steps:
+      - id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rel=""
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            rel=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+          fi
+          echo "release=$rel" >> "$GITHUB_OUTPUT"
+
   firmware:
+    needs: source
+    if: needs.source.outputs.release == ''
     uses: ./.github/workflows/firmware.yml
 
   page:
-    needs: firmware
+    needs: [source, firmware]
+    if: ${{ !cancelled() && needs.source.result == 'success' && (needs.firmware.result == 'success' || needs.firmware.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -49,16 +71,14 @@ jobs:
       - name: Tests (renderer against the native build, flasher against a simulated ZBS_Flasher)
         run: node --test web/test/*.test.mjs
       - uses: actions/download-artifact@v8
+        if: needs.source.outputs.release == ''
         with:
           path: fw
       - name: Add the firmware (latest release, otherwise this build)
         env:
           GH_TOKEN: ${{ github.token }}
+          rel: ${{ needs.source.outputs.release }}
         run: |
-          rel=""
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            rel=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
-          fi
           if [ -n "$rel" ]; then
             echo "Firmware from release $rel"
             gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin'
@@ -81,7 +101,7 @@ jobs:
           path: web/dist
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: ${{ !cancelled() && needs.page.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: page
     runs-on: ubuntu-24.04
     permissions:

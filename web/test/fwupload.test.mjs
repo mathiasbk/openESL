@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, tagUpdate, firmwareKind, sendTagFirmware, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer } from "../js/fwupload.js";
+import { PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -14,9 +14,15 @@ function tagFile(model, ver, size) {
   return d;
 }
 
-function apImage(size) {
+// An ESP32 app image: the header byte, and with version the app description after the
+// image and segment headers (esp_app_desc_t: magic word, then the version at 16)
+function apImage(size, version) {
   const d = new Uint8Array(size);
   d[0] = 0xe9;
+  if (version) {
+    d.set([0x32, 0x54, 0xcd, 0xab], 32);
+    d.set(enc.encode(version), 48);
+  }
   return d;
 }
 
@@ -27,7 +33,7 @@ function simAp() {
   const reply = (status, obj) => ({ status, body: enc.encode(JSON.stringify(obj)) });
   ap.send = async (method, path, body) => {
     const u = new URL("http://ap" + path);
-    ap.requests.push({ method, path: u.pathname, offset: Number(u.searchParams.get("offset")), len: body.length });
+    ap.requests.push({ method, path: u.pathname, offset: Number(u.searchParams.get("offset")), to: u.searchParams.get("to"), len: body.length });
     if (body.length > 24576) return reply(413, { error: "body too large" });
     const off = Number(u.searchParams.get("offset"));
     const total = Number(u.searchParams.get("total"));
@@ -74,6 +80,15 @@ test("tag firmware goes in 16 KB parts, each after the one before", async () => 
   assert.equal(seen.length, 4);
 });
 
+test("tag firmware for one tag: every part names it", async () => {
+  const ap = simAp();
+  await sendTagFirmware(ap, tagFile(2, 290, 40000), undefined, "00000123456789A8");
+  assert.deepEqual(ap.requests.map((q) => q.to), ["00000123456789A8", "00000123456789A8", "00000123456789A8"]);
+  const calls = [];
+  await chooseTagFirmware({ call: async (...a) => calls.push(a) }, "1.54", "all");
+  assert.deepEqual(calls, [["POST", "/api/tag-firmware/1.54?to=all"]]);
+});
+
 test("AP firmware goes to POST /api/ota the same way", async () => {
   const ap = simAp();
   const img = apImage(1100000);
@@ -97,14 +112,29 @@ test("tag firmware table", () => {
   const rows = tagFirmwareRows({
     images: [
       { model: "2.9", version: null },
-      { model: "1.54", version: "0.2.90", size: 54272, crc: "1234ABCD", tags: { updated: 3, pending: 2, failed: 1, no_ota: 4 } },
+      { model: "1.54", version: "0.2.90", size: 54272, crc: "1234ABCD", to: ["00000123456789A8"],
+        tags: { updated: 3, pending: 2, failed: 1, no_ota: 4, not_chosen: 5 }, progress: { received: 54272 * 4, total: 54272 * 5 } },
     ],
   });
   assert.deepEqual(rows, [
-    { model: "2.9", version: null, text: "no firmware on the AP" },
-    { model: "1.54", version: "0.2.90", text: "3 updated, 2 waiting, 1 failed, 4 without radio updates" },
+    { model: "2.9", version: null, text: "no firmware on the AP", to: null, progress: null, toAll: false },
+    { model: "1.54", version: "0.2.90", text: "3 updated, 2 updating, 1 failed, 5 not chosen, 4 without radio updates",
+      to: "1 chosen tag", progress: { fraction: 0.8, text: "80 %" }, toAll: true },
   ]);
+  // for all tags, none updating; and an AP from before "to" and "progress"
+  const all = { model: "2.9", version: "0.3.0", to: "all", tags: { updated: 2, pending: 0, failed: 0, no_ota: 0, not_chosen: 0 }, progress: { received: 2, total: 2 } };
+  assert.deepEqual(tagFirmwareRows({ images: [all] })[0], { model: "2.9", version: "0.3.0", text: "2 updated, 0 updating, 0 failed", to: "all tags", progress: null, toAll: false });
+  const waiting = { ...all, tags: { ...all.tags, pending: 1 }, progress: { received: 0, total: 1024 } };
+  assert.equal(tagFirmwareRows({ images: [waiting] })[0].progress.fraction, null);
+  const old = { model: "2.9", version: "0.3.0", tags: { updated: 1, pending: 1, failed: 0, no_ota: 0 } };
+  assert.deepEqual(tagFirmwareRows({ images: [old] })[0], { model: "2.9", version: "0.3.0", text: "1 updated, 1 updating, 0 failed", to: "all tags", progress: null, toAll: false });
   assert.deepEqual(tagFirmwareRows(null), []);
+});
+
+test("how far a download is", () => {
+  assert.deepEqual(fwProgress(0, 1024), { fraction: null, text: "waiting for its next poll" });
+  assert.deepEqual(fwProgress(256, 1024), { fraction: 0.25, text: "25 %" });
+  assert.deepEqual(fwProgress(1024, 1024), { fraction: null, text: "installing" });
 });
 
 test("after an AP update: back on the new version, back on the old one, or gone", async () => {
@@ -130,6 +160,52 @@ test("update button for a tag with older firmware", () => {
   assert.equal(tagUpdate(tag({ ota: false }), imgs, null), null);        // no radio updates: the jig
   assert.equal(tagUpdate(tag({ model: "2.9" }), imgs, null), null);      // nothing for its model on the page
   assert.equal(tagUpdate(tag({ fw: null }), imgs, null), null);          // not seen yet
-  const offered = { images: [{ model: "1.54", version: "0.3.0" }] };
+  const offered = { images: [{ model: "1.54", version: "0.3.0" }] };          // AP firmware from before "to"
   assert.deepEqual(tagUpdate(tag(), imgs, offered), { text: "updating to 0.3.0" });
+  const mac = "00000123456789A8";
+  const other = { images: [{ model: "1.54", version: "0.3.0", to: ["0000000000000001"] }] };
+  assert.deepEqual(tagUpdate(tag({ mac }), imgs, other), { choose: "0.3.0" });   // the AP has it, not for this tag
+  const mine = { images: [{ model: "1.54", version: "0.3.0", to: [mac] }] };
+  assert.deepEqual(tagUpdate(tag({ mac }), imgs, mine), { text: "0.3.0 failed" }); // for it, and no fw_update: rejected
+  assert.deepEqual(tagUpdate(tag({ mac }), imgs, { images: [{ model: "1.54", version: "0.2.0", to: "all" }] }), { update: "0.3.0" });
+  // fetching: how far, whatever the page has
+  const fw_update = { version: "0.3.0", received: 512, size: 1024 };
+  assert.deepEqual(tagUpdate(tag({ model: "2.9", fw_update }), imgs, mine), { updating: "0.3.0", fraction: 0.5, text: "50 %" });
+});
+
+test("the version in an AP image", () => {
+  assert.equal(firmwareKind(apImage(4096, "0.4.3")).version, "0.4.3");
+  assert.equal(firmwareKind(apImage(4096)).version, null); // no app description where it belongs
+});
+
+test("versions compare by their numbers", () => {
+  assert.equal(cmpVersion("v0.4.3", "0.4.3"), 0);
+  assert.ok(cmpVersion("0.4.10", "0.4.9") > 0);
+  assert.ok(cmpVersion("0.4.2", "v0.5.0") < 0);
+  assert.equal(cmpVersion("0.4.3-dev", "0.4.3"), 0);
+  assert.equal(cmpVersion("", "0.4.3"), null);
+});
+
+test("the page's AP image that fits the AP", () => {
+  const info = { version: "v0.4.4", release: true, ota: { "ap-openesl": true, "ap-openesl-lcd": true } };
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: true }, info), { file: "ap-openesl-lcd-ota", version: "0.4.4", newer: true });
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, info), { file: "ap-openesl-ota", version: "0.4.4", newer: true });
+  assert.equal(apImageFor({ version: "0.4.3" }, info).file, "ap-openesl-ota");        // older firmware does not say
+  assert.equal(apImageFor({ version: "0.4.4", display: false }, info).newer, false);  // already runs it
+  assert.equal(apImageFor({ version: "0.4.3" }, { ...info, version: "0.4.4-dev", release: false }).newer, false); // not a release
+  assert.equal(apImageFor({ version: "0.4.3" }, { ...info, ota: {} }), null);
+  assert.equal(apImageFor({ version: "0.4.3" }, null), null);
+});
+
+test("what is asked before AP firmware goes out", () => {
+  const ota = { version: "0.4.3", display: false };
+  let q = apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), ota, false);
+  assert.match(q, /Send AP firmware 0\.4\.4 to the AP\? It runs 0\.4\.3 now\./);
+  assert.doesNotMatch(q, /already runs|older|status screen/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.3")), ota), /already runs/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.1")), ota), /older than/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), ota, true), /for an AP with a status screen/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { ...ota, display: true }, false), /screen goes dark/);
+  assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { version: "0.4.3" }, true), /status screen/); // the AP does not say
+  assert.match(apSendQuestion(firmwareKind(apImage(4096)), null), /^Send new firmware to the AP\?/);
 });

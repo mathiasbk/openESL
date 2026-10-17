@@ -217,6 +217,39 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.tag.erase_count, [0, 0])
         self.assertEqual(self.tag.writes, [0, 0])
 
+    def test_mac_from_entry(self):
+        mac, barcode = wf.mac_from_entry("0207 9350 0102", "154")
+        self.assertEqual(wf.mac_str(mac), "000002079350341C")
+        self.assertEqual(barcode, "020793500102")
+        mac, barcode = wf.mac_from_entry("00:00:02:07:93:50:34:1c", "154")
+        self.assertEqual(wf.mac_str(mac), "000002079350341C")
+        self.assertEqual(barcode, "")
+        for bad, model in (("000002079350341D", "154"), ("000002079350341C", "29"),
+                           ("0207935001", "154"), ("FFFFFFFFFFFF", "154")):
+            with self.assertRaises(ValueError):
+                wf.mac_from_entry(bad, model)
+
+    def test_no_mac_anywhere_typed_mac(self):
+        self.tag.flash[0xFC06:0xFC0C] = b"\xff" * 6
+        r = self.run_job("154", manual_mac="020793500102")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.mac_source, "typed in")
+        self.assertEqual(wf.mac_str(r.mac), "000002079350341C")
+        self.assertEqual(r.barcode, "020793500102")
+        self.assertEqual(r.backup, "saved")
+        self.assertEqual(wf.mac_str(wf.mac_from_info(self.tag.info)), "000002079350341C")
+        r2 = self.run_job("154")
+        self.assertEqual(r2.mac_source, "info page")
+
+    def test_typed_mac_ignored_when_tag_has_one_and_bad_one_touches_nothing(self):
+        r = self.run_job(manual_mac="020793500102")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.mac_source, "stock flash")
+        self.assertTrue(any("not used" in s for s in self.lines))
+        r = self.run_job(manual_mac="123")
+        self.assertEqual(r.step, "setup")
+        self.assertEqual(self.tag.erase_count, [1, 0])
+
     def test_no_mac_write_option(self):
         r = self.run_job(write_mac=False)
         self.assertTrue(r.ok, r.message)

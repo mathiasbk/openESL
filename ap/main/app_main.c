@@ -71,6 +71,7 @@ void app_main(void)
 
 #if CONFIG_ESL_MAX_SCHEDULED
     api.sched = sched_start(&store, CONFIG_ESL_MAX_SCHEDULED);
+    store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;
     api.token = token;
@@ -79,6 +80,9 @@ void app_main(void)
     api.fw_version = version;
     api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
+#if CONFIG_ESL_WEB_DASHBOARD
+    api.dashboard = true;
+#endif
     /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
@@ -107,8 +111,9 @@ void app_main(void)
     ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
              (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
 #if CONFIG_ESL_OTA
-    /* Everything started: an image that gets here is good enough to keep (the
-       bootloader would otherwise go back to the previous one on the next reset) */
-    ota_confirm_running();
+    /* Everything started. A new image with a WiFi network to join is kept once
+       it can be reached (wifi.c, api_handle()), otherwise it is good enough now;
+       the bootloader goes back to the previous one if it is not kept. */
+    ota_watch_running(ssid[0] != 0);
 #endif
 }

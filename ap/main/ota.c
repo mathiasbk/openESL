@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "sdkconfig.h"
 
 /* OTA for the AP itself (krav A10): POST /api/ota with the app image
  * (build/esl_ap.bin, the CI's openesl-ap-ota.bin) writes the app slot that
@@ -17,8 +18,13 @@
  * host waits for a reply per part). The last byte makes the new slot the
  * boot one and restarts the AP a second after the reply. The bootloader
  * boots the old slot again if the new image does not confirm itself
- * (ota_confirm_running, called once the AP is up), so a bad image costs one
- * restart. GET /api/ota tells which slot runs and what the other holds.
+ * (see below), so a bad image costs one restart. GET /api/ota tells which slot runs and what the other holds.
+ *
+ * A new image counts as good once the AP can be reached: WiFi has an address,
+ * or an API request was answered over WiFi or USB. An image that comes up but
+ * never gets there (it broke WiFi, say) is given up after CONFIRM_S and the AP
+ * restarts into the old one, so an update over WiFi cannot leave the AP
+ * reachable only over USB. Without a WiFi network to join it is kept at once.
  *
  * One upload at a time: a part at offset 0 starts over, any other offset
  * must be the next byte. The serial and HTTP tasks share the state through
@@ -26,11 +32,15 @@
 
 static const char *TAG = "ota";
 
+#define CONFIRM_S 180
+
 static SemaphoreHandle_t mutex;
 static esp_ota_handle_t handle;
 static const esp_partition_t *target;
 static size_t received, total;
 static bool open_;
+static volatile bool reachable, watching, kept;
+static esp_timer_handle_t confirm_timer;
 
 static void lock(void)
 {
@@ -47,6 +57,7 @@ static void unlock(void)
 static void restart_cb(void *arg)
 {
     (void)arg;
+    store_nvs_flush(); /* the tags' last poll survives the update */
     ESP_LOGI(TAG, "restarting into the new firmware");
     esp_restart();
 }
@@ -149,6 +160,12 @@ int ota_info(esl_sb_t *out)
     } else {
         esl_sb_puts(out, "null,\"other_version\":null");
     }
+#if CONFIG_ESL_DISPLAY
+    const bool display = true;
+#else
+    const bool display = false;
+#endif
+    esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s", kept ? "true" : "false", display ? "true" : "false");
     lock();
     esl_sb_printf(out, ",\"uploading\":%s}", open_ ? "true" : "false");
     unlock();
@@ -175,12 +192,57 @@ bool ota_parse_query(const char *uri, size_t *offset, size_t *total)
     return got_offset == got_total; /* both or neither */
 }
 
+static void keep(void)
+{
+    if (kept)
+        return;
+    kept = true;
+    if (confirm_timer)
+        esp_timer_stop(confirm_timer);
+    esp_ota_mark_app_valid_cancel_rollback();
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    ESP_LOGI(TAG, "new firmware confirmed on %s", run ? run->label : "?");
+}
+
+/* WiFi or the API answered. Before ota_watch_running() (WiFi can come up
+ * before the radio has started) this is only noted. */
 void ota_confirm_running(void)
+{
+    reachable = true;
+    if (watching)
+        keep();
+}
+
+static void give_up_cb(void *arg)
+{
+    (void)arg;
+    if (kept)
+        return;
+    ESP_LOGE(TAG, "the new firmware was not reachable for %d s: back to the old one", CONFIRM_S);
+    store_nvs_flush();
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+}
+
+void ota_watch_running(bool wait)
 {
     const esp_partition_t *run = esp_ota_get_running_partition();
     esp_ota_img_states_t st;
-    if (run && esp_ota_get_state_partition(run, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
-        esp_ota_mark_app_valid_cancel_rollback();
-        ESP_LOGI(TAG, "new firmware confirmed on %s", run->label);
+    if (!run || esp_ota_get_state_partition(run, &st) != ESP_OK || st != ESP_OTA_IMG_PENDING_VERIFY) {
+        kept = true; /* nothing to confirm: flashed over USB, or kept before */
+        return;
     }
+    if (!wait || reachable) {
+        keep();
+        return;
+    }
+    ESP_LOGI(TAG, "new firmware on %s: kept once WiFi or the API answers (within %d s)", run->label, CONFIRM_S);
+    const esp_timer_create_args_t a = {.callback = give_up_cb, .name = "ota_confirm"};
+    if (esp_timer_create(&a, &confirm_timer) != ESP_OK) {
+        keep();
+        return;
+    }
+    watching = true;
+    esp_timer_start_once(confirm_timer, (uint64_t)CONFIRM_S * 1000 * 1000);
+    if (reachable) /* it answered while the timer was being set up */
+        keep();
 }

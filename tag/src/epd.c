@@ -59,8 +59,15 @@
 #define EPD_ROTATE_180      1
 #define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
 #else
+/*
+ * One layout column per RAM line (Y = gate line). With the gates scanned from G0 the
+ * text came out mirrored left to right (seen on a 2.9" tag 2026-10-17), so the gates
+ * are scanned from the last line back to G0 instead (EPD_GATE_SCAN, the TB bit of
+ * driver output control 0x01).
+ */
 #define EPD_TRANSPOSE       0
 #define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first */
+#define EPD_GATE_SCAN       0x01   /* TB = 1: G295 to G0 */
 #endif
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
@@ -249,7 +256,7 @@ static void init_panel(void)
     cmd(CMD_DRIVER_OUTPUT);            /* 296 lines */
     data((uint8_t)(DRAW_W - 1));
     data((uint8_t)((DRAW_W - 1) >> 8));
-    data(0x00);
+    data(EPD_GATE_SCAN);
     cmd(CMD_BORDER);
     data(0x05);
     cmd(CMD_TEMP_SENSOR);              /* internal temperature sensor */
