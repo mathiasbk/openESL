@@ -2,7 +2,6 @@
 import { initEditor } from "./editor.js";
 import * as zp from "./zbs.js";
 import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS as TAG_MODELS } from "./tagflash.js";
-import { loadRenderer, LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT } from "./renderer.js";
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initDashboard } from "./dashboard.js";
@@ -79,29 +78,7 @@ let busy = false;
 let lastMacSeen = false;
 let tagModel = "2.9";
 
-// ---------- model picker: a preview of each tag, drawn by the tag's own code ----------
-
-const PREVIEW = ["Lettmelk 1 L", "24,90", "kr 24,90/l"];
-
-async function drawModelPreviews() {
-  for (const btn of document.querySelectorAll("#tag-models .model")) {
-    try {
-      const r = await loadRenderer(btn.dataset.model);
-      const out = r.render(LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT, PREVIEW);
-      if (!out.ok) continue;
-      const c = btn.querySelector("canvas");
-      const ctx = c.getContext("2d");
-      const img = ctx.createImageData(r.width, r.height);
-      for (let i = 0; i < r.width * r.height; i++) {
-        const v = out.pixels[i] ? 17 : 255;
-        img.data.set([v, v, v, 255], i * 4);
-      }
-      ctx.putImageData(img, 0, 0);
-    } catch {
-      /* the picker still works without the picture */
-    }
-  }
-}
+// ---------- model picker: a photo of each tag ----------
 
 function selectModel(model) {
   if (busy) return;
@@ -110,7 +87,6 @@ function selectModel(model) {
 }
 
 document.querySelectorAll("#tag-models .model").forEach((b) => b.addEventListener("click", () => selectModel(b.dataset.model)));
-drawModelPreviews();
 
 const log = (text, cls) => {
   const el = $("tag-log");
