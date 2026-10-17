@@ -27,6 +27,31 @@ const char *esl_wifi_check(const char *ssid, size_t ssid_len, const char *pass, 
     return NULL;
 }
 
+const char *esl_wifi_check_token(const char *token, size_t len)
+{
+    if (len < ESL_WIFI_TOKEN_MIN || len > ESL_WIFI_TOKEN_MAX)
+        return "token must be 8 to 128 characters";
+    for (size_t i = 0; i < len; i++)
+        if ((unsigned char)token[i] <= 0x20 || (unsigned char)token[i] > 0x7E)
+            return "token must be printable ASCII without spaces";
+    return NULL;
+}
+
+const char *esl_wifi_check_hostname(const char *name, size_t len)
+{
+    if (len < 1 || len > ESL_WIFI_HOSTNAME_MAX)
+        return "hostname must be 1 to 32 characters";
+    for (size_t i = 0; i < len; i++) {
+        char c = name[i];
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-';
+        if (!ok)
+            return "hostname may only hold letters, digits and '-'";
+    }
+    if (name[0] == '-' || name[len - 1] == '-')
+        return "hostname must not start or end with '-'";
+    return NULL;
+}
+
 /* ---- form parsing ---------------------------------------------------------- */
 
 static int hexval(char c)
@@ -111,6 +136,11 @@ void esl_wifi_write_json(esl_sb_t *out, const esl_wifi_status_t *st)
         esl_sb_json_str(out, st->setup_ssid);
     else
         esl_sb_puts(out, "null");
+    esl_sb_printf(out, ",\"token_set\":%s", st->token_set ? "true" : "false");
+    if (st->hostname[0]) {
+        esl_sb_puts(out, ",\"hostname\":");
+        esl_sb_json_str(out, st->hostname);
+    }
     esl_sb_puts(out, ",\"networks\":[");
     for (unsigned i = 0; i < st->scan_count && i < ESL_WIFI_SCAN_MAX; i++) {
         if (i)
@@ -244,9 +274,8 @@ int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char
     if (nl == -2 || (nl > 0 && nl < ESL_WIFI_TOKEN_MIN))
         return fail(out, 422, "The API token must be 8 to 128 characters.");
     if (nl > 0) {
-        for (int i = 0; i < nl; i++)
-            if ((unsigned char)new_token[i] <= 0x20 || (unsigned char)new_token[i] > 0x7E)
-                return fail(out, 422, "The API token must be printable ASCII without spaces.");
+        if (esl_wifi_check_token(new_token, (size_t)nl))
+            return fail(out, 422, "The API token must be printable ASCII without spaces.");
         if (!ops->set_token)
             return fail(out, 422, "This AP cannot change its token here.");
         if (ops->set_token(ops->ctx, new_token) != 0)

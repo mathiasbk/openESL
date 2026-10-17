@@ -170,7 +170,7 @@ class FlashApp(App):
 
     def on_mount(self):
         t = self.query_one(DataTable)
-        t.add_columns("#", "Time", "MAC", "Model", "MAC from", "Backup", "Result", "s")
+        t.add_columns("#", "Time", "MAC", "Barcode", "Model", "MAC from", "Backup", "Result", "s")
         self.update_status()
         self.set_interval(1.0, self.auto_tick)
         self.say("Backups and log go to %s" % self.cfg["backup_dir"])
@@ -377,7 +377,7 @@ class FlashApp(App):
         backup = {"saved": "[green]saved[/]", "exists": "exists",
                   "failed": "[red]failed[/]"}.get(res.backup, "-")
         t.add_row(str(len(self.results)), res.time.strftime("%H:%M:%S"),
-                  workflow.mac_str(res.mac) if res.mac else "-",
+                  workflow.mac_str(res.mac) if res.mac else "-", res.barcode or "-",
                   workflow.MODELS[res.model]["name"], res.mac_source or "-", backup, result,
                   "%.0f" % res.seconds)
         t.move_cursor(row=t.row_count - 1)

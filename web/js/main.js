@@ -28,7 +28,8 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
 });
 showTab(location.hash.slice(1));
-initWifiSetup();
+initWifiSetup("apwifi");
+initWifiSetup("wifi");
 initDashboard();
 
 initEditor().catch((e) => {

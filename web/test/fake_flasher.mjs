@@ -122,9 +122,11 @@ export class FakeFlasherTransport {
 export class MemoryBackups {
   constructor() { this.m = new Map(); this.failSave = false; }
   async has(mac) { return this.m.has(mac); }
-  async save(mac, flash, info) {
+  async save(mac, flash, info, model = "", barcode = "") {
     if (this.failSave) throw new Error("disk full");
     if (this.m.has(mac)) throw new Error("exists");
-    this.m.set(mac, { flash, info });
+    this.m.set(mac, { flash, info, model, barcode });
   }
+  async get(mac) { return this.m.get(mac); }
+  async setBarcode(mac, barcode) { this.m.get(mac).barcode = barcode; }
 }

@@ -154,8 +154,11 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["webhook"] = body["webhook"] or None
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
-            FakeAp.wifi = {"mode": "sta", "ssid": body["ssid"] or None, "connected": False,
-                           "setup_ssid": None, "networks": []}
+            FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
+                           "connected": False, "setup_ssid": None,
+                           "token_set": bool(body.get("token")) or FakeAp.wifi.get("token_set", False),
+                           "hostname": body.get("hostname") or FakeAp.wifi.get("hostname", "openesl"),
+                           "networks": []}
             self._send(200, FakeAp.wifi)
         elif self.path.startswith("/api/layouts/"):
             model = self.path.rsplit("/", 1)[1]
@@ -188,6 +191,28 @@ class FakeAp(BaseHTTPRequestHandler):
                 self._send(422, {"error": "text too long"})
                 return
             self._send(200, self._set(self.path.rsplit("/", 1)[1], body))
+
+
+class BarcodeTest(unittest.TestCase):
+    def test_mac_from_barcode(self):
+        # labels read on real tags, MACs from the flashers (tools/flash-tui)
+        self.assertEqual(esl_client.mac_from_barcode("020663461013", "1.54"), "0000020663463415")
+        self.assertEqual(esl_client.mac_from_barcode("020793500102", "1.54"), "000002079350341C")
+        self.assertEqual(esl_client.mac_from_barcode("01c2 8092 0102", "2.9"), "000001C280923B15")
+        with self.assertRaises(ValueError):
+            esl_client.mac_from_barcode("0206634610", "1.54")
+
+    def test_mac_command(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013", "--model", "1.54"]), 0)
+        self.assertEqual(out.getvalue().split()[0], "0000020663463415")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(esl_client.main(["mac", "020663461013"]), 0)
+        self.assertEqual(len(out.getvalue().splitlines()), 2)
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(esl_client.main(["mac", "xyz"]), 2)
 
 
 class ClientTest(unittest.TestCase):
@@ -602,6 +627,18 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Butikken", "password": "hemmelig123"}))
         self.assertIn("trying to join 'Butikken'", out)
+        self.assertIn("no API token set", out)
+        rc, out = self.run_cli("wifi", "--new-token", "lang-hemmelig")
+        self.assertEqual(rc, 0)
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"token": "lang-hemmelig"}))
+        self.assertIn("trying to join 'Butikken'", out)
+        self.assertNotIn("no API token set", out)
+        self.assertIn("API token changed", out)
+        rc, out = self.run_cli("wifi", "Home", "--password", "hemmelig123", "--new-token", "lang-hemmelig")
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"ssid": "Home", "password": "hemmelig123", "token": "lang-hemmelig"}))
+        rc, out = self.run_cli("wifi", "--hostname", "butikk")
+        self.assertEqual(FakeAp.calls[-1], ("/api/wifi", {"hostname": "butikk"}))
+        self.assertIn("name 'butikk' (butikk.local)", out)
 
     def test_no_answer(self):
         cli = esl_client.Client("http://127.0.0.1:1", TOKEN, timeout=0.2, retries=2)
