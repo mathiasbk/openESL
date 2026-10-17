@@ -1,25 +1,60 @@
-# OpenESL
+<h1 align="center">OpenESL</h1>
 
 <p align="center">
-  <img src="docs/images/tag-154-front.jpg" alt="A SoluM 1.54-inch tag running OpenESL: its start screen shows the MAC, FW 0.2.0 and Waiting for content" width="300">
+  Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
+  Put prices and text on the labels from any software, with one HTTP request.
 </p>
 
-Open firmware for the SoluM ST-GM29XX2 (2.9") and ST-GM16XX2 (1.54") price tags (ZBS243) and an access point (AP) on the ESP32-C6. The AP exposes a small HTTP API, so any software can send price and text straight to the tags.
+<p align="center">
+  <a href="https://github.com/mathiasbk/openESL/releases/latest"><img src="https://img.shields.io/github/v/release/mathiasbk/openESL" alt="Latest release"></a>
+  <a href="https://github.com/mathiasbk/openESL/actions/workflows/web.yml"><img src="https://github.com/mathiasbk/openESL/actions/workflows/web.yml/badge.svg?branch=master" alt="CI and web page"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="MIT licence"></a>
+</p>
 
-**Web page:** [mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/) has the label designer, the flashers for tags and the AP, the dashboard, the setup guide and the API documentation, all in the browser.
+<p align="center">
+  <a href="https://mathiasbk.github.io/openESL/"><b>Web page</b></a> ·
+  <a href="https://mathiasbk.github.io/openESL/#ap">Flash the AP</a> ·
+  <a href="https://mathiasbk.github.io/openESL/#tag">Flash a tag</a> ·
+  <a href="https://mathiasbk.github.io/openESL/#design">Label designer</a> ·
+  <a href="https://mathiasbk.github.io/openESL/#api">API docs</a>
+</p>
 
-## How it works
+<p align="center">
+  <img src="docs/images/tag-29-front.jpg" alt="A 2.9-inch SoluM tag running OpenESL, showing its start screen with the MAC, FW 0.4.4 and Waiting for content" height="240">
+  &nbsp;
+  <img src="docs/images/tag-154-front.jpg" alt="A 1.54-inch SoluM tag running OpenESL, showing its start screen with the MAC, FW 0.4.4 and Waiting for content" height="240">
+</p>
 
-```mermaid
-flowchart LR
-    client["Your software<br/>(script, web shop, home automation)"]
-    ap["ESP32-C6 access point<br/>HTTP API · stores text per tag"]
-    tags["Tags (ZBS243)<br/>2.9&quot; and 1.54&quot; e-paper"]
-    client -- "HTTP + token<br/>(WiFi or USB)" --> ap
-    ap -- "802.15.4 radio" --> tags
-```
+## Features
 
-The AP is only an API. It does not know about products, shops or databases: it stores text fields per tag MAC and hands them to the tags. Anything that can make an HTTP request (a script, a web shop, a home automation system) can be a client.
+- **Two tag models:** SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), both on the ZBS243 chip.
+- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients. Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
+- **Your own label layouts**, drawn in the browser: text in four sizes, inverted and highlighted text, lines, boxes and Code 128 or EAN-13 barcodes. The preview is the tag's own drawing code, so what you see is what the tag shows.
+- **Scheduled prices** that switch at a time you choose, and **per-tag settings** such as the poll interval.
+- **Firmware updates without cables (OTA):** the AP updates itself over WiFi, and passes new firmware to the tags over the radio, for one tag or a whole model at once.
+- **A dashboard** on the AP itself, with every tag's last and next check-in, signal, battery and firmware, and a health report that can call a webhook when something needs attention.
+- **Flashing from the browser:** tags and the AP are flashed from [the web page](https://mathiasbk.github.io/openESL/) over Web Serial, with nothing to install. The tag's original firmware is backed up first.
+- **Backup and restore** of the AP's tags, layouts and settings, so you can move to a new AP.
+- **A simulator** that runs the tag firmware and the AP together on a PC, so you can try the API without any hardware.
+- **Written from scratch** and released under the **[MIT licence](LICENSE)**.
+
+## What you need
+
+| Part | What to get |
+|---|---|
+| **Labels** | SoluM ST-GM29XX2 (2.9") or ST-GM16XX2 (1.54"). The 1.54" runs on one CR2450 battery, the 2.9" on two. |
+| **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD also shows a status screen. |
+| **For flashing labels** | A Wemos D1 mini with atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), and a pogo-pin jig for the test pads behind the battery. |
+| **A browser** | Chrome or Edge on a computer, for flashing over Web Serial. The designer works in any modern browser. |
+
+## Getting started
+
+Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
+
+1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, then give it your WiFi and an API token over the same USB cable.
+2. **Flash the labels** one at a time in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware, then starts polling the AP.
+3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab and send them to the AP, or start with the built-in `price` and `text` layouts.
+4. **Send content** from your own software:
 
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
@@ -27,33 +62,36 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The tag picks the new content up at its next poll and draws it with the built-in `price` layout, or with your own layouts from the designer. These are the tag's own drawings, from the firmware running on the PC in [sim/](sim/README.md):
+The label picks the new content up at its next poll. The [Set up](https://mathiasbk.github.io/openESL/#setup) tab covers the first start, WiFi and the token in detail, and the [API](https://mathiasbk.github.io/openESL/#api) tab lets you try every request against your own AP through the bridge in [tools/esl-client](tools/esl-client/README.md).
+
+## How it works
+
+```mermaid
+flowchart LR
+    client["Your software<br/>(script, web shop, home automation)"]
+    ap["ESP32-C6 access point<br/>HTTP API · stores text per tag"]
+    tags["Labels (ZBS243)<br/>2.9&quot; and 1.54&quot; e-paper"]
+    client -- "HTTP + token<br/>(WiFi or USB)" --> ap
+    ap -- "802.15.4 radio" --> tags
+```
+
+The access point knows nothing about products, shops or databases. It keeps a few text fields per label MAC and hands them to the labels when they poll. The labels draw them with the layout you chose. These are the label firmware's own drawings, from the simulator in [sim/](sim/README.md):
 
 <p align="center">
-  <img src="docs/images/tag-screens.png" alt="Three tag screens drawn by the tag firmware: two 2.9-inch labels and one 1.54-inch label with a product name, a large price and a unit price" width="720">
+  <img src="docs/images/tag-screens.png" alt="Three label screens drawn by the tag firmware: two 2.9-inch labels and one 1.54-inch label with a product name, a large price and a unit price" width="720">
 </p>
 
-## The web page
+## Screenshots
 
-**Design** draws the layout files for each tag model. The preview is drawn by the tag's own code built to WebAssembly, so it is what the tag will show, pixel for pixel, and the meters under it show how much of the tag's limits the layout uses.
+**Label designer.** Drag and resize boxes on a pixel-exact preview. The meters underneath show how much of the label's limits the layout uses.
 
 ![The label designer with a 2.9-inch shelf layout: a black name band, a price in an inverted box and a unit price](docs/images/web-designer.png)
 
-**Dashboard** shows the AP's state and every tag (last poll, signal, battery, firmware, what it waits for), over USB or through the bridge in `tools/esl-client`, and sends new firmware to the AP and to the tags over the radio. The screenshot is of the simulator in [sim/](sim/README.md).
+**Dashboard.** The AP's state and every label, refreshed every 10 seconds. The AP serves it itself at `http://openesl.local/dashboard`, and the web page reaches it over USB or the bridge. (The screenshot is from the simulator.)
 
-![The dashboard: the access point's firmware, uptime, radio channel and poll interval, and a table with one tag that is OK](docs/images/web-dashboard.png)
-
-**Flash tag** and **Flash AP** put the firmware on the hardware over Web Serial, and **Set up** and **API** cover the first start and the HTTP API.
-
-**Setting up the AP** (first start, WiFi, the API token): the Set up tab of the web page, [mathiasbk.github.io/openESL/#setup](https://mathiasbk.github.io/openESL/#setup). **API documentation:** the API tab of the web page, [mathiasbk.github.io/openESL/#api](https://mathiasbk.github.io/openESL/#api): interactive, with test requests against your own AP through `tools/esl-client` (`esl_client.py serve`). The reference is [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1), checked against the AP code in CI. An example client is in [tools/esl-client](tools/esl-client/README.md).
+![The dashboard: the access point's firmware, uptime, radio channel and poll interval, and a table with one tag, its last and next check-in, signal, battery and firmware](docs/images/web-dashboard.png)
 
 ## Hardware
-
-| | |
-|---|---|
-| **Tags** | SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), black and white e-paper, ZBS243 (8051 with an 802.15.4 radio). The 1.54" takes one CR2450, the 2.9" two. Notes: [docs/st-gm16xx2.md](docs/st-gm16xx2.md). |
-| **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD can show a status screen. |
-| **Flashing tags** | A Wemos D1 mini with atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) and a pogo-pin jig on the test pads behind the battery. |
 
 <table>
   <tr>
@@ -63,9 +101,11 @@ The tag picks the new content up at its next poll and draws it with the built-in
   </tr>
 </table>
 
+Hardware notes, pinouts and where each fact comes from are in [docs/](docs/README.md), for example [docs/st-gm16xx2.md](docs/st-gm16xx2.md).
+
 ## Status
 
-Working on hardware since 2026-10-14: the tag firmware runs on the SoluM 1.54" (ST-GM16XX2, ZBS243), and the ESP32-C6 AP serves it, with the API over USB and WiFi. Prices and text, layout files with barcodes, scheduled prices, per-tag settings, a health report with a webhook, OTA for the AP, backup and restore, and the web page with a label designer and browser flashers are in place and tested on a PC, in CI and (most of them) on the jig. The first release is v0.1.0. What is left, and what is still untried on hardware, is in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
+Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-17, both served by the ESP32-C6 AP over USB and WiFi. The features above are tested on a PC and in CI, and most of them on real labels. What is left, and what has not been tried on hardware yet, is in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
 ## Folders
 
