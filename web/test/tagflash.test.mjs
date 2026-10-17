@@ -181,6 +181,16 @@ test("no MAC anywhere: a typed MAC is written to the info page and the tag flash
   assert.equal(r2.mac, r.mac);
 });
 
+test("an empty flash is flashed without a backup only when the MAC was typed in", async () => {
+  const tag = new FakeTag(new Uint8Array(zp.FLASH_SIZE).fill(0xff));
+  const { fl, backups } = setup(tag);
+  const r0 = await wf.flashTag(fl, "1.54", fw(), backups, { manualMac: "000002079588341F" });
+  assert.ok(r0.ok, r0.message);
+  assert.equal(r0.backup, "blank");
+  assert.equal(backups.m.size, 0);
+  assert.equal(wf.macStr(wf.macFromInfo(tag.info)), "000002079588341F");
+});
+
 test("a typed MAC is not used on a tag that has its own, and a bad one touches nothing", async () => {
   const { fl, backups } = setup();
   const lines = [];

@@ -241,6 +241,15 @@ class WorkflowTest(unittest.TestCase):
         r2 = self.run_job("154")
         self.assertEqual(r2.mac_source, "info page")
 
+    def test_empty_flash_with_typed_mac_needs_no_backup(self):
+        self.tag.flash[:] = b"\xff" * len(self.tag.flash)
+        r = self.run_job("154", manual_mac="000002079588341F")
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(r.backup, "blank")
+        self.assertFalse(os.path.exists(self.backup) and os.listdir(self.backup)
+                         and any(f.endswith(".bin") for f in os.listdir(self.backup)))
+        self.assertEqual(wf.mac_str(wf.mac_from_info(self.tag.info)), "000002079588341F")
+
     def test_typed_mac_ignored_when_tag_has_one_and_bad_one_touches_nothing(self):
         r = self.run_job(manual_mac="020793500102")
         self.assertTrue(r.ok, r.message)

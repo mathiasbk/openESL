@@ -196,19 +196,31 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
       }
     } else {
       log("Reading the whole flash for the backup (two passes) ...");
+      let blank;
       try {
         const flash = await readTwice(fl, zp.PAGE_MAIN, 0, zp.FLASH_SIZE, "main flash", prog("Backup"));
         if (raw && !zp.bytesEqual(flash.slice(STOCK_MAC_ADDR, STOCK_MAC_ADDR + 6), raw))
           throw new JobError("backup", "backup does not contain the MAC bytes read before");
-        if (flash.every((b) => b === 0xff)) throw new JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup");
-        await backups.save(res.mac, flash, info, model, res.barcode);
-        if (!(await backups.has(res.mac))) throw new JobError("backup", "the stored backup cannot be found again");
+        blank = flash.every((b) => b === 0xff);
+        // A tag with its stock MAC never reads blank, so all 0xFF there means a bad read. A tag
+        // whose MAC had to be typed in has lost its stock firmware already; all 0xFF there is
+        // an empty flash (an earlier erase), with nothing to keep.
+        if (blank && res.macSource !== "typed in") throw new JobError("backup", "the flash reads as all 0xFF; refusing to call that a backup");
+        if (!blank) {
+          await backups.save(res.mac, flash, info, model, res.barcode);
+          if (!(await backups.has(res.mac))) throw new JobError("backup", "the stored backup cannot be found again");
+        }
       } catch (e) {
         res.backup = "failed";
         throw new JobError("backup", "backup failed, nothing written: " + e.message);
       }
-      res.backup = "saved";
-      log("Backup stored in this browser (download it under Backups)");
+      if (blank) {
+        res.backup = "blank";
+        log("The flash is empty (all 0xFF): nothing to back up");
+      } else {
+        res.backup = "saved";
+        log("Backup stored in this browser (download it under Backups)");
+      }
     }
 
     if (needMacWrite) {
