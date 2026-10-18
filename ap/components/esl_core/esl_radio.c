@@ -35,10 +35,12 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
     memset(&req, 0, sizeof(req));
 
     if (esl_layout_req_parse(f.payload, f.payload_len, &req)) {
+        esl_store_offer_taken(st, f.src_mac, false, req.layout_ver);
         n = esl_layouts_block(ls, req.model, req.layout_ver, req.pos, req.max, esl_store_tag_poll_s(st, f.src_mac),
                               reply);
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
+        esl_store_offer_taken(st, f.src_mac, true, freq.ver);
         n = 0;
         if (esl_tagfw_for(tagfw, freq.model, f.src_mac))
             n = esl_tagfw_block(tagfw, freq.model, freq.ver, freq.crc, freq.pos, freq.max, next, reply);
@@ -52,9 +54,15 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         esl_layout_env_t env;
         esl_layouts_env(ls, poll.model, &env);
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
-        if (n == 0)
+        if (n == 0) {
             n = esl_layouts_block(ls, poll.model, 0, 0, ESL_LAYOUT_CHUNK_MAX, esl_store_tag_poll_s(st, f.src_mac),
                                   reply);
+            /* A file that fits in this one block: the tag needs no LAYOUT_REQ to take it */
+            esl_reply_t lr;
+            if (esl_reply_parse(reply, n, &lr) && lr.type == ESL_MSG_LAYOUT && lr.layout_ver &&
+                lr.layout_pos + lr.layout_len >= lr.layout_size)
+                esl_store_offer_taken(st, f.src_mac, false, lr.layout_ver);
+        }
         /* Nothing else for the tag: new firmware, if there is some for it (ver 0
          * still notes a rejection, ESL_POLL_F_FWFAIL) */
         esl_tagfw_img_t img;
