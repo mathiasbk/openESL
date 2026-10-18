@@ -364,11 +364,17 @@ static void test_errors(void)
     CHECK(HAS(err, "layouts[13]: the file is too big for the tags: at most 768 bytes"));
 }
 
+static void *no_memory(size_t n)
+{
+    (void)n;
+    return NULL;
+}
+
 static void test_storage(void)
 {
     static esl_layouts_t ls;
     fake_t f = {0};
-    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL};
     char buf[512];
     esl_sb_t sb;
     bool changed;
@@ -380,6 +386,8 @@ static void test_storage(void)
     uint8_t nf;
 
     esl_layouts_init(&ls, &ops);
+    /* a model holds memory only while it has a file */
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
     CHECK(!esl_layouts_info(&ls, ESL_MODEL_29, &v, &len, &bsize));
     CHECK_INT(v, 0);
     esl_layouts_env(&ls, ESL_MODEL_29, &env);
@@ -419,6 +427,32 @@ static void test_storage(void)
     CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed), v);
     CHECK(!changed);
     CHECK_INT(f.saves, 1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] != NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
+    CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
+
+    /* no memory: 0 back (the API answers 500), the old file stays, nothing is persisted */
+    {
+        char *spaced = malloc(jl + 1);
+        memcpy(spaced, js, jl);
+        spaced[jl] = ' ';
+        esl_layout_bin_t bin2 = bin;
+        bin2.version = bin.version + 1;
+        ls.ops.alloc = no_memory;
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, spaced, jl + 1, &bin2, &changed), 0);
+        CHECK(!changed);
+        CHECK_INT(f.saves, 1);
+        CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
+        CHECK_INT(ls.models[ESL_MODEL_29 - 1]->bin.version, v);
+        size_t jl154;
+        char *js154 = read_example_layout("1.54.json", &jl154);
+        CHECK(js154 != NULL && esl_layout_compile(js154, jl154, ESL_MODEL_154, &bin2, err, sizeof(err)));
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_154, js154, jl154, &bin2, &changed), 0);
+        CHECK(!changed);
+        CHECK(ls.models[ESL_MODEL_154 - 1] == NULL);
+        ls.ops.alloc = NULL;
+        free(js154);
+        free(spaced);
+    }
 
     uint32_t v2;
     CHECK(esl_layouts_info(&ls, ESL_MODEL_29, &v2, &len, &bsize));
@@ -479,6 +513,7 @@ static void test_storage(void)
     CHECK(!esl_layouts_delete(&ls, 0));
     CHECK_INT(f.erases, 1);
     CHECK_INT(esl_layouts_find(&ls, ESL_MODEL_29, "sign", 4, &nf), -1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL);
 
     /* restore at boot compiles the file again and does not write back */
     int saves = f.saves;

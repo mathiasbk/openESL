@@ -160,7 +160,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 `ESL_MAX_TAGS` (menuconfig, default 256, at most 1000) is the size of the tag table. What each slot costs:
 
 - **RAM:** about 220 bytes per slot for the whole run (`sizeof(esl_tag_t)`): 56 KB at 256, 220 KB at 1000. The boot log ends with `free heap N bytes, tag table M bytes`; keep a good margin for WiFi and HTTP. 1000 is likely too much for the C6 next to WiFi, a few hundred is fine.
-- **NVS:** up to about 320 bytes per tag once it has content and settings (two blobs, 32-byte NVS entries), plus 2 x 8 KB layout files and up to about 160 bytes per waiting scheduled entry (40 KB at the default 256, "Scheduled content"). The NVS partition is 468 KB, so 1000 tags fit.
+- **NVS:** up to about 320 bytes per tag once it has content and settings (two blobs, 32-byte NVS entries), plus one layout file of up to 8 KB per tag model that has one (in RAM too: a model without a file holds none) and up to about 160 bytes per waiting scheduled entry (40 KB at the default 256, "Scheduled content"). The NVS partition is 468 KB, so 1000 tags fit.
 - **API replies:** `GET /api/tags` and the status page are streamed (HTTP chunks, `+` pieces on the USB port) through one 23 KB buffer per request, so they do not grow with the table. A batch (`PUT /api/tags`) is still at most 50 tags.
 - **Radio:** a tag's POLL exchange takes 3-6 ms on the air, and tags send without listening for a free channel first (one retry after 2-10 ms). With the default 60 s interval, 64 tags keep the channel busy 0.5 % of the time and about 1 % of first POLLs collide, 200 tags about 3 %, 1000 tags about 15 % (the retry catches most). Beyond that: a longer interval, more APs on different channels, or CCA on the tag.
 
