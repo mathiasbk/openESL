@@ -59,6 +59,7 @@ typedef struct {
     void (*unlock)(void *ctx);
     void (*persist_save)(void *ctx, uint8_t model, const char *data, size_t len);
     void (*persist_erase)(void *ctx, uint8_t model);
+    void *(*alloc)(size_t n);   /* memory for a file, freed with free(); NULL = malloc (tests fail it) */
 } esl_layout_ops_t;
 
 typedef struct {
@@ -96,8 +97,9 @@ void esl_layouts_free(esl_layouts_t *ls);
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len);
 
 /* Stores a file that esl_layout_compile() accepted as bin for this model.
- * Returns the version (0 for an unknown model, a bad size, or no memory). *changed is
- * false (and nothing is persisted) when the model already has exactly this file. */
+ * Returns the version (0 for an unknown model, a bad size, or no memory; the model then
+ * keeps the file it had). *changed is false (and nothing is persisted) when the model
+ * already has exactly this file, or when there was no memory. */
 uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
                          const esl_layout_bin_t *bin, bool *changed);
 

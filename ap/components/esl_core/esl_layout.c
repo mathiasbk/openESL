@@ -23,6 +23,11 @@ static esl_layout_t *slot(esl_layouts_t *ls, uint8_t model)
     return ls && esl_model_name(model) ? ls->models[model - 1] : NULL;
 }
 
+static void *alloc(esl_layouts_t *ls, size_t n)
+{
+    return ls->ops.alloc ? ls->ops.alloc(n) : malloc(n);
+}
+
 static void drop(esl_layout_t *l)
 {
     if (l) {
@@ -78,20 +83,24 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
     *changed = !l || l->len != len || memcmp(l->data, data, len) != 0;
     if (*changed) {
         /* The new JSON first, so the old file stays if there is no memory */
-        char *copy = malloc(len);
-        esl_layout_t *nl = l ? l : calloc(1, sizeof(*nl));
+        char *copy = alloc(ls, len);
+        esl_layout_t *nl = l ? l : alloc(ls, sizeof(*nl));
         if (copy && nl) {
             memcpy(copy, data, len);
+            if (nl != l)
+                memset(nl, 0, sizeof(*nl));
             free(nl->data);
             nl->data = copy;
             nl->len = (uint16_t)len;
             nl->bin = *bin;
             ls->models[model - 1] = l = nl;
         } else {
+            /* 0 to the caller: the old file (if any) is unchanged, but the new one is not stored */
             free(copy);
             if (nl != l)
                 free(nl);
             *changed = false;
+            l = NULL;
         }
     }
     if (l)
