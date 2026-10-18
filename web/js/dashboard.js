@@ -412,6 +412,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const n = stTags().length;
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
+    $("st-forget").disabled = !client || sending;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
     // the text goes to every ticked tag, also those Find or a filter hides now
     const hidden = n - rows.filter((c) => c.checked).length;
@@ -589,6 +590,45 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     stSel.clear();
     stChanged();
     render();
+  };
+  const forgetMsg = (text, cls = "") => {
+    $("st-forget-msg").textContent = text;
+    $("st-forget-msg").className = "hint" + (cls ? " " + cls : "");
+    $("st-forget-msg").hidden = !text;
+  };
+  // The ticked tags off the AP, e.g. a broken one: content, settings and scheduled content go.
+  // A tag that still polls comes back, without them.
+  $("st-forget").onclick = async () => {
+    const tags = stTags();
+    if (!client || !tags.length || sending) return;
+    const what = tags.length === 1 ? tags[0].mac : `${tags.length} tags`;
+    if (!confirm(`Forget ${what}? The AP removes ${tags.length === 1 ? "its" : "their"} content, settings and scheduled content. ` +
+      `A tag that still polls shows up again, as a new tag without them.`)) return;
+    // asked twice: it cannot be undone
+    if (!confirm(`Are you sure? Forgetting ${what} cannot be undone.`)) return;
+    const c = client;
+    sending = true;
+    $("st-forget").disabled = true;
+    let n = 0;
+    try {
+      for (const t of tags) {
+        try {
+          await c.call("DELETE", "/api/tags/" + encodeURIComponent(t.mac));
+        } catch (e) {
+          if (!e.message.startsWith("404")) throw e; // already gone
+        }
+        stSel.delete(t.mac);
+        n++;
+      }
+      forgetMsg(n === 1 ? `${tags[0].mac} forgotten.` : `${n} tags forgotten.`, "ok");
+    } catch (e) {
+      forgetMsg((n ? `Only ${n} of ${tags.length} tags forgotten: ` : "Not forgotten: ") + e.message, "error");
+    } finally {
+      sending = false;
+      $("st-forget").disabled = false;
+      stSave();
+      if (client === c) refresh();
+    }
   };
 
   // ---- Firmware card ----
