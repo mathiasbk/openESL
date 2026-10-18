@@ -28,7 +28,7 @@
 ## Features
 
 - **Two tag models:** SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), both on the ZBS243 chip.
-- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients. Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
+- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md)). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
 - **Your own label layouts**, drawn in the browser: text in four sizes, inverted and highlighted text, lines, boxes and Code 128 or EAN-13 barcodes. The preview is the tag's own drawing code, so what you see is what the tag shows.
 - **Scheduled prices** that switch at a time you choose, and **per-tag settings** such as the poll interval.
 - **Firmware updates without cables (OTA):** the AP updates itself over WiFi, and passes new firmware to the tags over the radio, for one tag or a whole model at once.

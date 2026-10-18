@@ -1,0 +1,27 @@
+{
+  "format": "esl-layouts",
+  "version": 1,
+  "model": "2.9",
+  "description": "3D printer status from Home Assistant (docs/home-assistant.md). Copy the layout into your own 2.9 file: a file holds at most 768 bytes, and this layout takes 181.",
+  "layouts": [
+    {
+      "name": "prusa",
+      "description": "Printer name, file name, progress in large digits, time left, finish time and a progress bar. The bar is an inverted field of spaces: 31 spaces fill it",
+      "fields": ["name", "pct", "left", "done", "bar"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 26, "color": "black" },
+        { "type": "text", "text": "PRUSA", "x": 4, "y": 1, "w": 80, "h": 24, "fonts": ["medium"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 86, "y": 1, "w": 206, "h": 24, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "pct", "x": 2, "y": 30, "w": 76, "h": 36, "fonts": ["mid"], "align": "right", "valign": "bottom", "lines": 1 },
+        { "type": "text", "text": "%", "x": 80, "y": 40, "w": 24, "h": 24, "fonts": ["medium"], "valign": "bottom", "lines": 1 },
+        { "type": "text", "field": "left", "x": 110, "y": 30, "w": 182, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 },
+        { "type": "text", "field": "done", "x": 110, "y": 54, "w": 182, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 },
+        { "type": "rect", "x": 0, "y": 78, "w": 296, "h": 2, "color": "black" },
+        { "type": "rect", "x": 0, "y": 126, "w": 296, "h": 2, "color": "black" },
+        { "type": "rect", "x": 0, "y": 78, "w": 2, "h": 50, "color": "black" },
+        { "type": "rect", "x": 294, "y": 78, "w": 2, "h": 50, "color": "black" },
+        { "type": "text", "field": "bar", "x": 3, "y": 81, "w": 290, "h": 44, "fonts": ["mid"], "lines": 1, "color": "invert" }
+      ]
+    }
+  ]
+}
