@@ -47,6 +47,7 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         else
             note_fw_sent(st, f.src_mac, reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
+        poll.seq = f.seq;
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
         esl_layout_env_t env;
@@ -109,7 +110,7 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
     if (t->ota && t->fw_failed)
         flags |= ESL_POLL_F_FWFAIL;
     esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model,
-                    !t->legacy, t->cfg_ver, t->layouts && !t->legacy, t->layout_ver};
+                    !t->legacy, t->cfg_ver, t->layouts && !t->legacy, t->layout_ver, 0};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     t->poll_again = false;

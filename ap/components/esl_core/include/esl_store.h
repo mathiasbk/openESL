@@ -62,7 +62,9 @@ typedef struct {
     uint32_t layout_ver;      /* layout file version from the last POLL */
     uint32_t layout_offered;  /* version the AP last offered it */
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
+    uint16_t layout_offer_seq; /* seq + 1 of the POLL that layout_offered answered, 0 = none */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
+    uint16_t fw_offer_seq;    /* seq + 1 of the POLL that fw_offered answered, 0 = none (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */

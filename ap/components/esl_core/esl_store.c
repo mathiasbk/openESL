@@ -125,10 +125,15 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     if (poll->has_layout_ver && poll->layout_ver == v)
         t->layout_failed = 0;
     if (poll->has_layout_ver && poll->layout_ver != v) {
-        if ((poll->flags & ESL_POLL_FLAG_LAYOUT_FAILED) && v && t->layout_offered == v)
+        /* The flag stays on until the tag starts on another version, so the POLL the
+           offer answered, sent again because the answer was lost, still has it: that is
+           about an older version, not a rejection of v */
+        if ((poll->flags & ESL_POLL_FLAG_LAYOUT_FAILED) && v && t->layout_offered == v &&
+            t->layout_offer_seq != poll->seq + 1u)
             t->layout_failed = v;
         if (!v || t->layout_failed != v) {
             t->layout_offered = v;
+            t->layout_offer_seq = poll->seq + 1u;
             return 0;
         }
     }
@@ -400,13 +405,16 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     int idx = find(st, mac);
     if (idx >= 0) {
         esl_tag_t *t = &st->tags[idx];
-        if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered)
+        /* Not from the POLL the offer answered, sent again: see poll_answer */
+        if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered && t->fw_offer_seq != poll->seq + 1u)
             t->fw_failed = t->fw_offered;
         if (ver && poll->fw_ver == ver)
             t->fw_failed = 0;
         offer = ver && (poll->flags & ESL_POLL_F_OTA) && poll->fw_ver != ver && t->fw_failed != ver;
-        if (offer)
+        if (offer) {
             t->fw_offered = ver;
+            t->fw_offer_seq = poll->seq + 1u;
+        }
     }
     unlock(st);
     return offer;

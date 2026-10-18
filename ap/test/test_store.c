@@ -74,7 +74,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -140,7 +140,7 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
 
     /* other firmware: saved at once */
-    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0};
     esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
     CHECK_INT(g.writes, 3);
     CHECK_INT(g.rec.fw, 4);
@@ -174,7 +174,7 @@ static void test_store_seen(void)
     CHECK(!t.has_content);
     /* its first POLL with the same model and firmware writes nothing at once */
     int w = g.writes;
-    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0};
     g.clock = 1792003600;
     esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
     CHECK_INT(g.writes, w);
@@ -343,7 +343,7 @@ void test_store(void)
     /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
     n = poll(&st, A, 0, 100, reply);
     CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
-    esl_poll_t np = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
+    esl_poll_t np = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0};
     n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
     CHECK_INT(n, ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
