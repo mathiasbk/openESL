@@ -21,6 +21,7 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py tag-ota                 # the tag firmware on the AP and how far the tags are
   esl_client.py log week.csv --every 60 # long-term test: one row per tag per minute
   esl_client.py report week.csv         # gaps, battery, problems and AP restarts from that log
+  esl_client.py battery week.csv --html batt.html   # battery per tag from that log: steps, days until low, charge; a page with charts
   esl_client.py --serial /dev/ttyACM0 status
   esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
@@ -32,6 +33,7 @@ With --tags tags.csv (mac,item) the file has an item column instead of mac.
 import argparse
 import csv
 import datetime
+import html
 import io
 import json
 import os
@@ -883,6 +885,214 @@ def report(rows):
     return lines, ok
 
 
+# ---- battery analysis from the log ---------------------------------------------------------
+
+# The same figures as tools/power-budget/power_budget.py (docs/strombudsjett.md): estimates,
+# nothing is measured with a current meter yet.
+BATT_POLL_MC = 0.08                          # one answered POLL, 5 ms core + 5 ms radio
+BATT_DRAW_MC = 22.0                          # one screen update, 3.2 s with the core awake
+BATT_SLEEP_UA = 3.0                          # assumed sleep current
+BATT_CELLS = {"2.9": 2, "1.54": 1}           # CR2450 in parallel
+BATT_CELL_MAH = 620                          # nominal, 70 % counted usable
+BATT_SELF_UA_PER_CELL = BATT_CELL_MAH * 0.01 / 8760 * 1000   # 1 % a year
+BATT_CEILING_MV = 2600                       # the panel only says "above every threshold"
+
+
+def battery_analysis(rows, poll_s=60, low_mv=2500):
+    """Per tag, from a log written by "log": the battery readings over time (the 2.9"
+    panel reports 100 mV steps from 2250 up to "2600 or more"; the 1.54" reports 0), when
+    each lower step was first reached, the rate in mV per day worked out from those
+    steps, the time left until low_mv at that rate, and a rough charge count from the
+    power budget (polls at poll_s, and one update per change of shown_content_id). A log
+    that starts below 2600 only says the tag was there "since the log started": that
+    step has no known time and is left out of the rate.
+    Returns (lines, table, series): table has one dict per tag for --csv, series the
+    readings, steps and update times per tag for --html."""
+    def num(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    def when(stamp):
+        return datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").timestamp()
+
+    per = {}
+    for r in rows:
+        if not r["mac"] or r["ap_reset"] == "no answer":
+            continue
+        t = per.setdefault(r["mac"], {"model": "", "first": None, "last": None, "mv": [],
+                                       "draws": 0, "shown": None, "rounds": 0, "draws_at": []})
+        t["model"] = t["model"] or r["model"]
+        ts = when(r["time"])
+        t["first"] = ts if t["first"] is None else min(t["first"], ts)
+        t["last"] = ts if t["last"] is None else max(t["last"], ts)
+        t["rounds"] += 1
+        mv = num(r["battery_mv"])
+        if mv:
+            t["mv"].append((ts, mv))
+        shown = r["shown_content_id"]
+        if shown and shown != "0" and shown != t["shown"]:
+            if t["shown"] is not None:
+                t["draws"] += 1
+                t["draws_at"].append(ts)
+            t["shown"] = shown
+
+    lines, table, series = [], [], {}
+    for mac, t in sorted(per.items()):
+        model = t["model"] or "-"
+        span_s = max(0.0, t["last"] - t["first"]) if t["first"] is not None else 0.0
+        days = span_s / 86400
+        polls = span_s / poll_s
+        charge_mc = polls * BATT_POLL_MC + t["draws"] * BATT_DRAW_MC + BATT_SLEEP_UA / 1000 * span_s
+        charge_mah = charge_mc / 3600
+        cells = BATT_CELLS.get(model)
+        cap = cells * BATT_CELL_MAH * 0.7 if cells else None
+        avg_ua = (charge_mc / span_s * 1000) if span_s else 0.0
+        row = {"mac": mac, "model": model, "days": round(days, 2), "first_mv": None, "last_mv": None,
+               "min_mv": None, "steps": 0, "mv_per_day": None, "days_to_low": None,
+               "polls": int(polls), "draws": t["draws"], "charge_mah": round(charge_mah, 3),
+               "avg_ua": round(avg_ua, 2), "years_at_this_rate": None}
+        if cap and avg_ua:   # with the cells' self-discharge; their shelf life (about 10 years) caps it anyway
+            row["years_at_this_rate"] = round(cap / ((avg_ua + cells * BATT_SELF_UA_PER_CELL) / 1000) / 8760, 1)
+        lines.append(f"{mac}  {model}  {days:.1f} days in the log, {t['rounds']} rounds")
+        mvs = sorted(t["mv"])
+        series[mac] = {"mv": mvs, "steps": [], "draws_at": sorted(t["draws_at"]), "first": t["first"], "last": t["last"]}
+        if not mvs:
+            lines.append("    no battery reading (0 = the tag cannot measure it)")
+        else:
+            row["first_mv"], row["last_mv"] = mvs[0][1], mvs[-1][1]
+            row["min_mv"] = min(v for _, v in mvs)
+            # the first time each new low was reached (the reading can bounce back up under a lighter load)
+            steps, low = [], None
+            for ts, v in mvs:
+                if low is None or v < low:
+                    low = v
+                    steps.append((ts, v))
+            row["steps"] = len(steps) - 1
+            series[mac]["steps"] = steps
+            desc = ", ".join(f"{v} mV {'since the log started' if i == 0 else 'from ' + time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}"
+                             for i, (ts, v) in enumerate(steps))
+            lines.append(f"    readings: {desc}"
+                         + (" (2600 = 2.6 V or more; the panel cannot see higher)" if steps[0][1] >= BATT_CEILING_MV else ""))
+            # the rate needs two steps that were seen happening: the first reading in the log
+            # has no known time (the tag may have been there for weeks already)
+            below = [s for s in steps[1:] if s[1] < BATT_CEILING_MV]
+            if len(below) >= 2:
+                (t0, v0), (t1, v1) = below[0], below[-1]
+                rate = (v0 - v1) / ((t1 - t0) / 86400)     # mV per day
+                row["mv_per_day"] = round(rate, 1)
+                if rate > 0:
+                    left = (v1 - low_mv) / rate
+                    row["days_to_low"] = round(left, 1) if left > 0 else 0
+                    lines.append(f"    falling {rate:.1f} mV/day over the steps below 2.6 V: "
+                                 + (f"about {left:.0f} days until {low_mv} mV" if left > 0 else f"already below {low_mv} mV"))
+            elif len(below) == 1 or steps[0][1] < BATT_CEILING_MV:
+                lines.append(f"    the rate needs two steps seen in the log; the first reading has no known time")
+            else:
+                lines.append(f"    2.6 V or more for the whole log; the panel shows nothing until the cell is near its end")
+        lines.append(f"    charge estimate: {int(polls)} polls at {poll_s} s, {t['draws']} screen updates, "
+                     f"sleep {BATT_SLEEP_UA:g} uA assumed: {charge_mah:.2f} mAh"
+                     + (f" of {cap:.0f} mAh ({charge_mah / cap * 100:.2f} %), {avg_ua:.1f} uA average, "
+                        f"{row['years_at_this_rate']} years at this rate" if cap and avg_ua else ""))
+        table.append(row)
+    if not lines:
+        lines.append("no tags in the log")
+    return lines, table, series
+
+
+def battery_html(table, series, low_mv=2500):
+    """A self-contained page: a summary table and, per tag with readings, a step chart of
+    the voltage over time (inline SVG, no scripts) with the low line and the screen
+    updates marked. Open it in a browser."""
+    def esc(v):
+        return html.escape(str(v))
+
+    def day(ts):
+        return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+    W, H, L, R, T, B = 720, 220, 56, 16, 12, 28
+    cols = [("mac", "MAC"), ("model", "model"), ("days", "days"), ("first_mv", "first mV"), ("last_mv", "last mV"),
+            ("min_mv", "min mV"), ("steps", "steps"), ("mv_per_day", "mV/day"), ("days_to_low", "days to low"),
+            ("polls", "polls"), ("draws", "updates"), ("charge_mah", "mAh used"), ("avg_ua", "avg uA"),
+            ("years_at_this_rate", "years at this rate")]
+    out = ["<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>OpenESL battery</title>",
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>",
+           "body{font:14px/1.4 system-ui,sans-serif;margin:24px;max-width:1000px;color:#222;background:#fff}",
+           "table{border-collapse:collapse;margin:12px 0 24px}th,td{border:1px solid #ccc;padding:4px 8px;text-align:right}",
+           "th:first-child,td:first-child{text-align:left;font-family:monospace}th{background:#f3f3f3}",
+           "h2{margin:24px 0 4px;font-size:16px}p.note{color:#555;margin:0 0 8px}svg{display:block;max-width:100%;height:auto}",
+           "</style></head><body><h1>OpenESL battery</h1>",
+           "<p class=\"note\">From <code>esl_client.py log</code>. The 2.9\" panel reports 100 mV steps and \"2600\" for 2.6 V or more; "
+           "the tag reads it every BATT_EVERY polls (hal_zbs243.c), so a step shows up to that much later. The 1.54\" cannot measure "
+           "its battery. The charge columns are estimates from docs/strombudsjett.md (polls, screen updates and an assumed "
+           "sleep current), not measurements.</p>",
+           "<table><tr>" + "".join(f"<th>{esc(h)}</th>" for _, h in cols) + "</tr>"]
+    for row in table:
+        out.append("<tr>" + "".join(f"<td>{esc('' if row[k] is None else row[k])}</td>" for k, _ in cols) + "</tr>")
+    out.append("</table>")
+    for row in table:
+        mac = row["mac"]
+        sr = series.get(mac)
+        if not sr or not sr["mv"]:
+            continue
+        t0, t1 = sr["first"], max(sr["last"], sr["mv"][-1][0])
+        span = max(1.0, t1 - t0)
+        values = [v for _, v in sr["mv"]]
+        lo = min(min(values), low_mv) - 100
+        hi = max(values) + 100
+        lo, hi = (lo // 100) * 100, -(-hi // 100) * 100
+
+        def x(ts):
+            return L + (ts - t0) / span * (W - L - R)
+
+        def y(mv):
+            return T + (hi - mv) / (hi - lo) * (H - T - B)
+
+        out.append(f"<h2>{esc(mac)} ({esc(row['model'])})</h2>")
+        out.append(f"<p class=\"note\">{day(t0)} to {day(t1)}, {esc(row['days'])} days; {esc(row['draws'])} screen updates (triangles); "
+                   f"low line at {low_mv} mV"
+                   + (f"; falling {esc(row['mv_per_day'])} mV/day, "
+                      + (f"about {esc(row['days_to_low'])} days to low" if row["days_to_low"] else "already below the low line")
+                      if row["days_to_low"] is not None else "") + "</p>")
+        svg = [f"<svg viewBox=\"0 0 {W} {H}\" width=\"{W}\" height=\"{H}\" role=\"img\" aria-label=\"battery of {esc(mac)}\">"]
+        # 2600 and up: the panel cannot see higher
+        if hi > 2600:
+            svg.append(f"<rect x=\"{L}\" y=\"{T}\" width=\"{W - L - R}\" height=\"{y(2600) - T:.1f}\" fill=\"#eee\"/>")
+        mv = lo
+        while mv <= hi:
+            svg.append(f"<line x1=\"{L}\" x2=\"{W - R}\" y1=\"{y(mv):.1f}\" y2=\"{y(mv):.1f}\" stroke=\"#ddd\"/>"
+                       f"<text x=\"{L - 6}\" y=\"{y(mv) + 4:.1f}\" font-size=\"11\" text-anchor=\"end\" fill=\"#555\">{mv}</text>")
+            mv += 100
+        svg.append(f"<line x1=\"{L}\" x2=\"{W - R}\" y1=\"{y(low_mv):.1f}\" y2=\"{y(low_mv):.1f}\" stroke=\"#c33\" stroke-dasharray=\"4 3\"/>")
+        n_ticks = min(8, max(2, int(span // 86400) + 1))
+        for i in range(n_ticks):
+            ts = t0 + span * i / (n_ticks - 1)
+            anchor = "start" if i == 0 else "end" if i == n_ticks - 1 else "middle"
+            svg.append(f"<text x=\"{x(ts):.1f}\" y=\"{H - 8}\" font-size=\"11\" text-anchor=\"{anchor}\" fill=\"#555\">{day(ts)}</text>")
+        pts = []
+        last = None
+        for ts, v in sr["mv"]:
+            if last is not None and v != last:
+                pts.append(f"{x(ts):.1f},{y(last):.1f}")     # a step: hold the old value until the new reading
+            pts.append(f"{x(ts):.1f},{y(v):.1f}")
+            last = v
+        pts.append(f"{x(t1):.1f},{y(last):.1f}")
+        svg.append(f"<polyline points=\"{' '.join(pts)}\" fill=\"none\" stroke=\"#1a66c0\" stroke-width=\"2\"/>")
+        for ts, v in sr["steps"]:
+            svg.append(f"<circle cx=\"{x(ts):.1f}\" cy=\"{y(v):.1f}\" r=\"3.5\" fill=\"#1a66c0\"/>")
+        for ts in sr["draws_at"]:
+            svg.append(f"<polygon points=\"{x(ts) - 4:.1f},{H - B} {x(ts) + 4:.1f},{H - B} {x(ts):.1f},{H - B - 7}\" fill=\"#e08a00\"/>")
+        svg.append("</svg>")
+        out.append("".join(svg))
+    out.append("</body></html>")
+    return "\n".join(out)
+
+
+BATTERY_COLUMNS = ["mac", "model", "days", "first_mv", "last_mv", "min_mv", "steps", "mv_per_day",
+                   "days_to_low", "polls", "draws", "charge_mah", "avg_ua", "years_at_this_rate"]
+
+
 def set_one(cli, args, c):
     if args.at:
         ensure_time(cli)
@@ -1151,6 +1361,13 @@ def main(argv=None):
     s.add_argument("--rounds", type=int, help="stop after this many rounds (default: run until Ctrl-C)")
     s = sub.add_parser("report", help="summarise a log from \"log\": gaps, battery, problems, AP restarts (exit 1 on any)")
     s.add_argument("file")
+    s = sub.add_parser("battery", help="battery use per tag from a log from \"log\": voltage steps over time, "
+                                       "days until low, and a charge estimate from the power budget")
+    s.add_argument("file")
+    s.add_argument("--poll-s", type=int, default=60, help="the tags' poll interval, for the charge estimate (default 60)")
+    s.add_argument("--low-mv", type=int, default=2500, help="the voltage counted as low (default 2500, as /api/health)")
+    s.add_argument("--csv", metavar="FILE", help="also write one row per tag to this CSV file")
+    s.add_argument("--html", metavar="FILE", help="also write a page with a chart per tag, to open in a browser")
 
     s = sub.add_parser("backup", help="save the AP's tags, settings, layout files and schedule to a JSON file")
     s.add_argument("file", help="where to write it (- for stdout)")
@@ -1187,6 +1404,22 @@ def main(argv=None):
             return 2
         print("\n".join(lines))
         return 0 if ok else 1
+    if args.cmd == "battery":
+        try:
+            lines, table, series = battery_analysis(read_log(args.file), args.poll_s, args.low_mv)
+            if args.csv:
+                with open(args.csv, "w", newline="", encoding="utf-8") as f:
+                    w = csv.DictWriter(f, fieldnames=BATTERY_COLUMNS)
+                    w.writeheader()
+                    w.writerows(table)
+            if args.html:
+                with open(args.html, "w", encoding="utf-8") as f:
+                    f.write(battery_html(table, series, args.low_mv))
+        except (OSError, CsvError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0
     if args.serial:
         cli = SerialClient(args.serial)
     elif not args.token and args.cmd != "serve":

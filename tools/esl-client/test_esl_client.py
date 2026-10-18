@@ -319,6 +319,66 @@ class ClientTest(unittest.TestCase):
         b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
         self.assertIn("     3 ", b9)         # 3 rounds, no problems
 
+    def test_battery(self):
+        # a 2.9" tag read every day for 30 days: 2600 (2.6 V or more) for 10 days, 2550 from day 10,
+        # 2450 from day 20 (a bounce back to 2550 on day 25 must not count as a new step), and three
+        # screen updates; a 1.54" tag that reports 0; a round the AP did not answer
+        def row(day, mac, model, mv, shown):
+            return [f"2026-11-{day:02d} 08:00:00", str(day * 86400), "", mac, model, "30", mv, "-60",
+                    shown, shown, "0", "0", ""]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2600" if day <= 10 else "2550" if day <= 20 or day == 25 else "2450"
+                    w.writerow(row(day, "00000123456789A8", "2.9", mv, "1" if day < 5 else "2" if day < 15 else "3"))
+                    w.writerow(row(day, "00000123456789B9", "1.54", "0", "7"))
+                w.writerow(["2026-11-30 09:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
+            out_csv = os.path.join(d, "batt.csv")
+            out_html = os.path.join(d, "batt.html")
+            rc, out = self.run_cli("battery", path, "--csv", out_csv, "--low-mv", "2400", "--html", out_html)
+            with open(out_csv, newline="") as f:
+                table = {r["mac"]: r for r in csv.DictReader(f)}
+            with open(out_html, encoding="utf-8") as f:
+                html = f.read()
+        self.assertEqual(rc, 0)
+        self.assertIn("2600 mV since the log started, 2550 mV from 2026-11-11 08:00, 2450 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)          # 100 mV in the 10 days between the two steps
+        self.assertIn("about 5 days until 2400 mV", out)   # (2450 - 2400) / 10
+        self.assertIn("no battery reading (0 = the tag cannot measure it)", out)
+        a8 = table["00000123456789A8"]
+        self.assertEqual((a8["first_mv"], a8["last_mv"], a8["min_mv"], a8["steps"], a8["draws"]), ("2600", "2450", "2450", "2", "2"))
+        self.assertEqual(a8["days"], "29.0")
+        self.assertEqual(a8["polls"], str(29 * 1440))
+        self.assertEqual(table["00000123456789B9"]["first_mv"], "")
+        self.assertEqual(html.count("<svg"), 1)                  # a chart for the 2.9" only
+        self.assertEqual(html.count("<circle"), 3)               # its three steps
+        self.assertEqual(html.count("<polygon"), 2)              # its two screen updates
+        self.assertIn("about 5.0 days to low", html)
+        self.assertIn("<td>00000123456789B9</td>", html)         # the 1.54" is in the table
+        # a log that starts below 2600: the first reading has no known time, so one more step gives no rate
+        # (the tag may have sat at 2500 for weeks); the second does, and "already below" shows up in the HTML
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2500" if day <= 10 else "2400" if day <= 20 else "2300"
+                    w.writerow(row(day, "00000123456789A8", "" if day == 1 else "2.9", mv, "1"))
+            rc, out = self.run_cli("battery", path, "--low-mv", "2400", "--html", os.path.join(d, "b.html"))
+            with open(os.path.join(d, "b.html"), encoding="utf-8") as f:
+                html2 = f.read()
+        self.assertIn("2500 mV since the log started, 2400 mV from 2026-11-11 08:00, 2300 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)                # from the two steps seen, not from the log start
+        self.assertIn("already below 2400 mV", out)
+        self.assertIn("already below the low line", html2)
+        self.assertIn("<td>2.9</td>", html2)                     # the model from the first row that has one
+
     def test_backup_and_restore(self):
         layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
                   "layouts": [{"name": "shelf", "fields": ["a"], "elements": [{"type": "text", "field": "a",
