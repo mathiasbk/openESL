@@ -342,6 +342,7 @@
           <div id="st-bar" class="selbar" role="group" aria-label="Ticked tags" hidden>
             <span id="st-sel-count"></span>
             <button type="button" id="st-goto" class="primary small">Send …</button>
+            <button type="button" id="st-forget" class="small" title="DELETE /api/tags/{mac}: the AP forgets the ticked tags, their content, settings and scheduled content">Forget</button>
             <button type="button" id="st-clear" class="small">Clear</button>
           </div>
         </div>
@@ -352,6 +353,7 @@
           </table>
         </div>
         <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>) or new firmware.</p>
+        <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
           <div class="form row">
