@@ -128,7 +128,7 @@ static void reset_model(void)
    2.9": screen column x = gate line x with TB = 1; row y = bit y of the source direction, MSB first. */
 static int ram_pixel(int x, int y)
 {
-#if MODEL == 154
+#if EPD_TRANSPOSE
     /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE),
        with RAM (0, 0) in the bottom right corner (EPD_ROTATE_180) */
     uint8_t m;
@@ -186,7 +186,7 @@ static void test_epd_stream(const char *out)
     CHECK_EQ(first_cmd, 0x12);                   /* software reset first */
     CHECK_EQ(gate_lines, DRAW_W);
     CHECK_EQ(xs, 0);
-#if MODEL == 154
+#if EPD_TRANSPOSE
     CHECK_EQ(xe, (DRAW_W + 7) / 8 - 1);
     CHECK_EQ(ys, 0);
     CHECK_EQ(ye, DRAW_H - 1);
@@ -222,6 +222,20 @@ static void test_epd_stream(const char *out)
         save_ppm(out);
 }
 
+/* The panel's EPD_INIT list is well formed: each count fits, and the list ends exactly
+   where it says (a wrong count would make init_panel() read past the table on the tag). */
+static void test_epd_init_table(void)
+{
+    static const uint8_t init[] = { EPD_INIT };
+    size_t i = 0;
+    while (i + 1 < sizeof(init)) {
+        if (init[i] == EPD_OP_WINDOW)
+            CHECK_EQ(init[i + 1], 0);
+        i += 2 + init[i + 1];
+    }
+    CHECK_EQ(i, sizeof(init));
+}
+
 static void test_epd_no_busy(void)
 {
     /* A display that never answers: false, and the power is switched off again */
@@ -239,6 +253,7 @@ int main(int argc, char **argv)
 {
     printf("test_epd_stream\n");
     test_epd_stream(argc > 1 ? argv[1] : NULL);
+    RUN(test_epd_init_table);
     RUN(test_epd_no_busy);
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
