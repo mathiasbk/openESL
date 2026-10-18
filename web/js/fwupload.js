@@ -173,6 +173,29 @@ export function tagUpdate(tag, pageImgs, tagfw) {
   return { choose: img.version };
 }
 
+// The page's firmware for the ticked tags (the Send card in the dashboard): one row per tag,
+// { mac, model, text, action }, action "upload" when the AP needs the page's image for it,
+// "choose" when the AP has it and is to give it to this tag too, null when there is nothing
+// to send (text says why); and the models to upload, in the order of the tags.
+export function tagFirmwarePlan(tags, pageImgs, tagfw) {
+  const rows = tags.map((tag) => {
+    const row = (text, action = null) => ({ mac: tag.mac, model: tag.model, text, action });
+    const img = pageImgs?.[tag.model];
+    const up = tagUpdate(tag, pageImgs, tagfw);
+    const from = tag.fw == null ? "" : fmtVer(tag.fw) + " \u2192 ";
+    if (up?.updating) return row(`updating to ${up.updating} (${up.text})`);
+    if (up?.update) return row(from + up.update, "upload");
+    if (up?.choose) return row(from + up.choose, "choose");
+    if (up?.text) return row(up.text);
+    if (!img) return row(tag.model ? `no ${tag.model}" firmware on this page` : "model not known yet");
+    if (!tag.ota) return row("cannot update over the radio");
+    if (tag.fw == null) return row("firmware not known yet");
+    return row(`has ${fmtVer(tag.fw)} already`);
+  });
+  const upload = [...new Set(rows.filter((r) => r.action === "upload").map((r) => r.model))];
+  return { rows, upload };
+}
+
 // Rows for the tag firmware table from GET /api/tag-firmware
 // { model, version, text, to, progress, toAll }: to says which tags the image is for,
 // progress how far they are together (fwProgress, or null when none is updating), toAll
