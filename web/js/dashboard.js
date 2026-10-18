@@ -38,6 +38,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
   let timer = null;
   let loading = false;
+  let again = false;      // refresh() was called while one was under way: read again after it
   let last = null;        // { list, health, wifi, ota, tagfw }
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
@@ -117,7 +118,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   async function refresh() {
     clearTimeout(timer);
-    if (!client || loading) return;
+    if (!client) return;
+    if (loading) {
+      again = true;
+      return;
+    }
     loading = true;
     try {
       const c = client;
@@ -144,7 +149,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     } finally {
       loading = false;
       const updating = last?.list?.tags?.some((t) => t.fw_update);
-      if (client && $("dash-auto").checked) timer = setTimeout(tick, updating ? REFRESH_UPDATING_MS : REFRESH_MS);
+      if (again) {
+        // what was read may be from before a change the page just made, e.g. a forgotten tag
+        again = false;
+        refresh();
+      } else if (client && $("dash-auto").checked) timer = setTimeout(tick, updating ? REFRESH_UPDATING_MS : REFRESH_MS);
     }
   }
 
@@ -352,6 +361,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The lines: ready-made for the list's choices, the inputs for "Your own text"
   const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()] || PRESETS.clear);
   const stFw = () => stWhat() === "fw";
+  let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
   const stRows = (tags = stTags()) => infoRows(tags, stLines(), {
@@ -412,10 +422,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const n = stTags().length;
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
-    $("st-forget").disabled = !client || sending;
+    $("st-forget").disabled = !client || sending || stBusy;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
     // the text goes to every ticked tag, also those Find or a filter hides now
-    const hidden = n - rows.filter((c) => c.checked).length;
+    const hidden = stHidden(n, rows);
     $("st-sel-count").replaceChildren(n === 1 ? "1 tag ticked" : `${n} tags ticked`,
       ...(hidden > 0 ? [Object.assign(document.createElement("span"), { className: "hidden-n", textContent: ` (${hidden} not shown)` })] : []));
     $("st-all").checked = rows.length > 0 && rows.every((c) => c.checked);
@@ -423,7 +433,13 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     stPreview();
   }
 
+  // How many of the n ticked tags Find or a filter hides now
+  function stHidden(n = stTags().length, rows = [...$("dash-tags").querySelectorAll("td.sel input")]) {
+    return n - rows.filter((c) => c.checked).length;
+  }
+
   function stChanged() {
+    $("st-forget-msg").hidden = true; // said about the tags ticked before
     stSave();
     renderSendTags();
   }
@@ -436,7 +452,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-days-label").hidden = stFw() || !usesDate(lines);
     $("st-frame-label").hidden = stFw();
     $("st-days").max = maxDays(tags.length);
-    $("st-send").disabled = !client || !tags.length || sending;
+    $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
     $("st-show").hidden = !tags.length;
     const listRow = (mac, text, cls = "") => {
@@ -545,12 +561,13 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   async function sendText(ev) {
     ev.preventDefault();
     const tags = stTags();
-    if (!client || !tags.length || sending) return;
+    if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
-    $("st-send").disabled = true;
+    stBusy = true;
+    $("st-send").disabled = $("st-forget").disabled = true;
     try {
       const { replies, note } = await sendRows(client, rows);
       const now = replies.filter((r) => !r.scheduled);
@@ -563,7 +580,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     } catch (e) {
       stMsg("Not sent: " + e.message, "error");
     } finally {
+      stBusy = false;
       $("st-send").disabled = false;
+      $("st-forget").disabled = !client;
       refresh();
     }
   }
@@ -600,15 +619,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // A tag that still polls comes back, without them.
   $("st-forget").onclick = async () => {
     const tags = stTags();
-    if (!client || !tags.length || sending) return;
+    if (!client || !tags.length || sending || stBusy) return;
     const what = tags.length === 1 ? tags[0].mac : `${tags.length} tags`;
-    if (!confirm(`Forget ${what}? The AP removes ${tags.length === 1 ? "its" : "their"} content, settings and scheduled content. ` +
+    // a tag Find or a filter hides is forgotten too, so the question says so
+    const hidden = stHidden(tags.length);
+    const unseen = !hidden ? "" : tags.length === 1 ? " (not shown in the table now)"
+      : hidden === tags.length ? " (none of them shown in the table now)" : ` (${hidden} of them not shown in the table now)`;
+    if (!confirm(`Forget ${what}${unseen}? The AP removes ${tags.length === 1 ? "its" : "their"} content, settings and scheduled content. ` +
       `A tag that still polls shows up again, as a new tag without them.`)) return;
     // asked twice: it cannot be undone
     if (!confirm(`Are you sure? Forgetting ${what} cannot be undone.`)) return;
     const c = client;
     sending = true;
-    $("st-forget").disabled = true;
+    clearTimeout(timer);
+    forgetMsg("");
+    $("st-forget").disabled = $("st-send").disabled = true;
     let n = 0;
     try {
       for (const t of tags) {
@@ -625,7 +650,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       forgetMsg((n ? `Only ${n} of ${tags.length} tags forgotten: ` : "Not forgotten: ") + e.message, "error");
     } finally {
       sending = false;
-      $("st-forget").disabled = false;
+      $("st-forget").disabled = !client;
       stSave();
       if (client === c) refresh();
     }
