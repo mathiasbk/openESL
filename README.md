@@ -70,7 +70,7 @@ The label picks the new content up at its next poll. The [Set up](https://mathia
 flowchart LR
     client["Your software<br/>(script, web shop, home automation)"]
     ap["ESP32-C6 access point<br/>HTTP API · stores text per tag"]
-    tags["Labels (ZBS243)<br/>2.9&quot; and 1.54&quot; e-paper"]
+    tags["Labels (ZBS243)<br/>2.9-inch and 1.54-inch e-paper"]
     client -- "HTTP + token<br/>(WiFi or USB)" --> ap
     ap -- "802.15.4 radio" --> tags
 ```
