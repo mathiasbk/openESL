@@ -10,7 +10,7 @@ CC      ?= cc
 ROOT    := $(abspath ..)
 TAG     := $(ROOT)/tag
 CORE    := $(ROOT)/ap/components/esl_core
-VERSION := $(shell cat $(ROOT)/VERSION)
+VERSION := $(shell python3 $(ROOT)/tools/fw_version.py tag)
 FW_VER  := $(shell echo $(VERSION) | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3}')
 
 WARN    := -Wall -Wextra -g -O1

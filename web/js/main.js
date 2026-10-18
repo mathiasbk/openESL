@@ -2,7 +2,6 @@
 import { initEditor } from "./editor.js";
 import * as zp from "./zbs.js";
 import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS as TAG_MODELS } from "./tagflash.js";
-import { loadRenderer, LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT } from "./renderer.js";
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initDashboard } from "./dashboard.js";
@@ -53,8 +52,11 @@ firmwareInfo().then((info) => {
   const built = !info ? "" : info.release
     ? `Release ${info.version}.`
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
-  $("home-fw").textContent = info ? "Firmware on this page: " + built : "";
-  $("ap-fw-info").textContent = info?.ap ? built : "No AP firmware is published with this page yet.";
+  // The AP and the tags each carry the version of the release they last changed in
+  const parts = info?.ap_version && info?.tag_version && info.ap_version !== info.tag_version
+    ? ` AP firmware ${info.ap_version}, tag firmware ${info.tag_version}.` : "";
+  $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
+  $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
   // The AP with the status screen is optional: a checkbox picks its manifest
   $("ap-lcd-choice").hidden = $("ap-lcd-note").hidden = !info?.ap_lcd;
   // The install button fetches the manifest and the image without asking the server again, so a
@@ -66,7 +68,7 @@ firmwareInfo().then((info) => {
   };
   manifest();
   $("ap-lcd").onchange = manifest;
-  $("tag-fw-info").textContent = info?.tag ? built : "No tag firmware is published with this page; choose a file.";
+  $("tag-fw-info").textContent = info?.tag ? built + (info.tag_version ? ` Tag firmware ${info.tag_version}.` : "") : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });
 
@@ -79,29 +81,7 @@ let busy = false;
 let lastMacSeen = false;
 let tagModel = "2.9";
 
-// ---------- model picker: a preview of each tag, drawn by the tag's own code ----------
-
-const PREVIEW = ["Lettmelk 1 L", "24,90", "kr 24,90/l"];
-
-async function drawModelPreviews() {
-  for (const btn of document.querySelectorAll("#tag-models .model")) {
-    try {
-      const r = await loadRenderer(btn.dataset.model);
-      const out = r.render(LAYOUT_PRICE, FLAG_PRICE_HIGHLIGHT, PREVIEW);
-      if (!out.ok) continue;
-      const c = btn.querySelector("canvas");
-      const ctx = c.getContext("2d");
-      const img = ctx.createImageData(r.width, r.height);
-      for (let i = 0; i < r.width * r.height; i++) {
-        const v = out.pixels[i] ? 17 : 255;
-        img.data.set([v, v, v, 255], i * 4);
-      }
-      ctx.putImageData(img, 0, 0);
-    } catch {
-      /* the picker still works without the picture */
-    }
-  }
-}
+// ---------- model picker: a photo of each tag ----------
 
 function selectModel(model) {
   if (busy) return;
@@ -110,7 +90,6 @@ function selectModel(model) {
 }
 
 document.querySelectorAll("#tag-models .model").forEach((b) => b.addEventListener("click", () => selectModel(b.dataset.model)));
-drawModelPreviews();
 
 const log = (text, cls) => {
   const el = $("tag-log");

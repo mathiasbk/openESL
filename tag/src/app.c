@@ -299,6 +299,7 @@ static bool layout_transfer(void)
             app.dl_ver = ver;
             app.dl_size = reply.lay_size;
             app.dl_got = 0;
+            app.lay_rejected = 0;           /* the rejection was of another version: stop reporting it */
         }
         n = reply.field_len[0];
         pos = reply.lay_pos;

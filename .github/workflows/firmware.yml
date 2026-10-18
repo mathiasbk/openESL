@@ -6,6 +6,9 @@
 #   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
 #                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
 #                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
+# The AP and the tags each get the version of the release they last changed in
+# (tools/fw_version.py), so the images of a release that changed only one of them are the
+# previous ones again for the other; the "Versions" step shows what this run built.
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
 
@@ -20,6 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Cache SDCC 4.5.0
         id: sdcc-cache
         uses: actions/cache@v6
@@ -46,6 +51,8 @@ jobs:
         with:
           name: sim-screens
           path: sim/build/*/screens/
+      - name: Versions (tools/fw_version.py)
+        run: python3 tools/fw_version.py --all
       - name: Build firmware (2.9" and 1.54")
         run: |
           MODEL=29 python3 tag/tools/build.py fw
@@ -64,12 +71,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Host tests (AP core, with AddressSanitizer)
         run: make -C ap/test SAN=1
       - name: Tool tests (esl-client against a fake AP, power budget)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
+      - name: Versions (tools/fw_version.py)
+        run: python3 tools/fw_version.py --all
       - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
         uses: espressif/esp-idf-ci-action@v1
         with:

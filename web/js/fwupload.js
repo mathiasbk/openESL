@@ -63,13 +63,17 @@ export function cmpVersion(a, b) {
 // The AP image on this page that fits the AP, from GET /api/ota and the page's info.json:
 // the one with the status screen when the AP has one ("display" in GET /api/ota; an AP
 // whose firmware does not say gets the plain one, as most have no screen).
-// { file, version, newer } or null when the page has no AP image.
+// { file, version, newer } or null when the page has no AP image. version is the AP image's
+// own (ap_version in info.json: the release the AP last changed in), so a release that
+// changed only the tags is not newer for the AP; an info.json from before it has only the
+// release's version.
 export function apImageFor(ota, info) {
   const lcd = ota?.display === true && info?.ota?.["ap-openesl-lcd"];
   const file = lcd ? "ap-openesl-lcd-ota" : info?.ota?.["ap-openesl"] ? "ap-openesl-ota" : null;
   if (!file) return null;
-  const c = cmpVersion(info.version, ota?.version);
-  return { file, version: String(info.version).replace(/^v/, ""), newer: info.release === true && c !== null && c > 0 };
+  const version = String(info.ap_version || info.version).replace(/^v/, "");
+  const c = cmpVersion(version, ota?.version);
+  return { file, version, newer: info.release === true && c !== null && c > 0 };
 }
 
 // What to ask before new AP firmware goes out: kind is firmwareKind() of the image, ota
@@ -167,6 +171,29 @@ export function tagUpdate(tag, pageImgs, tagfw) {
   // fw_update is null for a tag the image is for: it rejected it
   if (isFor(onAp, tag.mac)) return { text: `${img.version} failed` };
   return { choose: img.version };
+}
+
+// The page's firmware for the ticked tags (the Send card in the dashboard): one row per tag,
+// { mac, model, text, action }, action "upload" when the AP needs the page's image for it,
+// "choose" when the AP has it and is to give it to this tag too, null when there is nothing
+// to send (text says why); and the models to upload, in the order of the tags.
+export function tagFirmwarePlan(tags, pageImgs, tagfw) {
+  const rows = tags.map((tag) => {
+    const row = (text, action = null) => ({ mac: tag.mac, model: tag.model, text, action });
+    const img = pageImgs?.[tag.model];
+    const up = tagUpdate(tag, pageImgs, tagfw);
+    const from = tag.fw == null ? "" : fmtVer(tag.fw) + " \u2192 ";
+    if (up?.updating) return row(`updating to ${up.updating} (${up.text})`);
+    if (up?.update) return row(from + up.update, "upload");
+    if (up?.choose) return row(from + up.choose, "choose");
+    if (up?.text) return row(up.text);
+    if (!img) return row(tag.model ? `no ${tag.model}" firmware on this page` : "model not known yet");
+    if (!tag.ota) return row("cannot update over the radio");
+    if (tag.fw == null) return row("firmware not known yet");
+    return row(`has ${fmtVer(tag.fw)} already`);
+  });
+  const upload = [...new Set(rows.filter((r) => r.action === "upload").map((r) => r.model))];
+  return { rows, upload };
 }
 
 // Rows for the tag firmware table from GET /api/tag-firmware
