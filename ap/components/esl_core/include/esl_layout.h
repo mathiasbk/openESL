@@ -62,13 +62,16 @@ typedef struct {
 } esl_layout_ops_t;
 
 typedef struct {
-    uint16_t len;            /* 0 = no layout file for this model */
-    char data[ESL_LAYOUT_MAX_SIZE];
+    uint16_t len;            /* bytes in data, never 0 */
+    char *data;              /* the JSON, len bytes (not terminated) */
     esl_layout_bin_t bin;
 } esl_layout_t;
 
+/* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
+ * the AP has about 60 KB free and a file costs 1.4 KB plus its JSON, so holding
+ * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
 typedef struct {
-    esl_layout_t models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
+    esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
     esl_layout_ops_t ops;
 } esl_layouts_t;
 
@@ -81,15 +84,19 @@ typedef struct {
     char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
 } esl_layout_env_t;
 
-/* ops may be NULL (no locking, no persistence). */
+/* ops may be NULL (no locking, no persistence). ls must be zeroed (a static, or
+ * calloc) or one that was initialised before: its files are freed first. */
 void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops);
+
+/* Frees every file (nothing is persisted or erased). */
+void esl_layouts_free(esl_layouts_t *ls);
 
 /* Loads a persisted file at boot (compiling it again). Does not call
  * persist_save. False for an unknown model or a file that no longer compiles. */
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len);
 
 /* Stores a file that esl_layout_compile() accepted as bin for this model.
- * Returns the version (0 for an unknown model or a bad size). *changed is
+ * Returns the version (0 for an unknown model, a bad size, or no memory). *changed is
  * false (and nothing is persisted) when the model already has exactly this file. */
 uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
                          const esl_layout_bin_t *bin, bool *changed);

@@ -380,6 +380,8 @@ static void test_storage(void)
     uint8_t nf;
 
     esl_layouts_init(&ls, &ops);
+    /* a model holds memory only while it has a file */
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
     CHECK(!esl_layouts_info(&ls, ESL_MODEL_29, &v, &len, &bsize));
     CHECK_INT(v, 0);
     esl_layouts_env(&ls, ESL_MODEL_29, &env);
@@ -419,6 +421,8 @@ static void test_storage(void)
     CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed), v);
     CHECK(!changed);
     CHECK_INT(f.saves, 1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] != NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
+    CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
 
     uint32_t v2;
     CHECK(esl_layouts_info(&ls, ESL_MODEL_29, &v2, &len, &bsize));
@@ -479,6 +483,7 @@ static void test_storage(void)
     CHECK(!esl_layouts_delete(&ls, 0));
     CHECK_INT(f.erases, 1);
     CHECK_INT(esl_layouts_find(&ls, ESL_MODEL_29, "sign", 4, &nf), -1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL);
 
     /* restore at boot compiles the file again and does not write back */
     int saves = f.saves;
