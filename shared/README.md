@@ -20,7 +20,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `width`, `height` | the screen in the orientation the layouts use |
 | `colors` | `black`, `white` (red and yellow are refused until the firmware draws them) |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
-| `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands) |
+| `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
 | `status` | `supported`, `experimental` or `planned` |
 

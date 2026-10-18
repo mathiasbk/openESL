@@ -23,6 +23,10 @@
 /* EPD_TRANSPOSE, EPD_DATA_ENTRY, EPD_UPDATE_SEQ, EPD_INIT, ... for the model's panel
  * (tag/src/panels/, "panel" in shared/models.json) */
 #include MODEL_PANEL_H
+#if !defined(EPD_TRANSPOSE) || !defined(EPD_ROTATE_180) || !defined(EPD_DATA_ENTRY) || \
+    !defined(EPD_GATE_SCAN) || !defined(EPD_UPDATE_SEQ) || !defined(EPD_WRITE_TEMP) || !defined(EPD_INIT)
+#error "the panel header must define EPD_TRANSPOSE, EPD_ROTATE_180, EPD_DATA_ENTRY, EPD_GATE_SCAN, EPD_UPDATE_SEQ, EPD_WRITE_TEMP and EPD_INIT (EPD_SLEEP_CTRL1 and EPD_TEMP_C are optional)"
+#endif
 
 #if DRAW_H > 248
 #error "a column is indexed with uint8_t; DRAW_H must stay below 249"

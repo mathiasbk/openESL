@@ -49,8 +49,6 @@
  * EPD_ROTATE_180, EPD_DATA_ENTRY, EPD_GATE_SCAN, EPD_UPDATE_SEQ, EPD_WRITE_TEMP (with
  * EPD_TEMP_C), optionally EPD_SLEEP_CTRL1, and the EPD_INIT byte list.
  */
-#define EPD_OP_WINDOW       0xFF   /* in EPD_INIT: set_window() goes here */
-
 static const uint8_t __code panel_init[] = { EPD_INIT };
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
