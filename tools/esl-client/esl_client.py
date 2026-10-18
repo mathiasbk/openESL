@@ -33,6 +33,7 @@ With --tags tags.csv (mac,item) the file has an item column instead of mac.
 import argparse
 import csv
 import datetime
+import html
 import io
 import json
 import os
@@ -886,12 +887,14 @@ def report(rows):
 
 # ---- battery analysis from the log ---------------------------------------------------------
 
-# Charge per answered POLL and per screen update, from docs/strombudsjett.md (estimates,
-# nothing is measured with a current meter yet): 12 ms awake per poll, 3.4 s per update.
-BATT_POLL_MC = 0.11
-BATT_DRAW_MC = {"2.9": 26.0, "1.54": 22.0}
-BATT_SLEEP_UA = 3.0                          # assumed sleep current, the same source
-BATT_CELL_MAH = {"2.9": 2 * 620 * 0.7, "1.54": 620 * 0.7}   # CR2450, 70 % usable
+# The same figures as tools/power-budget/power_budget.py (docs/strombudsjett.md): estimates,
+# nothing is measured with a current meter yet.
+BATT_POLL_MC = 0.08                          # one answered POLL, 5 ms core + 5 ms radio
+BATT_DRAW_MC = 22.0                          # one screen update, 3.2 s with the core awake
+BATT_SLEEP_UA = 3.0                          # assumed sleep current
+BATT_CELLS = {"2.9": 2, "1.54": 1}           # CR2450 in parallel
+BATT_CELL_MAH = 620                          # nominal, 70 % counted usable
+BATT_SELF_UA_PER_CELL = BATT_CELL_MAH * 0.01 / 8760 * 1000   # 1 % a year
 BATT_CEILING_MV = 2600                       # the panel only says "above every threshold"
 
 
@@ -900,7 +903,9 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
     panel reports 100 mV steps from 2250 up to "2600 or more"; the 1.54" reports 0), when
     each lower step was first reached, the rate in mV per day worked out from those
     steps, the time left until low_mv at that rate, and a rough charge count from the
-    power budget (polls at poll_s, and one update per change of shown_content_id).
+    power budget (polls at poll_s, and one update per change of shown_content_id). A log
+    that starts below 2600 only says the tag was there "since the log started": that
+    step has no known time and is left out of the rate.
     Returns (lines, table, series): table has one dict per tag for --csv, series the
     readings, steps and update times per tag for --html."""
     def num(v):
@@ -916,8 +921,9 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
     for r in rows:
         if not r["mac"] or r["ap_reset"] == "no answer":
             continue
-        t = per.setdefault(r["mac"], {"model": r["model"], "first": None, "last": None, "mv": [],
+        t = per.setdefault(r["mac"], {"model": "", "first": None, "last": None, "mv": [],
                                        "draws": 0, "shown": None, "rounds": 0, "draws_at": []})
+        t["model"] = t["model"] or r["model"]
         ts = when(r["time"])
         t["first"] = ts if t["first"] is None else min(t["first"], ts)
         t["last"] = ts if t["last"] is None else max(t["last"], ts)
@@ -938,17 +944,17 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
         span_s = max(0.0, t["last"] - t["first"]) if t["first"] is not None else 0.0
         days = span_s / 86400
         polls = span_s / poll_s
-        draw_mc = BATT_DRAW_MC.get(model, 22.0)
-        charge_mc = polls * BATT_POLL_MC + t["draws"] * draw_mc + BATT_SLEEP_UA / 1000 * span_s
+        charge_mc = polls * BATT_POLL_MC + t["draws"] * BATT_DRAW_MC + BATT_SLEEP_UA / 1000 * span_s
         charge_mah = charge_mc / 3600
-        cap = BATT_CELL_MAH.get(model)
+        cells = BATT_CELLS.get(model)
+        cap = cells * BATT_CELL_MAH * 0.7 if cells else None
         avg_ua = (charge_mc / span_s * 1000) if span_s else 0.0
         row = {"mac": mac, "model": model, "days": round(days, 2), "first_mv": None, "last_mv": None,
                "min_mv": None, "steps": 0, "mv_per_day": None, "days_to_low": None,
                "polls": int(polls), "draws": t["draws"], "charge_mah": round(charge_mah, 3),
                "avg_ua": round(avg_ua, 2), "years_at_this_rate": None}
-        if cap and avg_ua:
-            row["years_at_this_rate"] = round(cap / (avg_ua / 1000) / 8760, 1)
+        if cap and avg_ua:   # with the cells' self-discharge; their shelf life (about 10 years) caps it anyway
+            row["years_at_this_rate"] = round(cap / ((avg_ua + cells * BATT_SELF_UA_PER_CELL) / 1000) / 8760, 1)
         lines.append(f"{mac}  {model}  {days:.1f} days in the log, {t['rounds']} rounds")
         mvs = sorted(t["mv"])
         series[mac] = {"mv": mvs, "steps": [], "draws_at": sorted(t["draws_at"]), "first": t["first"], "last": t["last"]}
@@ -965,10 +971,13 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
                     steps.append((ts, v))
             row["steps"] = len(steps) - 1
             series[mac]["steps"] = steps
-            desc = ", ".join(f"{v} mV from {time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}" for ts, v in steps)
+            desc = ", ".join(f"{v} mV {'since the log started' if i == 0 else 'from ' + time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}"
+                             for i, (ts, v) in enumerate(steps))
             lines.append(f"    readings: {desc}"
                          + (" (2600 = 2.6 V or more; the panel cannot see higher)" if steps[0][1] >= BATT_CEILING_MV else ""))
-            below = [s for s in steps if s[1] < BATT_CEILING_MV]
+            # the rate needs two steps that were seen happening: the first reading in the log
+            # has no known time (the tag may have been there for weeks already)
+            below = [s for s in steps[1:] if s[1] < BATT_CEILING_MV]
             if len(below) >= 2:
                 (t0, v0), (t1, v1) = below[0], below[-1]
                 rate = (v0 - v1) / ((t1 - t0) / 86400)     # mV per day
@@ -978,8 +987,8 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
                     row["days_to_low"] = round(left, 1) if left > 0 else 0
                     lines.append(f"    falling {rate:.1f} mV/day over the steps below 2.6 V: "
                                  + (f"about {left:.0f} days until {low_mv} mV" if left > 0 else f"already below {low_mv} mV"))
-            elif len(below) == 1:
-                lines.append(f"    one step below 2.6 V so far; the rate needs a second one")
+            elif len(below) == 1 or steps[0][1] < BATT_CEILING_MV:
+                lines.append(f"    the rate needs two steps seen in the log; the first reading has no known time")
             else:
                 lines.append(f"    2.6 V or more for the whole log; the panel shows nothing until the cell is near its end")
         lines.append(f"    charge estimate: {int(polls)} polls at {poll_s} s, {t['draws']} screen updates, "
@@ -997,7 +1006,7 @@ def battery_html(table, series, low_mv=2500):
     the voltage over time (inline SVG, no scripts) with the low line and the screen
     updates marked. Open it in a browser."""
     def esc(v):
-        return str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return html.escape(str(v))
 
     def day(ts):
         return time.strftime("%Y-%m-%d", time.localtime(ts))
@@ -1015,8 +1024,9 @@ def battery_html(table, series, low_mv=2500):
            "h2{margin:24px 0 4px;font-size:16px}p.note{color:#555;margin:0 0 8px}svg{display:block;max-width:100%;height:auto}",
            "</style></head><body><h1>OpenESL battery</h1>",
            "<p class=\"note\">From <code>esl_client.py log</code>. The 2.9\" panel reports 100 mV steps and \"2600\" for 2.6 V or more; "
-           "the tag reads it once a day. The 1.54\" cannot measure its battery. The charge columns are estimates from "
-           "docs/strombudsjett.md (polls, screen updates and an assumed sleep current), not measurements.</p>",
+           "the tag reads it every BATT_EVERY polls (hal_zbs243.c), so a step shows up to that much later. The 1.54\" cannot measure "
+           "its battery. The charge columns are estimates from docs/strombudsjett.md (polls, screen updates and an assumed "
+           "sleep current), not measurements.</p>",
            "<table><tr>" + "".join(f"<th>{esc(h)}</th>" for _, h in cols) + "</tr>"]
     for row in table:
         out.append("<tr>" + "".join(f"<td>{esc('' if row[k] is None else row[k])}</td>" for k, _ in cols) + "</tr>")
@@ -1041,8 +1051,10 @@ def battery_html(table, series, low_mv=2500):
 
         out.append(f"<h2>{esc(mac)} ({esc(row['model'])})</h2>")
         out.append(f"<p class=\"note\">{day(t0)} to {day(t1)}, {esc(row['days'])} days; {esc(row['draws'])} screen updates (triangles); "
-                   f"low line at {low_mv} mV" + (f"; falling {esc(row['mv_per_day'])} mV/day, about {esc(row['days_to_low'])} days to low"
-                                                 if row["days_to_low"] else "") + "</p>")
+                   f"low line at {low_mv} mV"
+                   + (f"; falling {esc(row['mv_per_day'])} mV/day, "
+                      + (f"about {esc(row['days_to_low'])} days to low" if row["days_to_low"] else "already below the low line")
+                      if row["days_to_low"] is not None else "") + "</p>")
         svg = [f"<svg viewBox=\"0 0 {W} {H}\" width=\"{W}\" height=\"{H}\" role=\"img\" aria-label=\"battery of {esc(mac)}\">"]
         # 2600 and up: the panel cannot see higher
         if hi > 2600:
