@@ -4,7 +4,7 @@ Generates the code that lists the tag models from the registry, shared/models.js
 
   shared/models_gen.h          ESL_MODEL_* codes, screen sizes, ESL_MODEL_COUNT and ESL_MODEL_LIST
                                (AP, simulator, tag and web renderer, through shared/proto.h)
-  tag/src/model_gen.h          MODEL_CODE, MODEL_NAME, DRAW_W/H, MODEL_HAS_RED for -DMODEL=<build>
+  tag/src/model_gen.h          MODEL_CODE, MODEL_NAME, DRAW_W/H, MODEL_HAS_RED, MODEL_PANEL_H for -DMODEL=<build>
   web/js/models.js             the models for the web page
   tools/esl-client/esl_client.py   the block between "BEGIN models" and "END models" (the client
                                is a single file people copy, so it carries its own copy)
@@ -31,7 +31,7 @@ CHIPS = ("zbs243",)
 COLORS = ("black", "white", "red", "yellow")
 STATUSES = ("supported", "experimental", "planned")
 FIELDS = ("code", "build", "name", "id", "label", "product", "chip", "radio", "width", "height",
-          "colors", "mac_code", "status")
+          "colors", "mac_code", "panel", "status")
 
 
 def validate(ms):
@@ -57,6 +57,9 @@ def validate(ms):
             errors.append("%s: bad screen size" % where)
         if not 0 <= m["mac_code"] <= 255:
             errors.append("%s: mac_code is one byte" % where)
+        if not re.fullmatch(r"[a-z0-9-]+", m["panel"]) or \
+                not os.path.exists(os.path.join(ROOT, "tag", "src", "panels", m["panel"] + ".h")):
+            errors.append("%s: panel %s has no header tag/src/panels/%s.h" % (where, m["panel"], m["panel"]))
         if "photo" in m and not os.path.exists(os.path.join(ROOT, "web", m["photo"].get("file", ""))):
             errors.append("%s: photo %s is not in web/" % (where, m["photo"].get("file")))
         if m["chip"] == "zbs243" and m["height"] > 248:
@@ -131,6 +134,7 @@ def gen_tag_h(ms):
                 "#define MODEL_HAS_RED    %d" % int(m["has_red"]),
                 "#define DRAW_W           %d" % m["width"],
                 "#define DRAW_H           %d" % m["height"],
+                "#define MODEL_PANEL_H    %s" % c_str("panels/" + m["panel"] + ".h"),
                 "/* the same model in shared/models_gen.h, for the checks in proto.c and layout.c */",
                 "#define MODEL_ESL_CODE   ESL_MODEL_%s" % m["build"],
                 "#define MODEL_ESL_W      ESL_MODEL_%s_W" % m["build"],

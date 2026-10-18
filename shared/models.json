@@ -14,6 +14,7 @@
       "height": 128,
       "colors": ["black", "white"],
       "mac_code": "0x3B",
+      "panel": "ssd16xx-29",
       "photo": {"file": "img/tag-29.jpg", "width": 529, "height": 280},
       "status": "supported"
     },
@@ -30,6 +31,7 @@
       "height": 200,
       "colors": ["black", "white"],
       "mac_code": "0x34",
+      "panel": "ssd16xx-154",
       "photo": {"file": "img/tag-154.jpg", "width": 245, "height": 280},
       "status": "supported"
     }
