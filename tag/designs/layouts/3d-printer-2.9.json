@@ -6,7 +6,7 @@
   "layouts": [
     {
       "name": "prusa",
-      "description": "Printer name, file name, progress in large digits, time left, finish time and a progress bar. The bar is an inverted field of spaces: 31 spaces fill it",
+      "description": "Optional name (empty, file name or material), progress in large digits, time left, finish time and a progress bar. The bar is an inverted field of spaces: 31 spaces fill it",
       "fields": ["name", "pct", "left", "done", "bar"],
       "elements": [
         { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 26, "color": "black" },

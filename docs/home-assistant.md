@@ -3,8 +3,8 @@
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
 Replace these before you paste:
-- `192.168.3.169`: the IP of your AP (or `openesl.local`)
-- `000001C27E3B3B17`: the full MAC of the tag (16 hex digits), from `GET /api/tags` or the dashboard
+- `openesl.local`: the name of your AP on the network (or its IP)
+- `00000123456789A8`: the full MAC of the tag (16 hex digits), from `GET /api/tags` or the dashboard
 - `sensor.printer_*`: your own entities for status, progress (%), time remaining (minutes) and file name
 
 ## 1. `secrets.yaml`
@@ -18,7 +18,7 @@ esl_auth: "Bearer YOUR_API_TOKEN"
 ```yaml
 rest_command:
   esl_tag_text:
-    url: "http://192.168.3.169/api/tags/{{ mac }}"
+    url: "http://openesl.local/api/tags/{{ mac }}"
     method: PUT
     headers:
       Authorization: !secret esl_auth
@@ -58,7 +58,7 @@ actions:
       name: "{{ states('sensor.printer_task_name')[:20] }}"
   - action: rest_command.esl_tag_text
     data:
-      mac: "000001C27E3B3B17"
+      mac: "00000123456789A8"
       fields: >-
         {%- if status == 'printing' -%}
         {{ ['Printing: ' ~ pct ~ ' %', name,
@@ -113,7 +113,7 @@ actions:
         {{ (((([fin - as_timestamp(now()), 0] | max) / 600) | round(0, 'ceil')) | int * 10) if fin else 0 }}
   - action: rest_command.esl_tag_text
     data:
-      mac: "000001C27E3B3B17"
+      mac: "00000123456789A8"
       layout: prusa
       # name, pct, left, done, bar (31 spaces = full bar)
       fields: >-
@@ -140,6 +140,6 @@ actions:
 Developer tools → Actions → `rest_command.esl_tag_text`:
 
 ```yaml
-mac: "000001C27E3B3B17"
+mac: "00000123456789A8"
 fields: ["Printing: 42 %", "Benchy.3mf", "Left: 1 h 25 min", "Done at 17:40"]
 ```
