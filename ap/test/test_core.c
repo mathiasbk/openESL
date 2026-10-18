@@ -301,7 +301,7 @@ void test_proto(void)
     CHECK_INT(p.layout_ver, 0);
 
     /* Both: cfg_ver at 12-13 and the layout version at 14-17, as the tag sends it */
-    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0x11223344u, 0};
+    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0x11223344u};
     CHECK_INT(esl_poll_build(buf, &p3), ESL_POLL_LEN_LAYOUT);
     CHECK_MEM(&buf[12], "\xEF\xBE\x44\x33\x22\x11", 6);
     CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LAYOUT, &p));
@@ -365,7 +365,7 @@ void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);

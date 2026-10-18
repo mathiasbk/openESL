@@ -25,8 +25,6 @@ typedef struct {
     uint16_t cfg_ver;    /* the settings the tag uses now; 0 = its built-in defaults */
     bool has_layout_ver; /* POLL of 18 bytes or more: the tag can download layout files */
     uint32_t layout_ver; /* its layout file version, 0 = none */
-    uint8_t seq;         /* the frame's sequence number (set by esl_radio, not the payload): a POLL
-                          * the tag sends again because no answer came has the same one */
 } esl_poll_t;
 
 /* Tag settings carried by CONFIG. 0 in a field = the tag's built-in default. */

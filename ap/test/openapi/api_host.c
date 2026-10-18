@@ -162,7 +162,7 @@ int main(void)
             uint8_t reply[ESL_MAX_PAYLOAD];
             esl_layout_env_t env;
             esl_poll_t p = {2, 2950, shown, 0, (uint8_t)model, true, 0, strcmp(ver_s, "-") != 0,
-                            (uint32_t)strtoul(ver_s, NULL, 10), 0};
+                            (uint32_t)strtoul(ver_s, NULL, 10)};
             esl_layouts_env(&layouts, (uint8_t)model, &env);
             esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
             puts("OK");

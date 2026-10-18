@@ -277,12 +277,15 @@ static void test_offer(void)
     CHECK_INT(upload(total), 200);
     bad.fw_bad = false;
     {
-        /* The offer is lost, and the tag sends the same POLL (same seq) again, still with
-           the fail flag for 101: that is not a rejection of 102, which is offered again */
+        /* The offer is lost, both to the POLL and to the same POLL sent again, and the tag
+           polls again in its next round, still with the fail flag for 101: that is not a
+           rejection of 102, which it never started on, and 102 is offered again */
         uint8_t prx[ESL_PSDU_MAX], ptx[ESL_PSDU_MAX];
         size_t pn = esl_faketag_poll(&bad, PAN, prx);
         CHECK(esl_radio_handle(&st, &layouts, PAN, prx, pn, -50, 0, ptx, NULL) > 0);
         CHECK_INT(ptx[ESL_MHR_LEN + ESL_OFF_TYPE], ESL_MSG_FW);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, prx, pn, -50, 0, ptx, NULL) > 0);
+        pn = esl_faketag_poll(&bad, PAN, prx);
         size_t pm = esl_radio_handle(&st, &layouts, PAN, prx, pn, -50, 0, ptx, NULL);
         CHECK_INT(esl_faketag_receive(&bad, ptx, pm), ESL_MSG_FW);
         CHECK_INT(bad.fw_failed, 0);

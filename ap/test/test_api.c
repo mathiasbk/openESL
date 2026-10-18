@@ -38,7 +38,7 @@ static uint32_t json_u32(const char *s, const char *key)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0, 0};
+    esl_poll_t p = {2, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -126,7 +126,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -341,15 +341,11 @@ static void test_batch_and_list(void)
 char *read_example_layout(const char *name, size_t *len); /* test_layout.c */
 
 /* A tag that polls with model and (for new firmware) its layout file version. */
-/* Each POLL a new sequence number, as a tag sends them: the same one is a POLL sent again */
-static uint8_t poll_seq;
-
 static void poll_model(uint64_t mac, uint8_t model, bool capable, uint32_t layout_ver, uint8_t flags)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, flags, model, .has_layout_ver = capable, .layout_ver = layout_ver,
-                    .seq = ++poll_seq};
+    esl_poll_t p = {2, 2950, 0, flags, model, .has_layout_ver = capable, .layout_ver = layout_ver};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -495,11 +491,16 @@ static void test_layouts(void)
     poll_model(0x29, ESL_MODEL_29, true, 0, 0);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"layout_version\":0,\"layout_pending\":true,\"layout_failed\":false,"));
-    /* the same POLL sent again (its answer was lost) with the flag for an older file: not a rejection */
-    poll_seq--;
+    /* the flag before the tag started on the file (the offer was lost) is about an older one */
+    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
     poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
+    esl_store_offer_taken(&st, 0x29, false, v + 1); /* another version: not this offer */
+    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
+    esl_store_offer_taken(&st, 0x29, false, v); /* it asked for a block, then rejected the file */
     poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":true,"));
@@ -595,7 +596,7 @@ static void test_status_page(void)
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0};
+    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
@@ -627,7 +628,7 @@ static void test_status_page(void)
         snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                  i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
         CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0, 0};
+        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0};
         uint8_t reply[ESL_MAX_PAYLOAD];
         esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
     }
@@ -693,7 +694,7 @@ static void test_config_api(void)
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -709,7 +710,7 @@ static void test_config_api(void)
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
         CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 4294967295u, 0};
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 4294967295u};
         esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
         esl_set_result_t r;
@@ -852,7 +853,7 @@ static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t f
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     /* layout_ver 1: firmware without layout files */
-    esl_poll_t p = {2, battery, shown, flags, ESL_MODEL_29, false, 0, layout_ver != 1, layout_ver, ++poll_seq};
+    esl_poll_t p = {2, battery, shown, flags, ESL_MODEL_29, false, 0, layout_ver != 1, layout_ver};
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);
     esl_store_on_poll(&st, mac, &p, -61, now, &env, reply);
@@ -909,6 +910,7 @@ static void test_health(void)
     uint32_t ver;
     CHECK(esl_layouts_info(&layouts, ESL_MODEL_29, &ver, NULL, NULL));
     poll_flags(1, id, 2950, 0, 0, now);                    /* offered the file */
+    esl_store_offer_taken(&st, 1, false, ver);             /* took it */
     poll_flags(1, id, 2950, ESL_POLL_F_LAYOUTFAIL, 0, now); /* and rejected it */
     /* tag 3 gets content with a named layout, but its firmware has no layout files */
     CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"sign\",\"fields\":[\"a\"]}", 0), 200);

@@ -125,15 +125,13 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     if (poll->has_layout_ver && poll->layout_ver == v)
         t->layout_failed = 0;
     if (poll->has_layout_ver && poll->layout_ver != v) {
-        /* The flag stays on until the tag starts on another version, so the POLL the
-           offer answered, sent again because the answer was lost, still has it: that is
-           about an older version, not a rejection of v */
-        if ((poll->flags & ESL_POLL_FLAG_LAYOUT_FAILED) && v && t->layout_offered == v &&
-            t->layout_offer_seq != poll->seq + 1u)
+        /* The flag stays on until the tag starts on another version: before it has,
+           the flag is about an older one (see esl_store_offer_taken) */
+        if ((poll->flags & ESL_POLL_FLAG_LAYOUT_FAILED) && v && t->layout_offered == v && t->layout_taken)
             t->layout_failed = v;
         if (!v || t->layout_failed != v) {
             t->layout_offered = v;
-            t->layout_offer_seq = poll->seq + 1u;
+            t->layout_taken = false;
             return 0;
         }
     }
@@ -405,15 +403,15 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     int idx = find(st, mac);
     if (idx >= 0) {
         esl_tag_t *t = &st->tags[idx];
-        /* Not from the POLL the offer answered, sent again: see poll_answer */
-        if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered && t->fw_offer_seq != poll->seq + 1u)
+        /* Only once it started on it: see esl_store_offer_taken */
+        if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered && t->fw_taken)
             t->fw_failed = t->fw_offered;
         if (ver && poll->fw_ver == ver)
             t->fw_failed = 0;
         offer = ver && (poll->flags & ESL_POLL_F_OTA) && poll->fw_ver != ver && t->fw_failed != ver;
         if (offer) {
             t->fw_offered = ver;
-            t->fw_offer_seq = poll->seq + 1u;
+            t->fw_taken = false;
         }
     }
     unlock(st);
@@ -427,6 +425,20 @@ void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end
     if (idx >= 0) {
         st->tags[idx].fw_got_ver = ver;
         st->tags[idx].fw_got = end;
+    }
+    unlock(st);
+}
+
+void esl_store_offer_taken(esl_store_t *st, uint64_t mac, bool fw, uint32_t ver)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = &st->tags[idx];
+        if (fw && ver && t->fw_offered == ver)
+            t->fw_taken = true;
+        if (!fw && ver && t->layout_offered == ver)
+            t->layout_taken = true;
     }
     unlock(st);
 }

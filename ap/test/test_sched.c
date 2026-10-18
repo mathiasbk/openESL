@@ -155,7 +155,7 @@ static void test_core(void)
 
 static uint16_t poll_next(uint64_t mac, uint64_t now_ms, uint8_t *type)
 {
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0};
     uint8_t reply[ESL_MAX_PAYLOAD];
     CHECK(esl_store_on_poll(&st, mac, &p, -61, now_ms, NULL, reply) > 0);
     if (type)

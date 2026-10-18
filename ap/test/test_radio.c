@@ -105,7 +105,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -644,6 +644,7 @@ static void test_layout_rejected_and_old_firmware(void)
     CHECK_INT(put("00000000000008AD", SHELF), 200);
     uint8_t rx[ESL_PSDU_MAX];
     CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT); /* offered v1 */
+    esl_store_offer_taken(&st, 0x8AD, false, v1); /* it asked for the rest of the file */
     t.dl_ver = 0;
     t.layout_rejected = v1; /* as if the CRC or the structure check had failed */
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
@@ -668,6 +669,23 @@ static void test_layout_rejected_and_old_firmware(void)
     CHECK_INT(t.drawn_elements, 5);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AD", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"layout_failed\":false"));
+
+    /* a file small enough to go whole in the offer: the tag asks for no block, and its
+       flag after that is a rejection of this version */
+    static const char tiny[] = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+                               "{\"name\":\"sign\",\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\","
+                               "\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}]}";
+    CHECK_INT(put_layout("2.9", tiny, sizeof(tiny) - 1), 200);
+    uint32_t v3 = version_of(ESL_MODEL_29);
+    esl_faketag_init(&t, 0x8AE, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
+    CHECK_INT(t.layout_blocks, 1);
+    t.dl_ver = 0;
+    t.layout_ver = 0;
+    t.layout_rejected = v3;
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AE", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout_failed\":true"));
 
     free(f2);
     free(f29);
