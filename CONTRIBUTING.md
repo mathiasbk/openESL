@@ -29,7 +29,7 @@ python tools/check.py --docker   # every step in Docker (Windows, macOS)
 python tools/check.py tag web    # only some steps; --list shows them
 ```
 
-CI is the last check, not the place to find out whether the code builds. If you change firmware, also try it on real hardware if you can, and say in the pull request whether you did.
+The tag firmware needs SDCC 4.5.0 exactly (`setup.sh` installs it); the 4.2 from apt fails to build it. CI is the last check, not the place to find out whether the code builds. If you change firmware, also try it on real hardware if you can, and say in the pull request whether you did.
 
 New hardware facts (registers, timings, pinouts) go in [docs/kildelogg.md](docs/kildelogg.md) with where they came from. Do not copy code from other firmware for the same hardware: OpenESL is written from scratch (see "A clean implementation" in the README).
 

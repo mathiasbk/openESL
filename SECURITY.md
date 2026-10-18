@@ -12,7 +12,7 @@ Only the newest release gets fixes. Update the AP and the tags to it before repo
 
 These are known and documented, not secrets:
 
-- **The radio has no security yet.** Frames between the AP and the tags are not authenticated or encrypted (requirement T16 is on hold). Anyone in radio range who speaks the protocol can send content to a tag.
+- **The radio has no security yet.** Frames between the AP and the tags are not authenticated or encrypted (requirement T16 is planned for later). Anyone in radio range who speaks the protocol can send content to a tag.
 - **Tag firmware over the radio is not signed.** For the same reason, anyone in radio range can install firmware on a tag ([docs/tag-ota.md](docs/tag-ota.md), "Security"). This was chosen on purpose, to have OTA now.
 - **The HTTP API is plain HTTP** on the local network, with a bearer token. Keep the AP on a network you trust, or behind a VPN. Five wrong tokens lock the API for 60 seconds.
 - **The USB port needs no token.** Anyone with the AP in their hands can change it.

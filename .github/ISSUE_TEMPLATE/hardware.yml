@@ -33,4 +33,4 @@ body:
     id: backup
     attributes:
       label: Flash backup
-      description: If you have read the flash, attach it or say where it can be found, and how you read it.
+      description: If you have read the flash, say so and how you read it. Do not attach it here; it is the maker's firmware, and we will ask for it privately if it helps.

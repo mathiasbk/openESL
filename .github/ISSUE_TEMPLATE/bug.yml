@@ -35,7 +35,7 @@ body:
     id: hardware
     attributes:
       label: Hardware
-      placeholder: 'ESP32-C6 DevKit, ST-GM29XX2 (2.9"), MAC 0000...'
+      placeholder: 'ESP32-C6 Super Mini, ST-GM29XX2 (2.9"), MAC 0000...'
   - type: textarea
     id: logs
     attributes:
