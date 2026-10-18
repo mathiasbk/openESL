@@ -256,7 +256,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
 
 esp_err_t layouts_nvs_init(esl_layouts_t *ls)
 {
-    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase};
+    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase, NULL};
     if (!mutex)
         return ESP_ERR_INVALID_STATE; /* store_nvs_init() creates it */
     esl_layouts_init(ls, &ops);
