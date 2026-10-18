@@ -5,7 +5,8 @@
 ## Tag models: `models.json`
 
 The one list of tag models. Everything else is generated from it or reads it, so a new model
-is one entry here, an example layout file (`tag/designs/layouts/<name>.json`) and
+is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a panel header
+(`tag/src/panels/<panel>.h`, unless it drives the screen like one that exists) and
 `python tools/gen_models.py`:
 
 | Field | Meaning |
@@ -19,6 +20,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`) an
 | `width`, `height` | the screen in the orientation the layouts use |
 | `colors` | `black`, `white` (red and yellow are refused until the firmware draws them) |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
+| `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
 | `status` | `supported`, `experimental` or `planned` |
 

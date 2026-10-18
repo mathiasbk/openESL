@@ -8,7 +8,9 @@
  * direction (EPD_DATA_ENTRY).
  * No custom waveform: the update uses the display's OTP waveform.
  *
- * The window and line count come from model.h (DRAW_W lines of DRAW_H pixels). On a
+ * The window and line count come from model.h (DRAW_W lines of DRAW_H pixels), and how
+ * the panel is driven (RAM direction, update sequence, init commands) from the model's
+ * panel header in panels/, so a new panel is a header, not a change here. On a
  * black/white-only model (MODEL_HAS_RED = 0) only the black plane is written.
  * UNCONFIRMED for the 1.54" (ST-GM16XX2, 200 x 200): that it is an SSD16xx at all,
  * and whether its controller wants the second RAM (0x26) written too before a full update.
@@ -40,35 +42,16 @@
 
 #define EPD_BW_INVERT       1      /* 1 = the black plane stores 1 for white */
 #define EPD_BUSY_TIMEOUT_MS 30000u /* a red update takes 15-20 s */
-#if MODEL == 154
-#define EPD_UPDATE_SEQ      0xD7   /* stock firmware, with the temperature from 0x1A */
-#define EPD_TEMP_C          25     /* TODO phase 6: the ZBS243 temperature sensor */
-#else
-#define EPD_UPDATE_SEQ      0xF7   /* full update with the OTP waveform */
-#endif
-#if MODEL == 154
+
 /*
- * On this panel a RAM line (Y) is a screen row, so one layout column cannot be
- * one RAM line: that gave a transposed image (rotated and mirrored, seen on the
- * tag 2026-10-14). Instead 8 layout columns are transposed into one RAM byte
- * column (X), and the counter runs down Y first.
- * RAM (0, 0) is the bottom right corner when the tag is held the right way up, so
- * the image is also turned 180 degrees (it was upside down on the tag 2026-10-16).
+ * How the panel is driven comes from the model's panel header (tag/src/panels/, chosen
+ * with "panel" in shared/models.json, included by model.h): EPD_TRANSPOSE,
+ * EPD_ROTATE_180, EPD_DATA_ENTRY, EPD_GATE_SCAN, EPD_UPDATE_SEQ, EPD_WRITE_TEMP (with
+ * EPD_TEMP_C), optionally EPD_SLEEP_CTRL1, and the EPD_INIT byte list.
  */
-#define EPD_TRANSPOSE       1
-#define EPD_ROTATE_180      1
-#define EPD_DATA_ENTRY      0x07   /* X+ and Y+, Y first */
-#else
-/*
- * One layout column per RAM line (Y = gate line). With the gates scanned from G0 the
- * text came out mirrored left to right (seen on a 2.9" tag 2026-10-17), so the gates
- * are scanned from the last line back to G0 instead (EPD_GATE_SCAN, the TB bit of
- * driver output control 0x01).
- */
-#define EPD_TRANSPOSE       0
-#define EPD_DATA_ENTRY      0x03   /* X+ and Y+, X first */
-#define EPD_GATE_SCAN       0x01   /* TB = 1: G295 to G0 */
-#endif
+#define EPD_OP_WINDOW       0xFF   /* in EPD_INIT: set_window() goes here */
+
+static const uint8_t __code panel_init[] = { EPD_INIT };
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
 static uint8_t __xdata col_red[DRAW_COL_BYTES];
@@ -234,35 +217,22 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
 
 static void init_panel(void)
 {
-#if MODEL == 154
+    uint8_t i = 0, n;
+
     cmd(CMD_DRIVER_OUTPUT);            /* gate lines */
     data((uint8_t)(DRAW_W - 1));
     data((uint8_t)((DRAW_W - 1) >> 8));
-    data(0x00);
-    cmd(CMD_DUMMY_LINE);
-    data(0x1B);
-    cmd(CMD_GATE_TIME);
-    data(0x0B);
-    set_window();
-    cmd(CMD_BORDER);
-    data(0x33);
-    cmd(CMD_SOFT_START);
-    data(0xC7);
-    data(0x8F);
-    data(0x8F);
-    cmd(CMD_UPDATE_CTRL1);
-    data(0x83);
-#else
-    cmd(CMD_DRIVER_OUTPUT);            /* 296 lines */
-    data((uint8_t)(DRAW_W - 1));
-    data((uint8_t)((DRAW_W - 1) >> 8));
     data(EPD_GATE_SCAN);
-    cmd(CMD_BORDER);
-    data(0x05);
-    cmd(CMD_TEMP_SENSOR);              /* internal temperature sensor */
-    data(0x80);
-    set_window();
-#endif
+    while (i < sizeof(panel_init)) {
+        if (panel_init[i] == EPD_OP_WINDOW) {
+            set_window();
+            i += 2;
+            continue;
+        }
+        cmd(panel_init[i++]);
+        for (n = panel_init[i++]; n; n--)
+            data(panel_init[i++]);
+    }
 }
 
 bool epd_draw(draw_scene_t *s)
@@ -290,7 +260,7 @@ bool epd_draw(draw_scene_t *s)
     stream_plane(s, 1);
 #endif
 
-#if MODEL == 154
+#if EPD_WRITE_TEMP
     cmd(CMD_WRITE_TEMP);
     data(EPD_TEMP_C);
     data(0x00);
@@ -300,9 +270,9 @@ bool epd_draw(draw_scene_t *s)
     cmd(CMD_MASTER_ACTIVATE);
     ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
 
-#if MODEL == 154
-    cmd(CMD_UPDATE_CTRL1);             /* stock firmware does this before sleeping */
-    data(0x03);
+#ifdef EPD_SLEEP_CTRL1
+    cmd(CMD_UPDATE_CTRL1);
+    data(EPD_SLEEP_CTRL1);
 #endif
     cmd(CMD_DEEP_SLEEP);               /* must always be in deep sleep, or the battery drains */
     data(0x01);

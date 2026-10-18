@@ -128,7 +128,7 @@ static void reset_model(void)
    2.9": screen column x = gate line x with TB = 1; row y = bit y of the source direction, MSB first. */
 static int ram_pixel(int x, int y)
 {
-#if MODEL == 154
+#if EPD_TRANSPOSE
     /* 1.54": RAM line = screen row y, bit x of the source direction (epd.c EPD_TRANSPOSE),
        with RAM (0, 0) in the bottom right corner (EPD_ROTATE_180) */
     uint8_t m;
@@ -186,7 +186,7 @@ static void test_epd_stream(const char *out)
     CHECK_EQ(first_cmd, 0x12);                   /* software reset first */
     CHECK_EQ(gate_lines, DRAW_W);
     CHECK_EQ(xs, 0);
-#if MODEL == 154
+#if EPD_TRANSPOSE
     CHECK_EQ(xe, (DRAW_W + 7) / 8 - 1);
     CHECK_EQ(ys, 0);
     CHECK_EQ(ye, DRAW_H - 1);

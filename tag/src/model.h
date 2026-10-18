@@ -20,6 +20,9 @@
 /* MODEL_CODE, MODEL_NAME, MODEL_HAS_RED, DRAW_W, DRAW_H for -DMODEL=<build>, from the
  * model registry shared/models.json (tools/gen_models.py) */
 #include "model_gen.h"
+/* EPD_TRANSPOSE, EPD_DATA_ENTRY, EPD_UPDATE_SEQ, EPD_INIT, ... for the model's panel
+ * (tag/src/panels/, "panel" in shared/models.json) */
+#include MODEL_PANEL_H
 
 #if DRAW_H > 248
 #error "a column is indexed with uint8_t; DRAW_H must stay below 249"
