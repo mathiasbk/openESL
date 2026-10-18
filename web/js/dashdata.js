@@ -23,22 +23,23 @@ export function fmtClock(offset_s, now = Date.now()) {
   return d.toLocaleDateString([], { day: "2-digit", month: "2-digit" }) + " " + time;
 }
 
-// The tag's last poll: "13:41:05 (2 min ago)", or "never"
+// The tag's last poll: { text: "2 min ago", at: "13:41:05" }, or "never" with no time
 export function lastCheckin(tag, now = Date.now()) {
-  if (tag.seen_s_ago == null) return "never";
-  return `${fmtClock(-tag.seen_s_ago, now)} (${fmtAgo(tag.seen_s_ago)} ago)`;
+  if (tag.seen_s_ago == null) return { text: "never", at: "" };
+  return { text: `${fmtAgo(tag.seen_s_ago)} ago`, at: fmtClock(-tag.seen_s_ago, now) };
 }
 
 // When the tag should poll next: its last poll plus the interval the AP gives it (poll_s,
 // or the tag's own when null). The AP may tell it to come sooner when scheduled content is
-// due, so this is the latest it is expected. { left_s, late, text }, null when never seen
+// due, so this is the latest it is expected. { left_s, late, text, at }, null when never seen
 export const CHECKIN_GRACE_S = 15; // radio retries and clock drift: not late yet
 export function nextCheckin(tag, now = Date.now()) {
   if (tag.seen_s_ago == null) return null;
   const left = (tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
-  if (left >= 0) return { left_s: left, late: false, text: `${fmtClock(left, now)} (in ${fmtAgo(left)})` };
-  if (-left <= CHECKIN_GRACE_S) return { left_s: left, late: false, text: "any moment now" };
-  return { left_s: left, late: true, text: `${fmtAgo(-left)} late` };
+  const at = fmtClock(left, now);
+  if (left >= 0) return { left_s: left, late: false, text: `in ${fmtAgo(left)}`, at };
+  if (-left <= CHECKIN_GRACE_S) return { left_s: left, late: false, text: "any moment now", at };
+  return { left_s: left, late: true, text: `${fmtAgo(-left)} late`, at };
 }
 
 // The tag's fw_ver (major*10000 + minor*100 + patch): 100 -> "0.1.0"
@@ -49,7 +50,7 @@ export function fmtTagFw(v) {
 
 export function fmtBattery(mv) {
   if (mv == null) return "–";
-  if (mv === 0) return "unknown";
+  if (mv === 0) return "–"; // the 1.54" cannot measure it
   return (mv / 1000).toFixed(2) + " V";
 }
 
@@ -79,34 +80,59 @@ export const RESET_TEXT = {
   unknown: "unknown",
 };
 
-// What a tag is doing, in a few words: the problems the AP reports first, then whether it
-// is still getting something (content, layout file, settings)
-export function tagState(tag, problems = []) {
+// What a tag is doing, in a few words: the problems the AP reports first, then a poll that
+// is overdue (next: nextCheckin), then whether it is still getting something (content,
+// layout file, settings)
+export function tagState(tag, problems = [], next = null) {
   if (problems.length) return { level: "bad", text: problems.map((p) => PROBLEM_TEXT[p] || p).join(", ") };
+  if (next?.late) return { level: "busy", text: "late" };
+  if (tag.fw_update) return { level: "busy", text: "updating firmware" };
   if (tag.layout_pending) return { level: "busy", text: "downloading the layout file" };
   if (tag.pending) return { level: "busy", text: tag.content_id ? "new content waiting" : "no content yet" };
   if (tag.config_pending) return { level: "busy", text: "settings waiting" };
   return { level: "ok", text: "OK" };
 }
 
-// The rows of the tag table: { tag, problems, state }, tags with problems first, then by MAC
-export function tagRows(list, health) {
+// The rows of the tag table: { tag, problems, next, state }, tags with problems first, then by MAC
+export function tagRows(list, health, now = Date.now()) {
   const byMac = new Map((health?.problems || []).map((p) => [p.mac, p.problems]));
   const rows = (list?.tags || []).map((tag) => {
     const problems = byMac.get(tag.mac) || [];
-    return { tag, problems, state: tagState(tag, problems) };
+    const next = nextCheckin(tag, now);
+    return { tag, problems, next, state: tagState(tag, problems, next) };
   });
   const rank = { bad: 0, busy: 1, ok: 2 };
   return rows.sort((a, b) => rank[a.state.level] - rank[b.state.level] || a.tag.mac.localeCompare(b.tag.mac));
 }
 
+// How many rows each filter of the tag table shows: { all, bad, busy, models: { "2.9": n } }
+export function rowCounts(rows) {
+  const c = { all: rows.length, bad: 0, busy: 0, models: {} };
+  for (const r of rows) {
+    if (r.state.level !== "ok") c[r.state.level]++;
+    if (r.tag.model) c.models[r.tag.model] = (c.models[r.tag.model] || 0) + 1;
+  }
+  return c;
+}
+
+// The rows a filter keeps: "all", "bad", "busy" or "model:2.9", and a part of the MAC
+export function filterRows(rows, filter = "all", find = "") {
+  const f = find.trim().toUpperCase();
+  return rows.filter((r) =>
+    (!f || r.tag.mac.includes(f)) &&
+    (filter === "all" || r.state.level === filter || filter === "model:" + r.tag.model));
+}
+
 // One line about the health report
 export function healthLine(h) {
   if (!h) return "";
-  if (h.ok) return `All ${h.tags} tags are fine.`;
+  if (!h.tags) return "";
+  if (h.ok) return h.tags === 1 ? "The tag is fine." : `All ${h.tags} tags are fine.`;
   const parts = [];
   for (const k of Object.keys(PROBLEM_TEXT)) if (h[k]) parts.push(`${h[k]} ${PROBLEM_TEXT[k]}`);
-  return `${h.with_problems} of ${h.tags} tags need attention: ${parts.join(", ")}.`;
+  const n = h.with_problems;
+  const who = h.tags === 1 ? "The tag needs" : `${n} of ${h.tags} tags need${n === 1 ? "s" : ""}`;
+  return `${who} attention: ${parts.join(", ")}.`;
 }
 
 // The AP's own figures as [label, value] pairs
