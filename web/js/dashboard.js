@@ -486,7 +486,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     .catch(() => null)
     .then((info) => {
       pageInfo = info;
-      const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${info.version}`]);
+      // each file with its own version: the AP's and the tags' can differ (ap_version, tag_version)
+      const ver = (k) => (k.startsWith("ap") ? info.ap_version : info.tag_version) || info.version;
+      const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
         const o = document.createElement("option");

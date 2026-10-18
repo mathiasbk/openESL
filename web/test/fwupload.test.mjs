@@ -196,6 +196,10 @@ test("the page's AP image that fits the AP", () => {
   assert.equal(apImageFor({ version: "0.4.3" }, { ...info, version: "0.4.4-dev", release: false }).newer, false); // not a release
   assert.equal(apImageFor({ version: "0.4.3" }, { ...info, ota: {} }), null);
   assert.equal(apImageFor({ version: "0.4.3" }, null), null);
+  // a release that changed only the tags: the AP image is still 0.4.3, so nothing new for the AP
+  const parts = { ...info, version: "v0.4.4", ap_version: "0.4.3", tag_version: "0.4.4" };
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, parts), { file: "ap-openesl-ota", version: "0.4.3", newer: false });
+  assert.equal(apImageFor({ version: "0.4.2" }, parts).newer, true);
 });
 
 test("what is asked before AP firmware goes out", () => {
