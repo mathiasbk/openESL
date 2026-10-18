@@ -177,6 +177,23 @@ def ap_manifest(out, name, version, path, parts):
         json.dump(manifest, f, indent=2)
 
 
+def image_version(path):
+    """The version inside an update image: the OTA header of a tag image (u16, as the tag sends
+    it in POLL) or esp_app_desc_t of an AP app image (the version it was built with). None when
+    the file is not there or not one of those."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(80)
+    except OSError:
+        return None
+    if data[:4] == b"OSFW" and len(data) >= 16:
+        v = struct.unpack_from("<H", data, 6)[0]
+        return "%d.%d.%d" % (v // 10000, v // 100 % 100, v % 100)
+    if len(data) >= 80 and data[0] == 0xE9 and struct.unpack_from("<I", data, 32)[0] == 0xABCD5432:
+        return data[48:80].split(b"\0", 1)[0].decode() or None
+    return None
+
+
 def add_firmware(tag29, tag154, ap, ap_lcd="-"):
     out = os.path.join(DIST, "firmware")
     os.makedirs(out, exist_ok=True)
@@ -184,7 +201,7 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
     # otherwise they were built from this checkout and get the VERSION file's version + "-dev"
     release = os.environ.get("FIRMWARE_RELEASE", "")
     info = {
-        "version": release or tag_build.read_version()[0] + "-dev",
+        "version": release or open(os.path.join(ROOT, "VERSION")).read().strip() + "-dev",
         "release": bool(release),
         "ref": os.environ.get("GITHUB_REF_NAME", "local"),
         "commit": os.environ.get("GITHUB_SHA", "0000000"),
@@ -192,6 +209,12 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
         "tag": tag29 != "-" or tag154 != "-",
         "ap": ap != "-",
         "ap_lcd": ap_lcd != "-" and os.path.exists(ap_lcd),
+        # The AP and the tags each keep the version of the release they last changed in
+        # (tools/fw_version.py), read from the -ota.bin images: the dashboard compares these
+        # with what the AP and the tags run, so a release without changes for them offers
+        # them nothing
+        "ap_version": image_version(ap[:-4] + "-ota.bin") if ap != "-" else None,
+        "tag_version": image_version((tag29 if tag29 != "-" else tag154)[:-4] + "-ota.bin") if tag29 != "-" or tag154 != "-" else None,
     }
     info["ota"] = {}
     for src, name in ((tag29, "tag-29.bin"), (tag154, "tag-154.bin"), (ap, "ap-openesl.bin"),

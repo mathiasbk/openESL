@@ -63,13 +63,17 @@ export function cmpVersion(a, b) {
 // The AP image on this page that fits the AP, from GET /api/ota and the page's info.json:
 // the one with the status screen when the AP has one ("display" in GET /api/ota; an AP
 // whose firmware does not say gets the plain one, as most have no screen).
-// { file, version, newer } or null when the page has no AP image.
+// { file, version, newer } or null when the page has no AP image. version is the AP image's
+// own (ap_version in info.json: the release the AP last changed in), so a release that
+// changed only the tags is not newer for the AP; an info.json from before it has only the
+// release's version.
 export function apImageFor(ota, info) {
   const lcd = ota?.display === true && info?.ota?.["ap-openesl-lcd"];
   const file = lcd ? "ap-openesl-lcd-ota" : info?.ota?.["ap-openesl"] ? "ap-openesl-ota" : null;
   if (!file) return null;
-  const c = cmpVersion(info.version, ota?.version);
-  return { file, version: String(info.version).replace(/^v/, ""), newer: info.release === true && c !== null && c > 0 };
+  const version = String(info.ap_version || info.version).replace(/^v/, "");
+  const c = cmpVersion(version, ota?.version);
+  return { file, version, newer: info.release === true && c !== null && c > 0 };
 }
 
 // What to ask before new AP firmware goes out: kind is firmwareKind() of the image, ota
