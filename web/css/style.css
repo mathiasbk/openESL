@@ -331,7 +331,7 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); display: inline-block; }
 .dot.bad { background: var(--error); }
 .dot.wait { background: var(--muted); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .tile { display: grid; gap: 2px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font: inherit; color: var(--text); }
@@ -385,17 +385,19 @@ button.tile:hover { border-color: var(--accent); }
   .tag-table tr.lvl-bad td { background: none; }
 }
 
-.actionbar { position: sticky; bottom: 12px; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 12px; background: var(--text); color: var(--bg); border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
-.actionbar[hidden] { display: none; }
-.actionbar button { background: var(--bg); color: var(--text); border-color: transparent; }
-.actionbar button.primary { background: var(--accent); color: var(--accent-text); }
+/* The ticked tags: a count and what to do with them, at the right end of the tools above the table */
+.selbar { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 14px; background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 8px; padding: 4px 4px 4px 12px; }
+.selbar[hidden] { display: none; }
+.selbar #st-sel-count { font-weight: 600; }
+.selbar .hidden-n { color: var(--muted); font-weight: 400; }
+.selbar button.small { min-height: 28px; }
 #st-hint { margin: 10px 0 0; }
 #st-form[hidden] { display: none; }
 
 details.fold > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; list-style: none; }
 details.fold > summary::-webkit-details-marker { display: none; }
-details.fold > summary::before { content: "\25B8"; color: var(--muted); width: 1em; }
-details.fold[open] > summary::before { content: "\25BE"; }
+details.fold > summary::before { content: "\25B8"; content: "\25B8" / ""; color: var(--muted); width: 1em; }
+details.fold[open] > summary::before { content: "\25BE"; content: "\25BE" / ""; }
 details.fold[open] > summary { margin-bottom: 12px; }
 details.help { margin: 0 0 12px; }
 details.help > summary { cursor: pointer; color: var(--accent); font-size: 14px; }

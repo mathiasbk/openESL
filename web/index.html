@@ -336,6 +336,11 @@
         <div class="dash-tools">
           <input id="dash-find" type="search" spellcheck="false" placeholder="Find MAC" aria-label="Find a tag by its MAC">
           <div id="dash-filter" class="chips" role="group" aria-label="Show"></div>
+          <div id="st-bar" class="selbar" role="group" aria-label="Ticked tags" hidden>
+            <span id="st-sel-count"></span>
+            <button type="button" id="st-goto" class="primary small">Send …</button>
+            <button type="button" id="st-clear" class="small">Clear</button>
+          </div>
         </div>
         <div class="table-wrap dash-wrap">
           <table class="dash-tags tag-table" role="table">
@@ -343,12 +348,7 @@
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <div id="st-bar" class="actionbar" hidden>
-          <strong id="st-sel-count"></strong>
-          <button type="button" id="st-goto" class="primary">Send text …</button>
-          <button type="button" id="st-clear">Clear</button>
-        </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date or your own text (the built-in layout <code>text</code>).</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>) or new firmware.</p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
           <div class="form row">
@@ -357,9 +357,10 @@
               <option value="tag">The tag's own info</option>
               <option value="date">Today's date</option>
               <option value="text">Your own text</option>
+              <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
-            <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
+            <label id="st-frame-label" class="check"><input type="checkbox" id="st-frame"> Black frame</label>
             <button id="st-send" type="submit" class="primary" disabled>Send</button>
           </div>
           <div id="st-own" class="form" hidden>

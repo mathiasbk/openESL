@@ -8,7 +8,7 @@ import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
-import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -41,6 +41,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let last = null;        // { list, health, wifi, ota, tagfw }
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
+  let failed = false;     // the last refresh got no answer, and nothing was read before it
   let sending = false;
 
   const msg = (text, cls = "") => {
@@ -85,6 +86,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       $("dash-body").hidden = true;
       last = null;
       lastAt = 0;
+      failed = false;
       setStale(false);
     }
     showLive();
@@ -92,10 +94,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   function showLive() {
     const u = $("dash-updated");
-    $("dash-dot").className = "dot" + (stale ? " bad" : lastAt ? "" : " wait");
-    u.className = stale ? "error" : "";
+    const noAnswer = stale || failed;
+    $("dash-dot").className = "dot" + (noAnswer ? " bad" : lastAt ? "" : " wait");
+    u.className = noAnswer ? "error" : "";
     u.textContent = stale ? `no answer since ${new Date(lastAt).toLocaleTimeString()}`
-      : lastAt ? `updated ${fmtAgo(Math.max(0, Math.round((Date.now() - lastAt) / 1000)))} ago` : "connecting …";
+      : failed ? "no answer" : lastAt ? `updated ${fmtAgo(Math.max(0, Math.round((Date.now() - lastAt) / 1000)))} ago` : "connecting …";
     u.title = lastAt ? new Date(lastAt).toLocaleString() : "";
   }
   setInterval(() => client && visible() && showLive(), 1000);
@@ -126,17 +129,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (c !== client) return;
       last = { list, health, wifi, ota, tagfw };
       lastAt = Date.now();
-      stale = false;
+      stale = failed = false;
       $("dash-body").classList.remove("stale");
       render();
       showLive();
       msg("");
     } catch (e) {
-      const why = e.message.charAt(0).toUpperCase() + e.message.slice(1);
-      if (last) {
-        msg(why, "error"); // the line above says since when
-        setStale(true);
-      } else msg(why, "error");
+      msg(e.message.charAt(0).toUpperCase() + e.message.slice(1), "error");
+      if (last) setStale(true); // the line above says since when
+      else {
+        failed = true;
+        showLive();
+      }
     } finally {
       loading = false;
       const updating = last?.list?.tags?.some((t) => t.fw_update);
@@ -173,13 +177,26 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     b.type = "button";
     b.className = cls + (filter === f ? " on" : "");
     b.setAttribute("aria-pressed", String(filter === f));
+    b.dataset.f = f;
     b.append(...content);
     b.onclick = () => setFilter(filter === f && f !== "all" ? "all" : f);
     return b;
   }
 
+  // What has the keyboard focus in the parts render() draws anew, to give it back after:
+  // a tile, a filter, or a row's tick box or update button
+  function focusKey() {
+    const a = document.activeElement;
+    if (!a || !$("dash-body").contains(a)) return null;
+    if (a.dataset.f) return `[data-f="${a.dataset.f}"]` + (a.classList.contains("tile") ? ".tile" : ".chip");
+    const tr = a.closest("#dash-tags tr[data-mac]");
+    if (tr) return `tr[data-mac="${tr.dataset.mac}"] ` + (a.matches("td.sel input") ? "td.sel input" : "button.fw-up");
+    return null;
+  }
+
   function render() {
     if (!last) return;
+    const focus = focusKey();
     const { list, health, wifi } = last;
     renderFirmware();
     $("dash-body").hidden = false;
@@ -199,7 +216,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
 
     const health_ = stale
-      ? [`No answer from the AP since ${new Date(lastAt).toLocaleTimeString()}. The figures below are from then.`, "bad"]
+      ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
       : [healthLine(health), !health ? "" : health.ok ? "ok" : "bad"];
     // only a change is read out (aria-live)
     if ($("dash-health").textContent !== health_[0]) $("dash-health").textContent = health_[0];
@@ -304,7 +321,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
       const td = cell(list.tags.length ? "No tags match. " : "No tags yet. A tag shows up here after its first poll.", "muted empty");
-      td.colSpan = 10;
+      td.colSpan = 9;
       if (list.tags.length) {
         const b = document.createElement("button");
         b.type = "button";
@@ -313,6 +330,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         b.onclick = () => {
           $("dash-find").value = "";
           setFilter("all");
+          $("dash-find").focus();
         };
         td.append(b);
       }
@@ -320,6 +338,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       $("dash-tags").append(tr);
     }
     renderSendTags();
+    if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
   }
 
   // ---- Send info to the tags ticked in the tag table ----
@@ -331,7 +350,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const stLineInputs = [1, 2, 3, 4].map((i) => $("st-l" + i));
   const stWhat = () => $("st-what").value;
   // The lines: ready-made for the list's choices, the inputs for "Your own text"
-  const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()]);
+  const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()] || PRESETS.clear);
+  const stFw = () => stWhat() === "fw";
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
   const stRows = (tags = stTags()) => infoRows(tags, stLines(), {
@@ -343,7 +363,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     store.set("st.what", stWhat());
     store.set("st.lines", JSON.stringify(stLineInputs.map((el) => el.value)));
   };
-  if ([...$("st-what").options].some((o) => o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
+  if ([...$("st-what").options].some((o) => !o.disabled && o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
   try {
     const saved = JSON.parse(store.get("st.lines") || "null");
     if (Array.isArray(saved)) saved.slice(0, 4).forEach((v, i) => (stLineInputs[i].value = String(v)));
@@ -392,8 +412,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const n = stTags().length;
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
-    $("st-sel-count").textContent = n === 1 ? "1 tag ticked" : `${n} tags ticked`;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
+    // the text goes to every ticked tag, also those Find or a filter hides now
+    const hidden = n - rows.filter((c) => c.checked).length;
+    $("st-sel-count").replaceChildren(n === 1 ? "1 tag ticked" : `${n} tags ticked`,
+      ...(hidden > 0 ? [Object.assign(document.createElement("span"), { className: "hidden-n", textContent: ` (${hidden} not shown)` })] : []));
     $("st-all").checked = rows.length > 0 && rows.every((c) => c.checked);
     $("st-all").indeterminate = !$("st-all").checked && rows.some((c) => c.checked);
     stPreview();
@@ -409,28 +432,44 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = !usesDate(lines);
+    $("st-days-label").hidden = stFw() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw();
     $("st-days").max = maxDays(tags.length);
-    $("st-send").disabled = !client || !tags.length;
+    $("st-send").disabled = !client || !tags.length || sending;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
     $("st-show").hidden = !tags.length;
+    const listRow = (mac, text, cls = "") => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      const td2 = document.createElement("td");
+      td1.className = "mono";
+      td1.textContent = mac;
+      td2.textContent = text;
+      if (cls) td2.className = cls;
+      tr.append(td1, td2);
+      return tr;
+    };
+
+    // Firmware: what each tag gets, or why it gets nothing
+    if (stFw()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const { rows } = tagFirmwarePlan(tags, pageImgs, last?.tagfw);
+      const n = rows.filter((r) => r.action).length;
+      $("st-count").textContent = `${n} of ${tags.length} ${tags.length === 1 ? "tag" : "tags"} to update`;
+      $("st-count").className = "count";
+      $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.text, r.action ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = n === 1 ? "Update 1 tag" : `Update ${n} tags`;
+      if (!n) $("st-send").disabled = true;
+      return;
+    }
 
     // What each tag gets today
     const rows = stRows(tags).filter((r) => !r.at);
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    $("st-list").replaceChildren(...rows.map((r) => {
-      const tr = document.createElement("tr");
-      const td1 = document.createElement("td");
-      const td2 = document.createElement("td");
-      td1.className = "mono";
-      td1.textContent = r.mac;
-      td2.textContent = r.fields.join(" / ");
-      if (textBytes(r.fields) > TEXT_BYTES) td2.className = "error";
-      tr.append(td1, td2);
-      return tr;
-    }));
+    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the tag's own code
     const row = rows[0];
@@ -464,10 +503,49 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   }
 
+  // The page's firmware to the ticked tags: the image to the AP for the first tag of a model
+  // that needs it, then the AP gives it to the others too
+  async function sendTagFw(tags) {
+    const { rows, upload } = tagFirmwarePlan(tags, pageImgs, last?.tagfw);
+    const todo = rows.filter((r) => r.action);
+    if (!todo.length) return stMsg("None of the ticked tags has anything to update.", "error");
+    const replaced = upload.map((m) => (last?.tagfw?.images || []).find((i) => i.model === m && i.version)).filter(Boolean);
+    if (!confirm(`Update ${todo.length === 1 ? "1 tag" : todo.length + " tags"} to the firmware on this page? ` +
+      "Each fetches it over its next polls, keeps showing its content, and restarts into it." +
+      replaced.map((i) => ` The AP's ${i.model}" firmware ${i.version} is replaced, so tags still fetching it stop.`).join(""))) return;
+    const c = client;
+    sending = true;
+    clearTimeout(timer);
+    renderFirmware();
+    stPreview();
+    try {
+      for (const model of upload) {
+        const first = todo.find((r) => r.model === model && r.action === "upload");
+        const v = pageImgs[model].version;
+        await sendTagFirmware(c, pageData[model], (sent, total) =>
+          stMsg(`Sending ${model}" firmware ${v} to the AP: ${Math.floor((sent * 100) / total)} % ...`), first.mac);
+        first.done = true;
+      }
+      for (const r of todo) {
+        if (r.done) continue;
+        await chooseTagFirmware(c, r.model, r.mac);
+        r.done = true;
+      }
+      stMsg(`${todo.length === 1 ? "The tag gets" : todo.length + " tags get"} the new firmware over the next polls; the table shows how far ${todo.length === 1 ? "it is" : "they are"}.`, "ok");
+    } catch (e) {
+      const n = todo.filter((r) => r.done).length;
+      stMsg((n ? `Only ${n} of ${todo.length} tags get it: ` : "Not sent: ") + e.message, "error");
+    } finally {
+      sending = false;
+      if (client === c) refresh();
+    }
+  }
+
   async function sendText(ev) {
     ev.preventDefault();
     const tags = stTags();
-    if (!client || !tags.length) return;
+    if (!client || !tags.length || sending) return;
+    if (stFw()) return sendTagFw(tags);
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
@@ -630,6 +708,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         /* offline: no update buttons */
       }
     }
+    // "Send" can give the ticked tags this firmware
+    const models = Object.keys(pageImgs);
+    const o = $("st-what").querySelector('option[value="fw"]');
+    o.disabled = o.hidden = !models.length;
+    o.textContent = "New firmware (" + models.map((m) => `${m}" ${pageImgs[m].version}`).join(", ") + ")";
+    if (models.length && store.get("st.what") === "fw") $("st-what").value = "fw";
     if (last) render();
   }
 

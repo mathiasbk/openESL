@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion } from "../js/fwupload.js";
+import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -172,6 +172,27 @@ test("update button for a tag with older firmware", () => {
   // fetching: how far, whatever the page has
   const fw_update = { version: "0.3.0", received: 512, size: 1024 };
   assert.deepEqual(tagUpdate(tag({ model: "2.9", fw_update }), imgs, mine), { updating: "0.3.0", fraction: 0.5, text: "50 %" });
+});
+
+test("the page's firmware for the ticked tags", () => {
+  const imgs = { "1.54": firmwareKind(tagFile(2, 300, 1024)) };
+  const t = (mac, extra) => ({ mac, model: "1.54", fw: 200, ota: true, ...extra });
+  const tags = [t("01"), t("02"), t("03", { fw: 300 }), t("04", { ota: false }), t("05", { model: "2.9" }),
+    t("06", { fw_update: { version: "0.3.0", received: 0, size: 1024 } })];
+  let p = tagFirmwarePlan(tags, imgs, null);
+  assert.deepEqual(p.rows.map((r) => [r.mac, r.action, r.text]), [
+    ["01", "upload", "0.2.0 \u2192 0.3.0"],
+    ["02", "upload", "0.2.0 \u2192 0.3.0"],
+    ["03", null, "has 0.3.0 already"],
+    ["04", null, "cannot update over the radio"],
+    ["05", null, 'no 2.9" firmware on this page'],
+    ["06", null, "updating to 0.3.0 (waiting for its next poll)"],
+  ]);
+  assert.deepEqual(p.upload, ["1.54"]);
+  // the AP has the image already, for tag 01: the others are chosen, nothing is uploaded
+  p = tagFirmwarePlan(tags.slice(0, 2), imgs, { images: [{ model: "1.54", version: "0.3.0", to: ["01"] }] });
+  assert.deepEqual(p.rows.map((r) => r.action), [null, "choose"]);
+  assert.deepEqual(p.upload, []);
 });
 
 test("the version in an AP image", () => {
