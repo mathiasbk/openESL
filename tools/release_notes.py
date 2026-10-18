@@ -14,8 +14,8 @@ the body of the release pull request (development -> master):
 Each pull request merged in the range (a merge commit "Merge pull request #N", or a squash
 commit ending in "(#N)") is sorted by the files it changed, with the parts of
 tools/fw_version.py: a pull request that touched both the AP and the tags is listed under
-both. The AP and tag sections say the version the firmware carries, and "unchanged" when
-no pull request touched that part since the previous release.
+both. The AP and tag sections say the version the firmware carries at UNTIL, and "unchanged"
+when no pull request touched that part since the previous release.
 """
 import os
 import re
@@ -109,7 +109,8 @@ def main():
     until = args[1] if len(args) > 1 else "HEAD"
     if not since:
         sys.exit("release_notes.py: no release tag to start from")
-    versions = {part: fw_version.version(part) for part in ("ap", "tag")}
+    # the versions of the commit UNTIL, whatever branch is checked out
+    versions = {part: fw_version.version(part, at=until) for part in ("ap", "tag")}
     sys.stdout.write(notes(since, until, versions))
 
 

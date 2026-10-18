@@ -19,6 +19,11 @@ the working tree).
 Without git, or without release tags (a download of the sources, or a shallow clone), the
 version is the VERSION file's, as before; a warning says so. CI checks out the whole
 history, and the release job checks that the images carry the versions this script gives.
+
+The AP build and the simulation ask this script when they configure, so after a git fetch
+that brought new tags, or a change in the sources, a local build that only recompiles can
+keep the earlier version: idf.py reconfigure (or a clean build) picks up the new one. CI
+builds from scratch.
 """
 import ast
 import os
@@ -46,13 +51,16 @@ def parts():
         # the source of the generated tag/fonts/font_*.c
         "tag": ["shared", "tag/src", "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", NOT_DOCS],
         # ap/dependencies.lock holds the ESP-IDF version; the AP serves the dashboard of the web
-        # page (index.html, style.css and the scripts in ap/main/webui.py)
-        "ap": ["shared", "ap", ":(exclude)ap/test", "web/index.html", "web/css/style.css", NOT_DOCS] +
-              ["web/js/" + js for js in webui_js()],
+        # page (index.html, style.css and the scripts in ap/main/webui.py) and draws its status
+        # screen with the tag's small font and headers (ap/components/esl_core/CMakeLists.txt)
+        "ap": ["shared", "ap", ":(exclude)ap/test", "tag/src", "tag/fonts/*.c", "web/index.html", "web/css/style.css",
+               NOT_DOCS] + ["web/js/" + js for js in webui_js()],
     }
 
 
-def read_version():
+def read_version(at=None):
+    if at:
+        return git("show", "%s:VERSION" % at).stdout.strip()
     with open(os.path.join(ROOT, "VERSION")) as f:
         return f.read().strip()
 
@@ -70,16 +78,20 @@ def release_tags():
     return sorted(tags, key=lambda t: tuple(int(n) for n in t[1:].split(".")), reverse=True)
 
 
-def unchanged_since(tag, paths):
-    """The files are the same in the release tag as in the working tree (untracked ones too)"""
+def unchanged_since(tag, paths, at=None):
+    """The files are the same in the release tag as in the working tree (untracked ones too),
+    or as in the commit at"""
+    if at:
+        return not git("diff", "--quiet", tag, at, "--", *paths).returncode
     if git("diff", "--quiet", tag, "--", *paths).returncode:
         return False
     return not git("ls-files", "--others", "--exclude-standard", "--", *paths).stdout.strip()
 
 
-def version(part, paths=None, current=None):
+def version(part, paths=None, current=None, at=None):
+    """The part's version in the working tree, or in the commit at (a branch, a tag, a sha)"""
     paths = paths or parts()[part]
-    current = current or read_version()
+    current = current or read_version(at)
     try:
         tags = release_tags()
     except OSError:
@@ -93,7 +105,7 @@ def version(part, paths=None, current=None):
         # a release newer than VERSION (VERSION not bumped yet) says nothing about this one
         if tuple(int(n) for n in tag[1:].split(".")) > tuple(int(n) for n in current.split(".")):
             continue
-        if not unchanged_since(tag, paths):
+        if not unchanged_since(tag, paths, at):
             break
         found = tag[1:]
     return found
