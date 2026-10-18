@@ -21,6 +21,7 @@ PAGE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenESL AP dashboard</title>
+  <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">
 </head>
 <body>
