@@ -18,6 +18,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |
 | [tag-ota.md](tag-ota.md) | Firmware update over radio for the tags (T15): bootloader, SPI flash slots, rollback, and the SPI flash probe |
 | [openapi.yaml](openapi.yaml) | The HTTP API as OpenAPI 3.1, the reference; checked against the AP code in CI and shown in the API tab of the web page |
+| [release.md](release.md) | How a release is made: the pull requests, the hardware checklist, rollout to the tags and what to do when a release is bad |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
 | [st-gm16xx2.md](st-gm16xx2.md) | The 1.6" ST-GM16XX2 (200×200 BW): panel detection, init and refresh, and what its controller does not do |
 

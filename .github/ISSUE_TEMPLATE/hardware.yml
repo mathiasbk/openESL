@@ -1,0 +1,36 @@
+name: New hardware
+description: A label, access point or flasher that OpenESL does not support yet.
+labels: [hardware]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Label (tag)
+        - Access point
+        - Flasher or jig
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Make and model
+      placeholder: "SoluM ST-GM42XX2, 4.2\" black/white/red"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What is on the board
+      description: Chip (e.g. ZBS243, CC2630, nRF52), display size, resolution and colours, panel or controller markings, test pads.
+  - type: textarea
+    id: photos
+    attributes:
+      label: Photos
+      description: Both sides of the board, the display connector and any markings. Drag images in here.
+  - type: textarea
+    id: backup
+    attributes:
+      label: Flash backup
+      description: If you have read the flash, attach it or say where it can be found, and how you read it.
