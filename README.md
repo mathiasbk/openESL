@@ -118,6 +118,7 @@ Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |
 | [tools/](tools/) | [`esl-client`](tools/esl-client/README.md) (example client for the API), [`flash-tui`](tools/flash-tui/README.md) (flashing tags in a jig), [`wemos-debug`](tools/wemos-debug/README.md) (the tag's debug UART), `power-budget` ([docs/strombudsjett.md](docs/strombudsjett.md)) |
 | [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link: end-to-end tests in CI, and a serial port for `esl-client` with no hardware |
+| [Jig/Hardware/](Jig/Hardware/README.md) | The flashing jig: ZBS_Flasher on a D1 mini, BOM, photos and 3D-printed parts |
 
 Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
