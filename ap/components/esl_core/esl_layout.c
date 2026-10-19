@@ -1,5 +1,6 @@
 #include "esl_layout.h"
 #include "esl_barcode.h"
+#include "esl_crc32.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,21 +78,26 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
         bin->bin[1] != model)
         return 0;
 
+    uint32_t crc = esl_crc32(data, len);
     lock(ls);
     esl_layout_t *l = ls->models[model - 1];
     uint32_t v = 0;
-    *changed = !l || l->len != len || memcmp(l->data, data, len) != 0;
+    *changed = !l || l->len != len || l->crc != crc || (l->data && memcmp(l->data, data, len) != 0);
     if (*changed) {
-        /* The new JSON first, so the old file stays if there is no memory */
-        char *copy = alloc(ls, len);
+        /* The new JSON first, so the old file stays if there is no memory. With
+           persist_load the JSON lives in the store only, and RAM holds just its CRC. */
+        bool keep = ls->ops.persist_load == NULL;
+        char *copy = keep ? alloc(ls, len) : NULL;
         esl_layout_t *nl = l ? l : alloc(ls, sizeof(*nl));
-        if (copy && nl) {
-            memcpy(copy, data, len);
+        if ((copy || !keep) && nl) {
+            if (copy)
+                memcpy(copy, data, len);
             if (nl != l)
                 memset(nl, 0, sizeof(*nl));
             free(nl->data);
             nl->data = copy;
             nl->len = (uint16_t)len;
+            nl->crc = crc;
             nl->bin = *bin;
             ls->models[model - 1] = l = nl;
         } else {
@@ -152,14 +158,34 @@ bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_
 
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)
 {
+    size_t len = 0;
+    bool in_ram = false;
     if (!ls)
         return false;
     lock(ls);
     esl_layout_t *l = slot(ls, model);
-    for (size_t i = 0; l && i < l->len; i++)
-        esl_sb_putc(out, l->data[i]);
+    if (l) {
+        len = l->len;
+        in_ram = l->data != NULL;
+        for (size_t i = 0; in_ram && i < len; i++)
+            esl_sb_putc(out, l->data[i]);
+    }
     unlock(ls);
-    return l != NULL;
+    if (!l)
+        return false;
+    if (in_ram)
+        return true;
+
+    /* The JSON is in the store: read it back (outside the lock, as the other persist
+       calls; a file replaced meanwhile is simply the one returned) */
+    char *buf = malloc(ESL_LAYOUT_MAX_SIZE);
+    size_t n = 0;
+    if (buf && ls->ops.persist_load)
+        n = ls->ops.persist_load(ls->ops.ctx, model, buf, ESL_LAYOUT_MAX_SIZE);
+    for (size_t i = 0; i < n; i++)
+        esl_sb_putc(out, buf[i]);
+    free(buf);
+    return n != 0;
 }
 
 void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)

@@ -188,6 +188,21 @@ static void layout_erase(void *ctx, uint8_t model)
     blob_write(NS_LAYOUTS, key, NULL, 0);
 }
 
+/* GET /api/layouts/{model}: the JSON is only in NVS (esl_layout_ops_t.persist_load) */
+static size_t layout_load(void *ctx, uint8_t model, char *buf, size_t cap)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    char key[8];
+    size_t len = cap;
+    if (nvs_open(NS_LAYOUTS, NVS_READONLY, &h) != ESP_OK)
+        return 0;
+    layout_key(model, key);
+    esp_err_t err = nvs_get_blob(h, key, buf, &len);
+    nvs_close(h);
+    return err == ESP_OK ? len : 0;
+}
+
 esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
@@ -256,7 +271,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
 
 esp_err_t layouts_nvs_init(esl_layouts_t *ls)
 {
-    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase, NULL};
+    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase, NULL, layout_load};
     if (!mutex)
         return ESP_ERR_INVALID_STATE; /* store_nvs_init() creates it */
     esl_layouts_init(ls, &ops);

@@ -60,17 +60,23 @@ typedef struct {
     void (*persist_save)(void *ctx, uint8_t model, const char *data, size_t len);
     void (*persist_erase)(void *ctx, uint8_t model);
     void *(*alloc)(size_t n);   /* memory for a file, freed with free(); NULL = malloc (tests fail it) */
+    /* Reads the saved JSON of a model into buf (at most cap bytes); bytes read, 0 = none.
+     * When set, the JSON is not kept in RAM: only its length and CRC-32 are, and
+     * esl_layouts_write reads it back through this. NULL keeps the JSON in RAM. */
+    size_t (*persist_load)(void *ctx, uint8_t model, char *buf, size_t cap);
 } esl_layout_ops_t;
 
 typedef struct {
-    uint16_t len;            /* bytes in data, never 0 */
-    char *data;              /* the JSON, len bytes (not terminated) */
+    uint16_t len;            /* bytes of JSON, never 0 */
+    uint32_t crc;            /* CRC-32 of the JSON: tells whether an upload is the same file */
+    char *data;              /* the JSON, len bytes (not terminated); NULL when persist_load holds it */
     esl_layout_bin_t bin;
 } esl_layout_t;
 
 /* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
- * the AP has about 60 KB free and a file costs 1.4 KB plus its JSON, so holding
- * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
+ * the AP has about 60 KB free and a file costs 1.4 KB (plus its JSON without
+ * persist_load), so holding ESL_LAYOUT_MAX_SIZE for every model in the registry
+ * would not fit. */
 typedef struct {
     esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
     esl_layout_ops_t ops;
@@ -109,7 +115,8 @@ bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model);
  * Any pointer may be NULL. */
 bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_t *len, size_t *bin_size);
 
-/* Appends a model's file to out; false if it has none. */
+/* Appends a model's file (the JSON) to out; false if it has none, or if persist_load
+ * holds it and gives nothing back. */
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
 
 /* Writes the layout names of a model's file as a JSON array to out ("[]" if none). */

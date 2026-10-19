@@ -3,7 +3,6 @@
 #include "draw.h"
 #include "layout.h"
 #include "epd.h"
-#include "epd.h"
 #include "ota.h"
 #include "hal/hal.h"
 

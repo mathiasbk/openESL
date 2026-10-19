@@ -10,9 +10,11 @@
  * always stay valid. */
 
 typedef struct {
-    int depth, locks, saves, erases;
+    int depth, locks, saves, erases, loads;
     uint8_t last_model;
     size_t last_len;
+    const char *stored;     /* what f_load gives back (NULL = nothing) */
+    size_t stored_len;
 } fake_t;
 
 static void f_lock(void *ctx)
@@ -44,6 +46,18 @@ static void f_erase(void *ctx, uint8_t model)
     CHECK_INT(f->depth, 0);
     f->erases++;
     f->last_model = model;
+}
+
+static size_t f_load(void *ctx, uint8_t model, char *buf, size_t cap)
+{
+    fake_t *f = ctx;
+    CHECK_INT(f->depth, 0);
+    f->loads++;
+    f->last_model = model;
+    if (!f->stored || f->stored_len > cap)
+        return 0;
+    memcpy(buf, f->stored, f->stored_len);
+    return f->stored_len;
 }
 
 static esl_layout_bin_t bin;
@@ -374,7 +388,7 @@ static void test_storage(void)
 {
     static esl_layouts_t ls;
     fake_t f = {0};
-    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL};
     char buf[512];
     esl_sb_t sb;
     bool changed;
@@ -541,10 +555,90 @@ static void test_storage(void)
     free(js);
 }
 
+static void test_storage_no_json_in_ram(void)
+{
+    /* With persist_load the AP keeps only the compiled file and the JSON's CRC in RAM;
+       GET reads the JSON back from the store, and an upload of the same file is still
+       seen as unchanged. */
+    static esl_layouts_t ls;
+    fake_t f = {0};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, f_load};
+    static char buf[ESL_LAYOUT_MAX_SIZE];
+    esl_sb_t sb;
+    bool changed;
+    size_t jl, len;
+    uint32_t v, v2;
+
+    char *js = read_example_layout("2.9.json", &jl);
+    CHECK(js != NULL);
+    if (!js)
+        return;
+    esl_layouts_init(&ls, &ops);
+    CHECK(esl_layout_compile(js, jl, ESL_MODEL_29, &bin, err, sizeof(err)));
+    v = esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed);
+    CHECK_INT(v, bin.version);
+    CHECK(changed);
+    CHECK_INT(f.saves, 1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] != NULL);
+    CHECK(ls.models[ESL_MODEL_29 - 1]->data == NULL);         /* no JSON in RAM */
+    CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
+    CHECK(esl_layouts_info(&ls, ESL_MODEL_29, &v2, &len, NULL));
+    CHECK_INT(v2, v);
+    CHECK_INT(len, jl);
+
+    /* the same file again: unchanged, nothing saved */
+    CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed), v);
+    CHECK(!changed);
+    CHECK_INT(f.saves, 1);
+
+    /* GET: the JSON comes from the store */
+    f.stored = js;
+    f.stored_len = jl;
+    esl_sb_init(&sb, buf, sizeof(buf));
+    CHECK(esl_layouts_write(&ls, ESL_MODEL_29, &sb));
+    CHECK_INT(f.loads, 1);
+    CHECK_INT(f.last_model, ESL_MODEL_29);
+    CHECK(!sb.overflow);
+    CHECK_INT(sb.len, jl);
+    CHECK_MEM(buf, js, jl);
+    CHECK_INT(f.depth, 0);
+    /* a model without a file does not ask the store */
+    esl_sb_init(&sb, buf, sizeof(buf));
+    CHECK(!esl_layouts_write(&ls, ESL_MODEL_154, &sb));
+    CHECK_INT(f.loads, 1);
+    /* the store has nothing (erased under us): false, nothing written */
+    f.stored = NULL;
+    esl_sb_init(&sb, buf, sizeof(buf));
+    CHECK(!esl_layouts_write(&ls, ESL_MODEL_29, &sb));
+    CHECK_INT(sb.len, 0);
+
+    /* a changed file (same binary) is still a change, and compiled at boot without
+       the JSON being kept */
+    char *spaced = malloc(jl + 1);
+    memcpy(spaced, js, jl);
+    spaced[jl] = '\n';
+    CHECK(esl_layout_compile(spaced, jl + 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, spaced, jl + 1, &bin, &changed), v);
+    CHECK(changed);
+    CHECK_INT(f.saves, 2);
+    CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl + 1);
+    CHECK(ls.models[ESL_MODEL_29 - 1]->data == NULL);
+    CHECK(esl_layouts_delete(&ls, ESL_MODEL_29));
+    CHECK(esl_layouts_restore(&ls, ESL_MODEL_29, spaced, jl + 1));
+    CHECK(ls.models[ESL_MODEL_29 - 1]->data == NULL);
+    CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, spaced, jl + 1, &bin, &changed), v);
+    CHECK(!changed);
+    CHECK_INT(f.saves, 2);
+    esl_layouts_free(&ls);
+    free(spaced);
+    free(js);
+}
+
 void test_layout(void)
 {
     test_examples();
     test_binary();
     test_errors();
     test_storage();
+    test_storage_no_json_in_ram();
 }
