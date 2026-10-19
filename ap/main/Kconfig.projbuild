@@ -249,6 +249,16 @@ menu "OpenESL AP"
             bool "Stub: no radio, simulated tags poll the store"
     endchoice
 
+    config ESL_SNIFFER_HOP_MS
+        int "Sniffer: hop through channels 11-26, ms per channel (0 = stay on ESL_CHANNEL)"
+        depends on ESL_RADIO_SNIFFER
+        range 0 10000
+        default 0
+        help
+            For finding a device whose channel is unknown, such as a stock
+            SoluM remote. After a frame is heard the sniffer stays on that
+            channel for 10 s before it hops on.
+
     config ESL_STUB_TAGS
         int "Simulated tags"
         depends on ESL_RADIO_STUB

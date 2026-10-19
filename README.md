@@ -28,7 +28,7 @@
 ## Features
 
 - **Two tag models:** SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), both on the ZBS243 chip.
-- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients. Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
+- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md)). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
 - **Your own label layouts**, drawn in the browser: text in four sizes, inverted and highlighted text, lines, boxes and Code 128 or EAN-13 barcodes. The preview is the tag's own drawing code, so what you see is what the tag shows.
 - **Scheduled prices** that switch at a time you choose, and **per-tag settings** such as the poll interval.
 - **Firmware updates without cables (OTA):** the AP updates itself over WiFi, and passes new firmware to the tags over the radio, for one tag or a whole model at once.
@@ -70,7 +70,7 @@ The label picks the new content up at its next poll. The [Set up](https://mathia
 flowchart LR
     client["Your software<br/>(script, web shop, home automation)"]
     ap["ESP32-C6 access point<br/>HTTP API · stores text per tag"]
-    tags["Labels (ZBS243)<br/>2.9&quot; and 1.54&quot; e-paper"]
+    tags["Labels (ZBS243)<br/>2.9-inch and 1.54-inch e-paper"]
     client -- "HTTP + token<br/>(WiFi or USB)" --> ap
     ap -- "802.15.4 radio" --> tags
 ```
@@ -118,6 +118,7 @@ Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |
 | [tools/](tools/) | [`esl-client`](tools/esl-client/README.md) (example client for the API), [`flash-tui`](tools/flash-tui/README.md) (flashing tags in a jig), [`wemos-debug`](tools/wemos-debug/README.md) (the tag's debug UART), `power-budget` ([docs/strombudsjett.md](docs/strombudsjett.md)) |
 | [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link: end-to-end tests in CI, and a serial port for `esl-client` with no hardware |
+| [Jig/Hardware/](Jig/Hardware/README.md) | The flashing jig: ZBS_Flasher on a D1 mini, BOM, photos and 3D-printed parts |
 
 Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
@@ -151,6 +152,8 @@ Help is welcome, and most of all with hardware we have not tried yet:
 - **Other flashers:** boards and jigs other than the Wemos D1 mini and our pogo-pin jig.
 
 Open an issue with what you have, or a pull request. Bug reports and fixes for everything else are just as welcome.
+
+How a change is made, tested and released is in [CONTRIBUTING.md](CONTRIBUTING.md); the release steps and checklist are in [docs/release.md](docs/release.md). Security problems go to [SECURITY.md](SECURITY.md), not to an issue.
 
 ## Credits
 
