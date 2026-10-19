@@ -37,6 +37,7 @@ static void fresh(void)
     fake_store_clear();       /* a new tag: nothing in flash */
     fake_radio_reset();
     fake_draw_count = 0;
+    fake_refresh_count = 0;
     fake_epd_ok = true;
     app_init();
 }
@@ -607,6 +608,7 @@ static void restart(void)
 {
     fake_radio_reset();
     fake_draw_count = 0;
+    fake_refresh_count = 0;
     memset(&app, 0x5A, sizeof(app));
     layout_file_clear();
     memset(layout_file, 0x5A, sizeof(layout_file));
@@ -656,6 +658,53 @@ static void test_restart_shows_stored_content(void)
     CHECK_EQ(app.shown_id, 2222);
     CHECK(memcmp(fb_before, fake_fb, sizeof(fb_before)) == 0);
     CHECK(!fake_store_radio_on_write);
+}
+
+static void test_layout_file_change_same_image(void)
+{
+    /* The layout file changes in a layout the tag does not show: the AP sends the content
+       again (the tag drew it with the old file) and the tag draws it, but the image is
+       the same, so the panel is not refreshed. After a restart the panel may show
+       anything, so the first draw refreshes. */
+    fresh();
+    CHECK_EQ(fake_refresh_count, 1);                     /* the start screen */
+    lsize = make_test_layout_file(lfile, &lver);
+    push_all_blocks();
+    push_content(4242, ESL_LAYOUT_FILE + 0, 0, 4, shelf);
+    app_poll_once();
+    CHECK_EQ(app.shown_id, 4242);
+    CHECK_EQ(fake_draw_count, 2);
+    CHECK_EQ(fake_refresh_count, 2);
+    memcpy(fb_before, fake_fb, sizeof(fb_before));
+
+    /* Layout 1's first frame rect gets thicker; layout 0 is untouched */
+    fake_radio_reset();
+    lfile[ESL_LBIN_HDR_LEN + 1 + 5 * ESL_LE_SIZE + 1 + ESL_LE_SIZE + ESL_LE_OFF_H] = 6;
+    lver = proto_crc32(0, lfile, lsize);
+    push_all_blocks();
+    push_idle(0);
+    app_poll_once();
+    CHECK(layout_file_ver == lver);
+    CHECK_EQ(app.shown_id, 0);                           /* the AP will send the content again */
+    push_content(4242, ESL_LAYOUT_FILE + 0, 0, 4, shelf);
+    app_poll_once();
+    CHECK_EQ(app.shown_id, 4242);
+    CHECK_EQ(fake_draw_count, 3);                        /* drawn ... */
+    CHECK_EQ(fake_refresh_count, 2);                     /* ... but not refreshed */
+    CHECK(memcmp(fb_before, fake_fb, sizeof(fb_before)) == 0);
+
+    /* The same content with another layout: a new image, refreshed */
+    fake_radio_reset();
+    push_content(4243, ESL_LAYOUT_FILE + 1, 0, 4, shelf);
+    app_poll_once();
+    CHECK_EQ(fake_draw_count, 4);
+    CHECK_EQ(fake_refresh_count, 3);
+
+    /* After a restart the same image is drawn, and refreshed: the panel is unknown */
+    restart();
+    CHECK_EQ(app.shown_id, 4243);
+    CHECK_EQ(fake_draw_count, 1);
+    CHECK_EQ(fake_refresh_count, 1);
 }
 
 static void test_restart_with_layout_file(void)
@@ -799,5 +848,6 @@ void test_app(void)
     RUN(test_layout_content_config);
     RUN(test_restart_shows_stored_content);
     RUN(test_restart_with_layout_file);
+    RUN(test_layout_file_change_same_image);
     RUN(test_restart_bad_flash);
 }

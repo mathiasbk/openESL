@@ -2,9 +2,13 @@
 #include <stdio.h>
 #include "epd.h"
 #include "fake.h"
+#include "proto_tag.h"
 
 int fake_draw_count;
+int fake_refresh_count;
 bool fake_epd_ok = true;
+uint32_t epd_shown_crc;
+uint8_t epd_refreshed;
 uint8_t fake_fb[DRAW_H][DRAW_W];
 
 void fake_render(draw_scene_t *s)
@@ -47,9 +51,25 @@ bool fake_fb_save_ppm(const char *path)
     return true;
 }
 
+/* As epd.c: the refresh is skipped when the image is the one the panel shows. */
 bool epd_draw(draw_scene_t *s)
 {
+    uint32_t crc = 0;
+    int y;
+
     fake_draw_count++;
+    epd_refreshed = 0;
+    if (!fake_epd_ok) {
+        epd_shown_crc = 0;
+        return false;
+    }
     fake_render(s);
-    return fake_epd_ok;
+    for (y = 0; y < DRAW_H; y++)
+        crc = proto_crc32(crc, fake_fb[y], DRAW_W);
+    if (!crc || crc != epd_shown_crc) {
+        fake_refresh_count++;
+        epd_refreshed = 1;
+    }
+    epd_shown_crc = crc;
+    return true;
 }

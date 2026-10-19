@@ -16,6 +16,7 @@
  * and whether its controller wants the second RAM (0x26) written too before a full update.
  */
 #include "epd.h"
+#include "proto_tag.h"
 #include "hal/hal.h"
 #include "hal/hal_epd.h"
 
@@ -53,6 +54,10 @@ static const uint8_t __code panel_init[] = { EPD_INIT };
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
 static uint8_t __xdata col_red[DRAW_COL_BYTES];
+
+uint32_t __xdata epd_shown_crc;
+uint8_t epd_refreshed;
+static uint32_t __xdata img_crc;       /* CRC-32 of the planes streamed by this epd_draw */
 
 static void spi_byte(uint8_t b)
 {
@@ -170,6 +175,7 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
                 if (col[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
                     rows[y] |= m;
         }
+        img_crc = proto_crc32(img_crc, rows, DRAW_H);
         hal_epd_dc(1);
         hal_epd_cs(0);
         for (y = 0; y < DRAW_H; y++) {
@@ -200,6 +206,7 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     draw_begin(s);
     for (x = 0; x < DRAW_W; x++) {
         draw_column(s, x, col_black, col_red);
+        img_crc = proto_crc32(img_crc, red ? col_red : col_black, DRAW_COL_BYTES);
         for (i = 0; i < DRAW_COL_BYTES; i++) {
             b = red ? col_red[i] : col_black[i];
             if (!red && EPD_BW_INVERT)
@@ -245,28 +252,40 @@ bool epd_draw(draw_scene_t *s)
     hal_epd_rst(1);
     hal_delay_ms(10);
 
+    epd_refreshed = 0;
     cmd(CMD_SW_RESET);
     if (!wait_busy(1000)) {
         hal_epd_power(0);
+        epd_shown_crc = 0;             /* no answer: what the panel shows is unknown */
         return false;
     }
 
     init_panel();
 
+    img_crc = 0;
     stream_plane(s, 0);
 #if MODEL_HAS_RED
     stream_plane(s, 1);
 #endif
 
+    /* The same image as the panel already shows: the RAM is written, but the refresh
+       (the slow, costly part, and the flash of the screen) is skipped. A CRC of 0 is
+       taken as unknown and always refreshes. */
+    if (img_crc && img_crc == epd_shown_crc) {
+        ok = true;
+    } else {
 #if EPD_WRITE_TEMP
-    cmd(CMD_WRITE_TEMP);
-    data(EPD_TEMP_C);
-    data(0x00);
+        cmd(CMD_WRITE_TEMP);
+        data(EPD_TEMP_C);
+        data(0x00);
 #endif
-    cmd(CMD_UPDATE_CTRL2);
-    data(EPD_UPDATE_SEQ);
-    cmd(CMD_MASTER_ACTIVATE);
-    ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
+        cmd(CMD_UPDATE_CTRL2);
+        data(EPD_UPDATE_SEQ);
+        cmd(CMD_MASTER_ACTIVATE);
+        ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
+        epd_refreshed = 1;
+    }
+    epd_shown_crc = ok ? img_crc : 0;
 
 #ifdef EPD_SLEEP_CTRL1
     cmd(CMD_UPDATE_CTRL1);

@@ -3,6 +3,7 @@
 #include "draw.h"
 #include "layout.h"
 #include "epd.h"
+#include "epd.h"
 #include "ota.h"
 #include "hal/hal.h"
 
@@ -448,6 +449,7 @@ void app_init(void)
     shown.layout = 0;
 
     radio_init(CFG_CHANNEL);
+    epd_shown_crc = 0;               /* after a reset the panel may show anything */
     /* The last content if flash has it, else the start screen (T9) */
     if (!show_stored_content() && !draw_status(msg_waiting))
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;

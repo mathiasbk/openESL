@@ -32,7 +32,7 @@ A pessimistic case (sleep 10 µA, radio 20 mA, 15 ms to wake, 10 ms to the reply
 
 **A longer interval helps less than it looks.** Going from 60 s to 300 s saves about a quarter, but beyond that the sleep current is nearly all that is left, and with the "AP gone" backoff the floor is about 3.9 µA anyway. A longer interval also makes a price sent with `PUT /api/tags` take up to that long to show (requirement G1 assumes 60 s); prices scheduled with `at` are not delayed, since the AP tells the tag to wake just after they are due. The interval is set for all tags at once with `PUT /api/config` (`esl_client.py config --poll-s 300`) or per tag with `PUT /api/tags/{mac}/config`, and reaches each tag at its next poll; no reflash is needed.
 
-Display updates are cheap once a day but add up: each one keeps the core awake for the whole 2.9 s refresh (the firmware waits on BUSY instead of sleeping), about 22 mC, or as much as 280 polls. Letting the core sleep while the panel refreshes would cut that by more than half if frequent updates ever matter.
+Display updates are cheap once a day but add up: each one keeps the core awake for the whole 2.9 s refresh (the firmware waits on BUSY instead of sleeping), about 22 mC, or as much as 280 polls. Letting the core sleep while the panel refreshes would cut that by more than half if frequent updates ever matter. A draw that gives the same image as the panel already shows (typically after a layout-file change that did not touch the tag's own layout) skips the refresh and costs only the init and transfer, about 2 mC.
 
 ## The model
 

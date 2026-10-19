@@ -44,7 +44,7 @@
 ## Display 2.9": 296×128, black/white
 - Both tags are black/white only; there is no red. Emphasis is done in black/white, as the stock SoluM firmware does: an inverted field (white text on a black box, e.g. the price) and a black frame.
 - The display controller has its own image memory (4736 bytes for the black/white plane). The ZBS243 has too little RAM for a whole image, so `draw` makes one column at a time (16 bytes) and writes it straight in.
-- A full update takes a few seconds and draws a few mA. That is why the tag only draws when `content_id` changes (requirement T5).
+- A full update takes a few seconds and draws a few mA. That is why the tag only draws when `content_id` changes (requirement T5), and `epd` skips the update itself when the new image has the same CRC-32 as the one the panel shows (`epd_shown_crc`).
 - The display must be put into deep sleep after drawing, or it will drain the battery.
 
 ## Multiple tag sizes: 2.9" and 1.54" (requirements G6, T19)

@@ -20,6 +20,19 @@
  */
 #define EPD_OP_WINDOW 0xFF
 
+/*
+ * CRC-32 of the image the panel shows: what epd_draw last streamed into it, 0 = unknown.
+ * epd_draw computes the CRC of the new image while it writes the panel's RAM, and when
+ * it equals this one it skips the refresh (the 2.9 s update that costs as much as ~280
+ * polls and makes the screen flash): the panel already shows that image. Kept between
+ * polls (deep sleep returns to the loop); app_init() clears it at start-up, since the
+ * panel may show anything after a reset or a reflash.
+ */
+extern uint32_t __xdata epd_shown_crc;
+
+/* 1 if the last epd_draw ran a refresh, 0 if it skipped it because the image was the same. */
+extern uint8_t epd_refreshed;
+
 /* Returns false if the display did not answer (BUSY never went low). */
 bool epd_draw(draw_scene_t *s);
 

@@ -36,7 +36,7 @@ static uint8_t entry = 0x03, xs, xe = RAM_X - 1, xc;
 static uint16_t ys, ye = RAM_Y - 1, yc, gate_lines;
 static uint8_t gate_scan;        /* 0x01 byte 3: bit 0 = TB, gates scanned from the last line */
 static uint8_t ram[2][RAM_Y][RAM_X];
-static int n_written[2], n_out_of_window, busy_polls;
+static int n_written[2], n_out_of_window, busy_polls, n_activate;
 static bool asleep, busy_stuck;
 
 static void ram_write(uint8_t plane, uint8_t b)
@@ -70,6 +70,8 @@ static void on_byte(uint8_t b)
             first_cmd = b;
         cur_cmd = last_cmd = b;
         nparam = 0;
+        if (b == 0x20)
+            n_activate++;
         if (b == 0x12) {                 /* software reset: defaults */
             entry = 0x03;
             asleep = false;
@@ -118,7 +120,7 @@ static void reset_model(void)
 {
     memset(ram, 0, sizeof(ram));
     memset(ram[1], 0xA5, sizeof(ram[1]));     /* the second RAM holds noise after power-up */
-    n_written[0] = n_written[1] = n_out_of_window = 0;
+    n_written[0] = n_written[1] = n_out_of_window = n_activate = 0;
     first_cmd = last_cmd = cur_cmd = 0xFF;
     gate_lines = 0;
     gate_scan = 0;
@@ -242,11 +244,54 @@ static void test_epd_no_busy(void)
     static draw_scene_t sc;
     draw_clear(&sc);
     reset_model();
+    epd_shown_crc = 0x12345678;
     busy_stuck = true;
     CHECK(!epd_draw(&sc));
     CHECK(!powered);
     CHECK_EQ(n_written[0], 0);
+    CHECK_EQ(epd_shown_crc, 0);                  /* what the panel shows is unknown now */
     busy_stuck = false;
+}
+
+static void test_epd_same_image(void)
+{
+    /* The same image twice: the second time the RAM is written but the refresh (0x20)
+       is skipped, and the display still goes to sleep. A changed image refreshes. */
+    static draw_scene_t sc;
+    uint32_t crc;
+
+    draw_clear(&sc);
+    draw_add_text(&sc, ESL_FONT_MEDIUM, DRAW_BLACK, 10, 10, (const uint8_t *)"Pris 19.90", 10, 0);
+    draw_add_rect(&sc, 0, 0, DRAW_W - 1, 3, DRAW_BLACK);
+    reset_model();
+    epd_shown_crc = 0;
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(n_activate, 1);
+    CHECK_EQ(epd_refreshed, 1);
+    CHECK(epd_shown_crc != 0);
+    crc = epd_shown_crc;
+
+    reset_model();
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);   /* the RAM is written anyway */
+    CHECK_EQ(n_activate, 0);                           /* no refresh */
+    CHECK_EQ(epd_refreshed, 0);
+    CHECK_EQ(epd_shown_crc, crc);
+    CHECK(asleep);
+    CHECK(!powered);
+
+    draw_add_text(&sc, ESL_FONT_SMALL, DRAW_BLACK, 10, 40, (const uint8_t *)"ny linje", 8, 0);
+    reset_model();
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(n_activate, 1);
+    CHECK_EQ(epd_refreshed, 1);
+    CHECK(epd_shown_crc != crc);
+
+    /* A CRC of 0 means unknown: it always refreshes */
+    epd_shown_crc = 0;
+    reset_model();
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(n_activate, 1);
 }
 
 int main(int argc, char **argv)
@@ -255,6 +300,7 @@ int main(int argc, char **argv)
     test_epd_stream(argc > 1 ? argv[1] : NULL);
     RUN(test_epd_init_table);
     RUN(test_epd_no_busy);
+    RUN(test_epd_same_image);
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

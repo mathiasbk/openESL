@@ -43,8 +43,11 @@ extern int fake_xflash_misuse;
 extern int fake_resets;                    /* hal_reset() calls */
 void fake_xflash_clear(bool present);      /* all 0xFF */
 
-/* Display (test/fake_epd.c): epd_draw draws into a whole image */
+/* Display (test/fake_epd.c): epd_draw draws into a whole image. fake_draw_count counts
+   the calls, fake_refresh_count the ones that changed the image (epd.c refreshes the
+   panel only then, see epd_shown_crc). */
 extern int fake_draw_count;
+extern int fake_refresh_count;
 extern bool fake_epd_ok;
 extern uint8_t fake_fb[DRAW_H][DRAW_W];   /* 0 = white, 1 = black */
 void fake_render(draw_scene_t *s);         /* draws the scene into fake_fb */
