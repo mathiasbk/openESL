@@ -373,7 +373,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     unsigned pad = inverted ? 2 * ESL_INVERT_PAD : 0;
     if (h < min_h + pad || w <= pad)
         return fail(c, "the box (%ux%u) is too small for its smallest font (%u px high%s)", w, h, min_h,
-                    inverted ? " plus the black border of an inverted field" : "");
+                    inverted ? " plus the border of an inverted field" : "");
 
     /* Lines this element can draw at most: the tag tries each font and uses
      * as many lines as the box holds (1..3), limited by "lines". */

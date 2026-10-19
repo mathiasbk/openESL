@@ -73,14 +73,19 @@ static void ink(uint8_t *black, uint8_t *red, uint8_t idx, uint8_t m, uint8_t co
     }
 }
 
-/* Fills bits y0..y1 (inclusive) in a column with color. */
+/* Fills bits y0..y1 (inclusive) in a column with color, a byte at a time. */
 static void fill_span(uint8_t *black, uint8_t *red, uint8_t y0, uint8_t y1, uint8_t color)
 {
-    uint8_t y;
-    for (y = y0; ; y++) {
-        ink(black, red, (uint8_t)(y >> 3), (uint8_t)(0x80 >> (y & 7)), color);
-        if (y == y1)
+    uint8_t i = y0 >> 3, last = y1 >> 3;
+    uint8_t m = (uint8_t)(0xFF >> (y0 & 7));
+    for (;;) {
+        if (i == last)
+            m &= (uint8_t)(0xFF << (7 - (y1 & 7)));
+        ink(black, red, i, m, color);
+        if (i == last)
             break;
+        i++;
+        m = 0xFF;
     }
 }
 

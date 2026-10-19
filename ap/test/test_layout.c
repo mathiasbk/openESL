@@ -284,7 +284,7 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"valign\":\"center\"}", "valign must be");
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
-    bad_el(TEXT_A ",\"color\":\"invert\"}", "black border of an inverted field");
+    bad_el(TEXT_A ",\"color\":\"invert\"}", "border of an inverted field");
     /* the tag's scene: 16 text lines and 10 rectangles per screen */
 #define TALL TEXT_XYW ",\"h\":128,\"field\":\"a\",\"fonts\":[\"small\"]"
 #define R1 "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}"
