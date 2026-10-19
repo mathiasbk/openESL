@@ -15,7 +15,7 @@
  *                                draws CONTENT with fields in UTF-8 (converted to Latin-1 as
  *                                the AP does) into the frame buffer. layout 1 = price,
  *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error
- *   web_fb()                     DRAW_H rows of DRAW_W bytes, 0 = white, 1 = black
+ *   web_fb()                     DRAW_H rows of DRAW_W bytes, 0 = white, 1 = black, 2 = red
  */
 #include <stdio.h>
 #include <string.h>

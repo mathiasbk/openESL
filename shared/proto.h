@@ -236,6 +236,8 @@
 #define ESL_LE_INVERT        2      /* hvit tekst i svart boks */
 #define ESL_LE_PRICE_HL      3      /* som ESL_LE_INVERT hvis ESL_CF_PRICE_HIGHLIGHT, ellers svart */
 #define ESL_LE_FRAME         4      /* svart hvis ESL_CF_FRAME, ellers ikke tegnet */
+#define ESL_LE_RED           5      /* rød tekst eller rødt rektangel; bare modeller med rødt (has_red) */
+#define ESL_LE_RED_INVERT    6      /* hvit tekst i rød boks (bare tekst); bare modeller med rødt */
 
 #define ESL_FONT_SMALL       0      /* 17 px, Latin-1 */
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */

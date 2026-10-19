@@ -216,18 +216,21 @@ static uint8_t max_descent(const layout_elem_t *e)
     return d;
 }
 
-#define COLOR_INVERT  2     /* internal: white text in a black box */
-#define COLOR_NONE    0xFF  /* do not draw */
+#define COLOR_INVERT     0x80  /* internal: white text in a black box */
+#define COLOR_RED_INVERT 0x81  /* internal: white text in a red box */
+#define COLOR_NONE       0xFF  /* do not draw */
 
-/* DRAW_BLACK, DRAW_WHITE, COLOR_INVERT or COLOR_NONE. */
+/* A DRAW_* colour, COLOR_INVERT, COLOR_RED_INVERT or COLOR_NONE. */
 static uint8_t resolve_color(uint8_t c, uint8_t flags)
 {
     switch (c) {
-    case LE_WHITE:    return DRAW_WHITE;
-    case LE_INVERT:   return COLOR_INVERT;
-    case LE_PRICE_HL: return (flags & ESL_CF_PRICE_HIGHLIGHT) ? COLOR_INVERT : DRAW_BLACK;
-    case LE_FRAME:    return (flags & ESL_CF_FRAME) ? DRAW_BLACK : COLOR_NONE;
-    default:          return DRAW_BLACK;
+    case LE_WHITE:      return DRAW_WHITE;
+    case LE_INVERT:     return COLOR_INVERT;
+    case LE_PRICE_HL:   return (flags & ESL_CF_PRICE_HIGHLIGHT) ? COLOR_INVERT : DRAW_BLACK;
+    case LE_FRAME:      return (flags & ESL_CF_FRAME) ? DRAW_BLACK : COLOR_NONE;
+    case LE_RED:        return DRAW_RED;
+    case LE_RED_INVERT: return COLOR_RED_INVERT;
+    default:            return DRAW_BLACK;
     }
 }
 
@@ -235,16 +238,18 @@ static void place_text(draw_scene_t *s, const layout_elem_t *e, const uint8_t *t
                        uint8_t color)
 {
     const font_t __code *f;
-    uint8_t i, font = FONT_MEDIUM, found = 0, ell, pad = 0, n;
+    uint8_t i, font = FONT_MEDIUM, found = 0, ell, pad = 0, n, box = DRAW_BLACK;
     int16_t y, y0 = -1, y1 = 0;
     uint16_t lw, x, w, bx0 = 0xFFFF, bx1 = 0;
     uint8_t ey, eh;
 
-    /* An inverted field keeps LAYOUT_INVERT_PAD of black around the text inside the box */
-    if (color == COLOR_INVERT) {
+    /* An inverted field keeps LAYOUT_INVERT_PAD of the box colour around the text inside the box */
+    if (color == COLOR_INVERT || color == COLOR_RED_INVERT) {
         pad = LAYOUT_INVERT_PAD;
         if (e->w <= 2 * pad || e->h <= 2 * pad)
             return;
+        if (color == COLOR_RED_INVERT)
+            box = DRAW_RED;
         color = DRAW_WHITE;
     }
     x = e->x + pad;
@@ -314,11 +319,10 @@ static void place_text(draw_scene_t *s, const layout_elem_t *e, const uint8_t *t
         draw_add_text(s, font, color, lx, (uint8_t)y, t + ln_start[i], ln_len[i], ell);
     }
 
-    /* The black box behind the white text: the font cells plus the padding. draw_column
-       fills every rectangle before it draws any text, so adding it last is fine. */
+    /* The box behind the white text: the font cells plus the padding. draw_column fills
+       every rectangle before it draws any text, so adding it last is fine. */
     if (pad && y0 >= 0)
-        draw_add_rect(s, bx0 - pad, (uint8_t)(y0 - pad), bx1 - 1 + pad, (uint8_t)(y1 + pad),
-                      DRAW_BLACK);
+        draw_add_rect(s, bx0 - pad, (uint8_t)(y0 - pad), bx1 - 1 + pad, (uint8_t)(y1 + pad), box);
 }
 
 /* A barcode element: the field encoded with symbology font[0], module width lines (0 = the
@@ -418,6 +422,8 @@ static void apply_list(draw_scene_t *s, const layout_elem_t *e, const uint8_t *w
             if (e->kind == LE_RECT) {
                 if (color == COLOR_INVERT)
                     color = DRAW_BLACK;
+                else if (color == COLOR_RED_INVERT)
+                    color = DRAW_RED;
                 if (e->w && e->h)
                     draw_add_rect(s, e->x, e->y, e->x + e->w - 1, (uint8_t)(e->y + e->h - 1), color);
             } else {
@@ -472,7 +478,7 @@ static bool elem_ok(void)
 
     if (e->kind != LE_TEXT && e->kind != LE_RECT && e->kind != LE_BARCODE)
         return false;
-    if (e->color > LE_FRAME || (uint32_t)e->x + e->w > DRAW_W || (uint16_t)e->y + e->h > DRAW_H)
+    if (e->color > LE_COLOR_MAX || (uint32_t)e->x + e->w > DRAW_W || (uint16_t)e->y + e->h > DRAW_H)
         return false;
     if (e->kind == LE_RECT)
         return true;

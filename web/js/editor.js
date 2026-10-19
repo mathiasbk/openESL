@@ -14,6 +14,9 @@ const ALIGN = ["left", "center", "right"];
 const VALIGN = ["top", "middle", "bottom"];
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
+// On a model with red (colors in shared/models.json) the AP also takes these
+const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
+const RECT_COLORS_RED = [...RECT_COLORS, "red"];
 const BUILTIN = {
   price: { id: LAYOUT_PRICE, fields: ["name", "price", "subtitle"] },
   text: { id: LAYOUT_TEXT, fields: ["line1", "line2", "line3", "line4"] },
@@ -250,8 +253,8 @@ function paint(pixels, w, h) {
   const ctx = c.getContext("2d");
   const img = ctx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {
-    const v = pixels[i] ? 17 : 255;
-    img.data.set([v, v, v, 255], i * 4);
+    const v = pixels[i];
+    img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
   c.style.opacity = 1;
@@ -306,7 +309,7 @@ function refreshList() {
     li.className = i === state.el ? "sel" : "";
     li.dataset.i = i;
     const ico = document.createElement("span");
-    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight");
+    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight" || e.color === "red_invert");
     ico.className = "ico" + (e.type === "rect" ? " rect" : e.type === "barcode" ? " barcode" : inverted ? " inv" : "");
     const name = document.createElement("span");
     name.className = "name";
@@ -684,8 +687,9 @@ function refreshElement() {
     box.append(p);
     return;
   }
-  sel("Colour", "color", e.type === "text" ? TEXT_COLORS : RECT_COLORS, e.color || "black",
-    (v) => (v === "black" ? delete e.color : (e.color = v)));
+  const red = MODELS[state.model].colors.includes("red");
+  sel("Colour", "color", e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS) : red ? RECT_COLORS_RED : RECT_COLORS,
+    e.color || "black", (v) => (v === "black" ? delete e.color : (e.color = v)));
 }
 
 // Buttons that put the element against an edge or in the middle of the screen, or stretch it.

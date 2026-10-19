@@ -18,7 +18,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
 | `chip`, `radio` | the tag's chip and radio; only `zbs243` is built so far |
 | `width`, `height` | the screen in the orientation the layouts use |
-| `colors` | `black`, `white` (red and yellow are refused until the firmware draws them) |
+| `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert` (`yellow` is refused until the firmware draws it) |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
 | `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
