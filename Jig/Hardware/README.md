@@ -20,6 +20,8 @@ Build and flash the ESP8266 version of ZBS_Flasher to the D1 mini. Its repositor
 
 <img src="images/photo-board.jpg" width="24%"> <img src="images/photo-closed.jpg" width="24%"> <img src="images/photo-tag.jpg" width="24%"> <img src="images/photo-tag-angle.jpg" width="24%">
 
+<img src="images/photo-29-tag.jpg" width="24%"> <img src="images/photo-pogo-wires.jpg" width="24%"> <img src="images/photo-pogo-pins.jpg" width="42.7%">
+
 ## Printed parts
 
 The files are in [3D printet jig](3D%20printet%20jig/).
