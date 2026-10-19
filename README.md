@@ -153,6 +153,8 @@ Help is welcome, and most of all with hardware we have not tried yet:
 
 Open an issue with what you have, or a pull request. Bug reports and fixes for everything else are just as welcome.
 
+How a change is made, tested and released is in [CONTRIBUTING.md](CONTRIBUTING.md); the release steps and checklist are in [docs/release.md](docs/release.md). Security problems go to [SECURITY.md](SECURITY.md), not to an issue.
+
 ## Credits
 
 This project would be much harder without the people who opened up these tags first:

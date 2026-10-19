@@ -1,0 +1,43 @@
+name: Bug report
+description: Something on the AP, a tag, the web page or the tools does not work as it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      placeholder: "1. ...\n2. ..."
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Release, AP firmware (`ap.fw` in GET /api/tags or the dashboard) and tag firmware (start screen or dashboard).
+      placeholder: release 0.4.6, AP 0.4.6, tag 0.4.5
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      multiple: true
+      options:
+        - AP firmware
+        - Tag firmware
+        - Web page / dashboard
+        - Flasher
+        - esl-client or other tools
+        - Docs
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: 'ESP32-C6 Super Mini, ST-GM29XX2 (2.9"), MAC 0000...'
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and pictures
+      description: Serial output from the AP, the response from the API, a photo of the tag.
