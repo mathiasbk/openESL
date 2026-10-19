@@ -21,6 +21,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [openapi.yaml](openapi.yaml) | The HTTP API as OpenAPI 3.1, the reference; checked against the AP code in CI and shown in the API tab of the web page |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
 | [st-gm16xx2.md](st-gm16xx2.md) | The 1.6" ST-GM16XX2 (200×200 BW): panel detection, init and refresh, and what its controller does not do |
+| [solum-remote.md](solum-remote.md) | The SoluM ESL remote SLT-RC004: its radio frames and button codes, sniffed on the AP, and why openESL does not use it yet |
 
 ## The main choices (short version)
 
