@@ -13,12 +13,12 @@ Build and flash the ESP8266 version of ZBS_Flasher to the D1 mini. Its repositor
 - Pin headers for the D1 mini (2 x 8)
 - Pogo pins, one per hole in the upper part
 - Wire
-- USB cable for the D1 mini
+- USB-C cable for the D1 mini
 - The three printed parts below
 
 ## Photos
 
-More photos will be added.
+<img src="images/photo-board.jpg" width="24%"> <img src="images/photo-closed.jpg" width="24%"> <img src="images/photo-tag.jpg" width="24%"> <img src="images/photo-tag-angle.jpg" width="24%">
 
 ## Printed parts
 
