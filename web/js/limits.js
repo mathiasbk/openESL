@@ -5,7 +5,7 @@
 // renderer (renderer.limits), so they follow shared/proto.h. A barcode needs neither, but a
 // layout holds at most limits.barcodes of them.
 
-const INVERTED = new Set(["invert", "highlight"]);
+const INVERTED = new Set(["invert", "highlight", "red_invert"]);
 
 // One element: { runs, rects, barcodes }.
 export function elementUsage(e, limits) {

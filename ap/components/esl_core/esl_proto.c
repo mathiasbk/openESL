@@ -367,8 +367,9 @@ void esl_mac_format(uint64_t mac, char out[17])
 static const struct {
     const char *name;
     uint16_t w, h;
+    bool red;
 } models[ESL_MODEL_COUNT - 1] = {
-#define ESL_MODEL_ROW(code, name, id, w, h, red) {name, w, h},
+#define ESL_MODEL_ROW(code, name, id, w, h, red) {name, w, h, red != 0},
     ESL_MODEL_LIST(ESL_MODEL_ROW)
 #undef ESL_MODEL_ROW
 };
@@ -385,6 +386,11 @@ bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h)
     *w = models[model - 1].w;
     *h = models[model - 1].h;
     return true;
+}
+
+bool esl_model_has_red(uint8_t model)
+{
+    return esl_model_name(model) && models[model - 1].red;
 }
 
 uint8_t esl_model_parse(const char *s, size_t len)

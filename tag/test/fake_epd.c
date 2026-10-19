@@ -9,7 +9,7 @@ uint8_t fake_fb[DRAW_H][DRAW_W];
 
 void fake_render(draw_scene_t *s)
 {
-    uint8_t black[DRAW_COL_BYTES], red[DRAW_COL_BYTES];   /* red stays empty */
+    uint8_t black[DRAW_COL_BYTES], red[DRAW_COL_BYTES];
     int x, y;
 
     draw_begin(s);
@@ -17,7 +17,7 @@ void fake_render(draw_scene_t *s)
         draw_column(s, (uint16_t)x, black, red);
         for (y = 0; y < DRAW_H; y++) {
             uint8_t m = (uint8_t)(0x80 >> (y & 7));
-            fake_fb[y][x] = (black[y >> 3] & m) ? 1 : 0;
+            fake_fb[y][x] = (red[y >> 3] & m) ? 2 : (black[y >> 3] & m) ? 1 : 0;
         }
     }
 }
@@ -34,7 +34,7 @@ int fake_ink_count(int color)
 
 bool fake_fb_save_ppm(const char *path)
 {
-    static const unsigned char rgb[3][3] = { { 255, 255, 255 }, { 0, 0, 0 } };
+    static const unsigned char rgb[3][3] = { { 255, 255, 255 }, { 0, 0, 0 }, { 200, 30, 30 } };
     FILE *f = fopen(path, "wb");
     int x, y;
     if (!f)

@@ -15,7 +15,7 @@
  *              in a filled black box (an inverted field).
  *   2 "text":  4 lines, each in the medium font, or the small font if it does not fit.
  * Flag bit1 gives a black frame around the whole screen.
- * Both panels are black/white, so all highlighting is black/white (model.h).
+ * The built-in layouts are black/white; a layout file may use red on a model with red.
  * Text that does not fit even in the last font is truncated with "…".
  * The text pointed to must live until drawing is done.
  */
@@ -63,6 +63,13 @@
 #define LE_INVERT     ESL_LE_INVERT   /* LE_TEXT: white text in a black box around it */
 #define LE_PRICE_HL   ESL_LE_PRICE_HL /* LE_INVERT if flag bit0 (ESL_CF_PRICE_HIGHLIGHT) is set, else black */
 #define LE_FRAME      ESL_LE_FRAME    /* black if flag bit1 (ESL_CF_FRAME) is set, else not drawn */
+#define LE_RED        ESL_LE_RED      /* red text or rectangle; a file may use it only when MODEL_HAS_RED */
+#define LE_RED_INVERT ESL_LE_RED_INVERT /* LE_TEXT: white text in a red box around it */
+#if MODEL_HAS_RED
+#define LE_COLOR_MAX  LE_RED_INVERT   /* the highest colour a layout file may use on this model */
+#else
+#define LE_COLOR_MAX  LE_FRAME
+#endif
 
 /*
  * One element. LE_TEXT puts text field `field` inside the box x, y, w, h:
@@ -71,7 +78,7 @@
  *     If no font passes, the last one is used, with wrapping and "…".
  *   - lines = maximum number of lines; 0 = as many as the box height holds (at least 1,
  *     at most LAYOUT_MAX_LINES). Lines are one font height apart.
- *   - LE_INVERT (and LE_PRICE_HL when highlighted): the text is placed in the box made
+ *   - LE_INVERT (and LE_PRICE_HL when highlighted; LE_RED_INVERT with a red box): the text is placed in the box made
  *     LAYOUT_INVERT_PAD smaller on every side, a font must also fit its height, and a
  *     black rectangle covers the font cells of the lines plus LAYOUT_INVERT_PAD. The
  *     rectangle hugs the text (right-aligned text gets a right-aligned box) and stays

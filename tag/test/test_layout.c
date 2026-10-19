@@ -356,6 +356,8 @@ static void test_custom_elements(void)
         { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_BLACK, 0, 60, 20, 5 },
         { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_FRAME, 0, 70, 20, 5 },
         { LE_TEXT, 3, { FONT_MEDIUM, LE_NO_FONT, LE_NO_FONT }, 0, 1, LE_BLACK, 10, 80, 100, 30 },
+        { LE_RECT, 0, { LE_NO_FONT, LE_NO_FONT, LE_NO_FONT }, 0, 0, LE_RED, 30, 60, 20, 5 },
+        { LE_TEXT, 1, { FONT_MEDIUM, LE_NO_FONT, LE_NO_FONT }, 0, 1, LE_RED_INVERT, 100, 10, 90, 40 },
         { LE_END, 0, { 0, 0, 0 }, 0, 0, 0, 0, 0, 0, 0 }
     };
     const uint8_t *t[2];
@@ -365,8 +367,8 @@ static void test_custom_elements(void)
     t[0] = L("ignored", &len[0]);
     t[1] = L("Hei", &len[1]);
     layout_apply(&sc, e, t, len, 2, 0);
-    CHECK_EQ(sc.nruns, 1);          /* field 3 does not exist */
-    CHECK_EQ(sc.nrects, 2);         /* the inverted box and one rectangle; the frame needs flag bit1 */
+    CHECK_EQ(sc.nruns, 2);          /* field 3 does not exist */
+    CHECK_EQ(sc.nrects, 4);         /* two inverted boxes and two rectangles; the frame needs flag bit1 */
     w = font_text_width(&font_medium, t[1], len[1]);
     /* LE_INVERT: centred in the box made LAYOUT_INVERT_PAD smaller on each side */
     CHECK_EQ(sc.run[0].x, 10 + LAYOUT_INVERT_PAD + (100 - 2 * LAYOUT_INVERT_PAD - w) / 2);
@@ -377,10 +379,18 @@ static void test_custom_elements(void)
     CHECK_EQ(sc.rect[0].color, DRAW_BLACK);
     CHECK_EQ(sc.rect[1].x1, 19);
     CHECK_EQ(sc.rect[1].y1, 64);
+    /* LE_RED: a red rectangle; LE_RED_INVERT: white text in a red box */
+    CHECK_EQ(sc.rect[2].color, DRAW_RED);
+    CHECK_EQ(sc.rect[2].x0, 30);
+    CHECK_EQ(sc.run[1].color, DRAW_WHITE);
+    CHECK_EQ(sc.rect[3].color, DRAW_RED);
+    CHECK_EQ(sc.rect[3].x0, sc.run[1].x - LAYOUT_INVERT_PAD);
+    fake_render(&sc);
+    CHECK(fake_ink_count(2) > 20 * 5);
 
     /* With flag bit1 the frame rectangle is drawn in black */
     layout_apply(&sc, e, t, len, 2, ESL_CF_FRAME);
-    CHECK_EQ(sc.nrects, 3);
+    CHECK_EQ(sc.nrects, 5);
     CHECK_EQ(sc.rect[2].color, DRAW_BLACK);
     CHECK_EQ(sc.rect[2].y0, 70);
 }
@@ -506,7 +516,8 @@ static void test_file_install(void)
     BAD(layout_file[5 + ESL_LE_OFF_FIELD] = ESL_MAX_FIELDS);    /* field */
     BAD(layout_file[5 + ESL_LE_OFF_FONT] = ESL_FONT_NONE);     /* text without a font */
     BAD(layout_file[5 + ESL_LE_OFF_FONT + 1] = 4);             /* font */
-    BAD(layout_file[5 + ESL_LE_OFF_COLOR] = 5);                /* colour */
+    BAD(layout_file[5 + ESL_LE_OFF_COLOR] = LE_COLOR_MAX + 1);  /* colour: red only on a model with red */
+    BAD(layout_file[5 + ESL_LE_OFF_COLOR] = LE_RED_INVERT + 1);
     BAD(layout_file[5 + ESL_LE_OFF_LINES] = 4);                /* lines */
     BAD(ESL_PUT_U16(layout_file + 5 + ESL_LE_OFF_W, DRAW_W));  /* past the right edge (x = margin) */
     BAD(layout_file[5 + ESL_LE_OFF_H] = DRAW_H);               /* past the bottom */

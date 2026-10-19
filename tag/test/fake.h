@@ -46,7 +46,7 @@ void fake_xflash_clear(bool present);      /* all 0xFF */
 /* Display (test/fake_epd.c): epd_draw draws into a whole image */
 extern int fake_draw_count;
 extern bool fake_epd_ok;
-extern uint8_t fake_fb[DRAW_H][DRAW_W];   /* 0 = white, 1 = black */
+extern uint8_t fake_fb[DRAW_H][DRAW_W];   /* 0 = white, 1 = black, 2 = red */
 void fake_render(draw_scene_t *s);         /* draws the scene into fake_fb */
 int fake_ink_count(int color);
 bool fake_fb_save_ppm(const char *path);

@@ -52,6 +52,32 @@ static void test_white_rect(void)
     CHECK_EQ(fake_fb[10][60], 1);
 }
 
+static void test_red(void)
+{
+    /* A red rectangle, a white rectangle over its corner and black digits on it: black
+       and red never share a pixel, white clears both */
+    int x0, y0, x1, y1;
+    draw_clear(&sc);
+    CHECK(draw_add_rect(&sc, 10, 3, 60, 40, DRAW_RED));
+    CHECK(draw_add_rect(&sc, 50, 30, 60, 40, DRAW_WHITE));
+    CHECK(draw_add_text(&sc, FONT_MEDIUM, DRAW_BLACK, 12, 5, (const uint8_t *)"24", 2, 0));
+    fake_render(&sc);
+    CHECK_EQ(fake_ink_count(1) + fake_ink_count(2), 51 * 38 - 11 * 11);
+    CHECK(fake_ink_count(1) > 50);
+    ink_box(2, &x0, &y0, &x1, &y1);
+    CHECK_EQ(x0, 10); CHECK_EQ(x1, 60);
+    CHECK_EQ(y0, 3);  CHECK_EQ(y1, 40);
+    CHECK_EQ(fake_fb[35][55], 0);
+
+    /* Red digits on a black rectangle clear the black under them */
+    draw_clear(&sc);
+    CHECK(draw_add_rect(&sc, 0, 0, 99, 49, DRAW_BLACK));
+    CHECK(draw_add_text(&sc, FONT_MEDIUM, DRAW_RED, 10, 10, (const uint8_t *)"24", 2, 0));
+    fake_render(&sc);
+    CHECK(fake_ink_count(2) > 50);
+    CHECK_EQ(fake_ink_count(1) + fake_ink_count(2), 100 * 50);
+}
+
 static void test_inverted_text(void)
 {
     /* White text on a black rectangle: the glyph is the mirror image of black text */
@@ -187,6 +213,7 @@ void test_draw(void)
     RUN(test_empty);
     RUN(test_rect_exact);
     RUN(test_white_rect);
+    RUN(test_red);
     RUN(test_inverted_text);
     RUN(test_text_bounds);
     RUN(test_shift_alignment);
