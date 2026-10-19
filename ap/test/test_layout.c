@@ -267,7 +267,11 @@ static void test_errors(void)
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"x\":5}", "key \"x\" appears twice");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":100,\"w\":10,\"h\":29}", "y + h = 129 is past the bottom");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"colour\":\"black\"}", "unknown key \"colour\"");
-    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "color must be");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"pink\"}", "color must be");
+    /* the 2.9" has no red: the AP refuses red before it looks at anything else */
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "black/white model");
+    bad_el(TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"red_invert\"}", "black/white model");
+    CHECK(!esl_model_has_red(ESL_MODEL_29) && !esl_model_has_red(ESL_MODEL_154) && !esl_model_has_red(0));
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"invert\"}", "a rect can be");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"field\":\"a\"}", "field is only for text");
     bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"medium\"],\"field\":\"c\"}", "field \"c\" is not in the layout's fields");

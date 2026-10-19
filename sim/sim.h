@@ -96,7 +96,7 @@ uint8_t sim_tag_model_code(void);
 int sim_tag_restarts(void);
 bool sim_tag_app_is(const uint8_t *img, size_t len);
 bool sim_tag_ota_confirmed(void);
-/* The screen as PNG (2x, black/white). The tag is drawn in the orientation of the layouts. */
+/* The screen as PNG (2x, black/white; red as grey). The tag is drawn in the orientation of the layouts. */
 bool sim_tag_save_png(const char *path);
 /* Called after every wake-up with a new drawing (NULL = none). */
 extern void (*sim_on_draw)(void);

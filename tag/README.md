@@ -105,7 +105,7 @@ ZBS243 does not have RAM for a whole image (296 × 128 = 4736 bytes on the 2.9",
 - `layout.c` turns a CONTENT packet into a list of text runs (font, colour, position, pointer to the text) and filled rectangles (the frame, the black box behind an inverted field). It does this by going through a list of layout elements (`layout_elem_t`): a text element puts one field in a box, a rectangle element fills a box.
 - `draw.c` goes through the runs for each column. Each text run has a cursor that moves forward as x increases, so it does not search the text for every column.
 - The fonts are stored column by column, so one font column can be ORed straight into the screen column.
-- Highlighting is black/white: rectangles are filled first, then the text runs; a white run clears pixels, so white text on a black rectangle gives an inverted field.
+- Highlighting is black/white: rectangles are filled first, then the text runs; a white run clears pixels, so white text on a black rectangle gives an inverted field. `draw.c` keeps a red plane next to the black one (a pixel is black, red or white); a layout file may use red only on a model whose `colors` in `shared/models.json` has it, and `epd.c` sends the red plane only there.
 
 **Text that is too long.** Each text element has a list of up to three fonts. The first font in which every character exists and the text fits on the element's lines, without truncation and without breaking a word, is used. If none fits, the last font is used, wrapped, and the last line ends with "…". Lines break at the last space that fits; a lone unit like "g" at the end goes down together with the number before it.
 

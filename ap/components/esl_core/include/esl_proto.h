@@ -173,5 +173,7 @@ void esl_mac_format(uint64_t mac, char out[17]);
 const char *esl_model_name(uint8_t model);
 /* Screen size of a known model in pixels (the layout coordinates); false otherwise. */
 bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h);
+/* True if the model's panel has red (colors in shared/models.json); false for an unknown model. */
+bool esl_model_has_red(uint8_t model);
 /* ESL_MODEL_UNKNOWN if the name is not a known model. */
 uint8_t esl_model_parse(const char *s, size_t len);

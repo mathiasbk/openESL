@@ -3,7 +3,7 @@
 //
 //   const r = await loadRenderer("2.9");        // or "1.54"
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
-//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black) }
+//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red) }
 
 import { MODELS as REGISTRY } from "./models.js";
 

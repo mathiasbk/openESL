@@ -2,19 +2,22 @@
  * draw.h - draws the screen one column at a time.
  *
  * The screen size comes from model.h (296 x 128 on the 2.9", 200 x 200 on the 1.54").
- * Both panels are black/white only. ZBS243 does not have RAM for a whole image, so the
- * epd layer asks for one column (x) at a time: DRAW_H pixels = DRAW_COL_BYTES bytes
- * (16 on the 2.9", 25 on the 1.54").
+ * ZBS243 does not have RAM for a whole image, so the epd layer asks for one column (x)
+ * at a time: DRAW_H pixels = DRAW_COL_BYTES bytes (16 on the 2.9", 25 on the 1.54"), one
+ * column for the black plane and one for the red plane.
  * This fits the display controller's memory, where one line is one column here.
  *
  * Bit order in a column: byte 0 MSB = y 0 (top), then downwards. Unused bits at the
  * end of the last byte (when DRAW_H is not a multiple of 8) are always 0.
- * Bit = 1 means black. The epd layer flips polarity and direction if the controller
- * needs something different.
+ * Bit = 1 means black (or red, in the red plane); a pixel is never set in both. The epd
+ * layer flips polarity and direction if the controller needs something different, and
+ * sends the red plane only on a model with red (MODEL_HAS_RED); the layout file of a
+ * black/white model never asks for red.
  *
- * Highlighting is black/white too: white text on a filled black rectangle (an inverted
- * field, like the price box of the stock firmware). Rectangles are drawn first, in the
- * order they were added, then the barcode, then text runs in order; DRAW_WHITE clears pixels.
+ * Highlighting on a black/white panel is white text on a filled black rectangle (an
+ * inverted field, like the price box of the stock firmware). Rectangles are drawn first,
+ * in the order they were added, then the barcode, then text runs in order; DRAW_WHITE
+ * clears pixels, DRAW_BLACK and DRAW_RED set their plane and clear the other.
  */
 #ifndef DRAW_H_INCLUDED
 #define DRAW_H_INCLUDED
@@ -31,6 +34,7 @@
 
 #define DRAW_BLACK       0
 #define DRAW_WHITE       1      /* clears: white text or a white rectangle on black */
+#define DRAW_RED         2      /* the red plane (only drawn on a model with red) */
 
 /* One text run on one line. text points at Latin-1 bytes that must live until drawing is done. */
 typedef struct {
@@ -86,10 +90,9 @@ bool draw_add_rect(draw_scene_t *s, uint16_t x0, uint8_t y0, uint16_t x1, uint8_
 void draw_begin(draw_scene_t *s);
 
 /*
- * Computes column x (0..DRAW_W-1) into black (DRAW_COL_BYTES, bit = 1 is black).
- * Fastest when x increases by 1 per call; if x goes backwards, the cursors start over.
- * red (DRAW_COL_BYTES) is always cleared: no supported panel has red (MODEL_HAS_RED = 0).
- * It stays in the signature because epd.c streams two planes on a model with red.
+ * Computes column x (0..DRAW_W-1) into black and red (DRAW_COL_BYTES each, bit = 1 is
+ * ink in that plane). Fastest when x increases by 1 per call; if x goes backwards, the
+ * cursors start over. epd.c sends the red plane only on a model with red.
  */
 void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red);
 

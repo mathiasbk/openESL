@@ -209,6 +209,6 @@ bool sim_tag_save_png(const char *path)
     static uint8_t pix[DRAW_H * S][DRAW_W * S];
     for (int y = 0; y < DRAW_H * S; y++)
         for (int x = 0; x < DRAW_W * S; x++)
-            pix[y][x] = fake_fb[y / S][x / S] ? 0 : 255;
+            pix[y][x] = fake_fb[y / S][x / S] == 1 ? 0 : fake_fb[y / S][x / S] == 2 ? 128 : 255;
     return png_write_gray(path, &pix[0][0], DRAW_W * S, DRAW_H * S);
 }

@@ -57,45 +57,50 @@ void draw_begin(draw_scene_t *s)
     s->last_x = 0;
 }
 
-/* Sets (black) or clears (white) bits y0..y1 (inclusive) in a column. */
-static void fill_span(uint8_t *col, uint8_t y0, uint8_t y1, uint8_t color)
+/* Puts the bits in m at byte idx of the column: black and red set their plane and clear
+   the other, white clears both. */
+static void ink(uint8_t *black, uint8_t *red, uint8_t idx, uint8_t m, uint8_t color)
 {
-    uint8_t y, m;
+    if (color == DRAW_WHITE) {
+        black[idx] &= (uint8_t)~m;
+        red[idx] &= (uint8_t)~m;
+    } else if (color == DRAW_RED) {
+        red[idx] |= m;
+        black[idx] &= (uint8_t)~m;
+    } else {
+        black[idx] |= m;
+        red[idx] &= (uint8_t)~m;
+    }
+}
+
+/* Fills bits y0..y1 (inclusive) in a column with color. */
+static void fill_span(uint8_t *black, uint8_t *red, uint8_t y0, uint8_t y1, uint8_t color)
+{
+    uint8_t y;
     for (y = y0; ; y++) {
-        m = (uint8_t)(0x80 >> (y & 7));
-        if (color == DRAW_WHITE)
-            col[y >> 3] &= (uint8_t)~m;
-        else
-            col[y >> 3] |= m;
+        ink(black, red, (uint8_t)(y >> 3), (uint8_t)(0x80 >> (y & 7)), color);
         if (y == y1)
             break;
     }
 }
 
-/* Puts a font column into the screen column from row y downwards: ORs it in (black)
-   or clears its pixels (white). Clips at the bottom. */
-static void blit_column(uint8_t *col, const uint8_t __code *src, uint8_t nbytes, uint8_t y,
-                        uint8_t color)
+/* Puts a font column into the screen column from row y downwards, in color. Clips at
+   the bottom. */
+static void blit_column(uint8_t *black, uint8_t *red, const uint8_t __code *src, uint8_t nbytes,
+                        uint8_t y, uint8_t color)
 {
     uint8_t shift = y & 7;
     uint8_t idx = y >> 3;
-    uint8_t b, v, hi, lo;
+    uint8_t b, v, lo;
 
     for (b = 0; b < nbytes && idx < DRAW_COL_BYTES; b++, idx++) {
         v = src[b];
         if (!v)
             continue;
-        hi = (uint8_t)(v >> shift);
+        ink(black, red, idx, (uint8_t)(v >> shift), color);
         lo = shift ? (uint8_t)(v << (8 - shift)) : 0;
-        if (color == DRAW_WHITE) {
-            col[idx] &= (uint8_t)~hi;
-            if (lo && idx + 1 < DRAW_COL_BYTES)
-                col[idx + 1] &= (uint8_t)~lo;
-        } else {
-            col[idx] |= hi;
-            if (lo && idx + 1 < DRAW_COL_BYTES)
-                col[idx + 1] |= lo;
-        }
+        if (lo && idx + 1 < DRAW_COL_BYTES)
+            ink(black, red, (uint8_t)(idx + 1), lo, color);
     }
 }
 
@@ -104,7 +109,7 @@ static uint8_t run_char(const draw_run_t *r, uint8_t i)
     return i < r->len ? r->text[i] : FONT_ELLIPSIS;
 }
 
-static void draw_run(draw_run_t *r, uint16_t x, uint8_t *col)
+static void draw_run(draw_run_t *r, uint16_t x, uint8_t *black, uint8_t *red)
 {
     const font_t __code *f;
     uint8_t n = r->len + r->ellipsis;
@@ -124,7 +129,7 @@ static void draw_run(draw_run_t *r, uint16_t x, uint8_t *col)
         r->cx += w;
         r->ci++;
     }
-    blit_column(col, font_column(f, ch, (uint8_t)(x - r->cx)), f->bytes_per_col, r->y, r->color);
+    blit_column(black, red, font_column(f, ch, (uint8_t)(x - r->cx)), f->bytes_per_col, r->y, r->color);
 }
 
 void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
@@ -143,21 +148,22 @@ void draw_column(draw_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
     for (i = 0; i < s->nrects; i++) {
         const draw_rect_t *r = &s->rect[i];
         if (x >= r->x0 && x <= r->x1 && r->y0 <= r->y1 && r->y0 < DRAW_H)
-            fill_span(black, r->y0, r->y1 < DRAW_H ? r->y1 : DRAW_H - 1, r->color);
+            fill_span(black, red, r->y0, r->y1 < DRAW_H ? r->y1 : DRAW_H - 1, r->color);
     }
 
     if (s->nbars && x >= s->bars.x0) {
         const draw_bars_t *b = &s->bars;
         uint16_t m = (x - b->x0) / b->mw;
         if (m < b->nmod && (b->bits[m >> 3] & (0x80 >> (m & 7))))
-            fill_span(black, b->y0, b->y1, DRAW_BLACK);
+            fill_span(black, red, b->y0, b->y1, DRAW_BLACK);
     }
 
     for (i = 0; i < s->nruns; i++)
-        draw_run(&s->run[i], x, black);
+        draw_run(&s->run[i], x, black, red);
 
 #if DRAW_H % 8
     /* text is clipped per byte; clear the bits below the last row */
     black[DRAW_COL_BYTES - 1] &= (uint8_t)(0xFF << (8 - DRAW_H % 8));
+    red[DRAW_COL_BYTES - 1] &= (uint8_t)(0xFF << (8 - DRAW_H % 8));
 #endif
 }
