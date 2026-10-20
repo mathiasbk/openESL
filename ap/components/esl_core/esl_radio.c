@@ -16,14 +16,17 @@ void esl_radio_set_image(esl_image_t *im)
     images = im;
 }
 
-/* How far a tag has the image, from the FW block it gets (for the dashboard) */
-static void note_fw_sent(esl_store_t *st, uint64_t mac, const uint8_t *reply, size_t n)
+/* How far a tag has the image, from the FW block it gets (for the dashboard). offer:
+   the block at 0 that comes with every POLL while there is an image for the tag; a tag
+   part way through ignores it and asks for the next block, so it only counts for a
+   download that has not started. */
+static void note_fw_sent(esl_store_t *st, uint64_t mac, const uint8_t *reply, size_t n, bool offer)
 {
     if (n < ESL_FW_HDR_LEN || reply[ESL_OFF_TYPE] != ESL_MSG_FW)
         return;
     uint16_t ver = (uint16_t)(reply[ESL_FW_OFF_VER] | reply[ESL_FW_OFF_VER + 1] << 8);
     uint16_t pos = (uint16_t)(reply[ESL_FW_OFF_POS] | reply[ESL_FW_OFF_POS + 1] << 8);
-    esl_store_fw_sent(st, mac, ver, (uint16_t)(pos + (n - ESL_FW_HDR_LEN)));
+    esl_store_fw_sent(st, mac, ver, (uint16_t)(pos + (n - ESL_FW_HDR_LEN)), offer);
 }
 
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
@@ -49,7 +52,7 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         if (n == 0)
             n = esl_idle_build(reply, next); /* the image is gone, or not for it: the tag stops */
         else
-            note_fw_sent(st, f.src_mac, reply, n);
+            note_fw_sent(st, f.src_mac, reply, n, false);
     } else if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_image_taken(st, f.src_mac, ireq.id);
@@ -84,7 +87,7 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
                                            esl_store_tag_poll_s(st, f.src_mac), reply);
                 if (m) {
                     n = m;
-                    note_fw_sent(st, f.src_mac, reply, n);
+                    note_fw_sent(st, f.src_mac, reply, n, true);
                 }
             }
         }

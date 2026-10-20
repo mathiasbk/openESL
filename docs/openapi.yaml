@@ -681,7 +681,10 @@ paths:
         `total`, as for `POST /api/ota`: a part at offset 0 starts a new upload (the model is
         taken from the header in it), every other part must start where the last one ended.
         A part may have at most 24,576 bytes (`part_max`), so an image (about 54 KB) goes in
-        parts; `esl-client` sends 16 KB. From the first part on, the model's old image is no
+        parts; `esl-client` and the dashboard send 8 KB. The AP writes a part to its store in
+        2 KB pieces as it arrives, so the size of a part costs it no RAM (over WiFi it takes
+        bigger parts too, but on the USB port keep to `part_max`). A part sent again after its
+        connection dropped is taken: the bytes the AP already has are skipped. From the first part on, the model's old image is no
         longer offered; after the last one the AP checks the CRC-32 and offers the new one.
         With `to` set to a tag's MAC (read with the part at offset 0), it is offered to that
         tag alone; `POST /api/tag-firmware/{model}` gives it to more. Without `to`, or with

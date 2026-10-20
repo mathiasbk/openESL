@@ -76,6 +76,15 @@ void esl_api_lock_note(esl_api_lock_t *lock, bool ok, uint64_t now_ms);
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
 
+/* PUT /api/tag-firmware in pieces, for a transport that will not hold a whole part in
+ * one block of RAM (a 16 KB block is often not to be had on the ESP32-C6): the URI under
+ * which the bytes from done on of a body of body_len bytes sent to uri go to
+ * esl_api_handle() as a part of their own (?offset=&total=, and to= as it was), in buf
+ * (cap bytes). False when uri is not PUT /api/tag-firmware with offset and total both
+ * given or both left out (the whole file in one body); such a request goes whole. */
+#define ESL_API_PIECE_URI_MAX 96
+bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char *buf, size_t cap);
+
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
  * counts per problem. prev (cap bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and

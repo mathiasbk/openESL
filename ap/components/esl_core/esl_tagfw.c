@@ -152,9 +152,9 @@ int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *
     model = fw->up_model;
     if (!model) {
         err = "no upload in progress: send offset 0 first";
-    } else if (offset != at || total != fw->up_total) {
+    } else if (offset > at || total != fw->up_total) {
         err = "not the next part of the upload in progress";
-    } else if (at + len > fw->up_total) {
+    } else if (offset + len > fw->up_total) {
         status = 413;
         err = "more bytes than the total";
         fw->up_model = 0;
@@ -162,6 +162,11 @@ int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *
     unlock(fw);
     if (err)
         return error(out, status, err);
+    /* A part sent again after its connection dropped: the bytes the store has already
+       are skipped (the CRC check at the end catches any that differ) */
+    size_t skip = at - offset < len ? at - offset : len;
+    data += skip;
+    len -= skip;
 
     if (len && !fw->ops.write(fw->ops.ctx, model, at, data, len)) {
         lock(fw);

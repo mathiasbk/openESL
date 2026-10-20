@@ -1254,6 +1254,21 @@ static bool query_size(const char *uri, const char *key, size_t *v)
     return false;
 }
 
+bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char *buf, size_t cap)
+{
+    const size_t fbase = sizeof(PATH_TAGFW) - 1;
+    if (strcspn(uri, "?") != fbase || memcmp(uri, PATH_TAGFW, fbase) != 0)
+        return false;
+    size_t offset = 0, total = body_len, tl = 0;
+    bool has_off = query_size(uri, "offset", &offset), has_total = query_size(uri, "total", &total);
+    if (has_off != has_total)
+        return false;
+    const char *to = query_str(uri, "to", &tl);
+    int n = snprintf(buf, cap, PATH_TAGFW "?offset=%lu&total=%lu%s%.*s", (unsigned long)(offset + done),
+                     (unsigned long)total, to ? "&to=" : "", to ? (int)tl : 0, to ? to : "");
+    return n > 0 && (size_t)n < cap;
+}
+
 static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model)
 {
     esl_tagfw_img_t img;

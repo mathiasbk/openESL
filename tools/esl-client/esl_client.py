@@ -45,7 +45,7 @@ import urllib.request
 
 BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
-TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: the AP holds it in RAM in one block
+TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: older AP firmware holds a part in RAM in one block
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 

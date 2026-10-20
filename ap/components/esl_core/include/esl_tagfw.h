@@ -68,7 +68,8 @@ void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops);
 
 /* One part of an upload: len bytes at offset of an OTA file of total bytes.
    Offset 0 starts an upload (the model comes from the header in this part),
-   every other part must follow the last. only (read with the part at offset 0)
+   every other part must follow the last, or overlap it (a part sent again: the
+   bytes the store has are skipped). only (read with the part at offset 0)
    offers the new image to that tag alone, 0 to every tag of the model. The model's old image is no longer
    offered from the first part on. Returns the HTTP status, with a JSON reply
    in out: {"received","total"} on the way, with the image's fields
