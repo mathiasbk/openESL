@@ -53,9 +53,13 @@ firmwareInfo().then((info) => {
   const built = !info ? "" : info.release
     ? `Release ${info.version}.`
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
-  // The AP and the tags each carry the version of the release they last changed in
-  const parts = info?.ap_version && info?.tag_version && info.ap_version !== info.tag_version
-    ? ` AP firmware ${info.ap_version}, tag firmware ${info.tag_version}.` : "";
+  // The AP and each tag model carry the version of the release they last changed in
+  const tagVersions = Object.entries(info?.tag_versions || {}).filter(([, v]) => v);
+  const tagText = new Set(tagVersions.map(([, v]) => v)).size > 1
+    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${b})`).join(", ")
+    : info?.tag_version ? `tag firmware ${info.tag_version}` : "";
+  const parts = info?.ap_version && tagText && !(tagVersions.length <= 1 && info.ap_version === info.tag_version)
+    ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
   $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
   // The AP with the status screen is optional: a checkbox picks its manifest
@@ -69,7 +73,7 @@ firmwareInfo().then((info) => {
   };
   manifest();
   $("ap-lcd").onchange = manifest;
-  $("tag-fw-info").textContent = info?.tag ? built + (info.tag_version ? ` Tag firmware ${info.tag_version}.` : "") : "No tag firmware is published with this page; choose a file.";
+  $("tag-fw-info").textContent = info?.tag ? built + (tagText ? ` ${tagText[0].toUpperCase()}${tagText.slice(1)}.` : "") : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });
 

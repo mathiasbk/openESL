@@ -56,13 +56,14 @@ HOST_TARGETS = {
 
 
 
-def read_version():
-    """The tag firmware's version, as ("1.2.3", 10203): the release the tag sources last changed in
-    (tools/fw_version.py), so a release that changes only the AP gives the tags nothing new.
+def read_version(model):
+    """The firmware version of one tag model (build "29", "154"), as ("1.2.3", 10203): the release
+    the model's sources last changed in (tools/fw_version.py), so a release that changes only the
+    AP, or only another model, gives these tags nothing new.
     The number is what the tag sends in POLL (u16), so major is at most 6 and minor and patch at most 99."""
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     import fw_version
-    text = fw_version.version("tag")
+    text = fw_version.version("tag-" + model)
     parts = text.split(".")
     if len(parts) != 3 or not all(p.isdigit() for p in parts):
         sys.exit("VERSION must be major.minor.patch, got %r" % text)
@@ -72,9 +73,17 @@ def read_version():
     return text, major * 10000 + minor * 100 + patch
 
 
-def version_defines():
-    text, number = read_version()
+def version_defines(model):
+    text, number = read_version(model)
     return ["-DFW_VERSION=%d" % number, '-DFW_VERSION_STR="%s"' % text]
+
+
+def host_model():
+    """The model the host tests are built for: -DMODEL=<build> in HOST_CFLAGS, else the first"""
+    for flag in os.environ.get("HOST_CFLAGS", "").split():
+        if flag.startswith("-DMODEL="):
+            return flag[len("-DMODEL="):]
+    return models.load()[0]["build"]
 
 
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
@@ -118,7 +127,7 @@ def build_host(name):
     flags = ["-std=c99", "-Wall", "-Wextra", "-O1", "-g"]
     flags += os.environ.get("HOST_CFLAGS", "").split()
     srcs = [os.path.join(TAG, s) for s in HOST_TARGETS[name]]
-    run(cc + flags + version_defines() + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
+    run(cc + flags + version_defines(host_model()) + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
     return exe
 
 
@@ -186,7 +195,8 @@ def crc32(data):
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, model="--model-large"):
+def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, model="--model-large",
+               tag_model=None):
     """Compiles and links; returns the image from code_loc as bytes (also written to <name>.bin)."""
     sdcc = os.environ.get("SDCC", "sdcc")
     winget_sdcc = r"C:\Program Files\SDCC\bin\sdcc.exe"   # winget installs SDCC here without adding it to PATH
@@ -211,7 +221,8 @@ def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, m
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
-        run([sdcc] + flags + list(defines) + version_defines() + ["-I" + i for i in INCLUDES[:2]] +
+        run([sdcc] + flags + list(defines) + version_defines(tag_model or models.load()[0]["build"]) +
+            ["-I" + i for i in INCLUDES[:2]] +
             ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
     ihx = os.path.join(out, name + ".ihx")
@@ -231,13 +242,14 @@ def cmd_fw():
     model = m["build"]
     subdir = models.fw_dir(m)
     boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
-    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE)
+    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE,
+                     tag_model=model)
     app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
     out = os.path.join(BUILD, subdir)
     with open(os.path.join(out, "openesl.bin"), "wb") as f:
         f.write(boot + b"\xFF" * (BOOT_SIZE - len(boot)) + app)
     code = m["code"]                        # ESL_MODEL_* in shared/models_gen.h
-    _, fw_ver = read_version()
+    _, fw_ver = read_version(model)
     hdr = struct.pack("<IBBHII", OTA_FILE_MAGIC, OTA_FILE_FORMAT, code, fw_ver, len(app), crc32(app))
     with open(os.path.join(out, "openesl-ota.bin"), "wb") as f:
         f.write(hdr + app)
