@@ -2,6 +2,7 @@
 #include "esl_api.h"
 #include "esl_persist.h"
 #include "esl_image.h"
+#include "esl_link.h"
 #include "esl_radio.h"
 #include "esl_render.h"
 #include <stdlib.h>
@@ -800,6 +801,102 @@ static void test_image_rle(void)
     free(f29);
 }
 
+/* esl_link: what radio.c does with every frame, over a link that records what it sends */
+typedef struct {
+    int starts, sends, fail;
+    uint8_t last[ESL_PSDU_MAX];
+    size_t last_len;
+    int64_t last_rx_us;
+    uint32_t last_ref;
+    int64_t hand_at_us; /* calls esl_link_sending() at this time, 0 = not */
+} fake_link_t;
+
+static int64_t fake_now_us;
+
+static int fake_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_link_rx_t *req)
+{
+    fake_link_t *f = l->ctx;
+    f->sends++;
+    memcpy(f->last, psdu, len);
+    f->last_len = len;
+    f->last_rx_us = req->rx_us;
+    f->last_ref = req->ref;
+    if (f->hand_at_us)
+        esl_link_sending(l, req, f->hand_at_us);
+    fake_now_us += 4000; /* the time on the air */
+    return f->fail;
+}
+
+static int64_t fake_clock(void)
+{
+    return fake_now_us;
+}
+
+static void test_link(void)
+{
+    fake_link_t fl = {0};
+    esl_link_t l = {.name = "fake", .send = fake_send, .ctx = &fl};
+    esl_faketag_t t;
+    esl_link_rx_t f = {0};
+    uint8_t tx[ESL_PSDU_MAX];
+    esl_radio_event_t ev;
+    bool sent;
+
+    ap_boot();
+    esl_faketag_init(&t, 0x00000123456789A8ull, 1, 3000, ESL_MODEL_29);
+
+    /* a POLL: answered through send, with the frame it answers; the driver says when
+       the reply went to the radio */
+    f.len = (uint8_t)esl_faketag_poll(&t, PAN, f.psdu);
+    f.rssi = -60;
+    f.rx_us = 1000;
+    f.ref = 77;
+    fake_now_us = 1500;
+    fl.hand_at_us = 1800;
+    size_t n = esl_link_handle(&l, &st, &layouts, PAN, &f, 5000, tx, &ev, fake_clock, &sent);
+    CHECK(n > 0);
+    CHECK(sent);
+    CHECK_INT(fl.sends, 1);
+    CHECK_INT(fl.last_len, n);
+    CHECK_INT(fl.last_rx_us, 1000);
+    CHECK_INT(fl.last_ref, 77);
+    CHECK_INT(ev.msg_type, ESL_MSG_POLL);
+    CHECK(esl_faketag_receive(&t, fl.last, fl.last_len) != 0);
+    CHECK_INT(l.stats.rx, 1);
+    CHECK_INT(l.stats.polls, 1);
+    CHECK_INT(l.stats.replies, 1);
+    CHECK_INT(l.stats.last_us, 800);
+    CHECK_INT(l.stats.worst_us, 800);
+
+    /* a frame that needs no reply: counted as received, nothing sent */
+    f.psdu[0] ^= 0xFF;
+    fake_now_us = 9000;
+    CHECK_INT(esl_link_handle(&l, &st, &layouts, PAN, &f, 5000, tx, NULL, fake_clock, &sent), 0);
+    CHECK(!sent);
+    CHECK_INT(fl.sends, 1);
+    CHECK_INT(l.stats.rx, 2);
+    CHECK_INT(l.stats.worst_us, 800);
+
+    /* the link could not send: counted as failed, not as a reply; a driver that
+       does not call esl_link_sending() is timed when send() returns */
+    fl.fail = -1;
+    fl.hand_at_us = 0;
+    f.len = (uint8_t)esl_faketag_poll(&t, PAN, f.psdu);
+    fake_now_us = 1300 - 4000;
+    CHECK(esl_link_handle(&l, &st, &layouts, PAN, &f, 6000, tx, NULL, fake_clock, &sent) > 0);
+    CHECK(!sent);
+    CHECK_INT(l.stats.polls, 2);
+    CHECK_INT(l.stats.replies, 1);
+    CHECK_INT(l.stats.tx_failed, 1);
+    CHECK_INT(l.stats.last_us, 300);
+    CHECK_INT(l.stats.worst_us, 800);
+
+    /* a driver whose radio reports later loses a reply it had taken */
+    esl_link_lost(&l);
+    CHECK_INT(l.stats.replies, 0);
+    CHECK_INT(l.stats.tx_failed, 2);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -810,4 +907,5 @@ void test_radio(void)
     test_many_tags();
     test_image_send();
     test_image_rle();
+    test_link();
 }

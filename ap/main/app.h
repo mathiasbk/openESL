@@ -86,6 +86,6 @@ esl_tagfw_t *tagfw_start(void);
 void captive_dns_start(void);
 void captive_dns_stop(void);
 
-/* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
- * sent to the tags in blocks) may be NULL. */
+/* radio.c (AP or sniffer mode, over the link of the radio driver) or
+ * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);
