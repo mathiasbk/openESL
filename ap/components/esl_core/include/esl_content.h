@@ -75,3 +75,9 @@ size_t esl_content_body(const esl_content_t *c, uint8_t *out);
 uint32_t esl_content_id(const esl_content_t *c);
 
 bool esl_content_equal(const esl_content_t *a, const esl_content_t *b);
+
+/* A short stand-in for a layout name (never 0), so the tag table can tell whether
+ * the layout file has a content's layout without keeping the name. */
+uint32_t esl_layout_name_hash(const char *name);
+/* esl_layout_name_hash of c's layout name, 0 for a built-in layout. */
+uint32_t esl_content_layout_hash(const esl_content_t *c);
