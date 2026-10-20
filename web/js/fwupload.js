@@ -5,8 +5,9 @@
 
 // Parts of 16 KB for AP firmware: below the AP's 24 KB body limit, and its USB driver drops
 // bytes when a bigger request fills its buffer (OTA_PART in esl_client.py). The AP writes
-// those to flash as they come. A tag firmware part it holds in RAM, in one block, so those
-// are 8 KB (TAGFW_PART).
+// those to flash as they come. Tag firmware parts are 8 KB (TAGFW_PART): AP firmware from
+// before it wrote those in pieces too holds a part in RAM in one block, and a 16 KB block is
+// often not to be had.
 export const PART = 16384;
 export const TAGFW_PART = 8192;
 

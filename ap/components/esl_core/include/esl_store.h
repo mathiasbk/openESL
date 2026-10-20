@@ -230,8 +230,9 @@ void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id);
  * content. */
 void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t layout_ver, uint32_t id);
 
-/* A FW block of image ver up to byte end went to the tag (esl_radio). */
-void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
+/* A FW block of image ver up to byte end went to the tag (esl_radio). offer: the block
+ * offered with a POLL reply, which counts only when nothing of ver went to the tag yet. */
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end, bool offer);
 
 /* The tag asked for a block of firmware image ver (esl_radio): it started on that
  * version. A tag keeps its fail flag on until then, so only after it does the flag

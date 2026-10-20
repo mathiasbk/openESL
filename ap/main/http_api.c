@@ -39,6 +39,27 @@ int api_handle(const esl_api_t *api, const char *method, const char *uri, const 
     return status;
 }
 
+int api_handle_tagfw_put(const esl_api_t *api, const char *uri, const char *auth, size_t len, api_read_fn read,
+                         void *ctx, char *piece, size_t piece_cap, char *resp, size_t resp_cap, esl_sb_t *out,
+                         size_t *got)
+{
+    char puri[ESL_API_PIECE_URI_MAX];
+    int status = 200;
+    *got = 0;
+    esl_sb_init(out, resp, resp_cap);
+    while (status == 200 && *got < len) {
+        size_t n = len - *got < piece_cap ? len - *got : piece_cap;
+        if (!read(ctx, piece, n))
+            return -1;
+        if (!esl_api_tagfw_piece_uri(uri, len, *got, puri, sizeof(puri)))
+            return -1; /* the caller checked it */
+        esl_sb_init(out, resp, resp_cap);
+        status = api_handle(api, "PUT", puri, auth, piece, n, (uint64_t)esp_timer_get_time() / 1000, out);
+        *got += n;
+    }
+    return status;
+}
+
 int api_handle_health(const esl_api_t *api, uint64_t now_ms, uint8_t *prev, esl_sb_t *out)
 {
     xSemaphoreTake(api_mutex, portMAX_DELAY);
@@ -148,6 +169,74 @@ static const char *method_name(int method)
     }
 }
 
+/* All n bytes of the body, or false */
+static bool recv_all(void *ctx, char *buf, size_t n)
+{
+    size_t got = 0;
+    while (got < n) {
+        int r = recv_some(ctx, buf + got, n - got);
+        if (r <= 0)
+            return false;
+        got += (size_t)r;
+    }
+    return true;
+}
+
+static char *get_auth(httpd_req_t *req)
+{
+    char *auth = NULL;
+    size_t al = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (al) {
+        auth = malloc(al + 1);
+        if (!auth || httpd_req_get_hdr_value_str(req, "Authorization", auth, al + 1) != ESP_OK) {
+            free(auth);
+            auth = NULL;
+        }
+    }
+    return auth;
+}
+
+/* PUT /api/tag-firmware: the body goes on in TAGFW_PIECE pieces (api_handle_tagfw_put),
+ * so a client's 16 KB part needs no 16 KB block of RAM, which the C6 often lacks. */
+#define TAGFW_PIECE 2048
+#define TAGFW_RESP  512
+
+static esp_err_t tagfw_put(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    size_t len = req->content_len;
+    char *buf = malloc(TAGFW_PIECE + TAGFW_RESP);
+    if (!buf) {
+        log_oom(req->uri, TAGFW_PIECE + TAGFW_RESP);
+        static const char msg[] = "{\"error\":\"out of memory\"}";
+        return send_json(req, 500, msg, sizeof(msg) - 1);
+    }
+    char *auth = get_auth(req);
+    esl_sb_t out;
+    size_t got;
+    int status = api_handle_tagfw_put(api, req->uri, auth, len, recv_all, req, buf, TAGFW_PIECE, buf + TAGFW_PIECE,
+                                      TAGFW_RESP, &out, &got);
+    free(auth);
+    esp_err_t ret;
+    if (status < 0) {
+        ESP_LOGW(TAG, "PUT %s: body stopped arriving", req->uri);
+        ret = ESP_FAIL; /* closes the connection */
+    } else {
+        ESP_LOGI(TAG, "PUT %s -> %d (%u bytes)", req->uri, status, (unsigned)got);
+        /* Drain the rest so the reply gets through, within reason */
+        size_t rest = len - got;
+        while (rest && rest <= 4 * TAGFW_PIECE) {
+            size_t n = rest < TAGFW_PIECE ? rest : TAGFW_PIECE;
+            if (!recv_all(req, buf, n))
+                break;
+            rest -= n;
+        }
+        ret = send_json(req, status, out.buf, out.len);
+    }
+    free(buf);
+    return ret;
+}
+
 static esp_err_t api_handler(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
@@ -155,6 +244,10 @@ static esp_err_t api_handler(httpd_req_t *req)
     size_t len = req->content_len;
     char *body = NULL, *auth = NULL, *resp = NULL;
     esp_err_t ret = ESP_OK;
+
+    char puri[ESL_API_PIECE_URI_MAX];
+    if (req->method == HTTP_PUT && len && esl_api_tagfw_piece_uri(req->uri, len, 0, puri, sizeof(puri)))
+        return tagfw_put(req);
 
     if (len > ESL_API_MAX_BODY) {
         static const char msg[] = "{\"error\":\"body too large\"}";
@@ -168,25 +261,13 @@ static esp_err_t api_handler(httpd_req_t *req)
             log_oom(req->uri, len);
             goto oom;
         }
-        size_t got = 0;
-        while (got < len) {
-            int r = recv_some(req, body + got, len - got);
-            if (r <= 0) {
-                free(body);
-                return ESP_FAIL; /* closes the connection */
-            }
-            got += (size_t)r;
+        if (!recv_all(req, body, len)) {
+            free(body);
+            return ESP_FAIL; /* closes the connection */
         }
     }
 
-    size_t al = httpd_req_get_hdr_value_len(req, "Authorization");
-    if (al) {
-        auth = malloc(al + 1);
-        if (!auth || httpd_req_get_hdr_value_str(req, "Authorization", auth, al + 1) != ESP_OK) {
-            free(auth);
-            auth = NULL;
-        }
-    }
+    auth = get_auth(req);
 
     size_t cap = reply_buf_size(method, req->uri);
     resp = malloc(cap);
