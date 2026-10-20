@@ -8,8 +8,9 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py --release          "<artifact> <release name>" per board (release.yml)
 
 A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
-also builds the radio coprocessor firmware its "radio_fw" names (<radio_fw>/radio.json, e.g.
-radio/: an ESP32-C6), once, into the same files in out/ and in the release.
+also builds the radio coprocessor firmware for each radio board its "radio_fw" names
+(radio/boards/<id>/radio.json: c6, c6-lcd), each once, into the same files in out/ and in the
+release.
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -29,6 +30,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOARDS = os.path.join(HERE, "boards")
+RADIO_BOARDS = os.path.join(HERE, "radio", "boards")
 OUT = os.path.join(HERE, "out")
 
 
@@ -54,25 +56,32 @@ def run(cmd, cwd=HERE):
         sys.exit("failed: " + " ".join(cmd))
 
 
+def radio_fws(b):
+    """The radio coprocessor boards (radio/boards/<id>/) a board with "radio": "uart" works
+    with: "radio_fw" is one id or a list of them"""
+    fw = b.get("radio_fw") or []
+    return [fw] if isinstance(fw, str) else list(fw)
+
+
 def load_radios(boards):
     """The radio coprocessor firmware the boards use, each once, in board order."""
     radios = []
     for b in boards:
         if b.get("radio", "native") not in ("native", "uart"):
             sys.exit("board %s: radio must be \"native\" or \"uart\"" % b["id"])
-        name = b.get("radio_fw")
-        if b.get("radio") == "uart" and not name:
+        if b.get("radio") == "uart" and not radio_fws(b):
             sys.exit("board %s: radio \"uart\" needs radio_fw, the coprocessor firmware" % b["id"])
-        if not name or any(r["id"] == name for r in radios):
-            continue
-        path = os.path.join(HERE, name, "radio.json")
-        if not os.path.isfile(path):
-            sys.exit("board %s: radio %s has no %s" % (b["id"], name, path))
-        with open(path, encoding="utf-8") as f:
-            r = json.load(f)
-        if r.get("id") != name:
-            sys.exit("%s: id must be the folder name (%s)" % (path, name))
-        radios.append(r)
+        for name in radio_fws(b):
+            if any(r["id"] == name for r in radios):
+                continue
+            path = os.path.join(RADIO_BOARDS, name, "radio.json")
+            if not os.path.isfile(path):
+                sys.exit("board %s: radio_fw %s has no %s" % (b["id"], name, path))
+            with open(path, encoding="utf-8") as f:
+                r = json.load(f)
+            if r.get("id") != name:
+                sys.exit("%s: id must be the folder name (%s)" % (path, name))
+            radios.append(r)
     return radios
 
 
@@ -92,9 +101,10 @@ def build(b):
 
 
 def build_radio(r):
-    cwd = os.path.join(HERE, r["id"])
-    run(["idf.py", "-B", "build", "-D", "SDKCONFIG=build/sdkconfig", "build"], cwd=cwd)
-    merge(r["target"], "build", "esl_radio.bin", r["artifact"], cwd=cwd)
+    cwd = os.path.join(HERE, "radio")
+    bdir = "build-" + r["id"]
+    run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
+    merge(r["target"], bdir, "esl_radio.bin", r["artifact"], cwd=cwd)
     print("%s: out/%s.bin and out/%s-ota.bin" % (r["id"], r["artifact"], r["artifact"]))
 
 

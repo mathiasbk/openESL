@@ -98,6 +98,21 @@ static void test_messages(void)
     CHECK(esl_coproc_decode_stats(p.payload, p.len, &s2));
     CHECK(memcmp(&s, &s2, sizeof(s)) == 0);
 
+    esl_coproc_screen_t sc = {.color = {2, 3, 1, 6}}, sc2;
+    strcpy(sc.text[0], "OpenESL 0.5.0   ch 25");
+    strcpy(sc.text[1], "12 tags, 2 pending");
+    strcpy(sc.text[2], "192.168.1.40");
+    memset(sc.text[3], 'x', ESL_COPROC_SCREEN_TEXT_MAX); /* a full line */
+    n = esl_coproc_encode_screen(f, &sc);
+    CHECK(n > 0 && n <= ESL_COPROC_FRAME_MAX);
+    CHECK_INT(feed(&p, f, n), 1);
+    CHECK_INT(p.type, ESL_COPROC_SCREEN);
+    CHECK(esl_coproc_decode_screen(p.payload, p.len, &sc2));
+    CHECK(memcmp(&sc, &sc2, sizeof(sc)) == 0);
+    CHECK(!esl_coproc_decode_screen(p.payload, p.len - 1, &sc2)); /* cut short */
+    p.payload[1] = ESL_COPROC_SCREEN_TEXT_MAX + 1;
+    CHECK(!esl_coproc_decode_screen(p.payload, p.len, &sc2)); /* line too long */
+
     n = esl_coproc_frame(f, ESL_COPROC_PING, NULL, 0);
     CHECK_INT(n, ESL_COPROC_OVERHEAD);
     CHECK_INT(feed(&p, f, n), 1);

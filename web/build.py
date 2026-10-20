@@ -260,10 +260,10 @@ def ap_boards():
 
 
 def ap_radio_names():
-    """artifact and release names of the radio coprocessor firmware (ap/<radio_fw>/radio.json,
+    """artifact and release names of the radio coprocessor firmware (ap/radio/boards/*/radio.json,
     for boards with "radio": "uart"): the flasher does not offer it yet (docs/ap-radio-link.md)"""
     names = []
-    for path in glob.glob(os.path.join(ROOT, "ap", "*", "radio.json")):
+    for path in glob.glob(os.path.join(ROOT, "ap", "radio", "boards", "*", "radio.json")):
         with open(path) as f:
             r = json.load(f)
         names += [r["artifact"], r["release"]]

@@ -23,6 +23,7 @@ ap/sdkconfig.old
 ap/managed_components/
 ap/build-*/
 ap/radio/build/
+ap/radio/build-*/
 ap/radio/sdkconfig
 ap/radio/sdkconfig.old
 ap/radio/managed_components/

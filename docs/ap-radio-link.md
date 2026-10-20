@@ -9,24 +9,28 @@ ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
 |---|---|---|
 | ESP32-S3 N16R8 (host) | AP firmware, board `s3-n16r8-c6` (`openesl-ap-esp32s3-n16r8-<version>.bin`) | WiFi, HTTP API, dashboard, tag store, rendering, `esl_radio_handle()`: everything the C6 AP does, up to 1000 tags |
 | ESP32-C6 (radio) | `ap/radio/` (`openesl-ap-radio-esp32c6-<version>.bin`) | 802.15.4 only, no WiFi: forwards every frame to the host and sends the replies |
+| ESP32-C6 with 0.96" screen (radio) | `ap/radio/`, radio board `c6-lcd` (`openesl-ap-radio-esp32c6-lcd-<version>.bin`) | the same, and shows the status the host sends (SCREEN) on its screen |
 
-Status: experimental. Both images build; it has not been tried on hardware yet.
+Status: experimental. All three images build; it has not been tried on hardware yet.
 
 ## Wiring
+
+![Wiring between the ESP32-S3 and the ESP32-C6](images/ap-s3-c6-wiring.svg)
 
 | ESP32-S3 | ESP32-C6 (Super Mini) |
 |---|---|
 | GPIO17 (TX) | GPIO17 (RX) |
 | GPIO18 (RX) | GPIO16 (TX) |
 | GND | GND |
-| 5V or 3V3 | 5V or 3V3 |
+| 5V | 5V, only when the C6 has no USB cable of its own |
 
 The pins can be changed in menuconfig: `ESL_COPROC_TX_GPIO`/`ESL_COPROC_RX_GPIO` on both sides.
-Both chips keep their USB port for flashing and the log.
+Both chips keep their USB port for flashing and the log. The C6 with screen is wired the same way: its screen uses GPIO 6, 7, 14, 15, 21 and 22.
 
 ## Flashing
 
-1. The C6: `openesl-ap-radio-esp32c6-<version>.bin` at 0 (`esptool --chip esp32c6 write_flash 0 ...`).
+1. The C6: `openesl-ap-radio-esp32c6-<version>.bin` at 0 (`esptool --chip esp32c6 write_flash 0 ...`),
+   or `openesl-ap-radio-esp32c6-lcd-<version>.bin` for a C6 with the 0.96" screen.
    Its log says `OpenESL 802.15.4 radio`, and once the host runs, `channel .., PAN ..`.
 2. The S3: `openesl-ap-esp32s3-n16r8-<version>.bin` at 0. Its log says `radio 1.0 up: 802.15.4 AP on
    channel ..` when it reaches the C6, and `no answer from the radio` every two seconds when it
@@ -51,6 +55,7 @@ by a reset costs only the frames it overlaps.
 | `02` CONFIG | host → radio | channel, PAN, short address, TX power, flags (sniffer) | start receiving with these; answered with HELLO |
 | `03` TX | host → radio | ref, PSDU | send this frame (the reply to RX `ref`) |
 | `04` STATS? | host → radio | none | answer with STATS |
+| `05` SCREEN | host → radio | 4 × (colour, length, text up to 32 bytes) | the status screen's lines, every 2 s; shown by a radio with a screen, ignored by one without |
 | `81` HELLO | radio → host | link version, configured, firmware version, IEEE address, settings | at boot and after PING/CONFIG |
 | `82` RX | radio → host | ref, RSSI, channel, PSDU | a received frame |
 | `83` TX_DONE | radio → host | ref, status, resends, µs from RX to first transmit | how the TX went |
@@ -63,3 +68,6 @@ arrived. The C6 times its resends from when it received the tag's frame (`ref`),
 (TX_DONE status LATE).
 
 A radio that restarts says HELLO with `configured = 0`, and the host sends CONFIG again.
+
+A radio with a screen that has had no SCREEN for 10 s shows its own: that it waits for the AP,
+and how many frames it has sent and received on the UART.

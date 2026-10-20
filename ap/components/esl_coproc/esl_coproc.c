@@ -209,6 +209,42 @@ bool esl_coproc_decode_stats(const uint8_t *p, size_t len, esl_coproc_stats_t *s
     return true;
 }
 
+/* ---- SCREEN: per line colour, length, text ---- */
+
+size_t esl_coproc_encode_screen(uint8_t *out, const esl_coproc_screen_t *s)
+{
+    uint8_t p[ESL_COPROC_SCREEN_LINES * (2 + ESL_COPROC_SCREEN_TEXT_MAX)];
+    size_t n = 0;
+    for (int i = 0; i < ESL_COPROC_SCREEN_LINES; i++) {
+        size_t len = 0; /* strnlen is not C11 */
+        while (len < ESL_COPROC_SCREEN_TEXT_MAX && s->text[i][len])
+            len++;
+        p[n++] = s->color[i];
+        p[n++] = (uint8_t)len;
+        memcpy(&p[n], s->text[i], len);
+        n += len;
+    }
+    return esl_coproc_frame(out, ESL_COPROC_SCREEN, p, n);
+}
+
+bool esl_coproc_decode_screen(const uint8_t *p, size_t len, esl_coproc_screen_t *s)
+{
+    size_t n = 0;
+    memset(s, 0, sizeof(*s));
+    for (int i = 0; i < ESL_COPROC_SCREEN_LINES; i++) {
+        if (n + 2 > len)
+            return false;
+        s->color[i] = p[n];
+        size_t l = p[n + 1];
+        n += 2;
+        if (l > ESL_COPROC_SCREEN_TEXT_MAX || n + l > len)
+            return false;
+        memcpy(s->text[i], &p[n], l);
+        n += l;
+    }
+    return true;
+}
+
 /* ---- parser ---- */
 
 enum { S_SYNC, S_TYPE, S_LEN, S_PAYLOAD, S_CRC0, S_CRC1 };

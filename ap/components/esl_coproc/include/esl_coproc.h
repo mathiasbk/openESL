@@ -33,6 +33,7 @@ enum {
     ESL_COPROC_CONFIG  = 0x02, /* host -> radio, esl_coproc_config_t; the radio answers HELLO */
     ESL_COPROC_TX      = 0x03, /* host -> radio, ref + PSDU: send this frame */
     ESL_COPROC_STATS_Q = 0x04, /* host -> radio, no payload; the radio answers STATS */
+    ESL_COPROC_SCREEN  = 0x05, /* host -> radio, esl_coproc_screen_t: the AP's status screen, for a radio with an LCD */
 
     ESL_COPROC_HELLO   = 0x81, /* radio -> host, esl_coproc_hello_t: at boot and on PING/CONFIG */
     ESL_COPROC_RX      = 0x82, /* radio -> host, esl_coproc_rx_t: a received frame */
@@ -92,6 +93,16 @@ typedef struct {
     uint32_t uptime_s;
 } esl_coproc_stats_t;
 
+/* The AP's status screen (esl_screen_t in esl_core): four lines of Latin-1 text,
+ * each with its colour (esl_screen_color_t). A radio without an LCD ignores it. */
+#define ESL_COPROC_SCREEN_LINES 4
+#define ESL_COPROC_SCREEN_TEXT_MAX 32 /* characters per line; longer lines are cut */
+
+typedef struct {
+    uint8_t color[ESL_COPROC_SCREEN_LINES];
+    char text[ESL_COPROC_SCREEN_LINES][ESL_COPROC_SCREEN_TEXT_MAX + 1];
+} esl_coproc_screen_t;
+
 /* ---- encoding: each returns the frame length written to out
  * (ESL_COPROC_FRAME_MAX bytes), 0 if it does not fit. ---- */
 
@@ -102,6 +113,7 @@ size_t esl_coproc_encode_rx(uint8_t *out, const esl_coproc_rx_t *rx);
 size_t esl_coproc_encode_tx(uint8_t *out, uint8_t ref, const uint8_t *psdu, size_t len);
 size_t esl_coproc_encode_tx_done(uint8_t *out, const esl_coproc_tx_done_t *d);
 size_t esl_coproc_encode_stats(uint8_t *out, const esl_coproc_stats_t *s);
+size_t esl_coproc_encode_screen(uint8_t *out, const esl_coproc_screen_t *s);
 
 /* ---- decoding the payload of a received message: false if it is malformed ---- */
 
@@ -112,6 +124,7 @@ bool esl_coproc_decode_rx(const uint8_t *p, size_t len, esl_coproc_rx_t *rx);
 bool esl_coproc_decode_tx(const uint8_t *p, size_t len, uint8_t *ref, const uint8_t **psdu, size_t *psdu_len);
 bool esl_coproc_decode_tx_done(const uint8_t *p, size_t len, esl_coproc_tx_done_t *d);
 bool esl_coproc_decode_stats(const uint8_t *p, size_t len, esl_coproc_stats_t *s);
+bool esl_coproc_decode_screen(const uint8_t *p, size_t len, esl_coproc_screen_t *s);
 
 /* ---- receiving: feed bytes as they come ---- */
 

@@ -1,6 +1,6 @@
 {
-  "id": "radio",
-  "label": "ESP32-C6 as the 802.15.4 radio of an AP host on another chip (UART)",
+  "id": "c6",
+  "label": "ESP32-C6 (e.g. the C6 Super Mini) as the 802.15.4 radio of an AP host on UART",
   "target": "esp32c6",
   "chip_family": "ESP32-C6",
   "artifact": "openesl-ap-radio-c6",

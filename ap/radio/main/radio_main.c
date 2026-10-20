@@ -1,6 +1,9 @@
+#include <stdio.h>
 #include <string.h>
 #include "driver/uart.h"
 #include "esl_coproc.h"
+#include "esl_lcd.h"
+#include "esl_screen.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -22,7 +25,10 @@
  * C6 alone), measured from when this radio received the tag's frame. A reply
  * that comes too late is not sent at all.
  *
- * There is no WiFi on this chip, so 802.15.4 has the radio to itself. */
+ * There is no WiFi on this chip, so 802.15.4 has the radio to itself.
+ *
+ * On a C6 with a small LCD (boards/c6-lcd, ESL_DISPLAY) the screen shows the
+ * AP's status, which the host sends as SCREEN every couple of seconds. */
 
 static const char *TAG = "radio";
 
@@ -51,6 +57,11 @@ static bool configured;
 static int64_t rx_time[256]; /* arrival of the RX frame with each ref */
 static uint8_t next_ref;
 static esl_coproc_stats_t stats;
+
+#if CONFIG_ESL_DISPLAY
+#define SCREEN_STALE_MS 10000 /* no SCREEN for this long: say the AP is gone */
+static QueueHandle_t screen_box; /* one esl_coproc_screen_t, the newest */
+#endif
 
 /* ---- driver callbacks (ISR) ---- */
 
@@ -208,6 +219,16 @@ static void handle_message(const esl_coproc_parser_t *p)
         transmit(ref, psdu, len);
         break;
     }
+    case ESL_COPROC_SCREEN: {
+#if CONFIG_ESL_DISPLAY
+        static esl_coproc_screen_t sc;
+        if (esl_coproc_decode_screen(p->payload, p->len, &sc))
+            xQueueOverwrite(screen_box, &sc); /* drawn by screen_task, not in the way of TX */
+        else
+            stats.link_errors++;
+#endif
+        break;
+    }
     case ESL_COPROC_STATS_Q:
         stats.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000);
         link_send(f, esl_coproc_encode_stats(f, &stats));
@@ -263,6 +284,59 @@ static void rx_task(void *arg)
     }
 }
 
+#if CONFIG_ESL_DISPLAY
+static void screen_lines(esl_screen_t *s, const char *a, const char *b, const char *c)
+{
+    memset(s, 0, sizeof(*s));
+    strncpy(s->text[0], "OpenESL radio", ESL_SCREEN_LINE_MAX - 1);
+    strncpy(s->text[1], a, ESL_SCREEN_LINE_MAX - 1);
+    strncpy(s->text[2], b, ESL_SCREEN_LINE_MAX - 1);
+    strncpy(s->text[3], c, ESL_SCREEN_LINE_MAX - 1);
+    s->color[0] = ESL_SCREEN_TITLE;
+    s->color[1] = ESL_SCREEN_TEXT;
+    s->color[2] = ESL_SCREEN_WARN;
+    s->color[3] = ESL_SCREEN_DIM;
+}
+
+/* Shows the host's SCREEN, or, while none comes, that the radio waits for it */
+static void screen_task(void *arg)
+{
+    (void)arg;
+    static esl_coproc_screen_t sc;
+    static esl_screen_t s;
+    char pins[ESL_SCREEN_LINE_MAX];
+    snprintf(pins, sizeof(pins), "UART TX %d RX %d", CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO);
+    bool shown = false;
+    for (;;) {
+        if (xQueueReceive(screen_box, &sc, pdMS_TO_TICKS(SCREEN_STALE_MS)) == pdTRUE) {
+            memset(&s, 0, sizeof(s));
+            for (int i = 0; i < ESL_SCREEN_LINES; i++) {
+                strncpy(s.text[i], sc.text[i], ESL_SCREEN_LINE_MAX - 1);
+                s.color[i] = sc.color[i];
+            }
+            shown = true;
+        } else {
+            screen_lines(&s, configured ? "AP silent" : "waiting for the AP", shown ? "no status lately" : "",
+                         pins);
+        }
+        esl_lcd_show(&s);
+    }
+}
+
+static void screen_start(void)
+{
+    static esl_screen_t s;
+    screen_box = xQueueCreate(1, sizeof(esl_coproc_screen_t));
+    screen_lines(&s, "802.15.4 radio", "waiting for the AP", "");
+    esp_err_t err = screen_box ? esl_lcd_start(&s) : ESP_ERR_NO_MEM;
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "screen: %s", esp_err_to_name(err)); /* the radio works without it */
+        return;
+    }
+    xTaskCreate(screen_task, "screen", 3072, NULL, 2, NULL);
+}
+#endif
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "OpenESL 802.15.4 radio %d.%d, link v%d on UART%d (TX GPIO%d, RX GPIO%d, %d baud)",
@@ -292,6 +366,9 @@ void app_main(void)
     /* Receiving starts with the host's CONFIG, which says the channel and PAN */
     ESP_ERROR_CHECK(esp_ieee802154_enable());
 
+#if CONFIG_ESL_DISPLAY
+    screen_start(); /* before the link task, which hands it SCREEN */
+#endif
     xTaskCreate(rx_task, "rx", 3072, NULL, configMAX_PRIORITIES - 2, NULL);
     xTaskCreate(uart_task, "link", 4096, NULL, configMAX_PRIORITIES - 3, NULL);
     send_hello(); /* tells a running host that the radio (re)started and needs CONFIG */

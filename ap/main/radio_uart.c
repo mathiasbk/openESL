@@ -23,6 +23,9 @@
  * not configured (the radio restarted) gets the CONFIG again; while no HELLO
  * comes, PING goes out every couple of seconds.
  *
+ * display.c sends the status screen through radio_screen(), for a radio with
+ * an LCD (the C6 with a 0.96" screen as the radio).
+ *
  * The task is registered with the task watchdog and wakes at least once a
  * second, like the radio task on the C6. */
 
@@ -57,6 +60,22 @@ static void send_config(void)
 {
     uint8_t f[ESL_COPROC_FRAME_MAX];
     send(f, esl_coproc_encode_config(f, &cfg));
+}
+
+_Static_assert(ESL_SCREEN_LINES == ESL_COPROC_SCREEN_LINES, "esl_screen_t and SCREEN have the same lines");
+
+void radio_screen(const esl_screen_t *s)
+{
+    esl_coproc_screen_t c;
+    uint8_t f[ESL_COPROC_FRAME_MAX];
+    if (!link.up)
+        return;
+    for (int i = 0; i < ESL_COPROC_SCREEN_LINES; i++) {
+        c.color[i] = s->color[i];
+        strncpy(c.text[i], s->text[i], ESL_COPROC_SCREEN_TEXT_MAX);
+        c.text[i][ESL_COPROC_SCREEN_TEXT_MAX] = '\0';
+    }
+    send(f, esl_coproc_encode_screen(f, &c));
 }
 
 static void on_hello(const esl_coproc_hello_t *h)
