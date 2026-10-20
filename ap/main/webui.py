@@ -21,6 +21,7 @@ PAGE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenESL AP dashboard</title>
+  <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">
 </head>
 <body>
@@ -43,7 +44,8 @@ def dashboard_html(index):
     m = re.search(r'\n(\s*<main id="tab-dashboard".*?</main>)', index, re.S)
     if not m:
         sys.exit("webui.py: no <main id=\"tab-dashboard\"> in index.html")
-    main = m.group(1).replace(" hidden>", ">", 1)  # the tab is the whole page here
+    # the tab is the whole page here: shown, and a plain <main>, not a tab panel
+    main = m.group(1).replace(" hidden>", ">", 1).replace(' role="tabpanel"', "", 1)
     # the text about USB and the bridge is for the page on the web
     main = re.sub(r"\n\s*<p>The AP's state and every tag.*?</p>",
                   "\n      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. "

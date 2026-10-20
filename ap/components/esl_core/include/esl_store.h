@@ -62,7 +62,10 @@ typedef struct {
     uint32_t layout_ver;      /* layout file version from the last POLL */
     uint32_t layout_offered;  /* version the AP last offered it */
     uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
+    bool layout_taken;        /* the tag started on layout_offered (esl_store_offer_taken), so
+                                 ESL_POLL_F_LAYOUTFAIL is about it */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
+    bool fw_taken;            /* the tag started on fw_offered, as layout_taken (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
@@ -184,6 +187,13 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
 
 /* A FW block of image ver up to byte end went to the tag (esl_radio). */
 void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
+
+/* The tag asked for a block of firmware image ver (fw) or layout file ver, or got the
+ * whole layout file in the offer (esl_radio): it started on that version. A tag keeps
+ * its fail flag on until then, so only after it does the flag count against the
+ * version offered; before, the flag is about an older one and the offer may just have
+ * been lost (both tries of the POLL it answered). */
+void esl_store_offer_taken(esl_store_t *st, uint64_t mac, bool fw, uint32_t ver);
 
 typedef struct {
     unsigned updated;  /* tags of the model that run the version */
