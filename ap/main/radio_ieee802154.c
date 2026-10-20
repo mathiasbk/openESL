@@ -6,6 +6,7 @@
 #include "esp_ieee802154.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -62,8 +63,18 @@ static esl_layouts_t *layouts;
 static uint16_t pan;
 static uint8_t tx_buf[1 + ESL_PSDU_MAX]; /* length byte + PSDU */
 
+/* esp_ieee802154_tx_error_t of the last transmit that failed, -1 = it went out */
+static volatile int tx_err = -1;
+
+/* A reply the radio refused (WiFi has the antenna under coexistence, say) is sent again
+   while the tag still listens: it waits CFG_RX_TIMEOUT_MS (20 ms) after its POLL or
+   request, and its own retry comes only after that. */
+#define TX_RETRY_US      12000   /* from the request's arrival */
+#define TX_RETRY_GAP_US  700     /* let a WiFi frame or another tag's frame pass */
+#define TX_RETRY_MAX     6
+
 static struct {
-    uint32_t rx, polls, blocks, replies, tx_failed, dropped;
+    uint32_t rx, polls, blocks, replies, tx_failed, tx_resent, dropped;
     int64_t worst_us;
 } stats;
 
@@ -100,9 +111,9 @@ void IRAM_ATTR esp_ieee802154_transmit_done(const uint8_t *frame, const uint8_t 
 void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee802154_tx_error_t error)
 {
     (void)frame;
-    (void)error;
     BaseType_t woken = pdFALSE;
     stats.tx_failed++;
+    tx_err = (int)error;
     xSemaphoreGiveFromISR(tx_idle, &woken);
     portYIELD_FROM_ISR(woken);
 }
@@ -137,6 +148,7 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
     else
         stats.blocks++;
     tx_buf[0] = (uint8_t)len;
+    tx_err = -1;
     esp_err_t err = esp_ieee802154_transmit(tx_buf, false);
     int64_t us = esp_timer_get_time() - it->rx_us;
     if (err != ESP_OK) {
@@ -144,7 +156,40 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
         xSemaphoreGive(tx_idle);
         return;
     }
-    stats.replies++;
+    /* Wait for each try to finish; tx_idle stays given for the next request */
+    bool sent = true;
+    int first_err = -1;
+    for (int tries = 0;; tries++) {
+        if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
+            break;
+        int e = tx_err;
+        if (e < 0) {
+            xSemaphoreGive(tx_idle);
+            if (tries)
+                ESP_LOGW(TAG, "reply sent after %d resends (tx error %d)", tries, first_err);
+            break;
+        }
+        if (first_err < 0)
+            first_err = e;
+        if (tries >= TX_RETRY_MAX ||
+            esp_timer_get_time() + TX_RETRY_GAP_US - it->rx_us > TX_RETRY_US) {
+            xSemaphoreGive(tx_idle);
+            ESP_LOGW(TAG, "reply not sent (tx error %d) after %d resends", e, tries);
+            sent = false;
+            break;
+        }
+        esp_rom_delay_us(TX_RETRY_GAP_US);
+        tx_err = -1;
+        if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
+            stats.tx_failed++;
+            xSemaphoreGive(tx_idle);
+            sent = false;
+            break;
+        }
+        stats.tx_resent++;
+    }
+    if (sent)
+        stats.replies++;
     if (us > stats.worst_us)
         stats.worst_us = us;
     if (us > 5000)
@@ -230,10 +275,10 @@ static void radio_task(void *arg)
                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                      (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
-            ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu dropped %lu worst %lld us",
+            ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu tx_resent %lu dropped %lu worst %lld us",
                      (unsigned long)stats.rx, (unsigned long)stats.polls, (unsigned long)stats.blocks,
-                     (unsigned long)stats.replies,
-                     (unsigned long)stats.tx_failed, (unsigned long)stats.dropped, (long long)stats.worst_us);
+                     (unsigned long)stats.replies, (unsigned long)stats.tx_failed, (unsigned long)stats.tx_resent,
+                     (unsigned long)stats.dropped, (long long)stats.worst_us);
         }
     }
 }
