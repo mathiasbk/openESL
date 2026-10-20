@@ -29,7 +29,7 @@
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
       <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
       <p id="home-fw" class="muted"></p>
     </section>
     <div class="cards">
@@ -45,16 +45,16 @@
       </a>
       <a class="card link" href="#ap">
         <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6 board over USB.</p>
+        <p>Put the AP firmware on an ESP32-C6 or ESP32-C5 board over USB.</p>
         <span class="go">Open the AP flasher</span>
       </a>
     </div>
     <section class="card wide">
       <h3>How it fits together</h3>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
+        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
-        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
+        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
         <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client tag-ota</code> sends new tag firmware to the tags over the radio; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
       </ol>
@@ -64,7 +64,7 @@
       <ul>
         <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
         <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB.</li>
+        <li>For the AP: an ESP32-C6 board with USB (an ESP32-C5 with PSRAM is experimental).</li>
       </ul>
       <p class="muted">Setting up and running the AP: the <a href="#setup">Set up</a> tab. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>
@@ -181,7 +181,7 @@
             <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
             <div class="buttons tight">
               <button id="ap-connect">Connect</button>
-              <button id="ap-upload" title="PUT /api/layouts/{model}: the tags of this model download it at their next poll">Upload layout file</button>
+              <button id="ap-upload" title="PUT /api/layouts/{model}: the AP draws the tags of this model with it">Upload layout file</button>
             </div>
             <label>Tag <select id="ap-tag"><option value="">(connect first)</option></select></label>
             <div class="buttons tight">
@@ -260,19 +260,19 @@
   <!-- ===================== Flash AP ===================== -->
   <main id="tab-ap" class="tab" role="tabpanel" hidden>
     <section class="card">
-      <h2>Flash the access point (ESP32-C6)</h2>
-      <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
-      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
-      <p class="warn">With another flashing tool: a release's single AP file (<code>openesl-ap-...-v&lt;version&gt;.bin</code>, without <code>-ota</code>) written at 0x0 erases the AP's tags, layout files, WiFi and token too, since it holds blank bytes over that area. To keep them over USB, use this page without "Erase device", or write the <code>-ota.bin</code> to 0x90000 after erasing <code>otadata</code> at 0x7E000 with esptool, or on Linux and macOS use <code>esl-client --serial &lt;port&gt; ota openesl-ap-...-ota.bin</code> (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#build-and-flash">ap/README.md</a>).</p>
+      <h2>Flash the access point</h2>
+      <p>Pick the board, connect it by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
       <p id="ap-fw-info" class="muted"></p>
-      <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
-      <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
+      <label id="ap-board-choice" class="board-choice" hidden>Board <select id="ap-board"></select></label>
+      <p id="ap-board-note" class="muted" hidden></p>
       <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
         <button slot="activate">Connect and flash AP</button>
         <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
         <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
       </esp-web-install-button>
+      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
+      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
+      <p class="warn">With another flashing tool: a release's single AP file (<code>openesl-ap-...-v&lt;version&gt;.bin</code>, without <code>-ota</code>) written at 0x0 erases the AP's tags, layout files, WiFi and token too, since it holds blank bytes over that area. To keep them over USB, use this page without "Erase device", or write the <code>-ota.bin</code> to 0x90000 after erasing <code>otadata</code> at 0x7E000 with esptool, or on Linux and macOS use <code>esl-client --serial &lt;port&gt; ota openesl-ap-...-ota.bin</code> (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#build-and-flash">ap/README.md</a>).</p>
     </section>
     <section class="card">
       <h2>Then: WiFi and API token</h2>
@@ -477,8 +477,8 @@
       <h2>Running it</h2>
       <ul>
         <li><strong>Content.</strong> Your software sends text per tag with <code>PUT /api/tags/{mac}</code>, or many at once with <code>PUT /api/tags</code>; the AP stores it and hands it to the tag at its next poll (about a minute). <code>"at"</code> in the request sets it at a given time, so a price change can be sent the day before. The <a href="#api">API</a> tab has every call, and <code>tools/esl-client</code> is a complete command-line client (<code>price</code>, <code>text</code>, <code>sync prices.csv</code> from an Excel export, <code>--at</code>).</li>
-        <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, layout file rejected), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
-        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code>: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
+        <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, content the AP cannot draw), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
+        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-&lt;board&gt;-&lt;version&gt;-ota.bin</code> per board: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
         <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook and the schedule; <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
         <li><strong>Long-term test.</strong> <code>esl-client log week.csv</code> records every tag once a minute, and <code>report week.csv</code> sums up gaps, battery and AP restarts.</li>
       </ul>

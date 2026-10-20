@@ -132,7 +132,7 @@ actions:
 - **Text:** 4 fields (lines), 92 characters in all after conversion to Latin-1 (96 bytes with the length bytes, [protokoll.md](protokoll.md) part 1). æøå work. Over the limit the AP answers `422` and the tag keeps what it shows.
 - **Line width:** about 20 characters per line on the 2.9" before the text drops to a smaller font or is cut with "…". The 1.54" wraps to two lines per field.
 - **When it shows:** the tag polls the AP every 60 s, so a change shows within about a minute plus drawing.
-- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): drawing costs power, sending does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
+- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): a new screen costs power (the image download and the refresh), the same text again does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
 - **"Done at":** changes when the estimate moves, which is an extra redraw. Remove the line if that is too often.
 
 ## Test without the automation

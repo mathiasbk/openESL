@@ -85,13 +85,14 @@ jobs:
         run: |
           python3 tools/fw_version.py --all | tee versions.txt
           python3 - <<'EOF'
-          import sys
+          import glob, json, sys
           sys.path.insert(0, "web")
           from build import image_version
           # "ap 0.4.7", "tag 0.4.7", "tag-29 0.4.7", "tag-154 0.4.5": the AP images carry the
           # AP version, each model's image its own version
           versions = dict(line.split() for line in open("versions.txt") if line.strip())
-          want = {"fw/ap-firmware/openesl-ap-ota.bin": versions["ap"], "fw/ap-firmware/openesl-ap-lcd-ota.bin": versions["ap"]}
+          want = {"fw/ap-firmware/%s-ota.bin" % json.load(open(b))["artifact"]: versions["ap"]
+                  for b in glob.glob("ap/boards/*/board.json")}
           for part, v in versions.items():
               if part.startswith("tag-"):
                   want["fw/tag-firmware/%s-ota.bin" % part] = v

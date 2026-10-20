@@ -1,6 +1,6 @@
 # AP firmware (ESP32-C6, ESP-IDF)
 
-One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
+One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag, and draws each tag's screen from them. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
 **Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
 
@@ -51,7 +51,7 @@ ap/
 
 ## How content and diffing work
 
-- `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag.
+- `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag. A tag that shows images reports the image id (CRC-32 of the image bytes) in POLL instead; the API shows it as `shown_image_id`, and `shown_content_id` is the content's id while the tag shows that content's image.
 - Trailing empty fields are removed before the id is computed, so `["a",""]` and `["a"]` are the same content.
 - Content with a layout from a layout file is stored by name; the id covers the name, so it is the same on both models. The AP looks the name up in the file for the tag's model each time it draws the tag's image.
 - Text is converted to Latin-1. The fields share 96 bytes (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`: what the CONTENT message the tags used to get had room for), one length byte per field plus the text, so the AP rejects more than 92 bytes of text with four fields, or 90 with six, with `422`. Empty fields at the end are dropped first and cost nothing. `tag/tools/label_design.py` checks the same limit.
@@ -182,7 +182,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 ## Dashboard on the AP
 
-`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
+`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with its screen as the AP draws it and what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
 
 The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 23 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 
