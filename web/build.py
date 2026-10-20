@@ -5,15 +5,17 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
   python web/build.py              renderer (WebAssembly) + page into web/dist/
   python web/build.py --native     only the native test build of web_api.c (no Emscripten),
                                    used by web/test/render.test.mjs
-  python web/build.py --firmware <tag-29.bin> <tag-154.bin> <ap.bin> [<ap-lcd.bin>]
+  python web/build.py --firmware <file>...
                                    copies firmware into web/dist/firmware/ with the AP's
                                    manifests for esp-web-tools and info.json (used by the
-                                   GitHub workflow; any of them may be "-" for none;
-                                   ap-lcd.bin is the AP with the status screen, offered
-                                   by a checkbox on the page; FIRMWARE_RELEASE=v1.2.3
-                                   marks them as that release). A <file>-ota.bin next to
-                                   each one is copied too, for the dashboard's updates
-                                   through the API
+                                   GitHub workflow). Each file is told apart by its header:
+                                   a tag image (tag-<build>.bin for the flasher, named after
+                                   the model in the OTA header of its -ota.bin) or an AP image (the one with
+                                   "lcd" in its name is the AP with the status screen, offered
+                                   by a checkbox on the page). "-" means no file.
+                                   FIRMWARE_RELEASE=v1.2.3 marks them as that release. A
+                                   <file>-ota.bin next to each one is copied too, for the
+                                   dashboard's updates through the API
 
 The renderer is web/wasm/web_api.c with the tag's drawing code and the AP's layout
 compiler, built with Emscripten (emcc) once per tag model in shared/models.json:
@@ -195,9 +197,41 @@ def image_version(path):
     return None
 
 
-def add_firmware(tag29, tag154, ap, ap_lcd="-"):
+def tag_image_model(path):
+    """The model (from shared/models.json) a tag firmware image is for, read from the model code in
+    the OTA header of the file or of the <file>-ota.bin next to it (the flasher's image has the
+    bootloader first and no header), or None when neither is a tag image."""
+    for p in (path, path[:-4] + "-ota.bin"):
+        try:
+            with open(p, "rb") as f:
+                data = f.read(16)
+        except OSError:
+            continue
+        if data[:4] != b"OSFW" or len(data) < 16:
+            continue
+        for m in tag_build.models.load():
+            if m["code"] == data[5]:
+                return m
+        sys.exit("%s is a tag firmware image for an unknown model code %d" % (p, data[5]))
+    return None
+
+
+def add_firmware(*files):
     out = os.path.join(DIST, "firmware")
     os.makedirs(out, exist_ok=True)
+    # Sorted by what they are: the tag images by their model, the AP images by their name
+    tags = {}      # build -> path
+    ap = ap_lcd = "-"
+    for f in files:
+        if f == "-":
+            continue
+        m = tag_image_model(f)
+        if m:
+            tags[m["build"]] = f
+        elif "lcd" in os.path.basename(f).lower():
+            ap_lcd = f
+        else:
+            ap = f
     # FIRMWARE_RELEASE is the release tag (v1.2.3) when the files come from a GitHub release;
     # otherwise they were built from this checkout and get the VERSION file's version + "-dev"
     release = os.environ.get("FIRMWARE_RELEASE", "")
@@ -207,19 +241,24 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
         "ref": os.environ.get("GITHUB_REF_NAME", "local"),
         "commit": os.environ.get("GITHUB_SHA", "0000000"),
         "date": datetime.date.today().isoformat(),
-        "tag": tag29 != "-" or tag154 != "-",
+        "tag": bool(tags),
         "ap": ap != "-",
         "ap_lcd": ap_lcd != "-" and os.path.exists(ap_lcd),
         # The AP and the tags each keep the version of the release they last changed in
         # (tools/fw_version.py), read from the -ota.bin images: the dashboard compares these
         # with what the AP and the tags run, so a release without changes for them offers
-        # them nothing
+        # them nothing. tag_version is the first model's; tag_versions has every model's
         "ap_version": image_version(ap[:-4] + "-ota.bin") if ap != "-" else None,
-        "tag_version": image_version((tag29 if tag29 != "-" else tag154)[:-4] + "-ota.bin") if tag29 != "-" or tag154 != "-" else None,
+        "tag_version": None,
+        "tag_versions": {},
     }
+    for build, f in tags.items():
+        v = image_version(f[:-4] + "-ota.bin")
+        info["tag_versions"][build] = v
+        info["tag_version"] = info["tag_version"] or v
     info["ota"] = {}
-    for src, name in ((tag29, "tag-29.bin"), (tag154, "tag-154.bin"), (ap, "ap-openesl.bin"),
-                      (ap_lcd if info["ap_lcd"] else "-", "ap-openesl-lcd.bin")):
+    for src, name in ([(f, "tag-%s.bin" % b) for b, f in tags.items()] +
+                      [(ap, "ap-openesl.bin"), (ap_lcd if info["ap_lcd"] else "-", "ap-openesl-lcd.bin")]):
         if src != "-":
             shutil.copy2(src, os.path.join(out, name))
             # the file for an update through the API lies next to it as <name>-ota.bin
@@ -240,7 +279,7 @@ def add_firmware(tag29, tag154, ap, ap_lcd="-"):
 
 
 def main():
-    if len(sys.argv) in (5, 6) and sys.argv[1] == "--firmware":
+    if len(sys.argv) >= 3 and sys.argv[1] == "--firmware":
         add_firmware(*sys.argv[2:])
         return
     if sys.argv[1:] == ["--native"]:

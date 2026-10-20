@@ -174,7 +174,7 @@ def step_web():
     tests = sorted(os.path.join("web", "test", f) for f in os.listdir(os.path.join(ROOT, "web", "test"))
                    if f.endswith(".test.mjs"))
     run([node, "--test"] + tests)
-    fw = [os.path.join(OUT, f) for f in ("tag-29.bin", "tag-154.bin", "openesl-ap.bin", "openesl-ap-lcd.bin")]
+    fw = [os.path.join(OUT, f) for f in ["tag-%s.bin" % m["build"] for m in models.load()] + ["openesl-ap.bin", "openesl-ap-lcd.bin"]]
     if all(os.path.isfile(f) for f in fw):
         run([PY, "web/build.py", "--firmware"] + fw)     # web/dist/ is then the page as CI publishes it
 

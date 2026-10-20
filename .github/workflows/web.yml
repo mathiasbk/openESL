@@ -83,13 +83,15 @@ jobs:
           if [ -n "$rel" ]; then
             echo "Firmware from release $rel"
             gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin'
+            # one tag image per model in shared/models.json (build.py tells them apart by their headers)
             FIRMWARE_RELEASE="$rel" python3 web/build.py --firmware \
-              "rel/openesl-tag-2.9-$rel.bin" "rel/openesl-tag-1.54-$rel.bin" "rel/openesl-ap-esp32c6-$rel.bin" \
-              "rel/openesl-ap-esp32c6-lcd-$rel.bin"
+              $(python3 shared/models.py names | while read -r build name; do printf 'rel/openesl-tag-%s-%s.bin ' "$name" "$rel"; done) \
+              "rel/openesl-ap-esp32c6-$rel.bin" "rel/openesl-ap-esp32c6-lcd-$rel.bin"
           else
             echo "No release yet: firmware from this build"
-            python3 web/build.py --firmware fw/tag-firmware/tag-29.bin fw/tag-firmware/tag-154.bin fw/ap-firmware/openesl-ap.bin \
-              fw/ap-firmware/openesl-ap-lcd.bin
+            python3 web/build.py --firmware \
+              $(python3 shared/models.py builds | tr ' ' '\n' | sed 's|.*|fw/tag-firmware/tag-&.bin|') \
+              fw/ap-firmware/openesl-ap.bin fw/ap-firmware/openesl-ap-lcd.bin
           fi
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
