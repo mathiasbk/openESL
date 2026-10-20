@@ -209,7 +209,7 @@ function compileAndDraw() {
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
 }
 
-// What the layout uses of the tag's limits, so you see a limit coming before the AP says no.
+// What the layout uses of the AP's limits, so you see a limit coming before the AP says no.
 function refreshMeters(res) {
   const box = $("meters");
   const r = state.renderer;
@@ -219,12 +219,13 @@ function refreshMeters(res) {
   $("el-add-barcode").disabled = false;
   if (lay) {
     const u = layoutUsage(lay, lim);
-    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the tag may draw for this layout (each text box counts the most lines its fonts can fit)"]);
+    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
     meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
   meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
+  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as it is uploaded to the AP, in bytes; it usually fills before the compiled file"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);

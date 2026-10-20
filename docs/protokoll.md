@@ -282,7 +282,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 The AP also checks what it can draw, so a file that is accepted always gives a screen (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 16 text lines (each text element counts the most lines it can use) and 10 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
+- per layout at most 32 text lines (each text element counts the most lines it can use) and 20 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
 - the binary file is at most 768 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 

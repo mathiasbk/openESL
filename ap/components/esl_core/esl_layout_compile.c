@@ -137,7 +137,7 @@ static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT,
 typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
-    unsigned runs, rects; /* what the layout needs at most from the tag's scene */
+    unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
     unsigned barcodes;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
@@ -222,7 +222,7 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
     if (si == ESL_BC_EAN13 && max < ean)
         return fail(c, "an EAN-13 with its quiet zones is %u modules: w must be at least %u", ean, ean * (mw ? mw : 1));
     if (++lay->barcodes > ESL_DRAW_MAX_BARCODES)
-        return fail(c, "the tag draws at most %d barcode per screen", ESL_DRAW_MAX_BARCODES);
+        return fail(c, "the AP draws at most %d barcode per screen", ESL_DRAW_MAX_BARCODES);
     lay->bc_field = (int8_t)fi;
     lay->bc_sym = (uint8_t)si;
     lay->bc_max = (uint16_t)max;
@@ -437,7 +437,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
         return fail(c, "elements must be a list of at least one element");
     size_t need = 1 + (size_t)T(c, el)->size * ESL_LE_SIZE;
     if (T(c, el)->size > 255 || *pos + need > ESL_LBIN_MAX)
-        return fail(c, "the file is too big for the tags: at most %d bytes, about %d elements in all",
+        return fail(c, "the file is too big: at most %d bytes compiled, about %d elements in all",
                     ESL_LBIN_MAX, (ESL_LBIN_MAX - ESL_LBIN_HDR_LEN) / ESL_LE_SIZE);
     out->bin[(*pos)++] = (uint8_t)T(c, el)->size;
     k = el + 1;
@@ -450,10 +450,10 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     c->ei = -1;
 
     if (lay.runs > ESL_DRAW_MAX_RUNS)
-        return fail(c, "needs up to %u lines of text, the tag draws at most %d per screen (lower lines or h)",
+        return fail(c, "needs up to %u lines of text, the AP draws at most %d per screen (lower lines or h)",
                     lay.runs, ESL_DRAW_MAX_RUNS);
     if (lay.rects > ESL_DRAW_MAX_RECTS)
-        return fail(c, "needs %u rectangles (rect elements and inverted fields), the tag draws at most %d",
+        return fail(c, "needs %u rectangles (rect elements and inverted fields), the AP draws at most %d",
                     lay.rects, ESL_DRAW_MAX_RECTS);
     out->nfields[c->li] = lay.nfields;
     out->bc_field[c->li] = lay.bc_field;
@@ -541,7 +541,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     c.li = -1;
     for (unsigned i = 0; i < c.ntext; i++) {
         if (pos + 1 + c.tlen[i] > ESL_LBIN_MAX) {
-            fail(&c, "the file is too big for the tags: at most %d bytes with the fixed texts", ESL_LBIN_MAX);
+            fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts", ESL_LBIN_MAX);
             goto done;
         }
         out->bin[pos++] = c.tlen[i];

@@ -285,21 +285,25 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
     bad_el(TEXT_A ",\"color\":\"invert\"}", "border of an inverted field");
-    /* the tag's scene: 16 text lines and 10 rectangles per screen */
+    /* the AP's scene: 32 text lines and 20 rectangles per screen (esl_render.c) */
 #define TALL TEXT_XYW ",\"h\":128,\"field\":\"a\",\"fonts\":[\"small\"]"
+#define T5 TALL "}," TALL "}," TALL "}," TALL "}," TALL "}"
 #define R1 "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}"
 #define R5 R1 "," R1 "," R1 "," R1 "," R1
-    bad_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":2}",
-           "layouts[0]: needs up to 17 lines of text, the tag draws at most 16");
-    bad_el(R5 "," R5 "," TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}",
-           "needs 11 rectangles");
-    bad_el(R5 "," R5 "," R1, "needs 11 rectangles");
-    /* 9 rects + one inverted field, and 5 * 3 + 1 lines, are exactly the limits */
-    CHECK(compile_el(R5 "," R1 "," R1 "," R1 "," R1 ","
-                     TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"));
-    CHECK(compile_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":1}"));
+#define R10 R5 "," R5
+#define HIGHLIGHT TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"
+    bad_el(T5 "," T5 "," TALL ",\"lines\":3}",
+           "layouts[0]: needs up to 33 lines of text, the AP draws at most 32");
+    bad_el(R10 "," R10 "," HIGHLIGHT, "needs 21 rectangles");
+    bad_el(R10 "," R10 "," R1, "needs 21 rectangles");
+    /* 19 rects + one inverted field, and 10 * 3 + 2 lines, are exactly the limits */
+    CHECK(compile_el(R10 "," R5 "," R1 "," R1 "," R1 "," R1 "," HIGHLIGHT));
+    CHECK(compile_el(T5 "," T5 "," TALL ",\"lines\":2}"));
+#undef HIGHLIGHT
+#undef R10
 #undef R5
 #undef R1
+#undef T5
 #undef TALL
 
     /* fixed texts: stored once at the end of the file, the element points at them */
@@ -351,7 +355,7 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"module\":1}", "module is only for barcode");
 #undef BC
 
-    /* too big for the tags: 16 layouts of 4 rects = 4 + 16 * 57 bytes */
+    /* too big: 16 layouts of 4 rects = 4 + 16 * 57 bytes */
     static char js[8192];
     esl_sb_t sb;
     esl_sb_init(&sb, js, sizeof(js));
@@ -365,7 +369,7 @@ static void test_errors(void)
     esl_sb_puts(&sb, "]}");
     CHECK(!sb.overflow);
     CHECK(!compile(js, ESL_MODEL_29));
-    CHECK(HAS(err, "layouts[13]: the file is too big for the tags: at most 768 bytes"));
+    CHECK(HAS(err, "layouts[13]: the file is too big: at most 768 bytes compiled"));
 }
 
 static void *no_memory(size_t n)

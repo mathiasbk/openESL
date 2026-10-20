@@ -274,8 +274,8 @@
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-#define ESL_DRAW_MAX_RUNS    16     /* tekstlinjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_RECTS   10     /* rektangler og inverterte felt per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */

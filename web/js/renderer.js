@@ -63,6 +63,7 @@ async function create(model, base) {
       barcodeModuleMax: call("web_limit", "number", ["number"], [11]),
       fixedTextBytes: call("web_limit", "number", ["number"], [12]),
       fields: call("web_limit", "number", ["number"], [13]),
+      jsonBytes: call("web_limit", "number", ["number"], [14]),
     },
 
     loadLayouts(text) {

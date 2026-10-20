@@ -1700,7 +1700,7 @@ components:
         Keys starting with `_` and `description` are comments. Besides this structure the AP
         checks that every box is inside the screen (296×128 or 200×200), that a text box is
         at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
-        most 16 text lines and 10 rectangles per layout, and at most 768 bytes compiled.
+        most 32 text lines and 20 rectangles per layout, and at most 768 bytes compiled.
       additionalProperties: false
       patternProperties: { "^_": true }
       required: [format, version, model, layouts]
