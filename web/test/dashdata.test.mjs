@@ -110,6 +110,10 @@ test("tag screen: fetched again when what it depends on changes, failures that p
   assert.notEqual(screenKey({ ...t, model: null }), screenKey(t));             // model known after its first poll
   assert.notEqual(screenKey(t), screenKey({ ...t, content_id: 8 }));
   assert.equal(screenKey(t), screenKey({ ...t, pending: true }));
+  const files = (v) => ({ layouts: [{ model: t.model, version: v }, { model: "other", version: 9 }] });
+  assert.notEqual(screenKey(t, files(1)), screenKey(t, files(2)));            // a new layout file, no image id
+  assert.equal(screenKey(t, files(1)), screenKey(t, { layouts: [{ model: t.model, version: 1 }] }));
+  assert.equal(screenKey(t), screenKey(t, null));
   assert.equal(screenErrorFinal(new Error("404: model not known yet")), true);
   assert.equal(screenErrorFinal(new Error("409: the content cannot be drawn")), true);
   assert.equal(screenErrorFinal({ status: 404, message: "not found" }), true);

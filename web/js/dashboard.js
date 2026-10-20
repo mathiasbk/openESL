@@ -40,7 +40,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
-  let last = null;        // { list, health, wifi, ota, tagfw }
+  let last = null;        // { list, health, wifi, ota, tagfw, layouts }
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
@@ -137,8 +137,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const wifi = await optional("/api/wifi");
       const ota = await optional("/api/ota");
       const tagfw = await optional("/api/tag-firmware");
+      const layouts = await optional("/api/layouts");
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw };
+      last = { list, health, wifi, ota, tagfw, layouts };
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
@@ -387,7 +388,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       td.textContent = "–";
       return td;
     }
-    const key = screenKey(tag);
+    const key = screenKey(tag, last?.layouts);
     const s = screens.get(tag.mac);
     if ((!s || s.want !== key || (s.retry_ms && Date.now() >= s.retry_ms)) && !screenQueue.some((q) => q.mac === tag.mac)) {
       screenQueue.push({ mac: tag.mac, key });

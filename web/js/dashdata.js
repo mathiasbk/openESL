@@ -149,9 +149,12 @@ export function apFacts(ap) {
 }
 
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
-// becomes known, new content, or a new layout file, which changes the image id)
-export function screenKey(tag) {
-  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}`;
+// becomes known, new content, a new image id, or a new layout file for its model; the last
+// matters for a tag the AP has not drawn for, e.g. one without SPI flash). layouts is
+// GET /api/layouts, or null
+export function screenKey(tag, layouts) {
+  const file = layouts?.layouts?.find((x) => x.model === tag.model)?.version ?? "";
+  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}/${file}`;
 }
 
 // Whether a failed GET /api/tags/{mac}/image stands until the key changes: a 4xx does

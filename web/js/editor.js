@@ -224,7 +224,7 @@ function refreshMeters(res) {
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
-  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
+  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
@@ -1002,6 +1002,12 @@ function initActions() {
 
 const ap = { tags: [], fileVersion: null, connected: false };
 
+// The version of the model's layout file on the AP (GET /api/layouts), null when it has none
+async function apFileVersion() {
+  const r = await apClient().layouts();
+  return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
+}
+
 // Upload, send and check only work once Connect has reached the AP (through the bridge)
 function apButtons(busy = false) {
   $("ap-connect").disabled = busy;
@@ -1062,6 +1068,7 @@ async function apConnect() {
   const r = await apClient().tags();
   ap.connected = true;
   ap.tags = r.tags || [];
+  ap.fileVersion = await apFileVersion();
   refreshApTags();
   const n = ap.tags.filter((t) => t.model === state.model).length;
   return [`AP ${r.ap?.fw || "?"}, channel ${r.ap?.channel ?? "?"}: ${ap.tags.length} tags, ${n} of them ${state.model}".`, "ok"];
@@ -1096,8 +1103,10 @@ async function apSend() {
   let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  if (!uploaded && !isBuiltin() && res.ok && t && ap.fileVersion !== null && ap.fileVersion !== res.version) {
-    note = " The AP has another version of the layout file than the editor; upload the file too.";
+  if (!uploaded) ap.fileVersion = await apFileVersion();
+  if (!uploaded && !isBuiltin() && res.ok && t && ap.fileVersion !== res.version) {
+    note = ap.fileVersion === null ? " The AP has no layout file for this model; upload the file too."
+      : " The AP has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
 }

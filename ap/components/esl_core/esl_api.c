@@ -1501,7 +1501,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             size_t bin;
             esl_sb_printf(out, "%s %s ", m > 1 ? ";" : "", esl_model_name(m));
             if (esl_layouts_info(api->layouts, m, &v, NULL, &bin)) {
-                esl_sb_printf(out, "version %" PRIu32 " (%u bytes for the tags): ", v, (unsigned)bin);
+                esl_sb_printf(out, "version %" PRIu32 " (%u bytes compiled): ", v, (unsigned)bin);
                 esl_layouts_write_names(api->layouts, m, out); /* plain ASCII names */
             } else {
                 esl_sb_puts(out, "none (built-in price and text only)");
