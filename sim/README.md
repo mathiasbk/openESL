@@ -39,7 +39,7 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 
 | # | Case | Checked |
 |---|---|---|
-| 0 | The AP draws what the tag draws (`esl_render.c`) | Every layout of `tag/designs/layouts/<model>.json` and `ap/test/layouts/<model>.json`, and the built-in `price` and `text`, with seven sets of fields and every flag combination (224 + 112 = 336 screens per model): the image the AP draws is byte for byte the one the tag's own code draws. Every screen saved below is compared the same way |
+| 0 | The AP draws what the tag draws (`esl_render.c`) | Every layout of `tag/designs/layouts/<model>.json`, `ap/test/layouts/<model>.json` and `sim/layouts/<model>.json`, and the built-in `price` and `text`, with nine sets of fields and every flag combination (828 screens per model): the image the AP draws is byte for byte the one the tag's own code draws, and its CRC-32 is the one in `sim/reference/<model>.crc`. Every screen saved below is compared with the tag's the same way |
 | 1 | New tag, unknown to the AP | Start screen; the AP registers it at its first POLL (model, no content) |
 | 2 | New content (`PUT /api/tags/{mac}`) | Drawn at the next poll (G1, 2 min); the API confirms one poll later |
 | 3 | Same content again | `changed: false`, IDLE, no redraw for 5 min |
@@ -55,6 +55,15 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
 
 The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the tag and AP host tests, not end to end here.
+
+`sim/layouts/` holds layouts made only for this comparison: a short last word that has to
+wrap, `invert` and `highlight` text, and barcodes centred or right-aligned with an odd number of
+pixels to spare.
+`sim/reference/<model>.crc` is the reference for when the tag no longer has its own drawing
+code: one line per screen (`file layout set flags bytes crc`). A change to the drawing that is
+meant to change screens rewrites it with `SIM_REF_UPDATE=1 make -C sim`, and its diff shows
+which screens changed. So does a change to a layout in `tag/designs/layouts/`,
+`ap/test/layouts/` or `sim/layouts/`: those screens are part of the reference too.
 
 ## Serial port (`esl-sim serve`)
 
