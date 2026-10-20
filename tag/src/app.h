@@ -2,10 +2,9 @@
  * app.h - the tag's state machine, with no hardware code.
  *
  *   app_init()      read the MAC, draw the start screen
- *   app_poll_once() one round: POLL -> IDLE/CONTENT/CONFIG -> draw on new content.
- *                   A LAYOUT reply starts (or continues) the layout download in the
- *                   same round: LAYOUT_REQ -> LAYOUT until the file is complete.
- *                   Returns how many seconds the tag should sleep.
+ *   app_poll_once() one round: POLL -> IDLE/CONFIG, or IMG (the screen the AP drew,
+ *                   IMG_REQ -> IMG until it is whole, then shown) or FW (new firmware,
+ *                   FW_REQ -> FW). Returns how many seconds the tag should sleep.
  *
  * main.c just does: hal_init(); app_init(); for (;;) power_sleep_s(app_poll_once());
  * The tests in test/ run the same code against a fake radio and display.
@@ -26,7 +25,7 @@ typedef struct {
 
 typedef struct {
     uint8_t mac[MAC_ADDR_LEN];
-    uint32_t shown_id;        /* content_id currently shown, 0 = nothing */
+    uint32_t shown_id;        /* image_id currently shown, 0 = nothing */
     uint16_t interval_s;      /* interval from the AP (or default) */
     uint8_t misses;           /* rounds in a row without an answer */
     uint32_t lost_s;          /* seconds slept since the last answer */
@@ -35,12 +34,6 @@ typedef struct {
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
     uint8_t seq;
     uint16_t rng;
-    /* Layout download (docs/protokoll.md part 1, "Layout transfer"). The file goes
-       straight into layout_file[] (layout.c); dl_got bytes of it are in place. */
-    uint32_t dl_ver;          /* version being downloaded, 0 = none */
-    uint16_t dl_size;
-    uint16_t dl_got;
-    uint32_t lay_rejected;    /* version the tag could not use (reported with ESL_POLL_F_LAYOUTFAIL) */
     app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */
 } app_state_t;
 

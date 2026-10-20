@@ -1,14 +1,14 @@
-"""Reads back the barcodes test_barcode.c drew (build/host/barcodes/*.pbm) with a real
+"""Reads back the barcodes test_barcode.c drew (build/barcodes/*.pbm) with a real
 decoder, so the bars on the screen are checked against the standards and not only against
 the encoder itself. Needs zxing-cpp (pip install zxing-cpp) and Pillow; skipped without them.
-CI installs zxing-cpp. The tag's 1-pixel modules are scaled up 3 times, as a camera would
+CI installs zxing-cpp. 1-pixel modules are scaled up 3 times, as a camera would
 see a sharp label, and a white border is added for the quiet zone at the screen edge."""
 import glob
 import os
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.environ.get("ESL_TEST_OUT", os.path.join(HERE, "..", "build", "host", "barcodes"))
+OUT = os.environ.get("ESL_TEST_OUT", os.path.join(HERE, "build", "barcodes"))
 
 try:
     import zxingcpp
@@ -24,7 +24,7 @@ class DecodeTest(unittest.TestCase):
     def test_decode(self):
         lists = glob.glob(os.path.join(OUT, "*-list.txt"))
         if not lists:
-            self.skipTest("run the C tests first (python tools/build.py test)")
+            self.skipTest("run the C tests first (make -C ap/test)")
         n = 0
         for lst in lists:
             with open(lst, encoding="ascii") as f:

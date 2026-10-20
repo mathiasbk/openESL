@@ -1,5 +1,5 @@
 # Host unit tests for the platform-independent AP core (components/esl_core).
-#   make            build and run
+#   make            build and run, then read the drawn barcodes back (test_barcode_decode.py)
 #   make SAN=1      with AddressSanitizer + UndefinedBehaviorSanitizer
 #   make openapi    check docs/openapi.yaml against the code (openapi/check_openapi.py)
 #   make clean
@@ -24,7 +24,9 @@ $(BIN): $(SRCS) $(wildcard $(CORE)/include/*.h) ../../shared/proto.h tinytest.h
 	$(CC) $(CFLAGS) $(SRCS) $(LDFLAGS) -o $@
 
 test: $(BIN)
-	./$(BIN)
+	@mkdir -p build/barcodes
+	ESL_TEST_OUT=build/barcodes ./$(BIN)
+	ESL_TEST_OUT=build/barcodes python3 test_barcode_decode.py
 
 build/api_host: $(wildcard $(CORE)/*.c) openapi/api_host.c $(wildcard $(CORE)/include/*.h) ../../shared/proto.h
 	@mkdir -p build

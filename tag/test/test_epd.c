@@ -17,7 +17,7 @@
 #include "fake.h"
 #include "epd.h"
 #include "draw.h"
-#include "layout.h"
+#include "status.h"
 #include "helpers.h"
 #include "image.h"
 #include "hal/hal.h"
@@ -171,17 +171,26 @@ static void save_ppm(const char *path)
     fclose(f);
 }
 
+/* A screen with text near every edge: the start screen, with a black band at the bottom */
+static void build_scene(draw_scene_t *sc)
+{
+    static const char *const s[] = { "OpenESL", "MAC 0000000197E5CB3B", "FW 0.1.0", "Waiting for content" };
+    const uint8_t *t[4];
+    uint8_t len[4], i;
+
+    for (i = 0; i < 4; i++)
+        t[i] = L(s[i], &len[i]);
+    status_build(sc, t, len, 4);
+    draw_add_rect(sc, 0, DRAW_H - 4, DRAW_W - 1, DRAW_H - 1, DRAW_BLACK);
+}
+
 static void test_epd_stream(const char *out)
 {
-    static const char *const f[] = { "Lettmelk 1 L", "24.90", "kr 24,90/l" };
     static draw_scene_t sc;
-    uint8_t buf[ESL_MAX_PAYLOAD], b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
-    proto_reply_t rep;
+    uint8_t b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
     int x, y, bad = 0, ink = 0;
 
-    uint8_t len = make_content(buf, 0, 1, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT | ESL_CF_FRAME, 3, f);
-    proto_parse_reply(buf, len, &rep);
-    layout_build(&sc, &rep, buf);
+    build_scene(&sc);
 
     reset_model();
     CHECK(epd_draw(&sc));
@@ -228,15 +237,11 @@ static void test_epd_stream(const char *out)
    controller RAM ends up the same as when the scene is drawn. */
 static void test_epd_image(void)
 {
-    static const char *const f[] = { "Lettmelk 1 L", "24.90", "kr 24,90/l" };
     static draw_scene_t sc;
-    uint8_t buf[ESL_MAX_PAYLOAD], b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
-    proto_reply_t rep;
+    uint8_t b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
     int x, y, bad = 0;
 
-    uint8_t len = make_content(buf, 0, 1, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT | ESL_CF_FRAME, 3, f);
-    proto_parse_reply(buf, len, &rep);
-    layout_build(&sc, &rep, buf);
+    build_scene(&sc);
 
     fake_xflash_clear(true);
     draw_begin(&sc);

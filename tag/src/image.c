@@ -7,7 +7,6 @@ image_state_t __xdata image;
 /* One SPI flash page; kept between wake-ups (XRAM survives deep sleep), so a download
    goes on where it stopped. Bytes dl_got & 0xFF of it are filled. */
 static uint8_t __xdata page[IMG_DATA_OFF];
-static const uint8_t __xdata zero = 0;
 
 /* CRC-32 of len bytes of the SPI flash from addr, read through page[], as an image id:
    a CRC of 0 counts as 1 (the AP sends it so, since id 0 means "no image"). */
@@ -184,20 +183,20 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d)
         return IMAGE_STOP;
     if (r->img_id == image.slot_id)
         return IMAGE_DONE;                     /* already here: show it again */
-    if (r->img_id != image.dl_id || r->lay_size != image.dl_size || r->img_fmt != image.dl_fmt) {
+    if (r->img_id != image.dl_id || r->size != image.dl_size || r->img_fmt != image.dl_fmt) {
         /* A new image (or it changed on the AP): start from the beginning */
-        if (r->fw_model != MODEL_CODE || !size_ok(r->img_fmt, r->lay_size))
+        if (r->fw_model != MODEL_CODE || !size_ok(r->img_fmt, r->size))
             return fail(r->img_id);
         image.dl_id = r->img_id;
-        image.dl_size = r->lay_size;
+        image.dl_size = r->size;
         image.dl_fmt = r->img_fmt;
         image.dl_got = 0;
         image.slot_id = 0;                     /* the download overwrites the slot */
         if (!hal_xflash_erase(IMG_SLOT))       /* the header sector, so no old header survives */
             return fail(r->img_id);
     }
-    pos = r->lay_pos;
-    n = r->field_len[0];
+    pos = r->pos;
+    n = r->data_len;
     if (pos > image.dl_got || pos + n <= image.dl_got)
         return IMAGE_MORE;                     /* not the block we asked for */
     for (i = (uint8_t)(image.dl_got - pos); i < n; i++) {
@@ -230,16 +229,6 @@ bool image_show(void)
     ok = epd_draw_image();
     hal_xflash_close();
     return ok;
-}
-
-void image_forget(void)
-{
-    if (!image.slot_id)
-        return;
-    image.slot_id = 0;
-    hal_xflash_open();
-    hal_xflash_write(IMG_SLOT + IMG_HDR_OFF_MAGIC, &zero, 1);   /* 0xFF -> 0: no erase needed */
-    hal_xflash_close();
 }
 
 void image_column(uint16_t x, uint8_t __xdata *black, uint8_t __xdata *red)

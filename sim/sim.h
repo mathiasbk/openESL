@@ -49,8 +49,6 @@ int sim_json_bool(const char *key);
 /* Compiles a layout file (JSON) for the tag's model with the AP's compiler and keeps it
    for sim_ap_render. Returns the number of layouts, or 0 with the message in err. */
 int sim_ap_compile(const char *json, size_t len, char *err, size_t errlen);
-/* The compiled file (what a tag downloads), *len bytes; NULL if none compiled. */
-const uint8_t *sim_ap_bin(size_t *len);
 /* The AP draws content (layout 1 = price, 2 = text, 16 + n = layout n of the compiled file;
    n UTF-8 fields) for the tag's model into out. Returns the image size, 0 on error. */
 size_t sim_ap_render(uint8_t layout, uint8_t flags, int n, const char *const *fields, uint8_t *out, size_t cap);
@@ -100,7 +98,6 @@ uint16_t sim_tag_last_sleep_s(void);
 uint8_t sim_tag_misses(void);
 uint64_t sim_tag_next_wake_ms(void);
 uint64_t sim_tag_last_draw_ms(void);
-uint32_t sim_tag_layout_ver(void);
 /* Firmware update (docs/tag-ota.md): the tag's firmware version and model byte as in
    POLL, how often it restarted itself (into the bootloader, which then ran), whether
    the chip holds img (len bytes) as its application, and whether the update state in
@@ -110,10 +107,6 @@ uint8_t sim_tag_model_code(void);
 int sim_tag_restarts(void);
 bool sim_tag_app_is(const uint8_t *img, size_t len);
 bool sim_tag_ota_confirmed(void);
-/* The tag draws content with its own code (as sim_ap_render: a compiled layout file of len
-   bytes, or NULL for the built-in layouts only, and n UTF-8 fields) into out, in the image
-   format of esl_render.h. Clobbers the tag's layout file; boot the tag again after it. */
-size_t sim_tag_render(const uint8_t *bin, size_t len, uint8_t layout, uint8_t flags, int n, const char *const *fields, uint8_t *out);
 /* The screen as the tag drew it last, in the image format of esl_render.h. Returns the size. */
 size_t sim_tag_screen(uint8_t *out, size_t cap);
 /* The screen as PNG (2x, black/white; red as grey). The tag is drawn in the orientation of the layouts. */

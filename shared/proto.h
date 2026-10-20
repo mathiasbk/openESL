@@ -241,7 +241,7 @@
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
 #define ESL_LBIN_MAX         768    /* største fil tagen tar imot (XRAM-buffer på tagen) */
 
-/* Ett element, 14 byte, i samme rekkefølge som layout_elem_t i tag/src/layout.h */
+/* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
 #define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
 #define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..5, eller ESL_LE_FIELD_FIXED | fast tekst */
@@ -275,7 +275,7 @@
 #define ESL_BC_QUIET_128     10     /* quiet zone each side, in modules */
 #define ESL_BC_QUIET_EAN_L   11
 #define ESL_BC_QUIET_EAN_R   7
-#define ESL_DRAW_MAX_BARCODES 1     /* = DRAW_MAX_BARCODES in tag/src/draw.h */
+#define ESL_DRAW_MAX_BARCODES 1     /* strekkoder per skjerm (esl_render.c) */
 #define ESL_LE_LEFT          0x00   /* opts: vannrett | loddrett */
 #define ESL_LE_CENTER        0x01
 #define ESL_LE_RIGHT         0x02
@@ -300,9 +300,9 @@
 #define ESL_FONT_MEDIUM_H    24
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
-#define ESL_INVERT_PAD       4      /* = LAYOUT_INVERT_PAD i tag/src/layout.h */
-#define ESL_DRAW_MAX_RUNS    16     /* = DRAW_MAX_RUNS i tag/src/draw.h: tekstlinjer per skjerm */
-#define ESL_DRAW_MAX_RECTS   10     /* = DRAW_MAX_RECTS: rektangler og inverterte felt per skjerm */
+#define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
+#define ESL_DRAW_MAX_RUNS    16     /* tekstlinjer per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_RECTS   10     /* rektangler og inverterte felt per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3      /* = LAYOUT_MAX_LINES */
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */

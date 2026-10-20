@@ -1,8 +1,8 @@
-/* esl_render.c - the tag's drawing (tag/src/layout.c and draw.c) for the AP, with the
- * screen size as a run-time parameter instead of a build option. Keep the fitting,
- * wrapping and placement identical to the tag's: sim/ compares the two screens
- * for every model. The fonts (tag/src/font.c, tag/fonts) and the barcodes
- * (tag/src/barcode.c) are the tag's own files, compiled into esl_core as they are. */
+/* esl_render.c - draws a tag's screen on the AP, with the screen size as a run-time
+ * parameter. It began as the tag's own drawing (layout.c and draw.c, before the tags
+ * only showed images); sim/reference/ holds the CRC of every screen, so a change to the
+ * fitting, wrapping or placement shows up there. The fonts (tag/src/font.c, tag/fonts)
+ * and the barcodes (tag/src/barcode.c) are the tag's files, compiled into esl_core. */
 #include "esl_render.h"
 #include <string.h>
 #include "barcode.h" /* tag/src */
@@ -15,7 +15,7 @@ typedef struct {
     uint16_t w, h;
     uint8_t col_bytes;
     bool has_red;
-    uint8_t margin;    /* LAYOUT_MARGIN in tag/src/layout.h */
+    uint8_t margin;    /* left and right of the built-in layouts */
 } rd_model_t;
 
 bool esl_render_model(uint8_t model, uint16_t *w, uint16_t *h, bool *has_red)
@@ -49,7 +49,7 @@ size_t esl_render_size(uint8_t model)
     return (size_t)m.w * m.col_bytes * (m.has_red ? 2 : 1);
 }
 
-/* ---- the scene (tag/src/draw.h) ----------------------------------------------- */
+/* ---- the scene ------------------------------------------------------------- */
 
 #define RD_MAX_RUNS     ESL_DRAW_MAX_RUNS
 #define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
@@ -254,7 +254,7 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
     }
 }
 
-/* ---- the elements (tag/src/layout.h) ---------------------------------------------- */
+/* ---- the elements (shared/proto.h) ----------------------------------------- */
 
 #define RD_MAX_FONTS 3
 #define RD_MAX_LINES ESL_LE_MAX_LINES
@@ -273,7 +273,7 @@ typedef struct {
     uint16_t x, y, w, h;
 } rd_elem_t;
 
-/* ---- fitting text (tag/src/layout.c) ---- */
+/* ---- fitting text ---- */
 
 static uint8_t layout_fit(uint8_t font, const uint8_t *s, uint8_t len, uint16_t maxw, uint8_t *ellipsis)
 {
@@ -610,7 +610,7 @@ static void decode(rd_elem_t *e, const uint8_t *p)
     e->h = p[ESL_LE_OFF_H];
 }
 
-/* ---- the built-in layouts, one set per screen size (tag/src/layout.c) ---- */
+/* ---- the built-in layouts, one set per screen size ---- */
 
 #define RD_TEXT_LINES 4
 #define RD_TOP_Y      4

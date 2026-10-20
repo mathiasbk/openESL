@@ -42,10 +42,7 @@ jobs:
       - name: Model registry (the generated files match shared/models.json)
         run: python3 tools/gen_models.py --check
       - name: Host tests
-        run: |
-          # zxing-cpp reads back the barcodes the tag code draws (tag/test/test_label_barcode.py)
-          python3 -m pip install --user zxing-cpp==3.1.1 pillow
-          python3 tag/tools/build.py test
+        run: python3 tag/tools/build.py test
       - name: End-to-end simulation (tag firmware against the AP core, sim/README.md)
         run: |
           make -C sim SAN=1
@@ -71,7 +68,10 @@ jobs:
         with:
           fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Host tests (AP core, with AddressSanitizer)
-        run: make -C ap/test SAN=1
+        run: |
+          # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
+          python3 -m pip install --user zxing-cpp==3.1.1 pillow
+          make -C ap/test SAN=1
       - name: Tool tests (esl-client against a fake AP, power budget)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)

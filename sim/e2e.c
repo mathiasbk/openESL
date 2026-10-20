@@ -78,7 +78,8 @@ static void png(const char *name)
 }
 
 /* Every layout of a layout file, and the built-in ones, with a few sets of fields and every
-   flag combination, drawn by the tag's code and by esl_render: byte for byte the same. */
+   flag combination, drawn by esl_render; the CRC of each screen goes to the reference
+   (ref_check). */
 static void render_compare_file(const char *path, const char *label)
 {
     static const char *const sets[][6] = {
@@ -115,28 +116,21 @@ static void render_compare_file(const char *path, const char *label)
         for (unsigned si = 0; si < sizeof(sets) / sizeof(sets[0]); si++)
             for (uint8_t flags = 0; flags < 4; flags++) {
                 int nf = layouts[li] == 1 ? 3 : layouts[li] == 2 ? 4 : 6; /* as the API limits them */
-                const uint8_t *bin = sim_ap_bin(&len);
                 size_t na = sim_ap_render(layouts[li], flags, nf, sets[si], img_ap, sizeof(img_ap));
-                size_t nt = sim_tag_render(bin, len, layouts[li], flags, nf, sets[si], img_tag);
-                int d = nt == na && nt ? first_diff(nt) : -2;
                 cases++;
                 ref_add("%s %02x %u %u %zu %08lx\n", label, layouts[li], si, flags, na,
                         (unsigned long)(na ? esl_crc32(img_ap, na) : 0));
-                if (!nt || nt != na || d >= 0) {
-                    bad++;
-                    if (bad <= 5)
-                        note("DIFF %s layout 0x%02x set %u flags %u: tag %zu bytes, AP %zu bytes, first difference at %d",
-                             path, layouts[li], si, flags, nt, na, d);
-                }
+                if (!na && ++bad <= 5)
+                    note("NOT DRAWN %s layout 0x%02x set %u flags %u", path, layouts[li], si, flags);
             }
-    CHECK(bad == 0, "%s: %d of %d screens differ between the tag and the AP", path, bad, cases);
-    note("%s: %d layouts, %d screens drawn by both, %d differ", path, count, cases, bad);
+    CHECK(bad == 0, "%s: %d of %d screens not drawn", path, bad, cases);
+    note("%s: %d layouts, %d screens drawn", path, count, cases);
 }
 
 /* The CRC-32 of every screen above, one line per screen, against sim/reference/<model>.crc.
-   That file is the reference for the AP's drawing once the tag no longer has its own drawing
-   code to compare with. SIM_REF_UPDATE=1 writes it instead (after a change to the drawing
-   that is meant to change screens; the diff shows which). */
+   The file was made while the tag still drew content with its own code, and every screen
+   in it was byte for byte what the tag drew. SIM_REF_UPDATE=1 writes it instead (after a
+   change to the drawing that is meant to change screens; the diff shows which). */
 static char *ref;
 static size_t ref_len, ref_cap;
 
@@ -195,7 +189,7 @@ static void ref_check(const char *root)
 static void render_compare(const char *root)
 {
     char path[512];
-    step("0. The AP draws what the tag draws (esl_render)");
+    step("0. The AP draws every layout as the reference says (esl_render)");
     ref_len = 0;
     snprintf(path, sizeof(path), "%s/tag/designs/layouts/%s.json", root, sim_tag_model);
     render_compare_file(path, "designs");
@@ -426,8 +420,7 @@ int e2e_run(const char *out, const char *root)
         cid = put_content(SHELF_1, 1);
         CHECK(sim_tag_run_until_draw(t0 + 61000), "drawn at the next poll");
         CHECK(shows_image(), "shows the shelf layout, drawn by the AP from file version %ld", ver);
-        CHECK(sim_stats.layout == s0.layout && sim_tag_layout_ver() == 0,
-              "no LAYOUT to a tag that shows images (the file stays on the AP)");
+        CHECK(sim_stats.layout == s0.layout, "no LAYOUT to a tag that shows images (the file stays on the AP)");
         note("the AP drew the named layout; %u IMG_REQ, no LAYOUT", sim_stats.img_reqs - s0.img_reqs);
         run_for(61);
         get_tag();

@@ -55,33 +55,12 @@ uint8_t fake_store_len;
 int fake_store_writes;
 bool fake_store_radio_on_write;
 
-uint8_t fake_lstore[HAL_LAYOUT_STORE_MAX];
-int fake_lstore_writes;
 
 void fake_store_clear(void)
 {
     fake_store_len = 0;
     fake_store_writes = 0;
     fake_store_radio_on_write = false;
-    memset(fake_lstore, 0xFF, sizeof(fake_lstore));    /* erased flash */
-    fake_lstore_writes = 0;
-}
-
-bool hal_layout_store_write(const uint8_t *data, uint16_t len)
-{
-    if (len == 0 || len > HAL_LAYOUT_STORE_MAX)
-        return false;
-    if (fake_radio_on)
-        fake_store_radio_on_write = true;
-    memset(fake_lstore, 0xFF, sizeof(fake_lstore));    /* the page is erased first */
-    memcpy(fake_lstore, data, len);
-    fake_lstore_writes++;
-    return true;
-}
-
-void hal_layout_store_read(uint8_t *data, uint16_t len)
-{
-    memcpy(data, fake_lstore, len);
 }
 
 bool hal_store_write(const uint8_t *data, uint8_t len)

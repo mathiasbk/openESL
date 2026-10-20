@@ -3,7 +3,7 @@
  *
  * Each glyph is as tall as the font and as wide as the font's advance.
  * All glyphs in a font share one baseline (row `baseline` from the top), so text in
- * different fonts can be lined up on the same baseline (layout.c does this for prices).
+ * different fonts can be lined up on the same baseline (the AP's drawing does this for prices).
  * The bitmap is stored column by column: bytes_per_col bytes per column,
  * MSB of the first byte is the top pixel. Unused bits at the bottom are 0.
  */

@@ -167,7 +167,7 @@ static int check_named(const esl_api_t *api, uint64_t mac, const char *name, siz
             snprintf(msg, MSG_MAX, "layout \"%s\" is not in the layout file for model %s", n, esl_model_name(model));
             return 422;
         }
-        if (!t.layout_capable) {
+        if (!t.layout_capable && !t.image_capable) { /* a tag that shows images needs no file */
             snprintf(msg, MSG_MAX, "the tag's firmware cannot download layout files: use \"price\" or \"text\"");
             return 422;
         }

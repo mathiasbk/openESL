@@ -35,15 +35,6 @@ int8_t hal_temp_c(void);
 bool hal_store_write(const uint8_t *data, uint8_t len);
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 
-/* ---- Second store: the layout file (requirement T12), one flash page ----
- * Raw bytes, no header: the file carries its own CRC-32 and structure, which the app
- * checks on reading. hal_layout_store_write erases the page and writes len bytes
- * (1..HAL_LAYOUT_STORE_MAX) from XRAM; the radio must be off. hal_layout_store_read
- * copies the first len bytes of the page (an erased page reads as 0xFF). */
-#define HAL_LAYOUT_STORE_MAX 1024
-bool hal_layout_store_write(const uint8_t __xdata *data, uint16_t len);
-void hal_layout_store_read(uint8_t __xdata *data, uint16_t len);
-
 /* ---- SPI flash for firmware updates (docs/tag-ota.md; W25Q80, 1 MB, on the 1.54") ----
  * hal_xflash_open wakes the chip from deep power-down and returns false if no chip
  * answers; hal_xflash_close puts it back to sleep. The rest need it open. Addresses are
