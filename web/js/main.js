@@ -69,7 +69,7 @@ firmwareInfo().then((info) => {
   const allSame = new Set([info?.ap_version, ...tagVersions.map(([, v]) => v)]).size <= 1;
   const parts = info?.ap_version && tagText && !allSame ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
-  $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
+  $("ap-fw-info").textContent = info?.ap_boards?.length || info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
   // One manifest per AP board (ap/boards/, ap_boards in info.json); an info.json from before
   // that has only the C6 and the C6 with the status screen
   const boards = info?.ap_boards || [
