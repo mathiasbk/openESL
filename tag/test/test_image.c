@@ -95,7 +95,7 @@ static uint8_t feed(uint32_t id, uint16_t size, uint16_t pos, uint8_t model, uin
 
     memset(&r, 0, sizeof(r));
     CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
-    return image_block(&r, pl + r.field_off[0]);
+    return image_block(&r, pl + r.data_off);
 }
 
 /* The whole image, block by block as the tag asks for it */
@@ -200,13 +200,6 @@ static void test_download(void)
     image_init(1);
     CHECK(image.slot_id == first);
 
-    /* Forgotten: the header is gone, the data stays */
-    image_forget();
-    CHECK_EQ(image.slot_id, 0);
-    image_init(1);
-    CHECK_EQ(image.slot_id, 0);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_DATA_OFF, img, IMG_RAW_SIZE) == 0);
-
     /* A new picture replaces it; the old id is no longer in the slot */
     make_picture(3);
     CHECK(img_id != first);
@@ -258,7 +251,7 @@ static uint8_t feed_code(uint16_t pos)
 
     memset(&r, 0, sizeof(r));
     CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
-    return image_block(&r, pl + r.field_off[0]);
+    return image_block(&r, pl + r.data_off);
 }
 
 static uint8_t download_code(void)
@@ -409,7 +402,6 @@ static const uint8_t *sent(int i)
 static void test_app_download(void)
 {
     int blocks = (IMG_RAW_SIZE + ESL_IMG_CHUNK_MAX - 1) / ESL_IMG_CHUNK_MAX, i;
-    static const char *const price[] = { "Lettmelk 1 L", "24,90", "kr/l 24,90" };
     uint8_t n;
 
     fake_store_clear();
@@ -474,33 +466,8 @@ static void test_app_download(void)
     CHECK(screen_is_picture());
     CHECK(app.shown_id == img_id);
 
-    /* CONTENT from an AP that does not draw (the transition): drawn as before, and the
-       slot is forgotten, so a restart shows the content, not the old picture */
-    fake_radio_reset();
-    n = make_content(pl, 0, 1111, ESL_LAYOUT_PRICE, 0, 3, price);
-    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
-    app_poll_once();
-    CHECK_EQ(app.shown_id, 1111);
-    CHECK_EQ(image.slot_id, 0);
-    CHECK(!screen_is_picture());
-    fake_draw_count = 0;
-    app_init();
-    CHECK_EQ(fake_draw_count, 1);
-    CHECK_EQ(app.shown_id, 1111);
-    CHECK(!screen_is_picture());
-
-    /* The AP offers the picture again (the tag reported 1111): downloaded and shown, the
-       content record is dropped */
-    fake_radio_reset();
-    push_img_blocks();
-    app_poll_once();
-    CHECK(app.shown_id == img_id);
-    CHECK(screen_is_picture());
-    CHECK_EQ(fake_store_len, 14);                           /* settings only, no content */
-    fake_draw_count = 0;
-    app_init();
-    CHECK(app.shown_id == img_id);
-    CHECK(screen_is_picture());
+    /* Settings are all the record holds: the slot keeps the picture */
+    CHECK_EQ(fake_store_len, 0);
 
     /* An image for another model: refused, bit1 in the next POLL, one block per round */
     fake_radio_reset();

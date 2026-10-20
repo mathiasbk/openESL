@@ -1,7 +1,7 @@
 #include "app.h"
 #include "config.h"
 #include "draw.h"
-#include "layout.h"
+#include "status.h"
 #include "epd.h"
 #include "ota.h"
 #include "image.h"
@@ -14,9 +14,7 @@ app_state_t __xdata app;
 
 static uint8_t __xdata txbuf[ESL_MAC_MAX_FRAME];
 static uint8_t __xdata rxbuf[ESL_MAC_MAX_FRAME];
-static uint8_t __xdata content[ESL_MAX_PAYLOAD];   /* payload currently shown */
 static proto_reply_t __xdata reply;
-static proto_reply_t __xdata shown;
 static draw_scene_t __xdata scene;
 static uint8_t __xdata lines[4][LINE_MAX];
 static uint8_t __xdata line_len[4];
@@ -66,7 +64,7 @@ static bool draw_status(const char *status)
     line_len[3] = put_str(lines[3], 0, status);
     for (i = 0; i < 4; i++)
         lp[i] = lines[i];
-    layout_build_lines(&scene, lp, line_len, 4);
+    status_build(&scene, lp, line_len, 4);
     return epd_draw(&scene);
 }
 
@@ -86,36 +84,24 @@ static uint16_t base_poll_s(void)
 }
 
 /*
- * Flash (requirement T12): a restarted tag uses the AP's settings and shows its last
- * content again before it reaches the AP. One record through hal_store_* (hal.h):
+ * Flash (requirement T12): a restarted tag uses the AP's settings before it reaches the AP.
+ * One record through hal_store_* (hal.h):
  *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
- *   9 content length (0 = none)   10-13 layout file version when it was drawn   14.. content
  * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
- * stale or missing copy only costs one extra CONFIG from the AP. The content is the
- * CONTENT payload as received, written after it was drawn; the tag reports its id in
- * POLL, so a stale copy is replaced at the next poll. Content drawn with a layout from
- * the file is shown again only if the same file is back (hal_layout_store_*, saved by
- * save_layout_file()). Format 1 records (settings only, 9 bytes) are still read.
+ * stale or missing copy only costs one extra CONFIG from the AP. The screen itself comes
+ * back from the image slot (image.h).
  * Written only when something changes, and with the radio off.
  */
-#define STORE_FORMAT     2
-#define STORE_FORMAT_V1  1
-#define STORE_CFG_LEN    9
-#define STORE_HDR_LEN    14
+#define STORE_FORMAT     1
+#define STORE_LEN        9
 
-static uint8_t __xdata store_rec[STORE_HDR_LEN + ESL_MAX_PAYLOAD];
-static uint8_t content_len;          /* length of content[], 0 = nothing worth keeping */
-static uint32_t __xdata content_lay_ver;
-static const uint8_t __xdata zero_byte = 0;
-static uint32_t __xdata stored_lay_ver;   /* version of the layout file in flash, 0 = none */
+static uint8_t __xdata store_rec[STORE_LEN];
 
 static void app_store_load(void)
 {
     uint8_t n = hal_store_read(store_rec, sizeof(store_rec));
-    uint8_t i;
 
-    content_len = 0;
-    if (n >= STORE_CFG_LEN && (store_rec[0] == STORE_FORMAT || store_rec[0] == STORE_FORMAT_V1)) {
+    if (n >= STORE_LEN && store_rec[0] == STORE_FORMAT) {
         app.cfg.ver = ESL_GET_U16(store_rec + 1);
         app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
         app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
@@ -125,45 +111,18 @@ static void app_store_load(void)
         app.cfg.poll_s = 0;
         app.cfg.max_poll_s = 0;
         app.cfg.lost_ap_s = 0;
-        return;
     }
-    if (store_rec[0] != STORE_FORMAT || n < STORE_HDR_LEN || store_rec[9] != n - STORE_HDR_LEN ||
-        store_rec[9] > ESL_MAX_PAYLOAD)
-        return;
-    content_len = store_rec[9];
-    content_lay_ver = ESL_GET_U32(store_rec + 10);
-    for (i = 0; i < content_len; i++)
-        content[i] = store_rec[STORE_HDR_LEN + i];
 }
 
 static void app_store_save(void)
 {
-    uint8_t i;
-
     store_rec[0] = STORE_FORMAT;
     ESL_PUT_U16(store_rec + 1, app.cfg.ver);
     ESL_PUT_U16(store_rec + 3, app.cfg.poll_s);
     ESL_PUT_U16(store_rec + 5, app.cfg.max_poll_s);
     ESL_PUT_U16(store_rec + 7, app.cfg.lost_ap_s);
-    store_rec[9] = content_len;
-    ESL_PUT_U32(store_rec + 10, content_lay_ver);
-    for (i = 0; i < content_len; i++)
-        store_rec[STORE_HDR_LEN + i] = content[i];
-    /* a failed write only costs a CONFIG and a CONTENT after a restart */
-    hal_store_write(store_rec, STORE_HDR_LEN + content_len);
-}
-
-/* The layout file changed (installed or dropped): keep the flash copy the same.
-   Called with the radio off. */
-static void save_layout_file(void)
-{
-    if (layout_file_ver == stored_lay_ver)
-        return;
-    if (layout_file_ver)
-        hal_layout_store_write(layout_file, layout_file_len);
-    else
-        hal_layout_store_write(&zero_byte, 1);     /* format 0: no file */
-    stored_lay_ver = layout_file_ver;              /* a failed write is not retried */
+    /* a failed write only costs a CONFIG after a restart */
+    hal_store_write(store_rec, STORE_LEN);
 }
 
 static uint16_t at_least(uint16_t v, uint16_t min)
@@ -242,87 +201,10 @@ static bool exchange_retry(uint8_t flen)
 static uint8_t build_poll_frame(void)
 {
     uint8_t *pl = txbuf + ESL_MAC_HDR_LEN;
-    uint8_t flags = app.poll_flags;
+    uint8_t flags = app.poll_flags | ota_poll_flags() | image_poll_flags();
 
-    if (app.lay_rejected)
-        flags |= ESL_POLL_F_LAYOUTFAIL;
-    flags |= ota_poll_flags() | image_poll_flags();
-    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags,
-                     app.cfg.ver, layout_file_ver);
-    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LAYOUT);
-}
-
-/* The layout file changed: content drawn with one of its layouts must be fetched again,
-   because the AP resolves layout names against the file it has now. */
-static void layout_changed(void)
-{
-    if (app.shown_id && shown.layout >= ESL_LAYOUT_FILE)
-        app.shown_id = 0;
-}
-
-/*
- * reply is a LAYOUT block. Stores it and asks for the rest of the file in the same round
- * (docs/protokoll.md part 1, "Layout transfer"). Returns true when the file is complete
- * (installed or rejected) or dropped, so the caller polls once more for content.
- * Returns false when there is nothing to do or the AP stopped answering; the download
- * then continues from dl_got the next time the AP offers the same version.
- */
-static bool layout_transfer(void)
-{
-    uint8_t req = 0, n, i;
-    uint16_t pos;
-    uint32_t ver;
-
-    for (;;) {
-        ver = reply.content_id;
-        if (ver == 0) {                     /* the AP has no file for this model */
-            app.dl_ver = 0;
-            app.lay_rejected = 0;
-            if (!layout_file_ver)
-                return false;
-            layout_file_clear();
-            layout_changed();
-            return true;
-        }
-        if (ver == layout_file_ver || ver == app.lay_rejected)
-            return false;
-        if (ver != app.dl_ver || reply.lay_size != app.dl_size) {
-            /* A new file, or the file changed during the download: start from the beginning */
-            if (reply.lay_size > ESL_LBIN_MAX || reply.lay_size < ESL_LBIN_HDR_LEN) {
-                app.dl_ver = 0;
-                app.lay_rejected = ver;     /* too big for this tag; the AP should never offer it */
-                return true;
-            }
-            if (layout_file_ver) {          /* the download overwrites the installed file */
-                layout_file_clear();
-                layout_changed();
-            }
-            app.dl_ver = ver;
-            app.dl_size = reply.lay_size;
-            app.dl_got = 0;
-            app.lay_rejected = 0;           /* the rejection was of another version: stop reporting it */
-        }
-        n = reply.field_len[0];
-        pos = reply.lay_pos;
-        if (pos <= app.dl_got && pos + n > app.dl_got) {
-            const uint8_t *d = rxbuf + rx_off + reply.field_off[0];
-            for (i = (uint8_t)(app.dl_got - pos); i < n; i++)
-                layout_file[pos + i] = d[i];
-            app.dl_got = pos + n;
-        }
-        if (app.dl_got >= app.dl_size) {
-            app.dl_ver = 0;
-            app.lay_rejected = layout_file_install(app.dl_size, ver) ? 0 : ver;
-            return true;
-        }
-        if (++req > CFG_LAYOUT_MAX_REQ)
-            return false;
-        n = proto_build_layout_req(txbuf + ESL_MAC_HDR_LEN, ver, app.dl_got, ESL_LAYOUT_CHUNK_MAX);
-        if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
-                                              txbuf + ESL_MAC_HDR_LEN, n)) ||
-            reply.type != ESL_MSG_LAYOUT)
-            return false;
-    }
+    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver);
+    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_CFG);
 }
 
 /*
@@ -336,7 +218,7 @@ static bool fw_transfer(void)
     uint8_t req = 0, miss = 0, r, n;
 
     ota_open();
-    r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    r = ota_block(&reply, rxbuf + rx_off + reply.data_off);
     while (r == OTA_MORE && ++req <= CFG_FW_MAX_REQ) {
         if ((req & 15) == 0)
             hal_wdt_kick();
@@ -349,7 +231,7 @@ static bool fw_transfer(void)
         }
         if (reply.type != ESL_MSG_FW)
             break;                     /* the AP no longer has it */
-        r = ota_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+        r = ota_block(&reply, rxbuf + rx_off + reply.data_off);
     }
     ota_close();
     return r == OTA_DONE;
@@ -367,7 +249,7 @@ static uint8_t image_transfer(void)
     uint8_t req = 0, miss = 0, r, n;
 
     image_open();
-    r = image_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    r = image_block(&reply, rxbuf + rx_off + reply.data_off);
     while (r == IMAGE_MORE && ++req <= CFG_IMG_MAX_REQ) {
         if ((req & 15) == 0)
             hal_wdt_kick();
@@ -380,14 +262,14 @@ static uint8_t image_transfer(void)
         }
         if (reply.type != ESL_MSG_IMG)
             break;                     /* the AP no longer has it */
-        r = image_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+        r = image_block(&reply, rxbuf + rx_off + reply.data_off);
     }
     image_close();
     return r;
 }
 
 /* Draws the image in the slot (radio off). true = it is on the screen, and the tag
-   reports its id; the stored content is then no longer what the screen shows. */
+   reports its id. */
 static bool show_image(void)
 {
     if (!image_show()) {
@@ -395,12 +277,7 @@ static bool show_image(void)
         return false;
     }
     app.shown_id = image.slot_id;
-    shown.layout = 0;                /* no file layout on the screen: a new file changes nothing */
     app.poll_flags &= (uint8_t)~ESL_POLL_F_DRAWFAIL;
-    if (content_len) {
-        content_len = 0;
-        app_store_save();
-    }
     return true;
 }
 
@@ -419,53 +296,12 @@ static uint16_t on_miss(void)
         return sleep;
     if (app.lost_s >= lost) {
         draw_status(msg_lost);
-        app.shown_id = 0;     /* the AP resends the content when it is back */
+        app.shown_id = 0;     /* the AP offers the image again when it is back */
         app.lost_shown = 1;
     } else if (sleep > lost - app.lost_s) {
         sleep = (uint16_t)(lost - app.lost_s);   /* wake up when the time is up (T9) */
     }
     return sleep;
-}
-
-/* Draws content[0..content_len) (parsed into shown). true = it is on the screen. */
-static bool draw_content(void)
-{
-    layout_build(&scene, &shown, content);
-    if (epd_draw(&scene)) {
-        app.shown_id = shown.content_id;
-        app.poll_flags &= (uint8_t)~ESL_POLL_F_DRAWFAIL;
-        return true;
-    }
-    app.poll_flags |= ESL_POLL_F_DRAWFAIL;
-    return false;
-}
-
-static void show_content(void)
-{
-    uint8_t i;
-
-    for (i = 0; i < rx_plen; i++)
-        content[i] = rxbuf[rx_off + i];
-    content_len = 0;
-    if (proto_parse_reply(content, rx_plen, &shown) != PROTO_OK)
-        return;
-    if (draw_content()) {
-        content_len = rx_plen;
-        content_lay_ver = layout_file_ver;
-        app_store_save();
-        image_forget();              /* the screen no longer shows the image in the slot */
-    }
-}
-
-/* After a restart: the content from flash, if it can be drawn as it was (T12). */
-static bool show_stored_content(void)
-{
-    if (!content_len || proto_parse_reply(content, content_len, &shown) != PROTO_OK ||
-        shown.type != ESL_MSG_CONTENT || !shown.content_id)
-        return false;
-    if (shown.layout >= ESL_LAYOUT_FILE && content_lay_ver != layout_file_ver)
-        return false;    /* drawn with a layout file the tag no longer has */
-    return draw_content();
 }
 
 /* ---- Public ---- */
@@ -489,20 +325,12 @@ void app_init(void)
         app.rng ^= (uint16_t)app.mac[i] << ((i & 1) ? 8 : 0);
     if (!app.rng)
         app.rng = 1;
-    app.dl_ver = 0;
-    app.dl_size = 0;
-    app.dl_got = 0;
-    app.lay_rejected = 0;
     ota_init();
     image_init(ota.present);
-    hal_layout_store_read(layout_file, ESL_LBIN_MAX);
-    layout_file_restore();
-    stored_lay_ver = layout_file_ver;
-    shown.layout = 0;
 
     radio_init(CFG_CHANNEL);
-    /* The last image or content if flash has it, else the start screen (T9) */
-    if (!(image.slot_id && show_image()) && !show_stored_content() && !draw_status(msg_waiting))
+    /* The last image if flash has it, else the start screen (T9) */
+    if (!(image.slot_id && show_image()) && !draw_status(msg_waiting))
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;
 }
 
@@ -514,17 +342,7 @@ static uint16_t poll_round(void)
     hal_wdt_kick();
     radio_on();
     got = exchange_retry(build_poll_frame());
-    if (got && reply.type == ESL_MSG_LAYOUT) {
-        if (reply.next_poll_s)
-            app.interval_s = reply.next_poll_s;
-        /* After a finished download, poll again at once: the AP answers with the content
-           for the new file. Anything else this round means "nothing to draw". */
-        if (!layout_transfer() || !exchange_retry(build_poll_frame()) || reply.type == ESL_MSG_LAYOUT) {
-            reply.type = ESL_MSG_LAYOUT;
-            reply.next_poll_s = 0;
-        }
-        hal_wdt_kick();
-    } else if (got && reply.type == ESL_MSG_FW) {
+    if (got && reply.type == ESL_MSG_FW) {
         /* The AP sends firmware only when nothing else is waiting: nothing to draw */
         fw_done = fw_transfer();
         reply.type = ESL_MSG_FW;
@@ -535,7 +353,6 @@ static uint16_t poll_round(void)
         hal_wdt_kick();
     }
     radio_off();
-    save_layout_file();
 
     if (!got)
         return on_miss();
@@ -551,9 +368,7 @@ static uint16_t poll_round(void)
     if (reply.next_poll_s)
         app.interval_s = reply.next_poll_s;
 
-    if (reply.type == ESL_MSG_CONTENT && reply.content_id != app.shown_id)
-        show_content();
-    else if (img == IMAGE_DONE)
+    if (img == IMAGE_DONE)
         show_image();
     else if (img == IMAGE_STOP)
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;   /* refused: the AP sees it and stops offering it */

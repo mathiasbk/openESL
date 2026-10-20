@@ -127,13 +127,13 @@ uint8_t ota_block(const proto_reply_t *r, const uint8_t *d)
     if (!ota.present || r->fw_model != MODEL_CODE || r->fw_ver == FW_VERSION || r->fw_ver == 0 ||
         r->fw_ver == ota.failed_ver)
         return OTA_STOP;
-    if (r->fw_ver != ota.dl_ver || r->lay_size != ota.dl_size || r->fw_crc != ota.dl_crc) {
+    if (r->fw_ver != ota.dl_ver || r->size != ota.dl_size || r->fw_crc != ota.dl_crc) {
         /* A new image (or it changed on the AP): start from the beginning. The bootloader
            copies whole pages, so the size is a whole number of them. */
-        if (r->lay_size == 0 || r->lay_size > ESL_FW_MAX || (r->lay_size & 0x3FF))
+        if (r->size == 0 || r->size > ESL_FW_MAX || (r->size & 0x3FF))
             return OTA_STOP;
         ota.dl_ver = r->fw_ver;
-        ota.dl_size = r->lay_size;
+        ota.dl_size = r->size;
         ota.dl_crc = r->fw_crc;
         ota.dl_got = 0;
         ota.failed_ver = 0;
@@ -141,8 +141,8 @@ uint8_t ota_block(const proto_reply_t *r, const uint8_t *d)
         if (!hal_xflash_erase(OTA_STATE) || !hal_xflash_erase(OTA_SLOT_NEW))
             return fail();
     }
-    pos = r->lay_pos;
-    n = r->field_len[0];
+    pos = r->pos;
+    n = r->data_len;
     if (pos > ota.dl_got || pos + n <= ota.dl_got)
         return OTA_MORE;                       /* not the block we asked for */
     for (i = (uint8_t)(ota.dl_got - pos); i < n; i++) {

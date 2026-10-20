@@ -9,11 +9,13 @@
 export const MODELS = {
   "2.9": {
     code: 1, build: "29", id: "solum-m2-29-bw", label: "SoluM 2.9\" black/white", product: "ST-GM29XX2",
+    vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
     width: 296, height: 128, colors: ["black", "white"], macCode: 0x3b, status: "supported",
     photo: { file: "img/tag-29.jpg", width: 529, height: 280 },
   },
   "1.54": {
     code: 2, build: "154", id: "solum-m2-154-bw", label: "SoluM 1.54\" black/white", product: "ST-GM16XX2",
+    vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
     width: 200, height: 200, colors: ["black", "white"], macCode: 0x34, status: "supported",
     photo: { file: "img/tag-154.jpg", width: 245, height: 280 },
   },

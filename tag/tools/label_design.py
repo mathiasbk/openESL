@@ -4,7 +4,7 @@ Label design in JSON (PC side). A design file says which layout a label uses,
 which fields it fills, and which styles apply. It is run against data from the client and
 gives the fields in the same form as the body of PUT /api/tags/{mac} (docs/protokoll.md).
 
-The layout is either one of the tag's built-in layouts, "price" and "text" (src/layout.c),
+The layout is either one of the built-in layouts, "price" and "text" (esl_render.c on the AP),
 or the name of a layout in a layout file (designs/layouts/<model>.json, uploaded with
 PUT /api/layouts/<model>, docs/protokoll.md part 3). The design does not change the
 firmware; it is a PC tool that produces the content.

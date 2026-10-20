@@ -11,10 +11,9 @@
  * (docs/protokoll.md, "Image transfer"); the tag's epd layer rotates, transposes and
  * inverts it for its panel.
  *
- * It is the tag's own drawing (tag/src/layout.c and draw.c) written once for every
- * model instead of once per build: the same fonts, the same fitting and wrapping, the
- * same column format, so a screen the AP draws is byte for byte the one a tag of that
- * model draws for the same content (sim/ checks this).
+ * One drawing for every model: the tag's fonts and column format, with the fitting and
+ * wrapping the tags used when they drew content themselves (sim/reference/ holds the
+ * CRC of every screen, so a change shows up there).
  *
  * Image format: the black plane, then the red plane on a model with red. A plane is
  * width columns from left to right, each ESL_RENDER_COL_BYTES(height) bytes: byte 0

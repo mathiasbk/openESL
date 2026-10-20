@@ -7,10 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Layout file (JSON) -> the binary the tags download. The format is in
- * docs/protokoll.md part 3; the limits come from shared/proto.h and match
- * what tag/src/layout.c can draw. Pure C, no ESP-IDF: also used by the tag's
- * preview tool (tag/tools/render_host.py). */
+/* Layout file (JSON) -> the binary esl_render.c draws from. The format is in
+ * docs/protokoll.md part 3; the limits come from shared/proto.h. Pure C, no ESP-IDF:
+ * also built into the web page's renderer (web/wasm/web_api.c). */
 
 typedef struct {
     const char *js;

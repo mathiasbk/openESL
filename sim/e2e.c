@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esl_crc32.h"
 #include "proto.h"
 #include "sim.h"
 
@@ -49,6 +50,7 @@ static void note(const char *fmt, ...)
 }
 
 static char *read_file(const char *path, size_t *len);
+static void ref_add(const char *fmt, ...);
 
 /* The screen the tag drew against the one the AP draws for the same content (esl_render):
    they must be the same bytes. Images are at most 1024 x 256 with two planes. */
@@ -76,8 +78,9 @@ static void png(const char *name)
 }
 
 /* Every layout of a layout file, and the built-in ones, with a few sets of fields and every
-   flag combination, drawn by the tag's code and by esl_render: byte for byte the same. */
-static void render_compare_file(const char *path)
+   flag combination, drawn by esl_render; the CRC of each screen goes to the reference
+   (ref_check). */
+static void render_compare_file(const char *path, const char *label)
 {
     static const char *const sets[][6] = {
         { "Kramp", "Spann sort 12 l", "1626-160602/439", "17,25", "13,80", "x" },
@@ -87,6 +90,9 @@ static void render_compare_file(const char *path)
         { "Åpent 9-21 ÆØÅ üé", "Kaffe filtermalt 500 g", "kr 99,80/kg", "Tilbud ut uken", "1", "2" },
         { "Lettmelk 1 L", "24,90", "kr/l 24,90", "", "", "" },
         { "Etlangtordutenmellomromsomikkefårplass", "Ja", "Nei", "123456789012", "x", "y" },
+        /* a short last word that must go to the next line, and Code 128 with odd lengths */
+        { "Sement grå 500 kg til mur", "Kabel 3x2,5 mm 100 m på rull", "AB-12345", "7", "1234,50", "Vi har det" },
+        { "Lim til tre", "Sekk 25 kg", "abcdefghijk", "1 299,-", "Ny", "x-y-z 1 2 3" },
     };
     char err[200];
     size_t len;
@@ -110,30 +116,88 @@ static void render_compare_file(const char *path)
         for (unsigned si = 0; si < sizeof(sets) / sizeof(sets[0]); si++)
             for (uint8_t flags = 0; flags < 4; flags++) {
                 int nf = layouts[li] == 1 ? 3 : layouts[li] == 2 ? 4 : 6; /* as the API limits them */
-                const uint8_t *bin = sim_ap_bin(&len);
                 size_t na = sim_ap_render(layouts[li], flags, nf, sets[si], img_ap, sizeof(img_ap));
-                size_t nt = sim_tag_render(bin, len, layouts[li], flags, nf, sets[si], img_tag);
-                int d = nt == na && nt ? first_diff(nt) : -2;
                 cases++;
-                if (!nt || nt != na || d >= 0) {
-                    bad++;
-                    if (bad <= 5)
-                        note("DIFF %s layout 0x%02x set %u flags %u: tag %zu bytes, AP %zu bytes, first difference at %d",
-                             path, layouts[li], si, flags, nt, na, d);
-                }
+                ref_add("%s %02x %u %u %zu %08lx\n", label, layouts[li], si, flags, na,
+                        (unsigned long)(na ? esl_crc32(img_ap, na) : 0));
+                if (!na && ++bad <= 5)
+                    note("NOT DRAWN %s layout 0x%02x set %u flags %u", path, layouts[li], si, flags);
             }
-    CHECK(bad == 0, "%s: %d of %d screens differ between the tag and the AP", path, bad, cases);
-    note("%s: %d layouts, %d screens drawn by both, %d differ", path, count, cases, bad);
+    CHECK(bad == 0, "%s: %d of %d screens not drawn", path, bad, cases);
+    note("%s: %d layouts, %d screens drawn", path, count, cases);
+}
+
+/* The CRC-32 of every screen above, one line per screen, against sim/reference/<model>.crc.
+   The file was made while the tag still drew content with its own code, and every screen
+   in it was byte for byte what the tag drew. SIM_REF_UPDATE=1 writes it instead (after a
+   change to the drawing that is meant to change screens; the diff shows which). */
+static char *ref;
+static size_t ref_len, ref_cap;
+
+static void ref_add(const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+    if (ref_cap - ref_len < 128) {
+        ref_cap = ref_cap ? ref_cap * 2 : 16384;
+        ref = realloc(ref, ref_cap);
+        if (!ref)
+            abort();
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(ref + ref_len, ref_cap - ref_len, fmt, ap);
+    va_end(ap);
+    if (n > 0)
+        ref_len += (size_t)n;
+}
+
+static void ref_check(const char *root)
+{
+    char path[512];
+    size_t len, line = 1;
+    char *want;
+
+    snprintf(path, sizeof(path), "%s/sim/reference/%s.crc", root, sim_tag_model);
+    const char *upd = getenv("SIM_REF_UPDATE");
+    if (upd && strcmp(upd, "1") == 0) {
+        FILE *f = fopen(path, "wb");
+        CHECK(f && fwrite(ref, 1, ref_len, f) == ref_len && fclose(f) == 0, "could not write %s", path);
+        note("%s written", path);
+        return;
+    }
+    want = read_file(path, &len);
+    CHECK(want != NULL, "%s is missing (SIM_REF_UPDATE=1 writes it)", path);
+    if (!want)
+        return;
+    /* a checkout with CRLF line ends (Git for Windows) holds the same lines */
+    size_t k = 0;
+    for (size_t i = 0; i < len; i++)
+        if (want[i] != '\r')
+            want[k++] = want[i];
+    len = k;
+    for (size_t i = 0; i < len && i < ref_len && want[i] == ref[i]; i++)
+        if (want[i] == '\n')
+            line++;
+    CHECK(len == ref_len && memcmp(want, ref, len) == 0,
+          "the screens differ from %s from line %zu (\"file layout set flags bytes crc\"); "
+          "if the change is meant, SIM_REF_UPDATE=1 rewrites it", path, line);
+    if (len == ref_len && memcmp(want, ref, len) == 0)
+        note("%s: all %zu screens as the reference", path, line - 1);
+    free(want);
 }
 
 static void render_compare(const char *root)
 {
     char path[512];
-    step("0. The AP draws what the tag draws (esl_render)");
+    step("0. The AP draws every layout as the reference says (esl_render)");
+    ref_len = 0;
     snprintf(path, sizeof(path), "%s/tag/designs/layouts/%s.json", root, sim_tag_model);
-    render_compare_file(path);
+    render_compare_file(path, "designs");
     snprintf(path, sizeof(path), "%s/ap/test/layouts/%s.json", root, sim_tag_model);
-    render_compare_file(path);
+    render_compare_file(path, "ap-test");
+    snprintf(path, sizeof(path), "%s/sim/layouts/%s.json", root, sim_tag_model);
+    render_compare_file(path, "sim");
+    ref_check(root);
 }
 
 static int api(const char *method, const char *suffix, const char *body)
@@ -356,8 +420,7 @@ int e2e_run(const char *out, const char *root)
         cid = put_content(SHELF_1, 1);
         CHECK(sim_tag_run_until_draw(t0 + 61000), "drawn at the next poll");
         CHECK(shows_image(), "shows the shelf layout, drawn by the AP from file version %ld", ver);
-        CHECK(sim_stats.layout == s0.layout && sim_tag_layout_ver() == 0,
-              "no LAYOUT to a tag that shows images (the file stays on the AP)");
+        CHECK(sim_stats.layout == s0.layout, "no LAYOUT to a tag that shows images (the file stays on the AP)");
         note("the AP drew the named layout; %u IMG_REQ, no LAYOUT", sim_stats.img_reqs - s0.img_reqs);
         run_for(61);
         get_tag();

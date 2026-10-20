@@ -3,7 +3,6 @@
 Build script for the tag firmware. Works with and without make (the Makefile only calls this script).
 
   python tools/build.py test      host tests (a C compiler on the PC)
-  python tools/build.py preview   draws the example layouts to build/preview/*.png
   python tools/build.py fw        firmware with SDCC -> build/fw/openesl.bin (bootloader + application,
                                   for the flasher) and build/fw/openesl-ota.bin (the application
                                   with the OTA header, for the AP; docs/tag-ota.md)
@@ -32,7 +31,7 @@ sys.path.insert(0, os.path.join(ROOT, "shared"))
 import models  # noqa: E402  (the model registry, shared/models.json)
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
-CODE_SIZE = 0xF400              # 0xF400-0xF7FF: layout file store, 0xF800-0xFBFF: record store (hal_*store_*); 0xFC00 up: the stock MAC
+CODE_SIZE = 0xF400              # 0xF400-0xF7FF: free (the probes' logs), 0xF800-0xFBFF: record store (hal_store_*); 0xFC00 up: the stock MAC
 BOOT_SIZE = 0x400               # page 0: the bootloader (boot/); the application starts here (ESL_FW_APP_BASE)
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test"),
@@ -41,18 +40,20 @@ INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join
 OTA_FILE_MAGIC = 0x5746534F     # ESL_FWF_MAGIC in shared/proto.h
 OTA_FILE_FORMAT = 1
 
-CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c", "src/barcode.c"]
+CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/status.c"]
 FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fonts", "font_*.c")))
+# The firmware only draws its status screens (src/status.c): small and medium. The other
+# fonts (and src/barcode.c) are for the AP's drawing (esl_render.c) and the host tests.
+FW_FONTS = ["fonts/font_small.c", "fonts/font_medium.c"]
 
 HOST_TARGETS = {
     "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
                                 "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
-                                "test/test_font.c", "test/test_draw.c", "test/test_layout.c",
-                                "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
+                                "test/test_font.c", "test/test_draw.c", "test/test_status.c",
+                                "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
                                 "test/helpers.c"],
     "test_epd": CORE + FONTS + ["src/epd.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
                                 "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
-    "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
 }
 
 
@@ -88,7 +89,7 @@ def host_model():
 
 
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FONTS + HAL_SOURCES + \
+FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS + HAL_SOURCES + \
     ["src/hal/zbs243/xflash_zbs243.c"]
 BOOT_SOURCES = ["boot/boot_zbs243.c", "boot/boot_core.c"]
 HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES
@@ -133,31 +134,11 @@ def build_host(name):
 
 
 def cmd_test():
-    # test_barcode writes its screens here for test_label_barcode.py to decode
-    os.environ["ESL_TEST_OUT"] = os.path.join(BUILD, "host", "barcodes")
-    os.makedirs(os.environ["ESL_TEST_OUT"], exist_ok=True)
     for name in ("test_all", "test_epd"):
         exe = build_host(name)
         run([exe])
     run([sys.executable, "-m", "unittest", "discover", "-s", os.path.join(TAG, "test"),
          "-p", "test_label_*.py"])
-
-
-def cmd_preview():
-    exe = build_host("preview")
-    out = os.path.join(BUILD, "preview")
-    os.makedirs(out, exist_ok=True)
-    run([exe, out])
-    try:
-        from PIL import Image
-    except ImportError:
-        print("Pillow is missing: the PPM files are in", out)
-        return
-    for ppm in glob.glob(os.path.join(out, "*.ppm")):
-        img = Image.open(ppm)
-        img.resize((img.width * 2, img.height * 2), Image.NEAREST).save(ppm[:-4] + ".png")
-        os.remove(ppm)
-    print("Images in", out)
 
 
 def ihx_to_bin(ihx, bin_path, base=0, limit=CODE_SIZE):
@@ -243,7 +224,7 @@ def cmd_fw():
     model = m["build"]
     subdir = models.fw_dir(m)
     boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
-    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE,
+    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model, "-DFONT_TEXT_ONLY"], code_loc=BOOT_SIZE, limit=CODE_SIZE,
                      tag_model=model)
     app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
     out = os.path.join(BUILD, subdir)
@@ -271,7 +252,7 @@ def cmd_clean():
 
 
 def main():
-    cmds = {"test": cmd_test, "preview": cmd_preview, "fw": cmd_fw, "hwtest": cmd_hwtest, "fonts": cmd_fonts, "clean": cmd_clean}
+    cmds = {"test": cmd_test, "fw": cmd_fw, "hwtest": cmd_hwtest, "fonts": cmd_fonts, "clean": cmd_clean}
     if len(sys.argv) != 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     cmds[sys.argv[1]]()
