@@ -107,6 +107,13 @@ static bool flush(uint16_t pos, uint16_t n)
     return flush_at(IMG_SLOT + IMG_DATA_OFF + pos, n);
 }
 
+/* A coded image (shorter than the screen) ends before IMG_RAW_OFF, and the decoded one
+   fits in the 64 KB slot */
+#if IMG_DATA_OFF + DRAW_W * DRAW_COL_BYTES * (1 + MODEL_HAS_RED) - 1 > IMG_RAW_OFF || \
+    IMG_RAW_OFF + DRAW_W * DRAW_COL_BYTES * (1 + MODEL_HAS_RED) > 0x10000
+#error "IMG_RAW_OFF does not fit this model's image"
+#endif
+
 /* ESL_IMG_FMT_RLE (shared/proto.h): the coded image at IMG_DATA_OFF decoded to
    IMG_RAW_OFF through page[]. False unless it gives exactly IMG_RAW_SIZE bytes. */
 static uint8_t __xdata rd_buf[32];
@@ -118,7 +125,7 @@ static bool rd(uint8_t *b)
     if (rd_i == rd_n) {
         if (rd_pos >= image.dl_size)
             return false;
-        rd_n = image.dl_size - rd_pos < sizeof(rd_buf) ? (uint8_t)(image.dl_size - rd_pos) : sizeof(rd_buf);
+        rd_n = image.dl_size - rd_pos < (uint16_t)sizeof(rd_buf) ? (uint8_t)(image.dl_size - rd_pos) : sizeof(rd_buf);
         hal_xflash_read(IMG_SLOT + IMG_DATA_OFF + rd_pos, rd_buf, rd_n);
         rd_pos += rd_n;
         rd_i = 0;

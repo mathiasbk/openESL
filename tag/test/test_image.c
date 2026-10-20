@@ -235,7 +235,9 @@ static void rle_code(void)
             i += r;
             continue;
         }
-        for (l = 1; i + l < IMG_RAW_SIZE && l < 128 && !(i + l + 1 < IMG_RAW_SIZE && img[i + l] == img[i + l + 1]); l++)
+        for (l = 1; i + l < IMG_RAW_SIZE && l < 128 &&
+                    !(i + l + 2 < IMG_RAW_SIZE && img[i + l] == img[i + l + 1] && img[i + l] == img[i + l + 2]);
+             l++)
             ;
         code[code_len++] = (uint8_t)(l - 1);
         memcpy(code + code_len, img + i, l);
@@ -308,6 +310,30 @@ static void test_rle(void)
     memset(img, 0, sizeof(img));
     rle_code();
     code[code_len - 2] -= 1;               /* the last run one byte short */
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... one that would go past the screen (the last run one byte longer) */
+    rle_code();
+    code[code_len - 2] += 1;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... one whose last literal is cut short */
+    for (x = 0; x < 16; x++)
+        img[IMG_RAW_SIZE - 16 + x] = (uint8_t)(x * 13 + 1);
+    rle_code();
+    code_len -= 3;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... and a whole code with bytes after it */
+    rle_code();
+    code[code_len++] = 0x80;
+    code[code_len++] = 0x00;
     img_id = proto_crc32(0, code, code_len);
     CHECK_EQ(download_code(), IMAGE_STOP);
     CHECK(image.rejected == img_id);

@@ -1,6 +1,7 @@
 #include "esl_image.h"
 #include "esl_crc32.h"
 #include "esl_render.h"
+#include <stdint.h>
 #include <string.h>
 
 static void lock(esl_image_t *im)
@@ -18,24 +19,27 @@ static void unlock(esl_image_t *im)
 size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max)
 {
     size_t i = 0, o = 0;
+    /* coding in place: the bytes written so far may not reach input not read yet */
+    size_t ahead = (uintptr_t)out < (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
     while (i < n) {
         size_t r = 1;
         while (i + r < n && r < 129 && in[i + r] == in[i])
             r++;
         if (r >= 2) {
             uint8_t v = in[i];
-            if (o + 2 > max)
+            if (o + 2 > max || o + 2 > ahead + i)
                 return 0;
             out[o++] = (uint8_t)(0x80 + r - 2);
             out[o++] = v;
             i += r;
             continue;
         }
-        /* bytes as they are, up to the next two alike */
+        /* bytes as they are, up to the next three alike (ending before two would let a
+           pattern like "x yy z ww" grow 3 bytes to 4) */
         size_t l = 1;
-        while (i + l < n && l < 128 && !(i + l + 1 < n && in[i + l] == in[i + l + 1]))
+        while (i + l < n && l < 128 && !(i + l + 2 < n && in[i + l] == in[i + l + 1] && in[i + l] == in[i + l + 2]))
             l++;
-        if (o + 1 + l > max)
+        if (o + 1 + l > max || o + 1 > ahead + i)
             return 0;
         out[o++] = (uint8_t)(l - 1);
         memmove(out + o, in + i, l);

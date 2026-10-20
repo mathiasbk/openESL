@@ -1121,6 +1121,36 @@ static void test_image_rle(void)
         CHECK(memcmp(back, raw, n) == 0);
     }
     CHECK_INT((int)esl_img_rle_encode(raw, 5000, buf, 10), 0);   /* does not fit */
+    /* "x yy z ww" stretches then white, coded in place: shorter and exact, or 0 (raw);
+       never a code that fits but decodes to something else */
+    uint32_t seed = 1;
+    int coded = 0;
+    for (int k = 0; k < 20000; k++) {
+        size_t n = 4736;
+        memset(raw, 0, n);
+        int parts = 1 + k % 6;
+        for (int p = 0; p < parts; p++) {
+            seed = seed * 1103515245u + 12345u;
+            /* the output overtakes the input only near the start, before white has
+               put it behind */
+            size_t at = p == 0 ? (seed >> 8) % 64 : (seed >> 8) % (n - 400), len = 30 + (seed >> 20) % 300;
+            for (size_t j = 0; j < len; j += 3) {
+                raw[at + j] = (uint8_t)(0x11 + j);
+                raw[at + j + 1] = raw[at + j + 2] = (uint8_t)(0xA0 ^ (j >> 1) ^ (seed >> 3));
+            }
+        }
+        size_t m = ESL_IMG_RLE_MARGIN(n);
+        memcpy(buf + m, raw, n);
+        size_t c = esl_img_rle_encode(buf + m, n, buf, n - 1);
+        if (c) {
+            coded++;
+            if (rle_decode(buf, c, back, sizeof(back)) != n || memcmp(back, raw, n) != 0) {
+                CHECK(!"in-place code decodes to the image");
+                break;
+            }
+        }
+    }
+    CHECK(coded > 0);
 
     size_t l29;
     char *f29 = read_example_layout("2.9.json", &l29);
