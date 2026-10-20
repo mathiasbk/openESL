@@ -103,7 +103,7 @@ export function modelOfMac(mac) {
 export function checkFirmware(data) {
   if (!data || !data.length) throw new JobError("firmware", "the firmware file is empty");
   if (data.length > CODE_LIMIT)
-    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (the tag's layout and content store starts there)`);
+    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (the tag keeps its settings and the stock MAC above it)`);
   if (data.every((b) => b === 0xff)) throw new JobError("firmware", "the firmware file is only 0xFF");
   return data;
 }
