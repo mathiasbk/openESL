@@ -45,4 +45,4 @@ Each folder has:
 3. Flash `out/<artifact>.bin` at 0 with esptool, try it with a tag, and set `status` to
    `supported` when it works.
 
-The web flasher on the GitHub page offers only the C6 builds so far.
+The web flasher on the GitHub page offers every board here (`web/build.py` reads `board.json`).

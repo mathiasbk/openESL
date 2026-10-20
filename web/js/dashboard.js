@@ -781,7 +781,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const b = document.createElement("button");
       b.className = "small fw-up";
       b.textContent = "\u2191 " + img.version; // arrow up
-      b.title = `Update the AP to ${img.version}` + (img.file.includes("lcd") ? " (with the status screen)" : "");
+      b.title = `Update the AP to ${img.version}` + (img.display ? " (with the status screen)" : "");
       b.setAttribute("aria-label", "Update the AP to " + img.version);
       b.disabled = sending;
       b.onclick = () => sendPageApFirmware(img);
@@ -829,12 +829,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   }
 
-  // The choices in "Send": the files published with this page, then a file of your own
-  const FILES = [
-    ...Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${name}"`]),
-    ["ap-openesl-ota", "AP firmware"],
-    ["ap-openesl-lcd-ota", "AP firmware with the status screen"],
+  // The choices in "Send": the files published with this page, then a file of your own. The AP
+  // images are one per board (ap_boards in info.json; one from before that has the C6 ones)
+  const TAG_FILES = Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${name}"`]);
+  const apBoards = (info) => info?.ap_boards || [
+    { file: "ap-openesl", target: "esp32c6", display: false },
+    { file: "ap-openesl-lcd", target: "esp32c6", display: true },
   ];
+  const apFileLabel = (b) => "AP firmware" + (b.target !== "esp32c6" ? " for the " + b.target.toUpperCase().replace(/^ESP32/, "ESP32-") : "") +
+    (b.display ? " with the status screen" : "");
   // The tag images published with this page, read once: model -> { data, kind }
   const pageImgs = {};
   const pageData = {};
@@ -873,7 +876,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       pageInfo = info;
       // each file with its own version: the AP's and the tags' can differ (ap_version, tag_version)
       const ver = (k) => (k.startsWith("ap") ? info.ap_version : info.tag_version) || info.version;
-      const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
+      const files = [...TAG_FILES, ...apBoards(info).map((b) => [b.file + "-ota", apFileLabel(b)])];
+      const opts = files.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
         const o = document.createElement("option");
@@ -922,7 +926,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return;
     }
     const v = $("fw-src").value;
-    return sendData(data, v === "ap-openesl-lcd-ota" ? true : v === "ap-openesl-ota" ? false : null);
+    const board = apBoards(pageInfo).find((b) => b.file + "-ota" === v);
+    return sendData(data, board ? !!board.display : null);
   }
 
   // The arrow-up button next to the AP's firmware
@@ -936,7 +941,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
     openFw();
     $("fw-msg").scrollIntoView({ block: "nearest" });
-    return sendData(data, img.file.includes("lcd"));
+    return sendData(data, img.display);
   }
 
   // The arrow-up buttons: in the tag table for one tag (mac), in the firmware table for all

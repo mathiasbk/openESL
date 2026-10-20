@@ -1560,7 +1560,7 @@ components:
     OtaInfo:
       type: object
       additionalProperties: false
-      required: [slot, version, slot_size, other_slot, other_version, confirmed, display, uploading]
+      required: [slot, version, slot_size, other_slot, other_version, confirmed, display, chip, uploading]
       properties:
         slot: { type: string, description: "The app slot that runs, `ota_0` or `ota_1`" }
         version: { type: string, description: The running firmware's version (the VERSION file) }
@@ -1575,8 +1575,9 @@ components:
             minutes is given up, and the AP restarts into the old one. Older firmware
             does not say.
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
+        chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
-      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, uploading: false }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
 
     OtaReply:
       type: object

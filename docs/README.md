@@ -27,7 +27,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 
 ## The main choices (short version)
 
-1. **The tag draws the screen itself.** The AP sends only the text fields (up to six per layout, e.g. name and the price with and without VAT) in one radio packet of about 100 bytes; the layout file goes to the tag once, when it is new. The tag has a built-in font and draws directly into the display controller's memory. That avoids image transfer in many blocks, storage in EEPROM and resending lost parts, which is the most complicated part of similar designs.
+1. **The AP draws the screen, the tag shows it.** The client still sends only the text fields and a layout name. The AP draws the whole screen into a 1-bit image (4736 bytes on the 2.9", 5000 on the 1.54", run-length coded when that is shorter) and sends it in blocks when the tag polls; the tag stores it in its SPI flash and streams it to the display controller. Layout files stay on the AP. Up to 0.4.7 the tag drew the text itself from one radio packet; that kept the radio short, but every layout had to fit the tag's flash and RAM ([arkitektur.md](arkitektur.md)).
 2. **The tag asks, the AP answers.** The tag wakes every 60 seconds, sends "anything new?", listens for a few milliseconds and goes back to sleep. No synchronisation or fixed time slots.
 3. **One ESP32-C6 is the whole AP.** The C6 has both WiFi and an 802.15.4 radio, so no second chip is needed.
 4. **The AP is only an API.** It has a small HTTP API (`PUT /api/tags/{mac}`, `GET /api/tags`). Clients push content to it. The client must be able to reach the AP: same network, or a VPN.
@@ -43,4 +43,4 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 
 ## Status
 
-The tag firmware runs on the SoluM 1.54" and the ESP32-C6 AP serves it over the API; the first release is v0.1.0. The open rows in [fremdriftsplan.md](fremdriftsplan.md) say what is left, most of it checks on hardware.
+The tag firmware runs on the SoluM 1.54" and 2.9" and the ESP32-C6 AP serves them over the API; the first release is v0.1.0. The open rows in [fremdriftsplan.md](fremdriftsplan.md) say what is left, most of it checks on hardware.
