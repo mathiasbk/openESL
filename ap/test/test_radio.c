@@ -26,12 +26,20 @@ typedef struct {
     uint16_t next_poll_s;
 } nvs_t;
 
-static void nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
+static bool nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
 {
     nvs_t *n = ctx;
     n->len[slot] = esl_persist_encode(mac, c, n->blob[slot]);
     n->used[slot] = true;
     n->writes++;
+    return true;
+}
+
+static bool nvs_load(void *ctx, unsigned slot, uint64_t mac, esl_content_t *c)
+{
+    nvs_t *n = ctx;
+    uint64_t m;
+    return n->used[slot] && esl_persist_decode(n->blob[slot], n->len[slot], &m, c) && m == mac;
 }
 
 static void nvs_erase(void *ctx, unsigned slot)
@@ -57,7 +65,6 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
 
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
@@ -81,8 +88,9 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
-    esl_store_init(&st, tags, CAP, &ops, 0);
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL};
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
         esl_store_restore_next_poll(&st, nvs.next_poll_s);
     for (unsigned s = 0; s < CAP; s++) {
@@ -782,9 +790,9 @@ static void test_image_rle(void)
     /* the coded bytes are the drawn screen */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029E", AUTH, NULL, 0, 0, &out), 200);
     CHECK_INT((int)rle_decode(images.buf[0].data, images.buf[0].size, back, sizeof(back)), (int)raw29);
-    esl_tag_t t;
-    CHECK(esl_store_get(&st, 0x29E, &t));
-    CHECK_INT((int)esl_layouts_render(&layouts, ESL_MODEL_29, &t.content, raw, sizeof(raw)), (int)raw29);
+    esl_content_t c;
+    CHECK(esl_store_get_content(&st, 0x29E, &c));
+    CHECK_INT((int)esl_layouts_render(&layouts, ESL_MODEL_29, &c, raw, sizeof(raw)), (int)raw29);
     CHECK(memcmp(back, raw, raw29) == 0);
     printf("  RLE: 2.9\" shelf screen %zu -> %u bytes, %u blocks\n", raw29, (unsigned)images.buf[0].size,
            (unsigned)a.img_blocks);

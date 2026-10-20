@@ -8,7 +8,6 @@
 #define MAC2 "0000000000000002"
 #define T0 1792065600u /* 2026-10-15 12:00 UTC */
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_sched_entry_t entries[CAP];
 static esl_sched_t sched;
@@ -50,7 +49,8 @@ static const esl_sched_ops_t ops = {NULL, NULL, NULL, blob_save, blob_load, blob
 
 static void reset(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_sched_init(&sched, entries, CAP, &ops);
     memset(blob_len, 0, sizeof(blob_len));
     saves = erases = 0;
@@ -69,11 +69,11 @@ static void price(const char *name, esl_content_t *c)
 
 static bool shows(uint64_t mac, const char *name)
 {
-    esl_tag_t t;
+    esl_content_t c;
     uint8_t len;
-    if (!esl_store_get(&st, mac, &t) || !t.has_content)
+    if (!esl_store_get_content(&st, mac, &c))
         return false;
-    const uint8_t *f = esl_content_field(&t.content, 0, &len);
+    const uint8_t *f = esl_content_field(&c, 0, &len);
     return len == strlen(name) && memcmp(f, name, len) == 0;
 }
 

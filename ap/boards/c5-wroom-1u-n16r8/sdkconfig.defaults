@@ -8,16 +8,15 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/c5-wroom-1u-n16r8/partitions.csv"
 
-# PSRAM: malloc puts blocks of 16 KB and more there (the tag table, the API's buffers,
-# the layout files), and WiFi and lwIP may use it for their buffers. The AP code
-# allocates everything big with malloc, so it needs no changes for this.
+# PSRAM: malloc puts blocks of 16 KB and more there (the API's buffers, the layout
+# files), and WiFi and lwIP may use it for their buffers. The tag table asks for
+# PSRAM itself (main/store_nvs.c), so it can grow far past what the C6 holds.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # With PSRAM the limits sdkconfig.defaults sets for the C6's RAM can go back up
-CONFIG_ESL_MAX_TAGS=1000
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32

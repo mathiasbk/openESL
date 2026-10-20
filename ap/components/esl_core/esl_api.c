@@ -569,8 +569,9 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, ",\"fw_update\":null");
     }
 
-    if (with_content && t->has_content)
-        write_content(out, &t->content);
+    esl_content_t c;
+    if (with_content && t->has_content && esl_store_get_content(api->store, t->mac, &c))
+        write_content(out, &c);
     if (with_content && api->sched) {
         /* when this tag's scheduled content takes effect */
         esl_sb_puts(out, ",\"scheduled\":[");
@@ -607,6 +608,11 @@ static int when(const esl_api_t *api, uint32_t at, uint64_t now_ms, uint32_t *sc
     return 0;
 }
 
+static const char *store_err_text(esl_store_err_t err)
+{
+    return err == ESL_STORE_NOT_SAVED ? "no room to save it (NVS full)" : "tag table full";
+}
+
 static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t len, uint64_t now_ms,
                    esl_sb_t *out)
 {
@@ -617,6 +623,7 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
         esl_content_t c;
         char msg[MSG_MAX];
         esl_set_result_t r;
+        esl_store_err_t err;
         uint32_t at = 0;
         status = parse_content(api, &j, 0, mac, &c, msg);
         if (!status)
@@ -632,8 +639,8 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
                 write_sched_result(out, mac, at);
                 status = 200;
             }
-        } else if (esl_store_set(api->store, mac, &c, &r) != ESL_STORE_OK)
-            status = api_error(out, 507, "tag table full");
+        } else if ((err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
+            status = api_error(out, 507, store_err_text(err));
         else {
             write_set_result(out, mac, &r);
             status = 200;
@@ -714,17 +721,18 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
     esl_sb_puts(out, "{\"tags\":[");
     for (unsigned k = 0; k < n; k++) {
         esl_set_result_t r;
+        esl_store_err_t err = ESL_STORE_FULL;
         if (k)
             esl_sb_putc(out, ',');
         if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
             write_sched_result(out, macs[k], ats[k]);
-        } else if (!ats[k] && esl_store_set(api->store, macs[k], &contents[k], &r) == ESL_STORE_OK) {
+        } else if (!ats[k] && (err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             write_set_result(out, macs[k], &r);
         } else {
             char m[17];
             esl_mac_format(macs[k], m);
             esl_sb_printf(out, "{\"mac\":\"%s\",\"error\":\"%s\"}", m,
-                          ats[k] ? "schedule full" : "tag table full");
+                          ats[k] ? "schedule full" : store_err_text(err));
         }
     }
     esl_sb_puts(out, "]}");
@@ -746,8 +754,9 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
-    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"poll_s\":%u",
-                  now_ms / 1000, (unsigned)api->channel, api->store->cap, (unsigned)def_poll);
+    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"table_full\":%s,\"poll_s\":%u",
+                  now_ms / 1000, (unsigned)api->channel, api->store->max,
+                  esl_store_full(api->store) ? "true" : "false", (unsigned)def_poll);
     if (api->reset_reason) {
         esl_sb_puts(out, ",\"reset\":");
         esl_sb_json_str(out, api->reset_reason);
@@ -763,7 +772,7 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     }
     esl_sb_puts(out, "},\"tags\":[");
     bool first = true;
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
         if (!esl_store_get_slot(api->store, s, &t))
             continue;
@@ -991,7 +1000,7 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
     unsigned counts[8] = {0}, tags = 0, problems = 0, changed = 0;
     esl_sb_stream(out, 200); /* one row per tag with a problem: can be larger than the buffer */
     esl_sb_puts(out, "{\"problems\":[");
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
         if (!esl_store_get_slot(api->store, s, &t)) {
             if (prev)
@@ -1254,6 +1263,21 @@ static bool query_size(const char *uri, const char *key, size_t *v)
     return false;
 }
 
+bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char *buf, size_t cap)
+{
+    const size_t fbase = sizeof(PATH_TAGFW) - 1;
+    if (strcspn(uri, "?") != fbase || memcmp(uri, PATH_TAGFW, fbase) != 0)
+        return false;
+    size_t offset = 0, total = body_len, tl = 0;
+    bool has_off = query_size(uri, "offset", &offset), has_total = query_size(uri, "total", &total);
+    if (has_off != has_total)
+        return false;
+    const char *to = query_str(uri, "to", &tl);
+    int n = snprintf(buf, cap, PATH_TAGFW "?offset=%lu&total=%lu%s%.*s", (unsigned long)(offset + done),
+                     (unsigned long)total, to ? "&to=" : "", to ? (int)tl : 0, to ? to : "");
+    return n > 0 && (size_t)n < cap;
+}
+
 static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model)
 {
     esl_tagfw_img_t img;
@@ -1265,7 +1289,7 @@ static void write_tagfw_model(const esl_api_t *api, esl_sb_t *out, uint8_t model
     /* the seen tags of the model; progress counts the bytes of those it is for */
     unsigned n[FWU_UPDATING + 1] = {0};
     uint32_t received = 0, total = 0;
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, slots = esl_store_slots(api->store); s < slots; s++) {
         esl_tag_t t;
         uint16_t got;
         if (!esl_store_get_slot(api->store, s, &t) || !t.seen || t.model != model)
@@ -1329,7 +1353,8 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
         return api_error(out, 404, "unknown tag");
     if (!t.model || !esl_render_model(t.model, &w, &h, &red))
         return api_error(out, 404, "the tag's model is not known yet");
-    if (!t.has_content)
+    esl_content_t c;
+    if (!t.has_content || !esl_store_get_content(api->store, mac, &c))
         return api_error(out, 404, "the tag has no content");
     if (t.content_err == ESL_CERR_NOT_IN_FILE)
         return api_error(out, 409, esl_content_err_text(t.content_err));
@@ -1337,7 +1362,7 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
     uint8_t *img = malloc(cap);
     if (!img)
         return api_error(out, 503, "no memory to draw the image");
-    size_t n = esl_layouts_render(api->layouts, t.model, &t.content, img, cap);
+    size_t n = esl_layouts_render(api->layouts, t.model, &c, img, cap);
     if (!n) {
         free(img);
         return api_error(out, 409, "the content cannot be drawn");
@@ -1475,9 +1500,11 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_puts(out, ", up ");
     html_ago(out, now_ms / 1000);
     esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)api->channel,
-                  esl_store_count(api->store), api->store->cap);
+                  esl_store_count(api->store), api->store->max);
+    if (esl_store_full(api->store))
+        esl_sb_puts(out, " <span class=\"p\">(full: no room for a new tag)</span>");
     unsigned attention = 0;
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
         if (esl_store_get_slot(api->store, s, &t) && tag_health(api, &t, now_ms, NULL))
             attention++;
@@ -1512,7 +1539,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_puts(out, "<table><tr><th>MAC</th><th>Model</th><th>Seen</th><th>Battery</th><th>RSSI</th>"
                      "<th>FW</th><th>Content</th><th>State</th><th>Attention</th></tr>");
 
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
         char m[17];
         if (!esl_store_get_slot(api->store, s, &t))
@@ -1530,12 +1557,13 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         } else {
             esl_sb_puts(out, "-</td><td>-</td><td>-</td><td>-</td><td>");
         }
-        if (t.has_content) {
-            esl_sb_puts(out, layout_name(&t.content));
+        esl_content_t c;
+        if (t.has_content && esl_store_get_content(api->store, t.mac, &c)) {
+            esl_sb_puts(out, layout_name(&c));
             esl_sb_puts(out, ": ");
-            for (unsigned i = 0; i < t.content.nfields; i++) {
+            for (unsigned i = 0; i < c.nfields; i++) {
                 uint8_t len;
-                const uint8_t *f = esl_content_field(&t.content, i, &len);
+                const uint8_t *f = esl_content_field(&c, i, &len);
                 if (i)
                     esl_sb_puts(out, " | ");
                 html_latin1(out, f, len);

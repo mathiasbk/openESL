@@ -203,11 +203,11 @@ static int wreq(const esl_api_t *api, const char *method, const char *body, char
 
 static void test_api_wifi(void)
 {
-    static esl_tag_t tags[4];
     static esl_store_t st;
     static char resp[ESL_API_RESP_SIZE(4)];
     esl_sb_t out;
-    esl_store_init(&st, tags, 4, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, 4, NULL, 0);
     esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false};
 
     esl_sb_init(&out, resp, sizeof(resp));

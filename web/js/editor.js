@@ -1079,7 +1079,7 @@ async function apUpload() {
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
   ap.fileVersion = res.version;
-  return [r.changed ? `Stored on the AP. The ${state.model}" tags download it at their next poll.` : "The AP already has this file.", "ok"];
+  return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
 
 async function apSend() {

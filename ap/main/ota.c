@@ -165,7 +165,8 @@ int ota_info(esl_sb_t *out)
 #else
     const bool display = false;
 #endif
-    esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s", kept ? "true" : "false", display ? "true" : "false");
+    esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s,\"chip\":\"%s\"", kept ? "true" : "false",
+                  display ? "true" : "false", CONFIG_IDF_TARGET);
     lock();
     esl_sb_printf(out, ",\"uploading\":%s}", open_ ? "true" : "false");
     unlock();

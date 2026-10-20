@@ -179,7 +179,7 @@
 #define ESL_IREQ_OFF_POS     8      /* u16 first byte the tag is missing */
 
 /* The image: the application linked from ESL_FW_APP_BASE (page 0 holds the bootloader),
- * at most up to the layout store page. */
+ * at most up to page 0x3D (0xF400), which is free; the settings and the stock MAC follow. */
 #define ESL_FW_APP_BASE      0x0400u
 #define ESL_FW_APP_END       0xF400u
 #define ESL_FW_MAX           (ESL_FW_APP_END - ESL_FW_APP_BASE)   /* 61440 */

@@ -55,12 +55,13 @@ static void gather(esl_screen_info_t *in)
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
     in->fw = api->fw_version;
     in->channel = api->channel;
-    in->tags_max = api->store->cap;
+    in->tags_max = api->store->max;
+    in->table_full = esl_store_full(api->store);
     in->uptime_s = now_ms / 1000;
 #if CONFIG_ESL_SERIAL_API
     in->serial_api = true;
 #endif
-    for (unsigned s = 0; s < api->store->cap; s++) {
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
         if (!esl_store_get_slot(api->store, s, &t))
             continue;

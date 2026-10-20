@@ -29,7 +29,7 @@ AP (if the AP firmware changed):
 - [ ] The dashboard loads, tags check in, sending text to a tag works
 Tags (for each model whose firmware changed: 2.9" and 1.54"):
 - [ ] OTA to one tag of the model (see Rollout); its start screen shows the new version
-- [ ] The tag draws its layout right and checks in for at least 10 polls
+- [ ] The tag shows its screen as the dashboard does and checks in for at least 10 polls
 - [ ] Battery and RSSI in the dashboard look as before
 ```
 
