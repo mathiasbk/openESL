@@ -45,7 +45,7 @@ void esl_screen_make(const esl_screen_info_t *in, esl_screen_t *out)
     else
         snprintf(t[1], sizeof(t[1]), "%u tag%s, all shown", in->tags, in->tags == 1 ? "" : "s");
     out->color[1] = in->pending ? ESL_SCREEN_WARN : ESL_SCREEN_TEXT;
-    if (in->tags >= in->tags_max && in->tags_max) {
+    if (in->table_full || (in->tags >= in->tags_max && in->tags_max)) {
         snprintf(t[1], sizeof(t[1]), "%u tags: table full", in->tags);
         out->color[1] = ESL_SCREEN_BAD;
     }

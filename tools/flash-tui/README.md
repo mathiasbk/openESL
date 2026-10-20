@@ -37,7 +37,7 @@ Default paths are what `tag/tools/build.py` writes:
 | 2.9" | `python tag/tools/build.py fw` | `tag/build/fw/openesl.bin` |
 | 1.54" | `MODEL=154 python tag/tools/build.py fw` | `tag/build/fw154/openesl.bin` |
 
-A missing file is shown in red and nothing is sent to the flasher. The image must end below 0xF400, where the tag keeps its layout file and last content (`CODE_SIZE` in `tag/tools/build.py`).
+A missing file is shown in red and nothing is sent to the flasher. The image must end below 0xF400; the pages above hold the tag's settings and the stock MAC (`CODE_SIZE` in `tag/tools/build.py`).
 
 ## Serial port
 

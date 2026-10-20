@@ -11,14 +11,15 @@ machine, so a change can be checked before it is pushed.
   python tools/check.py --strict      a step whose tools are missing fails instead of being skipped
 
 Steps:
+  models    the generated model files match shared/models.json (tools/gen_models.py --check)
   tag       tag host tests (tag/tools/build.py test)
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
-  tag-fw    tag firmware for both models with SDCC 4.5.0
+  tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client and power-budget tests
   openapi   docs/openapi.yaml against the AP code
-  ap-fw     AP firmware with ESP-IDF v5.5.5, plain and with the LCD screen (idf.py on PATH,
-            otherwise the espressif/idf:v5.5.5 Docker image)
+  ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
+            on PATH, otherwise the espressif/idf:v5.5.5 Docker image)
   web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
@@ -26,6 +27,8 @@ Toolchains: tools/dev/setup.sh installs SDCC, Emscripten and Node into ~/.cache/
 or WSL, and this script finds them there. Exit code: 1 when a step failed, otherwise 0.
 """
 import argparse
+import glob
+import json
 import os
 import shutil
 import subprocess
@@ -43,6 +46,8 @@ EMSCRIPTEN_VERSION = "3.1.74"
 IDF_IMAGE = "espressif/idf:v5.5.5"
 DEV_IMAGE = "openesl-dev"
 PY = sys.executable or "python3"
+sys.path.insert(0, os.path.join(ROOT, "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
 WINDOWS = os.name == "nt"
 
 
@@ -99,10 +104,12 @@ def copy_out(src, name):
     shutil.copyfile(os.path.join(ROOT, src), os.path.join(OUT, name))
 
 
+def step_models():
+    run([PY, "tools/gen_models.py", "--check"])
+
+
 def step_tag():
     need_host_cc()
-    need_python("zxingcpp", "zxing-cpp==3.1.1")
-    need_python("PIL", "pillow")
     run([PY, "tag/tools/build.py", "test"])
 
 
@@ -117,14 +124,16 @@ def step_tag_fw():
     version = subprocess.run([sdcc, "--version"], capture_output=True, text=True).stdout
     if " %s " % SDCC_VERSION not in version:
         raise Skip("SDCC %s needed, found: %s" % (SDCC_VERSION, version.splitlines()[0] if version else "?"))
-    for model, build in (("29", "fw"), ("154", "fw154")):
-        run([PY, "tag/tools/build.py", "fw"], env={"MODEL": model})
-        copy_out("tag/build/%s/openesl.bin" % build, "tag-%s.bin" % model)
-        copy_out("tag/build/%s/openesl-ota.bin" % build, "tag-%s-ota.bin" % model)
+    for m in models.load():
+        run([PY, "tag/tools/build.py", "fw"], env={"MODEL": m["build"]})
+        copy_out("tag/build/%s/openesl.bin" % models.fw_dir(m), "tag-%s.bin" % m["build"])
+        copy_out("tag/build/%s/openesl-ota.bin" % models.fw_dir(m), "tag-%s-ota.bin" % m["build"])
 
 
 def step_ap_test():
     need_san()
+    need_python("zxingcpp", "zxing-cpp==3.1.1")
+    need_python("PIL", "pillow")
     run(["make", "-C", "ap/test", "SAN=1"])
 
 
@@ -140,14 +149,7 @@ def step_openapi():
     run(["make", "-C", "ap/test", "openapi"])
 
 
-AP_BUILD = " && ".join([
-    "idf.py build",
-    "(cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args)",
-    "cp build/esl_ap.bin out/openesl-ap-ota.bin",
-    'idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.lcd" build',
-    "cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin",
-    "(cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args)",
-])
+AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
 def step_ap_fw():
@@ -161,7 +163,7 @@ def step_ap_fw():
         if not docker_ok():
             raise Skip("neither idf.py (ESP-IDF v5.5.5) nor a running Docker")
         run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", AP_BUILD])
-    for name in ("openesl-ap.bin", "openesl-ap-ota.bin", "openesl-ap-lcd.bin", "openesl-ap-lcd-ota.bin"):
+    for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
 
 
@@ -174,16 +176,18 @@ def step_web():
     tests = sorted(os.path.join("web", "test", f) for f in os.listdir(os.path.join(ROOT, "web", "test"))
                    if f.endswith(".test.mjs"))
     run([node, "--test"] + tests)
-    fw = [os.path.join(OUT, f) for f in ("tag-29.bin", "tag-154.bin", "openesl-ap.bin", "openesl-ap-lcd.bin")]
+    boards = [json.load(open(p))["artifact"] + ".bin" for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
+    fw = [os.path.join(OUT, f) for f in ["tag-%s.bin" % m["build"] for m in models.load()] + sorted(boards)]
     if all(os.path.isfile(f) for f in fw):
         run([PY, "web/build.py", "--firmware"] + fw)     # web/dist/ is then the page as CI publishes it
 
 
 STEPS = {
-    "tag": (step_tag, "C compiler, pip: zxing-cpp pillow"),
+    "models": (step_models, "Python"),
+    "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
-    "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows)"),
+    "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker"),

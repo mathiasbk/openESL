@@ -10,8 +10,11 @@ CC      ?= cc
 ROOT    := $(abspath ..)
 TAG     := $(ROOT)/tag
 CORE    := $(ROOT)/ap/components/esl_core
-VERSION := $(shell python3 $(ROOT)/tools/fw_version.py tag)
-FW_VER  := $(shell echo $(VERSION) | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3}')
+MODELS  := $(shell python3 ../shared/models.py builds)   # shared/models.json
+# The firmware version of each tag model (tools/fw_version.py tag-<build>), as text and as the
+# number the tag sends in POLL, worked out once per model: TAG_VERSION_29, TAG_FW_VER_29, ...
+$(foreach m,$(MODELS),$(eval TAG_VERSION_$(m) := $(shell python3 $(ROOT)/tools/fw_version.py tag-$(m))))
+$(foreach m,$(MODELS),$(eval TAG_FW_VER_$(m) := $(shell python3 -c "v = '$(TAG_VERSION_$(m))'.split('.'); print(int(v[0]) * 10000 + int(v[1]) * 100 + int(v[2]))")))
 
 WARN    := -Wall -Wextra -g -O1
 ifeq ($(SAN),1)
@@ -19,20 +22,19 @@ WARN    += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 # The tag code is built as tools/build.py builds the host tests
-TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(FW_VER) -DFW_VERSION_STR='"$(VERSION)"' \
+TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(TAG_FW_VER_$(1)) -DFW_VERSION_STR='"$(TAG_VERSION_$(1))"' \
              -I$(TAG)/src -I$(TAG)/boot -I$(ROOT)/shared -I$(TAG)/test
-AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared \
+AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared -I$(TAG)/src \
               -DSIM_ROOT='"$(abspath $(ROOT))"'
 
-TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/draw.c $(TAG)/src/layout.c $(TAG)/src/barcode.c \
-            $(TAG)/src/ota.c $(TAG)/boot/boot_core.c $(wildcard $(TAG)/fonts/font_*.c) $(TAG)/test/fake_epd.c \
+TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/draw.c $(TAG)/src/status.c $(TAG)/src/barcode.c \
+            $(TAG)/src/ota.c $(TAG)/src/image.c $(TAG)/boot/boot_core.c $(wildcard $(TAG)/fonts/font_*.c) $(TAG)/test/fake_epd.c $(TAG)/test/fake_epd_image.c \
             $(TAG)/test/fake_xflash.c sim_tag.c
 # esl_screen.c (the optional LCD on the C6) is left out: it shares the tag's font code
 AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c e2e.c main.c png.c
 DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(ROOT)/shared/*.h) \
             $(TAG_SRCS) $(AP_SRCS) $(ROOT)/VERSION
 
-MODELS := 154 29
 BINS   := $(MODELS:%=build/%/esl-sim)
 
 .PHONY: all test serial clean

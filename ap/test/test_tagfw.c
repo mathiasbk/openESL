@@ -67,7 +67,6 @@ static bool st_load_to(void *ctx, uint8_t model, void *to, size_t len)
 
 static const esl_tagfw_ops_t ops = {NULL, NULL, NULL, st_erase, st_write, st_read, st_save_to, st_load_to};
 static esl_tagfw_t fw;
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false};
@@ -113,6 +112,80 @@ static int upload(size_t total)
     return status;
 }
 
+static void reset(void);
+
+/* One request as the AP's HTTP and serial glue hands it on (api_handle_tagfw_put in
+   ap/main/http_api.c): in pieces of piece bytes, each a part of its own */
+static int put_pieces(const char *uri, const uint8_t *body, size_t len, size_t piece)
+{
+    char puri[ESL_API_PIECE_URI_MAX];
+    int status = 200;
+    for (size_t got = 0; status == 200 && got < len; got += piece) {
+        size_t n = len - got < piece ? len - got : piece;
+        if (!esl_api_tagfw_piece_uri(uri, len, got, puri, sizeof(puri)))
+            return -1;
+        status = esl_api_handle(&api, "PUT", puri, AUTH, (const char *)body + got, n, 0, &out);
+    }
+    return status;
+}
+
+/* 16 KB parts, a whole file in one body, and a part for one tag, in 2 KB pieces */
+static void test_pieces(void)
+{
+    char buf[ESL_API_PIECE_URI_MAX];
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware?offset=16384&total=51216", 16384, 2048, buf, sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=18432&total=51216");
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware", 2064, 2048, buf, sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=2048&total=2064");
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware?to=0000012345678901&offset=0&total=2064", 2064, 0, buf,
+                                  sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=0&total=2064&to=0000012345678901");
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware?offset=0", 2064, 0, buf, sizeof(buf)));    /* goes whole: 400 */
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware/2.9", 10, 0, buf, sizeof(buf)));
+    CHECK(!esl_api_tagfw_piece_uri("/api/tags", 10, 0, buf, sizeof(buf)));
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware?offset=0&total=1", 1, 0, buf, 8));          /* no room */
+
+    reset();
+    size_t total = make_file(ESL_MODEL_29, 204, 50 * 1024, 2);
+    char uri[96];
+    for (size_t off = 0; off < total; off += 16384) {
+        size_t n = total - off < 16384 ? total - off : 16384;
+        snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=%u&total=%u", (unsigned)off, (unsigned)total);
+        CHECK_INT(put_pieces(uri, file + off, n, 2048), 200);
+        if (off + n < total) {
+            snprintf(uri, sizeof(uri), "\"received\":%u,\"total\":%u}", (unsigned)(off + n), (unsigned)total);
+            CHECK(HAS(out.buf, uri));
+        }
+    }
+    CHECK(HAS(out.buf, "\"model\":\"2.9\",\"version\":\"0.2.4\",\"size\":51200"));
+    esl_tagfw_img_t img;
+    CHECK(esl_tagfw_get(&fw, ESL_MODEL_29, &img));
+    CHECK(img.crc == esl_crc32(file + ESL_FWF_HDR_LEN, 51200));
+
+    /* A part sent again after its connection dropped half way: the pieces that got
+       through are skipped, and the upload goes on */
+    total = make_file(ESL_MODEL_29, 206, 20 * 1024, 4);
+    snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=0&total=%u", (unsigned)total);
+    CHECK_INT(put_pieces(uri, file, 8192, 2048), 200);
+    snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=8192&total=%u", (unsigned)total);
+    CHECK_INT(put_pieces(uri, file + 8192, 4096, 2048), 200);           /* 2 of its 4 pieces */
+    CHECK_INT(put_pieces(uri, file + 8192, 8192, 2048), 200);           /* sent again, whole */
+    CHECK(HAS(out.buf, "\"received\":16384,"));
+    CHECK_INT(put_part(16384 + 2048, total, 1024), 409);                /* ahead: still refused */
+    CHECK_INT(put_part(16384, total, total - 16384), 200);
+    CHECK(HAS(out.buf, "\"version\":\"0.2.6\""));
+
+    /* Whole, in one body, for one tag */
+    total = make_file(ESL_MODEL_29, 205, 2048, 3);
+    CHECK_INT(put_pieces("/api/tag-firmware?to=0000012345678901", file, total, 2048), 200);
+    CHECK(HAS(out.buf, "\"version\":\"0.2.5\""));
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, MAC));
+    CHECK(!esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 1));
+    /* A bad header stops it at the first piece */
+    file[0] ^= 0xFF;
+    CHECK_INT(put_pieces("/api/tag-firmware", file, total, 2048), 422);
+}
+
 static void reset(void)
 {
     memset(mem, 0xFF, sizeof(mem));
@@ -120,7 +193,8 @@ static void reset(void)
     erases = 0;
     fail_write = false;
     esl_tagfw_init(&fw, &ops);
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
     esl_radio_set_tagfw(&fw);
 }
@@ -145,15 +219,57 @@ static void test_messages(void)
     CHECK_INT(rep.type, ESL_MSG_FW);
     CHECK_INT(rep.next_poll_s, 300);
     CHECK_INT(rep.fw_ver, 10203);
-    CHECK_INT(rep.layout_size, 2048);
-    CHECK_INT(rep.layout_pos, 91);
+    CHECK_INT(rep.size, 2048);
+    CHECK_INT(rep.pos, 91);
     CHECK(rep.fw_crc == 0xA1B2C3D4u);
     CHECK_INT(rep.fw_model, ESL_MODEL_29);
-    CHECK_INT(rep.layout_len, 3);
-    CHECK_INT(rep.layout_data[2], 9);
+    CHECK_INT(rep.len, 3);
+    CHECK_INT(rep.data[2], 9);
     /* a block past the end of the image */
     n = esl_fw_msg_build(p, 0, 1, 1024, 1023, 0, ESL_MODEL_29, d, 3);
     CHECK(!esl_reply_parse(p, n, &rep));
+
+    /* IMG / IMG_REQ: a screen image, the same shape as FW */
+    esl_img_req_t ir = {ESL_MODEL_29, ESL_IMG_CHUNK_MAX, 0x89ABCDEFu, 4600}, iq;
+    CHECK_INT(esl_img_req_build(p, &ir), ESL_IREQ_LEN);
+    CHECK_MEM(p, "\x0A\x01\x01\x5C\xEF\xCD\xAB\x89\xF8\x11", ESL_IREQ_LEN);
+    CHECK(esl_img_req_parse(p, ESL_IREQ_LEN, &iq));
+    CHECK_INT(iq.model, ESL_MODEL_29);
+    CHECK_INT(iq.max, 92);
+    CHECK(iq.id == 0x89ABCDEFu);
+    CHECK_INT(iq.pos, 4600);
+    CHECK(!esl_img_req_parse(p, ESL_IREQ_LEN - 1, &iq));
+    p[0] = ESL_MSG_FW_REQ;
+    CHECK(!esl_img_req_parse(p, ESL_IREQ_LEN, &iq));
+
+    n = esl_img_msg_build(p, 300, 0x89ABCDEFu, 4736, 92, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK_INT(n, ESL_IMG_HDR_LEN + 3);
+    CHECK_MEM(p, "\x09\x01\x2C\x01\xEF\xCD\xAB\x89\x80\x12\x5C\x00\x01\x00\x07\x08\x09", n);
+    CHECK(esl_reply_parse(p, n, &rep));
+    CHECK_INT(rep.type, ESL_MSG_IMG);
+    CHECK_INT(rep.next_poll_s, 300);
+    CHECK(rep.img_id == 0x89ABCDEFu);
+    CHECK_INT(rep.size, 4736);
+    CHECK_INT(rep.pos, 92);
+    CHECK_INT(rep.fw_model, ESL_MODEL_29);
+    CHECK_INT(rep.img_fmt, ESL_IMG_FMT_RAW);
+    CHECK_INT(rep.len, 3);
+    CHECK_INT(rep.data[2], 9);
+    /* a full block, one past the end, id 0, an empty image, a short header */
+    uint8_t big[ESL_IMG_CHUNK_MAX + 1];
+    memset(big, 0xA5, sizeof(big));
+    n = esl_img_msg_build(p, 0, 1, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, big, sizeof(big));
+    CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
+    CHECK(esl_reply_parse(p, n, &rep));
+    CHECK_INT(rep.len, ESL_IMG_CHUNK_MAX);
+    n = esl_img_msg_build(p, 0, 1, 4736, 4735, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 2);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 0, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 1, 0, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 0);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 1, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK(!esl_reply_parse(p, ESL_IMG_HDR_LEN - 1, &rep));
 }
 
 static void test_upload(void)
@@ -234,10 +350,15 @@ static void test_upload(void)
 static void test_offer(void)
 {
     esl_faketag_t t, old, bad;
+    static esl_image_t images;
+    uint8_t *imem = malloc(esl_image_mem_size());
+    esl_image_init(&images, imem, NULL);
+    esl_radio_set_image(&images);
     reset();
     esl_faketag_init(&t, MAC, 100, 3000, ESL_MODEL_29);
     t.ota = true;
     esl_faketag_init(&old, MAC + 1, 100, 3000, ESL_MODEL_29);   /* no SPI flash, or old firmware */
+    old.images = false;
     esl_faketag_init(&bad, MAC + 2, 100, 3000, ESL_MODEL_29);
     bad.ota = true;
     bad.fw_bad = true;
@@ -245,12 +366,13 @@ static void test_offer(void)
     /* Nothing to offer: IDLE */
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
 
-    /* 6 KB for the 2.9" and content waiting for the tag: content first */
+    /* 6 KB for the 2.9" and content waiting for the tag: its image first */
     size_t total = make_file(ESL_MODEL_29, 101, 6 * 1024, 3);
     CHECK_INT(upload(total), 200);
     CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags/0000012345678901", AUTH,
                              "{\"layout\":\"text\",\"fields\":[\"Hei\"]}", 34, 0, &out), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_CONTENT);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IMG);
+    CHECK_INT(t.img_shown, 1);
     CHECK_INT(t.fw, 100);
     /* Then the image: 68 blocks in one wake-up, and the tag runs the new version */
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
@@ -320,6 +442,8 @@ static void test_offer(void)
     esl_faketag_init(&t, MAC + 4, 100, 3000, ESL_MODEL_29);
     t.ota = true;
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    esl_radio_set_image(NULL);
+    free(imem);
 }
 
 /* One POLL, and the FW block the AP answers it with */
@@ -327,6 +451,15 @@ static uint8_t poll_once(esl_faketag_t *t)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
     size_t n = esl_faketag_poll(t, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 0, tx, NULL);
+    return (uint8_t)esl_faketag_receive(t, tx, m);
+}
+
+/* One FW_REQ for the next block, and the AP's answer */
+static uint8_t fw_req_once(esl_faketag_t *t)
+{
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    size_t n = esl_faketag_fw_request(t, PAN, rx);
     size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 0, tx, NULL);
     return (uint8_t)esl_faketag_receive(t, tx, m);
 }
@@ -367,6 +500,15 @@ static void test_choose(void)
     CHECK(HAS(out.buf, "\"received\":91,\"size\":2048}"));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(out.buf, "\"progress\":{\"received\":91,\"total\":2048}"));
+    /* Two more blocks; then the next POLL is answered with the block at 0 again, which
+       the tag skips: how far it is stays where it was */
+    CHECK_INT(fw_req_once(&a), ESL_MSG_FW);
+    CHECK_INT(fw_req_once(&a), ESL_MSG_FW);
+    CHECK_INT(a.fw_dl_got, 273);
+    CHECK_INT(poll_once(&a), ESL_MSG_FW);
+    CHECK_INT(a.fw_dl_got, 273);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678901", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"received\":273,\"size\":2048}"));
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
     CHECK_INT(a.fw, 101);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
@@ -423,6 +565,7 @@ void test_tagfw(void)
     esl_sb_init(&out, resp, sizeof(resp));
     test_messages();
     test_upload();
+    test_pieces();
     test_offer();
     test_choose();
     esl_radio_set_tagfw(NULL);

@@ -192,11 +192,14 @@ unsigned esl_sched_tick(esl_sched_t *s, esl_store_t *st, uint64_t now_ms)
         esl_set_result_t r;
         if (superseded)
             continue; /* dropped with the one that wins */
-        if (load(s, i, &c) && esl_store_set(st, e->mac, &c, &r) == ESL_STORE_OK)
-            applied++;
+        bool loaded = load(s, i, &c);
+        uint64_t mac = e->mac;
+        /* Dropped first: that frees their NVS, which the content may need */
         for (unsigned j = 0; j < s->cap; j++)
-            if (s->e[j].used && s->e[j].mac == e->mac && s->e[j].at <= now)
+            if (s->e[j].used && s->e[j].mac == mac && s->e[j].at <= now)
                 drop(s, j); /* this one, and the earlier ones it replaces */
+        if (loaded && esl_store_set(st, mac, &c, &r) == ESL_STORE_OK)
+            applied++;
     }
     if (now && (s->due_dirty || now - s->due_sent >= 60)) {
         /* due times in seconds since boot, as the store counts */

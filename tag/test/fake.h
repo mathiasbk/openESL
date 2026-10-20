@@ -4,8 +4,9 @@
 
 #include "compat.h"
 #include "draw.h"
+#include "hal/hal.h"
 
-#define FAKE_MAX_FRAMES 16
+#define FAKE_MAX_FRAMES 80      /* a whole screen image is 52-55 blocks */
 
 /* Radio */
 extern uint8_t fake_tx[FAKE_MAX_FRAMES][128];
@@ -23,14 +24,11 @@ extern uint16_t fake_batt_mv;
 extern unsigned fake_delay_ms_total;
 
 /* Persistent store (hal_store_*): one record in RAM, kept over app_init() */
-extern uint8_t fake_store[200];
+extern uint8_t fake_store[HAL_STORE_MAX];
 extern uint8_t fake_store_len;        /* 0 = no record */
 extern int fake_store_writes;
 extern bool fake_store_radio_on_write; /* a write happened with the radio on (not allowed) */
-/* Layout file store (hal_layout_store_*): one page, 0xFF when erased */
-extern uint8_t fake_lstore[1024];
-extern int fake_lstore_writes;
-void fake_store_clear(void);          /* clears both stores */
+void fake_store_clear(void);
 
 /* SPI flash, the chip's flash and restarts (test/fake_xflash.c). Absent unless
    fake_xflash_clear(true): tags without the chip take no firmware updates. */
@@ -46,7 +44,7 @@ void fake_xflash_clear(bool present);      /* all 0xFF */
 /* Display (test/fake_epd.c): epd_draw draws into a whole image */
 extern int fake_draw_count;
 extern bool fake_epd_ok;
-extern uint8_t fake_fb[DRAW_H][DRAW_W];   /* 0 = white, 1 = black */
+extern uint8_t fake_fb[DRAW_H][DRAW_W];   /* 0 = white, 1 = black, 2 = red */
 void fake_render(draw_scene_t *s);         /* draws the scene into fake_fb */
 int fake_ink_count(int color);
 bool fake_fb_save_ppm(const char *path);

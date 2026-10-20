@@ -1,6 +1,6 @@
 // editor.js - the layout designer. Edits a layout file (docs/protokoll.md part 3) for one tag
-// model and draws it live with the WebAssembly renderer, which is the tag's own drawing code
-// and the AP's own compiler: what the preview shows is what the tag draws, and an error here
+// model and draws it live with the WebAssembly renderer, which is the AP's own drawing code
+// and compiler: what the preview shows is the image the tag gets, and an error here
 // is the 422 the AP would answer when the file is uploaded.
 
 import { History } from "./history.js";
@@ -14,6 +14,9 @@ const ALIGN = ["left", "center", "right"];
 const VALIGN = ["top", "middle", "bottom"];
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
+// On a model with red (colors in shared/models.json) the AP also takes these
+const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
+const RECT_COLORS_RED = [...RECT_COLORS, "red"];
 const BUILTIN = {
   price: { id: LAYOUT_PRICE, fields: ["name", "price", "subtitle"] },
   text: { id: LAYOUT_TEXT, fields: ["line1", "line2", "line3", "line4"] },
@@ -206,7 +209,7 @@ function compileAndDraw() {
   else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
 }
 
-// What the layout uses of the tag's limits, so you see a limit coming before the AP says no.
+// What the layout uses of the AP's limits, so you see a limit coming before the AP says no.
 function refreshMeters(res) {
   const box = $("meters");
   const r = state.renderer;
@@ -216,12 +219,13 @@ function refreshMeters(res) {
   $("el-add-barcode").disabled = false;
   if (lay) {
     const u = layoutUsage(lay, lim);
-    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the tag may draw for this layout (each text box counts the most lines its fonts can fit)"]);
+    meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
     meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
-  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole layout file the tags download, in bytes"]);
+  meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
+  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
@@ -250,8 +254,8 @@ function paint(pixels, w, h) {
   const ctx = c.getContext("2d");
   const img = ctx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {
-    const v = pixels[i] ? 17 : 255;
-    img.data.set([v, v, v, 255], i * 4);
+    const v = pixels[i];
+    img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
   c.style.opacity = 1;
@@ -306,7 +310,7 @@ function refreshList() {
     li.className = i === state.el ? "sel" : "";
     li.dataset.i = i;
     const ico = document.createElement("span");
-    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight");
+    const inverted = e.type === "text" && (e.color === "invert" || e.color === "highlight" || e.color === "red_invert");
     ico.className = "ico" + (e.type === "rect" ? " rect" : e.type === "barcode" ? " barcode" : inverted ? " inv" : "");
     const name = document.createElement("span");
     name.className = "name";
@@ -684,8 +688,9 @@ function refreshElement() {
     box.append(p);
     return;
   }
-  sel("Colour", "color", e.type === "text" ? TEXT_COLORS : RECT_COLORS, e.color || "black",
-    (v) => (v === "black" ? delete e.color : (e.color = v)));
+  const red = MODELS[state.model].colors.includes("red");
+  sel("Colour", "color", e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS) : red ? RECT_COLORS_RED : RECT_COLORS,
+    e.color || "black", (v) => (v === "black" ? delete e.color : (e.color = v)));
 }
 
 // Buttons that put the element against an edge or in the middle of the screen, or stretch it.
@@ -861,6 +866,8 @@ function applyZoom() {
 }
 
 function initActions() {
+  for (const [name, m] of Object.entries(MODELS))
+    $("model").append(new Option(`${name}" (${m.width} × ${m.height})`, name));
   $("zoom").value = store.get("zoom") || "fit";
   $("zoom").addEventListener("change", () => {
     store.set("zoom", $("zoom").value);
@@ -996,6 +1003,12 @@ function initActions() {
 
 const ap = { tags: [], fileVersion: null, connected: false };
 
+// The version of the model's layout file on the AP (GET /api/layouts), null when it has none
+async function apFileVersion() {
+  const r = await apClient().layouts();
+  return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
+}
+
 // Upload, send and check only work once Connect has reached the AP (through the bridge)
 function apButtons(busy = false) {
   $("ap-connect").disabled = busy;
@@ -1056,6 +1069,7 @@ async function apConnect() {
   const r = await apClient().tags();
   ap.connected = true;
   ap.tags = r.tags || [];
+  ap.fileVersion = await apFileVersion();
   refreshApTags();
   const n = ap.tags.filter((t) => t.model === state.model).length;
   return [`AP ${r.ap?.fw || "?"}, channel ${r.ap?.channel ?? "?"}: ${ap.tags.length} tags, ${n} of them ${state.model}".`, "ok"];
@@ -1066,7 +1080,7 @@ async function apUpload() {
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
   ap.fileVersion = res.version;
-  return [r.changed ? `Stored on the AP. The ${state.model}" tags download it at their next poll.` : "The AP already has this file.", "ok"];
+  return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
 
 async function apSend() {
@@ -1090,8 +1104,10 @@ async function apSend() {
   let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  if (!uploaded && !isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
-    note = " The tag has another version of the layout file than the editor; upload the file too.";
+  if (!uploaded) ap.fileVersion = await apFileVersion();
+  if (!uploaded && !isBuiltin() && res.ok && t && ap.fileVersion !== res.version) {
+    note = ap.fileVersion === null ? " The AP has no layout file for this model; upload the file too."
+      : " The AP has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
 }
@@ -1103,10 +1119,8 @@ async function apCheck() {
   const i = ap.tags.findIndex((x) => x.mac === mac);
   if (i >= 0) ap.tags[i] = t;
   refreshApTags();
-  if (t.content_error) return [`Cannot be sent: ${t.content_error}.`, "error"];
-  if (t.layout_failed) return ["The tag rejected the layout file.", "error"];
+  if (t.content_error) return [`Cannot be shown: ${t.content_error}.`, "error"];
   if (t.draw_failed) return ["The tag says its last drawing failed.", "error"];
-  if (t.layout_pending) return [`The tag is downloading the layout file (seen ${ago(t.seen_s_ago)}).`, ""];
   if (t.pending) return [`Waiting for the tag's next poll (seen ${ago(t.seen_s_ago)}).`, ""];
   return [`The tag shows it (seen ${ago(t.seen_s_ago)}).`, "ok"];
 }
@@ -1138,5 +1152,5 @@ export async function initEditor() {
   initList();
   initAp();
   const m = store.get("model");
-  await loadModel(MODELS[m] ? m : "2.9");
+  await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
 }

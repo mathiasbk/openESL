@@ -7,7 +7,6 @@
 #include "draw.h"
 #include "hal/hal.h"
 #include "fake.h"
-#include "layout.h"
 #include "model.h"
 #include "sim.h"
 #include "boot_core.h"
@@ -31,7 +30,6 @@ static uint64_t last_draw_ms;
 
 static uint8_t flash_rec[HAL_STORE_MAX];
 static uint8_t flash_rec_len;
-static uint8_t flash_lay[HAL_LAYOUT_STORE_MAX];
 
 /* ---- hal.h ---- */
 
@@ -68,20 +66,6 @@ uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
     return flash_rec_len;
 }
 
-bool hal_layout_store_write(const uint8_t *data, uint16_t len)
-{
-    if (len == 0 || len > HAL_LAYOUT_STORE_MAX || radio_is_on)
-        return false;
-    memset(flash_lay, 0xFF, sizeof(flash_lay));
-    memcpy(flash_lay, data, len);
-    return true;
-}
-
-void hal_layout_store_read(uint8_t *data, uint16_t len)
-{
-    memcpy(data, flash_lay, len);
-}
-
 void radio_init(uint8_t channel) { (void)channel; }
 void radio_on(void) { radio_is_on = true; }
 void radio_off(void) { radio_is_on = false; }
@@ -116,7 +100,6 @@ static int restarts;
 void sim_tag_flash_erase(void)
 {
     flash_rec_len = 0;
-    memset(flash_lay, 0xFF, sizeof(flash_lay));
     fake_xflash_clear(true);   /* the SPI flash is there, so it takes firmware updates */
 }
 
@@ -201,7 +184,25 @@ uint8_t sim_tag_misses(void) { return app.misses; }
 uint64_t sim_tag_next_wake_ms(void) { return next_wake_ms; }
 uint64_t sim_tag_last_draw_ms(void) { return last_draw_ms; }
 
-uint32_t sim_tag_layout_ver(void) { return layout_file_ver; }
+/* ---- the tag's screen, for the comparison with esl_render ---- */
+
+/* fake_fb as columns: DRAW_COL_BYTES per column, MSB = row 0, black plane then (with red) the red plane */
+size_t sim_tag_screen(uint8_t *out, size_t cap)
+{
+    size_t plane = (size_t)DRAW_W * DRAW_COL_BYTES, size = plane * (MODEL_HAS_RED ? 2 : 1);
+    if (cap < size)
+        return 0;
+    memset(out, 0, size);
+    for (int x = 0; x < DRAW_W; x++)
+        for (int y = 0; y < DRAW_H; y++) {
+            uint8_t v = fake_fb[y][x];
+            if (v == 1)
+                out[(size_t)x * DRAW_COL_BYTES + y / 8] |= (uint8_t)(0x80 >> (y & 7));
+            else if (v == 2 && MODEL_HAS_RED)
+                out[plane + (size_t)x * DRAW_COL_BYTES + y / 8] |= (uint8_t)(0x80 >> (y & 7));
+        }
+    return size;
+}
 
 bool sim_tag_save_png(const char *path)
 {
@@ -209,6 +210,6 @@ bool sim_tag_save_png(const char *path)
     static uint8_t pix[DRAW_H * S][DRAW_W * S];
     for (int y = 0; y < DRAW_H * S; y++)
         for (int x = 0; x < DRAW_W * S; x++)
-            pix[y][x] = fake_fb[y / S][x / S] ? 0 : 255;
+            pix[y][x] = fake_fb[y / S][x / S] == 1 ? 0 : fake_fb[y / S][x / S] == 2 ? 128 : 255;
     return png_write_gray(path, &pix[0][0], DRAW_W * S, DRAW_H * S);
 }

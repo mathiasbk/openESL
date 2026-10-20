@@ -2,8 +2,8 @@
 
 The tag firmware and the AP run together on the PC, with no hardware:
 
-- **Tag:** `tag/src/app.c` with all of its logic (POLL, CONTENT, CONFIG, layout download,
-  drawing, the flash copy from requirement T12), on a HAL (`sim_tag.c`) that sends its frames
+- **Tag:** `tag/src/app.c` with all of its logic (POLL, CONFIG, the image download and
+  drawing, the status screens, the image kept for requirement T12), on a HAL (`sim_tag.c`) that sends its frames
   to the AP instead of a radio. The display is `tag/test/fake_epd.c`, which draws into an
   image that is saved as PNG.
 - **AP:** `ap/components/esl_core` as the C6 runs it: `esl_radio_handle()` answers every frame,
@@ -39,21 +39,33 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 
 | # | Case | Checked |
 |---|---|---|
+| 0 | The AP draws every layout as the reference says (`esl_render.c`) | Every layout of `tag/designs/layouts/<model>.json`, `ap/test/layouts/<model>.json` and `sim/layouts/<model>.json`, and the built-in `price` and `text`, with nine sets of fields and every flag combination (828 screens per model): each is drawn, and its CRC-32 is the one in `sim/reference/<model>.crc`. Every screen saved below is what the tag shows, compared with what the AP draws for it |
 | 1 | New tag, unknown to the AP | Start screen; the AP registers it at its first POLL (model, no content) |
 | 2 | New content (`PUT /api/tags/{mac}`) | Drawn at the next poll (G1, 2 min); the API confirms one poll later |
 | 3 | Same content again | `changed: false`, IDLE, no redraw for 5 min |
-| 4a | CONTENT reply lost once | The retry in the same wake-up gets it, no miss |
-| 4b | CONTENT lost in both tries | A miss, no backoff; the next wake-up gets it; `pending` until then |
+| 4a | The first IMG block lost once | The retry in the same wake-up gets it, no miss |
+| 4b | The first IMG block lost in both tries | A miss, no backoff; the next wake-up gets it; `pending` until then |
 | 4c | The POLL that confirms it is lost | The API stays `pending` until the next POLL |
-| 4d | The AP dies while sending CONTENT, back after 3 min | Content survives the restart (NVS); the tag gets it when the AP is back |
-| 5 | Layout file (`PUT /api/layouts/{model}` with `tag/designs/layouts/`) and content with the `shelf` layout | Download and drawing in one wake-up; `layout_pending: false` |
+| 4d | The AP dies while sending the image, back after 3 min | Content survives the restart (NVS); the tag gets the image when the AP is back |
+| 5 | Layout file (`PUT /api/layouts/{model}` with `tag/designs/layouts/`) and content with the `shelf` layout | The AP draws the named layout and the tag shows the image at the next poll; the file stays on the AP |
 | 6 | CONFIG: `poll_s` 120, then back to the default | The tag sleeps 120 s, then 60 s; `config_pending: false` |
-| 7 | Tag restart with the AP off | The content comes back from flash (T12); no CONTENT or LAYOUT when the AP returns |
+| 7 | Tag restart with the AP off | The content comes back from flash (T12); no new image when the AP returns |
 | 8 | AP gone for an hour with new content waiting | The backoff reaches 600 s (T11); the tag finds the AP within 600 s and gets the content |
 | 9 | AP gone for more than 2 hours | "No AP found" (T9); content again when the AP is back |
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
+| 11 | Content with `at`, poll interval 300 s | Shown just after it is due (the AP shortens the tag's sleep), not at the next 300 s poll |
+| 12 | Tag firmware over the air (`PUT /api/tag-firmware`, a 4 KB test image in two parts) | Downloaded, copied into the chip by the bootloader, restarted with the same screen, confirmed |
 
-The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the tag and AP host tests, not end to end here.
+The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the AP host tests, not end to end here.
+
+`sim/layouts/` holds layouts made only for this comparison: a short last word that has to
+wrap, `invert` and `highlight` text, and barcodes centred or right-aligned with an odd number of
+pixels to spare. `sim/reference/<model>.crc` was made while the tag still drew content with its
+own code, and each screen in it was byte for byte what the tag drew: one line per screen (`file
+layout set flags bytes crc`). A change to the drawing that is
+meant to change screens rewrites it with `SIM_REF_UPDATE=1 make -C sim`, and its diff shows
+which screens changed. So does a change to a layout in `tag/designs/layouts/`,
+`ap/test/layouts/` or `sim/layouts/`: those screens are part of the reference too.
 
 ## Serial port (`esl-sim serve`)
 

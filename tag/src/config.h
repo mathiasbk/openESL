@@ -22,10 +22,6 @@
 #define CFG_RETRY_MIN_MS    2        /* random pause before one retry */
 #define CFG_RETRY_MAX_MS    10
 
-/* Layout download: LAYOUT_REQ messages per round at most. A full file (ESL_LBIN_MAX = 768
-   bytes in 94-byte blocks) needs 8 after the first block; the rest is room for repeats.
-   An unfinished download continues from where it stopped in a later round. */
-#define CFG_LAYOUT_MAX_REQ  16
 /* FW_REQ per wake-up during a firmware download (docs/tag-ota.md): about 11 KB, a
    second or two of radio. An image of 49 KB takes five wake-ups. */
 #define CFG_FW_MAX_REQ      128
@@ -33,5 +29,8 @@
    stops. Measured on the jig 2026-10-15: about 5 % of the AP's answers were lost, and
    stopping at the first miss made some rounds end after 2-9 blocks. */
 #define CFG_FW_MAX_MISS     8
+/* IMG_REQ per wake-up during an image download: a whole screen is 52 (2.9") or 55
+   (1.54") blocks of 92 bytes; the rest is room for repeats. Lost answers as for FW. */
+#define CFG_IMG_MAX_REQ     64
 
 #endif /* CONFIG_H */

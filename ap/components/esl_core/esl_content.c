@@ -49,15 +49,6 @@ esl_content_err_t esl_content_init_named(esl_content_t *c, const char *name, siz
     return ESL_CONTENT_OK;
 }
 
-void esl_content_resolve(const esl_content_t *c, uint8_t index, esl_content_t *out)
-{
-    *out = *c;
-    if (c->layout == ESL_LAYOUT_NAMED) {
-        out->layout = (uint8_t)(ESL_LAYOUT_FILE + index);
-        memset(out->name, 0, sizeof(out->name));
-    }
-}
-
 size_t esl_content_text_len(const esl_content_t *c)
 {
     size_t n = 0;
@@ -133,4 +124,15 @@ bool esl_content_equal(const esl_content_t *a, const esl_content_t *b)
     size_t na = esl_content_body(a, ba);
     size_t nb = esl_content_body(b, bb);
     return na == nb && memcmp(ba, bb, na) == 0;
+}
+
+uint32_t esl_layout_name_hash(const char *name)
+{
+    uint32_t h = esl_crc32(name, strlen(name));
+    return h ? h : 1;
+}
+
+uint32_t esl_content_layout_hash(const esl_content_t *c)
+{
+    return c->layout == ESL_LAYOUT_NAMED ? esl_layout_name_hash(c->name) : 0;
 }

@@ -1,3 +1,5 @@
 # Shell scripts and the Dockerfile run on Linux (and in Docker from Windows): keep LF
 *.sh text eol=lf
 Dockerfile text eol=lf
+# sim/e2e.c compares the reference screens byte for byte
+sim/reference/*.crc text eol=lf

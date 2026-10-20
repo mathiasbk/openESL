@@ -1,4 +1,6 @@
-CONFIG_IDF_TARGET="esp32c6"
+# Settings for every AP board. What depends on the board (chip, flash size, partition
+# table, PSRAM, screen) is in boards/<board>/sdkconfig.defaults, read after this file;
+# CMakeLists.txt picks the board (-DBOARD=..., default c6-supermini). See boards/README.md.
 
 # WiFi and 802.15.4 share the 2.4 GHz radio
 CONFIG_IEEE802154_ENABLED=y
@@ -22,17 +24,13 @@ CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESP_TASK_WDT_PANIC=y
 
-# 4 MB flash (ESP32-C6FH4): bigger NVS for tag content and layout files, and
-# two app slots for OTA (partitions.csv). A new image must confirm itself
-# after boot (esp_ota_mark_app_valid_cancel_rollback in app_main.c), or the
-# bootloader goes back to the old one.
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+# OTA: a new image must confirm itself after boot (esp_ota_mark_app_valid_cancel_rollback
+# in app_main.c), or the bootloader goes back to the old one. The two app slots are in
+# each board's partitions.csv.
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# RAM: the C6 runs WiFi, 802.15.4, the HTTP server and up to 256 tags in 512 KB,
+# RAM: the C6 runs WiFi, 802.15.4, the HTTP server and the tag table (about 700 tags) in 512 KB,
 # and the API needs one free block of up to 23 KB. WiFi keeps fewer receive
 # buffers all the time (each 1.6 KB) and caps the ones it takes under load, and
 # each TCP connection buffers at most two segments: the API's replies are small

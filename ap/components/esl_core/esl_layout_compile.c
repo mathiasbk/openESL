@@ -7,10 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Layout file (JSON) -> the binary the tags download. The format is in
- * docs/protokoll.md part 3; the limits come from shared/proto.h and match
- * what tag/src/layout.c can draw. Pure C, no ESP-IDF: also used by the tag's
- * preview tool (tag/tools/render_host.py). */
+/* Layout file (JSON) -> the binary esl_render.c draws from. The format is in
+ * docs/protokoll.md part 3; the limits come from shared/proto.h. Pure C, no ESP-IDF:
+ * also built into the web page's renderer (web/wasm/web_api.c). */
 
 typedef struct {
     const char *js;
@@ -21,6 +20,8 @@ typedef struct {
     /* current place in the file, for messages */
     int li, ei;
     /* the fixed texts of the whole file, in Latin-1, each once */
+    uint8_t model;
+    bool has_red;         /* the model draws red: red and red_invert are allowed */
     uint8_t ntext;
     uint8_t tlen[ESL_LBIN_TEXT_MAX];
     uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
@@ -129,13 +130,14 @@ static const char *const align_names[] = {"left", "center", "right", NULL};
 static const uint8_t align_opts[] = {ESL_LE_LEFT, ESL_LE_CENTER, ESL_LE_RIGHT};
 static const char *const valign_names[] = {"top", "middle", "bottom", NULL};
 static const uint8_t valign_opts[] = {0, ESL_LE_MIDDLE, ESL_LE_BOTTOM};
-static const char *const color_names[] = {"black", "white", "invert", "highlight", "frame", NULL};
-static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT, ESL_LE_PRICE_HL, ESL_LE_FRAME};
+static const char *const color_names[] = {"black", "white", "invert", "highlight", "frame", "red", "red_invert", NULL};
+static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT, ESL_LE_PRICE_HL, ESL_LE_FRAME,
+                                      ESL_LE_RED, ESL_LE_RED_INVERT};
 
 typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
-    unsigned runs, rects; /* what the layout needs at most from the tag's scene */
+    unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
     unsigned barcodes;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
@@ -220,7 +222,7 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
     if (si == ESL_BC_EAN13 && max < ean)
         return fail(c, "an EAN-13 with its quiet zones is %u modules: w must be at least %u", ean, ean * (mw ? mw : 1));
     if (++lay->barcodes > ESL_DRAW_MAX_BARCODES)
-        return fail(c, "the tag draws at most %d barcode per screen", ESL_DRAW_MAX_BARCODES);
+        return fail(c, "the AP draws at most %d barcode per screen", ESL_DRAW_MAX_BARCODES);
     lay->bc_field = (int8_t)fi;
     lay->bc_sym = (uint8_t)si;
     lay->bc_max = (uint16_t)max;
@@ -258,6 +260,10 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "x + w = %u is past the right edge of the screen (%u)", x + w, (unsigned)c->scr_w);
     if (y + h > c->scr_h)
         return fail(c, "y + h = %u is past the bottom of the screen (%u)", y + h, (unsigned)c->scr_h);
+    if (y > 255 || h > 255)
+        /* ESL_LE_OFF_Y and ESL_LE_OFF_H are one byte each in this format: a screen taller
+           than 255 pixels needs a new layout format, not a silently cut coordinate */
+        return fail(c, "y and h must be at most 255 (the layout format has one byte for each)");
 
     memset(out, 0, ESL_LE_SIZE);
     out[ESL_LE_OFF_KIND] = text ? ESL_LE_TEXT : barcode ? ESL_LE_BARCODE : ESL_LE_RECT;
@@ -272,8 +278,12 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int col = esl_json_obj_get(c->js, c->tok, e, "color");
     int ci = col < 0 ? 0 : pick(c, col, color_names);
     if (ci < 0)
-        return fail(c, "color must be black, white, invert, highlight or frame");
+        return fail(c, "color must be black, white, invert, highlight or frame%s",
+                    c->has_red ? ", or red or red_invert" : "");
     uint8_t color = color_codes[ci];
+    if ((color == ESL_LE_RED || color == ESL_LE_RED_INVERT) && !c->has_red)
+        return fail(c, "the %s is a black/white model: red and red_invert need a model with red",
+                    esl_model_name(c->model));
     out[ESL_LE_OFF_COLOR] = color;
 
     if (!barcode) {
@@ -288,8 +298,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         for (int i = 0; i < 6; i++)
             if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
                 return fail(c, "%s is only for text elements", text_only[i]);
-        if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL)
-            return fail(c, "a rect can be black, white or frame");
+        if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT)
+            return fail(c, "a rect can be black, white, red or frame");
         lay->rects++;
         return true;
     }
@@ -358,11 +368,11 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "lines must be 0 (as many as fit) to %d", ESL_LE_MAX_LINES);
     out[ESL_LE_OFF_LINES] = (uint8_t)lines;
 
-    bool inverted = color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL;
+    bool inverted = color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT;
     unsigned pad = inverted ? 2 * ESL_INVERT_PAD : 0;
     if (h < min_h + pad || w <= pad)
         return fail(c, "the box (%ux%u) is too small for its smallest font (%u px high%s)", w, h, min_h,
-                    inverted ? " plus the black border of an inverted field" : "");
+                    inverted ? " plus the border of an inverted field" : "");
 
     /* Lines this element can draw at most: the tag tries each font and uses
      * as many lines as the box holds (1..3), limited by "lines". */
@@ -427,7 +437,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
         return fail(c, "elements must be a list of at least one element");
     size_t need = 1 + (size_t)T(c, el)->size * ESL_LE_SIZE;
     if (T(c, el)->size > 255 || *pos + need > ESL_LBIN_MAX)
-        return fail(c, "the file is too big for the tags: at most %d bytes, about %d elements in all",
+        return fail(c, "the file is too big: at most %d bytes compiled, about %d elements in all",
                     ESL_LBIN_MAX, (ESL_LBIN_MAX - ESL_LBIN_HDR_LEN) / ESL_LE_SIZE);
     out->bin[(*pos)++] = (uint8_t)T(c, el)->size;
     k = el + 1;
@@ -440,10 +450,10 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     c->ei = -1;
 
     if (lay.runs > ESL_DRAW_MAX_RUNS)
-        return fail(c, "needs up to %u lines of text, the tag draws at most %d per screen (lower lines or h)",
+        return fail(c, "needs up to %u lines of text, the AP draws at most %d per screen (lower lines or h)",
                     lay.runs, ESL_DRAW_MAX_RUNS);
     if (lay.rects > ESL_DRAW_MAX_RECTS)
-        return fail(c, "needs %u rectangles (rect elements and inverted fields), the tag draws at most %d",
+        return fail(c, "needs %u rectangles (rect elements and inverted fields), the AP draws at most %d",
                     lay.rects, ESL_DRAW_MAX_RECTS);
     out->nfields[c->li] = lay.nfields;
     out->bc_field[c->li] = lay.bc_field;
@@ -468,6 +478,8 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     memset(out, 0, sizeof(*out));
     if (!esl_model_size(model, &c.scr_w, &c.scr_h))
         return fail(&c, "unknown model");
+    c.model = model;
+    c.has_red = esl_model_has_red(model);
     if (len == 0 || len > ESL_LAYOUT_MAX_SIZE)
         return fail(&c, "the file must be 1 to %d bytes", ESL_LAYOUT_MAX_SIZE);
 
@@ -529,7 +541,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     c.li = -1;
     for (unsigned i = 0; i < c.ntext; i++) {
         if (pos + 1 + c.tlen[i] > ESL_LBIN_MAX) {
-            fail(&c, "the file is too big for the tags: at most %d bytes with the fixed texts", ESL_LBIN_MAX);
+            fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts", ESL_LBIN_MAX);
             goto done;
         }
         out->bin[pos++] = c.tlen[i];

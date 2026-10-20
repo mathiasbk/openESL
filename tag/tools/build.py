@@ -3,13 +3,14 @@
 Build script for the tag firmware. Works with and without make (the Makefile only calls this script).
 
   python tools/build.py test      host tests (a C compiler on the PC)
-  python tools/build.py preview   draws the example layouts to build/preview/*.png
   python tools/build.py fw        firmware with SDCC -> build/fw/openesl.bin (bootloader + application,
                                   for the flasher) and build/fw/openesl-ota.bin (the application
                                   with the OTA header, for the AP; docs/tag-ota.md)
-                                  (MODEL=154 for the 1.54" -> build/fw154/; default 29)
+                                  (MODEL=<build> from shared/models.json: 154 for the 1.54"
+                                  -> build/fw154/; default 29)
   python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
-                                  (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead)
+                                  (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead;
+                                  HWTEST_CHIP=<chip> for another chip in CHIPS, default zbs243)
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
   python tools/build.py clean
 
@@ -27,8 +28,11 @@ TAG = os.path.dirname(HERE)
 ROOT = os.path.dirname(TAG)
 BUILD = os.path.join(TAG, "build")
 
+sys.path.insert(0, os.path.join(ROOT, "shared"))
+import models  # noqa: E402  (the model registry, shared/models.json)
+
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
-CODE_SIZE = 0xF400              # 0xF400-0xF7FF: layout file store, 0xF800-0xFBFF: record store (hal_*store_*); 0xFC00 up: the stock MAC
+CODE_SIZE = 0xF400              # 0xF400-0xF7FF: free (the probes' logs), 0xF800-0xFBFF: record store (hal_store_*); 0xFC00 up: the stock MAC
 BOOT_SIZE = 0x400               # page 0: the bootloader (boot/); the application starts here (ESL_FW_APP_BASE)
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test"),
@@ -37,28 +41,32 @@ INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join
 OTA_FILE_MAGIC = 0x5746534F     # ESL_FWF_MAGIC in shared/proto.h
 OTA_FILE_FORMAT = 1
 
-CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c", "src/barcode.c"]
+CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/status.c"]
 FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fonts", "font_*.c")))
+# The firmware only draws its status screens (src/status.c): small and medium. The other
+# fonts (and src/barcode.c) are for the AP's drawing (esl_render.c) and the host tests.
+FW_FONTS = ["fonts/font_small.c", "fonts/font_medium.c"]
 
 HOST_TARGETS = {
-    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "boot/boot_core.c", "test/fake_xflash.c",
-                                "test/test_ota.c", "test/test_main.c", "test/test_proto.c",
-                                "test/test_font.c", "test/test_draw.c", "test/test_layout.c",
-                                "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c",
+    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+                                "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
+                                "test/test_font.c", "test/test_draw.c", "test/test_status.c",
+                                "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
                                 "test/helpers.c"],
-    "test_epd": CORE + FONTS + ["src/epd.c", "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
-    "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
+    "test_epd": CORE + FONTS + ["src/epd.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+                                "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
 }
 
 
 
-def read_version():
-    """The tag firmware's version, as ("1.2.3", 10203): the release the tag sources last changed in
-    (tools/fw_version.py), so a release that changes only the AP gives the tags nothing new.
+def read_version(model):
+    """The firmware version of one tag model (build "29", "154"), as ("1.2.3", 10203): the release
+    the model's sources last changed in (tools/fw_version.py), so a release that changes only the
+    AP, or only another model, gives these tags nothing new.
     The number is what the tag sends in POLL (u16), so major is at most 6 and minor and patch at most 99."""
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     import fw_version
-    text = fw_version.version("tag")
+    text = fw_version.version("tag-" + model)
     parts = text.split(".")
     if len(parts) != 3 or not all(p.isdigit() for p in parts):
         sys.exit("VERSION must be major.minor.patch, got %r" % text)
@@ -68,16 +76,68 @@ def read_version():
     return text, major * 10000 + minor * 100 + patch
 
 
-def version_defines():
-    text, number = read_version()
+def version_defines(model):
+    text, number = read_version(model)
     return ["-DFW_VERSION=%d" % number, '-DFW_VERSION_STR="%s"' % text]
 
 
-HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c"] + CORE + FONTS + HAL_SOURCES + \
-    ["src/hal/zbs243/xflash_zbs243.c"]
-BOOT_SOURCES = ["boot/boot_zbs243.c", "boot/boot_core.c"]
-HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES
+def host_model():
+    """The model the host tests are built for: -DMODEL=<build> in HOST_CFLAGS, else the first"""
+    for flag in os.environ.get("HOST_CFLAGS", "").split():
+        if flag.startswith("-DMODEL="):
+            return flag[len("-DMODEL="):]
+    return models.load()[0]["build"]
+
+
+# The chips the tag firmware is built for, by "chip" in shared/models.json (tools/gen_models.py
+# refuses a model whose chip is not here). A chip is its hardware layer in src/hal/<chip>/ (what
+# src/hal/hal.h and hal_epd.h declare), its bootloader in boot/<chip>/ (the functions in
+# boot/boot_core.h) and an entry here; everything else in src/ is the same for every chip.
+#   hal       the hardware layer, in the firmware and in hwtest
+#   hal_fw    the rest of it that only the firmware needs
+#   boot      the bootloader, linked alone at 0 (boot_core.c holds its decisions)
+#   hwtest    the bring-up program (python tools/build.py hwtest; HWTEST_MAIN picks another)
+#   build     how it is compiled: build_8051 (SDCC, MCS-51) for the ZBS243
+#   code_size, boot_size   the application ends below code_size and starts at boot_size; these
+#             must be ESL_FW_APP_END and ESL_FW_APP_BASE in shared/proto.h, which the bootloader,
+#             src/ota.c and the AP (esl_tagfw.c) use for every chip (cmd_fw checks it)
+CHIPS = {
+    "zbs243": {
+        "hal": ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"],
+        "hal_fw": ["src/hal/zbs243/xflash_zbs243.c"],
+        "boot": ["boot/zbs243/boot_zbs243.c", "boot/boot_core.c"],
+        "hwtest": "src/hal/zbs243/hwtest.c",
+        "build": "build_8051",
+        "code_size": CODE_SIZE,
+        "boot_size": BOOT_SIZE,
+    },
+}
+# What the firmware is built from besides the chip's own files
+FW_COMMON = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS
+
+
+def chip_of(m):
+    if m["chip"] not in CHIPS:
+        sys.exit("model %s: no tag firmware for chip %s (CHIPS in tag/tools/build.py)" % (m["name"], m["chip"]))
+    return CHIPS[m["chip"]]
+
+
+def proto_define(name):
+    """A number #defined in shared/proto.h ("0x0400u" -> 1024)"""
+    import re
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        mt = re.search(r"^#define\s+%s\s+(0x[0-9A-Fa-f]+|[0-9]+)u?\b" % name, f.read(), re.M)
+    if not mt:
+        sys.exit("shared/proto.h has no %s" % name)
+    return int(mt.group(1), 0)
+
+
+def check_app_area(name, chip):
+    """The OTA format (ESL_FW_APP_BASE/END in shared/proto.h) is the same for every chip so far"""
+    base, end = proto_define("ESL_FW_APP_BASE"), proto_define("ESL_FW_APP_END")
+    if (chip["boot_size"], chip["code_size"]) != (base, end):
+        sys.exit("chip %s: boot_size/code_size 0x%X/0x%X are not ESL_FW_APP_BASE/END 0x%X/0x%X in shared/proto.h" %
+                 (name, chip["boot_size"], chip["code_size"], base, end))
 
 
 def find_cc():
@@ -114,36 +174,16 @@ def build_host(name):
     flags = ["-std=c99", "-Wall", "-Wextra", "-O1", "-g"]
     flags += os.environ.get("HOST_CFLAGS", "").split()
     srcs = [os.path.join(TAG, s) for s in HOST_TARGETS[name]]
-    run(cc + flags + version_defines() + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
+    run(cc + flags + version_defines(host_model()) + ["-I" + i for i in INCLUDES] + srcs + ["-o", exe])
     return exe
 
 
 def cmd_test():
-    # test_barcode writes its screens here for test_label_barcode.py to decode
-    os.environ["ESL_TEST_OUT"] = os.path.join(BUILD, "host", "barcodes")
-    os.makedirs(os.environ["ESL_TEST_OUT"], exist_ok=True)
     for name in ("test_all", "test_epd"):
         exe = build_host(name)
         run([exe])
     run([sys.executable, "-m", "unittest", "discover", "-s", os.path.join(TAG, "test"),
          "-p", "test_label_*.py"])
-
-
-def cmd_preview():
-    exe = build_host("preview")
-    out = os.path.join(BUILD, "preview")
-    os.makedirs(out, exist_ok=True)
-    run([exe, out])
-    try:
-        from PIL import Image
-    except ImportError:
-        print("Pillow is missing: the PPM files are in", out)
-        return
-    for ppm in glob.glob(os.path.join(out, "*.ppm")):
-        img = Image.open(ppm)
-        img.resize((img.width * 2, img.height * 2), Image.NEAREST).save(ppm[:-4] + ".png")
-        os.remove(ppm)
-    print("Images in", out)
 
 
 def ihx_to_bin(ihx, bin_path, base=0, limit=CODE_SIZE):
@@ -182,7 +222,8 @@ def crc32(data):
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, model="--model-large"):
+def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, model="--model-large",
+               tag_model=None):
     """Compiles and links; returns the image from code_loc as bytes (also written to <name>.bin)."""
     sdcc = os.environ.get("SDCC", "sdcc")
     winget_sdcc = r"C:\Program Files\SDCC\bin\sdcc.exe"   # winget installs SDCC here without adding it to PATH
@@ -207,7 +248,8 @@ def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, m
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
-        run([sdcc] + flags + list(defines) + version_defines() + ["-I" + i for i in INCLUDES[:2]] +
+        run([sdcc] + flags + list(defines) + version_defines(tag_model or models.load()[0]["build"]) +
+            ["-I" + i for i in INCLUDES[:2]] +
             ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
     ihx = os.path.join(out, name + ".ihx")
@@ -220,18 +262,26 @@ def cmd_fw():
          openesl.bin      both, written at 0 by the flasher (the jig)
          openesl-ota.bin  the OTA file for the AP: ESL_FWF_* header + the application"""
     import struct
-    model = os.environ.get("MODEL", "29")
-    if model not in ("29", "154"):
-        sys.exit("MODEL must be 29 or 154")
-    subdir = "fw" if model == "29" else "fw" + model
-    boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
-    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model], code_loc=BOOT_SIZE, limit=CODE_SIZE)
+    ms = models.load()
+    m = models.by_build(os.environ.get("MODEL", ms[0]["build"]), ms)
+    if not m:
+        sys.exit("MODEL must be one of %s (shared/models.json)" % ", ".join(x["build"] for x in ms))
+    model = m["build"]
+    chip = chip_of(m)
+    check_app_area(m["chip"], chip)
+    if chip["build"] != "build_8051":
+        sys.exit("chip %s: build.py has no %s yet" % (m["chip"], chip["build"]))
+    subdir = models.fw_dir(m)
+    boot_size = chip["boot_size"]
+    boot = build_8051(subdir + "/boot", "boot", chip["boot"], code_loc=0, limit=boot_size, model="--model-small")
+    app = build_8051(subdir, "app", FW_COMMON + chip["hal"] + chip["hal_fw"], ["-DMODEL=" + model, "-DFONT_TEXT_ONLY"],
+                     code_loc=boot_size, limit=chip["code_size"], tag_model=model)
     app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
     out = os.path.join(BUILD, subdir)
     with open(os.path.join(out, "openesl.bin"), "wb") as f:
-        f.write(boot + b"\xFF" * (BOOT_SIZE - len(boot)) + app)
-    code = {"29": 1, "154": 2}[model]      # ESL_MODEL_* in shared/proto.h
-    _, fw_ver = read_version()
+        f.write(boot + b"\xFF" * (boot_size - len(boot)) + app)
+    code = m["code"]                        # ESL_MODEL_* in shared/models_gen.h
+    _, fw_ver = read_version(model)
     hdr = struct.pack("<IBBHII", OTA_FILE_MAGIC, OTA_FILE_FORMAT, code, fw_ver, len(app), crc32(app))
     with open(os.path.join(out, "openesl-ota.bin"), "wb") as f:
         f.write(hdr + app)
@@ -240,7 +290,13 @@ def cmd_fw():
 
 
 def cmd_hwtest():
-    build_8051("hwtest", "hwtest", HWTEST_SOURCES)
+    # The ZBS243 unless HWTEST_CHIP names another chip in CHIPS
+    name = os.environ.get("HWTEST_CHIP", "zbs243")
+    if name not in CHIPS:
+        sys.exit("HWTEST_CHIP=%s: not a chip in CHIPS (%s)" % (name, ", ".join(CHIPS)))
+    chip = CHIPS[name]
+    build_8051("hwtest", "hwtest", [os.environ.get("HWTEST_MAIN", chip["hwtest"])] + chip["hal"],
+               limit=chip["code_size"])
 
 
 def cmd_fonts():
@@ -252,7 +308,7 @@ def cmd_clean():
 
 
 def main():
-    cmds = {"test": cmd_test, "preview": cmd_preview, "fw": cmd_fw, "hwtest": cmd_hwtest, "fonts": cmd_fonts, "clean": cmd_clean}
+    cmds = {"test": cmd_test, "fw": cmd_fw, "hwtest": cmd_hwtest, "fonts": cmd_fonts, "clean": cmd_clean}
     if len(sys.argv) != 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     cmds[sys.argv[1]]()

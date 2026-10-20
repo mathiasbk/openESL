@@ -1,12 +1,12 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
   content_id: 7, shown_content_id: 7, pending: false, poll_s: null, config: {}, config_pending: false,
-  layout_version: 1, layout_pending: false, layout_failed: false, content_error: null, ...extra,
+  content_error: null, image: true, image_id: 9, shown_image_id: 9, ...extra,
 });
 
 test("formats", () => {
@@ -26,7 +26,6 @@ test("tag state: problems first, then what is still on its way", () => {
   assert.deepEqual(tagState(tag("A")), { level: "ok", text: "OK" });
   assert.equal(tagState(tag("A", { pending: true })).text, "new content waiting");
   assert.equal(tagState(tag("A", { pending: true, content_id: 0 })).text, "no content yet");
-  assert.equal(tagState(tag("A", { layout_pending: true, pending: true })).text, "downloading the layout file");
   assert.deepEqual(tagState(tag("A", { pending: true }), ["silent", "low_battery"]), { level: "bad", text: "silent, low battery" });
   // overdue but not silent yet: not "OK" next to a late check-in
   assert.deepEqual(tagState(tag("A"), [], { late: true }), { level: "busy", text: "late" });
@@ -90,4 +89,36 @@ test("last and next check-in", () => {
   assert.deepEqual([late.late, late.text], [true, "3 min late"]);
   // another day: the date too
   assert.ok(fmtClock(-86400, now).length > fmtClock(0, now).length);
+});
+
+test("tag image: columns of rows, black plane then red", () => {
+  // 2 x 9 pixels: 2 bytes per column; black at (0,0) and (1,8), red at (1,1)
+  const bytes = new Uint8Array([0x80, 0x00, 0x00, 0x80, /* red */ 0x00, 0x00, 0x40, 0x00]);
+  const data = btoa(String.fromCharCode(...bytes));
+  const img = decodeTagImage({ width: 2, height: 9, red: true, data });
+  assert.equal(img.pixels[0], 1);
+  assert.equal(img.pixels[1 * 2 + 1], 2);
+  assert.equal(img.pixels[8 * 2 + 1], 1);
+  assert.equal(img.pixels.filter((v) => v).length, 3);
+  assert.equal(decodeTagImage({ width: 2, height: 9, red: true, data: btoa("\0\0\0\0") }), null);
+  assert.equal(decodeTagImage({ width: 2, height: 9, red: false, data }).pixels[1 * 2 + 1], 0);
+});
+
+test("tag screen: fetched again when what it depends on changes, failures that pass are retried", () => {
+  const t = tag("A", { image_id: 0 });
+  assert.notEqual(screenKey(t), screenKey({ ...t, image_id: 5 }));            // drawn, or a new layout file
+  assert.notEqual(screenKey({ ...t, model: null }), screenKey(t));             // model known after its first poll
+  assert.notEqual(screenKey(t), screenKey({ ...t, content_id: 8 }));
+  assert.equal(screenKey(t), screenKey({ ...t, pending: true }));
+  const files = (v) => ({ layouts: [{ model: t.model, version: v }, { model: "other", version: 9 }] });
+  assert.notEqual(screenKey(t, files(1)), screenKey(t, files(2)));            // a new layout file, no image id
+  assert.equal(screenKey(t, files(1)), screenKey(t, { layouts: [{ model: t.model, version: 1 }] }));
+  assert.equal(screenKey(t), screenKey(t, null));
+  assert.equal(screenErrorFinal(new Error("404: model not known yet")), true);
+  assert.equal(screenErrorFinal(new Error("409: the content cannot be drawn")), true);
+  assert.equal(screenErrorFinal({ status: 404, message: "not found" }), true);
+  assert.equal(screenErrorFinal(new Error("503: out of memory")), false);
+  assert.equal(screenErrorFinal(new Error("429: too many requests")), false);
+  assert.equal(screenErrorFinal(new Error("no answer from http://ap")), false);
+  assert.equal(screenErrorFinal({ status: 0, message: "no answer from the AP on the USB port" }), false);
 });

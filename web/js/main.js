@@ -5,6 +5,13 @@ import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS 
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initDashboard } from "./dashboard.js";
+import { MODELS } from "./models.js";
+
+// The board picked on the Flash AP tab, kept between visits
+const store = {
+  get: (k) => { try { return localStorage.getItem("openesl." + k) || ""; } catch { return ""; } },
+  set: (k, v) => { try { localStorage.setItem("openesl." + k, v); } catch { /* private window */ } },
+};
 
 const $ = (id) => document.getElementById(id);
 
@@ -52,23 +59,51 @@ firmwareInfo().then((info) => {
   const built = !info ? "" : info.release
     ? `Release ${info.version}.`
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
-  // The AP and the tags each carry the version of the release they last changed in
-  const parts = info?.ap_version && info?.tag_version && info.ap_version !== info.tag_version
-    ? ` AP firmware ${info.ap_version}, tag firmware ${info.tag_version}.` : "";
+  // The AP and each tag model carry the version of the release they last changed in; named
+  // only when they differ (tag_versions is keyed by build: "29" is the 2.9")
+  const nameOf = (build) => Object.entries(MODELS).find(([, m]) => m.build === build)?.[0] ?? build;
+  const tagVersions = Object.entries(info?.tag_versions || {}).filter(([, v]) => v);
+  const tagText = new Set(tagVersions.map(([, v]) => v)).size > 1
+    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${nameOf(b)}")`).join(", ")
+    : info?.tag_version ? `tag firmware ${info.tag_version}` : "";
+  const allSame = new Set([info?.ap_version, ...tagVersions.map(([, v]) => v)]).size <= 1;
+  const parts = info?.ap_version && tagText && !allSame ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
-  $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
-  // The AP with the status screen is optional: a checkbox picks its manifest
-  $("ap-lcd-choice").hidden = $("ap-lcd-note").hidden = !info?.ap_lcd;
+  $("ap-fw-info").textContent = info?.ap_boards?.length || info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
+  // One manifest per AP board (ap/boards/, ap_boards in info.json); an info.json from before
+  // that has only the C6 and the C6 with the status screen
+  const boards = info?.ap_boards || [
+    ...(info?.ap ? [{ id: "c6-supermini", name: "ESP32-C6", manifest: "ap-manifest.json" }] : []),
+    ...(info?.ap_lcd ? [{ id: "c6-supermini-lcd", name: "ESP32-C6 with status screen", display: true, manifest: "ap-lcd-manifest.json" }] : []),
+  ];
+  $("ap-board").replaceChildren(...boards.map((b) => {
+    const o = document.createElement("option");
+    o.value = b.id;
+    o.textContent = (b.name || b.label) + (b.status === "experimental" ? " (experimental)" : "");
+    return o;
+  }));
+  $("ap-board-choice").hidden = boards.length < 2;
+  const saved = store.get("ap.board");
+  if (boards.some((b) => b.id === saved)) $("ap-board").value = saved;
   // The install button fetches the manifest and the image without asking the server again, so a
   // browser that cached them from an earlier visit would offer the previous release (GitHub Pages
   // lets files be cached for 10 minutes): the version in the address makes each release new to it
   const v = info ? "?v=" + encodeURIComponent(info.version) : "";
   const manifest = () => {
-    $("ap-install").setAttribute("manifest", ($("ap-lcd").checked ? "firmware/ap-lcd-manifest.json" : "firmware/ap-manifest.json") + v);
+    const b = boards.find((x) => x.id === $("ap-board").value) || boards[0];
+    $("ap-install").setAttribute("manifest", "firmware/" + (b?.manifest || "ap-manifest.json") + v);
+    const note = [
+      b?.label ? b.label.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "." : "",
+      b?.display ? "The screen pins are a guess until checked on the board (<a href=\"https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd\">ap/README.md</a>)." : "",
+      b?.status === "experimental" ? "Built, but not tried on a board yet." : "",
+    ].filter(Boolean).join(" ");
+    $("ap-board-note").innerHTML = note;
+    $("ap-board-note").hidden = !note;
+    if (b) store.set("ap.board", b.id);
   };
   manifest();
-  $("ap-lcd").onchange = manifest;
-  $("tag-fw-info").textContent = info?.tag ? built + (info.tag_version ? ` Tag firmware ${info.tag_version}.` : "") : "No tag firmware is published with this page; choose a file.";
+  $("ap-board").onchange = manifest;
+  $("tag-fw-info").textContent = info?.tag ? built + (tagText ? ` ${tagText[0].toUpperCase()}${tagText.slice(1)}.` : "") : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });
 
@@ -79,9 +114,34 @@ let transport = null;
 let backups = null;
 let busy = false;
 let lastMacSeen = false;
-let tagModel = "2.9";
+let tagModel = Object.keys(MODELS)[0];
 
-// ---------- model picker: a photo of each tag ----------
+// ---------- model picker: a photo of each tag, one button per model in the registry
+// (shared/models.json -> js/models.js); a model without a photo gets an empty box of its
+// screen's shape ----------
+
+for (const [name, m] of Object.entries(MODELS)) {
+  const b = document.createElement("button");
+  Object.assign(b, { type: "button", className: "model" });
+  b.setAttribute("role", "radio");
+  b.dataset.model = name;
+  b.setAttribute("aria-checked", name === tagModel);
+  const c = m.photo
+    ? Object.assign(document.createElement("img"), {
+        src: m.photo.file,
+        width: m.photo.width,
+        height: m.photo.height,
+        alt: `Photo of the ${name}" tag`,
+      })
+    : Object.assign(document.createElement("canvas"), { width: m.width, height: m.height });
+  const n = Object.assign(document.createElement("span"), { className: "name", textContent: name + '"' });
+  const d = Object.assign(document.createElement("span"), {
+    className: "muted",
+    textContent: `${m.width} × ${m.height}, ${m.product}`,
+  });
+  b.append(c, n, d);
+  $("tag-models").append(b);
+}
 
 function selectModel(model) {
   if (busy) return;

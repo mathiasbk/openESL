@@ -8,7 +8,6 @@
 #define MAC2 "0000000000000002"
 #define T0 1792065600u /* 2026-10-15 12:00 UTC */
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_sched_entry_t entries[CAP];
 static esl_sched_t sched;
@@ -50,7 +49,8 @@ static const esl_sched_ops_t ops = {NULL, NULL, NULL, blob_save, blob_load, blob
 
 static void reset(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_sched_init(&sched, entries, CAP, &ops);
     memset(blob_len, 0, sizeof(blob_len));
     saves = erases = 0;
@@ -69,11 +69,11 @@ static void price(const char *name, esl_content_t *c)
 
 static bool shows(uint64_t mac, const char *name)
 {
-    esl_tag_t t;
+    esl_content_t c;
     uint8_t len;
-    if (!esl_store_get(&st, mac, &t) || !t.has_content)
+    if (!esl_store_get_content(&st, mac, &c))
         return false;
-    const uint8_t *f = esl_content_field(&t.content, 0, &len);
+    const uint8_t *f = esl_content_field(&c, 0, &len);
     return len == strlen(name) && memcmp(f, name, len) == 0;
 }
 
@@ -155,7 +155,7 @@ static void test_core(void)
 
 static uint16_t poll_next(uint64_t mac, uint64_t now_ms, uint8_t *type)
 {
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0};
     uint8_t reply[ESL_MAX_PAYLOAD];
     CHECK(esl_store_on_poll(&st, mac, &p, -61, now_ms, NULL, reply) > 0);
     if (type)
@@ -194,7 +194,8 @@ static void test_wake(void)
     CHECK_INT(poll_next(1, 101500, NULL), 2);  /* due, but the tick has not run yet */
     CHECK_INT(esl_sched_tick(&sched, &st, 101000), 2);
     CHECK_INT(poll_next(1, 103000, &type), 300);
-    CHECK_INT(type, ESL_MSG_CONTENT);
+    CHECK_INT(type, ESL_MSG_IDLE); /* the content is set: the image follows the IDLE */
+    CHECK(shows(1, "A"));
     CHECK(shows(2, "A"));
 
     /* far away: the normal interval; removing the entry takes the hint away */

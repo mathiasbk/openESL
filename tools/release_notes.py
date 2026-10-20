@@ -14,8 +14,9 @@ the body of the release pull request (development -> master):
 Each pull request merged in the range (a merge commit "Merge pull request #N", or a squash
 commit ending in "(#N)") is sorted by the files it changed, with the parts of
 tools/fw_version.py: a pull request that touched both the AP and the tags is listed under
-both. The AP and tag sections say the version the firmware carries at UNTIL, and "unchanged"
-when no pull request touched that part since the previous release.
+both. The AP and tag sections say the version the firmware carries at UNTIL (the tag section
+each model's, when they differ), and "unchanged" when no pull request touched that part since
+the previous release.
 """
 import os
 import re
@@ -86,6 +87,11 @@ def notes(since, until, versions):
         head = name
         if key in versions:
             head += " %s" % versions[key]
+            # each tag model keeps its own version: name them when they differ
+            per_model = {k[4:]: v for k, v in versions.items() if k.startswith("tag-")}
+            if key == "tag" and len(set(per_model.values())) > 1:
+                names = {m["build"]: m["name"] for m in fw_version.models()}
+                head += " (%s)" % ", ".join('%s": %s' % (names.get(b, b), v) for b, v in per_model.items())
             if not sections[key]:
                 head += " (unchanged since %s: nothing new to flash)" % since
         lines.append("## " + head)
@@ -110,7 +116,8 @@ def main():
     if not since:
         sys.exit("release_notes.py: no release tag to start from")
     # the versions of the commit UNTIL, whatever branch is checked out
-    versions = {part: fw_version.version(part, at=until) for part in ("ap", "tag")}
+    versions = {part: fw_version.version(part, at=until)
+                for part in ["ap", "tag"] + ["tag-" + m["build"] for m in fw_version.models()]}
     sys.stdout.write(notes(since, until, versions))
 
 
