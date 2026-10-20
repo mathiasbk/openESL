@@ -74,6 +74,7 @@ typedef struct {
        image_layout_ver the version of the layout file it was drawn with;
        shown_content_id is then the id it shows. The offer bookkeeping as for firmware. */
     bool image_capable;       /* its last POLL had ESL_POLL_F_IMAGE */
+    bool image_rle;           /* ... and ESL_POLL_F_IMG_RLE: it takes coded images */
     uint32_t image_id;
     uint32_t image_layout_ver;
     uint32_t image_offered;   /* id the AP last offered it (RAM only) */

@@ -26,6 +26,14 @@ static uint32_t xflash_crc(uint32_t addr, uint16_t len)
     return crc ? crc : 1;
 }
 
+/* A size that fits the format: exactly the screen raw, shorter coded. */
+static bool size_ok(uint8_t fmt, uint16_t size)
+{
+    if (fmt == ESL_IMG_FMT_RAW)
+        return size == IMG_RAW_SIZE;
+    return fmt == ESL_IMG_FMT_RLE && size && size < IMG_RAW_SIZE;
+}
+
 /* The id of the image the slot holds whole, or 0. The flash must be open. */
 static uint32_t slot_check(void)
 {
@@ -35,9 +43,9 @@ static uint32_t slot_check(void)
     hal_xflash_read(IMG_SLOT, page, IMG_HDR_LEN);
     size = ESL_GET_U16(page + IMG_HDR_OFF_SIZE);
     id = ESL_GET_U32(page + IMG_HDR_OFF_ID);
+    image.slot_fmt = page[IMG_HDR_OFF_FMT];
     if (ESL_GET_U32(page + IMG_HDR_OFF_MAGIC) != IMG_HDR_MAGIC || page[IMG_HDR_OFF_FORMAT] != IMG_HDR_FORMAT ||
-        page[IMG_HDR_OFF_MODEL] != MODEL_CODE || page[IMG_HDR_OFF_FMT] != ESL_IMG_FMT_RAW ||
-        size != IMG_RAW_SIZE || id == 0)
+        page[IMG_HDR_OFF_MODEL] != MODEL_CODE || !size_ok(image.slot_fmt, size) || id == 0)
         return 0;
     return xflash_crc(IMG_SLOT + IMG_DATA_OFF, size) == id ? id : 0;
 }
@@ -57,7 +65,7 @@ void image_init(uint8_t present)
 
 uint8_t image_poll_flags(void)
 {
-    return image.present ? ESL_POLL_F_IMAGE : 0;
+    return image.present ? ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE : 0;
 }
 
 void image_open(void)
@@ -85,14 +93,72 @@ static bool write_header(void)
     return hal_xflash_write(IMG_SLOT, page, IMG_HDR_LEN);
 }
 
-/* Programs page[] (filled up to n bytes) as the image page that starts at pos. */
-static bool flush(uint16_t pos, uint16_t n)
+/* Programs page[] (filled up to n bytes) at a, the start of a flash page. */
+static bool flush_at(uint32_t a, uint16_t n)
 {
-    uint32_t a = IMG_SLOT + IMG_DATA_OFF + pos;
-
     if ((a & (IMG_DATA_OFF * 16 - 1)) == 0 && !hal_xflash_erase(a))   /* a new 4 KB sector */
         return false;
     return hal_xflash_write(a, page, n);
+}
+
+/* ... as the downloaded image page that starts at pos. */
+static bool flush(uint16_t pos, uint16_t n)
+{
+    return flush_at(IMG_SLOT + IMG_DATA_OFF + pos, n);
+}
+
+/* ESL_IMG_FMT_RLE (shared/proto.h): the coded image at IMG_DATA_OFF decoded to
+   IMG_RAW_OFF through page[]. False unless it gives exactly IMG_RAW_SIZE bytes. */
+static uint8_t __xdata rd_buf[32];
+static uint16_t rd_pos, wr_pos;
+static uint8_t rd_i, rd_n;
+
+static bool rd(uint8_t *b)
+{
+    if (rd_i == rd_n) {
+        if (rd_pos >= image.dl_size)
+            return false;
+        rd_n = image.dl_size - rd_pos < sizeof(rd_buf) ? (uint8_t)(image.dl_size - rd_pos) : sizeof(rd_buf);
+        hal_xflash_read(IMG_SLOT + IMG_DATA_OFF + rd_pos, rd_buf, rd_n);
+        rd_pos += rd_n;
+        rd_i = 0;
+    }
+    *b = rd_buf[rd_i++];
+    return true;
+}
+
+static bool wr(uint8_t b)
+{
+    if (wr_pos >= IMG_RAW_SIZE)
+        return false;
+    page[wr_pos & (IMG_DATA_OFF - 1)] = b;
+    wr_pos++;
+    return (wr_pos & (IMG_DATA_OFF - 1)) || flush_at(IMG_SLOT + IMG_RAW_OFF + wr_pos - IMG_DATA_OFF, IMG_DATA_OFF);
+}
+
+static bool rle_decode(void)
+{
+    uint8_t c, b, n;
+
+    rd_pos = wr_pos = 0;
+    rd_i = rd_n = 0;
+    while (rd(&c)) {
+        if (c < 0x80) {
+            for (n = c + 1; n; n--)
+                if (!rd(&b) || !wr(b))
+                    return false;
+        } else {
+            if (!rd(&b))
+                return false;
+            for (n = c - 0x80 + 2; n; n--)
+                if (!wr(b))
+                    return false;
+        }
+    }
+    if (wr_pos != IMG_RAW_SIZE)
+        return false;
+    n = wr_pos & (IMG_DATA_OFF - 1);
+    return !n || flush_at(IMG_SLOT + IMG_RAW_OFF + (wr_pos & ~(IMG_DATA_OFF - 1)), n);
 }
 
 static uint8_t fail(uint32_t id)
@@ -113,7 +179,7 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d)
         return IMAGE_DONE;                     /* already here: show it again */
     if (r->img_id != image.dl_id || r->lay_size != image.dl_size || r->img_fmt != image.dl_fmt) {
         /* A new image (or it changed on the AP): start from the beginning */
-        if (r->fw_model != MODEL_CODE || r->img_fmt != ESL_IMG_FMT_RAW || r->lay_size != IMG_RAW_SIZE)
+        if (r->fw_model != MODEL_CODE || !size_ok(r->img_fmt, r->lay_size))
             return fail(r->img_id);
         image.dl_id = r->img_id;
         image.dl_size = r->lay_size;
@@ -139,9 +205,11 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d)
        header, which marks the slot as whole. */
     if (((image.dl_got & (IMG_DATA_OFF - 1)) != 0 &&
          !flush(image.dl_got & ~(IMG_DATA_OFF - 1), image.dl_got & (IMG_DATA_OFF - 1))) ||
-        xflash_crc(IMG_SLOT + IMG_DATA_OFF, image.dl_size) != image.dl_id || !write_header())
+        xflash_crc(IMG_SLOT + IMG_DATA_OFF, image.dl_size) != image.dl_id ||
+        (image.dl_fmt == ESL_IMG_FMT_RLE && !rle_decode()) || !write_header())
         return fail(image.dl_id);
     image.slot_id = image.dl_id;
+    image.slot_fmt = image.dl_fmt;
     image.dl_id = 0;
     return IMAGE_DONE;
 }
@@ -169,7 +237,8 @@ void image_forget(void)
 
 void image_column(uint16_t x, uint8_t __xdata *black, uint8_t __xdata *red)
 {
-    uint32_t a = IMG_SLOT + IMG_DATA_OFF + (uint32_t)x * DRAW_COL_BYTES;
+    uint32_t a = IMG_SLOT + (image.slot_fmt == ESL_IMG_FMT_RLE ? IMG_RAW_OFF : IMG_DATA_OFF) +
+                 (uint32_t)x * DRAW_COL_BYTES;
     uint8_t i;
 
     hal_xflash_read(a, black, DRAW_COL_BYTES);

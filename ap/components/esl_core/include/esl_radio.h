@@ -110,6 +110,7 @@ typedef struct {
 
     /* images drawn by the AP */
     bool images;               /* reports ESL_POLL_F_IMAGE: content_id in POLL is the image shown */
+    bool img_rle;              /* reports ESL_POLL_F_IMG_RLE: takes coded images too */
     bool img_bad;              /* every image it gets "fails to draw" */
     uint32_t img_dl_id, img_dl_sum;
     uint16_t img_dl_size, img_dl_got;
