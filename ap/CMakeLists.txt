@@ -40,7 +40,8 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # dependencies.lock pins the managed components for the ESP32-C6 (requirement G5); other
 # chips get their own lock file next to it (the component manager writes it on the
-# first build, and it is committed like the C6's).
+# first build). Commit it like the C6's: the C5 and S3 lock files are not in the repo yet,
+# so those builds take the newest components that match ap/main/idf_component.yml.
 if(NOT board_target STREQUAL "esp32c6")
     idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_CURRENT_LIST_DIR}/dependencies.lock.${board_target}")
 endif()
