@@ -84,18 +84,17 @@ jobs:
       - name: The images carry the versions of tools/fw_version.py
         run: |
           python3 tools/fw_version.py --all | tee versions.txt
-          ap=$(awk '$1 == "ap" {print $2}' versions.txt)
-          tag=$(awk '$1 == "tag" {print $2}' versions.txt)
-          python3 - "$ap" "$tag" <<'EOF'
+          python3 - <<'EOF'
           import sys
           sys.path.insert(0, "web")
-          sys.path.insert(0, "shared")
           from build import image_version
-          import models
-          ap, tag = sys.argv[1:]
-          want = {"fw/ap-firmware/openesl-ap-ota.bin": ap, "fw/ap-firmware/openesl-ap-lcd-ota.bin": ap}
-          for m in models.load():     # every tag model in shared/models.json
-              want["fw/tag-firmware/tag-%s-ota.bin" % m["build"]] = tag
+          # "ap 0.4.7", "tag 0.4.7", "tag-29 0.4.7", "tag-154 0.4.5": the AP images carry the
+          # AP version, each model's image its own version
+          versions = dict(line.split() for line in open("versions.txt") if line.strip())
+          want = {"fw/ap-firmware/openesl-ap-ota.bin": versions["ap"], "fw/ap-firmware/openesl-ap-lcd-ota.bin": versions["ap"]}
+          for part, v in versions.items():
+              if part.startswith("tag-"):
+                  want["fw/tag-firmware/%s-ota.bin" % part] = v
           bad = {f: v for f, v in ((f, image_version(f)) for f in want) if v != want[f]}
           for f, v in bad.items():
               print("::error::%s carries version %s, tools/fw_version.py says %s" % (f, v, want[f]))
