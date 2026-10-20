@@ -28,10 +28,11 @@
  * Parsed reply from the AP. Field offsets point into the buffer that was parsed.
  * LAYOUT reuses content_id for the layout version, and field_off[0]/field_len[0]
  * for the data block. FW uses lay_size, lay_pos and field_off[0]/field_len[0] the
- * same way, and the fw_* fields.
+ * same way, and the fw_* fields. IMG uses lay_size, lay_pos, field_off[0]/field_len[0],
+ * fw_model, img_id and img_fmt.
  */
 typedef struct {
-    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT, ESL_MSG_FW or ESL_MSG_CONFIG */
+    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONTENT, ESL_MSG_LAYOUT, ESL_MSG_FW, ESL_MSG_IMG or ESL_MSG_CONFIG */
     uint16_t next_poll_s;    /* 0 = keep the interval */
     uint32_t content_id;     /* CONTENT: content_id; LAYOUT: layout version (0 = none) */
     uint8_t layout;          /* CONTENT only */
@@ -43,7 +44,9 @@ typedef struct {
     uint16_t lay_pos;        /* LAYOUT only: where in the file the block starts */
     uint16_t fw_ver;         /* FW only: version, CRC-32 and model of the image */
     uint32_t fw_crc;
-    uint8_t fw_model;
+    uint8_t fw_model;        /* FW and IMG: model the image is for */
+    uint32_t img_id;         /* IMG only: image_id (CRC-32 of the image) and format */
+    uint8_t img_fmt;
     uint16_t cfg_ver;        /* CONFIG only, the rest of the settings as in shared/proto.h */
     uint16_t cfg_poll_s;
     uint16_t cfg_max_poll_s;
@@ -62,11 +65,14 @@ uint8_t proto_build_layout_req(uint8_t *out, uint32_t layout_ver, uint16_t pos, 
 /* Writes FW_REQ (ESL_FREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max);
 
+/* Writes IMG_REQ (ESL_IREQ_LEN bytes) to out. Returns the length. */
+uint8_t proto_build_img_req(uint8_t *out, uint32_t img_id, uint16_t pos, uint8_t max);
+
 /*
- * Parses an IDLE, CONTENT, LAYOUT, FW or CONFIG payload. Fields that are missing get length 0.
+ * Parses an IDLE, CONTENT, LAYOUT, FW, IMG or CONFIG payload. Fields that are missing get length 0.
  * Bytes after the fourth field are ignored (room for a future MIC), and so are
- * bytes after the settings in CONFIG (settings a newer AP may add). A LAYOUT or FW
- * block must lie inside the file it belongs to.
+ * bytes after the settings in CONFIG (settings a newer AP may add). A LAYOUT, FW or
+ * IMG block must lie inside the file it belongs to.
  */
 int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r);
 

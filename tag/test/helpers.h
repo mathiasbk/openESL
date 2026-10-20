@@ -30,6 +30,10 @@ uint8_t make_layout_block(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint
 uint8_t make_fw_block(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t size, uint16_t pos,
                       uint32_t crc, uint8_t model, const uint8_t *data, uint8_t n);
 
+/* IMG payload: one block (data, n bytes) of a screen image. Returns the length. */
+uint8_t make_img_block(uint8_t *out, uint16_t next_poll_s, uint32_t id, uint16_t size, uint16_t pos,
+                       uint8_t model, uint8_t fmt, const uint8_t *data, uint8_t n);
+
 /* Writes one element in the 14-byte wire format (ESL_LE_* in shared/proto.h). Returns out + 14. */
 uint8_t *put_elem(uint8_t *out, uint8_t kind, uint8_t field, uint8_t f0, uint8_t f1, uint8_t f2,
                   uint8_t opts, uint8_t lines, uint8_t color, uint16_t x, uint8_t y, uint16_t w, uint8_t h);

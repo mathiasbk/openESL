@@ -198,3 +198,18 @@ uint8_t make_fw_block(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t
     memcpy(out + ESL_FW_OFF_DATA, data, n);
     return (uint8_t)(ESL_FW_HDR_LEN + n);
 }
+
+uint8_t make_img_block(uint8_t *out, uint16_t next_poll_s, uint32_t id, uint16_t size, uint16_t pos,
+                       uint8_t model, uint8_t fmt, const uint8_t *data, uint8_t n)
+{
+    out[0] = ESL_MSG_IMG;
+    out[1] = ESL_PROTO_VER;
+    ESL_PUT_U16(out + ESL_OFF_NEXT_POLL, next_poll_s);
+    ESL_PUT_U32(out + ESL_IMG_OFF_ID, id);
+    ESL_PUT_U16(out + ESL_IMG_OFF_SIZE, size);
+    ESL_PUT_U16(out + ESL_IMG_OFF_POS, pos);
+    out[ESL_IMG_OFF_MODEL] = model;
+    out[ESL_IMG_OFF_FMT] = fmt;
+    memcpy(out + ESL_IMG_OFF_DATA, data, n);
+    return (uint8_t)(ESL_IMG_HDR_LEN + n);
+}

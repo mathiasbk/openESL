@@ -25,7 +25,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
 | battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" cannot measure it: its panel cannot be read and the ZBS243 ADC has no supply input, see kildelogg.md) |
 | content_id | 4 | ID of the content the tag shows now (0 = nothing) |
-| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer"), bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bits 2 and 4 stay on until the tag starts downloading another version, so the AP counts them against the version it offered only once the tag has started on it (asked for a block of it, or got a layout file whole in the offer): before that, the offer may have been lost |
+| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit2 = the tag rejected the layout file the AP offered last (see "Layout transfer"), bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bits 2 and 4 stay on until the tag starts downloading another version, so the AP counts them against the version it offered only once the tag has started on it (asked for a block of it, or got a layout file whole in the offer): before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP, and `content_id` is the `image_id` it shows (see "Image transfer") |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
 | layout_ver | 4 | bytes 14–17: version of the layout file the tag has (0 = none, built-in layouts only). Requirement T17 |
@@ -114,6 +114,27 @@ Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 
 | fw_ver | 2 | the version the tag is downloading |
 | pos | 2 | the first byte the tag is missing |
 | crc | 4 | the CRC-32 of the image it is downloading |
+
+**IMG** (AP → tag), `type = 0x09`, 14 bytes + data. One block of a screen image drawn by the AP (see "Image transfer")
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x09, 0x01 |
+| next_poll_s | 2 | as in IDLE |
+| image_id | 4 | CRC-32 of the `size` image bytes as sent; a CRC of 0 is sent as 1, so the id is never 0. The tag reports it as `content_id` once it shows the image |
+| size | 2 | size of the image in bytes, as sent (a compressed image is shorter than the screen) |
+| pos | 2 | where in the image the data starts |
+| model | 1 | the tag model the image is drawn for |
+| fmt | 1 | 0 = raw: 1 bit per pixel in screen coordinates, column by column as the tag's `draw_column()` gives it ((height + 7) / 8 bytes per column, byte 0 bit 7 = row 0 at the top, column 0 at the left first), the black plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a pixel is never set in both. The tag's display code rotates, transposes and inverts it for its panel (the 1.54" panel takes rows, rotated 180°). `size` is then exactly planes × width × ((height + 7) / 8): 4736 bytes on the 2.9", 5000 on the 1.54". Other values are reserved for compressed images, which may be no larger than the tag's image slot; a tag refuses a format it does not know |
+| data | rest | bytes `pos .. pos + n` of the image, n ≤ 92 (`ESL_IMG_CHUNK_MAX` = 110 − 14 − 4 for the MIC) |
+
+**IMG_REQ** (tag → AP), `type = 0x0A`, 10 bytes
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x0A, 0x01 |
+| model | 1 | as in POLL |
+| max | 1 | the most data bytes the tag wants in the answer (1..92) |
+| image_id | 4 | the image the tag is downloading |
+| pos | 2 | the first byte the tag is missing |
 
 ### Layout file on the tag (binary)
 The AP turns the JSON layout file (part 3) into this format. It is what the tag downloads and keeps.
@@ -204,16 +225,33 @@ Tag                                          AP
 - **Check.** The tag refuses an image for another model, the version it runs, a size that is not whole 1 KB pages or larger than 60 KB, and a version it already rejected. When it has the whole image it reads it back from the SPI flash and checks the CRC-32; a mismatch is a rejection (bit4).
 - **Install.** The tag copies its own application to the rollback slot, asks the bootloader to install the new one and restarts. The new firmware reports bit0 (just started) and its version; the first answered POLL confirms it. If it is started 9 times (resets, not wake-ups) without an answer from the AP, the bootloader puts the old firmware back, which then reports bit4.
 
+### Image transfer
+The AP draws the whole screen (the same layouts and fields as before, resolved on the AP) and the tag only stores and shows the picture. The messages follow the firmware transfer.
+```
+Tag                                          AP
+ | POLL(content_id=A, flags bit5) ----------->|  the AP wants image B ≠ A shown, nothing else waits
+ |<------------- IMG(B, size, pos 0, 92 B)    |
+ | IMG_REQ(B, pos 92) ----------------------->|
+ |<------------- IMG(B, size, pos 92, ...)    |  ... 52 blocks for a 2.9" screen, 55 for a 1.54"
+ | has `size` bytes: writes them to the panel
+ | POLL(content_id=B) ----------------------->|  IDLE
+```
+- **When the AP sends it.** To a tag whose POLL has bit5, when the `content_id` it reports differs from the `image_id` of the picture the AP wants shown, after CONFIG and before FW (see "Priority"). The AP sends CONTENT and LAYOUT only to tags without bit5, so old and new firmware can share an AP during an update. The AP has to draw the image before it can send block 0; when it cannot do that within the tag's listening window it answers IDLE with a short `next_poll_s` and sends block 0 at the next POLL.
+- **image_id.** The CRC-32 of the `size` image bytes as they are sent (for a compressed image, the compressed bytes), so the same layout and fields always give the same id, the tag can check the bytes straight from its SPI flash, and a picture the tag already shows is never sent again, also after an AP restart. The id is never 0 (0 in POLL means the tag shows nothing): a CRC of 0 is sent as 1, and the tag compares its CRC the same way.
+- **Blocks.** As for FW: the tag asks with IMG_REQ for the next missing byte, keeps what it has in its SPI flash between wake-ups and asks for at most 64 blocks per wake-up, so a whole screen goes in one wake-up. The AP answers an IMG_REQ for an id it no longer has with block 0 of the picture it wants shown now, and with IDLE when it has none, which ends the transfer.
+- **Check.** The tag refuses an image for another model, a format it does not know, a raw image whose `size` is not exactly its screen, a compressed one larger than its image slot, and an id it refused before. When it has `size` bytes it reads them back from the SPI flash and checks the CRC-32 against the id (a CRC of 0 counts as 1), writes the image to the panel, and reports the id in `content_id` from then on, also after a restart (the image stays in its flash slot). A tag that refuses an image, or whose panel does not answer, reports bit1 (drawing failed) and keeps reporting the id it shows; the AP then stops offering that image until the content changes. An image the tag already holds (the same id again, for example after "No AP found") is drawn from the slot without a download.
+
 ### Priority: layout, content, settings
 The AP answers each POLL with one message. When several things are waiting for a tag, it sends them in this order:
 
 1. **LAYOUT**: the layout file, when the tag's `layout_ver` differs from the AP's version for its model (and the tag has not rejected that version). It goes first because the content may use a layout from the file.
 2. **CONTENT**: when the tag's `content_id` differs from the AP's. Content with a file layout the tag cannot use (old firmware, not in the file, file rejected) is held back (`content_error` in the API), and the AP goes on to 3.
 3. **CONFIG**: when the tag sends `cfg_ver` and it differs from the version of its settings on the AP.
-4. **FW**: new firmware for the tag (see "Firmware transfer").
-5. **IDLE**.
+4. **IMG**: the picture the tag should show, when its POLL has bit5 and its `content_id` differs from the AP's `image_id` (see "Image transfer"). Tags with bit5 get neither LAYOUT nor CONTENT (steps 1 and 2).
+5. **FW**: new firmware for the tag (see "Firmware transfer").
+6. **IDLE**.
 
-After a finished layout download the tag sends a new POLL at once, so content (or CONFIG) follows in the same wake-up; otherwise the next item goes out at the next POLL. `next_poll_s` in every reply, LAYOUT and FW blocks included, is the tag's own interval (its `poll_s`, or the AP default).
+After a finished layout download the tag sends a new POLL at once, so content (or CONFIG) follows in the same wake-up; otherwise the next item goes out at the next POLL. `next_poll_s` in every reply, LAYOUT, IMG and FW blocks included, is the tag's own interval (its `poll_s`, or the AP default).
 
 ### Listening window and battery
 The tag is awake for about 5–25 ms per round. Adjust the window from measurements in phases 5–6; it is the most important power parameter after sleep current.

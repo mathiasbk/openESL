@@ -67,6 +67,40 @@ static void test_parse_layout(void)
     CHECK_EQ(r.field_len[0], 0);
 }
 
+static void test_img_messages(void)
+{
+    proto_reply_t r;
+    uint8_t d[3] = { 1, 2, 3 }, pl[ESL_MAX_PAYLOAD], out[ESL_MAX_PAYLOAD], len;
+    static const uint8_t expect[ESL_IREQ_LEN] = {
+        0x0A, 0x01, MODEL_CODE, 92, 0xEF, 0xCD, 0xAB, 0x89, 0xF8, 0x11
+    };
+
+    len = make_img_block(pl, 300, 0x89ABCDEFul, 4736, 92, MODEL_CODE, ESL_IMG_FMT_RAW, d, 3);
+    CHECK_EQ(len, ESL_IMG_HDR_LEN + 3);
+    memset(&r, 0, sizeof(r));
+    CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
+    CHECK_EQ(r.type, ESL_MSG_IMG);
+    CHECK_EQ(r.next_poll_s, 300);
+    CHECK(r.img_id == 0x89ABCDEFul);
+    CHECK_EQ(r.lay_size, 4736);
+    CHECK_EQ(r.lay_pos, 92);
+    CHECK_EQ(r.fw_model, MODEL_CODE);
+    CHECK_EQ(r.img_fmt, ESL_IMG_FMT_RAW);
+    CHECK_EQ(r.field_len[0], 3);
+    CHECK_EQ(pl[r.field_off[0] + 2], 3);
+    CHECK(proto_parse_reply(pl, ESL_IMG_HDR_LEN - 1, &r) != PROTO_OK);
+    /* a block past the end of the image, and a full one */
+    len = make_img_block(pl, 0, 1, 4736, 4735, MODEL_CODE, ESL_IMG_FMT_RAW, d, 2);
+    CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_E_FIELD);
+    len = make_img_block(pl, 0, 1, 4736, 0, MODEL_CODE, ESL_IMG_FMT_RAW, out, ESL_IMG_CHUNK_MAX);
+    CHECK_EQ(len, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
+    CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
+    CHECK_EQ(r.field_len[0], ESL_IMG_CHUNK_MAX);
+
+    CHECK_EQ(proto_build_img_req(out, 0x89ABCDEFul, 4600, ESL_IMG_CHUNK_MAX), ESL_IREQ_LEN);
+    CHECK(memcmp(out, expect, sizeof(expect)) == 0);
+}
+
 static void test_crc32(void)
 {
     /* CRC-32/ISO-HDLC of "123456789" is 0xCBF43926, also in two pieces */
@@ -252,6 +286,7 @@ void test_proto(void)
     RUN(test_build_poll);
     RUN(test_build_layout_req);
     RUN(test_parse_layout);
+    RUN(test_img_messages);
     RUN(test_crc32);
     RUN(test_parse_idle);
     RUN(test_parse_content);
