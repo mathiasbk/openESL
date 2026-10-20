@@ -160,14 +160,13 @@ static void infopage_read(uint16_t ofs, uint8_t __xdata *dst, uint8_t len)
 /*
  * Persistent stores, kept out of the firmware by CODE_SIZE in build.py:
  *   page 0x3E (0xF800-0xFBFF): the record (hal_store_*): 0xA5, length, data, sum of the data bytes
- *   page 0x3D (0xF400-0xF7FF): the layout file (hal_layout_store_*), raw
+ *   page 0x3D (0xF400-0xF7FF): not used by the firmware (the layout file was kept there;
+ *                              the probes in this folder write their logs there)
  * Main flash reads directly as code memory.
  */
 #define STORE_PAGE      0x3E
-#define LSTORE_PAGE     0x3D
 #define STORE_MAGIC     0xA5
 static __code const uint8_t __at (STORE_PAGE * 0x400u) store_flash[4 + HAL_STORE_MAX];
-static __code const uint8_t __at (LSTORE_PAGE * 0x400u) lstore_flash[HAL_LAYOUT_STORE_MAX];
 static __xdata uint8_t store_buf[3 + HAL_STORE_MAX];
 
 /* Erases flash page `page` and writes len (1..1024) bytes from XRAM at src to its start.
@@ -214,30 +213,6 @@ bool hal_store_write(const uint8_t *data, uint8_t len)
     store_buf[2 + len] = sum;
     return flash_write_page(STORE_PAGE, (uint16_t)store_buf, (uint16_t)len + 3) &&
            hal_store_read(store_buf, HAL_STORE_MAX) == len;
-}
-
-bool hal_layout_store_write(const uint8_t __xdata *data, uint16_t len)
-{
-    uint16_t i;
-
-    if (len == 0 || len > HAL_LAYOUT_STORE_MAX)
-        return false;
-    if (!flash_write_page(LSTORE_PAGE, (uint16_t)data, len))
-        return false;
-    for (i = 0; i < len; i++)
-        if (lstore_flash[i] != data[i])
-            return false;
-    return true;
-}
-
-void hal_layout_store_read(uint8_t __xdata *data, uint16_t len)
-{
-    uint16_t i;
-
-    if (len > HAL_LAYOUT_STORE_MAX)
-        len = HAL_LAYOUT_STORE_MAX;
-    for (i = 0; i < len; i++)
-        data[i] = lstore_flash[i];
 }
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)

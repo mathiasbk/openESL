@@ -68,9 +68,6 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d);
 /* Radio off: streams the image in the slot to the panel. False if there is none, or
    the panel did not answer. */
 bool image_show(void);
-/* Something else was drawn over the image: the slot no longer says what the screen
-   shows, so it is not shown again at start-up. Radio off. */
-void image_forget(void);
 
 /* Column x of the image in the slot, for epd.c (the flash must be open). On a model
    without red, red is cleared. */

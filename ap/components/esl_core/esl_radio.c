@@ -266,7 +266,7 @@ size_t esl_faketag_request(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
     return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);
 }
 
-/* The same structure check as layout_file_install() on the tag. */
+/* The structure check the tags made before they showed images (layout_file_install()). */
 static bool file_ok(const esl_faketag_t *t, const uint8_t *b, uint16_t len)
 {
     if (len < ESL_LBIN_HDR_LEN || b[0] != ESL_LBIN_FORMAT || b[1] != t->model || b[2] == 0 ||

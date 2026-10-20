@@ -191,12 +191,6 @@ int sim_ap_compile(const char *json, size_t len, char *err, size_t errlen)
     return cmp_has_file ? cmp_bin.count : 0;
 }
 
-const uint8_t *sim_ap_bin(size_t *len)
-{
-    *len = cmp_has_file ? cmp_bin.size : 0;
-    return cmp_has_file ? cmp_bin.bin : NULL;
-}
-
 static bool content_from(esl_content_t *c, uint8_t layout, uint8_t flags, int n, const char *const *fields)
 {
     uint8_t latin[256];

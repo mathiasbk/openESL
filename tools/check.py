@@ -108,8 +108,6 @@ def step_models():
 
 def step_tag():
     need_host_cc()
-    need_python("zxingcpp", "zxing-cpp==3.1.1")
-    need_python("PIL", "pillow")
     run([PY, "tag/tools/build.py", "test"])
 
 
@@ -132,6 +130,8 @@ def step_tag_fw():
 
 def step_ap_test():
     need_san()
+    need_python("zxingcpp", "zxing-cpp==3.1.1")
+    need_python("PIL", "pillow")
     run(["make", "-C", "ap/test", "SAN=1"])
 
 
@@ -181,10 +181,10 @@ def step_web():
 
 STEPS = {
     "models": (step_models, "Python"),
-    "tag": (step_tag, "C compiler, pip: zxing-cpp pillow"),
+    "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
-    "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows)"),
+    "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker"),

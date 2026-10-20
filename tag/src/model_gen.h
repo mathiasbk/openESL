@@ -15,7 +15,7 @@
 #define DRAW_W           296
 #define DRAW_H           128
 #define MODEL_PANEL_H    "panels/ssd16xx-29.h"
-/* the same model in shared/models_gen.h, for the checks in proto.c and layout.c */
+/* the same model in shared/models_gen.h, for the checks in proto.c */
 #define MODEL_ESL_CODE   ESL_MODEL_29
 #define MODEL_ESL_W      ESL_MODEL_29_W
 #define MODEL_ESL_H      ESL_MODEL_29_H
@@ -27,7 +27,7 @@
 #define DRAW_W           200
 #define DRAW_H           200
 #define MODEL_PANEL_H    "panels/ssd16xx-154.h"
-/* the same model in shared/models_gen.h, for the checks in proto.c and layout.c */
+/* the same model in shared/models_gen.h, for the checks in proto.c */
 #define MODEL_ESL_CODE   ESL_MODEL_154
 #define MODEL_ESL_W      ESL_MODEL_154_W
 #define MODEL_ESL_H      ESL_MODEL_154_H

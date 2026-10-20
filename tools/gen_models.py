@@ -165,7 +165,7 @@ def gen_tag_h(ms):
                 "#define DRAW_W           %d" % m["width"],
                 "#define DRAW_H           %d" % m["height"],
                 "#define MODEL_PANEL_H    %s" % c_str("panels/" + m["panel"] + ".h"),
-                "/* the same model in shared/models_gen.h, for the checks in proto.c and layout.c */",
+                "/* the same model in shared/models_gen.h, for the checks in proto.c */",
                 "#define MODEL_ESL_CODE   ESL_MODEL_%s" % m["build"],
                 "#define MODEL_ESL_W      ESL_MODEL_%s_W" % m["build"],
                 "#define MODEL_ESL_H      ESL_MODEL_%s_H" % m["build"]]

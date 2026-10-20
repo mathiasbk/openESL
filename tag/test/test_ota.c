@@ -56,7 +56,7 @@ static uint8_t feed(uint16_t ver, uint16_t pos, uint8_t model, uint32_t crc)
 
     memset(&r, 0, sizeof(r));
     CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
-    return ota_block(&r, pl + r.field_off[0]);
+    return ota_block(&r, pl + r.data_off);
 }
 
 /* The whole image, block by block as the tag asks for it */
@@ -82,12 +82,12 @@ static void test_fw_messages(void)
     CHECK_EQ(r.type, ESL_MSG_FW);
     CHECK_EQ(r.next_poll_s, 300);
     CHECK_EQ(r.fw_ver, 0x1234);
-    CHECK_EQ(r.lay_size, 2048);
-    CHECK_EQ(r.lay_pos, 91);
+    CHECK_EQ(r.size, 2048);
+    CHECK_EQ(r.pos, 91);
     CHECK(r.fw_crc == 0xDEADBEEF);
     CHECK_EQ(r.fw_model, MODEL_CODE);
-    CHECK_EQ(r.field_len[0], 3);
-    CHECK_EQ(pl[r.field_off[0] + 2], 3);
+    CHECK_EQ(r.data_len, 3);
+    CHECK_EQ(pl[r.data_off + 2], 3);
     CHECK(proto_parse_reply(pl, ESL_FW_HDR_LEN - 1, &r) != PROTO_OK);
 
     len = proto_build_fw_req(out, 0x1234, 182, 0xCAFEF00D, ESL_FW_CHUNK_MAX);
