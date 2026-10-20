@@ -53,13 +53,15 @@ firmwareInfo().then((info) => {
   const built = !info ? "" : info.release
     ? `Release ${info.version}.`
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;
-  // The AP and each tag model carry the version of the release they last changed in
+  // The AP and each tag model carry the version of the release they last changed in; named
+  // only when they differ (tag_versions is keyed by build: "29" is the 2.9")
+  const nameOf = (build) => Object.entries(MODELS).find(([, m]) => m.build === build)?.[0] ?? build;
   const tagVersions = Object.entries(info?.tag_versions || {}).filter(([, v]) => v);
   const tagText = new Set(tagVersions.map(([, v]) => v)).size > 1
-    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${b})`).join(", ")
+    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${nameOf(b)}")`).join(", ")
     : info?.tag_version ? `tag firmware ${info.tag_version}` : "";
-  const parts = info?.ap_version && tagText && !(tagVersions.length <= 1 && info.ap_version === info.tag_version)
-    ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
+  const allSame = new Set([info?.ap_version, ...tagVersions.map(([, v]) => v)]).size <= 1;
+  const parts = info?.ap_version && tagText && !allSame ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
   $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
   // The AP with the status screen is optional: a checkbox picks its manifest

@@ -15,9 +15,10 @@ radio. Nothing is bumped by hand; a file a part is built from changes its versio
 
 The tag firmware is one part per model ("tag-29", "tag-154", ...): a model keeps its version
 until a file in its own build changes, so adding a model, or changing the panel header of one,
-gives the other models nothing new to download. A model's entry in shared/models.json counts as
-one of its files; the generated model_gen.h and models_gen.h do not, since they change for
-every model when one is added. The part "tag" is all tag firmware together (the release notes).
+gives the other models nothing new to download. What the model's entry in shared/models.json
+puts into the firmware (MODEL_FIELDS) counts as one of its files, as does the generator; the
+generated model_gen.h and models_gen.h do not, since they change for every model when one is
+added. The part "tag" is all tag firmware together (the release notes).
 
 Which files a part is built from is in parts() below. A file listed by mistake only gives a
 part a new version it did not need; a file missing from it would give changed firmware the
@@ -63,12 +64,12 @@ def parts():
     ps = {
         # tag/tools/build.py holds the SDCC version and the build flags; tag/fonts/src is only
         # the source of the generated tag/fonts/font_*.c
-        "tag": ["shared", "tag/src", "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", NOT_DOCS],
+        "tag": ["shared", "tag/src", "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", "tools/gen_models.py", NOT_DOCS],
         # ap/dependencies.lock holds the ESP-IDF version; the AP serves the dashboard of the web
         # page (index.html, style.css and the scripts in ap/main/webui.py) and draws its status
         # screen with the tag's small font and headers (ap/components/esl_core/CMakeLists.txt)
         "ap": ["shared", "ap", ":(exclude)ap/test", "tag/src", "tag/fonts/*.c", "web/index.html", "web/css/style.css",
-               NOT_DOCS] + ["web/js/" + js for js in webui_js()],
+               "tools/gen_models.py", NOT_DOCS] + ["web/js/" + js for js in webui_js()],
     }
     for m in models():
         # one model: the tag sources without the other models' panel headers and without the
@@ -77,8 +78,13 @@ def parts():
             "shared", ":(exclude)shared/models_gen.h", ":(exclude)shared/models.json",
             ":(glob)tag/src/*.c", ":(glob)tag/src/*.h", ":(exclude)tag/src/model_gen.h",
             "tag/src/hal", "tag/src/panels/%s.h" % m["panel"],
-            "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", NOT_DOCS]
+            "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", "tools/gen_models.py", NOT_DOCS]
     return ps
+
+
+# The fields of a model's entry in shared/models.json that end up in its firmware (model_gen.h,
+# models_gen.h); the label, photo and status do not
+MODEL_FIELDS = ("code", "build", "name", "chip", "width", "height", "colors", "panel")
 
 
 def read_version(at=None):
@@ -112,8 +118,8 @@ def unchanged_since(tag, paths, at=None):
 
 
 def model_entry(build, at=None):
-    """The model's entry in shared/models.json at a commit (None if the model is not there),
-    or in the working tree"""
+    """What the firmware takes from the model's entry in shared/models.json (MODEL_FIELDS) at a
+    commit (None if the model is not there), or in the working tree"""
     import json
     if at:
         r = git("show", "%s:shared/models.json" % at)
@@ -123,7 +129,7 @@ def model_entry(build, at=None):
             text = f.read()
     for m in json.loads(text)["models"]:
         if m["build"] == build:
-            return m
+            return {k: m.get(k) for k in MODEL_FIELDS}
     return None
 
 
