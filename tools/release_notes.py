@@ -90,7 +90,8 @@ def notes(since, until, versions):
             # each tag model keeps its own version: name them when they differ
             per_model = {k[4:]: v for k, v in versions.items() if k.startswith("tag-")}
             if key == "tag" and len(set(per_model.values())) > 1:
-                head += " (%s)" % ", ".join("%s: %s" % (b, v) for b, v in per_model.items())
+                names = {m["build"]: m["name"] for m in fw_version.models()}
+                head += " (%s)" % ", ".join('%s": %s' % (names.get(b, b), v) for b, v in per_model.items())
             if not sections[key]:
                 head += " (unchanged since %s: nothing new to flash)" % since
         lines.append("## " + head)

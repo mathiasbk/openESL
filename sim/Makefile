@@ -10,10 +10,11 @@ CC      ?= cc
 ROOT    := $(abspath ..)
 TAG     := $(ROOT)/tag
 CORE    := $(ROOT)/ap/components/esl_core
-# The firmware version of one tag model (tools/fw_version.py tag-<build>), as text and as the
-# number the tag sends in POLL
-tag_version = $(shell python3 $(ROOT)/tools/fw_version.py tag-$(1))
-tag_fw_ver  = $(shell python3 $(ROOT)/tools/fw_version.py tag-$(1) | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3}')
+MODELS  := $(shell python3 ../shared/models.py builds)   # shared/models.json
+# The firmware version of each tag model (tools/fw_version.py tag-<build>), as text and as the
+# number the tag sends in POLL, worked out once per model: TAG_VERSION_29, TAG_FW_VER_29, ...
+$(foreach m,$(MODELS),$(eval TAG_VERSION_$(m) := $(shell python3 $(ROOT)/tools/fw_version.py tag-$(m))))
+$(foreach m,$(MODELS),$(eval TAG_FW_VER_$(m) := $(shell python3 -c "v = '$(TAG_VERSION_$(m))'.split('.'); print(int(v[0]) * 10000 + int(v[1]) * 100 + int(v[2]))")))
 
 WARN    := -Wall -Wextra -g -O1
 ifeq ($(SAN),1)
@@ -21,7 +22,7 @@ WARN    += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 # The tag code is built as tools/build.py builds the host tests
-TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(call tag_fw_ver,$(1)) -DFW_VERSION_STR='"$(call tag_version,$(1))"' \
+TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(TAG_FW_VER_$(1)) -DFW_VERSION_STR='"$(TAG_VERSION_$(1))"' \
              -I$(TAG)/src -I$(TAG)/boot -I$(ROOT)/shared -I$(TAG)/test
 AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared \
               -DSIM_ROOT='"$(abspath $(ROOT))"'
@@ -34,7 +35,6 @@ AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c 
 DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(ROOT)/shared/*.h) \
             $(TAG_SRCS) $(AP_SRCS) $(ROOT)/VERSION
 
-MODELS := $(shell python3 ../shared/models.py builds)   # shared/models.json
 BINS   := $(MODELS:%=build/%/esl-sim)
 
 .PHONY: all test serial clean
