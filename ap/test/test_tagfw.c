@@ -145,12 +145,12 @@ static void test_messages(void)
     CHECK_INT(rep.type, ESL_MSG_FW);
     CHECK_INT(rep.next_poll_s, 300);
     CHECK_INT(rep.fw_ver, 10203);
-    CHECK_INT(rep.layout_size, 2048);
-    CHECK_INT(rep.layout_pos, 91);
+    CHECK_INT(rep.size, 2048);
+    CHECK_INT(rep.pos, 91);
     CHECK(rep.fw_crc == 0xA1B2C3D4u);
     CHECK_INT(rep.fw_model, ESL_MODEL_29);
-    CHECK_INT(rep.layout_len, 3);
-    CHECK_INT(rep.layout_data[2], 9);
+    CHECK_INT(rep.len, 3);
+    CHECK_INT(rep.data[2], 9);
     /* a block past the end of the image */
     n = esl_fw_msg_build(p, 0, 1, 1024, 1023, 0, ESL_MODEL_29, d, 3);
     CHECK(!esl_reply_parse(p, n, &rep));
@@ -175,19 +175,19 @@ static void test_messages(void)
     CHECK_INT(rep.type, ESL_MSG_IMG);
     CHECK_INT(rep.next_poll_s, 300);
     CHECK(rep.img_id == 0x89ABCDEFu);
-    CHECK_INT(rep.layout_size, 4736);
-    CHECK_INT(rep.layout_pos, 92);
+    CHECK_INT(rep.size, 4736);
+    CHECK_INT(rep.pos, 92);
     CHECK_INT(rep.fw_model, ESL_MODEL_29);
     CHECK_INT(rep.img_fmt, ESL_IMG_FMT_RAW);
-    CHECK_INT(rep.layout_len, 3);
-    CHECK_INT(rep.layout_data[2], 9);
+    CHECK_INT(rep.len, 3);
+    CHECK_INT(rep.data[2], 9);
     /* a full block, one past the end, id 0, an empty image, a short header */
     uint8_t big[ESL_IMG_CHUNK_MAX + 1];
     memset(big, 0xA5, sizeof(big));
     n = esl_img_msg_build(p, 0, 1, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, big, sizeof(big));
     CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
     CHECK(esl_reply_parse(p, n, &rep));
-    CHECK_INT(rep.layout_len, ESL_IMG_CHUNK_MAX);
+    CHECK_INT(rep.len, ESL_IMG_CHUNK_MAX);
     n = esl_img_msg_build(p, 0, 1, 4736, 4735, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 2);
     CHECK(!esl_reply_parse(p, n, &rep));
     n = esl_img_msg_build(p, 0, 0, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
@@ -276,10 +276,15 @@ static void test_upload(void)
 static void test_offer(void)
 {
     esl_faketag_t t, old, bad;
+    static esl_image_t images;
+    uint8_t *imem = malloc(esl_image_mem_size());
+    esl_image_init(&images, imem, NULL);
+    esl_radio_set_image(&images);
     reset();
     esl_faketag_init(&t, MAC, 100, 3000, ESL_MODEL_29);
     t.ota = true;
     esl_faketag_init(&old, MAC + 1, 100, 3000, ESL_MODEL_29);   /* no SPI flash, or old firmware */
+    old.images = false;
     esl_faketag_init(&bad, MAC + 2, 100, 3000, ESL_MODEL_29);
     bad.ota = true;
     bad.fw_bad = true;
@@ -287,12 +292,13 @@ static void test_offer(void)
     /* Nothing to offer: IDLE */
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
 
-    /* 6 KB for the 2.9" and content waiting for the tag: content first */
+    /* 6 KB for the 2.9" and content waiting for the tag: its image first */
     size_t total = make_file(ESL_MODEL_29, 101, 6 * 1024, 3);
     CHECK_INT(upload(total), 200);
     CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags/0000012345678901", AUTH,
                              "{\"layout\":\"text\",\"fields\":[\"Hei\"]}", 34, 0, &out), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_CONTENT);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IMG);
+    CHECK_INT(t.img_shown, 1);
     CHECK_INT(t.fw, 100);
     /* Then the image: 68 blocks in one wake-up, and the tag runs the new version */
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
@@ -362,6 +368,8 @@ static void test_offer(void)
     esl_faketag_init(&t, MAC + 4, 100, 3000, ESL_MODEL_29);
     t.ota = true;
     CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
+    esl_radio_set_image(NULL);
+    free(imem);
 }
 
 /* One POLL, and the FW block the AP answers it with */

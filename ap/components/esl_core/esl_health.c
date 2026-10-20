@@ -10,8 +10,7 @@ uint32_t esl_health_silent_s(const esl_health_cfg_t *cfg, uint16_t interval_s)
     return (uint32_t)ESL_HEALTH_SILENT_X * interval_s;
 }
 
-uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint32_t layout_ver, uint64_t now_ms,
-                         const esl_health_cfg_t *cfg)
+uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint64_t now_ms, const esl_health_cfg_t *cfg)
 {
     uint8_t f = 0;
     uint64_t silent_ms = (uint64_t)esl_health_silent_s(cfg, interval_s) * 1000;
@@ -30,8 +29,6 @@ uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint32_t layou
         f |= ESL_HEALTH_DRAW_FAILED;
     if (t->battery_mv && t->battery_mv < low)
         f |= ESL_HEALTH_LOW_BATTERY;
-    if (t->layout_capable && !t->image_capable && layout_ver && t->layout_failed == layout_ver)
-        f |= ESL_HEALTH_LAYOUT_FAILED;
     if (t->has_content && esl_tag_pending(t) && t->content_err)
         f |= ESL_HEALTH_CONTENT_ERROR;
     return f;
@@ -44,7 +41,6 @@ const char *esl_health_flag_name(uint8_t flag)
     case ESL_HEALTH_UNSEEN:        return "unseen";
     case ESL_HEALTH_DRAW_FAILED:   return "draw_failed";
     case ESL_HEALTH_LOW_BATTERY:   return "low_battery";
-    case ESL_HEALTH_LAYOUT_FAILED: return "layout_failed";
     case ESL_HEALTH_CONTENT_ERROR: return "content_error";
     default:                       return "?";
     }

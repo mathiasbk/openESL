@@ -10,13 +10,13 @@
  *
  * A layout file is JSON ("format": "esl-layouts") with up to 16 named
  * layouts for one model. esl_layout_compile() checks it against the model
- * (screen size, fonts, what the tag can draw) and turns it into the binary
- * file the tags download (ESL_LBIN_* in shared/proto.h). The version of a
+ * (screen size, fonts, what esl_render can draw) and turns it into the binary
+ * file the AP draws with (ESL_LBIN_* in shared/proto.h). The version of a
  * model's layouts is the CRC32 of that binary, so it changes exactly when
- * what the tags draw changes.
+ * what the tags show changes.
  *
- * Layout n of the file is sent as CONTENT layout ESL_LAYOUT_FILE + n; clients
- * only ever see the names.
+ * Content names its layout (ESL_LAYOUT_NAMED); esl_render looks the name up
+ * in the model's file.
  *
  * Storage follows esl_store: every public function takes the lock, the
  * persist hooks are called after it is released. Only the JSON is persisted;
@@ -133,12 +133,3 @@ size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t 
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);
 
-/* Builds the LAYOUT reply for a tag of this model that asks for the block at
- * pos of version ver (from LAYOUT_REQ; ver 0 / pos 0 for the first block after
- * a POLL). If the model's file is no longer ver (it changed during the
- * download), the block at 0 of the current file is sent, so the tag starts
- * over; version 0 means the AP has no file for the model. The block has at
- * most max bytes (and at most ESL_LAYOUT_CHUNK_MAX). out holds ESL_MAX_PAYLOAD
- * bytes. Returns the length. ls may be NULL. */
-size_t esl_layouts_block(esl_layouts_t *ls, uint8_t model, uint32_t ver, uint16_t pos, uint8_t max,
-                         uint16_t next_poll_s, uint8_t *out);

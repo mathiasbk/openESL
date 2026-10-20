@@ -35,10 +35,20 @@ static uint32_t json_u32(const char *s, const char *key)
     return p ? (uint32_t)strtoul(p + strlen(key), NULL, 10) : 0;
 }
 
+/* The tag shows the image of content id shown: here the image id is the content id,
+   as if the AP had drawn it (esl_image does that on the radio path) */
+static void drawn(uint64_t mac, uint32_t shown)
+{
+    esl_tag_t t;
+    if (shown && esl_store_get(&st, mac, &t) && t.has_content && t.content_id == shown)
+        esl_store_image_known(&st, mac, shown, 0, shown);
+}
+
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0};
+    drawn(mac, shown);
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -98,10 +108,10 @@ static void test_put_one(void)
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
              "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
-             "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
-             "\"image\":false,\"image_id\":0,\"shown_image_id\":null,\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
+             "\"content_error\":null,\"ota\":false,"
+             "\"image\":true,\"image_id\":%u,\"shown_image_id\":%u,\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
-             (unsigned)id, (unsigned)id);
+             (unsigned)id, (unsigned)id, (unsigned)id, (unsigned)id);
     CHECK_STR(resp, expect);
 
     /* price_highlight is part of the content */
@@ -126,7 +136,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -321,8 +331,8 @@ static void test_batch_and_list(void)
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
                     "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
                     "\"config_pending\":false,"
-                    "\"layout_version\":null,\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null,\"ota\":false,"
-                    "\"image\":false,\"image_id\":null,\"shown_image_id\":null,\"fw_update\":null}"));
+                    "\"content_error\":null,\"ota\":false,"
+                    "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
     /* delete */
@@ -340,12 +350,12 @@ static void test_batch_and_list(void)
 
 char *read_example_layout(const char *name, size_t *len); /* test_layout.c */
 
-/* A tag that polls with model and (for new firmware) its layout file version. */
-static void poll_model(uint64_t mac, uint8_t model, bool capable, uint32_t layout_ver, uint8_t flags)
+/* A tag that polls with model, showing images or not (no SPI flash). */
+static void poll_model(uint64_t mac, uint8_t model, bool images)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, flags, model, .has_layout_ver = capable, .layout_ver = layout_ver};
+    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -433,14 +443,16 @@ static void test_layouts(void)
     const char *only29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"only-29\","
                          "\"fields\":[\"t\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, only29, 0), 200);
-    poll_model(0x154, ESL_MODEL_154, true, 0, 0);
+    poll_model(0x154, ESL_MODEL_154, true);
     CHECK_INT(req("PUT", "/api/tags/0000000000000154", AUTH, "{\"layout\":\"only-29\",\"fields\":[]}", 0), 422);
     CHECK_STR(resp, "{\"error\":\"layout \\\"only-29\\\" is not in the layout file for model 1.54\"}");
     CHECK_INT(req("PUT", "/api/tags/0000000000000154", AUTH, "{\"layout\":\"sign\",\"fields\":[\"x\"]}", 0), 200);
-    /* firmware without layout files cannot be given one */
-    poll_model(0x29, ESL_MODEL_29, false, 0, 0);
-    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"only-29\",\"fields\":[]}", 0), 422);
-    CHECK(HAS(resp, "cannot download layout files"));
+    /* a tag without images takes the content, and says why it does not show it */
+    poll_model(0x29, ESL_MODEL_29, false);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"only-29\",\"fields\":[]}", 0), 200);
+    poll_model(0x29, ESL_MODEL_29, false);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":\"the tag cannot show images drawn by the AP (old firmware, or no SPI flash)\""));
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"price\",\"fields\":[]}", 0), 200);
     /* batch: the row is named */
     CHECK_INT(req("PUT", "/api/tags", AUTH,
@@ -454,7 +466,7 @@ static void test_layouts(void)
                       "{\"type\":\"text\",\"field\":\"price_ex\",\"x\":0,\"y\":0,\"w\":100,\"h\":20,\"fonts\":[\"small\"]},"
                       "{\"type\":\"text\",\"field\":5,\"x\":0,\"y\":20,\"w\":100,\"h\":20,\"fonts\":[\"small\"]}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, six, 0), 200);
-    poll_model(0x290, ESL_MODEL_29, true, 0, 0);
+    poll_model(0x290, ESL_MODEL_29, true);
     CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
                   "{\"layout\":\"six\",\"fields\":[\"Kramp\",\"Spann\",\"1626\",\"192,25\",\"153,80\",\"stk\"]}", 0), 200);
     CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
@@ -470,7 +482,7 @@ static void test_layouts(void)
                        "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
                        "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":100,\"h\":40}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
-    poll_model(0x29, ESL_MODEL_29, true, 0, 0);
+    poll_model(0x29, ESL_MODEL_29, true);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\",\"590123412345\"]}", 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\",\"5901234123457\"]}", 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\"]}", 0), 200);
@@ -486,34 +498,12 @@ static void test_layouts(void)
     /* the model not known yet: checked against every file with the layout */
     CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
 
-    /* layout status of a tag: version it has, still to download, rejected */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
-    poll_model(0x29, ESL_MODEL_29, true, 0, 0);
-    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"layout_version\":0,\"layout_pending\":true,\"layout_failed\":false,"));
-    /* the flag before the tag started on the file (the offer was lost) is about an older one */
-    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
-    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
-    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
-    esl_store_offer_taken(&st, 0x29, false, v + 1); /* another version: not this offer */
-    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
-    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
-    esl_store_offer_taken(&st, 0x29, false, v); /* it asked for a block, then rejected the file */
-    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
-    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":true,"));
-    poll_model(0x29, ESL_MODEL_29, true, v, 0);
-    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
-    snprintf(expect, sizeof(expect), "\"layout_version\":%u,\"layout_pending\":false,\"layout_failed\":false,",
-             (unsigned)v);
-    CHECK(HAS(resp, expect));
 
     /* named content the tag cannot get yet says why */
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"sign\",\"fields\":[\"x\"]}", 0), 200);
     CHECK_INT(req("DELETE", "/api/layouts/2.9", AUTH, NULL, 0), 200);
-    poll_model(0x29, ESL_MODEL_29, true, 0, 0);
+    poll_model(0x29, ESL_MODEL_29, true);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
@@ -596,7 +586,7 @@ static void test_status_page(void)
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
@@ -628,7 +618,7 @@ static void test_status_page(void)
         snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                  i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
         CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0};
+        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0};
         uint8_t reply[ESL_MAX_PAYLOAD];
         esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
     }
@@ -636,7 +626,7 @@ static void test_status_page(void)
     CHECK_INT(esl_api_status_page(&api, UINT64_C(1) << 50, &sb), 200);
     CHECK(!sb.overflow);
     CHECK(HAS(page, "pending, draw failed"));
-    CHECK(HAS(page, "pending, draw failed (the tag firmware cannot download layout files)"));
+    CHECK(HAS(page, "pending, draw failed (the tag cannot show images drawn by the AP (old firmware, or no SPI flash))"));
     CHECK(HAS(page, "a-long-layout-name-with-31-ch15: "));
 
     /* too small a buffer gives 500 instead of a cut page */
@@ -694,7 +684,7 @@ static void test_config_api(void)
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -710,7 +700,7 @@ static void test_config_api(void)
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
         CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 4294967295u};
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1};
         esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
         esl_set_result_t r;
@@ -720,7 +710,7 @@ static void test_config_api(void)
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, UINT64_C(1) << 60), 200);
     CHECK(!out.overflow);
     CHECK(HAS(resp, "\"draw_failed\":true"));
-    CHECK(HAS(resp, "\"config_pending\":true,\"layout_version\":4294967295,"));
+    CHECK(HAS(resp, "\"config_pending\":true,\"content_error\":null,\"ota\":true,"));
 }
 
 /* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
@@ -849,11 +839,11 @@ static void test_webhook_config(void)
     api.notify = &notify;
 }
 
-static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, uint32_t layout_ver, uint64_t now)
+static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    /* layout_ver 1: firmware without layout files */
-    esl_poll_t p = {2, battery, shown, flags, ESL_MODEL_29, false, 0, layout_ver != 1, layout_ver};
+    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0};
+    drawn(mac, shown);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);
     esl_store_on_poll(&st, mac, &p, -61, now, &env, reply);
@@ -869,7 +859,7 @@ static void test_health(void)
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
     CHECK_STR(resp, "{\"problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"silent\":0,\"unseen\":0,"
-                    "\"draw_failed\":0,\"low_battery\":0,\"layout_failed\":0,\"content_error\":0}");
+                    "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
     CHECK_INT(req("PUT", "/api/tags/0000000000000001", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
@@ -878,16 +868,16 @@ static void test_health(void)
     CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000004", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
     uint64_t now = UINT64_C(1000) * 1000;
-    poll_flags(1, id, 2950, 0, 0, now - 30 * 1000);
-    poll_flags(2, id, 2950, 0, 0, now - 400 * 1000);
-    poll_flags(3, id, 2400, ESL_POLL_FLAG_DRAW_FAILED, 0, now - 10 * 1000);
+    poll_flags(1, id, 2950, 0, true, now - 30 * 1000);
+    poll_flags(2, id, 2950, 0, true, now - 400 * 1000);
+    poll_flags(3, id, 2400, ESL_POLL_FLAG_DRAW_FAILED, true, now - 10 * 1000);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
     CHECK_STR(resp, "{\"problems\":["
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
                     "],\"ok\":false,\"tags\":4,\"with_problems\":3,\"silent\":1,\"unseen\":1,"
-                    "\"draw_failed\":1,\"low_battery\":1,\"layout_failed\":0,\"content_error\":0}");
+                    "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);
     CHECK(HAS(resp, "\"with_problems\":2,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
@@ -902,23 +892,21 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 100 * 1000), 200);
     CHECK(HAS(resp, "\"unseen\":0,"));
 
-    /* layout file rejected, and named content that cannot be sent */
+    /* content that cannot be shown: a layout no longer in the file, a tag without images */
     static char lf[512];
     snprintf(lf, sizeof(lf), "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
                              "{\"name\":\"sign\",\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}]}");
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, lf, 0), 200);
-    uint32_t ver;
-    CHECK(esl_layouts_info(&layouts, ESL_MODEL_29, &ver, NULL, NULL));
-    poll_flags(1, id, 2950, 0, 0, now);                    /* offered the file */
-    esl_store_offer_taken(&st, 1, false, ver);             /* took it */
-    poll_flags(1, id, 2950, ESL_POLL_F_LAYOUTFAIL, 0, now); /* and rejected it */
-    /* tag 3 gets content with a named layout, but its firmware has no layout files */
-    CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"sign\",\"fields\":[\"a\"]}", 0), 200);
-    poll_flags(3, id, 2950, 0, 1, now);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001", AUTH, "{\"layout\":\"sign\",\"fields\":[\"a\"]}", 0), 200);
+    CHECK_INT(req("DELETE", "/api/layouts/2.9", AUTH, NULL, 0), 200);
+    poll_flags(1, id, 2950, 0, true, now);
+    /* tag 3 gets content, but it does not take images (no SPI flash) */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"text\",\"fields\":[\"b\"]}", 0), 200);
+    poll_flags(3, id, 2950, 0, false, now);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
-    CHECK(HAS(resp, "{\"mac\":\"0000000000000001\",\"problems\":[\"layout_failed\"]"));
+    CHECK(HAS(resp, "{\"mac\":\"0000000000000001\",\"problems\":[\"content_error\"]"));
     CHECK(HAS(resp, "{\"mac\":\"0000000000000003\",\"problems\":[\"content_error\"]"));
-    CHECK(HAS(resp, "\"layout_failed\":1,\"content_error\":1}"));
+    CHECK(HAS(resp, "\"low_battery\":0,\"content_error\":2}"));
 
     /* the report for the webhook: what changed since the last one */
     uint8_t prev[CAP];
@@ -927,13 +915,13 @@ static void test_health(void)
     static char page[ESL_API_RESP_SIZE(CAP)];
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
-    CHECK(HAS(page, "\"changed\":3}")); /* 1 layout, 3 content, 4 unseen (2 polls every 300 s, 400 s is fine) */
-    CHECK_INT(prev[0], ESL_HEALTH_LAYOUT_FAILED);
+    CHECK(HAS(page, "\"changed\":3}")); /* 1 and 3 content, 4 unseen (2 polls every 300 s, 400 s is fine) */
+    CHECK_INT(prev[0], ESL_HEALTH_CONTENT_ERROR);
     CHECK_INT(prev[3], ESL_HEALTH_UNSEEN);
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
     CHECK(HAS(page, "\"changed\":0}"));
-    poll_flags(2, id, 2400, 0, ver, now); /* 2 runs low */
+    poll_flags(2, id, 2400, 0, true, now); /* 2 runs low */
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_health(&api, now, NULL, prev, &sb), 200);
     CHECK(HAS(page, "\"changed\":1}"));

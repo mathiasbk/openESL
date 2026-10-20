@@ -43,7 +43,7 @@ typedef struct {
     bool has_content;
     esl_content_t content;
     uint32_t content_id;      /* 0 when no content is set */
-    uint8_t content_err;      /* ESL_CERR_*: why named content is not sent (from the last POLL) */
+    uint8_t content_err;      /* ESL_CERR_*: why the content is not shown (from the last POLL) */
 
     esl_tag_cfg_t cfg;        /* settings for this tag; 0 fields = default */
 
@@ -58,14 +58,9 @@ typedef struct {
     bool cfg_capable;         /* the last POLL carried cfg_ver (tag understands CONFIG) */
     uint16_t shown_cfg_ver;   /* cfg_ver from the last POLL */
     uint32_t polls;
-    bool layout_capable;      /* its POLL has the layout version (18 bytes) */
-    uint32_t layout_ver;      /* layout file version from the last POLL */
-    uint32_t layout_offered;  /* version the AP last offered it */
-    uint32_t layout_failed;   /* version it rejected (ESL_POLL_F_LAYOUTFAIL), not offered again */
-    bool layout_taken;        /* the tag started on layout_offered (esl_store_offer_taken), so
-                                 ESL_POLL_F_LAYOUTFAIL is about it */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
-    bool fw_taken;            /* the tag started on fw_offered, as layout_taken (RAM only) */
+    bool fw_taken;            /* the tag started on fw_offered (esl_store_fw_taken), so
+                                 ESL_POLL_F_FWFAIL is about it (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
@@ -91,13 +86,10 @@ typedef struct {
  * this long after it is due, so the schedule has set it by then. */
 #define ESL_DUE_MARGIN_S 2
 
-/* Why content with a named layout is not sent to a tag */
+/* Why a tag's content is not shown */
 #define ESL_CERR_NONE         0
-#define ESL_CERR_NO_LAYOUTS   1 /* the tag's firmware cannot download layout files */
+#define ESL_CERR_NO_IMAGE     1 /* the tag does not take images (old firmware, or no SPI flash) */
 #define ESL_CERR_NOT_IN_FILE  2 /* the layout file for its model has no layout by that name */
-#define ESL_CERR_REJECTED     3 /* the tag rejected the current layout file */
-/* (While the tag is still downloading the file, the AP answers with LAYOUT
- * blocks, not IDLE, so that needs no error.) */
 /* Text for the API, NULL for ESL_CERR_NONE */
 const char *esl_content_err_text(uint8_t err);
 
@@ -143,15 +135,13 @@ bool esl_store_restore_cfg(esl_store_t *st, unsigned slot, uint64_t mac, const e
  * longest-unseen tag without content is replaced. */
 esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t *c, esl_set_result_t *res);
 
-/* Handles a POLL: records status and writes IDLE, CONTENT or CONFIG into reply
+/* Handles a POLL: records status and writes CONFIG or IDLE into reply
  * (ESL_MAX_PAYLOAD bytes). Unknown tags are added without content if there is
  * room. Returns the reply length.
  *
  * env describes the layout file for the tag's model (esl_layouts_env; NULL =
- * none). Returns 0 and writes nothing when the tag must get the layout file
- * first (its POLL reports another version, and it has not rejected this one):
- * the caller then answers with the first LAYOUT block (esl_layouts_block).
- * Priority: LAYOUT, then CONTENT, then CONFIG, then IDLE (one per POLL). */
+ * none); content naming a layout it does not have gets ESL_CERR_NOT_IN_FILE.
+ * After IDLE the caller offers the content's image (esl_image), then firmware. */
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply);
 
@@ -186,7 +176,7 @@ void esl_store_reset_next_poll(esl_store_t *st);
 void esl_store_restore_next_poll(esl_store_t *st, uint16_t next_poll_s);
 uint16_t esl_store_get_next_poll(esl_store_t *st);
 /* The interval a tag is told (next_poll_s): its own poll_s, else the default.
- * The default for a MAC not in the table. Used for LAYOUT blocks. */
+ * The default for a MAC not in the table. Used for FW and IMG blocks. */
 uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
 
 /* Tag firmware (esl_tagfw): called after esl_store_on_poll answered IDLE.
@@ -202,7 +192,7 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
  * not refused this one. A POLL with ESL_POLL_F_DRAWFAIL after the tag started on
  * the id last offered marks that id as refused; new content clears that. */
 bool esl_store_image_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint32_t id);
-/* The tag asked for a block of image id: it started on it (as esl_store_offer_taken). */
+/* The tag asked for a block of image id: it started on it (as esl_store_fw_taken). */
 void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id);
 /* The image of the tag's content content_id was drawn with version layout_ver of the
  * model's layout file and has id (esl_image). Kept only while the tag still has that
@@ -212,12 +202,11 @@ void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, u
 /* A FW block of image ver up to byte end went to the tag (esl_radio). */
 void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
 
-/* The tag asked for a block of firmware image ver (fw) or layout file ver, or got the
- * whole layout file in the offer (esl_radio): it started on that version. A tag keeps
- * its fail flag on until then, so only after it does the flag count against the
- * version offered; before, the flag is about an older one and the offer may just have
- * been lost (both tries of the POLL it answered). */
-void esl_store_offer_taken(esl_store_t *st, uint64_t mac, bool fw, uint32_t ver);
+/* The tag asked for a block of firmware image ver (esl_radio): it started on that
+ * version. A tag keeps its fail flag on until then, so only after it does the flag
+ * count against the version offered; before, the flag is about an older one and the
+ * offer may just have been lost (both tries of the POLL it answered). */
+void esl_store_fw_taken(esl_store_t *st, uint64_t mac, uint16_t ver);
 
 typedef struct {
     unsigned updated;  /* tags of the model that run the version */
@@ -228,8 +217,8 @@ typedef struct {
 /* The state of the update to version ver for the seen tags of a model. */
 void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out);
 
-/* Content is set and the tag has not reported showing it yet (for a tag that shows
- * images: the image of the content, once drawn). */
+/* Content is set and the tag has not reported showing its image yet (or it has not
+ * been drawn). */
 bool esl_tag_pending(const esl_tag_t *t);
 /* The tag has content or its own settings (so it is kept when the table is full). */
 bool esl_tag_holds_data(const esl_tag_t *t);

@@ -59,8 +59,7 @@ export const PROBLEM_TEXT = {
   unseen: "not seen since the AP started",
   draw_failed: "drawing failed",
   low_battery: "low battery",
-  layout_failed: "rejected the layout file",
-  content_error: "content cannot be sent",
+  content_error: "content cannot be shown",
 };
 
 export const RESET_TEXT = {
@@ -81,13 +80,12 @@ export const RESET_TEXT = {
 };
 
 // What a tag is doing, in a few words: the problems the AP reports first, then a poll that
-// is overdue (next: nextCheckin), then whether it is still getting something (content,
-// layout file, settings)
+// is overdue (next: nextCheckin), then whether it is still getting something (firmware,
+// content, settings)
 export function tagState(tag, problems = [], next = null) {
   if (problems.length) return { level: "bad", text: problems.map((p) => PROBLEM_TEXT[p] || p).join(", ") };
   if (next?.late) return { level: "busy", text: "late" };
   if (tag.fw_update) return { level: "busy", text: "updating firmware" };
-  if (tag.layout_pending) return { level: "busy", text: "downloading the layout file" };
   if (tag.pending) return { level: "busy", text: tag.content_id ? "new content waiting" : "no content yet" };
   if (tag.config_pending) return { level: "busy", text: "settings waiting" };
   return { level: "ok", text: "OK" };
@@ -151,10 +149,12 @@ export function apFacts(ap) {
 }
 
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
-// becomes known, new content, or a new layout file, which changes the image id of a tag
-// that shows images and the layout version of one that draws itself)
-export function screenKey(tag) {
-  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}/${tag.layout_version ?? ""}`;
+// becomes known, new content, a new image id, or a new layout file for its model; the last
+// matters for a tag the AP has not drawn for, e.g. one without SPI flash). layouts is
+// GET /api/layouts, or null
+export function screenKey(tag, layouts) {
+  const file = layouts?.layouts?.find((x) => x.model === tag.model)?.version ?? "";
+  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}/${file}`;
 }
 
 // Whether a failed GET /api/tags/{mac}/image stands until the key changes: a 4xx does

@@ -155,7 +155,7 @@ static void test_core(void)
 
 static uint16_t poll_next(uint64_t mac, uint64_t now_ms, uint8_t *type)
 {
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0};
     uint8_t reply[ESL_MAX_PAYLOAD];
     CHECK(esl_store_on_poll(&st, mac, &p, -61, now_ms, NULL, reply) > 0);
     if (type)
@@ -194,7 +194,8 @@ static void test_wake(void)
     CHECK_INT(poll_next(1, 101500, NULL), 2);  /* due, but the tick has not run yet */
     CHECK_INT(esl_sched_tick(&sched, &st, 101000), 2);
     CHECK_INT(poll_next(1, 103000, &type), 300);
-    CHECK_INT(type, ESL_MSG_CONTENT);
+    CHECK_INT(type, ESL_MSG_IDLE); /* the content is set: the image follows the IDLE */
+    CHECK(shows(1, "A"));
     CHECK(shows(2, "A"));
 
     /* far away: the normal interval; removing the entry takes the hint away */

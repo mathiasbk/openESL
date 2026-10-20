@@ -12,8 +12,8 @@
 #define ESL_HEALTH_UNSEEN        0x02 /* not seen since the AP started, and that is longer ago than silent_s */
 #define ESL_HEALTH_DRAW_FAILED   0x04 /* its last POLL said the last drawing failed */
 #define ESL_HEALTH_LOW_BATTERY   0x08 /* battery below battery_mv (a tag that reports 0 cannot measure it) */
-#define ESL_HEALTH_LAYOUT_FAILED 0x10 /* it rejected the AP's current layout file */
-#define ESL_HEALTH_CONTENT_ERROR 0x20 /* pending content with a named layout cannot be sent */
+/* 0x10 was layout_failed (the tag rejected the layout file), before the AP drew images */
+#define ESL_HEALTH_CONTENT_ERROR 0x20 /* pending content cannot be shown (esl_store content_err) */
 
 #define ESL_HEALTH_BATTERY_MV_DEFAULT 2500 /* a CR2450 is nearly empty here */
 #define ESL_HEALTH_SILENT_X 3              /* default silent_s: this many poll intervals */
@@ -28,10 +28,8 @@ typedef struct {
 uint32_t esl_health_silent_s(const esl_health_cfg_t *cfg, uint16_t interval_s);
 
 /* The ESL_HEALTH_* flags of one tag. interval_s is what the AP sends it
- * (esl_store_tag_poll_s), layout_ver the AP's layout file version for its
- * model (0 = none). */
-uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint32_t layout_ver, uint64_t now_ms,
-                         const esl_health_cfg_t *cfg);
+ * (esl_store_tag_poll_s). */
+uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint64_t now_ms, const esl_health_cfg_t *cfg);
 
 /* The name of one flag, for the API ("silent", "draw_failed", ...). */
 const char *esl_health_flag_name(uint8_t flag);

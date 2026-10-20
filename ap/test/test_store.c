@@ -74,7 +74,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -140,7 +140,7 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
 
     /* other firmware: saved at once */
-    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0};
     esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
     CHECK_INT(g.writes, 3);
     CHECK_INT(g.rec.fw, 4);
@@ -174,7 +174,7 @@ static void test_store_seen(void)
     CHECK(!t.has_content);
     /* its first POLL with the same model and firmware writes nothing at once */
     int w = g.writes;
-    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0};
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0};
     g.clock = 1792003600;
     esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
     CHECK_INT(g.writes, w);
@@ -215,13 +215,12 @@ void test_store(void)
     CHECK(r.pending);
     CHECK_INT(f.saves, 1);
 
-    /* tag polls with old content -> CONTENT with the ready-made reply */
+    /* tag polls showing something else -> IDLE (the caller then offers the image) */
     size_t n = poll(&st, A, 0, 1000, reply);
-    CHECK_INT(reply[0], ESL_MSG_CONTENT);
-    uint8_t expect[ESL_MAX_PAYLOAD];
-    CHECK_INT(n, esl_content_msg_build(expect, 0, r.content_id, &milk));
-    CHECK_MEM(reply, expect, n);
+    CHECK_INT(n, ESL_IDLE_LEN);
+    CHECK_INT(reply[0], ESL_MSG_IDLE);
     CHECK(esl_store_get(&st, A, &t));
+    CHECK_INT(t.content_err, ESL_CERR_NONE);
     CHECK(t.seen);
     CHECK_INT(t.battery_mv, 2950);
     CHECK_INT(t.rssi, -61);
@@ -229,8 +228,11 @@ void test_store(void)
     CHECK_INT(t.polls, 1);
     CHECK(esl_tag_pending(&t));
 
-    /* tag reports the new id -> IDLE, no longer pending */
-    n = poll(&st, A, r.content_id, 2000, reply);
+    /* the image is drawn and the tag reports its id -> IDLE, no longer pending */
+    esl_store_image_known(&st, A, r.content_id, 0, 0x1234ABCDu);
+    esl_store_get(&st, A, &t);
+    CHECK(esl_tag_pending(&t));
+    n = poll(&st, A, 0x1234ABCDu, 2000, reply);
     CHECK_INT(n, ESL_IDLE_LEN);
     CHECK_INT(reply[0], ESL_MSG_IDLE);
     esl_store_get(&st, A, &t);
@@ -246,8 +248,18 @@ void test_store(void)
     CHECK(r.changed);
     CHECK(r.pending);
     CHECK_INT(f.saves, 2);
-    n = poll(&st, A, esl_content_id(&milk), 3000, reply);
-    CHECK_INT(reply[0], ESL_MSG_CONTENT);
+    n = poll(&st, A, 0x1234ABCDu, 3000, reply);
+    CHECK_INT(reply[0], ESL_MSG_IDLE);
+    esl_store_get(&st, A, &t);
+    CHECK(esl_tag_pending(&t)); /* new content: drawn again */
+    CHECK_INT(t.image_id, 0);
+
+    /* a tag without images cannot show content */
+    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0};
+    CHECK_INT(esl_store_on_poll(&st, A, &old, -61, 3500, NULL, reply), ESL_IDLE_LEN);
+    esl_store_get(&st, A, &t);
+    CHECK_INT(t.content_err, ESL_CERR_NO_IMAGE);
+    CHECK(esl_content_err_text(t.content_err) != NULL);
 
     /* unknown tag polls: added with content_id 0, gets IDLE, not persisted */
     n = poll(&st, B, 0, 4000, reply);
@@ -343,7 +355,7 @@ void test_store(void)
     /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
     n = poll(&st, A, 0, 100, reply);
     CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
-    esl_poll_t np = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0};
+    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0};
     n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
     CHECK_INT(n, ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
@@ -355,12 +367,12 @@ void test_store(void)
     esl_store_get(&st, A, &t);
     CHECK(!esl_tag_cfg_pending(&t, 0));
 
-    /* own poll_s goes into the prebuilt CONTENT; the default does not override it */
+    /* own poll_s goes into the reply; the default does not override it */
     esl_store_set(&st, A, &milk, &r);
     esl_store_set_next_poll(&st, 300);
     CHECK_INT(g.saves, 3); /* content + default */
     n = esl_store_on_poll(&st, A, &np, -61, 400, NULL, reply);
-    CHECK_INT(reply[0], ESL_MSG_CONTENT);
+    CHECK_INT(reply[0], ESL_MSG_IDLE);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 120);
     esl_store_set_cfg(&st, A, &none, &cr); /* back to defaults: stored entry erased */
     CHECK_INT(g.erases, 1);
@@ -395,8 +407,8 @@ void test_store(void)
     esl_store_get_slot(&st, 1, &t);
     CHECK_INT(t.cfg.poll_s, 120);
     uint8_t rb[ESL_MAX_PAYLOAD];
-    CHECK(poll(&st, A, 0, 0, rb) > 0); /* its own interval goes out with the content */
-    CHECK_INT(rb[ESL_OFF_TYPE], ESL_MSG_CONTENT);
+    CHECK(poll(&st, A, 0, 0, rb) > 0); /* its own interval goes out in the reply */
+    CHECK_INT(rb[ESL_OFF_TYPE], ESL_MSG_IDLE);
     CHECK_INT(ESL_GET_U16(&rb[ESL_OFF_NEXT_POLL]), 120);
     CHECK_INT(st.next_poll_builtin, 60);
     CHECK_INT(g.locks, g.unlocks);

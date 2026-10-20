@@ -84,13 +84,13 @@ static void test_parse_errors(void)
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_VERSION);
     p[1] = ESL_PROTO_VER;
 
-    /* messages for the tag of the old firmware, which drew the screen itself, and messages
-       for the AP are not replies the tag takes */
+    /* the retired CONTENT (0x03) and LAYOUT (0x04), from when the tag drew the screen
+       itself, and messages for the AP are not replies the tag takes */
     p[0] = ESL_MSG_POLL;
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_TYPE);
-    p[0] = ESL_MSG_CONTENT;
+    p[0] = 0x03;
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_TYPE);
-    p[0] = ESL_MSG_LAYOUT;
+    p[0] = 0x04;
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_E_TYPE);
     p[0] = ESL_MSG_IMG;
 

@@ -119,7 +119,7 @@ class FakeAp(BaseHTTPRequestHandler):
                          "battery_mv": t["battery_mv"]} for m, t in self.tags.items() if t["battery_mv"] < 2500]
             self._send(200, {"problems": problems, "ok": not problems, "tags": len(self.tags),
                              "with_problems": len(problems), "silent": 0, "unseen": 0, "draw_failed": 0,
-                             "low_battery": len(problems), "layout_failed": 0, "content_error": 0})
+                             "low_battery": len(problems), "content_error": 0})
         elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})

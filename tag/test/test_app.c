@@ -76,11 +76,11 @@ static void test_next_poll_from_ap(void)
 
 static void test_old_replies_ignored(void)
 {
-    /* CONTENT and LAYOUT (the AP drew nothing then, the tag did) are not answers: the tag
-       tries again and then counts the round as missed, and draws nothing */
+    /* CONTENT (0x03) and LAYOUT (0x04), retired since the AP draws the screen, are not
+       answers: the tag tries again and then counts the round as missed, and draws nothing */
     fresh();
-    push_old(ESL_MSG_CONTENT);
-    push_old(ESL_MSG_LAYOUT);
+    push_old(0x03);
+    push_old(0x04);
     CHECK_EQ(app_poll_once(), app_backoff_s(CFG_POLL_S, 1));
     CHECK_EQ(fake_tx_count, 2);
     CHECK_EQ(app.misses, 1);
@@ -88,7 +88,7 @@ static void test_old_replies_ignored(void)
 
     /* in the same window as a real answer, the answer is taken */
     fake_radio_reset();
-    push_old(ESL_MSG_CONTENT);
+    push_old(0x03);
     push_idle(77);
     CHECK_EQ(app_poll_once(), 77);
     CHECK_EQ(fake_tx_count, 1);

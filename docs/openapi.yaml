@@ -119,7 +119,7 @@ tags:
       a 16-byte header with the model, version, size and CRC-32, then the image. The AP keeps
       one image per model and offers it to every tag of that model that polls with another
       firmware version and can take updates (firmware with the bootloader and a SPI flash),
-      after its content, layout file and settings; the tag fetches it block by block over a
+      after its settings and its content's image; the tag fetches it block by block over a
       few wake-ups, installs it and restarts. A tag that rejects the image, or goes back to
       its old firmware because the new one never reached the AP, is not offered it again.
       `esl-client tag-ota` uploads a file and shows how far the tags are.
@@ -137,8 +137,8 @@ tags:
       One layout file per tag model holds up to 16 named layouts, made with the Design tab
       of the web page or by hand. A client uploads it here and then names a layout in the
       content (`"layout": "shelf"`). The AP checks the file against the model's screen and
-      what the tag can draw, so a file that is accepted always works on the tag; the AP
-      sends it to the tags over the radio. The format is in the `LayoutFile` schema below and,
+      what it can draw, so a file that is accepted always draws; the AP draws each tag's
+      screen with it and sends the tag the image. The format is in the `LayoutFile` schema below and,
       with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
       The built-in layouts `price` and `text` can always be used, with or without a file.
 
@@ -901,7 +901,8 @@ paths:
       summary: Upload the layout file for a model
       description: |
         The file is checked against the model in the URL, stored in NVS and compiled again
-        at boot. The tags of that model download it at their next poll. The same file again
+        at boot. The AP draws the screens of that model's tags with it, and each tag gets its
+        new image at its next poll. The same file again
         gives `changed: false` and no NVS write.
       requestBody:
         required: true
@@ -1118,8 +1119,7 @@ components:
           description: |
             `price` (name, price, subtitle), `text` (up to 4 lines), or the name of a layout
             in a layout file, e.g. `shelf`. A named layout must be in the file for the tag's
-            model (in any model's file while the model is not known yet), and the tag's
-            firmware must be able to download layout files; else `422`. The same name may be
+            model (in any model's file while the model is not known yet); else `422`. The same name may be
             used in both models' files, so one body works for every tag.
           examples: [price, text, shelf]
         fields:
@@ -1287,7 +1287,7 @@ components:
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota,
+                 poll_s, config, config_pending, content_error, ota,
                  image, image_id, shown_image_id, fw_update]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
@@ -1298,24 +1298,20 @@ components:
         model: { type: [string, "null"], enum: ["2.9", "1.54", null], description: "null until the tag has polled, and for firmware that does not send it" }
         draw_failed: { type: boolean, description: The tag said in its last poll that its last drawing failed }
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
-        shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: What the tag reported in its last poll }
+        shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
         poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
         config: { $ref: "#/components/schemas/TagCfg" }
         config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }
-        layout_version: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The layout file version the tag reported; null for firmware without layout files" }
-        layout_pending: { type: boolean, description: The tag is downloading the AP's layout file for its model }
-        layout_failed: { type: boolean, description: The tag rejected the AP's current layout file }
         content_error:
           type: [string, "null"]
-          description: Why pending content with a named layout cannot be sent
+          description: Why pending content cannot be shown
           enum:
-            - the tag firmware cannot download layout files
+            - the tag cannot show images drawn by the AP (old firmware, or no SPI flash)
             - the layout is not in the layout file for this tag's model
-            - the tag rejected the layout file
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
-        image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so): it gets no CONTENT, and `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
+        image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so; a tag without SPI flash cannot): `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
         image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
         shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and 0 otherwise" }
         fw_update:
@@ -1378,9 +1374,6 @@ components:
             poll_s: 120
             config: { poll_s: 120, max_poll_s: null, lost_ap_s: null }
             config_pending: false
-            layout_version: 1167268903
-            layout_pending: false
-            layout_failed: false
             content_error: null
             ota: true
             image: true
@@ -1457,7 +1450,7 @@ components:
     Health:
       type: object
       additionalProperties: false
-      required: [problems, ok, tags, with_problems, silent, unseen, draw_failed, low_battery, layout_failed, content_error]
+      required: [problems, ok, tags, with_problems, silent, unseen, draw_failed, low_battery, content_error]
       properties:
         problems:
           type: array
@@ -1471,7 +1464,7 @@ components:
               problems:
                 type: array
                 minItems: 1
-                items: { type: string, enum: [silent, unseen, draw_failed, low_battery, layout_failed, content_error] }
+                items: { type: string, enum: [silent, unseen, draw_failed, low_battery, content_error] }
               seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since its last poll; null: not seen since the AP started" }
               battery_mv: { type: [integer, "null"], minimum: 0, description: "From its last poll; 0: the tag cannot measure it" }
         ok: { type: boolean, description: No tag has a problem }
@@ -1481,8 +1474,7 @@ components:
         unseen: { type: integer, minimum: 0, description: Tags from NVS that have not polled since the AP started }
         draw_failed: { type: integer, minimum: 0, description: Tags whose last drawing failed }
         low_battery: { type: integer, minimum: 0, description: Tags below `battery_mv` }
-        layout_failed: { type: integer, minimum: 0, description: Tags that rejected the AP's layout file }
-        content_error: { type: integer, minimum: 0, description: Tags whose pending content cannot be sent (`content_error` in `GET /api/tags`) }
+        content_error: { type: integer, minimum: 0, description: Tags whose pending content cannot be shown (`content_error` in `GET /api/tags`) }
         changed: { type: integer, minimum: 0, description: "Only in the webhook: tags whose problems differ from the last report" }
       example:
         problems:
@@ -1495,7 +1487,6 @@ components:
         unseen: 0
         draw_failed: 1
         low_battery: 1
-        layout_failed: 0
         content_error: 0
 
     WifiSet:
@@ -1605,9 +1596,9 @@ components:
       required: [model, version, size, binary_size, layouts]
       properties:
         model: { $ref: "#/components/schemas/ModelName" }
-        version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version the tags get (CRC-32 of the compiled file); null: no file" }
+        version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version of the file the AP draws with (CRC-32 of the compiled file); null: no file" }
         size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
-        binary_size: { type: integer, minimum: 0, maximum: 768, description: Bytes each tag downloads }
+        binary_size: { type: integer, minimum: 0, maximum: 768, description: Bytes of the compiled file }
         layouts: { type: array, items: { type: string }, description: The layout names in the file }
 
     LayoutInfo:

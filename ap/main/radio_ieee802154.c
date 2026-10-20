@@ -140,7 +140,7 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
         ESP_LOGW(TAG, "previous transmit did not finish");
     size_t len = esl_radio_handle(store, layouts, pan, it->psdu, it->len, it->rssi, now_ms, &tx_buf[1], &ev);
     if (!len) {
-        xSemaphoreGive(tx_idle); /* not a POLL or LAYOUT_REQ for us */
+        xSemaphoreGive(tx_idle); /* not a POLL, FW_REQ or IMG_REQ for us */
         return;
     }
     if (ev.msg_type == ESL_MSG_POLL)
@@ -197,11 +197,6 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
 
     char m[17];
     esl_mac_format(ev.mac, m);
-    if (ev.msg_type == ESL_MSG_LAYOUT_REQ) {
-        ESP_LOGD(TAG, "%s layout block ver=%08lX pos=%u -> %lld us", m, (unsigned long)ev.req.layout_ver,
-                 (unsigned)ev.req.pos, (long long)us);
-        return;
-    }
     if (ev.msg_type == ESL_MSG_FW_REQ) {
         /* hundreds per download: debug only; the stats line counts them as blocks */
         ESP_LOGD(TAG, "%s fw block -> %s in %lld us", m, ev.reply_type == ESL_MSG_FW ? "FW" : "IDLE", (long long)us);
@@ -212,16 +207,13 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
         ESP_LOGD(TAG, "%s img block -> %s in %lld us", m, ev.reply_type == ESL_MSG_IMG ? "IMG" : "IDLE", (long long)us);
         return;
     }
-    const char *reply = ev.reply_type == ESL_MSG_CONTENT  ? "CONTENT"
-                        : ev.reply_type == ESL_MSG_LAYOUT ? "LAYOUT"
-                        : ev.reply_type == ESL_MSG_CONFIG ? "CONFIG"
+    const char *reply = ev.reply_type == ESL_MSG_CONFIG   ? "CONFIG"
                         : ev.reply_type == ESL_MSG_FW     ? "FW"
                         : ev.reply_type == ESL_MSG_IMG    ? "IMG"
                                                           : "IDLE";
-    ESP_LOGI(TAG, "%s poll id=%08lX fw=%u bat=%u model=%u layout=%08lX rssi=%d -> %s in %lld us", m,
-             (unsigned long)ev.poll.content_id, ev.poll.fw_ver, ev.poll.battery_mv, ev.poll.model,
-             (unsigned long)ev.poll.layout_ver,
-             it->rssi, reply, (long long)us);
+    ESP_LOGI(TAG, "%s poll id=%08lX fw=%u bat=%u model=%u rssi=%d -> %s in %lld us", m,
+             (unsigned long)ev.poll.content_id, ev.poll.fw_ver, ev.poll.battery_mv, ev.poll.model, it->rssi, reply,
+             (long long)us);
 }
 
 #if HOP_MS

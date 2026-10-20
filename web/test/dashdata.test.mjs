@@ -6,7 +6,7 @@ import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows,
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
   content_id: 7, shown_content_id: 7, pending: false, poll_s: null, config: {}, config_pending: false,
-  layout_version: 1, layout_pending: false, layout_failed: false, content_error: null, ...extra,
+  content_error: null, image: true, image_id: 9, shown_image_id: 9, ...extra,
 });
 
 test("formats", () => {
@@ -26,7 +26,6 @@ test("tag state: problems first, then what is still on its way", () => {
   assert.deepEqual(tagState(tag("A")), { level: "ok", text: "OK" });
   assert.equal(tagState(tag("A", { pending: true })).text, "new content waiting");
   assert.equal(tagState(tag("A", { pending: true, content_id: 0 })).text, "no content yet");
-  assert.equal(tagState(tag("A", { layout_pending: true, pending: true })).text, "downloading the layout file");
   assert.deepEqual(tagState(tag("A", { pending: true }), ["silent", "low_battery"]), { level: "bad", text: "silent, low battery" });
   // overdue but not silent yet: not "OK" next to a late check-in
   assert.deepEqual(tagState(tag("A"), [], { late: true }), { level: "busy", text: "late" });
@@ -110,8 +109,11 @@ test("tag screen: fetched again when what it depends on changes, failures that p
   assert.notEqual(screenKey(t), screenKey({ ...t, image_id: 5 }));            // drawn, or a new layout file
   assert.notEqual(screenKey({ ...t, model: null }), screenKey(t));             // model known after its first poll
   assert.notEqual(screenKey(t), screenKey({ ...t, content_id: 8 }));
-  assert.notEqual(screenKey(t), screenKey({ ...t, layout_version: 2 }));        // a tag that draws itself, new file
   assert.equal(screenKey(t), screenKey({ ...t, pending: true }));
+  const files = (v) => ({ layouts: [{ model: t.model, version: v }, { model: "other", version: 9 }] });
+  assert.notEqual(screenKey(t, files(1)), screenKey(t, files(2)));            // a new layout file, no image id
+  assert.equal(screenKey(t, files(1)), screenKey(t, { layouts: [{ model: t.model, version: 1 }] }));
+  assert.equal(screenKey(t), screenKey(t, null));
   assert.equal(screenErrorFinal(new Error("404: model not known yet")), true);
   assert.equal(screenErrorFinal(new Error("409: the content cannot be drawn")), true);
   assert.equal(screenErrorFinal({ status: 404, message: "not found" }), true);

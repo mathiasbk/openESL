@@ -62,9 +62,24 @@ static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL,
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
-/* AP boot: empty table, then everything from fake NVS. */
+/* Tags that show what the AP draws (POLL bit5): the image is drawn when the tag polls
+ * with another image than its content gives, sent block by block, and never stored.
+ * docs/protokoll.md "Image transfer"; plan D in design-sending-alternativer. */
+static esl_image_t images;
+
+static void images_boot(void)
+{
+    static uint8_t *mem;
+    if (!mem)
+        mem = malloc(esl_image_mem_size());
+    esl_image_init(&images, mem, NULL);
+    esl_radio_set_image(&images);
+}
+
+/* AP boot: empty table, then everything from fake NVS; no image drawn yet. */
 static void ap_boot(void)
 {
+    images_boot();
     static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
     esl_store_init(&st, tags, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -80,10 +95,13 @@ static void ap_boot(void)
     }
 }
 
-/* One round on the air. Returns the reply type the tag accepted (0 = none). */
+/* One wake-up of the tag (POLL, then IMG_REQ or FW_REQ until done), or with lose_reply
+ * only the POLL, whose reply is lost. Returns the reply type the tag accepted (0 = none). */
 static uint8_t air(esl_faketag_t *t, uint64_t now_ms, bool lose_reply)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    if (!lose_reply)
+        return esl_faketag_round(t, &st, &layouts, PAN, -60, now_ms);
     size_t n = esl_faketag_poll(t, PAN, rx);
     size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now_ms, tx, NULL);
     if (!m || lose_reply)
@@ -107,7 +125,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -168,15 +186,16 @@ static void test_fake_tag_filters(void)
     CHECK_INT(esl_faketag_receive(&t, tx, m), ESL_MSG_IDLE);
     CHECK_INT(t.flags, 0);
 
-    /* reply parser: CONTENT with a field running past the end, or a bad layout */
+    /* reply parser: the retired CONTENT, an IMG block past the end of its image, a long
+       IDLE, another protocol version */
     esl_reply_t r;
-    CHECK(!esl_reply_parse((const uint8_t *)"\x03\x01\x00\x00\x01\x00\x00\x00\x01\x00\x05" "abc", 14, &r));
-    CHECK(!esl_reply_parse((const uint8_t *)"\x03\x01\x00\x00\x01\x00\x00\x00\x07\x00", 10, &r));
+    CHECK(!esl_reply_parse((const uint8_t *)"\x03\x01\x3C\x00\x01\x00\x00\x00\x02\x02\x02hi\x00", 14, &r));
+    CHECK(!esl_reply_parse((const uint8_t *)"\x09\x01\x00\x00\x01\x00\x00\x00\x02\x00\x01\x00\x01\x00ab", 16, &r));
+    CHECK(esl_reply_parse((const uint8_t *)"\x09\x01\x3C\x00\x01\x00\x00\x00\x03\x00\x01\x00\x01\x00ab", 16, &r));
+    CHECK_INT(r.next_poll_s, 60);
+    CHECK_INT(r.len, 2);
     CHECK(!esl_reply_parse((const uint8_t *)"\x02\x01\x00\x00\x00", 5, &r));
     CHECK(!esl_reply_parse((const uint8_t *)"\x02\x02\x00\x00", 4, &r));
-    CHECK(esl_reply_parse((const uint8_t *)"\x03\x01\x3C\x00\x01\x00\x00\x00\x02\x02\x02hi\x00", 14, &r));
-    CHECK_INT(r.next_poll_s, 60);
-    CHECK_INT(r.content.nfields, 2);
 }
 
 static void test_end_to_end(void)
@@ -194,30 +213,29 @@ static void test_end_to_end(void)
     CHECK(HAS(resp, "\"model\":\"2.9\""));
     CHECK(HAS(resp, "\"content_id\":0,\"shown_content_id\":0,\"pending\":false"));
 
-    /* client sets content: the next poll gets CONTENT, the one after IDLE */
+    /* client sets content: the next wake-up gets its image, the one after confirms it */
     CHECK_INT(put("00000123456789A8", body), 200);
     CHECK(HAS(resp, "\"pending\":true"));
-    CHECK_INT(air(&t, 61000, false), ESL_MSG_CONTENT);
-    CHECK_INT(t.content.layout, ESL_LAYOUT_PRICE);
-    CHECK_INT(t.content.flags, ESL_CF_PRICE_HIGHLIGHT);
-    uint8_t len;
-    const uint8_t *f = esl_content_field(&t.content, 0, &len);
-    CHECK_INT(len, 10);
-    CHECK_MEM(f, "Gr\xF8nnsaker", 10);
+    uint32_t cid = json_u32(resp, "\"content_id\":");
+    CHECK_INT(air(&t, 61000, false), ESL_MSG_IMG);
+    CHECK_INT(t.img_shown, 1);
+    CHECK(t.shown != 0 && t.shown != cid); /* the image id, not the content id */
     CHECK_INT(air(&t, 121000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 121000, &out), 200);
+    CHECK_INT((int)json_u32(resp, "\"shown_content_id\":"), (int)cid);
     CHECK_INT(put("00000123456789A8", body), 200);
     CHECK(HAS(resp, "\"changed\":false,\"pending\":false")); /* same content: no redraw */
     CHECK_INT(air(&t, 181000, false), ESL_MSG_IDLE);
-    CHECK_INT(t.contents, 1);
+    CHECK_INT(t.img_shown, 1);
 
-    /* CONTENT lost on the air: the AP sends it again on the next poll */
+    /* the first IMG block lost on the air: the AP sends it again on the next poll */
     CHECK_INT(put("00000123456789A8", "{\"layout\":\"text\",\"fields\":[\"Stengt\"]}"), 200);
     CHECK_INT(air(&t, 241000, true), 0);
-    CHECK_INT(air(&t, 301000, false), ESL_MSG_CONTENT);
-    CHECK_INT(t.content.layout, ESL_LAYOUT_TEXT);
-    CHECK_INT(t.contents, 2);
+    CHECK_INT(air(&t, 301000, false), ESL_MSG_IMG);
+    CHECK_INT(t.img_shown, 2);
 
-    /* AP loses power: content comes back from NVS, the tag gets no redraw */
+    /* AP loses power: content comes back from NVS, the tag gets no new image (the
+       same content draws the same image, so the id it reports is the right one) */
     uint32_t shown = t.shown;
     ap_boot();
     CHECK_INT(esl_store_count(&st), 1);
@@ -225,20 +243,32 @@ static void test_end_to_end(void)
     CHECK(HAS(resp, "\"pending\":true")); /* not seen since boot */
     CHECK_INT(air(&t, 1000, false), ESL_MSG_IDLE);
     CHECK_INT(t.shown, shown);
+    CHECK_INT(t.img_shown, 2);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 2000, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
 
     /* content set while the AP was off for the tag is still delivered after a reboot */
     CHECK_INT(put("00000123456789A8", "{\"layout\":\"text\",\"fields\":[\"\\u00c5pent\"]}"), 200);
     ap_boot();
-    CHECK_INT(air(&t, 1000, false), ESL_MSG_CONTENT);
-    CHECK_INT(t.content.text[0], 0xC5);
+    CHECK_INT(air(&t, 1000, false), ESL_MSG_IMG);
+    CHECK_INT(t.img_shown, 3);
 
-    /* tag restarts (shows nothing, flag booted): gets its content again */
+    /* tag restarts (shows nothing, flag booted): gets its image again */
     esl_faketag_t again;
     esl_faketag_init(&again, t.mac, 2, 2800, ESL_MODEL_29);
-    CHECK_INT(air(&again, 2000, false), ESL_MSG_CONTENT);
+    CHECK_INT(air(&again, 2000, false), ESL_MSG_IMG);
     CHECK_INT(again.shown, t.shown);
+
+    /* a tag without images (no SPI flash) gets no content, and the API says why */
+    esl_faketag_t flat;
+    esl_faketag_init(&flat, 0x00000123456789A9ull, 2, 2800, ESL_MODEL_29);
+    flat.images = false;
+    CHECK_INT(put("00000123456789A9", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+    CHECK_INT(air(&flat, 2000, false), ESL_MSG_IDLE);
+    CHECK_INT(flat.img_blocks, 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A9", AUTH, NULL, 0, 2000, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
+    CHECK(HAS(resp, "\"content_error\":\"the tag cannot show images drawn by the AP (old firmware, or no SPI flash)\""));
 
     /* next_poll_s reaches the tag in every reply; a tag that understands
      * CONFIG also gets it once as its base interval */
@@ -295,15 +325,15 @@ static void test_config(void)
     CHECK(HAS(resp, "\"changed\":false"));
     CHECK_INT(air(&t, 301000, false), ESL_MSG_IDLE);
 
-    /* content goes first, the settings on the next poll; next_poll_s in CONTENT is the tag's own */
+    /* the settings go first, the image on the next poll; next_poll_s in IMG is the tag's own */
     CHECK_INT(put("00000000C0FFEE01", body), 200);
     CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":30}"), 200);
-    CHECK_INT(air(&t, 331000, false), ESL_MSG_CONTENT);
-    CHECK_INT(t.interval_s, 30);
-    CHECK_INT(air(&t, 361000, false), ESL_MSG_CONFIG);
+    CHECK_INT(air(&t, 331000, false), ESL_MSG_CONFIG);
     CHECK_INT(t.cfg.lost_ap_s, 0);
+    CHECK_INT(air(&t, 361000, false), ESL_MSG_IMG);
+    CHECK_INT(t.interval_s, 30);
     CHECK_INT(air(&t, 391000, false), ESL_MSG_IDLE);
-    CHECK_INT(t.contents, 1);
+    CHECK_INT(t.img_shown, 1);
 
     /* old firmware: never gets CONFIG, but next_poll_s still carries its interval */
     CHECK_INT(put_cfg("00000000C0FFEE02", "{\"poll_s\":900}"), 200);
@@ -322,8 +352,8 @@ static void test_config(void)
     /* the tag restarts with built-in settings: gets them again */
     esl_faketag_t again;
     esl_faketag_init(&again, t.mac, 2, 3000, ESL_MODEL_154);
-    CHECK_INT(air(&again, 2000, false), ESL_MSG_CONTENT);
-    CHECK_INT(air(&again, 3000, false), ESL_MSG_CONFIG);
+    CHECK_INT(air(&again, 2000, false), ESL_MSG_CONFIG);
+    CHECK_INT(air(&again, 3000, false), ESL_MSG_IMG);
     CHECK_INT(again.cfg_ver, t.cfg_ver);
 
     /* a run-time default reaches tags without their own poll_s, is persisted, and null resets it */
@@ -384,22 +414,26 @@ static void test_many_tags(void)
     CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, batch, sb.len, 0, &out), 200);
     CHECK_INT(nvs.writes, CAP);
 
-    for (unsigned i = 0; i < CAP; i++)
-        CHECK_INT(air(&t[i], 60000, false), ESL_MSG_CONTENT);
+    /* each gets its image; the next POLL confirms it and frees the AP's buffer */
     for (unsigned i = 0; i < CAP; i++) {
-        uint8_t len;
-        const uint8_t *f = esl_content_field(&t[i].content, 0, &len);
-        snprintf(body, sizeof(body), "Vare %u", i);
-        CHECK_INT(len, strlen(body));
-        CHECK_MEM(f, body, len);
-        CHECK_INT(air(&t[i], 120000, false), ESL_MSG_IDLE);
+        CHECK_INT(air(&t[i], 60000, false), ESL_MSG_IMG);
+        CHECK_INT(air(&t[i], 61000, false), ESL_MSG_IDLE);
+    }
+    for (unsigned i = 0; i < CAP; i++) {
+        esl_mac_format(t[i].mac, mac);
+        snprintf(body, sizeof(body), "/api/tags/%s", mac);
+        CHECK_INT(esl_api_handle(&api, "GET", body, AUTH, NULL, 0, 120000, &out), 200);
+        CHECK(HAS(resp, "\"pending\":false"));
+        CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)t[i].shown);
+        for (unsigned k = 0; k < i; k++)
+            CHECK(t[k].shown != t[i].shown); /* each its own price */
     }
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", AUTH, NULL, 0, 120000, &out), 200);
     CHECK(!HAS(resp, "\"pending\":true"));
     CHECK(HAS(resp, "\"model\":\"1.54\""));
 }
 
-/* ---- layout files over the air (docs/protokoll.md part 1, "Layout transfer") ---- */
+/* ---- layout files: the AP draws with them ---- */
 
 char *read_example_layout(const char *name, size_t *len); /* test_layout.c */
 
@@ -410,450 +444,8 @@ static int put_layout(const char *model, const char *file, size_t len)
     return esl_api_handle(&api, "PUT", uri, AUTH, file, len, 0, &out);
 }
 
-static uint32_t version_of(uint8_t model)
-{
-    uint32_t v = 0;
-    esl_layouts_info(&layouts, model, &v, NULL, NULL);
-    return v;
-}
-
-/* One frame from the tag through the AP and back. Returns what the tag accepted. */
-static uint8_t hop(esl_faketag_t *t, const uint8_t *rx, size_t n, bool lose)
-{
-    uint8_t tx[ESL_PSDU_MAX];
-    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 0, tx, NULL);
-    return m && !lose ? esl_faketag_receive(t, tx, m) : 0;
-}
-
 static const char *const SHELF =
     "{\"layout\":\"shelf\",\"fields\":[\"Kaffe 500 g\",\"49,90\",\"kr 99,80/kg\",\"Tilbud\"],\"price_highlight\":true}";
-
-static void test_layout_download(void)
-{
-    size_t l29, l154;
-    char *f29 = read_example_layout("2.9.json", &l29);
-    char *f154 = read_example_layout("1.54.json", &l154);
-    CHECK(f29 && f154);
-    if (!f29 || !f154)
-        return;
-
-    memset(&nvs, 0, sizeof(nvs));
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    esl_faketag_t a, b;
-    esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
-    esl_faketag_init(&b, 0x154B, 1, 3000, ESL_MODEL_154);
-
-    /* no files: nothing to download, the tags work as before */
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(a.layout_blocks, 0);
-
-    /* a file for each model, and named content for both tags (krav A12, A14) */
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(put_layout("1.54", f154, l154), 200);
-    CHECK_INT(put("000000000000029A", SHELF), 200);
-    CHECK_INT(put("000000000000154B", SHELF), 200);
-    uint32_t id = json_u32(resp, "\"content_id\":");
-
-    /* one round: POLL -> LAYOUT@0, LAYOUT_REQ(94) -> LAYOUT@94, then POLL -> CONTENT */
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(a.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(a.layout_size, 174);
-    CHECK_INT(a.layout_blocks, 2);
-    CHECK_INT(a.layout_installs, 1);
-    CHECK_INT(a.shown, id);
-    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 0); /* "shelf" is layout 0 of the file */
-    CHECK_INT(a.drawn_elements, 5);
-    CHECK_INT(a.missing_layouts, 0);
-    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(b.layout_ver, version_of(ESL_MODEL_154));
-    CHECK(b.layout_ver != a.layout_ver);
-    CHECK_INT(b.shown, id);
-    CHECK_INT(b.drawn_elements, 5);
-
-    /* the downloaded file is exactly the AP's binary for the model */
-    esl_layout_bin_t bin;
-    char err[ESL_LAYOUT_ERR_MAX];
-    CHECK(esl_layout_compile(f29, l29, ESL_MODEL_29, &bin, err, sizeof(err)));
-    CHECK_MEM(a.layout, bin.bin, bin.size);
-
-    /* the same version is not sent again (krav T17) */
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(a.layout_blocks, 2);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"layout_pending\":false,\"layout_failed\":false,\"content_error\":null"));
-
-    /* another layout from the file */
-    CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"\\u00c5pent 9-21\"],\"frame\":true}"),
-              200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 1);
-    CHECK_INT(a.drawn_elements, 7);
-    CHECK_INT(a.content.flags, ESL_CF_FRAME);
-
-    /* a changed file: downloaded, and the content drawn with the old one is sent again in the same round */
-    uint32_t old = a.layout_ver;
-    uint32_t contents = a.contents;
-    char *f2 = malloc(l29 + 1);
-    memcpy(f2, f29, l29);
-    char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
-    CHECK(band != NULL);
-    if (band)
-        band[6] = '2'; /* the black band 20 px instead of 30 */
-    CHECK_INT(put_layout("2.9", f2, l29), 200);
-    CHECK(version_of(ESL_MODEL_29) != old);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(a.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(a.contents, contents + 1);
-    CHECK_INT(a.content.layout, ESL_LAYOUT_FILE + 1);
-
-    /* built-in content is not sent again when the file changes */
-    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    contents = a.contents;
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(a.layout_ver, old);
-    CHECK_INT(a.contents, contents);
-
-    /* the tag restarts: the file is not in its flash yet, so it fetches it again, then the content */
-    esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
-    CHECK_INT(put("000000000000029A", SHELF), 200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(a.layout_ver, old);
-    CHECK_INT(a.drawn_elements, 5);
-
-    /* the file is deleted: the tag drops its copy, named content cannot be sent */
-    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(a.layout_ver, 0);
-    CHECK_INT(a.shown, 0); /* it asks for the content again, resolved against no file */
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
-    CHECK(HAS(resp, "\"pending\":true"));
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(a.shown, id);
-
-    free(f2);
-    free(f29);
-    free(f154);
-}
-
-static void test_layout_lost_and_changed(void)
-{
-    size_t l29;
-    char *f29 = read_example_layout("2.9.json", &l29);
-    CHECK(f29 != NULL);
-    if (!f29)
-        return;
-    uint8_t rx[ESL_PSDU_MAX];
-    esl_faketag_t t;
-
-    memset(&nvs, 0, sizeof(nvs));
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    uint32_t v1 = version_of(ESL_MODEL_29);
-    esl_faketag_init(&t, 0x77, 1, 3000, ESL_MODEL_29);
-
-    /* block 0 arrives, the answer to LAYOUT_REQ is lost: the round ends */
-    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
-    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
-    CHECK_INT(hop(&t, rx, esl_faketag_request(&t, PAN, rx), true), 0);
-    CHECK_INT(t.layout_ver, 0);
-
-    /* next round: the AP offers block 0 again, the tag carries on at 94 */
-    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
-    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
-    size_t n = esl_faketag_request(&t, PAN, rx);
-    esl_rx_frame_t f;
-    esl_layout_req_t req;
-    CHECK(esl_frame_parse_from_tag(rx, n, &f) && esl_layout_req_parse(f.payload, f.payload_len, &req));
-    CHECK_INT(req.pos, ESL_LAYOUT_CHUNK_MAX);
-    CHECK_INT(req.layout_ver, v1);
-    CHECK_INT(req.model, ESL_MODEL_29);
-    CHECK_INT(req.max, ESL_LAYOUT_CHUNK_MAX);
-
-    /* the file changes before the tag asks: the AP answers with block 0 of the new file */
-    char *f2 = malloc(l29);
-    memcpy(f2, f29, l29);
-    char *x = strstr(f2, "\"x\": 120");
-    CHECK(x != NULL);
-    if (x)
-        x[7] = '5'; /* price box at x 125 */
-    CHECK_INT(put_layout("2.9", f2, l29), 200);
-    uint32_t v2 = version_of(ESL_MODEL_29);
-    CHECK(v2 != v1);
-    CHECK_INT(hop(&t, rx, n, false), ESL_MSG_LAYOUT);
-    CHECK_INT(t.dl_ver, v2);
-    CHECK_INT(t.dl_got, ESL_LAYOUT_CHUNK_MAX);
-    CHECK_INT(hop(&t, rx, esl_faketag_request(&t, PAN, rx), false), ESL_MSG_LAYOUT);
-    CHECK_INT(t.layout_ver, v2);
-    CHECK_INT(t.layout_installs, 1);
-    CHECK_INT(esl_faketag_request(&t, PAN, rx), 0);
-
-    /* a LAYOUT_REQ that is not for this AP's PAN is ignored */
-    esl_layout_req_t r2 = {ESL_MODEL_29, 94, v2, 0};
-    uint8_t pl[ESL_LREQ_LEN], tx[ESL_PSDU_MAX];
-    esl_layout_req_build(pl, &r2);
-    n = esl_frame_build_from_tag(rx, 1, 0x1234, ESL_AP_SHORT_ADDR, 0x77, pl, sizeof(pl));
-    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, NULL), 0);
-    esl_radio_event_t ev;
-    n = esl_frame_build_from_tag(rx, 9, PAN, ESL_AP_SHORT_ADDR, 0x77, pl, sizeof(pl));
-    CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, 0, 0, tx, &ev) > 0);
-    CHECK_INT(ev.msg_type, ESL_MSG_LAYOUT_REQ);
-    CHECK_INT(ev.reply_type, ESL_MSG_LAYOUT);
-    CHECK_INT(ev.req.layout_ver, v2);
-    CHECK(ev.mac == 0x77);
-
-    free(f2);
-    free(f29);
-}
-
-static void test_layout_rejected_and_old_firmware(void)
-{
-    size_t l29;
-    char *f29 = read_example_layout("2.9.json", &l29);
-    CHECK(f29 != NULL);
-    if (!f29)
-        return;
-    esl_faketag_t t, old;
-
-    memset(&nvs, 0, sizeof(nvs));
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    uint32_t v1 = version_of(ESL_MODEL_29);
-
-    /* firmware without layout files (POLL without the layout version): never a LAYOUT,
-     * built-in content as before */
-    esl_faketag_init(&old, 0x01D, 1, 3000, ESL_MODEL_29);
-    old.layouts = false;
-    CHECK_INT(put("000000000000001D", SHELF), 200); /* model unknown yet: accepted */
-    CHECK_INT(esl_faketag_round(&old, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(old.layout_blocks, 0);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000001D", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"layout_version\":null"));
-    CHECK(HAS(resp, "\"content_error\":\"the tag firmware cannot download layout files\""));
-    CHECK_INT(put("000000000000001D", SHELF), 422); /* now the model is known */
-    CHECK_INT(put("000000000000001D", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
-    CHECK_INT(esl_faketag_round(&old, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(old.content.layout, ESL_LAYOUT_PRICE);
-
-    /* a tag that cannot use the file says so (POLL flag); the AP stops offering that version */
-    esl_faketag_init(&t, 0x8AD, 1, 3000, ESL_MODEL_29);
-    CHECK_INT(put("00000000000008AD", SHELF), 200);
-    uint8_t rx[ESL_PSDU_MAX];
-    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT); /* offered v1 */
-    esl_store_offer_taken(&st, 0x8AD, false, v1); /* it asked for the rest of the file */
-    t.dl_ver = 0;
-    t.layout_rejected = v1; /* as if the CRC or the structure check had failed */
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(t.layout_blocks, 1);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AD", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"layout_failed\":true,\"content_error\":\"the tag rejected the layout file\""));
-    /* built-in content still gets through */
-    CHECK_INT(put("00000000000008AD", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    /* a new version is offered again, and this time it works */
-    char *f2 = malloc(l29);
-    memcpy(f2, f29, l29);
-    char *x = strstr(f2, "\"x\": 120");
-    if (x)
-        x[7] = '5';
-    CHECK_INT(put_layout("2.9", f2, l29), 200);
-    CHECK_INT(put("00000000000008AD", SHELF), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(t.layout_rejected, 0);
-    CHECK_INT(t.drawn_elements, 5);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AD", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"layout_failed\":false"));
-
-    /* a file small enough to go whole in the offer: the tag asks for no block, and its
-       flag after that is a rejection of this version */
-    static const char tiny[] = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
-                               "{\"name\":\"sign\",\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\","
-                               "\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}]}";
-    CHECK_INT(put_layout("2.9", tiny, sizeof(tiny) - 1), 200);
-    uint32_t v3 = version_of(ESL_MODEL_29);
-    esl_faketag_init(&t, 0x8AE, 1, 3000, ESL_MODEL_29);
-    CHECK_INT(hop(&t, rx, esl_faketag_poll(&t, PAN, rx), false), ESL_MSG_LAYOUT);
-    CHECK_INT(t.layout_blocks, 1);
-    t.dl_ver = 0;
-    t.layout_ver = 0;
-    t.layout_rejected = v3;
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000008AE", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"layout_failed\":true"));
-
-    free(f2);
-    free(f29);
-}
-
-static void test_layout_many_tags(void)
-{
-    static esl_faketag_t t[CAP];
-    size_t l29, l154;
-    char *f29 = read_example_layout("2.9.json", &l29);
-    char *f154 = read_example_layout("1.54.json", &l154);
-    CHECK(f29 && f154);
-    if (!f29 || !f154)
-        return;
-
-    memset(&nvs, 0, sizeof(nvs));
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(put_layout("1.54", f154, l154), 200);
-    for (unsigned i = 0; i < CAP; i++) {
-        char mac[17];
-        esl_faketag_init(&t[i], 0xE000 + i, 1, 3000, i % 2 ? ESL_MODEL_154 : ESL_MODEL_29);
-        esl_mac_format(t[i].mac, mac);
-        CHECK_INT(put(mac, i % 3 ? SHELF : "{\"layout\":\"sign\",\"fields\":[\"A\",\"B\"]}"), 200);
-    }
-    for (unsigned i = 0; i < CAP; i++) {
-        CHECK_INT(esl_faketag_round(&t[i], &st, &layouts, PAN, -60, 0), ESL_MSG_CONTENT);
-        CHECK_INT(t[i].layout_ver, version_of(t[i].model));
-        CHECK_INT(t[i].drawn_elements, i % 3 ? 5 : 7);
-        CHECK_INT(esl_faketag_round(&t[i], &st, &layouts, PAN, -60, 60000), ESL_MSG_IDLE);
-    }
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", AUTH, NULL, 0, 60000, &out), 200);
-    CHECK(!HAS(resp, "\"pending\":true"));
-    CHECK(!HAS(resp, "\"layout_pending\":true"));
-    free(f29);
-    free(f154);
-}
-
-/* Layout, content and CONFIG for the same tag (docs/protokoll.md part 1,
- * "Priority"): the AP sends the layout file first (the content may use it),
- * then the content, then the settings, one message per POLL. After a layout
- * download the tag polls again at once, so the next item follows in the same
- * wake-up. */
-static void test_layout_content_config(void)
-{
-    size_t l29;
-    char *f29 = read_example_layout("2.9.json", &l29);
-    CHECK(f29 != NULL);
-    if (!f29)
-        return;
-    esl_faketag_t t, cfgonly;
-
-    memset(&nvs, 0, sizeof(nvs));
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    esl_faketag_init(&t, 0xA11, 1, 3000, ESL_MODEL_29);
-
-    /* everything waiting before the tag is ever seen */
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(put("0000000000000A11", SHELF), 200);
-    uint32_t id = json_u32(resp, "\"content_id\":");
-    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":120,\"lost_ap_s\":600}"), 200);
-
-    /* round 1: LAYOUT blocks, then the extra POLL gets CONTENT; every reply,
-     * the LAYOUT blocks too, already carries the tag's own interval */
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONTENT);
-    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(t.layout_blocks, 2);
-    CHECK_INT(t.shown, id);
-    CHECK_INT(t.drawn_elements, 5);
-    CHECK_INT(t.configs, 0);
-    CHECK_INT(t.interval_s, 120);
-    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000A11", AUTH, NULL, 0, 1000, &out), 200);
-    CHECK(HAS(resp, "\"pending\":true,")); /* confirmed by the next POLL */
-    CHECK(HAS(resp, "\"config_pending\":true,\"layout_version\":"));
-    CHECK(HAS(resp, "\"layout_pending\":false,"));
-
-    /* round 2: CONFIG; round 3: nothing left */
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 121000), ESL_MSG_CONFIG);
-    CHECK_INT(t.cfg.poll_s, 120);
-    CHECK_INT(t.cfg.lost_ap_s, 600);
-    CHECK(t.cfg_ver != 0);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 241000), ESL_MSG_IDLE);
-    CHECK_INT(t.configs, 1);
-    CHECK_INT(t.contents, 1);
-    CHECK_INT(t.layout_installs, 1);
-    CHECK_INT(t.rejected, 0);
-
-    /* all three change at once: layout + content in one wake-up, CONFIG in the next */
-    char *f2 = malloc(l29);
-    memcpy(f2, f29, l29);
-    char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
-    CHECK(band != NULL);
-    if (band)
-        band[6] = '2';
-    CHECK_INT(put_layout("2.9", f2, l29), 200);
-    CHECK_INT(put("0000000000000A11", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Hei\"]}"), 200);
-    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":45}"), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 300000), ESL_MSG_CONTENT);
-    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(t.layout_installs, 2);
-    CHECK_INT(t.content.layout, ESL_LAYOUT_FILE + 1);
-    CHECK_INT(t.interval_s, 45);
-    CHECK_INT(t.configs, 1);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 345000), ESL_MSG_CONFIG);
-    CHECK_INT(t.cfg.poll_s, 45);
-    CHECK_INT(t.cfg.lost_ap_s, 0);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 390000), ESL_MSG_IDLE);
-
-    /* layout and settings, content unchanged (built-in layout): the extra POLL
-     * after the download gets CONFIG in the same wake-up */
-    CHECK_INT(put("0000000000000A11", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 400000), ESL_MSG_CONTENT);
-    uint32_t contents = t.contents;
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":300}"), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 450000), ESL_MSG_CONFIG);
-    CHECK_INT(t.layout_ver, version_of(ESL_MODEL_29));
-    CHECK_INT(t.contents, contents);
-    CHECK_INT(t.interval_s, 300);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 750000), ESL_MSG_IDLE);
-
-    /* content and settings, no layout change: CONTENT first, CONFIG next */
-    CHECK_INT(put("0000000000000A11", SHELF), 200);
-    CHECK_INT(put_cfg("0000000000000A11", "{\"poll_s\":60}"), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 800000), ESL_MSG_CONTENT);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 860000), ESL_MSG_CONFIG);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 920000), ESL_MSG_IDLE);
-    CHECK_INT(t.rejected, 0);
-
-    /* firmware with CONFIG but without layout files (14-byte POLL): CONFIG, never LAYOUT */
-    esl_faketag_init(&cfgonly, 0xC0F, 1, 3000, ESL_MODEL_29);
-    cfgonly.layouts = false;
-    CHECK_INT(put_cfg("0000000000000C0F", "{\"poll_s\":90}"), 200);
-    CHECK_INT(esl_faketag_round(&cfgonly, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONFIG);
-    CHECK_INT(esl_faketag_round(&cfgonly, &st, &layouts, PAN, -60, 91000), ESL_MSG_IDLE);
-    CHECK_INT(cfgonly.layout_blocks, 0);
-    CHECK_INT(cfgonly.interval_s, 90);
-    CHECK_INT(cfgonly.rejected, 0);
-
-    /* the AP restarts: content and settings come back from NVS, the layout file
-     * is uploaded again; a tag that has everything gets IDLE */
-    ap_boot();
-    esl_layouts_init(&layouts, NULL);
-    CHECK_INT(put_layout("2.9", f29, l29), 200);
-    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
-    CHECK_INT(t.interval_s, 60);
-
-    free(f2);
-    free(f29);
-}
-
-/* Tags that show what the AP draws (POLL bit5): the image is drawn when the tag polls
- * with another image than its content gives, sent block by block, and never stored.
- * docs/protokoll.md "Image transfer"; plan D in design-sending-alternativer. */
-static esl_image_t images;
-
-static void images_boot(void)
-{
-    static uint8_t *mem;
-    if (!mem)
-        mem = malloc(esl_image_mem_size());
-    esl_image_init(&images, mem, NULL);
-    esl_radio_set_image(&images);
-}
 
 static uint32_t image_id_of(const char *mac)
 {
@@ -878,8 +470,9 @@ static void test_image_send(void)
     esl_faketag_t a, b;
     esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
     a.ota = true;
-    a.images = true;
-    esl_faketag_init(&b, 0x29B, 1, 3000, ESL_MODEL_29); /* draws itself, as before */
+    a.img_rle = false; /* raw images: the block count below */
+    esl_faketag_init(&b, 0x29B, 1, 3000, ESL_MODEL_29);
+    b.images = false; /* no SPI flash */
 
     /* no content: IDLE, nothing drawn */
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
@@ -898,10 +491,9 @@ static void test_image_send(void)
     CHECK_INT(a.img_shown, 1);
     CHECK_INT(a.img_blocks, (esl_render_size(ESL_MODEL_29) + ESL_IMG_CHUNK_MAX - 1) / ESL_IMG_CHUNK_MAX);
     CHECK_INT(a.img_size_sent, esl_render_size(ESL_MODEL_29) % ESL_IMG_CHUNK_MAX);
-    CHECK_INT(a.contents, 0);
     CHECK(HAS(resp, "\"pending\":true")); /* until the next POLL reports the id */
-    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONTENT);
-    CHECK_INT(b.shown, cid);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
+    CHECK_INT(b.shown, 0);
 
     /* the next POLL reports the id: shown, the buffer is free, nothing more is sent */
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IDLE);
@@ -913,7 +505,7 @@ static void test_image_send(void)
     CHECK_INT(images.buf[1].mac, 0);
     CHECK_INT(images.drawn, 1);
 
-    /* GET .../image: the same bytes, for the dashboard; also for a tag that draws itself */
+    /* GET .../image: the same bytes, for the dashboard; also for a tag without images */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A/image", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"model\":\"2.9\",\"width\":296,\"height\":128"));
     CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)id);
@@ -934,7 +526,7 @@ static void test_image_send(void)
     CHECK_INT(images.drawn, 1); /* the same content id: the image id is known */
     CHECK_INT(a.img_shown, 1);
 
-    /* named layout: drawn on the AP from the file, no LAYOUT to the tag; until it shows
+    /* named layout: drawn on the AP from the file; until it shows
        the new image, shown_content_id is 0, not the old image's id */
     CHECK_INT(put_layout("2.9", f29, l29), 200);
     CHECK_INT(put("000000000000029A", SHELF), 200);
@@ -943,11 +535,8 @@ static void test_image_send(void)
     CHECK_INT((int)json_u32(resp, "\"shown_image_id\":"), (int)id);
     uint32_t blocks = a.img_blocks;
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 181000), ESL_MSG_IMG);
-    CHECK_INT(a.layout_blocks, 0);
-    CHECK_INT(a.layout_ver, 0);
     CHECK_INT(a.img_shown, 2);
     CHECK(a.img_blocks > blocks && a.shown == image_id_of("000000000000029A"));
-    CHECK(HAS(resp, "\"layout_pending\":false"));
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 241000), ESL_MSG_IDLE);
 
     /* a new file for the model: the tag's image is drawn again with it, and back */
@@ -1211,11 +800,6 @@ void test_radio(void)
     test_end_to_end();
     test_config();
     test_many_tags();
-    test_layout_download();
-    test_layout_lost_and_changed();
-    test_layout_rejected_and_old_firmware();
-    test_layout_many_tags();
-    test_layout_content_config();
     test_image_send();
     test_image_rle();
 }

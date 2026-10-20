@@ -82,9 +82,8 @@ static void set_content(esl_tag_t *t, const esl_content_t *c)
 const char *esl_content_err_text(uint8_t err)
 {
     switch (err) {
-    case ESL_CERR_NO_LAYOUTS:  return "the tag firmware cannot download layout files";
+    case ESL_CERR_NO_IMAGE:    return "the tag cannot show images drawn by the AP (old firmware, or no SPI flash)";
     case ESL_CERR_NOT_IN_FILE: return "the layout is not in the layout file for this tag's model";
-    case ESL_CERR_REJECTED:    return "the tag rejected the layout file";
     default:                   return NULL;
     }
 }
@@ -98,18 +97,13 @@ static int env_find(const esl_layout_env_t *env, const char *name)
 }
 
 /*
- * Under the lock: the answer to a POLL for a known tag. 0 = send the layout file first.
+ * Under the lock: the answer to a POLL for a known tag.
  *
  * Priority when several things are waiting (docs/protokoll.md part 1, "Priority"):
- *   1. LAYOUT  - the layout file, since the content may use a layout from it
- *   2. CONTENT - what the client is waiting for
- *   3. CONFIG  - settings; also when content is held back (ESL_CERR_*)
- *   4. IDLE    - the caller then offers an image (esl_image) or firmware (esl_tagfw)
- * A tag that shows images (ESL_POLL_F_IMAGE) gets neither LAYOUT nor CONTENT: the AP
- * draws its content itself, so here only a named layout missing from the file is
- * noted (content_err), and the rest is CONFIG or IDLE.
- * One message per POLL; the next item goes out in the next round (after a layout
- * download the tag polls again at once, so content follows in the same wake-up).
+ *   1. CONFIG - settings
+ *   2. IDLE   - the caller then offers an image (esl_image) or firmware (esl_tagfw)
+ * The AP draws the content itself, so here it only notes why content cannot be
+ * shown (content_err). One message per POLL.
  * next_poll_s in every reply is the tag's own interval (eff.poll_s), or shorter
  * when scheduled content is due before then (next_poll).
  */
@@ -126,48 +120,15 @@ static uint16_t next_poll(const esl_tag_t *t, uint16_t poll_s, uint64_t now_ms)
 static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll, const esl_layout_env_t *env,
                           uint64_t now_ms, uint8_t *reply)
 {
-    uint32_t v = env ? env->version : 0;
     esl_tag_cfg_t eff;
 
     esl_tag_effective_cfg(t, st->next_poll_s, &eff);
     uint16_t next = next_poll(t, eff.poll_s, now_ms);
     t->content_err = ESL_CERR_NONE;
-    if (poll->flags & ESL_POLL_F_IMAGE) {
-        if (t->has_content && t->content.layout == ESL_LAYOUT_NAMED && env_find(env, t->content.name) < 0)
-            t->content_err = ESL_CERR_NOT_IN_FILE;
-        if (esl_tag_cfg_pending(t, st->next_poll_s))
-            return esl_config_msg_build(reply, next, &eff);
-        return esl_idle_build(reply, next);
-    }
-    if (poll->has_layout_ver && poll->layout_ver == v)
-        t->layout_failed = 0;
-    if (poll->has_layout_ver && poll->layout_ver != v) {
-        /* The flag stays on until the tag starts on another version: before it has,
-           the flag is about an older one (see esl_store_offer_taken) */
-        if ((poll->flags & ESL_POLL_FLAG_LAYOUT_FAILED) && v && t->layout_offered == v && t->layout_taken)
-            t->layout_failed = v;
-        if (!v || t->layout_failed != v) {
-            t->layout_offered = v;
-            t->layout_taken = false;
-            return 0;
-        }
-    }
-    if (t->has_content && poll->content_id != t->content_id) {
-        if (t->content.layout != ESL_LAYOUT_NAMED)
-            return esl_content_msg_build(reply, next, t->content_id, &t->content);
-        int idx = env_find(env, t->content.name);
-        if (!poll->has_layout_ver)
-            t->content_err = ESL_CERR_NO_LAYOUTS;
-        else if (idx < 0)
-            t->content_err = ESL_CERR_NOT_IN_FILE;
-        else if (poll->layout_ver != v)
-            t->content_err = ESL_CERR_REJECTED; /* see the top: only reached when it rejected v */
-        if (!t->content_err) {
-            esl_content_t sent;
-            esl_content_resolve(&t->content, (uint8_t)idx, &sent);
-            return esl_content_msg_build(reply, next, t->content_id, &sent);
-        }
-    }
+    if (t->has_content && !(poll->flags & ESL_POLL_F_IMAGE))
+        t->content_err = ESL_CERR_NO_IMAGE;
+    else if (t->has_content && t->content.layout == ESL_LAYOUT_NAMED && env_find(env, t->content.name) < 0)
+        t->content_err = ESL_CERR_NOT_IN_FILE;
     /* Only tags that send cfg_ver get CONFIG; older firmware would drop it. */
     if (esl_tag_cfg_pending(t, st->next_poll_s))
         return esl_config_msg_build(reply, next, &eff);
@@ -178,9 +139,7 @@ bool esl_tag_pending(const esl_tag_t *t)
 {
     if (!t->has_content || !t->seen)
         return t->has_content;
-    if (t->image_capable)
-        return !t->image_id || t->shown_content_id != t->image_id;
-    return t->shown_content_id != t->content_id;
+    return !t->image_id || t->shown_content_id != t->image_id;
 }
 
 bool esl_tag_holds_data(const esl_tag_t *t)
@@ -404,8 +363,6 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->cfg_capable = poll->has_cfg_ver;
         t->shown_cfg_ver = poll->cfg_ver;
         t->polls++;
-        t->layout_capable = poll->has_layout_ver;
-        t->layout_ver = poll->layout_ver;
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
         t->image_rle = t->image_capable && (poll->flags & ESL_POLL_F_IMG_RLE);
         n = poll_answer(st, t, poll, env, now_ms, reply);
@@ -426,7 +383,7 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     int idx = find(st, mac);
     if (idx >= 0) {
         esl_tag_t *t = &st->tags[idx];
-        /* Only once it started on it: see esl_store_offer_taken */
+        /* Only once it started on it: see esl_store_fw_taken */
         if ((poll->flags & ESL_POLL_F_FWFAIL) && t->fw_offered && t->fw_taken)
             t->fw_failed = t->fw_offered;
         if (ver && poll->fw_ver == ver)
@@ -448,7 +405,7 @@ bool esl_store_image_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll
     int idx = find(st, mac);
     if (idx >= 0) {
         esl_tag_t *t = &st->tags[idx];
-        /* Only once it started on it: see esl_store_offer_taken */
+        /* Only once it started on it: see esl_store_fw_taken */
         if ((poll->flags & ESL_POLL_FLAG_DRAW_FAILED) && t->image_offered && t->image_taken)
             t->image_failed = t->image_offered;
         if (id && poll->content_id == id)
@@ -494,17 +451,12 @@ void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end
     unlock(st);
 }
 
-void esl_store_offer_taken(esl_store_t *st, uint64_t mac, bool fw, uint32_t ver)
+void esl_store_fw_taken(esl_store_t *st, uint64_t mac, uint16_t ver)
 {
     lock(st);
     int idx = find(st, mac);
-    if (idx >= 0) {
-        esl_tag_t *t = &st->tags[idx];
-        if (fw && ver && t->fw_offered == ver)
-            t->fw_taken = true;
-        if (!fw && ver && t->layout_offered == ver)
-            t->layout_taken = true;
-    }
+    if (idx >= 0 && ver && st->tags[idx].fw_offered == ver)
+        st->tags[idx].fw_taken = true;
     unlock(st);
 }
 
