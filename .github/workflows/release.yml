@@ -89,10 +89,13 @@ jobs:
           python3 - "$ap" "$tag" <<'EOF'
           import sys
           sys.path.insert(0, "web")
+          sys.path.insert(0, "shared")
           from build import image_version
+          import models
           ap, tag = sys.argv[1:]
-          want = {"fw/ap-firmware/openesl-ap-ota.bin": ap, "fw/ap-firmware/openesl-ap-lcd-ota.bin": ap,
-                  "fw/tag-firmware/tag-29-ota.bin": tag, "fw/tag-firmware/tag-154-ota.bin": tag}
+          want = {"fw/ap-firmware/openesl-ap-ota.bin": ap, "fw/ap-firmware/openesl-ap-lcd-ota.bin": ap}
+          for m in models.load():     # every tag model in shared/models.json
+              want["fw/tag-firmware/tag-%s-ota.bin" % m["build"]] = tag
           bad = {f: v for f, v in ((f, image_version(f)) for f in want) if v != want[f]}
           for f, v in bad.items():
               print("::error::%s carries version %s, tools/fw_version.py says %s" % (f, v, want[f]))

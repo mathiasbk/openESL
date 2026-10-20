@@ -8,6 +8,7 @@ import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -490,7 +491,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
     // The first ticked tag, drawn by the tag's own code
     const row = rows[0];
-    const model = tags[0]?.model || "2.9";
+    const model = tags[0]?.model || Object.keys(TAG_MODELS)[0];
     const seq = ++stSeq;
     if (!row) return ($("st-preview").hidden = true);
     try {
@@ -746,8 +747,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   // The choices in "Send": the files published with this page, then a file of your own
   const FILES = [
-    ["tag-29-ota", 'Tag firmware for the 2.9"'],
-    ["tag-154-ota", 'Tag firmware for the 1.54"'],
+    ...Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${name}"`]),
     ["ap-openesl-ota", "AP firmware"],
     ["ap-openesl-lcd-ota", "AP firmware with the status screen"],
   ];
@@ -756,7 +756,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const pageData = {};
   let pageInfo = null;    // firmware/info.json
   async function loadPageTagImages(info) {
-    for (const k of ["tag-29", "tag-154"]) {
+    for (const k of Object.values(TAG_MODELS).map((m) => `tag-${m.build}`)) {
       if (!info?.ota?.[k]) continue;
       try {
         const r = await fetch(`${firmwareBase}firmware/${k}-ota.bin`, { cache: "no-cache" });
