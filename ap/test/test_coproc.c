@@ -177,9 +177,8 @@ static void test_resync(void)
 static void test_through_link(void)
 {
     static esl_store_t st0;
-    static esl_tag_t tags[4];
     esl_store_t *st = &st0;
-    esl_store_init(st, tags, 4, NULL, 0);
+    esl_store_init(st, 4, NULL, 0);
     const uint64_t m = 0x00000123456789A8ull;
     esl_faketag_t *t = malloc(sizeof(*t));
     esl_faketag_init(t, m, 0x0100, 3000, ESL_MODEL_29);
@@ -220,6 +219,7 @@ static void test_through_link(void)
     esl_tag_t tag;
     CHECK(esl_store_get(st, m, &tag));
     CHECK_INT(esl_store_count(st), 1);
+    esl_store_free(st);
     free(t);
 }
 
