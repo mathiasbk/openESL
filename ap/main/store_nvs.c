@@ -21,8 +21,8 @@
  * The content is not kept in RAM: the store reads the blob back when it draws a
  * tag's image or the API shows it (load_content).
  *
- * Up to 2 x 8 KB of layouts plus one ~120-byte blob per tag needs more than the
- * default 24 KB NVS partition; see boards/<board>/partitions.csv. */
+ * One layout file of up to 8 KB per tag model plus a few small blobs per tag
+ * needs more than the default 24 KB NVS partition; see boards/<board>/partitions.csv. */
 
 static const char *TAG = "store";
 static const char *NS_TAGS = "esl_tags";
