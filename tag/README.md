@@ -36,7 +36,7 @@ tag/
     font.c/.h           lookup in the font tables
     epd.c/.h            SSD16xx over bit-banged SPI, driven by the model's panel header
     panels/             one header per panel: RAM direction, update sequence, init commands
-    config.h            intervals, channel, PAN ID (the version comes from ../VERSION)
+    config.h            intervals, channel, PAN ID (the version comes from ../tools/fw_version.py)
     compat.h            lets the same code compile with SDCC and on the PC
     hal/hal.h           everything the app needs from the hardware
     hal/hal_epd.h       the display pins

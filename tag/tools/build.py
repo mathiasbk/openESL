@@ -57,10 +57,12 @@ HOST_TARGETS = {
 
 
 def read_version():
-    """The version in the VERSION file at the top of the repository, as ("1.2.3", 10203).
+    """The tag firmware's version, as ("1.2.3", 10203): the release the tag sources last changed in
+    (tools/fw_version.py), so a release that changes only the AP gives the tags nothing new.
     The number is what the tag sends in POLL (u16), so major is at most 6 and minor and patch at most 99."""
-    with open(os.path.join(ROOT, "VERSION")) as f:
-        text = f.read().strip()
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import fw_version
+    text = fw_version.version("tag")
     parts = text.split(".")
     if len(parts) != 3 or not all(p.isdigit() for p in parts):
         sys.exit("VERSION must be major.minor.patch, got %r" % text)

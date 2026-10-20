@@ -1,0 +1,26 @@
+name: Feature request
+description: Something OpenESL should do that it does not do yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you want to do?
+      description: The need, not only the solution. What do you do today instead?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      multiple: true
+      options:
+        - AP firmware
+        - Tag firmware
+        - Web page / dashboard
+        - HTTP API
+        - Tools

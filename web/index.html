@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenESL tools</title>
   <meta name="description" content="Design layouts for OpenESL e-paper labels and flash the tags and the access point from the browser.">
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="img/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -259,7 +262,8 @@
     <section class="card">
       <h2>Flash the access point (ESP32-C6)</h2>
       <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p class="warn">Erasing the device also erases the AP's stored tags, layout files and settings. An AP that already runs OpenESL can be updated without a cable instead: <code>esl-client ota openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code> (the <code>-ota.bin</code> file of a release) writes the new firmware over the API and keeps everything stored. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards.</p>
+      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
+      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
       <p id="ap-fw-info" class="muted"></p>
       <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
       <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
@@ -295,11 +299,12 @@
   </main>
 
   <!-- ===================== Dashboard ===================== -->
-  <main id="tab-dashboard" class="tab" role="tabpanel" hidden>
-    <section class="card wide">
+  <main id="tab-dashboard" class="tab dash" role="tabpanel" hidden>
+    <section id="dash-conn" class="card wide">
       <h2>AP dashboard</h2>
       <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address), since a page on the web may not call an AP on your network. The bridge in <code>tools/esl-client</code> also works: <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>.</p>
       <div class="form row">
+        <p id="dash-live" class="dash-live" hidden><span id="dash-dot" class="dot"></span> <span id="dash-where"></span> · <span id="dash-updated"></span></p>
         <label>Connect over
           <select id="dash-src">
             <option value="serial">USB (this computer)</option>
@@ -315,43 +320,54 @@
     </section>
 
     <div id="dash-body" hidden>
+      <div id="dash-tiles" class="tiles"></div>
       <section class="card wide">
-        <h3>Access point</h3>
-        <dl id="dash-ap" class="facts"></dl>
-        <p id="dash-wifi" class="muted"></p>
-      </section>
-      <section class="card wide">
-        <h3>Tags <span id="dash-count" class="muted"></span></h3>
-        <p id="dash-health"></p>
-        <div class="form row">
-          <label>Find <input id="dash-find" spellcheck="false" placeholder="MAC"></label>
-          <label class="check"><input type="checkbox" id="dash-problems"> Only tags that need attention</label>
+        <div class="dash-head">
+          <h2>Tags <span id="dash-count" class="muted"></span></h2>
+          <p id="dash-health" aria-live="polite"></p>
         </div>
-        <div class="table-wrap">
-          <table class="dash-tags">
-            <thead><tr><th class="sel"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th>MAC</th><th>Model</th><th>Last check-in</th><th>Next check-in</th><th>Signal</th><th>Battery</th><th>Firmware</th><th>State</th></tr></thead>
-            <tbody id="dash-tags"></tbody>
+        <div class="dash-tools">
+          <input id="dash-find" type="search" spellcheck="false" placeholder="Find MAC" aria-label="Find a tag by its MAC">
+          <div id="dash-filter" class="chips" role="group" aria-label="Show"></div>
+          <div id="st-bar" class="selbar" role="group" aria-label="Ticked tags" hidden>
+            <span id="st-sel-count"></span>
+            <button type="button" id="st-goto" class="primary small">Send …</button>
+            <button type="button" id="st-forget" class="small" title="DELETE /api/tags/{mac}: the AP forgets the ticked tags, their content, settings and scheduled content">Forget</button>
+            <button type="button" id="st-clear" class="small">Clear</button>
+          </div>
+        </div>
+        <div class="table-wrap dash-wrap">
+          <table class="dash-tags tag-table" role="table">
+            <thead role="rowgroup"><tr role="row"><th class="sel" role="columnheader"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th role="columnheader">State</th><th role="columnheader">Tag</th><th class="opt" role="columnheader">Model</th><th class="opt" role="columnheader">Last seen</th><th class="opt" role="columnheader">Next check-in</th><th class="opt num" role="columnheader">Signal</th><th class="opt num" role="columnheader">Battery</th><th class="opt" role="columnheader">Firmware</th></tr></thead>
+            <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <form id="st-form" class="st-bar">
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>) or new firmware.</p>
+        <p id="st-forget-msg" class="hint" role="status" hidden></p>
+        <form id="st-form" class="st-bar" hidden>
+          <h3>Send to the ticked tags</h3>
           <div class="form row">
             <label>Send <select id="st-what">
               <option value="ap">The AP's address and WiFi</option>
               <option value="tag">The tag's own info</option>
               <option value="date">Today's date</option>
               <option value="text">Your own text</option>
+              <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
-            <label class="check"><input type="checkbox" id="st-frame"> Black frame</label>
-            <button id="st-send" type="submit" disabled>Send</button>
+            <label id="st-frame-label" class="check"><input type="checkbox" id="st-frame"> Black frame</label>
+            <button id="st-send" type="submit" class="primary" disabled>Send</button>
           </div>
           <div id="st-own" class="form" hidden>
             <label>Line 1 <input id="st-l1" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
             <label>Line 2 <input id="st-l2" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
             <label>Line 3 <input id="st-l3" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
             <label>Line 4 <input id="st-l4" class="st-line" autocomplete="off" maxlength="94" spellcheck="false"></label>
-            <p class="muted">A word in braces is filled in for each tag: the buttons put one in where the cursor is.</p>
-            <div id="st-ph" class="st-ph"></div>
+            <details class="help st-ph-box">
+              <summary>Fill in for each tag</summary>
+              <p class="muted">A word in braces is filled in for each tag: the buttons put one in where the cursor is.</p>
+              <div id="st-ph" class="st-ph"></div>
+            </details>
           </div>
           <div id="st-show" class="send-text" hidden>
             <div id="st-preview" class="st-preview" hidden><canvas id="st-screen" width="296" height="128"></canvas></div>
@@ -360,16 +376,24 @@
               <table class="dash-tags st-list"><tbody id="st-list"></tbody></table>
             </div>
           </div>
-          <p id="st-msg" class="hint" role="status">Tick tags in the list to send them the AP's address, their own info, the date or your own text (the built-in layout <code>text</code>).</p>
+          <p id="st-msg" class="hint" role="status"></p>
         </form>
       </section>
-      <section class="card wide">
-        <h3>Firmware</h3>
-        <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+      <details id="dash-ap-box" class="card wide fold">
+        <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
+        <dl id="dash-ap" class="facts"></dl>
+        <p id="dash-wifi" class="muted"></p>
+      </details>
+      <details id="dash-fw-box" class="card wide fold">
+        <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>
+        <details class="help">
+          <summary>How updates work</summary>
+          <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+        </details>
         <dl id="dash-ota" class="facts"></dl>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>Tag model</th><th>Firmware on the AP</th><th>Tags</th><th></th></tr></thead>
+            <thead><tr><th>Tag model</th><th>Firmware on the AP</th><th>Tags</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody id="dash-tagfw"></tbody>
           </table>
         </div>
@@ -382,7 +406,7 @@
         </div>
         <progress id="fw-progress" max="1" value="0" hidden></progress>
         <p id="fw-msg" class="hint" role="status"></p>
-      </section>
+      </details>
     </div>
   </main>
 

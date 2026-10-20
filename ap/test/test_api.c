@@ -491,6 +491,16 @@ static void test_layouts(void)
     poll_model(0x29, ESL_MODEL_29, true, 0, 0);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"layout_version\":0,\"layout_pending\":true,\"layout_failed\":false,"));
+    /* the flag before the tag started on the file (the offer was lost) is about an older one */
+    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
+    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
+    esl_store_offer_taken(&st, 0x29, false, v + 1); /* another version: not this offer */
+    poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":false,"));
+    esl_store_offer_taken(&st, 0x29, false, v); /* it asked for a block, then rejected the file */
     poll_model(0x29, ESL_MODEL_29, true, 0, ESL_POLL_FLAG_LAYOUT_FAILED);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"layout_pending\":true,\"layout_failed\":true,"));
@@ -900,6 +910,7 @@ static void test_health(void)
     uint32_t ver;
     CHECK(esl_layouts_info(&layouts, ESL_MODEL_29, &ver, NULL, NULL));
     poll_flags(1, id, 2950, 0, 0, now);                    /* offered the file */
+    esl_store_offer_taken(&st, 1, false, ver);             /* took it */
     poll_flags(1, id, 2950, ESL_POLL_F_LAYOUTFAIL, 0, now); /* and rejected it */
     /* tag 3 gets content with a named layout, but its firmware has no layout files */
     CHECK_INT(req("PUT", "/api/tags/0000000000000003", AUTH, "{\"layout\":\"sign\",\"fields\":[\"a\"]}", 0), 200);

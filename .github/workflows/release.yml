@@ -8,7 +8,11 @@
 #     a suffix such as v0.2.0-rc1 makes a pre-release, which the web page does not use)
 #
 # The firmware is built by firmware.yml and attached with SHA-256 sums; the release notes
-# list the pull requests merged since the previous release. After a normal release, web.yml
+# list the pull requests merged since the previous release. The files are named after the
+# release, but the AP and the tags each carry the version of the release they last changed
+# in (tools/fw_version.py): the release job checks that the images say what the script
+# says, and the notes (tools/release_notes.py) sort the pull requests by what they changed
+# and name the version each firmware carries. After a normal release, web.yml
 # runs again so the flashers on the web page serve it.
 name: Release
 
@@ -69,11 +73,34 @@ jobs:
       contents: write
       actions: write
     steps:
-      # for the model list (shared/models.json) and the AP boards (ap/boards/), which name the files
+      # for the model list (shared/models.json) and the AP boards (ap/boards/), which name the files,
+      # and the whole history for tools/fw_version.py
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           path: fw
+      - name: The images carry the versions of tools/fw_version.py
+        run: |
+          python3 tools/fw_version.py --all | tee versions.txt
+          ap=$(awk '$1 == "ap" {print $2}' versions.txt)
+          tag=$(awk '$1 == "tag" {print $2}' versions.txt)
+          python3 - "$ap" "$tag" <<'EOF'
+          import sys
+          sys.path.insert(0, "web")
+          sys.path.insert(0, "shared")
+          from build import image_version
+          import models
+          ap, tag = sys.argv[1:]
+          want = {"fw/ap-firmware/openesl-ap-ota.bin": ap, "fw/ap-firmware/openesl-ap-lcd-ota.bin": ap}
+          for m in models.load():     # every tag model in shared/models.json
+              want["fw/tag-firmware/tag-%s-ota.bin" % m["build"]] = tag
+          bad = {f: v for f, v in ((f, image_version(f)) for f in want) if v != want[f]}
+          for f, v in bad.items():
+              print("::error::%s carries version %s, tools/fw_version.py says %s" % (f, v, want[f]))
+          sys.exit(1 if bad else 0)
+          EOF
       - name: Name the files after the release
         env:
           TAG: ${{ needs.check.outputs.tag }}
@@ -99,8 +126,18 @@ jobs:
           case "$TAG" in *-*) pre="--prerelease";; esac
           # a pushed tag is used as it is; otherwise the tag is made on the commit this run built
           if [ "$GITHUB_REF_TYPE" = tag ]; then where="--verify-tag"; else where="--target $GITHUB_SHA"; fi
+          # the pull requests since the previous release, sorted by what they changed (AP
+          # firmware, tag firmware, web page, the rest), with the version each firmware carries
+          prev=$(python3 -c "import sys; sys.path.insert(0, 'tools'); import fw_version; t = [t for t in fw_version.release_tags() if t != '$TAG']; print(t[0] if t else '')")
+          if [ -n "$prev" ]; then
+            python3 tools/release_notes.py "$prev" "$GITHUB_SHA" > notes.md
+            printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$prev" "$TAG" >> notes.md
+          else
+            echo "First release." > notes.md
+          fi
+          cat notes.md
           gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" \
-            --title "OpenESL $TAG" --generate-notes $where $pre
+            --title "OpenESL $TAG" --notes-file notes.md $where $pre
       - name: Publish the web page with the new firmware
         if: ${{ !contains(needs.check.outputs.tag, '-') }}
         env:
