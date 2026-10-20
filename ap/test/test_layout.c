@@ -355,21 +355,21 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"module\":1}", "module is only for barcode");
 #undef BC
 
-    /* too big: 16 layouts of 4 rects = 4 + 16 * 57 bytes */
+    /* too big: 16 layouts of 10 rects = 4 + 16 * 141 bytes */
     static char js[8192];
     esl_sb_t sb;
     esl_sb_init(&sb, js, sizeof(js));
     esl_sb_puts(&sb, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[");
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 16; i++) {
         esl_sb_printf(&sb, "%s{\"name\":\"l%d\",\"fields\":[\"a\"],\"elements\":[", i ? "," : "", i);
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 10; k++)
             esl_sb_printf(&sb, "%s{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}", k ? "," : "");
         esl_sb_puts(&sb, "]}");
     }
     esl_sb_puts(&sb, "]}");
     CHECK(!sb.overflow);
     CHECK(!compile(js, ESL_MODEL_29));
-    CHECK(HAS(err, "layouts[13]: the file is too big: at most 768 bytes compiled"));
+    CHECK(HAS(err, "layouts[14]: the file is too big: at most 2048 bytes compiled"));
 }
 
 static void *no_memory(size_t n)

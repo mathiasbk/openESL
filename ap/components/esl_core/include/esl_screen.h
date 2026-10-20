@@ -30,6 +30,7 @@ typedef struct {
     const char *fw;
     uint8_t channel;
     unsigned tags, tags_max;
+    bool table_full;   /* a new tag found no room (esl_store_full) */
     unsigned pending;  /* tags that have not fetched their content yet */
     unsigned seen;     /* tags heard from in the last 10 minutes */
     uint64_t uptime_s;

@@ -125,3 +125,14 @@ bool esl_content_equal(const esl_content_t *a, const esl_content_t *b)
     size_t nb = esl_content_body(b, bb);
     return na == nb && memcmp(ba, bb, na) == 0;
 }
+
+uint32_t esl_layout_name_hash(const char *name)
+{
+    uint32_t h = esl_crc32(name, strlen(name));
+    return h ? h : 1;
+}
+
+uint32_t esl_content_layout_hash(const esl_content_t *c)
+{
+    return c->layout == ESL_LAYOUT_NAMED ? esl_layout_name_hash(c->name) : 0;
+}

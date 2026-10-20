@@ -175,16 +175,18 @@ menu "OpenESL AP"
 
     config ESL_MAX_TAGS
         int "Max tags per AP"
-        range 20 1000
-        default 256
+        range 20 4096
+        default 1000
         help
-            Size of the tag table. Each slot costs about 220 bytes of RAM for
-            the whole run and up to about 320 bytes of NVS once the tag has
-            content and settings (partitions.csv gives NVS 468 KB). The API
-            replies that list every tag are streamed, so they do not grow
-            with this. The boot log ends with the free heap; keep a good
-            margin for WiFi and HTTP. See "How many tags" in README.md,
-            also for what the radio takes.
+            Most tags the AP keeps. The table grows 32 tags at a time as tags
+            turn up, about 88 bytes of RAM per tag (PSRAM when the board has
+            it), and stops growing while it would leave too little internal
+            RAM free (main/store_nvs.c), whatever this says. A tag's content is in NVS
+            only: up to about 400 bytes per tag with content, settings and
+            its last poll, so the 468 KB NVS partition holds about 1000. The
+            API replies that list every tag are streamed, so they do not
+            grow with this. See "How many tags" in README.md, also for what
+            the radio takes.
 
     config ESL_MAX_SCHEDULED
         int "Max scheduled content entries"

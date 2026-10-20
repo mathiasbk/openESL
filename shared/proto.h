@@ -179,7 +179,7 @@
 #define ESL_IREQ_OFF_POS     8      /* u16 first byte the tag is missing */
 
 /* The image: the application linked from ESL_FW_APP_BASE (page 0 holds the bootloader),
- * at most up to the layout store page. */
+ * at most up to page 0x3D (0xF400), which is free; the settings and the stock MAC follow. */
 #define ESL_FW_APP_BASE      0x0400u
 #define ESL_FW_APP_END       0xF400u
 #define ESL_FW_MAX           (ESL_FW_APP_END - ESL_FW_APP_BASE)   /* 61440 */
@@ -212,7 +212,7 @@
 #define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
 #define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         768    /* største kompilerte fil (grensa var tagens XRAM-buffer) */
+#define ESL_LBIN_MAX         2048   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14

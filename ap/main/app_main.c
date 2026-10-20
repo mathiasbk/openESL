@@ -118,10 +118,11 @@ void app_main(void)
 #endif
 
     ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
-    /* The tag table (ESL_MAX_TAGS x sizeof(esl_tag_t)) is the one thing that grows with
-       the configuration; this shows how much room is left for a bigger one. */
-    ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
-             (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
+    /* The tag table is the one thing that grows with the number of tags (store_nvs.c
+       stops it before WiFi and HTTP run short); this shows how much
+       room is left for it. */
+    ESP_LOGI(TAG, "free heap %lu bytes, tag table %u slots of %u bytes", (unsigned long)esp_get_free_heap_size(),
+             esl_store_slots(&store), (unsigned)sizeof(esl_tag_t));
 #if CONFIG_ESL_OTA
     /* Everything started. A new image with a WiFi network to join is kept once
        it can be reached (wifi.c, api_handle()), otherwise it is good enough now;

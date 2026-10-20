@@ -24,7 +24,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | type, proto_ver | 2 | 0x01, 0x01 |
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
 | battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" cannot measure it: its panel cannot be read and the ZBS243 ADC has no supply input, see kildelogg.md) |
-| content_id | 4 | the `image_id` of the picture the tag shows now (0 = nothing, or its start or status screen) |
+| content_id | 4 | the `image_id` of the picture the tag shows now (0 = nothing, or one of its status screens) |
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bit4 stays on until the tag starts downloading another version, so the AP counts it against the version it offered only once the tag has asked for a block of it: before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP (see "Image transfer"); the tag sets it when it has its SPI flash. bit6 = it also takes run-length coded images (IMG `fmt` 1). bit2 is not used (firmware that drew content itself set it for a rejected layout file) |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
@@ -44,7 +44,7 @@ So older tags never get a message type they do not know. Firmware that drew cont
 | type, proto_ver | 2 | 0x02, 0x01 |
 | next_poll_s | 2 | seconds until the next POLL (0 = keep) |
 
-Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fields and the layout file to tags that drew their screens themselves, before the AP drew them (plan D). They are retired and not used again: the AP never sends them, and it does not answer them.
+Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fields and the layout file to tags that drew their screens themselves, before the AP drew them. They are retired and not used again: the AP never sends them, and it does not answer them.
 
 **CONFIG** (AP → tag), `type = 0x08`, 12 bytes: settings for this tag
 | Field | Bytes | Description |
@@ -138,7 +138,7 @@ How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. 
 
 The **version** of a layout file is the CRC-32 (IEEE 802.3, the same as zlib) of the whole binary file; 0 is counted as 1. It changes exactly when what the tags show changes; a JSON file that only differs in whitespace, descriptions or layout names gives the same binary and keeps the version. A new version gives the tags with content from that file new images (their `image_id` changes).
 
-The largest compiled file is **768 bytes** (`ESL_LBIN_MAX`). That is about 54 elements, for example 7 layouts of 7 elements. The AP refuses bigger files when they are uploaded.
+The largest compiled file is **2048 bytes** (`ESL_LBIN_MAX`). That is about 145 elements, for example 16 layouts of 9 elements; 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
 
 ### Sequence
 ```
@@ -184,10 +184,10 @@ Tag                                          AP
  | has `size` bytes: writes them to the panel
  | POLL(content_id=B) ----------------------->|  IDLE
 ```
-- **When the AP sends it.** To a tag whose POLL has bit5, when the `content_id` it reports differs from the `image_id` of the picture the AP wants shown, after CONFIG and before FW (see "Priority"). A tag without bit5 (firmware that drew content itself, or a tag whose SPI flash does not answer) gets no content: the AP answers IDLE, and the API shows `content_error: no_image` for it. The AP draws the image at the POLL into one of two buffers (`ESL_IMAGE_BUFS`, `ap/components/esl_core/include/esl_image.h`) and keeps nothing else: a buffer is free again when its last block has gone out, when the tag reports the id, or 5 s after the last block the tag asked for (`ESL_IMAGE_HOLD_MS`). For a tag with bit6 the AP codes the image (format 1) when that makes it shorter. When both buffers are busy with other tags the AP answers IDLE with `next_poll_s` = 2 and sends block 0 at the next POLL.
+- **When the AP sends it.** To a tag whose POLL has bit5, when the `content_id` it reports differs from the `image_id` of the picture the AP wants shown, after CONFIG and before FW (see "Priority"). A tag without bit5 (firmware that drew content itself, or a tag whose SPI flash does not answer) gets no content: the AP answers IDLE, and the API says so in `content_error`. The AP draws the image at the POLL into one of two buffers (`ESL_IMAGE_BUFS`, `ap/components/esl_core/include/esl_image.h`) and keeps nothing else: a buffer is free again when its last block has gone out, when the tag reports the id, or 5 s after the last block the tag asked for (`ESL_IMAGE_HOLD_MS`). For a tag with bit6 the AP codes the image (format 1) when that makes it shorter. When both buffers are busy with other tags the AP answers IDLE with `next_poll_s` = 2 and sends block 0 at the next POLL; a tag that also waits for firmware gets the first FW block instead of that IDLE.
 - **image_id.** The CRC-32 of the `size` image bytes as they are sent (for a compressed image, the compressed bytes), so the same layout and fields always give the same id, the tag can check the bytes straight from its SPI flash, and a picture the tag already shows is never sent again, also after an AP restart. The id is never 0 (0 in POLL means the tag shows nothing): a CRC of 0 is sent as 1, and the tag compares its CRC the same way.
 - **Blocks.** As for FW: the tag asks with IMG_REQ for the next missing byte, keeps what it has in its SPI flash between wake-ups and asks for at most 64 blocks per wake-up (`CFG_IMG_MAX_REQ`), so a whole screen goes in one wake-up. The AP answers an IMG_REQ for an id it no longer has with block 0 of the picture it wants shown now, and with IDLE when it has none, which ends the transfer.
-- **Check.** The tag refuses an image for another model, a format it does not know, a raw image whose `size` is not exactly its screen, a coded one that is not shorter than its screen or does not decode to exactly its screen, and an id it refused before. When it has `size` bytes it reads them back from the SPI flash and checks the CRC-32 against the id (a CRC of 0 counts as 1), decodes a coded image into a second area of the slot, writes the image to the panel, and reports the id in `content_id` from then on, also after a restart (the image stays in its flash slot, `tag/src/image.h`). The tag has one slot, and a new download overwrites it: a tag that restarts in the middle of a download shows its start screen until the download is done. A tag that refuses an image, or whose panel does not answer, reports bit1 (drawing failed) and keeps reporting the id it shows; the AP then stops offering that image until the content changes. An image the tag already holds (the same id again, for example after "No AP found") is drawn from the slot without a download.
+- **Check.** The tag refuses an image for another model, a format it does not know, a raw image whose `size` is not exactly its screen, a coded one that is not shorter than its screen or does not decode to exactly its screen, and an id it refused before. When it has `size` bytes it reads them back from the SPI flash and checks the CRC-32 against the id (a CRC of 0 counts as 1), decodes a coded image into a second area of the slot, writes the image to the panel, and reports the id in `content_id` from then on, also after a restart (the image stays in its flash slot, `tag/src/image.h`). The tag has one slot, and a new download overwrites it: a tag that restarts in the middle of a download shows "Waiting for content" until the download is done. A tag that refuses an image, or whose panel does not answer, reports bit1 (drawing failed) and keeps reporting the id it shows; the AP then stops offering that image until the content changes. An image the tag already holds (the same id again, for example after "No AP found") is drawn from the slot without a download.
 
 ### Priority: settings, image, firmware
 The AP answers each POLL with one message. When several things are waiting for a tag, it sends them in this order:
@@ -263,7 +263,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
-| `layouts` | 1 to 16 layouts. Layout n in this list is layout 0x10 + n in the compiled file; clients only see the names |
+| `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
 | `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
 | `elements` | 1 or more, drawn in order (all rectangles, then the barcode, then all text, see `esl_render.c`) |
@@ -283,7 +283,7 @@ The AP also checks what it can draw, so a file that is accepted always gives a s
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
 - per layout at most 32 text lines (each text element counts the most lines it can use) and 20 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
-- the binary file is at most 768 bytes;
+- the binary file is at most 2048 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 
 `tag/tools/label_design.py` designs content for these layouts too: a label design with `"layout": "shelf"` takes its field names from the layout file (`render <design> <data> designs/layouts/2.9.json`).

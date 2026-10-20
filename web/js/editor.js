@@ -225,7 +225,7 @@ function refreshMeters(res) {
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
   }
   meters.push(["File", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
-  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as it is uploaded to the AP, in bytes; it usually fills before the compiled file"]);
+  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);

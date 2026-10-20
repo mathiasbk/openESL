@@ -1308,7 +1308,12 @@ def main(argv=None):
             print(json.dumps(cli.layouts(), indent=2))
         elif args.cmd == "layout-put":
             with open(args.file, "rb") as f:
-                print(json.dumps(cli.put_layout(args.model, f.read())))
+                raw = f.read()
+            try:  # compact, so an indented saved file counts as it does from the designer
+                raw = json.dumps(json.loads(raw), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            except ValueError:
+                pass  # the AP says what is wrong with it
+            print(json.dumps(cli.put_layout(args.model, raw)))
     except ApiError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
