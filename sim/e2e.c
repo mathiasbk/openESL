@@ -164,7 +164,8 @@ static void ref_check(const char *root)
     char *want;
 
     snprintf(path, sizeof(path), "%s/sim/reference/%s.crc", root, sim_tag_model);
-    if (getenv("SIM_REF_UPDATE")) {
+    const char *upd = getenv("SIM_REF_UPDATE");
+    if (upd && strcmp(upd, "1") == 0) {
         FILE *f = fopen(path, "wb");
         CHECK(f && fwrite(ref, 1, ref_len, f) == ref_len && fclose(f) == 0, "could not write %s", path);
         note("%s written", path);
@@ -174,11 +175,18 @@ static void ref_check(const char *root)
     CHECK(want != NULL, "%s is missing (SIM_REF_UPDATE=1 writes it)", path);
     if (!want)
         return;
+    /* a checkout with CRLF line ends (Git for Windows) holds the same lines */
+    size_t k = 0;
+    for (size_t i = 0; i < len; i++)
+        if (want[i] != '\r')
+            want[k++] = want[i];
+    len = k;
     for (size_t i = 0; i < len && i < ref_len && want[i] == ref[i]; i++)
         if (want[i] == '\n')
             line++;
     CHECK(len == ref_len && memcmp(want, ref, len) == 0,
-          "the screens differ from %s from line %zu (\"file layout set flags bytes crc\")", path, line);
+          "the screens differ from %s from line %zu (\"file layout set flags bytes crc\"); "
+          "if the change is meant, SIM_REF_UPDATE=1 rewrites it", path, line);
     if (len == ref_len && memcmp(want, ref, len) == 0)
         note("%s: all %zu screens as the reference", path, line - 1);
     free(want);
