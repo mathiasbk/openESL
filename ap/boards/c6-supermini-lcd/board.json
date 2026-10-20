@@ -7,6 +7,7 @@
   "flash_mb": 4,
   "psram_mb": 0,
   "antenna": "on the board",
+  "radio": "native",
   "artifact": "openesl-ap-lcd",
   "release": "openesl-ap-esp32c6-lcd",
   "status": "supported"

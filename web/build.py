@@ -33,6 +33,7 @@ image (bootloader, partition table and app in one file); the manifest flashes it
 one so the AP's stored settings survive (split_ap_image).
 """
 import datetime
+import glob
 import importlib.util
 import json
 import os
@@ -234,7 +235,7 @@ def ap_image(path):
     return None
 
 
-CHIP_IDS = {"esp32c6": 13, "esp32c5": 23}
+CHIP_IDS = {"esp32c6": 13, "esp32c5": 23, "esp32s3": 9}
 
 
 def ap_boards():
@@ -256,6 +257,17 @@ def ap_boards():
     for b in boards.values():
         b["display"] = "\nCONFIG_ESL_DISPLAY=y" in "\n" + sdkconfig(b)
     return sorted(boards.values(), key=lambda b: (b["status"] != "supported", b.get("base") is not None, b["id"]))
+
+
+def ap_radio_names():
+    """artifact and release names of the radio coprocessor firmware (ap/radio/boards/*/radio.json,
+    for boards with "radio": "uart"): the flasher does not offer it yet (docs/ap-radio-link.md)"""
+    names = []
+    for path in glob.glob(os.path.join(ROOT, "ap", "radio", "boards", "*", "radio.json")):
+        with open(path) as f:
+            r = json.load(f)
+        names += [r["artifact"], r["release"]]
+    return names
 
 
 def ap_board_for(path, boards):
@@ -307,6 +319,10 @@ def add_firmware(*files):
                 print("%s: not in release %s, skipped" % (f, release))
                 continue
             sys.exit("%s: no such file" % f)
+        stem = os.path.basename(f)[:-4].lower()
+        if any(stem == n or stem.startswith(n + "-") for n in ap_radio_names()):
+            print("%s: radio coprocessor firmware, not offered by the flasher yet" % f)
+            continue
         m = tag_image_model(f)
         if m:
             tags[m["build"]] = f
@@ -360,7 +376,7 @@ def add_firmware(*files):
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
         # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "")
+        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
                                   "display": b["display"], "file": name[:-4], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:

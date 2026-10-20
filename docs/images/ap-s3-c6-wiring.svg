@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400" viewBox="0 0 720 400" font-family="Helvetica, Arial, sans-serif" font-size="14">
+  <title>Wiring: ESP32-S3 (AP) to ESP32-C6 (802.15.4 radio)</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <rect width="720" height="400" fill="#ffffff"/>
+
+  <!-- ESP32-S3 -->
+  <rect x="30" y="40" width="210" height="250" rx="10" fill="#e8eef7" stroke="#34495e" stroke-width="2"/>
+  <text x="135" y="72" text-anchor="middle" font-weight="bold" font-size="16" fill="#1b2631">ESP32-S3 N16R8</text>
+  <text x="135" y="92" text-anchor="middle" fill="#34495e">AP: WiFi, API, tags</text>
+  <text x="135" y="270" text-anchor="middle" fill="#34495e" font-size="12">USB: flashing, log, power</text>
+
+  <!-- ESP32-C6 -->
+  <rect x="480" y="40" width="210" height="250" rx="10" fill="#eaf5ea" stroke="#34495e" stroke-width="2"/>
+  <text x="585" y="72" text-anchor="middle" font-weight="bold" font-size="16" fill="#1b2631">ESP32-C6</text>
+  <text x="585" y="92" text-anchor="middle" fill="#34495e">802.15.4 radio (ap/radio)</text>
+  <text x="585" y="270" text-anchor="middle" fill="#34495e" font-size="12">USB: flashing and log</text>
+
+  <!-- S3 pins -->
+  <g fill="#1b2631">
+    <circle cx="240" cy="125" r="5"/><text x="228" y="130" text-anchor="end">5V</text>
+    <circle cx="240" cy="165" r="5"/><text x="228" y="170" text-anchor="end">GND</text>
+    <circle cx="240" cy="205" r="5"/><text x="228" y="210" text-anchor="end">GPIO17 (TX)</text>
+    <circle cx="240" cy="245" r="5"/><text x="228" y="250" text-anchor="end">GPIO18 (RX)</text>
+  </g>
+  <!-- C6 pins -->
+  <g fill="#1b2631">
+    <circle cx="480" cy="125" r="5"/><text x="492" y="130">5V</text>
+    <circle cx="480" cy="165" r="5"/><text x="492" y="170">GND</text>
+    <circle cx="480" cy="205" r="5"/><text x="492" y="210">GPIO17 (RX)</text>
+    <circle cx="480" cy="245" r="5"/><text x="492" y="250">GPIO16 (TX)</text>
+  </g>
+
+  <!-- wires -->
+  <line x1="245" y1="125" x2="475" y2="125" stroke="#c0392b" stroke-width="3" stroke-dasharray="8 5"/>
+  <text x="360" y="117" text-anchor="middle" fill="#c0392b" font-size="12">only when the C6 has no USB cable</text>
+  <line x1="245" y1="165" x2="475" y2="165" stroke="#1b2631" stroke-width="3"/>
+  <line x1="245" y1="205" x2="473" y2="205" stroke="#2471a3" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="360" y="194" text-anchor="middle" fill="#2471a3" font-size="12">host → radio: CONFIG, TX, SCREEN</text>
+  <line x1="475" y1="245" x2="247" y2="245" stroke="#1e8449" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="360" y="234" text-anchor="middle" fill="#1e8449" font-size="12">radio → host: HELLO, RX, TX_DONE</text>
+
+  <!-- notes -->
+  <text x="30" y="325" fill="#1b2631">UART 921600 baud, 8N1, 3.3 V logic. TX goes to RX both ways; GND always.</text>
+  <text x="30" y="347" fill="#1b2631">Power: one USB cable on the S3 and 5V to the C6, or a USB cable on each board and no 5V wire.</text>
+  <text x="30" y="369" fill="#1b2631">C6 with a 0.96" screen: the same four wires; the screen uses GPIO6, 7, 14, 15, 21 and 22.</text>
+</svg>

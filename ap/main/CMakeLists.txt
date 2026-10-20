@@ -1,12 +1,16 @@
 set(srcs app_main.c http_api.c sched.c store_nvs.c tagfw.c wifi.c)
 
+# The radio task (radio.c) and the driver of the link it talks through (esl_link.h): 802.15.4
+# on this chip, or a radio coprocessor on UART (boards/s3-n16r8-c6). REQUIRES below lists the
+# components of every driver: it is read before sdkconfig is.
 if(CONFIG_ESL_RADIO_STUB)
     list(APPEND srcs radio_stub.c)
 else()
-    # radio.c is the radio task; the driver is the link it talks through (esl_link.h)
     list(APPEND srcs radio.c)
     if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)
         list(APPEND srcs radio_ieee802154.c)
+    elseif(CONFIG_ESL_RADIO_DRIVER_UART)
+        list(APPEND srcs radio_uart.c)
     elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)  # no sdkconfig yet in that pass
         message(FATAL_ERROR "No radio driver for ${IDF_TARGET}: choose one under \"Radio driver\" in menuconfig, "
                             "or the stub radio mode (ESL_RADIO_STUB)")
@@ -17,7 +21,7 @@ if(CONFIG_ESL_SERIAL_API)
     list(APPEND srcs serial_api.c)
 endif()
 
-if(CONFIG_ESL_DISPLAY)
+if(CONFIG_ESL_DISPLAY OR CONFIG_ESL_RADIO_DRIVER_UART)
     list(APPEND srcs display.c)
 endif()
 
@@ -50,6 +54,6 @@ endif()
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS .
-    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154
+    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154 esl_coproc esl_lcd esp_driver_uart
              esp_driver_usb_serial_jtag vfs esp_lcd esp_driver_spi esp_driver_gpio esp_http_client app_update lwip esp_partition)
 # mdns comes from idf_component.yml and is added to this component automatically.

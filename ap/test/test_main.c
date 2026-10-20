@@ -19,6 +19,7 @@ void test_render(void);
 void test_barcode(void);
 void test_sched(void);
 void test_tagfw(void);
+void test_coproc(void);
 
 static const struct {
     const char *name;
@@ -41,6 +42,7 @@ static const struct {
     {"barcode", test_barcode},
     {"sched", test_sched},
     {"tagfw", test_tagfw},
+    {"coproc", test_coproc},
 };
 
 int main(void)

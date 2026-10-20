@@ -1,0 +1,9 @@
+{
+  "id": "c6-lcd",
+  "label": "ESP32-C6 with a 0.96\" ST7789 screen as the 802.15.4 radio of an AP host on UART; the screen shows the AP's status",
+  "target": "esp32c6",
+  "chip_family": "ESP32-C6",
+  "artifact": "openesl-ap-radio-c6-lcd",
+  "release": "openesl-ap-radio-esp32c6-lcd",
+  "status": "experimental"
+}

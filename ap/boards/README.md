@@ -9,6 +9,7 @@ CI and releases build every board here, so a new board needs no workflow change.
 | `c6-supermini` | ESP32-C6 | 4 MB / none | supported | `openesl-ap-esp32c6-<version>.bin` |
 | `c6-supermini-lcd` | ESP32-C6 | 4 MB / none, 0.96" screen | supported | `openesl-ap-esp32c6-lcd-<version>.bin` |
 | `c5-wroom-1u-n16r8` | ESP32-C5 | 16 MB / 8 MB | experimental: built, not tried on a board | `openesl-ap-esp32c5-n16r8-<version>.bin` |
+| `s3-n16r8-c6` | ESP32-S3 + ESP32-C6 as radio on UART | 16 MB / 8 MB | experimental: built, not tried on a board | `openesl-ap-esp32s3-n16r8-<version>.bin` and `openesl-ap-radio-esp32c6-<version>.bin` (or `-esp32c6-lcd-` for a C6 with screen) ([docs/ap-radio-link.md](../../docs/ap-radio-link.md)) |
 
 Each folder has:
 
@@ -22,6 +23,13 @@ Each folder has:
   - `artifact`: the file names `build.py` writes in `out/` (`<artifact>.bin`, `<artifact>-ota.bin`)
   - `release`: the file names in a GitHub release (`<release>-<version>.bin`, `...-ota.bin`)
   - `status`: `supported` (tried on hardware) or `experimental`
+  - `radio`: where the 802.15.4 radio is. `native`: on the AP chip itself (C6, C5;
+    `main/radio_ieee802154.c`). `uart`: a radio coprocessor on UART (`main/radio_uart.c`,
+    [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets
+    `CONFIG_ESL_RADIO_DRIVER_UART=y`.
+  - `radio_fw` (`uart` only): the radio boards in `ap/radio/boards/` the coprocessor can be
+    (a name or a list: `["c6", "c6-lcd"]`). `build.py` builds each one too, once, and the
+    release has it as `<release in its radio.json>-<version>.bin`.
 - `sdkconfig.defaults`: read after `ap/sdkconfig.defaults` (settings for every board). Sets
   `CONFIG_IDF_TARGET`, the flash size and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME`, and
   anything else that differs.

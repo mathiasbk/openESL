@@ -10,7 +10,7 @@
  * (0x80: flash nCS low, display nCS P1.7 high; 0x82: both high). The flash register
  * sequence is the one in hal_zbs243.c (flash_write_page), see docs/kildelogg.md.
  */
-#include "boot_core.h"
+#include "../boot_core.h"
 #include "proto.h"
 #include "hal/zbs243/zbs243.h"
 

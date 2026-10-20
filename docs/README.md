@@ -13,6 +13,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [protokoll.md](protokoll.md) | Radio protocol between tag and AP, and the HTTP API on the AP |
 | [tag-firmware.md](tag-firmware.md) | Modules, order of work, and what has to be found out about the ZBS243 |
 | [ap-firmware.md](ap-firmware.md) | The AP on ESP32-C6 with ESP-IDF |
+| [ap-radio-link.md](ap-radio-link.md) | The AP on an ESP32-S3 with an ESP32-C6 as its 802.15.4 radio over UART: wiring and link protocol (experimental) |
 | [fremdriftsplan.md](fremdriftsplan.md) | Phases, milestones, estimates and checkpoints |
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
 | [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |
