@@ -50,7 +50,7 @@ MODELS = {
 }
 MAC_CODE_TO_MODEL = {m["mac_code"]: k for k, m in MODELS.items()}
 
-CODE_LIMIT = 0xF400                 # tag/tools/build.py CODE_SIZE: layout store 0xF400, content 0xF800, stock MAC 0xFC00
+CODE_LIMIT = 0xF400                 # tag/tools/build.py CODE_SIZE: free page 0xF400, settings record 0xF800, stock MAC 0xFC00
 STOCK_MAC_ADDR = 0xFC06             # 6 bytes in stock firmware (kildelogg 2026-10-10)
 INFO_MAC_ADDR = 0x10                # 8 bytes, LSB first (kildelogg 2026-10-14)
 DEFAULT_BACKUP_DIR = os.path.join(ROOT, "backup")
@@ -167,7 +167,7 @@ def load_firmware(path):
     if not data:
         raise JobError("firmware", "firmware file is empty: %s" % path)
     if len(data) > CODE_LIMIT:
-        raise JobError("firmware", "firmware is %d bytes, over the 0x%04X limit (the tag's layout and content store)"
+        raise JobError("firmware", "firmware is %d bytes, over the 0x%04X limit (the tag's settings store)"
                        % (len(data), CODE_LIMIT))
     if data.count(0xFF) == len(data):
         raise JobError("firmware", "firmware file is only 0xFF: %s" % path)

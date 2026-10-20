@@ -4,6 +4,7 @@
 
 #include "compat.h"
 #include "draw.h"
+#include "hal/hal.h"
 
 #define FAKE_MAX_FRAMES 80      /* a whole screen image is 52-55 blocks */
 
@@ -23,7 +24,7 @@ extern uint16_t fake_batt_mv;
 extern unsigned fake_delay_ms_total;
 
 /* Persistent store (hal_store_*): one record in RAM, kept over app_init() */
-extern uint8_t fake_store[200];
+extern uint8_t fake_store[HAL_STORE_MAX];
 extern uint8_t fake_store_len;        /* 0 = no record */
 extern int fake_store_writes;
 extern bool fake_store_radio_on_write; /* a write happened with the radio on (not allowed) */
