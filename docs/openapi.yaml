@@ -394,6 +394,57 @@ paths:
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
 
+  /api/tags/{mac}/image:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    get:
+      tags: [Tags]
+      operationId: getTagImage
+      summary: The screen the AP draws for a tag
+      description: |
+        The tag's content drawn by the AP, the bytes a tag that shows images gets
+        (protokoll.md, "Image transfer"). A tag that draws itself shows the same pixels. Drawn
+        on each request and not kept; for previews such as the dashboard.
+
+        `data` is base64 of the raw image: the black plane, then the red plane when `red`
+        is true. A plane is `width` columns from left to right, each `ceil(height / 8)`
+        bytes, byte 0 bit 7 the top row; a set bit is ink.
+      responses:
+        "200":
+          description: The image
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [mac, model, width, height, red, content_id, image_id, data]
+                properties:
+                  mac: { $ref: "#/components/schemas/Mac" }
+                  model: { type: string, examples: ["2.9"] }
+                  width: { type: integer, minimum: 1 }
+                  height: { type: integer, minimum: 1 }
+                  red: { type: boolean, description: The image has a red plane }
+                  content_id: { type: integer, minimum: 0, maximum: 4294967295 }
+                  image_id: { type: integer, minimum: 1, maximum: 4294967295, description: "CRC-32 of the image bytes (0 sent as 1): the `image_id` a tag that shows images reports once it shows it" }
+                  data: { type: string, contentEncoding: base64 }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404":
+          description: Unknown tag, a tag whose model is not known yet, or no content
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: The content is held back (`content_error`) or cannot be drawn
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No memory to draw the image
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/tags/{mac}/config:
     parameters:
       - $ref: "#/components/parameters/mac"

@@ -306,6 +306,8 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 /* Dashboard: send info to tags */
 .send-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .st-preview[hidden] { display: none; }
+.tag-table td.screen canvas { display: block; width: 148px; height: auto; border: 1px solid var(--line); image-rendering: pixelated; background: #fff; }
+.tag-table td.screen canvas.waiting { opacity: 0.45; }
 .st-preview canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); image-rendering: pixelated; background: #fff; }
 @media (max-width: 720px) { .send-text { grid-template-columns: minmax(0, 1fr); } }
 .st-bar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
