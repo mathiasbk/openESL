@@ -7,6 +7,9 @@ else()
     list(APPEND srcs radio.c)
     if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)
         list(APPEND srcs radio_ieee802154.c)
+    elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)  # no sdkconfig yet in that pass
+        message(FATAL_ERROR "No radio driver for ${IDF_TARGET}: choose one under \"Radio driver\" in menuconfig, "
+                            "or the stub radio mode (ESL_RADIO_STUB)")
     endif()
 endif()
 

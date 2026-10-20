@@ -70,7 +70,7 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
 
 /* ---- the link ---- */
 
-static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, int64_t rx_us)
+static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_link_rx_t *req)
 {
     /* The previous reply must be out of the radio before tx_buf is reused. */
     if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
@@ -79,6 +79,7 @@ static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, int64_t rx_
     memcpy(&tx_buf[1], psdu, len);
     tx_err = -1;
     esp_err_t err = esp_ieee802154_transmit(tx_buf, false);
+    esl_link_sending(l, req, esp_timer_get_time());
     if (err != ESP_OK) {
         xSemaphoreGive(tx_idle);
         return err;
@@ -97,7 +98,7 @@ static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, int64_t rx_
         }
         if (first_err < 0)
             first_err = e;
-        if (tries >= TX_RETRY_MAX || esp_timer_get_time() + TX_RETRY_GAP_US - rx_us > TX_RETRY_US) {
+        if (tries >= TX_RETRY_MAX || esp_timer_get_time() + TX_RETRY_GAP_US - req->rx_us > TX_RETRY_US) {
             xSemaphoreGive(tx_idle);
             ESP_LOGW(TAG, "reply not sent (tx error %d) after %d resends", e, tries);
             return ESP_FAIL;

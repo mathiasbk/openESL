@@ -16,17 +16,30 @@ size_t esl_link_handle(esl_link_t *l, esl_store_t *st, esl_layouts_t *ls, uint16
         l->stats.polls++;
     else
         l->stats.blocks++;
-    if (clock_us) {
-        l->stats.last_us = clock_us() - f->rx_us;
-        if (l->stats.last_us > l->stats.worst_us)
-            l->stats.worst_us = l->stats.last_us;
-    }
-    bool ok = l->send(l, tx, len, f->rx_us) == 0;
+    l->stats.last_us = -1; /* esl_link_sending() sets it */
+    bool ok = l->send(l, tx, len, f) == 0;
     if (ok)
         l->stats.replies++;
     else
         l->stats.tx_failed++;
+    if (l->stats.last_us < 0)
+        l->stats.last_us = clock_us ? clock_us() - f->rx_us : 0;
+    if (l->stats.last_us > l->stats.worst_us)
+        l->stats.worst_us = l->stats.last_us;
     if (sent)
         *sent = ok;
     return len;
+}
+
+void esl_link_sending(esl_link_t *l, const esl_link_rx_t *req, int64_t now_us)
+{
+    if (l->stats.last_us < 0)
+        l->stats.last_us = now_us - req->rx_us;
+}
+
+void esl_link_lost(esl_link_t *l)
+{
+    if (l->stats.replies)
+        l->stats.replies--;
+    l->stats.tx_failed++;
 }
