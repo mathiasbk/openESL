@@ -155,6 +155,16 @@ static void test_resync(void)
     CHECK_INT(p.type, ESL_COPROC_RX);
     CHECK(p.bad_crc >= 1);
 
+    /* The same with the quiet line after the cut noticed: nothing is lost but the cut frame */
+    esl_coproc_parser_init(&p);
+    CHECK_INT(feed(&p, f, 12), 0);
+    esl_coproc_parser_gap(&p);
+    CHECK_INT(p.cut, 1);
+    CHECK_INT(feed(&p, &buf[12], n - 12), 4);
+    CHECK_INT(p.bad_crc, 0);
+    esl_coproc_parser_gap(&p); /* between frames: nothing to drop */
+    CHECK_INT(p.cut, 1);
+
     /* A flipped bit is caught */
     esl_coproc_parser_init(&p);
     fl = esl_coproc_encode_rx(f, &rx);

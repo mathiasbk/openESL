@@ -21,9 +21,12 @@
  * TX_DONE. send() returns once the reply is on the UART; a TX_DONE that says it
  * did not go out is counted with esl_link_lost() at the next send().
  *
- * The radio says HELLO when it starts and after each CONFIG. A HELLO that is
- * not configured (the radio restarted) gets the CONFIG again; while no HELLO
- * comes, CONFIG goes out every couple of seconds.
+ * The radio says HELLO when it starts, after each CONFIG and PING, and when it
+ * gets a TX before any CONFIG. A HELLO that is not configured (the radio
+ * restarted) gets the CONFIG again; while no HELLO comes, CONFIG goes out every
+ * couple of seconds. While the link is up a PING goes out every few seconds, and
+ * a radio that has said nothing for LINK_DEAD_US is taken as gone (hung, or
+ * restarted with its HELLO lost) and configured again.
  *
  * display.c sends the status screen through radio_screen(), for a radio with
  * an LCD (the C6 with a 0.96" screen as the radio).
@@ -34,15 +37,17 @@
 static const char *TAG = "radio";
 
 #define PORT CONFIG_ESL_COPROC_UART_NUM
-#define PING_EVERY_US (2 * 1000000LL)
+#define CONFIG_EVERY_US (2 * 1000000LL) /* while the link is down */
+#define PING_EVERY_US   (5 * 1000000LL) /* while it is up */
+#define LINK_DEAD_US    (15 * 1000000LL)
 
 static esl_coproc_config_t cfg;
 static QueueHandle_t uart_events;
 
 static struct {
     bool up;              /* HELLO with our CONFIG seen */
-    int64_t last_hello_us;
-    int64_t last_ping_us;
+    int64_t last_heard_us; /* any good frame from the radio */
+    int64_t last_ping_us;  /* CONFIG while down, PING while up */
 } link;
 
 /* From the UART task's TX_DONE to the radio task, which owns radio_link.stats */
@@ -80,7 +85,6 @@ void radio_screen(const esl_screen_t *s)
 
 static void on_hello(const esl_coproc_hello_t *h)
 {
-    link.last_hello_us = esp_timer_get_time();
     bool ours = h->configured && h->cfg.channel == cfg.channel && h->cfg.pan == cfg.pan &&
                 h->cfg.short_addr == cfg.short_addr && h->cfg.tx_power == cfg.tx_power && h->cfg.flags == cfg.flags;
     if (!ours) {
@@ -146,6 +150,7 @@ static void on_stats(const esl_coproc_stats_t *s)
 
 static void handle(const esl_coproc_parser_t *p)
 {
+    link.last_heard_us = esp_timer_get_time();
     switch (p->type) {
     case ESL_COPROC_HELLO: {
         esl_coproc_hello_t h;
@@ -182,7 +187,7 @@ static void uart_task(void *arg)
     static esl_coproc_parser_t parser;
     static uint8_t buf[256];
     uart_event_t ev;
-    int64_t last_stats = esp_timer_get_time();
+    int64_t last_stats = esp_timer_get_time(), last_read_us = 0;
 
     esl_coproc_parser_init(&parser);
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
@@ -190,10 +195,12 @@ static void uart_task(void *arg)
         esp_task_wdt_reset();
         if (xQueueReceive(uart_events, &ev, pdMS_TO_TICKS(1000)) == pdTRUE) {
             if (ev.type == UART_FIFO_OVF || ev.type == UART_BUFFER_FULL) {
+                /* bytes were lost: the frame in progress is broken, what is buffered is not */
                 ESP_LOGW(TAG, "UART overflow");
-                uart_flush_input(PORT);
-                xQueueReset(uart_events);
+                esl_coproc_parser_gap(&parser);
             }
+            if (esp_timer_get_time() - last_read_us > ESL_COPROC_GAP_US)
+                esl_coproc_parser_gap(&parser);
             size_t n = 0;
             uart_get_buffered_data_len(PORT, &n);
             while (n) {
@@ -205,10 +212,22 @@ static void uart_task(void *arg)
                         handle(&parser);
                 n -= (size_t)got;
             }
+            last_read_us = esp_timer_get_time();
         }
 
         int64_t now = esp_timer_get_time();
-        if (!link.up && now - link.last_ping_us > PING_EVERY_US) {
+        if (link.up && now - link.last_heard_us > LINK_DEAD_US) {
+            ESP_LOGW(TAG, "the radio has said nothing for %lld s: configuring it again",
+                     (long long)((now - link.last_heard_us) / 1000000));
+            link.up = false;
+            link.last_ping_us = 0;
+        }
+        if (link.up && now - link.last_ping_us > PING_EVERY_US) {
+            uint8_t f[ESL_COPROC_FRAME_MAX];
+            link.last_ping_us = now;
+            uart_send(f, esl_coproc_frame(f, ESL_COPROC_PING, NULL, 0)); /* it answers with HELLO */
+        }
+        if (!link.up && now - link.last_ping_us > CONFIG_EVERY_US) {
             if (link.last_ping_us)
                 ESP_LOGW(TAG, "no answer from the radio on UART%d (TX GPIO%d, RX GPIO%d)", PORT,
                          CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO);
@@ -219,8 +238,9 @@ static void uart_task(void *arg)
             uint8_t f[ESL_COPROC_FRAME_MAX];
             last_stats = now;
             uart_send(f, esl_coproc_frame(f, ESL_COPROC_STATS_Q, NULL, 0));
-            if (parser.bad_crc)
-                ESP_LOGW(TAG, "UART link: %lu frames with a bad CRC", (unsigned long)parser.bad_crc);
+            if (parser.bad_crc || parser.cut)
+                ESP_LOGW(TAG, "UART link: %lu frames with a bad CRC, %lu cut off", (unsigned long)parser.bad_crc,
+                         (unsigned long)parser.cut);
         }
     }
 }

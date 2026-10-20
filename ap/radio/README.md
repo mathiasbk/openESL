@@ -19,4 +19,5 @@ screen and its pins for `c6-lcd`, Kconfig in `ap/components/esl_lcd`).
     cd ap && python build.py s3-n16r8-c6     # the S3 and every radio board it names
 
 `ap/build.py` builds the radio boards a board names in `radio_fw` (`"radio": "uart"` in board.json),
-into `out/openesl-ap-radio-<id>.bin` (written at 0) and `-ota.bin`.
+into `out/openesl-ap-radio-<id>.bin` (written at 0). There is no `-ota.bin`: nothing updates
+the radio over the air yet, and the AP refuses its app image (`main/ota.c` checks the project name).

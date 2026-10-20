@@ -31,7 +31,12 @@ export function firmwareKind(data) {
     return { kind: "tag", model, version: fmtVer(u16(data, 6)), ver: u16(data, 6), size: u32(data, 8) };
   }
   // The AP checks the rest (chip, app description) and refuses what it cannot boot
-  if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length, version: appVersion(data), chip: CHIPS[u16(data, 12)] ?? null };
+  if (data.length >= 32 && data[0] === 0xe9) {
+    const project = appString(data, 80);
+    if (project && project !== "esl_ap")
+      return { kind: null, error: `an app for the chip, but not AP firmware (${project}${project === "esl_radio" ? ": the radio coprocessor, flashed on its C6 with esptool" : ""})` };
+    return { kind: "ap", size: data.length, version: appVersion(data), chip: CHIPS[u16(data, 12)] ?? null };
+  }
   return {
     kind: null,
     error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-<board>-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
@@ -44,10 +49,16 @@ const chipName = (c) => c.toUpperCase().replace(/^ESP32/, "ESP32-");
 
 // The version in an ESP32 app image (the VERSION file it was built from), or null: the image
 // header (24 bytes) and the first segment's header (8) come before esp_app_desc_t, whose
-// magic word is followed by the version at offset 16.
+// magic word is followed by the version at offset 16 and the project name at 48.
 function appVersion(data) {
-  if (data.length < 80 || u32(data, 32) !== 0xabcd5432) return null;
-  const v = data.subarray(48, 80);
+  return appString(data, 48);
+}
+
+// A 32-byte string of esp_app_desc_t at off (48 the version, 80 the project name: "esl_ap"
+// for the AP, "esl_radio" for ap/radio/), or null
+function appString(data, off) {
+  if (data.length < off + 32 || u32(data, 32) !== 0xabcd5432) return null;
+  const v = data.subarray(off, off + 32);
   const end = v.indexOf(0);
   return dec.decode(end < 0 ? v : v.subarray(0, end)) || null;
 }

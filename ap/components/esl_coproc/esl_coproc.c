@@ -254,6 +254,14 @@ void esl_coproc_parser_init(esl_coproc_parser_t *p)
     memset(p, 0, sizeof(*p));
 }
 
+void esl_coproc_parser_gap(esl_coproc_parser_t *p)
+{
+    if (p->state != S_SYNC) {
+        p->cut++;
+        p->state = S_SYNC;
+    }
+}
+
 bool esl_coproc_parser_feed(esl_coproc_parser_t *p, uint8_t b)
 {
     switch (p->state) {

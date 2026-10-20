@@ -136,11 +136,20 @@ typedef struct {
     uint16_t crc;
     uint8_t payload[ESL_COPROC_PAYLOAD_MAX];
     uint32_t bad_crc, too_long, skipped; /* skipped = bytes outside a frame */
+    uint32_t cut;                        /* frames dropped by esl_coproc_parser_gap() */
 } esl_coproc_parser_t;
 
 void esl_coproc_parser_init(esl_coproc_parser_t *p);
 /* Takes one byte. Returns true when it completed a frame with a good CRC:
  * p->type, p->len and p->payload hold it until the next call. */
 bool esl_coproc_parser_feed(esl_coproc_parser_t *p, uint8_t b);
+/* The line has been quiet for ESL_COPROC_GAP_US, far longer than a frame takes
+ * (about 1.6 ms for the longest at 921600 baud): a frame in progress was cut off
+ * (the other side restarted), so drop it and look for the next sync. Without it
+ * the cut frame's bytes would be taken as payload and swallow the start of the
+ * next frame. The gap is generous because the reader only sees when it reads, and
+ * a task that was held up must not cut a frame whose bytes were waiting for it. */
+void esl_coproc_parser_gap(esl_coproc_parser_t *p);
+#define ESL_COPROC_GAP_US 20000
 
 uint16_t esl_coproc_crc16(uint16_t crc, const uint8_t *data, size_t len);

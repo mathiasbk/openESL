@@ -212,8 +212,15 @@ static void handle_message(const esl_coproc_parser_t *p)
         uint8_t ref;
         const uint8_t *psdu;
         size_t len;
-        if (!configured || !esl_coproc_decode_tx(p->payload, p->len, &ref, &psdu, &len)) {
+        if (!esl_coproc_decode_tx(p->payload, p->len, &ref, &psdu, &len)) {
             stats.link_errors++;
+            break;
+        }
+        if (!configured) {
+            /* the host thinks the link is up, but this radio restarted and its
+               HELLO was lost: say so, and the host sends CONFIG */
+            stats.link_errors++;
+            send_hello();
             break;
         }
         transmit(ref, psdu, len);
@@ -245,11 +252,14 @@ static void uart_task(void *arg)
     (void)arg;
     static esl_coproc_parser_t parser;
     uint8_t buf[128];
+    int64_t last_read_us = 0;
     esl_coproc_parser_init(&parser);
     for (;;) {
         int n = uart_read_bytes(CONFIG_ESL_COPROC_UART_NUM, buf, 1, portMAX_DELAY);
         if (n <= 0)
             continue;
+        if (esp_timer_get_time() - last_read_us > ESL_COPROC_GAP_US)
+            esl_coproc_parser_gap(&parser); /* the host restarted mid-frame */
         size_t more = 0;
         uart_get_buffered_data_len(CONFIG_ESL_COPROC_UART_NUM, &more);
         if (more > sizeof(buf) - 1)
@@ -263,6 +273,7 @@ static void uart_task(void *arg)
             else if (parser.bad_crc + parser.too_long != bad)
                 stats.link_errors++;
         }
+        last_read_us = esp_timer_get_time();
     }
 }
 
@@ -369,8 +380,9 @@ void app_main(void)
 #if CONFIG_ESL_DISPLAY
     screen_start(); /* before the link task, which hands it SCREEN */
 #endif
-    xTaskCreate(rx_task, "rx", 3072, NULL, configMAX_PRIORITIES - 2, NULL);
-    xTaskCreate(uart_task, "link", 4096, NULL, configMAX_PRIORITIES - 3, NULL);
+    /* the host's TX before more RX: the tag that sent the last frame listens only briefly */
+    xTaskCreate(uart_task, "link", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
+    xTaskCreate(rx_task, "rx", 3072, NULL, configMAX_PRIORITIES - 3, NULL);
     send_hello(); /* tells a running host that the radio (re)started and needs CONFIG */
 
     for (;;) {

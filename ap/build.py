@@ -9,8 +9,8 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
 
 A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
 also builds the radio coprocessor firmware for each radio board its "radio_fw" names
-(radio/boards/<id>/radio.json: c6, c6-lcd), each once, into the same files in out/ and in the
-release.
+(radio/boards/<id>/radio.json: c6, c6-lcd), each once, into out/ and the release as
+<artifact>.bin only: nothing updates the radio over the air yet.
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -86,11 +86,12 @@ def load_radios(boards):
 
 
 def merge(target, bdir, app, artifact, cwd=HERE):
-    """out/<artifact>.bin (everything, written at 0) and out/<artifact>-ota.bin (the app)."""
+    """out/<artifact>.bin (everything, written at 0) and, given app, out/<artifact>-ota.bin (the app)."""
     os.makedirs(OUT, exist_ok=True)
     run([sys.executable, "-m", "esptool", "--chip", target, "merge_bin", "-o",
          os.path.join(OUT, artifact + ".bin"), "@flash_args"], cwd=os.path.join(cwd, bdir))
-    shutil.copyfile(os.path.join(cwd, bdir, app), os.path.join(OUT, artifact + "-ota.bin"))
+    if app:
+        shutil.copyfile(os.path.join(cwd, bdir, app), os.path.join(OUT, artifact + "-ota.bin"))
 
 
 def build(b):
@@ -104,8 +105,10 @@ def build_radio(r):
     cwd = os.path.join(HERE, "radio")
     bdir = "build-" + r["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
-    merge(r["target"], bdir, "esl_radio.bin", r["artifact"], cwd=cwd)
-    print("%s: out/%s.bin and out/%s-ota.bin" % (r["id"], r["artifact"], r["artifact"]))
+    # No -ota.bin: nothing updates the radio over the air yet, and its app image would
+    # otherwise sit next to the AP's as something to send to an AP (main/ota.c refuses it)
+    merge(r["target"], bdir, None, r["artifact"], cwd=cwd)
+    print("%s: out/%s.bin" % (r["id"], r["artifact"]))
 
 
 def main():

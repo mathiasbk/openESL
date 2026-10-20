@@ -39,6 +39,8 @@ Both chips keep their USB port for flashing and the log. The C6 with screen is w
 The web flasher offers the S3 image (board "ESP32-S3 with PSRAM + C6 radio"), and the dashboard
 updates it over the API like any AP. The C6 radio image is flashed with esptool for now: the
 flasher does not offer it, and the S3 cannot update the C6 yet (later steps in the issue).
+The release has no `-ota.bin` for the radio, and an AP refuses the radio's app image if it is
+sent to it anyway (`main/ota.c` and the dashboard check the app's project name).
 
 ## The link
 
@@ -46,8 +48,10 @@ UART at 921600 baud, 8N1, no flow control. Code: `ap/components/esl_coproc` (tes
 in `ap/test/test_coproc.c`), used by `ap/main/radio_uart.c` on the host (the UART driver behind `esl_link_t`, Kconfig "Radio driver") and `ap/radio/` on the C6.
 
 Every message is one frame: `A5 type len payload[len] crc16` (CRC-16/CCITT-FALSE over type, len
-and payload, little-endian). The receiver hunts for `A5`, so the C6's boot text or a frame cut
-by a reset costs only the frames it overlaps.
+and payload, little-endian). The receiver hunts for `A5`, so the C6's boot text costs nothing. A frame
+cut off by a reset is dropped once the line has been quiet for 20 ms, before the next frame
+comes. A byte lost in the middle of a stream costs about two frames: the broken one, and the
+next, whose start the broken one takes as its own until its CRC fails.
 
 | Type | Direction | Payload | Meaning |
 |---|---|---|---|
@@ -67,7 +71,11 @@ arrived. The C6 times its resends from when it received the tag's frame (`ref`),
 `radio_ieee802154.c` does on the C6 alone, and does not send a reply that comes after 12 ms
 (TX_DONE status LATE).
 
-A radio that restarts says HELLO with `configured = 0`, and the host sends CONFIG again.
+A radio that restarts says HELLO with `configured = 0`, and the host sends CONFIG again. If
+that HELLO is lost, the radio answers the host's next TX with the same HELLO. While the link is
+up, the host sends PING every 5 s; a radio that has said nothing for 15 s is taken as gone, and
+the host sends CONFIG every 2 s until it answers. The radio restarts itself if it hangs (task
+watchdog).
 
 A radio with a screen that has had no SCREEN for 10 s shows its own: that it waits for the AP,
 and how many frames it has sent and received on the UART.

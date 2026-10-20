@@ -114,7 +114,8 @@ jobs:
           # AP: "release" in ap/boards/*/board.json (openesl-ap-esp32c6-$TAG.bin, ...)
           python3 ap/build.py --release | while read -r artifact release; do
             cp "fw/ap-firmware/$artifact.bin" "out/$release-$TAG.bin"
-            cp "fw/ap-firmware/$artifact-ota.bin" "out/$release-$TAG-ota.bin"
+            # the radio coprocessor images have no -ota.bin (ap/build.py)
+            if [ -f "fw/ap-firmware/$artifact-ota.bin" ]; then cp "fw/ap-firmware/$artifact-ota.bin" "out/$release-$TAG-ota.bin"; fi
           done
           (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
