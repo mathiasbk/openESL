@@ -16,7 +16,6 @@
 
 #define CAP 8
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_notify_t notify;
@@ -128,7 +127,8 @@ int main(void)
     uint64_t now_ms = 1000;
     char line[512];
 
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
     memset(fw_mem, 0xFF, sizeof(fw_mem));
     esl_tagfw_init(&tagfw, &fw_ops);

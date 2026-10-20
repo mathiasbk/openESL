@@ -14,7 +14,6 @@
 
 #define CAP 8
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_image_t images;
@@ -43,10 +42,19 @@ static struct {
     size_t sched_len[CAP];
 } nvs;
 
-static void nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
+static bool nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
 {
     (void)ctx;
     nvs.content_len[slot] = esl_persist_encode(mac, c, nvs.content[slot]);
+    return true;
+}
+
+/* As store_nvs.c: the store keeps no content in RAM */
+static bool nvs_load(void *ctx, unsigned slot, uint64_t mac, esl_content_t *c)
+{
+    uint64_t m;
+    (void)ctx;
+    return nvs.content_len[slot] && esl_persist_decode(nvs.content[slot], nvs.content_len[slot], &m, c) && m == mac;
 }
 
 static void nvs_erase(void *ctx, unsigned slot)
@@ -135,7 +143,7 @@ void sim_ap_boot(void)
 {
     static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
-    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL};
+    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL};
     static bool first = true;
 
@@ -144,8 +152,8 @@ void sim_ap_boot(void)
         memset(tagfw_flash, 0xFF, sizeof(tagfw_flash));
     }
     first = false;
-    memset(tags, 0, sizeof(tags));
-    esl_store_init(&st, tags, CAP, &ops, 0);   /* CONFIG_ESL_NEXT_POLL_S default: the tag keeps its own */
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);   /* CONFIG_ESL_NEXT_POLL_S default: the tag keeps its own */
     esl_layouts_init(&layouts, &lops);
     /* as store_nvs_init() and layouts_nvs_init() */
     if (nvs.has_poll_s)
@@ -216,11 +224,13 @@ size_t sim_ap_render(uint8_t layout, uint8_t flags, int n, const char *const *fi
 size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
 {
     esl_tag_t t;
+    esl_content_t c;
     const esl_layout_t *f;
-    if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT)
+    if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT ||
+        !esl_store_get_content(&st, mac, &c))
         return 0;
     f = layouts.models[t.model - 1];
-    return esl_render(t.model, f ? &f->bin : NULL, &t.content, out, cap);
+    return esl_render(t.model, f ? &f->bin : NULL, &c, out, cap);
 }
 
 void sim_ap_off(void)
