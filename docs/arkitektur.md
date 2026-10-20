@@ -53,7 +53,7 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 
 ### One ESP32-C6
 - ESP-IDF has drivers for 802.15.4 (`esp_ieee802154`) and WiFi on the same chip. Both share the radio by time-division (coexistence).
-- Fallback plan if WiFi and 802.15.4 interfere too much: use a second C6 as a pure radio connected by UART. See [risiko.md](risiko.md).
+- Fallback plan if WiFi and 802.15.4 interfere too much, or for more tags than the C6 has RAM for: an ESP32-S3 with PSRAM as the AP and a C6 as a pure radio connected by UART ([ap-radio-link.md](ap-radio-link.md), board `s3-n16r8-c6`). See [risiko.md](risiko.md).
 
 ### The AP is only an API
 - The AP has a simple HTTP API, and clients call it. Changes go out immediately instead of waiting for the next fetch.

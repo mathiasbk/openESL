@@ -1,7 +1,11 @@
 set(srcs app_main.c http_api.c sched.c store_nvs.c tagfw.c wifi.c)
 
+# 802.15.4 on this chip, through a radio coprocessor on UART (boards/s3-n16r8-c6), or none.
+# REQUIRES below lists the components of all three: it is read before sdkconfig is.
 if(CONFIG_ESL_RADIO_STUB)
     list(APPEND srcs radio_stub.c)
+elseif(CONFIG_ESL_RADIO_UART)
+    list(APPEND srcs radio_uart.c)
 else()
     list(APPEND srcs radio_ieee802154.c)
 endif()
@@ -43,6 +47,6 @@ endif()
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS .
-    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154
+    REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154 esl_link esp_driver_uart
              esp_driver_usb_serial_jtag vfs esp_lcd esp_driver_spi esp_driver_gpio esp_http_client app_update lwip esp_partition)
 # mdns comes from idf_component.yml and is added to this component automatically.

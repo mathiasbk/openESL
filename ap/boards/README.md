@@ -9,6 +9,7 @@ CI and releases build every board here, so a new board needs no workflow change.
 | `c6-supermini` | ESP32-C6 | 4 MB / none | supported | `openesl-ap-esp32c6-<version>.bin` |
 | `c6-supermini-lcd` | ESP32-C6 | 4 MB / none, 0.96" screen | supported | `openesl-ap-esp32c6-lcd-<version>.bin` |
 | `c5-wroom-1u-n16r8` | ESP32-C5 | 16 MB / 8 MB | experimental: built, not tried on a board | `openesl-ap-esp32c5-n16r8-<version>.bin` |
+| `s3-n16r8-c6` | ESP32-S3 + ESP32-C6 as radio on UART | 16 MB / 8 MB | experimental: built, not tried on a board | `openesl-ap-esp32s3-n16r8-<version>.bin` and `openesl-ap-radio-esp32c6-<version>.bin` ([docs/ap-radio-link.md](../../docs/ap-radio-link.md)) |
 
 Each folder has:
 
@@ -22,6 +23,9 @@ Each folder has:
   - `artifact`: the file names `build.py` writes in `out/` (`<artifact>.bin`, `<artifact>-ota.bin`)
   - `release`: the file names in a GitHub release (`<release>-<version>.bin`, `...-ota.bin`)
   - `status`: `supported` (tried on hardware) or `experimental`
+  - `radio`: for a chip without 802.15.4, the folder of the radio coprocessor firmware it uses
+    (`radio`: `ap/radio/`, an ESP32-C6 on UART). `build.py` builds it too, once, and the release
+    has it as `<release in radio.json>-<version>.bin`.
 - `sdkconfig.defaults`: read after `ap/sdkconfig.defaults` (settings for every board). Sets
   `CONFIG_IDF_TARGET`, the flash size and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME`, and
   anything else that differs.

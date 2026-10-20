@@ -1,0 +1,28 @@
+# ESP32-S3 with 16 MB flash and 8 MB octal PSRAM (N16R8), with an ESP32-C6 running
+# ap/radio/ as its 802.15.4 radio on UART1: S3 GPIO17 (TX) -> C6 GPIO17 (RX),
+# S3 GPIO18 (RX) <- C6 GPIO16 (TX), and GND (docs/ap-radio-link.md).
+# The S3 has no 802.15.4, so WiFi has its radio to itself, and the C6 has no WiFi.
+# Built by CI but not yet tried on a board: status "experimental" in board.json.
+CONFIG_IDF_TARGET="esp32s3"
+
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/s3-n16r8-c6/partitions.csv"
+
+CONFIG_ESL_RADIO_UART=y
+
+# PSRAM, as on the C5 board: malloc puts blocks of 16 KB and more there, and WiFi and
+# lwIP may use it for their buffers
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+CONFIG_ESL_MAX_TAGS=1000
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5760
+CONFIG_LWIP_TCP_WND_DEFAULT=5760

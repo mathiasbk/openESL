@@ -1,0 +1,13 @@
+{
+  "id": "s3-n16r8-c6",
+  "label": "ESP32-S3 with 16 MB flash and 8 MB PSRAM (e.g. ESP32-S3-DevKitC-1 N16R8, or a WROOM-1U-N16R8 for an external antenna) plus an ESP32-C6 as the 802.15.4 radio on UART",
+  "target": "esp32s3",
+  "chip_family": "ESP32-S3",
+  "flash_mb": 16,
+  "psram_mb": 8,
+  "antenna": "on the module or external (u.FL), per module; the C6 radio has its own",
+  "radio": "radio",
+  "artifact": "openesl-ap-s3-n16r8",
+  "release": "openesl-ap-esp32s3-n16r8",
+  "status": "experimental"
+}
