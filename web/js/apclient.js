@@ -69,6 +69,9 @@ export class ApClient {
   // { ap, tags }
   tags() { return this.call("GET", "/api/tags"); }
 
+  // { max_size, max_binary_size, layouts: [{ model, version, ... }] }
+  layouts() { return this.call("GET", "/api/layouts"); }
+
   // { model, changed, version, ... }
   putLayouts(model, file) { return this.call("PUT", "/api/layouts/" + encodeURIComponent(model), file); }
 

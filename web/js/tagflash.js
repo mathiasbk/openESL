@@ -25,8 +25,8 @@ export const MODELS = Object.fromEntries(
   Object.entries(REGISTRY).map(([n, m]) => [n, { name: n + '"', macCode: m.macCode, firmware: `firmware/tag-${m.build}.bin` }]),
 );
 
-// tag/tools/build.py CODE_SIZE: from 0xF400 the tag keeps its layout file (0xF400) and its
-// last content (0xF800), and the stock MAC sits at 0xFC00
+// tag/tools/build.py CODE_SIZE: 0xF400 is a free page, the tag keeps its settings at 0xF800,
+// and the stock MAC sits at 0xFC00
 export const CODE_LIMIT = 0xf400;
 export const STOCK_MAC_ADDR = 0xfc06;
 export const INFO_MAC_ADDR = 0x10;

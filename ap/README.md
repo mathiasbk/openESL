@@ -55,7 +55,7 @@ ap/
 - Trailing empty fields are removed before the id is computed, so `["a",""]` and `["a"]` are the same content.
 - Content with a layout from a layout file is stored by name; the id covers the name, so it is the same on both models. The AP looks the name up in the file for the tag's model each time it draws the tag's image.
 - Text is converted to Latin-1. The fields share 96 bytes (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`: what the CONTENT message the tags used to get had room for), one length byte per field plus the text, so the AP rejects more than 92 bytes of text with four fields, or 90 with six, with `422`. Empty fields at the end are dropped first and cost nothing. `tag/tools/label_design.py` checks the same limit.
-- A tag is `pending` until it has reported the correct `content_id` in a POLL. After an AP restart the content is read from NVS; a tag that already shows it gets IDLE, not a redraw.
+- A tag is `pending` until it reports in a POLL the id of the image the AP drew for its content. After an AP restart the content is read from NVS; a tag that already shows it gets IDLE, not a redraw.
 - Every tag the AP has heard stays in the table across a restart or an OTA update, also one that only polls and has no content: what it said last (model, firmware, battery, signal) and the wall-clock time of its last POLL are kept in NVS (`s<slot>` in `esl_tags`, `esl_persist.h`). The record is written when a tag is new or changes model or firmware, every hour for the tags heard since, and right before an OTA restart, so one small write per tag per hour at most. After the restart such a tag shows those values with `seen_s_ago` counted from that time (once the AP knows the time again), and after the usual quiet period it is flagged `unseen` like any tag that has not polled since the restart; a tag that went quiet before the update is not forgotten. Flashing over USB from the web page without "Erase device" keeps it too. Erasing the flash (the web flasher's "Erase device", `idf.py erase-flash`) clears everything; use `esl-client backup` and `restore` for that.
 - Unknown tags that send POLL are added to the table without content (`content_id:0`). If the table is full, the tag that was seen longest ago and has no content is replaced when a client sends content for a new MAC.
 
@@ -178,7 +178,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 ## Status page
 
-`http://openesl.local/` shows the layout files per model (version, size for the tags, layout names), the webhook when one is set, and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why the content is not shown, and an Attention column with the same flags as `GET /api/health`: silent, unseen, low battery, ...; the heading counts the tags that need it) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
+`http://openesl.local/` shows the layout files per model (version, compiled size, layout names), the webhook when one is set, and a table of all tags (MAC, model, last seen, battery, RSSI, firmware, layout and content, pending/shown, draw failed, why the content is not shown, and an Attention column with the same flags as `GET /api/health`: silent, unseen, low battery, ...; the heading counts the tags that need it) and refreshes every 30 s (requirement A6). It needs no token, since it only reads; turn it off with `ESL_STATUS_PAGE` in menuconfig.
 
 ## Dashboard on the AP
 
