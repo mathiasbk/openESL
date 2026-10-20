@@ -532,10 +532,11 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     esl_sb_printf(out, "\"content_id\":%" PRIu32 ",", t->has_content ? t->content_id : 0);
     if (t->seen) {
         /* A tag that shows images reports the image id: the content it was drawn from
-           when that is its content's image, so clients compare content ids as before */
+           when that is its content's image, so clients compare content ids as before,
+           else 0 (an image id is not a content id; which content it was is not kept) */
         uint32_t shown = t->shown_content_id;
-        if (t->image_capable && t->has_content && t->image_id && shown == t->image_id)
-            shown = t->content_id;
+        if (t->image_capable)
+            shown = t->has_content && t->image_id && shown == t->image_id ? t->content_id : 0;
         esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", shown);
     } else
         esl_sb_puts(out, "\"shown_content_id\":null,");

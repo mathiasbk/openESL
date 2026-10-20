@@ -919,9 +919,13 @@ static void test_image_send(void)
     CHECK_INT(images.drawn, 1); /* the same content id: the image id is known */
     CHECK_INT(a.img_shown, 1);
 
-    /* named layout: drawn on the AP from the file, no LAYOUT to the tag */
+    /* named layout: drawn on the AP from the file, no LAYOUT to the tag; until it shows
+       the new image, shown_content_id is 0, not the old image's id */
     CHECK_INT(put_layout("2.9", f29, l29), 200);
     CHECK_INT(put("000000000000029A", SHELF), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"shown_content_id\":0,\"pending\":true"));
+    CHECK_INT((int)json_u32(resp, "\"shown_image_id\":"), (int)id);
     uint32_t blocks = a.img_blocks;
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 181000), ESL_MSG_IMG);
     CHECK_INT(a.layout_blocks, 0);

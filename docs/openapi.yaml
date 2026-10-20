@@ -1264,9 +1264,9 @@ components:
             - the tag rejected the layout file
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
-        image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so): it gets no CONTENT, and `shown_content_id` is the id of the image it shows" }
+        image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so): it gets no CONTENT, and `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
         image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
-        shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and this id otherwise" }
+        shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and 0 otherwise" }
         fw_update:
           description: "The AP's firmware for its model, which the tag takes and is for it: how many bytes it has fetched (the AP has sent up to there). null when it runs it, cannot take it, rejected it, or it is not for it. Kept in RAM only, so 0 again after a restart until its next block"
           oneOf:
