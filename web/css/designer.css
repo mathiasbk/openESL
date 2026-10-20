@@ -101,7 +101,7 @@
 .el-bar button:hover:not(:disabled), .el-bar select:hover, .el-bar .menu > summary:hover { background: #3a3a37; }
 .el-bar button[aria-checked="true"] { background: #3d5f99; }
 .el-bar .bar-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: #4a4a46; }
-.el-bar .swatch { display: inline-block; width: 13px; height: 13px; border-radius: 3px; border: 1px solid #bbb; vertical-align: -2px; margin-right: 6px; }
+.el-bar .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 0; box-shadow: 0 0 0 1px #1d1d1b, 0 0 0 2px #bbb; vertical-align: -2px; margin: 0 4px 0 6px; }
 .el-bar .menu > summary::after { color: #aaa; }
 .el-bar .menu-list { color: var(--text); right: auto; left: 0; min-width: 260px; padding: 10px; gap: 10px; font-size: 13px; }
 .el-bar .menu-list .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -156,8 +156,8 @@
 .fields input.fname:hover { background: var(--soft); }
 .fields input.fname.sel, .fields input.fname.sel + input { color: var(--box-sel); }
 .fields input.fname.sel + input { border-color: var(--box-sel); }
-.fields .x { border: 0; background: none; padding: 0; color: var(--muted); visibility: hidden; }
-.fields .row:hover .x, .fields .x:focus { visibility: visible; }
+.fields .x { border: 0; background: none; padding: 0; color: var(--muted); opacity: .5; }
+.fields .row:hover .x, .fields .x:focus { opacity: 1; }
 .fields .row { display: contents; }
 .fields input:disabled { opacity: 1; }
 .count { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
@@ -206,7 +206,7 @@
   #file-state { display: none; }
 }
 .designer [hidden] { display: none !important; }
-.el-bar select { width: auto; flex: none; max-width: 210px; }
+.el-bar select { width: auto; flex: none; max-width: 150px; }
 .el-bar .menu.up .menu-list { top: auto; bottom: calc(100% + 6px); }
 .el-bar .menu-list { max-height: min(420px, 60vh); overflow: auto; }
 .el-form .xywh input { -moz-appearance: textfield; }
@@ -214,3 +214,18 @@
 /* Only the selected box, and the one under the pointer or in the list, carries its name */
 .overlay .box:not(.sel):not(.hover):not(:hover) .tag { display: none; }
 .dz-canvas { display: flex; flex-direction: column; justify-content: safe center; }
+
+@media (max-width: 1200px) and (min-width: 1001px) {
+  .dz { grid-template-columns: 200px minmax(0, 1fr) 280px; }
+}
+@media (max-width: 1000px) {
+  /* The bar for the selected element docks at the bottom of the window, one row that scrolls sideways */
+  .el-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto !important; max-width: none;
+    border-radius: 0; flex-wrap: nowrap; overflow-x: auto; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  .el-bar .menu { position: static; }
+  .el-bar .menu-list, .el-bar .menu.up .menu-list { position: fixed; left: 8px; right: 8px; bottom: 56px; top: auto; min-width: 0; max-width: none; }
+  .tab.designer:has(.el-bar:not([hidden])) { padding-bottom: 56px; }
+}
+.el-bar .swatch { flex: none; }

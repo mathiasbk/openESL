@@ -406,6 +406,8 @@ function initList() {
     if (!li) return;
     state.el = +li.dataset.i;
     refreshElement();
+    // On a narrow screen the list is under the canvas: bring the tag back into view
+    if (narrow.matches) $("stage").scrollIntoView({ block: "center", behavior: "smooth" });
   });
   const hover = (i) => document.querySelectorAll("#overlay .box").forEach((b) => b.classList.toggle("hover", b.dataset.i === i));
   ol.addEventListener("pointerover", (ev) => hover(ev.target.closest("li")?.dataset.i));
@@ -668,7 +670,7 @@ function refreshSample() {
     const used = lay?.elements.some((el) => el.type !== "rect" && el.text === undefined && fieldLabel(el.field) === n);
     x.disabled = !lay || used || names.length <= 1;
     x.title = x.ariaLabel = used ? `${n} is shown by an element; change or delete that first` : `Remove the field ${n}`;
-    x.hidden = !lay;
+    if (!lay) x.style.visibility = "hidden";   // keeps its cell in the grid
     x.addEventListener("click", () => removeField(i));
     row.append(name, inp, x);
     box.append(row);
@@ -971,10 +973,18 @@ function moreMenu(e, btn, select, open) {
   return d;
 }
 
+const narrow = matchMedia("(max-width: 1000px)");
+
 // Under the selected box, or over it when there is no room under it in the view.
 function placeBar() {
   const bar = $("el-bar");
   if (bar.hidden) return;
+  if (narrow.matches) {
+    // On a narrow screen the bar sits at the bottom of the window (designer.css), More opens upwards
+    Object.assign(bar.style, { top: "", left: "", visibility: "visible" });
+    bar.querySelector("details.menu")?.classList.add("up");
+    return;
+  }
   const box = document.querySelector("#overlay .box.sel");
   if (!box || state.dragging) {
     bar.style.visibility = "hidden";

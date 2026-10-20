@@ -108,7 +108,7 @@ The access point knows nothing about products, shops or databases. It keeps a fe
 
 **Label designer.** Drag and resize boxes on a pixel-exact preview, style the selected one from a bar next to it, and type the sample text next to each field. The status bar shows how much of the AP's layout limits the layout uses.
 
-![The label designer with a 2.9-inch shelf layout: a black name band, a price in an inverted box and a unit price](docs/images/web-designer.png)
+![The label designer: the layouts and elements on the left, a 2.9-inch shelf layout with the bar by the selected element in the middle, the fields with their sample text on the right](docs/images/web-designer.png)
 
 **Dashboard.** The AP's state and every label, refreshed every 10 seconds. The AP serves it itself at `http://openesl.local/dashboard`, and the web page reaches it over USB or the bridge. (The screenshot is from the simulator.)
 
