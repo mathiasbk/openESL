@@ -98,7 +98,9 @@ def host_model():
 #   boot      the bootloader, linked alone at 0 (boot_core.c holds its decisions)
 #   hwtest    the bring-up program (python tools/build.py hwtest; HWTEST_MAIN picks another)
 #   build     how it is compiled: build_8051 (SDCC, MCS-51) for the ZBS243
-#   code_size, boot_size   the application ends below code_size and starts at boot_size
+#   code_size, boot_size   the application ends below code_size and starts at boot_size; these
+#             must be ESL_FW_APP_END and ESL_FW_APP_BASE in shared/proto.h, which the bootloader,
+#             src/ota.c and the AP (esl_tagfw.c) use for every chip (cmd_fw checks it)
 CHIPS = {
     "zbs243": {
         "hal": ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"],
@@ -118,6 +120,24 @@ def chip_of(m):
     if m["chip"] not in CHIPS:
         sys.exit("model %s: no tag firmware for chip %s (CHIPS in tag/tools/build.py)" % (m["name"], m["chip"]))
     return CHIPS[m["chip"]]
+
+
+def proto_define(name):
+    """A number #defined in shared/proto.h ("0x0400u" -> 1024)"""
+    import re
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        mt = re.search(r"^#define\s+%s\s+(0x[0-9A-Fa-f]+|[0-9]+)u?\b" % name, f.read(), re.M)
+    if not mt:
+        sys.exit("shared/proto.h has no %s" % name)
+    return int(mt.group(1), 0)
+
+
+def check_app_area(name, chip):
+    """The OTA format (ESL_FW_APP_BASE/END in shared/proto.h) is the same for every chip so far"""
+    base, end = proto_define("ESL_FW_APP_BASE"), proto_define("ESL_FW_APP_END")
+    if (chip["boot_size"], chip["code_size"]) != (base, end):
+        sys.exit("chip %s: boot_size/code_size 0x%X/0x%X are not ESL_FW_APP_BASE/END 0x%X/0x%X in shared/proto.h" %
+                 (name, chip["boot_size"], chip["code_size"], base, end))
 
 
 def find_cc():
@@ -248,6 +268,7 @@ def cmd_fw():
         sys.exit("MODEL must be one of %s (shared/models.json)" % ", ".join(x["build"] for x in ms))
     model = m["build"]
     chip = chip_of(m)
+    check_app_area(m["chip"], chip)
     if chip["build"] != "build_8051":
         sys.exit("chip %s: build.py has no %s yet" % (m["chip"], chip["build"]))
     subdir = models.fw_dir(m)
@@ -270,7 +291,10 @@ def cmd_fw():
 
 def cmd_hwtest():
     # The ZBS243 unless HWTEST_CHIP names another chip in CHIPS
-    chip = CHIPS[os.environ.get("HWTEST_CHIP", "zbs243")]
+    name = os.environ.get("HWTEST_CHIP", "zbs243")
+    if name not in CHIPS:
+        sys.exit("HWTEST_CHIP=%s: not a chip in CHIPS (%s)" % (name, ", ".join(CHIPS)))
+    chip = CHIPS[name]
     build_8051("hwtest", "hwtest", [os.environ.get("HWTEST_MAIN", chip["hwtest"])] + chip["hal"],
                limit=chip["code_size"])
 

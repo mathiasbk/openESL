@@ -71,8 +71,11 @@ needs:
    battery, the settings record, SPI flash, radio, display pins, sleep).
 2. `boot/<chip>/`: the hardware functions in `boot/boot_core.h`, if the chip takes firmware
    updates over the air.
-3. An entry in `CHIPS` in `tools/build.py`: its sources, how it is compiled (today only SDCC for
-   the 8051 core), and where the application starts and ends.
+3. An entry in `CHIPS` in `tools/build.py`: its sources and how it is compiled (today only SDCC
+   for the 8051 core). The application's start and end must be `ESL_FW_APP_BASE` and
+   `ESL_FW_APP_END` in `shared/proto.h`, which the bootloader, `src/ota.c` and the AP use for
+   every chip; `build.py` checks it. The shared code uses SDCC's `__code` and `__xdata`, which
+   `src/compat.h` defines away on the PC; another compiler needs the same there.
 4. A panel header in `src/panels/` if its display is driven unlike the ones there.
 5. The model in `shared/models.json` with that `chip` (`tools/gen_models.py` refuses a chip
    `CHIPS` does not have).
