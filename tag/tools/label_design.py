@@ -52,7 +52,7 @@ FORMAT = "esl-label"
 VERSION = 1
 
 LAYOUTS = {
-    "price": ["name", "price", "subtitle"],   # same order as the CONTENT packet
+    "price": ["name", "price", "subtitle"],   # same order as the AP's built-in price layout
     "text": ["line1", "line2", "line3", "line4"],
 }
 STYLE_KEYS = {"price_highlight", "frame"}

@@ -1096,8 +1096,8 @@ async function apSend() {
   let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  if (!uploaded && !isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
-    note = " The tag has another version of the layout file than the editor; upload the file too.";
+  if (!uploaded && !isBuiltin() && res.ok && t && ap.fileVersion !== null && ap.fileVersion !== res.version) {
+    note = " The AP has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
 }
@@ -1109,10 +1109,8 @@ async function apCheck() {
   const i = ap.tags.findIndex((x) => x.mac === mac);
   if (i >= 0) ap.tags[i] = t;
   refreshApTags();
-  if (t.content_error) return [`Cannot be sent: ${t.content_error}.`, "error"];
-  if (t.layout_failed) return ["The tag rejected the layout file.", "error"];
+  if (t.content_error) return [`Cannot be shown: ${t.content_error}.`, "error"];
   if (t.draw_failed) return ["The tag says its last drawing failed.", "error"];
-  if (t.layout_pending) return [`The tag is downloading the layout file (seen ${ago(t.seen_s_ago)}).`, ""];
   if (t.pending) return [`Waiting for the tag's next poll (seen ${ago(t.seen_s_ago)}).`, ""];
   return [`The tag shows it (seen ${ago(t.seen_s_ago)}).`, "ok"];
 }

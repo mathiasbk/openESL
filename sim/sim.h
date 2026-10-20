@@ -1,8 +1,8 @@
 /*
  * sim.h - the tag firmware and the AP core on one PC, joined by a simulated radio link.
  *
- * The tag side (sim_tag.c) is tag/src/app.c with all its logic (POLL, CONTENT, CONFIG,
- * layout download, drawing, flash) on a HAL that sends its frames to the AP side instead
+ * The tag side (sim_tag.c) is tag/src/app.c with all its logic (POLL, CONFIG, image
+ * download, drawing, flash) on a HAL that sends its frames to the AP side instead
  * of a radio. The AP side (sim_ap.c) is ap/components/esl_core as the C6 runs it: the
  * table of tags, the layout files, esl_radio_handle() for every frame and esl_api_handle()
  * for every API request, with "NVS" kept in RAM so the AP can be restarted.
@@ -70,8 +70,8 @@ void sim_drop_reply(uint8_t msg_type, int n);
 extern bool sim_die_on_drop;
 
 typedef struct {
-    unsigned polls, layout_reqs, img_reqs;  /* frames from the tag the AP handled */
-    unsigned idle, content, config, layout; /* replies the tag received */
+    unsigned polls, img_reqs;               /* frames from the tag the AP handled */
+    unsigned idle, config;                  /* replies the tag received */
     unsigned image;                         /* image transfers started (IMG as the answer to a POLL) */
     unsigned unanswered;                    /* frames with no reply (AP off or lost) */
 } sim_stats_t;

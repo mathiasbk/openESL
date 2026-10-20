@@ -3,7 +3,7 @@
 #include "esl_layout.h"
 #include <stdlib.h>
 
-/* Layout files: the compiler (JSON -> what the tags download, krav A13) and
+/* Layout files: the compiler (JSON -> the binary the AP draws with, krav A13) and
  * the storage per model. The tests use fixed copies of the example files
  * (ap/test/layouts/, two layouts each) so their sizes do not change when the
  * examples grow; the files in tag/designs/layouts/ are compiled too, so they
@@ -385,8 +385,6 @@ static void test_storage(void)
     uint32_t v;
     size_t len, bsize;
     esl_layout_env_t env;
-    uint8_t msg[ESL_MAX_PAYLOAD];
-    esl_reply_t r;
     uint8_t nf;
 
     esl_layouts_init(&ls, &ops);
@@ -399,18 +397,6 @@ static void test_storage(void)
     CHECK_INT(env.count, 0);
     esl_layouts_env(NULL, ESL_MODEL_29, &env);
     CHECK_INT(env.version, 0);
-
-    /* no file: a LAYOUT with version 0 tells the tag to use the built-in layouts */
-    size_t n = esl_layouts_block(&ls, ESL_MODEL_29, 0, 0, 94, 60, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.type, ESL_MSG_LAYOUT);
-    CHECK_INT(r.next_poll_s, 60);
-    CHECK_INT(r.layout_ver, 0);
-    CHECK_INT(r.layout_size, 0);
-    CHECK_INT(r.layout_len, 0);
-    n = esl_layouts_block(NULL, ESL_MODEL_29, 0, 0, 94, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, 0);
 
     /* store the example file */
     size_t jl;
@@ -479,32 +465,6 @@ static void test_storage(void)
     CHECK_INT(env.count, 2);
     CHECK_STR(env.names[1], "sign");
     CHECK_INT(env.nfields[0], 4);
-
-    /* blocks: from the start, by position, at most max and ESL_LAYOUT_CHUNK_MAX bytes */
-    n = esl_layouts_block(&ls, ESL_MODEL_29, 0, 0, 200, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, v);
-    CHECK_INT(r.layout_size, bin.size);
-    CHECK_INT(r.layout_pos, 0);
-    CHECK_INT(r.layout_len, ESL_LAYOUT_CHUNK_MAX);
-    CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
-    CHECK_MEM(r.layout_data, bin.bin, ESL_LAYOUT_CHUNK_MAX);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 94, 50, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_pos, 94);
-    CHECK_INT(r.layout_len, 50);
-    CHECK_MEM(r.layout_data, &bin.bin[94], 50);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 150, 94, 0, msg); /* the last, short block */
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_len, bin.size - 150);
-    /* the file changed under the tag (or it asks for an old version): block 0 of the current one */
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v ^ 1, 94, 94, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, v);
-    CHECK_INT(r.layout_pos, 0);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 4000, 94, 0, msg); /* past the end */
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_pos, 0);
 
     esl_sb_init(&sb, buf, sizeof(buf));
     CHECK(!esl_layouts_write(&ls, ESL_MODEL_154, &sb));

@@ -167,10 +167,6 @@ static int check_named(const esl_api_t *api, uint64_t mac, const char *name, siz
             snprintf(msg, MSG_MAX, "layout \"%s\" is not in the layout file for model %s", n, esl_model_name(model));
             return 422;
         }
-        if (!t.layout_capable && !t.image_capable) { /* a tag that shows images needs no file */
-            snprintf(msg, MSG_MAX, "the tag's firmware cannot download layout files: use \"price\" or \"text\"");
-            return 422;
-        }
         *max_fields = nf;
         return 0;
     }
@@ -533,33 +529,17 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     esl_sb_printf(out, "\"draw_failed\":%s,", (t->seen && (t->poll_flags & ESL_POLL_FLAG_DRAW_FAILED)) ? "true" : "false");
     esl_sb_printf(out, "\"content_id\":%" PRIu32 ",", t->has_content ? t->content_id : 0);
     if (t->seen) {
-        /* A tag that shows images reports the image id: the content it was drawn from
-           when that is its content's image, so clients compare content ids as before,
-           else 0 (an image id is not a content id; which content it was is not kept) */
-        uint32_t shown = t->shown_content_id;
-        if (t->image_capable)
-            shown = t->has_content && t->image_id && shown == t->image_id ? t->content_id : 0;
+        /* The tag reports the image id it shows: the content it was drawn from when
+           that is its content's image, so clients compare content ids, else 0 (an
+           image id is not a content id; which content it was is not kept) */
+        uint32_t shown = t->has_content && t->image_id && t->shown_content_id == t->image_id ? t->content_id : 0;
         esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", shown);
     } else
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
     write_tag_cfg(out, t, default_poll_s);
 
-    /* layout file: the version the tag reported (null for firmware without
-     * layout files), whether it still has to download the AP's file for its
-     * model, and whether it rejected that file */
-    uint32_t v = 0;
-    if (model && api->layouts)
-        esl_layouts_info(api->layouts, t->model, &v, NULL, NULL);
-    bool capable = t->seen && t->layout_capable;
-    bool needs_file = capable && !t->image_capable; /* a tag that shows images needs no file */
-    if (capable)
-        esl_sb_printf(out, ",\"layout_version\":%" PRIu32 ",", t->layout_ver);
-    else
-        esl_sb_puts(out, ",\"layout_version\":null,");
-    esl_sb_printf(out, "\"layout_pending\":%s,\"layout_failed\":%s,\"content_error\":",
-                  needs_file && t->layout_ver != v ? "true" : "false",
-                  needs_file && v && t->layout_failed == v ? "true" : "false");
+    esl_sb_puts(out, ",\"content_error\":");
     const char *err = t->has_content && esl_tag_pending(t) ? esl_content_err_text(t->content_err) : NULL;
     if (err)
         esl_sb_json_str(out, err);
@@ -1002,10 +982,7 @@ static uint16_t query_u16(const char *uri, const char *key)
 /* The ESL_HEALTH_* flags of one tag in the table. */
 static uint8_t tag_health(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, const esl_health_cfg_t *cfg)
 {
-    uint32_t v = 0;
-    if (t->seen && api->layouts)
-        esl_layouts_info(api->layouts, t->model, &v, NULL, NULL);
-    return esl_health_flags(t, esl_store_tag_poll_s(api->store, t->mac), v, now_ms, cfg);
+    return esl_health_flags(t, esl_store_tag_poll_s(api->store, t->mac), now_ms, cfg);
 }
 
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
@@ -1342,7 +1319,7 @@ static void sb_base64(esl_sb_t *out, const uint8_t *p, size_t n)
 
 /* GET /api/tags/{mac}/image: the screen the AP draws for the tag's content, the bytes a
    tag that shows images gets (docs/protokoll.md, "Image transfer"), for the dashboard.
-   Drawn on each request and not kept; a tag that draws itself shows the same pixels. */
+   Drawn on each request and not kept; also for a tag that cannot show it (no SPI flash). */
 static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
 {
     esl_tag_t t;
@@ -1354,7 +1331,7 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
         return api_error(out, 404, "the tag's model is not known yet");
     if (!t.has_content)
         return api_error(out, 404, "the tag has no content");
-    if (t.content_err)
+    if (t.content_err == ESL_CERR_NOT_IN_FILE)
         return api_error(out, 409, esl_content_err_text(t.content_err));
     size_t cap = esl_render_size(t.model);
     uint8_t *img = malloc(cap);
@@ -1577,14 +1554,6 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         const char *err = esl_tag_pending(&t) ? esl_content_err_text(t.content_err) : NULL;
         if (err)
             esl_sb_printf(out, " (%s)", err);
-        if (t.seen && t.layout_capable && !t.image_capable && api->layouts) {
-            uint32_t v;
-            esl_layouts_info(api->layouts, t.model, &v, NULL, NULL);
-            if (v && t.layout_failed == v)
-                esl_sb_puts(out, ", layout file rejected");
-            else if (t.layout_ver != v)
-                esl_sb_puts(out, ", layout file pending");
-        }
         /* the same flags as GET /api/health, with spaces for the page */
         uint8_t f = tag_health(api, &t, now_ms, NULL);
         esl_sb_puts(out, f ? "</td><td class=\"p\">" : "</td><td>");

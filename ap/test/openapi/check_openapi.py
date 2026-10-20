@@ -182,8 +182,8 @@ class Ap:
         except ValueError:
             return status, raw
 
-    def poll(self, mac, model, layout_ver, shown):
-        self._cmd(f"POLL {mac} {model} {layout_ver if layout_ver is not None else '-'} {shown}")
+    def poll(self, mac, model, images, shown):
+        self._cmd(f"POLL {mac} {model} {1 if images else 0} {shown}")
         assert self.p.stdout.readline().strip() == b"OK"
 
     def close(self):
@@ -313,14 +313,12 @@ def main():
     run_all(("put",))
     run_all(("get",), image=404)
     _, reply = call(*op("/api/tags", "get"))
-    st, layouts = call(*op("/api/layouts", "get"))
-    ver29 = next(x["version"] for x in layouts["layouts"] if x["model"] == "2.9")
     for t in reply.get("tags", []):
-        ap.poll(t["mac"], 1, 0, 0)                      # 2.9", layout files, nothing shown yet
+        ap.poll(t["mac"], 1, True, 0)                   # 2.9" with images, nothing shown yet
     run_all(("get",))
     for t in reply.get("tags", []):
-        ap.poll(t["mac"], 1, ver29, t["content_id"])    # shows its content, has the file
-    ap.poll("0000000000000154", 2, None, 0)             # 1.54" without layout files
+        ap.poll(t["mac"], 1, True, t["content_id"])     # shows its content's image
+    ap.poll("0000000000000154", 2, False, 0)            # 1.54" without SPI flash
     run_all(("get",))
 
     # errors get a status the spec lists, with a reply that fits it

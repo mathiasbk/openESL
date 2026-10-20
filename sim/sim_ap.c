@@ -310,10 +310,7 @@ static const char *msg_name(uint8_t t)
     switch (t) {
     case ESL_MSG_POLL: return "POLL";
     case ESL_MSG_IDLE: return "IDLE";
-    case ESL_MSG_CONTENT: return "CONTENT";
     case ESL_MSG_CONFIG: return "CONFIG";
-    case ESL_MSG_LAYOUT: return "LAYOUT";
-    case ESL_MSG_LAYOUT_REQ: return "LAYOUT_REQ";
     case ESL_MSG_FW: return "FW";
     case ESL_MSG_FW_REQ: return "FW_REQ";
     case ESL_MSG_IMG: return "IMG";
@@ -347,8 +344,6 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
     n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, -55, ap_now_ms(), tx, &ev);
     if (ev.msg_type == ESL_MSG_POLL)
         sim_stats.polls++;
-    else if (ev.msg_type == ESL_MSG_LAYOUT_REQ)
-        sim_stats.layout_reqs++;
     else if (ev.msg_type == ESL_MSG_IMG_REQ)
         sim_stats.img_reqs++;
     if (n <= ESL_FCS_LEN) {
@@ -367,9 +362,7 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
     }
     switch (ev.reply_type) {
     case ESL_MSG_IDLE: sim_stats.idle++; break;
-    case ESL_MSG_CONTENT: sim_stats.content++; break;
     case ESL_MSG_CONFIG: sim_stats.config++; break;
-    case ESL_MSG_LAYOUT: sim_stats.layout++; break;
     case ESL_MSG_IMG: if (ev.msg_type == ESL_MSG_POLL) sim_stats.image++; break;
     }
     if (sim_verbose)

@@ -2,9 +2,6 @@
 #include "esl_crc32.h"
 #include <string.h>
 
-/* The CONTENT header in shared/proto.h counts layout and flags; the AP builds
- * up to content_id and lets esl_content_body() add the rest. */
-_Static_assert(ESL_CONTENT_OFF_LAYOUT + 2 == ESL_CONTENT_HDR_LEN, "CONTENT layout");
 _Static_assert(ESL_POLL_OFF_CFG_VER == ESL_POLL_LEN && ESL_POLL_LEN_CFG == ESL_POLL_LEN + 2, "POLL extension");
 _Static_assert(ESL_CONFIG_OFF_LOST_AP + 2 == ESL_CONFIG_LEN, "CONFIG layout");
 _Static_assert(ESL_MHR_LEN == 15 && ESL_PSDU_MAX == 127, "802.15.4 frame");
@@ -56,8 +53,6 @@ bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out)
     out->model = p[ESL_POLL_OFF_MODEL];
     out->has_cfg_ver = len >= ESL_POLL_LEN_CFG;
     out->cfg_ver = out->has_cfg_ver ? get16(&p[ESL_POLL_OFF_CFG_VER]) : 0;
-    out->has_layout_ver = len >= ESL_POLL_LEN_LAYOUT;
-    out->layout_ver = out->has_layout_ver ? get32(&p[ESL_POLL_OFF_LAYOUT_VER]) : 0;
     return true;
 }
 
@@ -70,35 +65,10 @@ size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll)
     put32(&out[ESL_POLL_OFF_CID], poll->content_id);
     out[ESL_POLL_OFF_FLAGS] = poll->flags;
     out[ESL_POLL_OFF_MODEL] = poll->model;
-    if (!poll->has_cfg_ver && !poll->has_layout_ver)
+    if (!poll->has_cfg_ver)
         return ESL_POLL_LEN;
-    put16(&out[ESL_POLL_OFF_CFG_VER], poll->has_cfg_ver ? poll->cfg_ver : 0);
-    if (!poll->has_layout_ver)
-        return ESL_POLL_LEN_CFG;
-    put32(&out[ESL_POLL_OFF_LAYOUT_VER], poll->layout_ver);
-    return ESL_POLL_LEN_LAYOUT;
-}
-
-bool esl_layout_req_parse(const uint8_t *p, size_t len, esl_layout_req_t *out)
-{
-    if (len < ESL_LREQ_LEN || p[0] != ESL_MSG_LAYOUT_REQ || p[1] != ESL_PROTO_VER)
-        return false;
-    out->model = p[ESL_LREQ_OFF_MODEL];
-    out->max = p[ESL_LREQ_OFF_MAX];
-    out->layout_ver = get32(&p[ESL_LREQ_OFF_VER]);
-    out->pos = get16(&p[ESL_LREQ_OFF_POS]);
-    return true;
-}
-
-size_t esl_layout_req_build(uint8_t *out, const esl_layout_req_t *req)
-{
-    out[0] = ESL_MSG_LAYOUT_REQ;
-    out[1] = ESL_PROTO_VER;
-    out[ESL_LREQ_OFF_MODEL] = req->model;
-    out[ESL_LREQ_OFF_MAX] = req->max;
-    put32(&out[ESL_LREQ_OFF_VER], req->layout_ver);
-    put16(&out[ESL_LREQ_OFF_POS], req->pos);
-    return ESL_LREQ_LEN;
+    put16(&out[ESL_POLL_OFF_CFG_VER], poll->cfg_ver);
+    return ESL_POLL_LEN_CFG;
 }
 
 bool esl_fw_req_parse(const uint8_t *p, size_t len, esl_fw_req_t *out)
@@ -183,22 +153,6 @@ size_t esl_img_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t id, uint16
     return ESL_IMG_HDR_LEN + n;
 }
 
-size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
-                            const uint8_t *data, size_t n)
-{
-    if (n > ESL_LAYOUT_CHUNK_MAX)
-        n = ESL_LAYOUT_CHUNK_MAX;
-    out[0] = ESL_MSG_LAYOUT;
-    out[1] = ESL_PROTO_VER;
-    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
-    put32(&out[ESL_LAYOUT_OFF_VER], ver);
-    put16(&out[ESL_LAYOUT_OFF_SIZE], size);
-    put16(&out[ESL_LAYOUT_OFF_POS], pos);
-    if (n)
-        memcpy(&out[ESL_LAYOUT_OFF_DATA], data, n);
-    return ESL_LAYOUT_HDR_LEN + n;
-}
-
 bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c)
 {
     return !c->poll_s && !c->max_poll_s && !c->lost_ap_s;
@@ -237,15 +191,6 @@ size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s)
     return ESL_IDLE_LEN;
 }
 
-size_t esl_content_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t content_id, const esl_content_t *c)
-{
-    out[0] = ESL_MSG_CONTENT;
-    out[1] = ESL_PROTO_VER;
-    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
-    put32(&out[ESL_CONTENT_OFF_CID], content_id);
-    return ESL_CONTENT_OFF_LAYOUT + esl_content_body(c, &out[ESL_CONTENT_OFF_LAYOUT]);
-}
-
 bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -255,43 +200,31 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
     out->next_poll_s = get16(&p[ESL_OFF_NEXT_POLL]);
     if (out->type == ESL_MSG_IDLE)
         return len == ESL_IDLE_LEN;
-    if (out->type == ESL_MSG_LAYOUT) {
-        if (len < ESL_LAYOUT_HDR_LEN || len > ESL_MAX_PAYLOAD)
-            return false;
-        out->layout_ver = get32(&p[ESL_LAYOUT_OFF_VER]);
-        out->layout_size = get16(&p[ESL_LAYOUT_OFF_SIZE]);
-        out->layout_pos = get16(&p[ESL_LAYOUT_OFF_POS]);
-        out->layout_data = &p[ESL_LAYOUT_OFF_DATA];
-        out->layout_len = len - ESL_LAYOUT_HDR_LEN;
-        return out->layout_pos <= out->layout_size &&
-               out->layout_len <= (size_t)(out->layout_size - out->layout_pos) &&
-               (out->layout_ver != 0 || out->layout_size == 0);
-    }
     if (out->type == ESL_MSG_FW) {
         if (len < ESL_FW_HDR_LEN || len > ESL_MAX_PAYLOAD)
             return false;
         out->fw_ver = get16(&p[ESL_FW_OFF_VER]);
-        out->layout_size = get16(&p[ESL_FW_OFF_SIZE]);
-        out->layout_pos = get16(&p[ESL_FW_OFF_POS]);
+        out->size = get16(&p[ESL_FW_OFF_SIZE]);
+        out->pos = get16(&p[ESL_FW_OFF_POS]);
         out->fw_crc = get32(&p[ESL_FW_OFF_CRC]);
         out->fw_model = p[ESL_FW_OFF_MODEL];
-        out->layout_data = &p[ESL_FW_OFF_DATA];
-        out->layout_len = len - ESL_FW_HDR_LEN;
-        return out->fw_ver != 0 && out->layout_pos <= out->layout_size &&
-               out->layout_len <= (size_t)(out->layout_size - out->layout_pos);
+        out->data = &p[ESL_FW_OFF_DATA];
+        out->len = len - ESL_FW_HDR_LEN;
+        return out->fw_ver != 0 && out->pos <= out->size &&
+               out->len <= (size_t)(out->size - out->pos);
     }
     if (out->type == ESL_MSG_IMG) {
         if (len < ESL_IMG_HDR_LEN || len > ESL_MAX_PAYLOAD)
             return false;
         out->img_id = get32(&p[ESL_IMG_OFF_ID]);
-        out->layout_size = get16(&p[ESL_IMG_OFF_SIZE]);
-        out->layout_pos = get16(&p[ESL_IMG_OFF_POS]);
+        out->size = get16(&p[ESL_IMG_OFF_SIZE]);
+        out->pos = get16(&p[ESL_IMG_OFF_POS]);
         out->fw_model = p[ESL_IMG_OFF_MODEL];
         out->img_fmt = p[ESL_IMG_OFF_FMT];
-        out->layout_data = &p[ESL_IMG_OFF_DATA];
-        out->layout_len = len - ESL_IMG_HDR_LEN;
-        return out->img_id != 0 && out->layout_size != 0 && out->layout_pos <= out->layout_size &&
-               out->layout_len <= (size_t)(out->layout_size - out->layout_pos);
+        out->data = &p[ESL_IMG_OFF_DATA];
+        out->len = len - ESL_IMG_HDR_LEN;
+        return out->img_id != 0 && out->size != 0 && out->pos <= out->size &&
+               out->len <= (size_t)(out->size - out->pos);
     }
     if (out->type == ESL_MSG_CONFIG) {
         if (len < ESL_CONFIG_LEN)
@@ -302,19 +235,7 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
         out->cfg.lost_ap_s = get16(&p[ESL_CONFIG_OFF_LOST_AP]);
         return true;
     }
-    if (out->type != ESL_MSG_CONTENT || len < ESL_CONTENT_HDR_LEN)
-        return false;
-    out->content_id = get32(&p[ESL_CONTENT_OFF_CID]);
-    if (esl_content_init(&out->content, p[ESL_CONTENT_OFF_LAYOUT], p[ESL_CONTENT_OFF_FLAGS]) != ESL_CONTENT_OK)
-        return false;
-    size_t o = ESL_CONTENT_OFF_FIELDS;
-    while (o < len) {
-        uint8_t fl = p[o++];
-        if (fl > len - o || esl_content_add_field(&out->content, &p[o], fl) != ESL_CONTENT_OK)
-            return false;
-        o += fl;
-    }
-    return true;
+    return false;
 }
 
 static bool fcf_matches(uint16_t fcf, uint16_t want)

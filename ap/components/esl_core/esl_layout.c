@@ -222,29 +222,6 @@ void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env)
     unlock(ls);
 }
 
-size_t esl_layouts_block(esl_layouts_t *ls, uint8_t model, uint32_t ver, uint16_t pos, uint8_t max,
-                         uint16_t next_poll_s, uint8_t *out)
-{
-    size_t n;
-    if (!ls)
-        return esl_layout_msg_build(out, next_poll_s, 0, 0, 0, NULL, 0);
-    lock(ls);
-    esl_layout_t *l = slot(ls, model);
-    if (!l) {
-        n = esl_layout_msg_build(out, next_poll_s, 0, 0, 0, NULL, 0);
-    } else {
-        const esl_layout_bin_t *b = &l->bin;
-        if (ver != b->version || pos >= b->size)
-            pos = 0; /* first block, or the file changed: start over */
-        size_t take = b->size - pos;
-        if (max && take > max)
-            take = max;
-        n = esl_layout_msg_build(out, next_poll_s, b->version, b->size, pos, &b->bin[pos], take);
-    }
-    unlock(ls);
-    return n;
-}
-
 bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen)
 {
     bool ok = true;

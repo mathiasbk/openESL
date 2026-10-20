@@ -49,15 +49,6 @@ esl_content_err_t esl_content_init_named(esl_content_t *c, const char *name, siz
     return ESL_CONTENT_OK;
 }
 
-void esl_content_resolve(const esl_content_t *c, uint8_t index, esl_content_t *out)
-{
-    *out = *c;
-    if (c->layout == ESL_LAYOUT_NAMED) {
-        out->layout = (uint8_t)(ESL_LAYOUT_FILE + index);
-        memset(out->name, 0, sizeof(out->name));
-    }
-}
-
 size_t esl_content_text_len(const esl_content_t *c)
 {
     size_t n = 0;

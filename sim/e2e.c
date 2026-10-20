@@ -420,11 +420,10 @@ int e2e_run(const char *out, const char *root)
         cid = put_content(SHELF_1, 1);
         CHECK(sim_tag_run_until_draw(t0 + 61000), "drawn at the next poll");
         CHECK(shows_image(), "shows the shelf layout, drawn by the AP from file version %ld", ver);
-        CHECK(sim_stats.layout == s0.layout, "no LAYOUT to a tag that shows images (the file stays on the AP)");
-        note("the AP drew the named layout; %u IMG_REQ, no LAYOUT", sim_stats.img_reqs - s0.img_reqs);
+        note("the AP drew the named layout; %u IMG_REQ", sim_stats.img_reqs - s0.img_reqs);
         run_for(61);
         get_tag();
-        CHECK(sim_json_bool("pending") == 0 && sim_json_bool("layout_pending") == 0, "confirmed");
+        CHECK(sim_json_bool("pending") == 0, "confirmed");
         png("05-shelf");
     }
 
@@ -459,9 +458,9 @@ int e2e_run(const char *out, const char *root)
     s0 = sim_stats;
     run_for(180);
     CHECK(sim_tag_draws() == draws, "no redraw when the AP comes back");
-    CHECK(sim_stats.image == s0.image && sim_stats.layout == s0.layout, "no image, no LAYOUT");
+    CHECK(sim_stats.image == s0.image, "no image");
     get_tag();
-    CHECK(sim_json_bool("pending") == 0 && sim_json_bool("layout_pending") == 0, "the API sees it as shown");
+    CHECK(sim_json_bool("pending") == 0, "the API sees it as shown");
 
     /* ------------------------------------------------------------------ */
     step("8. The AP gone for an hour with new content waiting");

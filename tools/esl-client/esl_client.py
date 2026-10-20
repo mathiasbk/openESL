@@ -658,7 +658,7 @@ def print_status(st):
 def print_health(h):
     """One line per tag with a problem, and the counts. Returns 0 when everything is fine."""
     counts = ", ".join(f"{k} {h.get(k)}" for k in ("silent", "unseen", "draw_failed", "low_battery",
-                                                   "layout_failed", "content_error") if h.get(k))
+                                                   "content_error") if h.get(k))
     print(f"{'ok' if h.get('ok') else 'PROBLEMS'}: {h.get('with_problems')} of {h.get('tags')} tags"
           + (f" ({counts})" if counts else ""))
     for t in h.get("problems", []):
