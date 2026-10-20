@@ -210,9 +210,10 @@ The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.p
 | Way | NVS (tags, layouts, WiFi, token) |
 |---|---|
 | The web page's Flash AP tab without "Erase device" | kept: it writes the bootloader, the partition table, blank `otadata` and the app in `ota_0`, nothing else |
-| `esl-client --serial <port> ota openesl-ap-...-ota.bin --wait` | kept: the same as an OTA update over WiFi, through the USB port (`POST /api/ota` in parts); the partition table is not changed |
+| `esl-client --serial <port> ota openesl-ap-...-ota.bin --wait` (Linux and macOS: the serial client needs `termios`) | kept: the same as an OTA update over WiFi, through the USB port (`POST /api/ota` in parts); the partition table is not changed |
+| `esptool --port <port> erase-region 0x7E000 0x2000`, then `esptool --port <port> write-flash 0x90000 openesl-ap-...-v<version>-ota.bin` (also on Windows) | kept: the app goes to `ota_0` and the blank `otadata` makes the AP boot it; the partition table is not changed. Writing 0x90000 alone is not enough: after an OTA update the AP may boot `ota_1` (0x210000 on the C6), and would keep running the old app. The offsets are the same on every board in `boards/` |
 | `idf.py flash` | kept, as the web page |
-| The release's single `openesl-ap-esp32c6-v<version>.bin` written at 0x0 (`esptool write_flash 0x0 ...`) | **erased**: the file is one image from 0x0 to the end of the app, and the gap between the partition table and the app (NVS and `otadata`) is blank bytes |
+| A release's single `openesl-ap-...-v<version>.bin` (without `-ota`, for any board) written at 0x0 (`esptool write-flash 0x0 ...`) | **erased**: the file is one image from 0x0 to the end of the app, and the gap between the partition table and the app (NVS and `otadata`) is blank bytes |
 
 So the single file is only for a new board or one that is erased anyway. When a release needs a new partition table (as when `tagfw` came), use the web page without "Erase device", or take `esl-client backup ap.json` first.
 
