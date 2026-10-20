@@ -39,7 +39,7 @@ export function firmwareKind(data) {
 }
 
 // chip_id in the ESP32 image header, as GET /api/ota names the chip ("chip")
-const CHIPS = { 13: "esp32c6", 23: "esp32c5" };
+const CHIPS = { 9: "esp32s3", 13: "esp32c6", 23: "esp32c5" };
 const chipName = (c) => c.toUpperCase().replace(/^ESP32/, "ESP32-");
 
 // The version in an ESP32 app image (the VERSION file it was built from), or null: the image

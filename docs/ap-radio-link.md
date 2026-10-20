@@ -32,8 +32,9 @@ Both chips keep their USB port for flashing and the log.
    channel ..` when it reaches the C6, and `no answer from the radio` every two seconds when it
    does not (check TX/RX crossed and GND).
 
-The web flasher does not offer these images yet, and the S3 cannot update the C6 yet; both are
-later steps in the issue.
+The web flasher offers the S3 image (board "ESP32-S3 with PSRAM + C6 radio"), and the dashboard
+updates it over the API like any AP. The C6 radio image is flashed with esptool for now: the
+flasher does not offer it, and the S3 cannot update the C6 yet (later steps in the issue).
 
 ## The link
 
