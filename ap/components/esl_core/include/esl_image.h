@@ -30,6 +30,12 @@
 #define ESL_IMAGE_HOLD_MS 5000u     /* a buffer stays with its tag this long after a block */
 #define ESL_IMAGE_BUSY_S  2         /* next_poll_s for a tag that must wait for a buffer */
 
+/* ESL_IMG_FMT_RLE: n bytes coded into out, at most max bytes; 0 when it does not fit.
+ * out may be in - ESL_IMG_RLE_MARGIN(n) (coding in place: the output never overtakes
+ * the input by more than that, and gives 0 rather than write over input it has not read). */
+#define ESL_IMG_RLE_MARGIN(n) ((n) / 128 + 2)
+size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max);
+
 typedef struct {
     void *ctx;
     void (*lock)(void *ctx);
@@ -41,8 +47,9 @@ typedef struct {
     uint32_t content_id;  /* the content the image was drawn from */
     uint32_t layout_ver;  /* with this version of the model's layout file (0: none) */
     uint32_t id;          /* image id (CRC-32 of data) */
-    uint16_t size;
+    uint16_t size;        /* bytes as sent */
     uint8_t model;
+    uint8_t fmt;          /* ESL_IMG_FMT_*: RLE for a tag that takes it, when that is shorter */
     uint64_t used_ms;     /* last block sent, or drawn */
     bool sent;            /* the last block went out: free for another tag */
     uint8_t *data;        /* cap bytes */
@@ -50,12 +57,13 @@ typedef struct {
 
 typedef struct {
     esl_image_buf_t buf[ESL_IMAGE_BUFS];
-    size_t cap;           /* bytes per buffer: the largest esl_render_size() */
+    size_t cap;           /* bytes per buffer: the largest esl_render_size() and its margin */
     esl_image_ops_t ops;
     uint32_t drawn;       /* images drawn (for the log and the tests) */
 } esl_image_t;
 
-/* Bytes the buffers need: ESL_IMAGE_BUFS times the largest image of any model. */
+/* Bytes the buffers need: ESL_IMAGE_BUFS times the largest image of any model, plus the
+   room to code it in place. */
 size_t esl_image_mem_size(void);
 /* mem holds esl_image_mem_size() bytes. ops may be NULL (no locking). */
 void esl_image_init(esl_image_t *im, uint8_t *mem, const esl_image_ops_t *ops);

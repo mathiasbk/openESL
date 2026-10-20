@@ -35,8 +35,11 @@
 #define IMG_HDR_OFF_ID      12            /* u32 image_id = CRC-32 of those bytes */
 
 /* A raw image (ESL_IMG_FMT_RAW): one column after the other, DRAW_COL_BYTES each, the
-   black plane and then the red plane on a model with red. */
+   black plane and then the red plane on a model with red. A coded one
+   (ESL_IMG_FMT_RLE) is shorter; it is decoded once it is whole and checked, to
+   IMG_RAW_OFF, before the header is written, and shown from there. */
 #define IMG_RAW_SIZE        ((uint16_t)DRAW_W * DRAW_COL_BYTES * (1 + MODEL_HAS_RED))
+#define IMG_RAW_OFF         0x2000u       /* a 4 KB sector past the largest download */
 
 typedef struct {
     uint8_t present;        /* the SPI flash is there (ota.present) */
@@ -46,13 +49,14 @@ typedef struct {
     uint16_t dl_size;
     uint16_t dl_got;
     uint8_t dl_fmt;
+    uint8_t slot_fmt;       /* ESL_IMG_FMT_* of the image in the slot */
 } image_state_t;
 
 extern image_state_t __xdata image;
 
 /* Reads the slot header and checks the image. Called once at start-up, after ota_init(). */
 void image_init(uint8_t present);
-/* ESL_POLL_F_IMAGE if the tag takes images. */
+/* ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE if the tag takes images. */
 uint8_t image_poll_flags(void);
 
 /* A burst of IMG blocks: image_open() before the first, image_close() after the last. */

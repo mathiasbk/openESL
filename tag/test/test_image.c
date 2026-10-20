@@ -122,7 +122,7 @@ static void test_refused(void)
     CHECK_EQ(image.rejected, 0);
 
     setup(true);
-    CHECK_EQ(image_poll_flags(), ESL_POLL_F_IMAGE);
+    CHECK_EQ(image_poll_flags(), ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE);
     CHECK_EQ(image.slot_id, 0);
     image_open();
     CHECK_EQ(feed(img_id, IMG_RAW_SIZE, 0, MODEL_CODE + 1, ESL_IMG_FMT_RAW), IMAGE_STOP);   /* another model */
@@ -214,6 +214,129 @@ static void test_download(void)
     CHECK(image.slot_id == img_id);
     CHECK(image_show());
     CHECK(screen_is_picture());
+    CHECK_EQ(fake_xflash_misuse, 0);
+}
+
+/* ESL_IMG_FMT_RLE: img coded as the AP does (esl_img_rle_encode) into code[] */
+static uint8_t code[IMG_RAW_SIZE];
+static uint16_t code_len;
+
+static void rle_code(void)
+{
+    uint16_t i = 0, r, l;
+
+    code_len = 0;
+    while (i < IMG_RAW_SIZE) {
+        for (r = 1; i + r < IMG_RAW_SIZE && r < 129 && img[i + r] == img[i]; r++)
+            ;
+        if (r >= 2) {
+            code[code_len++] = (uint8_t)(0x80 + r - 2);
+            code[code_len++] = img[i];
+            i += r;
+            continue;
+        }
+        for (l = 1; i + l < IMG_RAW_SIZE && l < 128 &&
+                    !(i + l + 2 < IMG_RAW_SIZE && img[i + l] == img[i + l + 1] && img[i + l] == img[i + l + 2]);
+             l++)
+            ;
+        code[code_len++] = (uint8_t)(l - 1);
+        memcpy(code + code_len, img + i, l);
+        code_len += l;
+        i += l;
+    }
+    img_id = proto_crc32(0, code, code_len);
+    if (!img_id)
+        img_id = 1;
+}
+
+static uint8_t feed_code(uint16_t pos)
+{
+    proto_reply_t r;
+    uint16_t left = code_len - pos;
+    uint8_t n = (uint8_t)(left > ESL_IMG_CHUNK_MAX ? ESL_IMG_CHUNK_MAX : left);
+    uint8_t len = make_img_block(pl, 0, img_id, code_len, pos, MODEL_CODE, ESL_IMG_FMT_RLE, code + pos, n);
+
+    memset(&r, 0, sizeof(r));
+    CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
+    return image_block(&r, pl + r.field_off[0]);
+}
+
+static uint8_t download_code(void)
+{
+    uint8_t res;
+    image_open();
+    res = feed_code(0);                     /* the first block, as after a POLL */
+    while (res == IMAGE_MORE)
+        res = feed_code(image.dl_got);
+    image_close();
+    return res;
+}
+
+static void test_rle(void)
+{
+    uint16_t x;
+
+    /* mostly white, with text-like columns: codes to a fraction */
+    memset(img, 0, sizeof(img));
+    for (x = 20; x < 60; x++)
+        img[x * DRAW_COL_BYTES + 2] = (uint8_t)(x * 7);
+    rle_code();
+    CHECK(code_len < IMG_RAW_SIZE / 4);
+    setup(true);
+    CHECK_EQ(download_code(), IMAGE_DONE);
+    CHECK(image.slot_id == img_id);
+    CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_RLE);
+    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_DATA_OFF, code, code_len) == 0);
+    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* a restart finds it, and shows the decoded image */
+    ota_init();
+    image_init(ota.present);
+    CHECK(image.slot_id == img_id);
+    CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_RLE);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* a raw image after it is shown from the download area again */
+    make_picture(4);
+    CHECK_EQ(download(), IMAGE_DONE);
+    CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_RAW);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* a code that does not end at the screen size is refused, though its CRC is right */
+    memset(img, 0, sizeof(img));
+    rle_code();
+    code[code_len - 2] -= 1;               /* the last run one byte short */
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... one that would go past the screen (the last run one byte longer) */
+    rle_code();
+    code[code_len - 2] += 1;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... one whose last literal is cut short */
+    for (x = 0; x < 16; x++)
+        img[IMG_RAW_SIZE - 16 + x] = (uint8_t)(x * 13 + 1);
+    rle_code();
+    code_len -= 3;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... and a whole code with bytes after it */
+    rle_code();
+    code[code_len++] = 0x80;
+    code[code_len++] = 0x00;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
     CHECK_EQ(fake_xflash_misuse, 0);
 }
 
@@ -424,5 +547,6 @@ void test_image(void)
     RUN(test_crc_zero);
     RUN(test_download);
     RUN(test_download_blocks);
+    RUN(test_rle);
     RUN(test_app_download);
 }

@@ -144,6 +144,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_FWFAIL;
     if (t->images)
         flags |= ESL_POLL_F_IMAGE;
+    if (t->images && t->img_rle)
+        flags |= ESL_POLL_F_IMG_RLE;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
     esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model,
@@ -223,8 +225,9 @@ static void on_img(esl_faketag_t *t, const esl_reply_t *r)
     if (r->img_id == t->shown)
         return;                         /* shows it already (drawn from its slot) */
     if (r->img_id != t->img_dl_id || r->layout_size != t->img_dl_size) {
-        if (r->fw_model != t->model || r->img_fmt != ESL_IMG_FMT_RAW ||
-            r->layout_size != esl_render_size(t->model)) {
+        bool raw = r->img_fmt == ESL_IMG_FMT_RAW && r->layout_size == esl_render_size(t->model);
+        bool rle = t->img_rle && r->img_fmt == ESL_IMG_FMT_RLE && r->layout_size < esl_render_size(t->model);
+        if (r->fw_model != t->model || !(raw || rle)) {
             t->img_failed = r->img_id;
             t->img_dl_id = 0;
             return;

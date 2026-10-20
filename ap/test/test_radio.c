@@ -1085,6 +1085,109 @@ static void test_image_send(void)
     free(f29);
 }
 
+/* ESL_IMG_FMT_RLE: decodes back to the raw image, in place too, and a tag that takes
+   it gets the coded image, a fraction of the blocks */
+static size_t rle_decode(const uint8_t *in, size_t n, uint8_t *out, size_t cap)
+{
+    size_t i = 0, o = 0;
+    while (i < n) {
+        uint8_t c = in[i++];
+        size_t k = c < 0x80 ? (size_t)c + 1 : (size_t)c - 0x80 + 2;
+        if (o + k > cap || (c < 0x80 ? i + k > n : i >= n))
+            return 0;
+        if (c < 0x80) {
+            memcpy(out + o, in + i, k);
+            i += k;
+        } else
+            memset(out + o, in[i++], k);
+        o += k;
+    }
+    return o;
+}
+
+static void test_image_rle(void)
+{
+    static uint8_t raw[8192], buf[8192 + 128], back[8192];
+    /* edge cases: empty runs, 128/129 boundaries, all alike, all different */
+    for (int pass = 0; pass < 6; pass++) {
+        size_t n = pass == 0 ? 1 : pass == 1 ? 129 : pass == 2 ? 130 : 5000;
+        for (size_t i = 0; i < n; i++)
+            raw[i] = pass == 3 ? 0 : pass == 4 ? (uint8_t)(i * 7 + (i >> 3)) : (uint8_t)((i / 37) & 1 ? 0xFF : i % 3);
+        size_t m = ESL_IMG_RLE_MARGIN(n);
+        memcpy(buf + m, raw, n);
+        size_t c = esl_img_rle_encode(buf + m, n, buf, n + m);   /* in place */
+        CHECK(c > 0);
+        CHECK_INT((int)rle_decode(buf, c, back, sizeof(back)), (int)n);
+        CHECK(memcmp(back, raw, n) == 0);
+    }
+    CHECK_INT((int)esl_img_rle_encode(raw, 5000, buf, 10), 0);   /* does not fit */
+    /* "x yy z ww" stretches then white, coded in place: shorter and exact, or 0 (raw);
+       never a code that fits but decodes to something else */
+    uint32_t seed = 1;
+    int coded = 0;
+    for (int k = 0; k < 20000; k++) {
+        size_t n = 4736;
+        memset(raw, 0, n);
+        int parts = 1 + k % 6;
+        for (int p = 0; p < parts; p++) {
+            seed = seed * 1103515245u + 12345u;
+            /* the output overtakes the input only near the start, before white has
+               put it behind */
+            size_t at = p == 0 ? (seed >> 8) % 64 : (seed >> 8) % (n - 400), len = 30 + (seed >> 20) % 300;
+            for (size_t j = 0; j < len; j += 3) {
+                raw[at + j] = (uint8_t)(0x11 + j);
+                raw[at + j + 1] = raw[at + j + 2] = (uint8_t)(0xA0 ^ (j >> 1) ^ (seed >> 3));
+            }
+        }
+        size_t m = ESL_IMG_RLE_MARGIN(n);
+        memcpy(buf + m, raw, n);
+        size_t c = esl_img_rle_encode(buf + m, n, buf, n - 1);
+        if (c) {
+            coded++;
+            if (rle_decode(buf, c, back, sizeof(back)) != n || memcmp(back, raw, n) != 0) {
+                CHECK(!"in-place code decodes to the image");
+                break;
+            }
+        }
+    }
+    CHECK(coded > 0);
+
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x29E, 1, 3000, ESL_MODEL_29);
+    a.ota = a.images = a.img_rle = true;
+    CHECK_INT(put("000000000000029E", SHELF), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 1);
+    CHECK_INT(images.buf[0].fmt, ESL_IMG_FMT_RLE);
+    size_t raw29 = esl_render_size(ESL_MODEL_29);
+    /* about a third smaller: 4736 -> 3208 bytes, 35 blocks instead of 52 */
+    CHECK(images.buf[0].size < raw29 * 3 / 4);
+    CHECK(a.img_blocks < (raw29 + ESL_IMG_CHUNK_MAX - 1) / ESL_IMG_CHUNK_MAX * 3 / 4);
+    CHECK(a.shown == image_id_of("000000000000029E"));
+    /* the coded bytes are the drawn screen */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029E", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT((int)rle_decode(images.buf[0].data, images.buf[0].size, back, sizeof(back)), (int)raw29);
+    esl_tag_t t;
+    CHECK(esl_store_get(&st, 0x29E, &t));
+    CHECK_INT((int)esl_layouts_render(&layouts, ESL_MODEL_29, &t.content, raw, sizeof(raw)), (int)raw29);
+    CHECK(memcmp(back, raw, raw29) == 0);
+    printf("  RLE: 2.9\" shelf screen %zu -> %u bytes, %u blocks\n", raw29, (unsigned)images.buf[0].size,
+           (unsigned)a.img_blocks);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IDLE);
+    esl_radio_set_image(NULL);
+    free(f29);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1099,4 +1202,5 @@ void test_radio(void)
     test_layout_many_tags();
     test_layout_content_config();
     test_image_send();
+    test_image_rle();
 }

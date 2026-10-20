@@ -1,6 +1,7 @@
 #include "esl_image.h"
 #include "esl_crc32.h"
 #include "esl_render.h"
+#include <stdint.h>
 #include <string.h>
 
 static void lock(esl_image_t *im)
@@ -15,6 +16,39 @@ static void unlock(esl_image_t *im)
         im->ops.unlock(im->ops.ctx);
 }
 
+size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max)
+{
+    size_t i = 0, o = 0;
+    /* coding in place: the bytes written so far may not reach input not read yet */
+    size_t ahead = (uintptr_t)out < (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
+    while (i < n) {
+        size_t r = 1;
+        while (i + r < n && r < 129 && in[i + r] == in[i])
+            r++;
+        if (r >= 2) {
+            uint8_t v = in[i];
+            if (o + 2 > max || o + 2 > ahead + i)
+                return 0;
+            out[o++] = (uint8_t)(0x80 + r - 2);
+            out[o++] = v;
+            i += r;
+            continue;
+        }
+        /* bytes as they are, up to the next three alike (ending before two would let a
+           pattern like "x yy z ww" grow 3 bytes to 4) */
+        size_t l = 1;
+        while (i + l < n && l < 128 && !(i + l + 2 < n && in[i + l] == in[i + l + 1] && in[i + l] == in[i + l + 2]))
+            l++;
+        if (o + 1 + l > max || o + 1 > ahead + i)
+            return 0;
+        out[o++] = (uint8_t)(l - 1);
+        memmove(out + o, in + i, l);
+        o += l;
+        i += l;
+    }
+    return o;
+}
+
 size_t esl_image_mem_size(void)
 {
     size_t max = 0;
@@ -23,7 +57,7 @@ size_t esl_image_mem_size(void)
         if (n > max)
             max = n;
     }
-    return ESL_IMAGE_BUFS * max;
+    return ESL_IMAGE_BUFS * (max + ESL_IMG_RLE_MARGIN(max));
 }
 
 void esl_image_init(esl_image_t *im, uint8_t *mem, const esl_image_ops_t *ops)
@@ -78,7 +112,18 @@ static bool draw(esl_layouts_t *ls, const esl_tag_t *t, uint32_t ver, esl_image_
     b->mac = 0;
     if (!t->has_content || t->content_err || !t->model)
         return false;
-    size_t n = esl_layouts_render(ls, t->model, &t->content, b->data, cap);
+    /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the
+       start, else (it would not be shorter) drawn again raw */
+    size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
+    uint8_t fmt = ESL_IMG_FMT_RAW;
+    if (t->image_rle && raw && cap >= raw + m &&
+        esl_layouts_render(ls, t->model, &t->content, b->data + m, cap - m) == raw) {
+        n = esl_img_rle_encode(b->data + m, raw, b->data, raw - 1);
+        if (n)
+            fmt = ESL_IMG_FMT_RLE;
+    }
+    if (!n)
+        n = esl_layouts_render(ls, t->model, &t->content, b->data, cap);
     if (!n)
         return false;
     uint32_t id = esl_crc32(b->data, n);
@@ -89,6 +134,7 @@ static bool draw(esl_layouts_t *ls, const esl_tag_t *t, uint32_t ver, esl_image_
     b->id = id ? id : 1;
     b->size = (uint16_t)n;
     b->model = t->model;
+    b->fmt = fmt;
     b->used_ms = now_ms;
     return true;
 }
@@ -166,7 +212,7 @@ size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint
             n = ESL_IMG_CHUNK_MAX;
         b->used_ms = now_ms;
         b->sent = pos + n >= b->size;
-        n = esl_img_msg_build(out, next_poll_s, b->id, b->size, (uint16_t)pos, b->model, ESL_IMG_FMT_RAW,
+        n = esl_img_msg_build(out, next_poll_s, b->id, b->size, (uint16_t)pos, b->model, b->fmt,
                               b->data + pos, n);
     }
     unlock(im);

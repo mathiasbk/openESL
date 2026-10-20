@@ -42,6 +42,7 @@
 #define ESL_POLL_F_IMAGE     0x20   /* the tag shows images drawn by the AP (IMG / IMG_REQ below); content_id
                                      * in its POLL is then the image_id it shows. The AP sends CONTENT and
                                      * LAYOUT only to tags without this flag. */
+#define ESL_POLL_F_IMG_RLE   0x40   /* the tag also takes ESL_IMG_FMT_RLE images */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -187,9 +188,15 @@
  * plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a
  * pixel is never set in both. The tag's epd layer rotates, transposes and inverts it for
  * its panel. size is then exactly planes x width x ((height + 7) / 8) (4736 on the 2.9",
- * 5000 on the 1.54"). Other values are reserved for compressed images, which may be no
- * larger than the tag's image slot; a tag refuses a format it does not know. */
+ * 5000 on the 1.54"). Other values are compressed images, which may be no larger than
+ * the raw image; a tag refuses a format it does not know.
+ *
+ * ESL_IMG_FMT_RLE is the raw image run-length coded, sent only to a tag whose POLL has
+ * ESL_POLL_F_IMG_RLE: a control byte c, then for c < 0x80 the next c + 1 bytes as they
+ * are, for c >= 0x80 the next byte c - 0x80 + 2 times (2 to 129). It ends exactly at
+ * the raw size; image_id is the CRC-32 of the coded bytes. */
 #define ESL_IMG_FMT_RAW      0
+#define ESL_IMG_FMT_RLE      1
 
 /* IMG_REQ, 10 byte */
 #define ESL_IREQ_LEN         10

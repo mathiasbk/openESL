@@ -407,6 +407,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->layout_capable = poll->has_layout_ver;
         t->layout_ver = poll->layout_ver;
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
+        t->image_rle = t->image_capable && (poll->flags & ESL_POLL_F_IMG_RLE);
         n = poll_answer(st, t, poll, env, now_ms, reply);
         t->seen_dirty = !save;
         if (save)
