@@ -2,7 +2,8 @@
 The tag model registry (shared/models.json) for the Python tools in this repository.
 
   import models                      (with shared/ on sys.path)
-  models.load()                      -> list of model dicts, ordered by code
+  models.load()                      -> the models OpenESL builds firmware for, ordered by code
+  models.load(planned=True)          -> also the "planned" ones, which are only described
   models.by_build("154")             -> the model built with MODEL=154
   models.by_name("1.54")             -> the model the API calls "1.54"
   models.fw_dir(m)                   -> the build folder under tag/build/ ("fw", "fw154")
@@ -17,13 +18,16 @@ import os
 PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models.json")
 
 
-def load(path=PATH):
+def load(path=PATH, planned=False):
     with open(path, encoding="utf-8") as f:
         ms = json.load(f)["models"]
-    for m in ms:
+    built = [m for m in ms if m["status"] != "planned"]
+    for m in built:
         m["mac_code"] = int(m["mac_code"], 16)
+    for m in ms:
         m["has_red"] = "red" in m["colors"]
-    return sorted(ms, key=lambda m: m["code"])
+    built.sort(key=lambda m: m["code"])
+    return built + [m for m in ms if m["status"] == "planned"] if planned else built
 
 
 def by_build(build, ms=None):
