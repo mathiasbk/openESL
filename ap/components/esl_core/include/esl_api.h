@@ -77,7 +77,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
 
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
- * counts per problem. prev (cap bytes, may be NULL) holds the flags of the
+ * counts per problem. prev (the store's max bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and
  * every tag's new flags are written back to it. Returns the HTTP status;
  * streams like GET /api/tags. */

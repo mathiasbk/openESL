@@ -6,7 +6,6 @@
 #define AUTH "Bearer s3cret"
 #define MAC1 "00000123456789A8"
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static char persisted_url[ESL_WEBHOOK_URL_MAX + 1];
@@ -259,7 +258,8 @@ static void test_batch_and_list(void)
     char body[8192];
     esl_sb_t sb;
 
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 
     CHECK_INT(req("PUT", "/api/tags", AUTH,
                   "{\"tags\":[{\"mac\":\"0000000000000001\",\"layout\":\"price\",\"fields\":[\"A\",\"1,00\"]},"
@@ -370,7 +370,8 @@ static void test_layouts(void)
         return;
     f29[len29] = f154[len154] = '\0';
     esl_layouts_init(&layouts, NULL);
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 
     CHECK_INT(req("GET", "/api/layouts", NULL, NULL, 0), 401);
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
@@ -561,7 +562,8 @@ static void test_status_page(void)
     static char page[ESL_API_PAGE_SIZE(CAP)];
     esl_sb_t sb;
     esl_sb_init(&sb, page, sizeof(page));
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 
     CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
                   "{\"layout\":\"price\",\"fields\":[\"Br\u00f8d <b>&amp;\",\"9,90\"]}", 0), 200);
@@ -611,7 +613,8 @@ static void test_status_page(void)
     char body[512], text[ESL_MAX_TEXT + 1];
     memset(text, '&', ESL_MAX_TEXT / 4);
     text[ESL_MAX_TEXT / 4] = '\0';
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     for (unsigned i = 0; i < CAP; i++) {
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X", 0x1000 + i);
@@ -637,7 +640,8 @@ static void test_status_page(void)
 
 static void test_config_api(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 
     /* AP-wide default */
     CHECK_INT(req("GET", "/api/config", NULL, NULL, 0), 401);
@@ -695,7 +699,8 @@ static void test_config_api(void)
     CHECK_INT(esl_store_available(&st), CAP - 1);
 
     /* worst case GET /api/tags: every slot with the longest numbers fits the buffer */
-    esl_store_init(&st, tags, CAP, NULL, 3600);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 3600);
     for (unsigned i = 0; i < CAP; i++) {
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
@@ -734,7 +739,8 @@ static void test_streaming(void)
     static char page[ESL_API_PAGE_SIZE(CAP)];
     char small[200]; /* smaller than one tag: every tag needs a flush */
     esl_sb_t sb;
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     for (unsigned i = 0; i < CAP; i++) {
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X", 0x2000 + i);
@@ -794,7 +800,8 @@ static void test_streaming(void)
 
 static void test_webhook_config(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     notify.url[0] = '\0';
     persisted = 0;
 
@@ -851,7 +858,8 @@ static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t f
 
 static void test_health(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
 
     /* empty table */
@@ -948,7 +956,8 @@ static void test_health(void)
 
 void test_api(void)
 {
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
     esl_sb_init(&out, resp, sizeof(resp));
     test_auth_and_routing();

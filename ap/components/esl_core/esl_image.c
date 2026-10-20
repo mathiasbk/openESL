@@ -106,24 +106,29 @@ static uint32_t layout_ver(esl_layouts_t *ls, uint8_t model)
 
 /* Draws the tag's content into b. False when the tag has no content it can be drawn
    for (b is then free). Under the lock. */
-static bool draw(esl_layouts_t *ls, const esl_tag_t *t, uint32_t ver, esl_image_buf_t *b, size_t cap,
-                 uint64_t now_ms)
+static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_t ver, esl_image_buf_t *b,
+                 size_t cap, uint64_t now_ms)
 {
+    esl_content_t c;
     b->mac = 0;
     if (!t->has_content || t->content_err || !t->model)
+        return false;
+    /* From NVS on the device; another content_id than t's: it changed meanwhile, and
+       is drawn on the next POLL */
+    if (!esl_store_get_content(st, t->mac, &c) || esl_content_id(&c) != t->content_id)
         return false;
     /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the
        start, else (it would not be shorter) drawn again raw */
     size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
     uint8_t fmt = ESL_IMG_FMT_RAW;
     if (t->image_rle && raw && cap >= raw + m &&
-        esl_layouts_render(ls, t->model, &t->content, b->data + m, cap - m) == raw) {
+        esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
         n = esl_img_rle_encode(b->data + m, raw, b->data, raw - 1);
         if (n)
             fmt = ESL_IMG_FMT_RLE;
     }
     if (!n)
-        n = esl_layouts_render(ls, t->model, &t->content, b->data, cap);
+        n = esl_layouts_render(ls, t->model, &c, b->data, cap);
     if (!n)
         return false;
     uint32_t id = esl_crc32(b->data, n);
@@ -162,7 +167,7 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
             return NULL;
         }
     }
-    if (!draw(ls, &t, ver, b, im->cap, now_ms))
+    if (!draw(st, ls, &t, ver, b, im->cap, now_ms))
         return NULL;
     im->drawn++;
     esl_store_image_known(st, mac, b->content_id, ver, b->id);

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "app.h"
 #include "esl_persist.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -16,6 +17,9 @@
  * "cfg", next to ssid/pass/token; without it the menuconfig value is used.
  * Layout files live in namespace "esl_layouts", one blob per model (key
  * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex.
+ *
+ * The content is not kept in RAM: the store reads the blob back when it draws a
+ * tag's image or the API shows it (load_content).
  *
  * Up to 2 x 8 KB of layouts plus one ~120-byte blob per tag needs more than the
  * default 24 KB NVS partition; see boards/<board>/partitions.csv. */
@@ -34,6 +38,16 @@ static esl_sched_t *clock_ref;
  * only polls is not forgotten, and one that has gone quiet still shows when it
  * was last heard. At most one small write per tag per hour. */
 #define SEEN_SAVE_S 3600
+
+/* The tag table grows while this much internal RAM stays free after it, for
+ * WiFi, HTTP and the image buffers (TABLE_RESERVE now, TABLE_LOW_MARK at the
+ * lowest it has been since boot, which counts the peaks of HTTP requests).
+ * With PSRAM the table goes there instead. At boot (restoring) there is no
+ * limit: the stored tags all had a slot before the restart, and WiFi has not
+ * started yet. */
+#define TABLE_RESERVE  (40 * 1024)
+#define TABLE_LOW_MARK (16 * 1024)
+static bool restoring;
 
 static void lock(void *ctx)
 {
@@ -57,7 +71,7 @@ static void cfg_key(unsigned slot, char key[8])
     snprintf(key, 8, "c%u", slot);
 }
 
-static void blob_write(const char *ns, const char *key, const void *data, size_t len)
+static bool blob_write(const char *ns, const char *key, const void *data, size_t len)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open(ns, NVS_READWRITE, &h);
@@ -71,16 +85,50 @@ static void blob_write(const char *ns, const char *key, const void *data, size_t
     }
     if (err != ESP_OK)
         ESP_LOGE(TAG, "%s %s/%s failed: %s", data ? "saving" : "erasing", ns, key, esp_err_to_name(err));
+    return err == ESP_OK;
 }
 
-static void persist_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
+static bool persist_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
 {
     (void)ctx;
     uint8_t blob[ESL_PERSIST_BLOB_MAX];
     size_t n = esl_persist_encode(mac, c, blob);
     char key[8];
     slot_key(slot, key);
-    blob_write(NS_TAGS, key, blob, n);
+    return blob_write(NS_TAGS, key, blob, n);
+}
+
+static bool load_content(void *ctx, unsigned slot, uint64_t mac, esl_content_t *c)
+{
+    (void)ctx;
+    uint8_t blob[ESL_PERSIST_BLOB_MAX];
+    size_t len = sizeof(blob);
+    char key[8];
+    uint64_t m;
+    nvs_handle_t h;
+    slot_key(slot, key);
+    if (nvs_open(NS_TAGS, NVS_READONLY, &h) != ESP_OK)
+        return false;
+    bool ok = nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_decode(blob, len, &m, c) && m == mac;
+    nvs_close(h);
+    return ok;
+}
+
+static void *table_alloc(void *ctx, size_t n)
+{
+    (void)ctx;
+#if CONFIG_SPIRAM
+    void *p = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM);
+    if (p)
+        return p;
+#endif
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    size_t free_now = heap_caps_get_free_size(caps), low = heap_caps_get_minimum_free_size(caps);
+    if (!restoring && (free_now < n + TABLE_RESERVE || low < n + TABLE_LOW_MARK)) {
+        ESP_LOGW(TAG, "no room for more tags (free heap %u bytes, lowest %u)", (unsigned)free_now, (unsigned)low);
+        return NULL;
+    }
+    return heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 }
 
 static void persist_erase(void *ctx, unsigned slot)
@@ -188,21 +236,84 @@ static void layout_erase(void *ctx, uint8_t model)
     blob_write(NS_LAYOUTS, key, NULL, 0);
 }
 
-esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
+/* Calls fn for every blob in namespace esl_tags whose key is prefix + slot number. */
+static void each_slot(nvs_handle_t h, char prefix, void (*fn)(nvs_handle_t h, const char *key, unsigned slot, void *arg),
+                      void *arg)
+{
+    nvs_iterator_t it = NULL;
+    esp_err_t err = nvs_entry_find(NVS_DEFAULT_PART_NAME, NS_TAGS, NVS_TYPE_BLOB, &it);
+    while (err == ESP_OK) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+        char *end;
+        unsigned long slot = info.key[0] == prefix ? strtoul(info.key + 1, &end, 10) : 0;
+        if (info.key[0] == prefix && end != info.key + 1 && !*end && slot < ESL_STORE_MAX_TAGS)
+            fn(h, info.key, (unsigned)slot, arg);
+        err = nvs_entry_next(&it);
+    }
+    nvs_release_iterator(it);
+}
+
+typedef struct {
+    esl_store_t *st;
+    unsigned ok;
+} restore_t;
+
+static void restore_content(nvs_handle_t h, const char *key, unsigned slot, void *arg)
+{
+    restore_t *r = arg;
+    uint8_t blob[ESL_PERSIST_BLOB_MAX];
+    size_t len = sizeof(blob);
+    uint64_t mac;
+    esl_content_t c;
+    if (nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_decode(blob, len, &mac, &c) &&
+        esl_store_restore(r->st, slot, mac, &c))
+        r->ok++;
+    else
+        ESP_LOGW(TAG, "ignoring stored entry in slot %u (bad, or no room)", slot);
+}
+
+static void restore_cfg(nvs_handle_t h, const char *key, unsigned slot, void *arg)
+{
+    restore_t *r = arg;
+    uint8_t blob[ESL_PERSIST_CFG_LEN];
+    size_t len = sizeof(blob);
+    uint64_t mac;
+    esl_tag_cfg_t cfg;
+    if (nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_cfg_decode(blob, len, &mac, &cfg) &&
+        esl_store_restore_cfg(r->st, slot, mac, &cfg))
+        r->ok++;
+    else
+        ESP_LOGW(TAG, "ignoring stored settings in slot %u (bad, or no room)", slot);
+}
+
+/* A record with another MAC than the slot's content is an older tag that slot
+   held, and is skipped */
+static void restore_seen(nvs_handle_t h, const char *key, unsigned slot, void *arg)
+{
+    restore_t *r = arg;
+    uint8_t blob[ESL_PERSIST_SEEN_LEN];
+    size_t len = sizeof(blob);
+    uint64_t mac;
+    esl_seen_t rec;
+    if (nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_seen_decode(blob, len, &mac, &rec) &&
+        esl_store_restore_seen(r->st, slot, mac, &rec))
+        r->ok++;
+}
+
+esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
-                                        persist_next_poll, persist_seen, unix_now};
-    esl_tag_t *tags = calloc(cap, sizeof(esl_tag_t));
+                                        persist_next_poll, persist_seen, unix_now, load_content, table_alloc};
     mutex = xSemaphoreCreateMutex();
-    if (!tags || !mutex)
+    if (!mutex)
         return ESP_ERR_NO_MEM;
-    esl_store_init(st, tags, cap, &ops, next_poll_s);
+    esl_store_init(st, max, &ops, next_poll_s);
     store_ref = st;
     if (xTaskCreate(seen_task, "store_seen", 4096, NULL, 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
 
     nvs_handle_t h;
-    unsigned loaded = 0, configs = 0, heard = 0;
     if (nvs_open("cfg", NVS_READONLY, &h) == ESP_OK) {
         uint16_t v;
         if (nvs_get_u16(h, "poll_s", &v) == ESP_OK) {
@@ -215,42 +326,17 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s)
         ESP_LOGI(TAG, "no stored tags yet");
         return ESP_OK;
     }
-    for (unsigned slot = 0; slot < cap; slot++) {
-        uint8_t blob[ESL_PERSIST_BLOB_MAX];
-        size_t len = sizeof(blob);
-        char key[8];
-        uint64_t mac;
-        esl_content_t c;
-        slot_key(slot, key);
-        if (nvs_get_blob(h, key, blob, &len) == ESP_OK) {
-            if (esl_persist_decode(blob, len, &mac, &c) && esl_store_restore(st, slot, mac, &c))
-                loaded++;
-            else
-                ESP_LOGW(TAG, "ignoring bad stored entry in slot %u", slot);
-        }
-
-        esl_tag_cfg_t cfg;
-        len = sizeof(blob);
-        cfg_key(slot, key);
-        if (nvs_get_blob(h, key, blob, &len) == ESP_OK) {
-            if (esl_persist_cfg_decode(blob, len, &mac, &cfg) && esl_store_restore_cfg(st, slot, mac, &cfg))
-                configs++;
-            else
-                ESP_LOGW(TAG, "ignoring bad stored settings in slot %u", slot);
-        }
-
-        /* after content and settings: a record with another MAC than the slot's
-           content is an older tag that slot held, and is skipped */
-        esl_seen_t rec;
-        len = sizeof(blob);
-        seen_key(slot, key);
-        if (nvs_get_blob(h, key, blob, &len) == ESP_OK && esl_persist_seen_decode(blob, len, &mac, &rec) &&
-            esl_store_restore_seen(st, slot, mac, &rec))
-            heard++;
-    }
+    /* Only the keys that are there (the table can be large): content, then
+       settings, then what was last heard */
+    restore_t loaded = {st, 0}, configs = {st, 0}, heard = {st, 0};
+    restoring = true;
+    each_slot(h, 't', restore_content, &loaded);
+    each_slot(h, 'c', restore_cfg, &configs);
+    each_slot(h, 's', restore_seen, &heard);
+    restoring = false;
     nvs_close(h);
-    ESP_LOGI(TAG, "loaded %u tags with content, %u tag settings and %u tags' last poll from NVS", loaded, configs,
-             heard);
+    ESP_LOGI(TAG, "loaded %u tags with content, %u tag settings and %u tags' last poll from NVS", loaded.ok,
+             configs.ok, heard.ok);
     return ESP_OK;
 }
 

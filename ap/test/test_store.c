@@ -1,5 +1,7 @@
 #include "tinytest.h"
 #include "esl_store.h"
+#include "esl_persist.h"
+#include <stdlib.h>
 
 #define S(x) (const uint8_t *)(x), sizeof(x) - 1
 
@@ -25,7 +27,7 @@ static void f_unlock(void *ctx)
     f->depth--;
 }
 
-static void f_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
+static bool f_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
 {
     fake_t *f = ctx;
     (void)c;
@@ -33,6 +35,7 @@ static void f_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *
     f->saves++;
     f->last_slot = slot;
     f->last_mac = mac;
+    return true;
 }
 
 static void f_erase(void *ctx, unsigned slot)
@@ -110,13 +113,13 @@ static uint32_t s_clock(void *ctx)
 static void test_store_seen(void)
 {
     enum { CAP = 4 };
-    esl_tag_t tags[CAP];
-    esl_store_t st;
+    esl_store_t st = {0};
     seenfake_t g = {0};
-    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL};
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_tag_t t;
-    esl_store_init(&st, tags, CAP, &ops, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
 
     /* a new tag is saved at once, with the time when the clock is known */
     g.clock = 1792000000;
@@ -158,9 +161,9 @@ static void test_store_seen(void)
     CHECK_INT(g.slot, 0);
 
     /* after a restart: back in its slot, not seen since boot, with what it said */
-    esl_store_t st2;
-    esl_tag_t tags2[CAP];
-    esl_store_init(&st2, tags2, CAP, &ops, 0);
+    esl_store_t st2 = {0};
+    esl_store_free(&st2);
+    esl_store_init(&st2, CAP, &ops, 0);
     esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000};
     CHECK(esl_store_restore_seen(&st2, 2, 0xB2, &rec));
     CHECK(!esl_store_restore_seen(&st2, 2, 0xC3, &rec)); /* slot holds another tag */
@@ -182,21 +185,122 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st2), 1);
     CHECK_INT(g.slot, 2);
     CHECK_INT(g.f.locks, g.f.unlocks);
+    esl_store_free(&st);
+    esl_store_free(&st2);
+}
+
+/* ---- a table that grows, and content kept only in "NVS" ---- */
+enum { GROW_MAX = 100 };
+typedef struct {
+    uint8_t blob[GROW_MAX][ESL_PERSIST_BLOB_MAX];
+    size_t len[GROW_MAX];
+    bool fail_save;
+    int chunks_left; /* allocations allowed; -1 = any */
+} nvsfake_t;
+
+static bool n_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
+{
+    nvsfake_t *n = ctx;
+    if (n->fail_save)
+        return false;
+    n->len[slot] = esl_persist_encode(mac, c, n->blob[slot]);
+    return true;
+}
+
+static bool n_load(void *ctx, unsigned slot, uint64_t mac, esl_content_t *c)
+{
+    nvsfake_t *n = ctx;
+    uint64_t m;
+    return n->len[slot] && esl_persist_decode(n->blob[slot], n->len[slot], &m, c) && m == mac;
+}
+
+static void *n_alloc(void *ctx, size_t size)
+{
+    nvsfake_t *n = ctx;
+    if (n->chunks_left == 0)
+        return NULL;
+    if (n->chunks_left > 0)
+        n->chunks_left--;
+    return calloc(1, size);
+}
+
+static void test_store_grow(void)
+{
+    esl_store_t st = {0};
+    esl_set_result_t r;
+    esl_content_t c;
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    esl_content_t milk = price("Melk", "24,90"), bread = price("Brod", "39,90");
+
+    /* no memory until the first tag; then ESL_STORE_CHUNK slots at a time, up to max */
+    esl_store_init(&st, GROW_MAX, NULL, 0);
+    CHECK_INT(esl_store_slots(&st), 0);
+    CHECK_INT(esl_store_available(&st), GROW_MAX);
+    for (unsigned i = 0; i < GROW_MAX; i++)
+        CHECK_INT(esl_store_set(&st, 0x1000 + i, &milk, &r), ESL_STORE_OK);
+    CHECK_INT(esl_store_slots(&st), GROW_MAX);
+    CHECK_INT(esl_store_count(&st), GROW_MAX);
+    CHECK_INT(esl_store_set(&st, 0x2000, &milk, &r), ESL_STORE_FULL);
+    CHECK_INT(esl_store_available(&st), 0);
+    esl_tag_t t;
+    CHECK(esl_store_get_slot(&st, GROW_MAX - 1, &t) && t.mac == 0x1000 + GROW_MAX - 1);
+    CHECK(esl_store_get_content(&st, 0x1000 + 70, &c) && esl_content_equal(&c, &milk)); /* RAM copy without load_content */
+    CHECK(esl_store_delete(&st, 0x1000 + 40));
+    CHECK_INT(esl_store_set(&st, 0x2000, &milk, &r), ESL_STORE_OK); /* the freed slot */
+    CHECK(esl_store_get_slot(&st, 40, &t) && t.mac == 0x2000);
+    esl_store_free(&st);
+    CHECK_INT(esl_store_slots(&st), 0);
+
+    /* without memory the table stops growing: a new tag is then not added */
+    nvsfake_t *n = calloc(1, sizeof(*n));
+    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc};
+    n->chunks_left = 1;
+    esl_store_init(&st, GROW_MAX, &ops, 0);
+    for (unsigned i = 0; i < ESL_STORE_CHUNK; i++)
+        poll(&st, 0x3000 + i, 0, 1000, reply);
+    CHECK_INT(esl_store_count(&st), ESL_STORE_CHUNK);
+    poll(&st, 0x4000, 0, 1000, reply);
+    CHECK(!esl_store_get(&st, 0x4000, &t));
+    CHECK_INT(esl_store_slots(&st), ESL_STORE_CHUNK);
+    /* a set takes the slot of the longest-unseen tag without content instead */
+    CHECK_INT(esl_store_set(&st, 0x4000, &milk, &r), ESL_STORE_OK);
+    CHECK(!esl_store_get(&st, 0x3000, &t));
+
+    /* with load_content no content is kept in RAM: it is read back from NVS */
+    CHECK(st.content[0] == NULL);
+    CHECK(esl_store_get(&st, 0x4000, &t));
+    CHECK(t.has_content && t.content_id == esl_content_id(&milk));
+    CHECK(esl_store_get_content(&st, 0x4000, &c) && esl_content_equal(&c, &milk));
+    CHECK(!esl_store_get_content(&st, 0x3001, &c)); /* no content */
+    n->len[0] = 0;                                  /* lost from NVS */
+    CHECK(!esl_store_get_content(&st, 0x4000, &c));
+
+    /* NVS full: the tag keeps what it had */
+    CHECK_INT(esl_store_set(&st, 0x4000, &milk, &r), ESL_STORE_OK); /* unchanged: nothing written */
+    CHECK_INT(esl_store_set(&st, 0x3001, &milk, &r), ESL_STORE_OK);
+    n->fail_save = true;
+    CHECK_INT(esl_store_set(&st, 0x3001, &bread, &r), ESL_STORE_NOT_SAVED);
+    CHECK(esl_store_get(&st, 0x3001, &t) && t.content_id == esl_content_id(&milk));
+    CHECK(esl_store_get_content(&st, 0x3001, &c) && esl_content_equal(&c, &milk));
+    CHECK_INT(esl_store_set(&st, 0x3002, &bread, &r), ESL_STORE_NOT_SAVED);
+    CHECK(esl_store_get(&st, 0x3002, &t) && !t.has_content);
+    esl_store_free(&st);
+    free(n);
 }
 
 void test_store(void)
 {
     enum { CAP = 4 };
-    esl_tag_t tags[CAP];
-    esl_store_t st;
+    esl_store_t st = {0};
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
     const uint64_t A = 0xA1, B = 0xB2;
 
-    esl_store_init(&st, tags, CAP, &ops, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
     CHECK_INT(esl_store_count(&st), 0);
     CHECK_INT(esl_store_available(&st), CAP);
 
@@ -317,7 +421,8 @@ void test_store(void)
     CHECK_INT(f.locks, f.unlocks);
 
     /* restore at boot fills the given slot without writing NVS */
-    esl_store_init(&st, tags, CAP, &ops, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
     int saves = f.saves;
     CHECK(esl_store_restore(&st, 2, A, &milk));
     CHECK(!esl_store_restore(&st, 2, B, &milk)); /* slot taken */
@@ -333,15 +438,17 @@ void test_store(void)
     CHECK_INT(reply[0], ESL_MSG_IDLE); /* tag already shows it: no redraw after AP reboot */
 
     /* works without ops */
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     CHECK_INT(esl_store_set(&st, A, &milk, &r), ESL_STORE_OK);
     CHECK(esl_store_delete(&st, A));
 
     /* ---- per-tag settings and the default interval ---- */
     fake_t g = {0};
-    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL};
     esl_cfg_result_t cr;
-    esl_store_init(&st, tags, CAP, &cops, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &cops, 0);
     esl_tag_cfg_t c120 = {120, 0, 0}, none = {0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
     CHECK(cr.changed);
@@ -393,7 +500,8 @@ void test_store(void)
     CHECK_INT(g.erases, erases + 1);
 
     /* restore: settings and content land in the same slot, in either order */
-    esl_store_init(&st, tags, CAP, &cops, 60);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &cops, 60);
     saves = g.saves;
     CHECK(esl_store_restore_cfg(&st, 1, A, &c120));
     CHECK(esl_store_restore(&st, 1, A, &milk));
@@ -412,6 +520,8 @@ void test_store(void)
     CHECK_INT(ESL_GET_U16(&rb[ESL_OFF_NEXT_POLL]), 120);
     CHECK_INT(st.next_poll_builtin, 60);
     CHECK_INT(g.locks, g.unlocks);
+    esl_store_free(&st);
 
     test_store_seen();
+    test_store_grow();
 }
