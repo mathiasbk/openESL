@@ -6,12 +6,15 @@
 # the old one if the new image does not confirm itself (app_main.c). The image
 # is about 1 MB. Flashing this table over an older one must erase the flash
 # first, which the web flasher does. tagfw holds the firmware images for the
-# tags (64 KB per tag model, docs/tag-ota.md); an AP with the older table
-# (without it) gets it from one flash over USB.
+# tags (64 KB per tag model, docs/tag-ota.md) and runs to the end of the flash:
+# 448 KB, 7 tag models. It was 128 KB (2 models) before 0.5.0; only its size
+# changed, so the web flasher (without "Erase device") gives an AP the new
+# table and keeps NVS and the images it had. An AP with an older table keeps
+# the slots it has, and one without tagfw gets it from one flash over USB.
 # Name,   Type, SubType, Offset,  Size
 nvs,      data, nvs,     0x9000,  0x75000
 otadata,  data, ota,     0x7E000, 0x2000
 phy_init, data, phy,     0x80000, 0x1000
 ota_0,    app,  ota_0,   0x90000, 0x180000
 ota_1,    app,  ota_1,   0x210000, 0x180000
-tagfw,    data, 0x40,    0x390000, 0x20000
+tagfw,    data, 0x40,    0x390000, 0x70000
