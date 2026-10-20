@@ -110,11 +110,13 @@ test("tag screen: fetched again when what it depends on changes, failures that p
   assert.notEqual(screenKey(t), screenKey({ ...t, image_id: 5 }));            // drawn, or a new layout file
   assert.notEqual(screenKey({ ...t, model: null }), screenKey(t));             // model known after its first poll
   assert.notEqual(screenKey(t), screenKey({ ...t, content_id: 8 }));
+  assert.notEqual(screenKey(t), screenKey({ ...t, layout_version: 2 }));        // a tag that draws itself, new file
   assert.equal(screenKey(t), screenKey({ ...t, pending: true }));
   assert.equal(screenErrorFinal(new Error("404: model not known yet")), true);
   assert.equal(screenErrorFinal(new Error("409: the content cannot be drawn")), true);
   assert.equal(screenErrorFinal({ status: 404, message: "not found" }), true);
   assert.equal(screenErrorFinal(new Error("503: out of memory")), false);
+  assert.equal(screenErrorFinal(new Error("429: too many requests")), false);
   assert.equal(screenErrorFinal(new Error("no answer from http://ap")), false);
   assert.equal(screenErrorFinal({ status: 0, message: "no answer from the AP on the USB port" }), false);
 });

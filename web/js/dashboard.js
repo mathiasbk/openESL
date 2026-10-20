@@ -360,8 +360,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   // screens: mac -> { want, key, canvas, retry_ms }: the screenKey() last fetched, and
   // the key of the canvas, null when the AP draws nothing for it (no content, content
-  // held back, or an AP from before images). Fetched one at a time when screenKey() changes, so a table of many tags costs the AP one drawing per
-  // change, and painted once: render() moves the same canvas into the new row.
+  // held back, or an AP from before images). Fetched one at a time when screenKey()
+  // changes, so a table of many tags costs the AP one drawing per change, and painted
+  // once: render() moves the same canvas into the new row.
   // retry_ms: a failure that may pass (screenErrorFinal) is tried again after that time.
   const SCREEN_RETRY_MS = 15000;
 

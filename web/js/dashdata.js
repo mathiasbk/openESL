@@ -150,22 +150,23 @@ export function apFacts(ap) {
   return facts;
 }
 
-// GET /api/tags/{mac}/image (docs/openapi.yaml): the screen as width x height pixels,
-// 0 white, 1 black, 2 red; null when the data is short
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
-// becomes known, new content, or a new layout file, which changes the image id)
+// becomes known, new content, or a new layout file, which changes the image id of a tag
+// that shows images and the layout version of one that draws itself)
 export function screenKey(tag) {
-  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}`;
+  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}/${tag.layout_version ?? ""}`;
 }
 
 // Whether a failed GET /api/tags/{mac}/image stands until the key changes: a 4xx does
 // (unknown tag or model, no content, content that cannot be drawn, an AP without
-// images); anything else (503, no answer, an AP restarting) is tried again
+// images); anything else (429, 503, no answer, an AP restarting) is tried again
 export function screenErrorFinal(err) {
   const status = err?.status ?? Number(/^(\d{3}):/.exec(String(err?.message))?.[1]);
-  return status >= 400 && status < 500;
+  return status >= 400 && status < 500 && status !== 429;
 }
 
+// GET /api/tags/{mac}/image (docs/openapi.yaml): the screen as width x height pixels,
+// 0 white, 1 black, 2 red; null when the data is short
 export function decodeTagImage({ width, height, red, data }) {
   const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
   const col = Math.ceil(height / 8);
