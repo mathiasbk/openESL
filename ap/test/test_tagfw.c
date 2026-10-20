@@ -163,6 +163,19 @@ static void test_pieces(void)
     CHECK(esl_tagfw_get(&fw, ESL_MODEL_29, &img));
     CHECK(img.crc == esl_crc32(file + ESL_FWF_HDR_LEN, 51200));
 
+    /* A part sent again after its connection dropped half way: the pieces that got
+       through are skipped, and the upload goes on */
+    total = make_file(ESL_MODEL_29, 206, 20 * 1024, 4);
+    snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=0&total=%u", (unsigned)total);
+    CHECK_INT(put_pieces(uri, file, 8192, 2048), 200);
+    snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=8192&total=%u", (unsigned)total);
+    CHECK_INT(put_pieces(uri, file + 8192, 4096, 2048), 200);           /* 2 of its 4 pieces */
+    CHECK_INT(put_pieces(uri, file + 8192, 8192, 2048), 200);           /* sent again, whole */
+    CHECK(HAS(out.buf, "\"received\":16384,"));
+    CHECK_INT(put_part(16384 + 2048, total, 1024), 409);                /* ahead: still refused */
+    CHECK_INT(put_part(16384, total, total - 16384), 200);
+    CHECK(HAS(out.buf, "\"version\":\"0.2.6\""));
+
     /* Whole, in one body, for one tag */
     total = make_file(ESL_MODEL_29, 205, 2048, 3);
     CHECK_INT(put_pieces("/api/tag-firmware?to=0000012345678901", file, total, 2048), 200);
