@@ -1,6 +1,6 @@
 // editor.js - the layout designer. Edits a layout file (docs/protokoll.md part 3) for one tag
-// model and draws it live with the WebAssembly renderer, which is the tag's own drawing code
-// and the AP's own compiler: what the preview shows is what the tag draws, and an error here
+// model and draws it live with the WebAssembly renderer, which is the AP's own drawing code
+// and compiler: what the preview shows is the image the tag gets, and an error here
 // is the 422 the AP would answer when the file is uploaded.
 
 import { History } from "./history.js";

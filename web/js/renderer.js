@@ -1,5 +1,5 @@
 // renderer.js - the label renderer (web/wasm/web_api.c built to WebAssembly) for one tag model.
-// The same code the tags and the AP run: the AP's layout compiler and the tag's drawing.
+// The AP's own code: its layout compiler and its drawing, the image it sends to a tag.
 //
 //   const r = await loadRenderer("2.9");        // or "1.54"
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
