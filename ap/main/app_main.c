@@ -90,6 +90,18 @@ void app_main(void)
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
     api.tagfw = tagfw_start();
     esl_radio_set_tagfw(api.tagfw);
+    /* Images for tags that show what the AP draws: two buffers of the largest screen
+       (about 10 KB), drawn when a tag needs one and dropped again (esl_image.h). Only
+       the radio task uses them for now, so no lock. Without the memory the AP still
+       works, but those tags get no new content. */
+    static esl_image_t images;
+    uint8_t *image_mem = malloc(esl_image_mem_size());
+    if (image_mem) {
+        esl_image_init(&images, image_mem, NULL);
+        esl_radio_set_image(&images);
+    } else {
+        ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());
+    }
     api_handle_init();
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);

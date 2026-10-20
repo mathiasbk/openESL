@@ -17,6 +17,8 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
+static esl_image_t images;
+static uint8_t *image_mem;
 static esl_sched_entry_t sched_entries[CAP];
 static esl_sched_t sched;
 static bool ap_up;
@@ -166,6 +168,11 @@ void sim_ap_boot(void)
             esl_layouts_restore(&layouts, model, nvs.layout[model], nvs.layout_len[model]);
     esl_tagfw_init(&tagfw, &fops);
     esl_radio_set_tagfw(&tagfw);
+    /* as app_main: the image buffers from the heap, empty after a restart */
+    if (!image_mem)
+        image_mem = malloc(esl_image_mem_size());
+    esl_image_init(&images, image_mem, NULL);
+    esl_radio_set_image(&images);
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
@@ -313,6 +320,10 @@ static const char *msg_name(uint8_t t)
     case ESL_MSG_CONFIG: return "CONFIG";
     case ESL_MSG_LAYOUT: return "LAYOUT";
     case ESL_MSG_LAYOUT_REQ: return "LAYOUT_REQ";
+    case ESL_MSG_FW: return "FW";
+    case ESL_MSG_FW_REQ: return "FW_REQ";
+    case ESL_MSG_IMG: return "IMG";
+    case ESL_MSG_IMG_REQ: return "IMG_REQ";
     default: return "?";
     }
 }
@@ -344,6 +355,8 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
         sim_stats.polls++;
     else if (ev.msg_type == ESL_MSG_LAYOUT_REQ)
         sim_stats.layout_reqs++;
+    else if (ev.msg_type == ESL_MSG_IMG_REQ)
+        sim_stats.img_reqs++;
     if (n <= ESL_FCS_LEN) {
         sim_stats.unanswered++;
         return 0;
@@ -363,6 +376,7 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
     case ESL_MSG_CONTENT: sim_stats.content++; break;
     case ESL_MSG_CONFIG: sim_stats.config++; break;
     case ESL_MSG_LAYOUT: sim_stats.layout++; break;
+    case ESL_MSG_IMG: if (ev.msg_type == ESL_MSG_POLL) sim_stats.image++; break;
     }
     if (sim_verbose)
         printf("  [%7.1f s] tag -> %s, AP -> %s\n", sim_now_ms / 1000.0, msg_name(ev.msg_type),

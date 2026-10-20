@@ -1236,7 +1236,8 @@ components:
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota, fw_update]
+                 poll_s, config, config_pending, layout_version, layout_pending, layout_failed, content_error, ota,
+                 image, image_id, shown_image_id, fw_update]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
         seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since the last poll. For a tag not heard since the AP started, counted from the time of its last poll before the restart (kept in NVS) once the AP knows the time; null when that is not known" }
@@ -1263,6 +1264,9 @@ components:
             - the tag rejected the layout file
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
+        image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so): it gets no CONTENT, and `shown_content_id` is the id of the image it shows" }
+        image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
+        shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and this id otherwise" }
         fw_update:
           description: "The AP's firmware for its model, which the tag takes and is for it: how many bytes it has fetched (the AP has sent up to there). null when it runs it, cannot take it, rejected it, or it is not for it. Kept in RAM only, so 0 again after a restart until its next block"
           oneOf:
@@ -1328,6 +1332,9 @@ components:
             layout_failed: false
             content_error: null
             ota: true
+            image: true
+            image_id: 3522432519
+            shown_image_id: 3522432519
             fw_update: { version: 0.3.0, received: 21840, size: 53248 }
 
     TagDeleted:

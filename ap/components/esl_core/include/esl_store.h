@@ -69,6 +69,14 @@ typedef struct {
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
+    /* Images (ESL_POLL_F_IMAGE, esl_image): the tag shows what the AP draws. image_id is
+       the id of its content's image once drawn (0 = not drawn since the content was set);
+       shown_content_id is then the id it shows. The offer bookkeeping as for firmware. */
+    bool image_capable;       /* its last POLL had ESL_POLL_F_IMAGE */
+    uint32_t image_id;
+    uint32_t image_offered;   /* id the AP last offered it (RAM only) */
+    bool image_taken;         /* it asked for a block of image_offered */
+    uint32_t image_failed;    /* an id it refused or could not show (ESL_POLL_F_DRAWFAIL), not offered again */
     uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
     uint32_t seen_unix;       /* wall-clock second of its last POLL (also from NVS after a restart), 0 = unknown */
     bool seen_dirty;          /* polled since its record was last saved (esl_store_save_seen) */
@@ -185,6 +193,18 @@ uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
  * POLL with ESL_POLL_F_FWFAIL marks the version last offered as rejected. */
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver);
 
+/* Images (esl_image): called after esl_store_on_poll answered IDLE to a POLL with
+ * ESL_POLL_F_IMAGE, with the id of the image the tag's content gives (0 = none).
+ * True when the tag should get the first IMG block: it reports another id and has
+ * not refused this one. A POLL with ESL_POLL_F_DRAWFAIL after the tag started on
+ * the id last offered marks that id as refused; new content clears that. */
+bool esl_store_image_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint32_t id);
+/* The tag asked for a block of image id: it started on it (as esl_store_offer_taken). */
+void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id);
+/* The image of the tag's content content_id was drawn and has id (esl_image). Kept
+ * only while the tag still has that content. */
+void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t id);
+
 /* A FW block of image ver up to byte end went to the tag (esl_radio). */
 void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);
 
@@ -204,7 +224,8 @@ typedef struct {
 /* The state of the update to version ver for the seen tags of a model. */
 void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out);
 
-/* Content is set and the tag has not reported showing it yet. */
+/* Content is set and the tag has not reported showing it yet (for a tag that shows
+ * images: the image of the content, once drawn). */
 bool esl_tag_pending(const esl_tag_t *t);
 /* The tag has content or its own settings (so it is kept when the table is full). */
 bool esl_tag_holds_data(const esl_tag_t *t);
