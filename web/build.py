@@ -10,9 +10,10 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
                                    manifests for esp-web-tools and info.json (used by the
                                    GitHub workflow). Each file is told apart by its header:
                                    a tag image (tag-<build>.bin for the flasher, named after
-                                   the model in the OTA header of its -ota.bin) or an AP image (the one with
-                                   "lcd" in its name is the AP with the status screen, offered
-                                   by a checkbox on the page). "-" means no file.
+                                   the model in the OTA header of its -ota.bin) or an AP image
+                                   (the board in ap/boards/ is the one whose "artifact" or
+                                   "release" name the file starts with; the page offers a choice
+                                   of board). "-" means no file.
                                    FIRMWARE_RELEASE=v1.2.3 marks them as that release. A
                                    <file>-ota.bin next to each one is copied too, for the
                                    dashboard's updates through the API
@@ -167,7 +168,7 @@ def split_ap_image(src, out, name):
     return files
 
 
-def ap_manifest(out, name, version, path, parts):
+def ap_manifest(out, name, version, path, parts, chip_family):
     manifest = {
         "name": name,
         "version": version,
@@ -175,7 +176,7 @@ def ap_manifest(out, name, version, path, parts):
         # it only the parts below are written and the AP keeps its settings and tags
         "new_install_prompt_erase": True,
         # the version in the address keeps a browser from flashing an image cached from an older release
-        "builds": [{"chipFamily": "ESP32-C6",
+        "builds": [{"chipFamily": chip_family,
                     "parts": [{"path": f + "?v=" + version, "offset": off} for f, off in parts]}],
     }
     with open(os.path.join(out, path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")), "w") as f:
@@ -219,8 +220,9 @@ def tag_image_model(path):
 
 
 def ap_image(path):
-    """True when the file, or the <file>-ota.bin next to it, is an ESP32 app image (the merged
-    flasher image starts with the bootloader, so the -ota.bin is the one with the app header)"""
+    """The chip id (esp_image_header_t chip_id: 13 for the ESP32-C6, 23 for the C5) when the
+    file, or the <file>-ota.bin next to it, is an ESP32 app image, else None (the merged flasher
+    image starts with the bootloader, so the -ota.bin is the one with the app header)"""
     for p in (path, path[:-4] + "-ota.bin"):
         try:
             with open(p, "rb") as f:
@@ -228,8 +230,59 @@ def ap_image(path):
         except OSError:
             continue
         if len(data) >= 80 and data[0] == 0xE9 and struct.unpack_from("<I", data, 32)[0] == 0xABCD5432:
-            return True
-    return False
+            return struct.unpack_from("<H", data, 12)[0]
+    return None
+
+
+CHIP_IDS = {"esp32c6": 13, "esp32c5": 23}
+
+
+def ap_boards():
+    """The AP boards in ap/boards/ (board.json, with "display" from its sdkconfig.defaults or its
+    base's), supported ones first"""
+    bdir = os.path.join(ROOT, "ap", "boards")
+    boards = {}
+    for name in sorted(os.listdir(bdir)):
+        path = os.path.join(bdir, name, "board.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                boards[name] = json.load(f)
+
+    def sdkconfig(b):
+        path = os.path.join(bdir, b["id"], "sdkconfig.defaults")
+        text = open(path).read() if os.path.exists(path) else ""
+        return (sdkconfig(boards[b["base"]]) if b.get("base") in boards else "") + text
+
+    for b in boards.values():
+        b["display"] = "\nCONFIG_ESL_DISPLAY=y" in "\n" + sdkconfig(b)
+    return sorted(boards.values(), key=lambda b: (b["status"] != "supported", b.get("base") is not None, b["id"]))
+
+
+def ap_board_for(path, boards):
+    """The board an AP image is for: the one whose artifact (CI: openesl-ap-lcd.bin) or release
+    name (openesl-ap-esp32c6-lcd-v1.2.3.bin) the file name starts with, the longest match, and
+    otherwise the first board for the chip in the image. Stops when the chip does not fit."""
+    stem = os.path.basename(path)[:-4].lower()
+    chip = ap_image(path)
+    best, n = None, 0
+    for b in boards:
+        for name in (b["artifact"], b["release"]):
+            if (stem == name or stem.startswith(name + "-")) and len(name) > n:
+                best, n = b, len(name)
+    if best is None:
+        fits = [b for b in boards if CHIP_IDS.get(b["target"]) == chip]
+        best = next((b for b in fits if b["display"] == ("lcd" in stem)), fits[0] if fits else None)
+        if best is None:
+            sys.exit("%s: an AP image for chip id %s, which no board in ap/boards/ has" % (path, chip))
+    if CHIP_IDS.get(best["target"]) not in (None, chip):
+        sys.exit("%s: the name says board %s (%s), the image is for chip id %s" % (path, best["id"], best["target"], chip))
+    return best
+
+
+def ap_file_name(board):
+    """The name of a board's image in web/dist/firmware/: ap-openesl.bin for the C6 Super Mini,
+    ap-openesl-lcd.bin, ap-openesl-c5-n16r8.bin (from "artifact" in board.json)"""
+    return "ap-openesl" + board["artifact"][len("openesl-ap"):] + ".bin"
 
 
 def add_firmware(*files):
@@ -242,7 +295,8 @@ def add_firmware(*files):
     # images by their app header and name. A file that is neither stops the build, so a wrong
     # call in CI is not published; a release may lack a model that was added after it
     tags = {}      # build -> path
-    ap = ap_lcd = "-"
+    boards = ap_boards()
+    aps = {}       # board id -> path
     for f in files:
         if f == "-":
             continue
@@ -256,11 +310,8 @@ def add_firmware(*files):
         m = tag_image_model(f)
         if m:
             tags[m["build"]] = f
-        elif ap_image(f):
-            if "lcd" in os.path.basename(f).lower():
-                ap_lcd = f
-            else:
-                ap = f
+        elif ap_image(f) is not None:
+            aps[ap_board_for(f, boards)["id"]] = f
         else:
             sys.exit("%s: neither a tag firmware image (OTA header in it or in its -ota.bin) nor an AP image "
                      "(app header in its -ota.bin)" % f)
@@ -271,14 +322,15 @@ def add_firmware(*files):
         "commit": os.environ.get("GITHUB_SHA", "0000000"),
         "date": datetime.date.today().isoformat(),
         "tag": bool(tags),
-        "ap": ap != "-",
-        "ap_lcd": ap_lcd != "-",
+        # ap and ap_lcd for pages and AP dashboards from before ap_boards
+        "ap": "c6-supermini" in aps,
+        "ap_lcd": "c6-supermini-lcd" in aps,
         # The AP and the tags each keep the version of the release they last changed in
         # (tools/fw_version.py), read from the -ota.bin images: the dashboard compares these
         # with what the AP and the tags run, so a release without changes for them offers
         # them nothing. tag_version is the first model's; tag_versions has every model's
         # (the page names them when they differ)
-        "ap_version": image_version(ap[:-4] + "-ota.bin") if ap != "-" else None,
+        "ap_version": next((image_version(f[:-4] + "-ota.bin") for f in aps.values()), None),
         "tag_version": None,
         "tag_versions": {},
     }
@@ -288,21 +340,29 @@ def add_firmware(*files):
         info["tag_version"] = info["tag_version"] or v
     info["ota"] = {}
     for src, name in ([(f, "tag-%s.bin" % b) for b, f in tags.items()] +
-                      [(ap, "ap-openesl.bin"), (ap_lcd if info["ap_lcd"] else "-", "ap-openesl-lcd.bin")]):
-        if src != "-":
-            shutil.copy2(src, os.path.join(out, name))
-            # the file for an update through the API lies next to it as <name>-ota.bin
-            # (release and CI names alike); the dashboard sends it
-            ota = src[:-4] + "-ota.bin"
-            if os.path.exists(ota):
-                shutil.copy2(ota, os.path.join(out, name[:-4] + "-ota.bin"))
-                info["ota"][name[:-4]] = True
-    # ap-manifest.json and ap-lcd-manifest.json
-    if ap != "-":
-        ap_manifest(out, "OpenESL AP", info["version"], "ap-openesl.bin", split_ap_image(ap, out, "ap-openesl.bin"))
-    if info["ap_lcd"]:
-        ap_manifest(out, "OpenESL AP with status screen", info["version"], "ap-openesl-lcd.bin",
-                    split_ap_image(ap_lcd, out, "ap-openesl-lcd.bin"))
+                      [(aps[b["id"]], ap_file_name(b)) for b in boards if b["id"] in aps]):
+        shutil.copy2(src, os.path.join(out, name))
+        # the file for an update through the API lies next to it as <name>-ota.bin
+        # (release and CI names alike); the dashboard sends it
+        ota = src[:-4] + "-ota.bin"
+        if os.path.exists(ota):
+            shutil.copy2(ota, os.path.join(out, name[:-4] + "-ota.bin"))
+            info["ota"][name[:-4]] = True
+    # One manifest per board (ap-manifest.json, ap-lcd-manifest.json, ap-c5-n16r8-manifest.json),
+    # and the boards in the order the page offers them
+    info["ap_boards"] = []
+    for b in boards:
+        if b["id"] not in aps:
+            continue
+        name = ap_file_name(b)
+        manifest = name.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")
+        title = "OpenESL AP, %s%s" % (b["chip_family"], " with status screen" if b["display"] else "")
+        ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
+                    b["chip_family"])
+        # name is what the page's list shows; label (board.json) goes under it
+        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "")
+        info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
+                                  "display": b["display"], "file": name[:-4], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)

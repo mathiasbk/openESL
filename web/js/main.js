@@ -7,6 +7,12 @@ import { initWifiSetup } from "./wifisetup.js";
 import { initDashboard } from "./dashboard.js";
 import { MODELS } from "./models.js";
 
+// The board picked on the Flash AP tab, kept between visits
+const store = {
+  get: (k) => { try { return localStorage.getItem("openesl." + k) || ""; } catch { return ""; } },
+  set: (k, v) => { try { localStorage.setItem("openesl." + k, v); } catch { /* private window */ } },
+};
+
 const $ = (id) => document.getElementById(id);
 
 // ---------- tabs ----------
@@ -63,18 +69,40 @@ firmwareInfo().then((info) => {
   const allSame = new Set([info?.ap_version, ...tagVersions.map(([, v]) => v)]).size <= 1;
   const parts = info?.ap_version && tagText && !allSame ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
-  $("ap-fw-info").textContent = info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
-  // The AP with the status screen is optional: a checkbox picks its manifest
-  $("ap-lcd-choice").hidden = $("ap-lcd-note").hidden = !info?.ap_lcd;
+  $("ap-fw-info").textContent = info?.ap_boards?.length || info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "No AP firmware is published with this page yet.";
+  // One manifest per AP board (ap/boards/, ap_boards in info.json); an info.json from before
+  // that has only the C6 and the C6 with the status screen
+  const boards = info?.ap_boards || [
+    ...(info?.ap ? [{ id: "c6-supermini", name: "ESP32-C6", manifest: "ap-manifest.json" }] : []),
+    ...(info?.ap_lcd ? [{ id: "c6-supermini-lcd", name: "ESP32-C6 with status screen", display: true, manifest: "ap-lcd-manifest.json" }] : []),
+  ];
+  $("ap-board").replaceChildren(...boards.map((b) => {
+    const o = document.createElement("option");
+    o.value = b.id;
+    o.textContent = (b.name || b.label) + (b.status === "experimental" ? " (experimental)" : "");
+    return o;
+  }));
+  $("ap-board-choice").hidden = boards.length < 2;
+  const saved = store.get("ap.board");
+  if (boards.some((b) => b.id === saved)) $("ap-board").value = saved;
   // The install button fetches the manifest and the image without asking the server again, so a
   // browser that cached them from an earlier visit would offer the previous release (GitHub Pages
   // lets files be cached for 10 minutes): the version in the address makes each release new to it
   const v = info ? "?v=" + encodeURIComponent(info.version) : "";
   const manifest = () => {
-    $("ap-install").setAttribute("manifest", ($("ap-lcd").checked ? "firmware/ap-lcd-manifest.json" : "firmware/ap-manifest.json") + v);
+    const b = boards.find((x) => x.id === $("ap-board").value) || boards[0];
+    $("ap-install").setAttribute("manifest", "firmware/" + (b?.manifest || "ap-manifest.json") + v);
+    const note = [
+      b?.label ? b.label.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "." : "",
+      b?.display ? "The screen pins are a guess until checked on the board (<a href=\"https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd\">ap/README.md</a>)." : "",
+      b?.status === "experimental" ? "Built, but not tried on a board yet." : "",
+    ].filter(Boolean).join(" ");
+    $("ap-board-note").innerHTML = note;
+    $("ap-board-note").hidden = !note;
+    if (b) store.set("ap.board", b.id);
   };
   manifest();
-  $("ap-lcd").onchange = manifest;
+  $("ap-board").onchange = manifest;
   $("tag-fw-info").textContent = info?.tag ? built + (tagText ? ` ${tagText[0].toUpperCase()}${tagText.slice(1)}.` : "") : "No tag firmware is published with this page; choose a file.";
   if (!info?.tag) $("tag-fw-src").value = "file";
 });
