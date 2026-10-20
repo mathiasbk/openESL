@@ -52,7 +52,7 @@ esp_err_t http_api_start(const esl_api_t *api);
 /* serial_api.c: the same API over the USB serial port */
 esp_err_t serial_api_start(const esl_api_t *api);
 
-/* display.c (ESL_DISPLAY or ESL_RADIO_UART): the AP's status screen, on a small
+/* display.c (ESL_DISPLAY or ESL_RADIO_DRIVER_UART): the AP's status screen, on a small
  * ST7789 LCD on this board and/or the radio coprocessor's. Call once api is
  * filled in; it refreshes on its own. */
 esp_err_t display_start(const esl_api_t *api);
@@ -92,6 +92,6 @@ esl_tagfw_t *tagfw_start(void);
 void captive_dns_start(void);
 void captive_dns_stop(void);
 
-/* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
- * sent to the tags in blocks) may be NULL. */
+/* radio.c (AP or sniffer mode, over the link of the radio driver) or
+ * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);

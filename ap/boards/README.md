@@ -26,7 +26,7 @@ Each folder has:
   - `radio`: where the 802.15.4 radio is. `native`: on the AP chip itself (C6, C5;
     `main/radio_ieee802154.c`). `uart`: a radio coprocessor on UART (`main/radio_uart.c`,
     [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets
-    `CONFIG_ESL_RADIO_UART=y`.
+    `CONFIG_ESL_RADIO_DRIVER_UART=y`.
   - `radio_fw` (`uart` only): the radio boards in `ap/radio/boards/` the coprocessor can be
     (a name or a list: `["c6", "c6-lcd"]`). `build.py` builds each one too, once, and the
     release has it as `<release in its radio.json>-<version>.bin`.

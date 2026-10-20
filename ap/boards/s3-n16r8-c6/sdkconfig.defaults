@@ -9,7 +9,7 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/s3-n16r8-c6/partitions.csv"
 
-CONFIG_ESL_RADIO_UART=y
+CONFIG_ESL_RADIO_DRIVER_UART=y
 
 # PSRAM, as on the C5 board: malloc puts blocks of 16 KB and more there, and WiFi and
 # lwIP may use it for their buffers

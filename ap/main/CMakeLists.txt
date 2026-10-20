@@ -1,20 +1,27 @@
 set(srcs app_main.c http_api.c sched.c store_nvs.c tagfw.c wifi.c)
 
-# 802.15.4 on this chip, through a radio coprocessor on UART (boards/s3-n16r8-c6), or none.
-# REQUIRES below lists the components of all three: it is read before sdkconfig is.
+# The radio task (radio.c) and the driver of the link it talks through (esl_link.h): 802.15.4
+# on this chip, or a radio coprocessor on UART (boards/s3-n16r8-c6). REQUIRES below lists the
+# components of every driver: it is read before sdkconfig is.
 if(CONFIG_ESL_RADIO_STUB)
     list(APPEND srcs radio_stub.c)
-elseif(CONFIG_ESL_RADIO_UART)
-    list(APPEND srcs radio_uart.c)
 else()
-    list(APPEND srcs radio_ieee802154.c)
+    list(APPEND srcs radio.c)
+    if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)
+        list(APPEND srcs radio_ieee802154.c)
+    elseif(CONFIG_ESL_RADIO_DRIVER_UART)
+        list(APPEND srcs radio_uart.c)
+    elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)  # no sdkconfig yet in that pass
+        message(FATAL_ERROR "No radio driver for ${IDF_TARGET}: choose one under \"Radio driver\" in menuconfig, "
+                            "or the stub radio mode (ESL_RADIO_STUB)")
+    endif()
 endif()
 
 if(CONFIG_ESL_SERIAL_API)
     list(APPEND srcs serial_api.c)
 endif()
 
-if(CONFIG_ESL_DISPLAY OR CONFIG_ESL_RADIO_UART)
+if(CONFIG_ESL_DISPLAY OR CONFIG_ESL_RADIO_DRIVER_UART)
     list(APPEND srcs display.c)
 endif()
 

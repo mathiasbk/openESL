@@ -1,41 +1,41 @@
-#include <stdio.h>
+#include <stdatomic.h>
 #include <string.h>
 #include "app.h"
 #include "driver/uart.h"
 #include "esl_coproc.h"
-#include "esl_radio.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "radio.h"
 #include "sdkconfig.h"
 
-/* 802.15.4 through a radio coprocessor on UART (docs/ap-radio-link.md): an
- * ESP32-C6 running ap/radio/ forwards every frame it receives as RX, this
- * file answers it with esl_radio_handle() exactly as radio_ieee802154.c does
- * on a C6 alone, and sends the reply back as TX. The radio sends it, again
- * while the tag still listens if it has to, and reports TX_DONE.
+/* The link through a radio coprocessor on UART (docs/ap-radio-link.md): the
+ * driver for radio.c on a chip without 802.15.4 (boards/s3-n16r8-c6). An
+ * ESP32-C6 running ap/radio/ forwards every frame it receives as RX; this
+ * driver's UART task hands it to radio.c's queue, and send() writes the reply
+ * back as TX with the radio's ref. The radio sends it, again while the tag
+ * still listens if it has to (it keeps the time from its own RX), and reports
+ * TX_DONE. send() returns once the reply is on the UART; a TX_DONE that says it
+ * did not go out is counted with esl_link_lost() at the next send().
  *
  * The radio says HELLO when it starts and after each CONFIG. A HELLO that is
  * not configured (the radio restarted) gets the CONFIG again; while no HELLO
- * comes, PING goes out every couple of seconds.
+ * comes, CONFIG goes out every couple of seconds.
  *
  * display.c sends the status screen through radio_screen(), for a radio with
  * an LCD (the C6 with a 0.96" screen as the radio).
  *
- * The task is registered with the task watchdog and wakes at least once a
- * second, like the radio task on the C6. */
+ * The UART task is registered with the task watchdog and wakes at least once
+ * a second, like the radio task. */
 
 static const char *TAG = "radio";
 
 #define PORT CONFIG_ESL_COPROC_UART_NUM
 #define PING_EVERY_US (2 * 1000000LL)
 
-static esl_store_t *store;
-static esl_layouts_t *layouts;
 static esl_coproc_config_t cfg;
 static QueueHandle_t uart_events;
 
@@ -45,12 +45,12 @@ static struct {
     int64_t last_ping_us;
 } link;
 
-static struct {
-    uint32_t rx, polls, blocks, replies, tx_failed, tx_late, tx_resent;
-    int64_t worst_us; /* RX arrival on the radio to first transmit */
-} stats;
+/* From the UART task's TX_DONE to the radio task, which owns radio_link.stats */
+static atomic_uint lost, resent;
+static uint32_t late;      /* TX_DONE LATE, for the log */
+static uint32_t worst_us;  /* the radio's: from its RX to the first transmit */
 
-static void send(const uint8_t *f, size_t n)
+static void uart_send(const uint8_t *f, size_t n)
 {
     if (n)
         uart_write_bytes(PORT, f, n);
@@ -59,7 +59,7 @@ static void send(const uint8_t *f, size_t n)
 static void send_config(void)
 {
     uint8_t f[ESL_COPROC_FRAME_MAX];
-    send(f, esl_coproc_encode_config(f, &cfg));
+    uart_send(f, esl_coproc_encode_config(f, &cfg));
 }
 
 _Static_assert(ESL_SCREEN_LINES == ESL_COPROC_SCREEN_LINES, "esl_screen_t and SCREEN have the same lines");
@@ -75,7 +75,7 @@ void radio_screen(const esl_screen_t *s)
         strncpy(c.text[i], s->text[i], ESL_COPROC_SCREEN_TEXT_MAX);
         c.text[i][ESL_COPROC_SCREEN_TEXT_MAX] = '\0';
     }
-    send(f, esl_coproc_encode_screen(f, &c));
+    uart_send(f, esl_coproc_encode_screen(f, &c));
 }
 
 static void on_hello(const esl_coproc_hello_t *h)
@@ -93,58 +93,43 @@ static void on_hello(const esl_coproc_hello_t *h)
         return;
     }
     if (!link.up)
-        ESP_LOGI(TAG, "radio %u.%u up: 802.15.4 AP on channel %u, PAN 0x%04X", h->fw >> 8, h->fw & 0xFF,
+        ESP_LOGI(TAG, "radio %u.%u up on channel %u, PAN 0x%04X", h->fw >> 8, h->fw & 0xFF,
                  cfg.channel, cfg.pan);
     link.up = true;
 }
 
 static void on_rx(const esl_coproc_rx_t *rx)
 {
-    esl_radio_event_t ev;
-    uint8_t tx[ESL_PSDU_MAX], f[ESL_COPROC_FRAME_MAX];
-    uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
-
-    stats.rx++;
-    size_t len = esl_radio_handle(store, layouts, cfg.pan, rx->psdu, rx->len, rx->rssi, now_ms, tx, &ev);
-    if (!len)
-        return; /* not a POLL or request for us */
-    send(f, esl_coproc_encode_tx(f, rx->ref, tx, len));
-    if (ev.msg_type == ESL_MSG_POLL)
-        stats.polls++;
-    else
-        stats.blocks++;
-
-    if (ev.msg_type != ESL_MSG_POLL)
-        return; /* blocks: hundreds per download, counted only */
-    char m[17];
-    esl_mac_format(ev.mac, m);
-    const char *reply = ev.reply_type == ESL_MSG_CONFIG   ? "CONFIG"
-                        : ev.reply_type == ESL_MSG_FW     ? "FW"
-                        : ev.reply_type == ESL_MSG_IMG    ? "IMG"
-                                                          : "IDLE";
-    ESP_LOGI(TAG, "%s poll id=%08lX fw=%u bat=%u model=%u rssi=%d -> %s", m, (unsigned long)ev.poll.content_id,
-             ev.poll.fw_ver, ev.poll.battery_mv, ev.poll.model, rx->rssi, reply);
+    esl_link_rx_t f;
+    f.len = rx->len;
+    memcpy(f.psdu, rx->psdu, rx->len);
+    f.rssi = rx->rssi;
+    f.channel = rx->channel;
+    f.rx_us = esp_timer_get_time();
+    f.ref = rx->ref;
+    radio_rx(&f);
 }
 
 static void on_tx_done(const esl_coproc_tx_done_t *d)
 {
-    stats.tx_resent += d->resends;
-    if (d->rx_to_tx_us > stats.worst_us)
-        stats.worst_us = d->rx_to_tx_us;
+    if (d->resends)
+        atomic_fetch_add(&resent, d->resends);
+    if (d->rx_to_tx_us > worst_us)
+        worst_us = d->rx_to_tx_us;
     switch (d->status) {
     case ESL_COPROC_TX_OK:
-        stats.replies++;
         if (d->resends)
             ESP_LOGW(TAG, "reply sent after %u resends", d->resends);
         if (d->rx_to_tx_us > 5000)
-            ESP_LOGW(TAG, "slow reply: %u us", d->rx_to_tx_us);
+            ESP_LOGW(TAG, "slow reply: %u us from the radio's RX to its transmit", d->rx_to_tx_us);
         break;
     case ESL_COPROC_TX_LATE:
-        stats.tx_late++;
+        late++;
+        atomic_fetch_add(&lost, 1);
         ESP_LOGW(TAG, "reply reached the radio after the tag stopped listening");
         break;
     default:
-        stats.tx_failed++;
+        atomic_fetch_add(&lost, 1);
         ESP_LOGW(TAG, "reply not sent (status %u) after %u resends", d->status, d->resends);
         break;
     }
@@ -152,10 +137,11 @@ static void on_tx_done(const esl_coproc_tx_done_t *d)
 
 static void on_stats(const esl_coproc_stats_t *s)
 {
-    ESP_LOGI(TAG, "radio: rx %lu tx %lu failed %lu resent %lu late %lu dropped %lu link errors %lu up %lu s",
+    ESP_LOGI(TAG, "radio: rx %lu tx %lu failed %lu resent %lu late %lu dropped %lu link errors %lu up %lu s; "
+                  "late here %lu, worst RX to transmit %lu us",
              (unsigned long)s->rx, (unsigned long)s->tx, (unsigned long)s->tx_failed, (unsigned long)s->tx_resent,
              (unsigned long)s->tx_late, (unsigned long)s->dropped, (unsigned long)s->link_errors,
-             (unsigned long)s->uptime_s);
+             (unsigned long)s->uptime_s, (unsigned long)late, (unsigned long)worst_us);
 }
 
 static void handle(const esl_coproc_parser_t *p)
@@ -168,7 +154,7 @@ static void handle(const esl_coproc_parser_t *p)
         break;
     }
     case ESL_COPROC_RX: {
-        static esl_coproc_rx_t rx; /* off the stack: esl_radio_handle needs it */
+        static esl_coproc_rx_t rx; /* off the stack */
         if (esl_coproc_decode_rx(p->payload, p->len, &rx))
             on_rx(&rx);
         break;
@@ -190,7 +176,7 @@ static void handle(const esl_coproc_parser_t *p)
     }
 }
 
-static void radio_task(void *arg)
+static void uart_task(void *arg)
 {
     (void)arg;
     static esl_coproc_parser_t parser;
@@ -232,27 +218,45 @@ static void radio_task(void *arg)
         if (now - last_stats > 60 * 1000000LL) {
             uint8_t f[ESL_COPROC_FRAME_MAX];
             last_stats = now;
-            send(f, esl_coproc_frame(f, ESL_COPROC_STATS_Q, NULL, 0));
-            ESP_LOGI(TAG, "heap: free %u (internal %u), largest block %u, lowest free %u",
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
-            ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu late %lu resent %lu "
-                          "worst %lld us, link crc errors %lu",
-                     (unsigned long)stats.rx, (unsigned long)stats.polls, (unsigned long)stats.blocks,
-                     (unsigned long)stats.replies, (unsigned long)stats.tx_failed, (unsigned long)stats.tx_late,
-                     (unsigned long)stats.tx_resent, (long long)stats.worst_us, (unsigned long)parser.bad_crc);
+            uart_send(f, esl_coproc_frame(f, ESL_COPROC_STATS_Q, NULL, 0));
+            if (parser.bad_crc)
+                ESP_LOGW(TAG, "UART link: %lu frames with a bad CRC", (unsigned long)parser.bad_crc);
         }
     }
 }
 
-esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id)
+/* ---- the link ---- */
+
+static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_link_rx_t *req)
 {
-    store = st;
-    layouts = ls;
-    cfg = (esl_coproc_config_t){.channel = channel, .pan = pan_id, .short_addr = ESL_AP_SHORT_ADDR,
-                              .tx_power = CONFIG_ESL_TX_POWER_DBM, .flags = 0};
+    uint8_t f[ESL_COPROC_FRAME_MAX];
+    for (unsigned n = atomic_exchange(&lost, 0); n; n--)
+        esl_link_lost(l);
+    l->stats.tx_resent += atomic_exchange(&resent, 0);
+    if (!link.up)
+        return ESP_ERR_INVALID_STATE;
+    size_t n = esl_coproc_encode_tx(f, (uint8_t)req->ref, psdu, len);
+    if (!n)
+        return ESP_ERR_INVALID_SIZE;
+    esl_link_sending(l, req, esp_timer_get_time());
+    uart_send(f, n);
+    return ESP_OK;
+}
+
+static int link_set_channel(esl_link_t *l, uint8_t channel)
+{
+    (void)l;
+    cfg.channel = channel;
+    send_config(); /* HELLO with the new channel follows */
+    return ESP_OK;
+}
+
+static int link_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t short_addr, bool promiscuous)
+{
+    (void)l;
+    cfg = (esl_coproc_config_t){.channel = channel, .pan = pan, .short_addr = short_addr,
+                                .tx_power = CONFIG_ESL_TX_POWER_DBM,
+                                .flags = promiscuous ? ESL_COPROC_CFG_SNIFFER : 0};
 
     const uart_config_t uc = {
         .baud_rate = ESL_COPROC_BAUD,
@@ -270,11 +274,17 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
                            UART_PIN_NO_CHANGE);
     if (err != ESP_OK)
         return err;
-
-    /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack */
-    if (xTaskCreate(radio_task, "radio", 6144, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
+    /* above the radio task, which waits for the frames this one reads */
+    if (xTaskCreate(uart_task, "radio_uart", 4096, NULL, configMAX_PRIORITIES - 1, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
-    ESP_LOGI(TAG, "802.15.4 through the radio on UART%d (TX GPIO%d, RX GPIO%d, %d baud), channel %u, PAN 0x%04X",
-             PORT, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO, ESL_COPROC_BAUD, channel, pan_id);
+    ESP_LOGI(TAG, "radio coprocessor on UART%d (TX GPIO%d, RX GPIO%d, %d baud)", PORT, CONFIG_ESL_COPROC_TX_GPIO,
+             CONFIG_ESL_COPROC_RX_GPIO, ESL_COPROC_BAUD);
     return ESP_OK;
 }
+
+esl_link_t radio_link = {
+    .name = "802.15.4 coprocessor",
+    .start = link_start,
+    .send = link_send,
+    .set_channel = link_set_channel,
+};

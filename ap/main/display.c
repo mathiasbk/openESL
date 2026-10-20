@@ -57,7 +57,7 @@ static void show(const esl_screen_t *s)
 #if CONFIG_ESL_DISPLAY
     esl_lcd_show(s);
 #endif
-#if CONFIG_ESL_RADIO_UART
+#if CONFIG_ESL_RADIO_DRIVER_UART
     radio_screen(s);
 #endif
 }

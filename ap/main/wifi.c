@@ -379,7 +379,7 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
         w.setup_ssid[0] = 0;
         return &ops;
     }
-#if CONFIG_ESL_RADIO_UART
+#if CONFIG_ESL_RADIO_DRIVER_UART
     /* 802.15.4 is on another chip: WiFi keeps the radio, and API replies do
        not wait for a beacon */
     esp_wifi_set_ps(WIFI_PS_NONE);

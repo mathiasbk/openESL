@@ -43,7 +43,7 @@ flasher does not offer it, and the S3 cannot update the C6 yet (later steps in t
 ## The link
 
 UART at 921600 baud, 8N1, no flow control. Code: `ap/components/esl_coproc` (tested on the PC
-in `ap/test/test_coproc.c`), used by `ap/main/radio_uart.c` on the host and `ap/radio/` on the C6.
+in `ap/test/test_coproc.c`), used by `ap/main/radio_uart.c` on the host (the UART driver behind `esl_link_t`, Kconfig "Radio driver") and `ap/radio/` on the C6.
 
 Every message is one frame: `A5 type len payload[len] crc16` (CRC-16/CCITT-FALSE over type, len
 and payload, little-endian). The receiver hunts for `A5`, so the C6's boot text or a frame cut
