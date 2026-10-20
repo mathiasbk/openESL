@@ -33,12 +33,10 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
- * HTTP and serial transports; call api_handle_init() before either starts.
- * api_handle_health() is esl_api_health() under the same mutex. */
+ * HTTP and serial transports; call api_handle_init() before either starts. */
 void api_handle_init(void);
 int api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
-int api_handle_health(const esl_api_t *api, uint64_t now_ms, uint8_t *prev, esl_sb_t *out);
 /* api_handle() for PUT /api/tag-firmware (esl_api_tagfw_piece_uri() true), with a body of
  * len bytes that read(ctx, buf, n) brings in (false when they did not all come): it goes
  * on in pieces of up to piece_cap bytes, each a part of its own, so no buffer holds a

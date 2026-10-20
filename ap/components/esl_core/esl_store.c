@@ -14,6 +14,18 @@ static void unlock(esl_store_t *st)
         st->ops.unlock(st->ops.ctx);
 }
 
+static void save_lock(esl_store_t *st)
+{
+    if (st->ops.save_lock)
+        st->ops.save_lock(st->ops.ctx);
+}
+
+static void save_unlock(esl_store_t *st)
+{
+    if (st->ops.save_unlock)
+        st->ops.save_unlock(st->ops.ctx);
+}
+
 /* Slot i (below st->cap) */
 static esl_tag_t *at(const esl_store_t *st, unsigned i)
 {
@@ -85,6 +97,7 @@ static int find_evictable(const esl_store_t *st)
 static esl_tag_t *take_slot(esl_store_t *st, unsigned i, uint64_t mac)
 {
     esl_tag_t *t = at(st, i);
+    st->full = false;
     memset(t, 0, sizeof(*t));
     t->used = true;
     t->mac = mac;
@@ -231,6 +244,14 @@ void esl_store_free(esl_store_t *st)
     st->cap = 0;
 }
 
+bool esl_store_full(esl_store_t *st)
+{
+    lock(st);
+    bool full = st->full;
+    unlock(st);
+    return full;
+}
+
 unsigned esl_store_slots(esl_store_t *st)
 {
     lock(st);
@@ -318,14 +339,28 @@ static int claim(esl_store_t *st, uint64_t mac)
         idx = find_free(st);
         if (idx < 0)
             idx = find_evictable(st);
-        if (idx < 0)
+        if (idx < 0) {
+            st->full = true;
             return -1;
+        }
         take_slot(st, (unsigned)idx, mac);
     }
     return idx;
 }
 
+static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_content_t *c, esl_set_result_t *res);
+
 esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t *c, esl_set_result_t *res)
+{
+    save_lock(st);
+    esl_store_err_t err = set_saved(st, mac, c, res);
+    save_unlock(st);
+    return err;
+}
+
+/* Under save_lock. Changes are told only by content_id (CRC32): content with the same
+   id as the tag's counts as unchanged. */
+static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_content_t *c, esl_set_result_t *res)
 {
     lock(st);
     int idx = claim(st, mac);
@@ -368,10 +403,12 @@ esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t
 
 esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_cfg_t *cfg, esl_cfg_result_t *res)
 {
+    save_lock(st);
     lock(st);
     int idx = claim(st, mac);
     if (idx < 0) {
         unlock(st);
+        save_unlock(st);
         return ESL_STORE_FULL;
     }
     esl_tag_t *t = at(st, (unsigned)idx);
@@ -384,6 +421,7 @@ esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_c
 
     if (res->changed && st->ops.persist_cfg)
         st->ops.persist_cfg(st->ops.ctx, (unsigned)idx, mac, is_default ? NULL : cfg);
+    save_unlock(st);
     return ESL_STORE_OK;
 }
 
@@ -420,6 +458,8 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         if (idx >= 0) {
             take_slot(st, (unsigned)idx, mac);
             save = true;
+        } else {
+            st->full = true;
         }
     }
     if (idx < 0) {
@@ -560,6 +600,7 @@ void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_co
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac)
 {
+    save_lock(st);
     lock(st);
     int idx = find(st, mac);
     bool had_content = false, had_cfg = false;
@@ -567,6 +608,7 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
         had_content = at(st, (unsigned)idx)->has_content;
         had_cfg = !esl_tag_cfg_is_default(&at(st, (unsigned)idx)->cfg);
         memset(at(st, (unsigned)idx), 0, sizeof(esl_tag_t));
+        st->full = false;
     }
     unlock(st);
     if (idx >= 0 && had_content && st->ops.persist_erase)
@@ -575,6 +617,7 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
         st->ops.persist_cfg(st->ops.ctx, (unsigned)idx, mac, NULL);
     if (idx >= 0 && st->ops.persist_seen)
         st->ops.persist_seen(st->ops.ctx, (unsigned)idx, mac, NULL);
+    save_unlock(st);
     return idx >= 0;
 }
 

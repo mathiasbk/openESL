@@ -220,7 +220,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const ap = list.ap;
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap).concat([["Tags", `${list.tags.length} of ${ap.max_tags}`]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
@@ -258,7 +258,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     };
     const tiles = [
-      tile("all", list.tags.length, `tags, of ${ap.max_tags}`, ""),
+      tile("all", list.tags.length, ap.table_full ? "tags, full: no room for more" : `tags, of ${ap.max_tags}`,
+           ap.table_full ? "bad" : ""),
       tile("bad", counts.bad, counts.bad === 1 ? "needs attention" : "need attention", counts.bad ? "bad" : "good"),
       tile("busy", counts.busy, "busy or late", counts.busy ? "busy" : ""),
     ];

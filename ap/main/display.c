@@ -56,6 +56,7 @@ static void gather(esl_screen_info_t *in)
     in->fw = api->fw_version;
     in->channel = api->channel;
     in->tags_max = api->store->max;
+    in->table_full = esl_store_full(api->store);
     in->uptime_s = now_ms / 1000;
 #if CONFIG_ESL_SERIAL_API
     in->serial_api = true;

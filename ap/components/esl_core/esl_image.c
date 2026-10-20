@@ -113,8 +113,9 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     b->mac = 0;
     if (!t->has_content || t->content_err || !t->model)
         return false;
-    /* From NVS on the device; another content_id than t's: it changed meanwhile, and
-       is drawn on the next POLL */
+    /* From NVS on the device, in the tag's reply window (well under a millisecond,
+       unless NVS is busy with a write elsewhere; then the next POLL offers it again).
+       Another content_id than t's: it changed meanwhile, and is drawn on the next POLL */
     if (!esl_store_get_content(st, t->mac, &c) || esl_content_id(&c) != t->content_id)
         return false;
     /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the

@@ -87,7 +87,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)

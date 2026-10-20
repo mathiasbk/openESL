@@ -754,8 +754,9 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
-    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"poll_s\":%u",
-                  now_ms / 1000, (unsigned)api->channel, api->store->max, (unsigned)def_poll);
+    esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"table_full\":%s,\"poll_s\":%u",
+                  now_ms / 1000, (unsigned)api->channel, api->store->max,
+                  esl_store_full(api->store) ? "true" : "false", (unsigned)def_poll);
     if (api->reset_reason) {
         esl_sb_puts(out, ",\"reset\":");
         esl_sb_json_str(out, api->reset_reason);
@@ -1500,6 +1501,8 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     html_ago(out, now_ms / 1000);
     esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)api->channel,
                   esl_store_count(api->store), api->store->max);
+    if (esl_store_full(api->store))
+        esl_sb_puts(out, " <span class=\"p\">(full: no room for a new tag)</span>");
     unsigned attention = 0;
     for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;

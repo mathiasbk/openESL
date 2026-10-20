@@ -43,6 +43,11 @@ typedef struct {
     /* Zeroed memory for more slots (n bytes), NULL when there is no room for it: the
      * table then stops growing. Freed with free(). NULL = calloc. */
     void *(*alloc)(void *ctx, size_t n);
+    /* Held around a change of content or settings and its save (not the table's lock,
+     * so a POLL does not wait for NVS): two writers then save in the order they change
+     * the table, and NVS ends up with what the table says. May be NULL. */
+    void (*save_lock)(void *ctx);
+    void (*save_unlock)(void *ctx);
 } esl_store_ops_t;
 
 /* One slot of the table. Kept small, since there is one per tag for the whole run
@@ -50,6 +55,22 @@ typedef struct {
  * (esl_store_get_content), and the flags are bits. */
 typedef struct {
     uint64_t mac;
+    /* what find() reads next to the MAC, in the same cache line (PSRAM on the C5) */
+    bool used : 1;
+    bool has_content : 1;
+    bool seen : 1;            /* has polled since boot */
+    bool cfg_capable : 1;     /* the last POLL carried cfg_ver (tag understands CONFIG) */
+    bool fw_taken : 1;        /* the tag started on fw_offered (esl_store_fw_taken), so
+                                 ESL_POLL_F_FWFAIL is about it (RAM only) */
+    bool image_capable : 1;   /* its last POLL had ESL_POLL_F_IMAGE */
+    bool image_rle : 1;       /* ... and ESL_POLL_F_IMG_RLE: it takes coded images */
+    bool image_taken : 1;     /* it asked for a block of image_offered */
+    bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
+    uint8_t model;            /* ESL_MODEL_*, from the last POLL */
+    int8_t rssi;
+    uint8_t poll_flags;
+    uint8_t content_err;      /* ESL_CERR_*: why the content is not shown (from the last POLL) */
+    uint16_t battery_mv;
     uint64_t last_seen_ms;
     uint32_t content_id;      /* 0 when no content is set */
     uint32_t layout_hash;     /* esl_content_layout_hash() of the content, 0 = built-in layout */
@@ -66,27 +87,12 @@ typedef struct {
     uint32_t due_s;           /* scheduled content for it is due at this second since boot (esl_sched), 0 = none */
     uint32_t seen_unix;       /* wall-clock second of its last POLL (also from NVS after a restart), 0 = unknown */
     esl_tag_cfg_t cfg;        /* settings for this tag; 0 fields = default */
-    uint16_t battery_mv;
     uint16_t fw;
     uint16_t shown_cfg_ver;   /* cfg_ver from the last POLL */
     uint16_t fw_offered;      /* tag firmware version the AP last offered it (RAM only) */
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
-    uint8_t model;            /* ESL_MODEL_*, from the last POLL */
-    int8_t rssi;
-    uint8_t poll_flags;
-    uint8_t content_err;      /* ESL_CERR_*: why the content is not shown (from the last POLL) */
-    bool used : 1;
-    bool has_content : 1;
-    bool seen : 1;            /* has polled since boot */
-    bool cfg_capable : 1;     /* the last POLL carried cfg_ver (tag understands CONFIG) */
-    bool fw_taken : 1;        /* the tag started on fw_offered (esl_store_fw_taken), so
-                                 ESL_POLL_F_FWFAIL is about it (RAM only) */
-    bool image_capable : 1;   /* its last POLL had ESL_POLL_F_IMAGE */
-    bool image_rle : 1;       /* ... and ESL_POLL_F_IMG_RLE: it takes coded images */
-    bool image_taken : 1;     /* it asked for a block of image_offered */
-    bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
 } esl_tag_t;
 
 /* What a tag polls with when the AP sends 0 (tag/src/config.h CFG_POLL_S) */
@@ -115,6 +121,7 @@ typedef struct {
     esl_content_t *content[ESL_STORE_MAX_CHUNKS]; /* RAM copies, only without ops.load_content */
     unsigned cap;             /* slots there is memory for (0..max) */
     unsigned max;
+    bool full;                /* a new tag found no slot (none free, and the table could not grow) */
     uint16_t next_poll_s;     /* default interval for tags without their own poll_s (0 = tag keeps its own) */
     uint16_t next_poll_builtin; /* next_poll_s from esl_store_init (menuconfig on the device) */
     esl_store_ops_t ops;
@@ -133,13 +140,17 @@ typedef struct {
 } esl_set_result_t;
 
 /* An empty table for up to max tags (clamped to ESL_STORE_MAX_TAGS). ops may be NULL
- * (no locking, no persistence, content kept in RAM). Takes no memory yet. */
+ * (no locking, no persistence, content kept in RAM). Takes no memory yet. st must not
+ * hold memory (new, or after esl_store_free): it is not freed here. */
 void esl_store_init(esl_store_t *st, unsigned max, const esl_store_ops_t *ops, uint16_t next_poll_s);
 /* Frees the table's memory and empties it; st can be initialised again. Safe on a
  * zeroed esl_store_t. */
 void esl_store_free(esl_store_t *st);
 /* Slot numbers in use are below this (the slots there is memory for). */
 unsigned esl_store_slots(esl_store_t *st);
+/* A new tag found no room since a tag last got a slot: none free, and no memory or
+ * max reached. Such a tag is not in the table until one frees. */
+bool esl_store_full(esl_store_t *st);
 
 /* Loads persisted content at boot. Does not call persist_save. */
 bool esl_store_restore(esl_store_t *st, unsigned slot, uint64_t mac, const esl_content_t *c);

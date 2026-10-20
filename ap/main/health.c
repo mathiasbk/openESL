@@ -52,9 +52,9 @@ static bool chunk(esl_sb_t *sb)
            esp_http_client_write(c, "\r\n", 2) == 2;
 }
 
-/* POSTs the report against flags (updated to the tags' new flags). The
-   connection is opened before the report is built, so the API is only held up
-   while it is written. */
+/* POSTs the report against flags (updated to the tags' new flags). Built
+   without the API's mutex (esl_api_health reads only the tag table, which has
+   its own lock, taken per tag), so a slow webhook holds up nothing else. */
 static void post(const char *url, char *buf, uint8_t *flags)
 {
     esp_http_client_config_t cfg = {
@@ -73,7 +73,7 @@ static void post(const char *url, char *buf, uint8_t *flags)
         esl_sb_t out;
         esl_sb_init(&out, buf, BUF);
         esl_sb_set_sink(&out, chunk, c);
-        int status = api_handle_health(api, (uint64_t)esp_timer_get_time() / 1000, flags, &out);
+        int status = esl_api_health(api, (uint64_t)esp_timer_get_time() / 1000, NULL, flags, &out);
         esl_sb_flush(&out);
         if (status != 200 || out.overflow || esp_http_client_write(c, "0\r\n\r\n", 5) != 5)
             err = ESP_FAIL;
@@ -111,7 +111,7 @@ static void health_task(void *arg)
         esl_sb_init(&out, buf, BUF);
         esl_sb_set_sink(&out, discard, NULL);
         uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
-        int status = api_handle_health(api, now_ms, next, &out);
+        int status = esl_api_health(api, now_ms, NULL, next, &out);
         if (status != 200 || out.overflow) {
             ESP_LOGW(TAG, "report not built (%d)", status);
             continue;

@@ -29,6 +29,7 @@ static const char *NS_TAGS = "esl_tags";
 static const char *NS_LAYOUTS = "esl_layouts";
 
 static SemaphoreHandle_t mutex;
+static SemaphoreHandle_t save_mutex; /* esl_store_ops_t save_lock: content and settings writes in order */
 static esl_store_t *store_ref;
 static esl_sched_t *clock_ref;
 
@@ -48,6 +49,7 @@ static esl_sched_t *clock_ref;
 #define TABLE_RESERVE  (40 * 1024)
 #define TABLE_LOW_MARK (16 * 1024)
 static bool restoring;
+static bool no_room; /* logged once until the table grows again */
 
 static void lock(void *ctx)
 {
@@ -59,6 +61,18 @@ static void unlock(void *ctx)
 {
     (void)ctx;
     xSemaphoreGive(mutex);
+}
+
+static void save_lock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreTake(save_mutex, portMAX_DELAY);
+}
+
+static void save_unlock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreGive(save_mutex);
 }
 
 static void slot_key(unsigned slot, char key[8])
@@ -118,17 +132,20 @@ static void *table_alloc(void *ctx, size_t n)
 {
     (void)ctx;
 #if CONFIG_SPIRAM
-    void *p = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM);
-    if (p)
-        return p;
+    void *ps = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM);
+    if (ps)
+        return ps;
 #endif
     const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     size_t free_now = heap_caps_get_free_size(caps), low = heap_caps_get_minimum_free_size(caps);
-    if (!restoring && (free_now < n + TABLE_RESERVE || low < n + TABLE_LOW_MARK)) {
-        ESP_LOGW(TAG, "no room for more tags (free heap %u bytes, lowest %u)", (unsigned)free_now, (unsigned)low);
-        return NULL;
-    }
-    return heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    void *p = NULL;
+    if (restoring || (free_now >= n + TABLE_RESERVE && low >= n + TABLE_LOW_MARK))
+        p = heap_caps_calloc(1, n, caps);
+    if (!p && !no_room)
+        ESP_LOGW(TAG, "no room for more tags (free heap %u bytes, lowest %u): a new tag is not added",
+                 (unsigned)free_now, (unsigned)low);
+    no_room = !p;
+    return p;
 }
 
 static void persist_erase(void *ctx, unsigned slot)
@@ -304,9 +321,11 @@ static void restore_seen(nvs_handle_t h, const char *key, unsigned slot, void *a
 esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
-                                        persist_next_poll, persist_seen, unix_now, load_content, table_alloc};
+                                        persist_next_poll, persist_seen, unix_now, load_content, table_alloc,
+                                        save_lock, save_unlock};
     mutex = xSemaphoreCreateMutex();
-    if (!mutex)
+    save_mutex = xSemaphoreCreateMutex();
+    if (!mutex || !save_mutex)
         return ESP_ERR_NO_MEM;
     esl_store_init(st, max, &ops, next_poll_s);
     store_ref = st;

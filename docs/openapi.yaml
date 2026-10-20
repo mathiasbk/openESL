@@ -1258,12 +1258,13 @@ components:
     ApInfo:
       type: object
       additionalProperties: false
-      required: [fw, uptime_s, channel, max_tags, poll_s]
+      required: [fw, uptime_s, channel, max_tags, table_full, poll_s]
       properties:
         fw: { type: string, description: AP firmware version, example: "0.1.0" }
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
         max_tags: { type: integer, minimum: 1, description: "The most tags the AP keeps (menuconfig, default 1000); the C6 may run out of RAM before" }
+        table_full: { type: boolean, description: "A new tag found no room since a tag last got a slot (none free, and no RAM for more or max_tags reached): it is not listed until a slot frees" }
         poll_s:
           type: integer
           minimum: 0
@@ -1362,7 +1363,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Tag" }
       example:
-        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, poll_s: 0, reset: poweron }
+        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
         tags:
           - mac: "00000123456789A8"
             seen_s_ago: 12
