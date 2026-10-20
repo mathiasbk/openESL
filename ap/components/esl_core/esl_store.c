@@ -45,7 +45,12 @@ static int find_evictable(const esl_store_t *st)
 
 static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
-    return t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
+    uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
+    /* A tag keeps the last next_poll_s it got when a reply has 0, and an image tag may
+       last have got ESL_IMAGE_BUSY_S: it is told its interval outright */
+    if (!v && t->image_capable)
+        v = ESL_TAG_BUILTIN_POLL_S;
+    return v;
 }
 
 /* Slot for an entry loaded at boot: free, or already holding the same MAC. */
@@ -466,12 +471,14 @@ void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id)
     unlock(st);
 }
 
-void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t id)
+void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t layout_ver, uint32_t id)
 {
     lock(st);
     int idx = find(st, mac);
-    if (idx >= 0 && st->tags[idx].has_content && st->tags[idx].content_id == content_id)
+    if (idx >= 0 && st->tags[idx].has_content && st->tags[idx].content_id == content_id) {
         st->tags[idx].image_id = id;
+        st->tags[idx].image_layout_ver = layout_ver;
+    }
     unlock(st);
 }
 

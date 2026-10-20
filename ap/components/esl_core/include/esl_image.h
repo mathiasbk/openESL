@@ -13,18 +13,21 @@
  * again. A few buffers hold the images being sent: a tag polls with another image id
  * than the one its content gives, the AP draws the image into a free buffer and sends
  * it block by block (IMG / IMG_REQ) in that wake-up; the buffer is free again when the
- * tag reports the id, or ESL_IMAGE_HOLD_MS after its last block. When every buffer is
- * busy with another tag, the tag is told to come back in a couple of seconds.
+ * tag reports the id, once its last block has gone out, or ESL_IMAGE_HOLD_MS after the
+ * last block it asked for (a tag fetches the blocks back to back, so a pause that long
+ * means it gave up). When every buffer is busy with another tag, the tag is told to
+ * come back in a couple of seconds.
  *
  * The id of an image is the CRC-32 of its bytes (esl_render draws the same bytes for
  * the same content), so a tag that shows an image is never sent it again, also after
- * an AP restart; the store keeps the id with the tag once it has been drawn.
+ * an AP restart; the store keeps the id with the tag once it has been drawn, with the
+ * version of the layout file it was drawn with: a new file for the model draws it again.
  *
  * Every public function takes the lock; drawing (under it) takes the layouts lock too,
  * so the two must not be the same lock as the store's. */
 
 #define ESL_IMAGE_BUFS    2
-#define ESL_IMAGE_HOLD_MS 120000u   /* a buffer stays with its tag this long after the last block */
+#define ESL_IMAGE_HOLD_MS 5000u     /* a buffer stays with its tag this long after a block */
 #define ESL_IMAGE_BUSY_S  2         /* next_poll_s for a tag that must wait for a buffer */
 
 typedef struct {
@@ -36,10 +39,12 @@ typedef struct {
 typedef struct {
     uint64_t mac;         /* 0 = free */
     uint32_t content_id;  /* the content the image was drawn from */
+    uint32_t layout_ver;  /* with this version of the model's layout file (0: none) */
     uint32_t id;          /* image id (CRC-32 of data) */
     uint16_t size;
     uint8_t model;
     uint64_t used_ms;     /* last block sent, or drawn */
+    bool sent;            /* the last block went out: free for another tag */
     uint8_t *data;        /* cap bytes */
 } esl_image_buf_t;
 
@@ -74,9 +79,3 @@ size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint
 
 /* Frees the tag's buffer, if any (the tag was deleted, or shows its image). */
 void esl_image_release(esl_image_t *im, uint64_t mac);
-
-/* Draws the tag's image into out (cap bytes) outside the buffers, for the API and the
- * dashboard: returns its size (0: no such tag, no content, or cap too small) and its
- * id in *id (may be NULL). */
-size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t *out, size_t cap,
-                      uint32_t *id);

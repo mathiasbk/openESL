@@ -70,10 +70,12 @@ typedef struct {
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
     /* Images (ESL_POLL_F_IMAGE, esl_image): the tag shows what the AP draws. image_id is
-       the id of its content's image once drawn (0 = not drawn since the content was set);
+       the id of its content's image once drawn (0 = not drawn since the content was set),
+       image_layout_ver the version of the layout file it was drawn with;
        shown_content_id is then the id it shows. The offer bookkeeping as for firmware. */
     bool image_capable;       /* its last POLL had ESL_POLL_F_IMAGE */
     uint32_t image_id;
+    uint32_t image_layout_ver;
     uint32_t image_offered;   /* id the AP last offered it (RAM only) */
     bool image_taken;         /* it asked for a block of image_offered */
     uint32_t image_failed;    /* an id it refused or could not show (ESL_POLL_F_DRAWFAIL), not offered again */
@@ -201,9 +203,10 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
 bool esl_store_image_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint32_t id);
 /* The tag asked for a block of image id: it started on it (as esl_store_offer_taken). */
 void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id);
-/* The image of the tag's content content_id was drawn and has id (esl_image). Kept
- * only while the tag still has that content. */
-void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t id);
+/* The image of the tag's content content_id was drawn with version layout_ver of the
+ * model's layout file and has id (esl_image). Kept only while the tag still has that
+ * content. */
+void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t layout_ver, uint32_t id);
 
 /* A FW block of image ver up to byte end went to the tag (esl_radio). */
 void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end);

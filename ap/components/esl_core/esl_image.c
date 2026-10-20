@@ -44,7 +44,8 @@ static esl_image_buf_t *find(esl_image_t *im, uint64_t mac)
     return NULL;
 }
 
-/* A free buffer, else the one unused the longest once its hold is over, else NULL. */
+/* A free buffer, else one whose image has been sent whole, else the one unused the
+   longest once its hold is over, else NULL. */
 static esl_image_buf_t *take(esl_image_t *im, uint64_t now_ms)
 {
     esl_image_buf_t *old = NULL;
@@ -52,15 +53,27 @@ static esl_image_buf_t *take(esl_image_t *im, uint64_t now_ms)
         esl_image_buf_t *b = &im->buf[i];
         if (!b->mac)
             return b;
-        if (now_ms - b->used_ms >= ESL_IMAGE_HOLD_MS && (!old || b->used_ms < old->used_ms))
+        if (b->sent)
+            old = b;
+        else if (now_ms - b->used_ms >= ESL_IMAGE_HOLD_MS && (!old || (!old->sent && b->used_ms < old->used_ms)))
             old = b;
     }
     return old;
 }
 
+/* Version of the model's layout file, 0 when it has none. */
+static uint32_t layout_ver(esl_layouts_t *ls, uint8_t model)
+{
+    uint32_t ver = 0;
+    if (!esl_layouts_info(ls, model, &ver, NULL, NULL))
+        ver = 0;
+    return ver;
+}
+
 /* Draws the tag's content into b. False when the tag has no content it can be drawn
    for (b is then free). Under the lock. */
-static bool draw(esl_layouts_t *ls, const esl_tag_t *t, esl_image_buf_t *b, size_t cap, uint64_t now_ms)
+static bool draw(esl_layouts_t *ls, const esl_tag_t *t, uint32_t ver, esl_image_buf_t *b, size_t cap,
+                 uint64_t now_ms)
 {
     b->mac = 0;
     if (!t->has_content || t->content_err || !t->model)
@@ -71,6 +84,8 @@ static bool draw(esl_layouts_t *ls, const esl_tag_t *t, esl_image_buf_t *b, size
     uint32_t id = esl_crc32(b->data, n);
     b->mac = t->mac;
     b->content_id = t->content_id;
+    b->layout_ver = ver;
+    b->sent = false;
     b->id = id ? id : 1;
     b->size = (uint16_t)n;
     b->model = t->model;
@@ -88,8 +103,9 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
     *busy = false;
     if (!esl_store_get(st, mac, &t))
         return NULL;
+    uint32_t ver = layout_ver(ls, t.model);
     esl_image_buf_t *b = find(im, mac);
-    if (b && t.has_content && !t.content_err && b->content_id == t.content_id)
+    if (b && t.has_content && !t.content_err && b->content_id == t.content_id && b->layout_ver == ver)
         return b;
     if (!b) {
         if (!t.has_content || t.content_err)
@@ -100,10 +116,10 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
             return NULL;
         }
     }
-    if (!draw(ls, &t, b, im->cap, now_ms))
+    if (!draw(ls, &t, ver, b, im->cap, now_ms))
         return NULL;
     im->drawn++;
-    esl_store_image_known(st, mac, b->content_id, b->id);
+    esl_store_image_known(st, mac, b->content_id, ver, b->id);
     return b;
 }
 
@@ -118,7 +134,7 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
         return 0;
     }
     lock(im);
-    if (t.image_id && t.image_id == shown) {
+    if (t.image_id && t.image_id == shown && t.image_layout_ver == layout_ver(ls, t.model)) {
         /* It shows the image: nothing to draw, and its buffer is done with */
         esl_image_buf_t *b = find(im, mac);
         if (b)
@@ -149,6 +165,7 @@ size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint
         if (n > ESL_IMG_CHUNK_MAX)
             n = ESL_IMG_CHUNK_MAX;
         b->used_ms = now_ms;
+        b->sent = pos + n >= b->size;
         n = esl_img_msg_build(out, next_poll_s, b->id, b->size, (uint16_t)pos, b->model, ESL_IMG_FMT_RAW,
                               b->data + pos, n);
     }
@@ -165,19 +182,4 @@ void esl_image_release(esl_image_t *im, uint64_t mac)
     if (b)
         b->mac = 0;
     unlock(im);
-}
-
-size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t *out, size_t cap,
-                      uint32_t *id)
-{
-    esl_tag_t t;
-    (void)im;
-    if (!esl_store_get(st, mac, &t) || !t.has_content || !t.model)
-        return 0;
-    size_t n = esl_layouts_render(ls, t.model, &t.content, out, cap);
-    if (n && id) {
-        uint32_t c = esl_crc32(out, n);
-        *id = c ? c : 1;
-    }
-    return n;
 }

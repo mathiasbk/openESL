@@ -931,10 +931,32 @@ static void test_image_send(void)
     CHECK(HAS(resp, "\"layout_pending\":false"));
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 241000), ESL_MSG_IDLE);
 
+    /* a new file for the model: the tag's image is drawn again with it, and back */
+    {
+        char *f2 = malloc(l29 + 1);
+        memcpy(f2, f29, l29);
+        f2[l29] = 0;
+        char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
+        CHECK(band != NULL);
+        if (band)
+            band[6] = '2'; /* the black band 20 px instead of 30 */
+        uint32_t old = a.shown;
+        CHECK_INT(put_layout("2.9", f2, l29), 200);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 251000), ESL_MSG_IMG);
+        CHECK(a.shown != old && a.shown == image_id_of("000000000000029A"));
+        CHECK_INT(a.img_shown, 3);
+        CHECK_INT(put_layout("2.9", f29, l29), 200);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 261000), ESL_MSG_IMG);
+        CHECK(a.shown == old);
+        CHECK_INT(a.img_shown, 4);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 271000), ESL_MSG_IDLE);
+        free(f2);
+    }
+
     /* the file is deleted: the tag keeps the image it shows (it needs no file) */
     CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 301000), ESL_MSG_IDLE);
-    CHECK_INT(a.img_shown, 2);
+    CHECK_INT(a.img_shown, 4);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
     /* named content set while the file was there, which is gone when the tag polls: held back,
@@ -944,7 +966,7 @@ static void test_image_send(void)
     CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 200);
     CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 331000), ESL_MSG_IDLE);
-    CHECK_INT(a.img_shown, 2);
+    CHECK_INT(a.img_shown, 4);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     CHECK(HAS(resp, "\"pending\":true"));
@@ -955,7 +977,7 @@ static void test_image_send(void)
     CHECK_INT(air(&a, 361000, true), 0);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 361000), ESL_MSG_IMG);
     CHECK_INT(images.drawn, drawn + 1);
-    CHECK_INT(a.img_shown, 3);
+    CHECK_INT(a.img_shown, 5);
 
     /* the content changes while the tag downloads: the next block it asks for is block 0 of the new image */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"99,00\"]}"), 200);
@@ -976,7 +998,7 @@ static void test_image_send(void)
             if (!m || esl_faketag_receive(&a, tx, m) != ESL_MSG_IMG)
                 break;
         }
-        CHECK_INT(a.img_shown, 4);
+        CHECK_INT(a.img_shown, 6);
         CHECK(a.shown == image_id_of("000000000000029A"));
     }
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 481000), ESL_MSG_IDLE);
@@ -985,7 +1007,7 @@ static void test_image_send(void)
     a.img_bad = true;
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"49,90\"]}"), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 541000), ESL_MSG_IMG);
-    CHECK_INT(a.img_shown, 4);
+    CHECK_INT(a.img_shown, 6);
     CHECK(a.img_failed != 0);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 601000), ESL_MSG_IDLE);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
@@ -997,7 +1019,7 @@ static void test_image_send(void)
     a.img_bad = false;
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"39,90\"]}"), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 721000), ESL_MSG_IMG);
-    CHECK_INT(a.img_shown, 5);
+    CHECK_INT(a.img_shown, 7);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 781000), ESL_MSG_IDLE);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"draw_failed\":false"));
@@ -1008,7 +1030,7 @@ static void test_image_send(void)
     drawn = images.drawn;
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 841000), ESL_MSG_IDLE);
     CHECK_INT(images.drawn, drawn + 1);
-    CHECK_INT(a.img_shown, 5);
+    CHECK_INT(a.img_shown, 7);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
 
@@ -1030,11 +1052,15 @@ static void test_image_send(void)
     CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 901200), ESL_MSG_IDLE);
     CHECK_INT(d.next_poll_s, ESL_IMAGE_BUSY_S);
     CHECK_INT(d.img_blocks, 0);
-    /* a finishes: its buffer is free, d gets it */
+    /* a gets the last block: its buffer is free before it polls again, d gets it, and
+       its interval back (a reply with 0 would leave it at ESL_IMAGE_BUSY_S) */
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 902000), ESL_MSG_IMG);
-    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 903000), ESL_MSG_IDLE);
-    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 903200), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 902100), ESL_MSG_IMG);
     CHECK_INT(d.img_shown, 1);
+    CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 903000), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 903200), ESL_MSG_IDLE);
+    CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
     /* c never came back: its buffer is free again after ESL_IMAGE_HOLD_MS */
     CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 901100 + ESL_IMAGE_HOLD_MS + 1), ESL_MSG_IMG);
     CHECK_INT(c.img_shown, 1);
