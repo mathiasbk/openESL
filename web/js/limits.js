@@ -1,4 +1,4 @@
-// limits.js - how much of the tag's drawing budget a layout uses, counted the way the AP's
+// limits.js - how much of the AP's drawing budget a layout uses, counted the way the AP's
 // compiler counts it (esl_layout_compile.c): each text element needs as many lines of text
 // as its largest font choice can fit (1..3, capped by "lines"), and each rect element and
 // each inverted or highlighted text needs one rectangle. The limits themselves come from the

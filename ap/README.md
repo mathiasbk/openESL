@@ -97,7 +97,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 -H "Authorization: Be
   -d '{"layout":"shelf","fields":["Kaffe 500 g","49,90","kr 99,80/kg","Tilbud"],"price_highlight":true}'
 ```
 
-- `PUT /api/layouts/{model}` compiles the file for that model (`esl_layout_compile`) and answers `422` with the place and reason if it cannot be drawn (outside the screen, unknown font, box lower than its font, more than 16 text lines or 10 rectangles per layout, more than 768 bytes compiled, ...). The JSON is stored in NVS (namespace `esl_layouts`) and compiled again at boot.
+- `PUT /api/layouts/{model}` compiles the file for that model (`esl_layout_compile`) and answers `422` with the place and reason if it cannot be drawn (outside the screen, unknown font, box lower than its font, more than 32 text lines or 20 rectangles per layout, more than 2048 bytes compiled, ...). The JSON is stored in NVS (namespace `esl_layouts`) and compiled again at boot.
 - The version is the CRC-32 of the compiled binary. The file stays on the AP: a new version draws each tag's screen again, and a tag gets the new image at its next poll.
 - `layout` in `PUT /api/tags` may name a layout in the file (A14). It must be in the file for the tag's model once the model is known, or in either file before that; otherwise `422`.
 

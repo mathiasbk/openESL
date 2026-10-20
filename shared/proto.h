@@ -212,7 +212,7 @@
 #define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
 #define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         768    /* største kompilerte fil (grensa var tagens XRAM-buffer) */
+#define ESL_LBIN_MAX         2048   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
@@ -274,8 +274,8 @@
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-#define ESL_DRAW_MAX_RUNS    16     /* tekstlinjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_RECTS   10     /* rektangler og inverterte felt per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */

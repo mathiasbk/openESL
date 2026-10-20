@@ -26,7 +26,7 @@ for (const model of Object.keys(MODELS)) {
     const { width } = MODELS[model];
     const fonts = [["small"], ["medium", "small"], ["large", "mid"], ["mid"]];
     const cases = [];
-    for (let n = 1; n <= 8; n++) {
+    for (let n = 1; n <= r.limits.rects + 1; n++) {
       cases.push([
         { type: "text", field: "a", x: 0, y: 0, w: width, h: 32, fonts: ["medium"], color: n % 2 ? "invert" : "black" },
         ...Array.from({ length: n }, (_, i) => ({ type: "rect", x: i, y: 50, w: 4, h: 4 })),
@@ -40,7 +40,7 @@ for (const model of Object.keys(MODELS)) {
     for (let seed = 1; seed < 40; seed++) {
       const elements = [];
       cases.push(elements);
-      for (let i = 0; i < 2 + (seed % 7); i++) {
+      for (let i = 0; i < 2 + (seed % 15); i++) {
         const k = (seed * 7 + i * 3) % 5;
         if (k === 4) elements.push({ type: "rect", x: 0, y: i, w: 10, h: 2 });
         else elements.push({
