@@ -40,6 +40,9 @@ tag/
     hal/hal.h           everything the app needs from the hardware
     hal/hal_epd.h       the display pins
     hal/zbs243/         the ZBS243 implementation (HAL, radio, hwtest.c)
+  boot/
+    boot_core.c/.h      the bootloader's decisions, the same for every chip
+    zbs243/             the ZBS243's half of the bootloader (flash and SPI flash access)
   fonts/
     font_*.c            generated font tables (checked in)
     preview_*.png       what the fonts look like
@@ -57,6 +60,24 @@ tag/
 ```
 
 `shared/proto.h` in the root folder holds the packet definitions used by both the tag and the AP.
+
+### Another chip
+
+Only `src/hal/<chip>/`, `boot/<chip>/` and `src/main.c` know the chip; the rest of `src/` is
+plain C99 that also runs in the host tests. A tag with another chip (another maker's tag, say)
+needs:
+
+1. `src/hal/<chip>/`: what `hal/hal.h` and `hal/hal_epd.h` declare (clock, watchdog, MAC,
+   battery, the settings record, SPI flash, radio, display pins, sleep).
+2. `boot/<chip>/`: the hardware functions in `boot/boot_core.h`, if the chip takes firmware
+   updates over the air.
+3. An entry in `CHIPS` in `tools/build.py`: its sources, how it is compiled (today only SDCC for
+   the 8051 core), and where the application starts and ends.
+4. A panel header in `src/panels/` if its display is driven unlike the ones there.
+5. The model in `shared/models.json` with that `chip` (`tools/gen_models.py` refuses a chip
+   `CHIPS` does not have).
+
+Every hardware fact the new code relies on goes in `docs/kildelogg.md`, as for the ZBS243.
 
 ## Build and test
 
