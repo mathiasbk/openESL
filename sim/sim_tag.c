@@ -203,6 +203,90 @@ uint64_t sim_tag_last_draw_ms(void) { return last_draw_ms; }
 
 uint32_t sim_tag_layout_ver(void) { return layout_file_ver; }
 
+/* ---- drawing with the tag's own code, for the comparison with esl_render ---- */
+
+/* fake_fb as columns: DRAW_COL_BYTES per column, MSB = row 0, black plane then (with red) the red plane */
+size_t sim_tag_screen(uint8_t *out, size_t cap)
+{
+    size_t plane = (size_t)DRAW_W * DRAW_COL_BYTES, size = plane * (MODEL_HAS_RED ? 2 : 1);
+    if (cap < size)
+        return 0;
+    memset(out, 0, size);
+    for (int x = 0; x < DRAW_W; x++)
+        for (int y = 0; y < DRAW_H; y++) {
+            uint8_t v = fake_fb[y][x];
+            if (v == 1)
+                out[(size_t)x * DRAW_COL_BYTES + y / 8] |= (uint8_t)(0x80 >> (y & 7));
+            else if (v == 2 && MODEL_HAS_RED)
+                out[plane + (size_t)x * DRAW_COL_BYTES + y / 8] |= (uint8_t)(0x80 >> (y & 7));
+        }
+    return size;
+}
+
+/* UTF-8 to Latin-1 the way the AP does it for the characters the tests use (esl_text.c) */
+static uint8_t utf8_field(uint8_t *out, const char *s)
+{
+    uint8_t n = 0;
+    while (*s && n < 255) {
+        unsigned char c = (unsigned char)*s++;
+        if (c < 0x80) {
+            out[n++] = c;
+        } else if ((c & 0xE0) == 0xC0 && *s) {
+            unsigned cp = ((c & 0x1F) << 6) | ((unsigned char)*s++ & 0x3F);
+            out[n++] = cp < 256 ? (uint8_t)cp : '?';
+        } else if ((c & 0xF0) == 0xE0 && s[0] && s[1]) {
+            unsigned cp = ((c & 0x0F) << 12) | (((unsigned char)s[0] & 0x3F) << 6) | ((unsigned char)s[1] & 0x3F);
+            s += 2;
+            out[n++] = cp == 0x2013 || cp == 0x2014 ? '-' : cp == 0x2018 || cp == 0x2019 ? '\'' :
+                       cp == 0x201C || cp == 0x201D ? '"' : '?';
+            if (cp == 0x2026 && n < 253) {           /* "..." */
+                out[n - 1] = '.';
+                out[n++] = '.';
+                out[n++] = '.';
+            }
+        } else {
+            out[n++] = '?';
+            while ((*s & 0xC0) == 0x80)
+                s++;
+        }
+    }
+    return n;
+}
+
+size_t sim_tag_render(const uint8_t *bin, size_t len, uint8_t layout, uint8_t flags, int n, const char *const *fields,
+                      uint8_t *out)
+{
+    static uint8_t buf[ESL_MAX_FIELDS * 256];
+    static draw_scene_t sc;
+    proto_reply_t r;
+    uint8_t pos = 0;
+
+    layout_file_clear();
+    if (bin) {
+        uint32_t crc;
+        if (len > ESL_LBIN_MAX)
+            return 0;
+        memcpy(layout_file, bin, len);
+        crc = proto_crc32(0, layout_file, (uint16_t)len);
+        if (!layout_file_install((uint16_t)len, crc ? crc : 1))
+            return 0;
+    }
+    memset(&r, 0, sizeof(r));
+    r.layout = layout;
+    r.flags = flags;
+    while (n > 0 && !fields[n - 1][0])
+        n--;                                        /* the AP drops empty fields at the end */
+    r.nfields = (uint8_t)n;
+    for (int i = 0; i < n && i < ESL_MAX_FIELDS; i++) {
+        r.field_off[i] = pos;
+        r.field_len[i] = utf8_field(buf + pos, fields[i]);
+        pos = (uint8_t)(pos + r.field_len[i]);
+    }
+    layout_build(&sc, &r, buf);
+    fake_render(&sc);
+    return sim_tag_screen(out, (size_t)DRAW_W * DRAW_COL_BYTES * 2);
+}
+
 bool sim_tag_save_png(const char *path)
 {
     enum { S = 2 };   /* scale: the 1.54" is only 200 x 200 */

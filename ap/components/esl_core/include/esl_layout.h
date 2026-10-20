@@ -125,6 +125,11 @@ int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t 
  * message in msg. */
 bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
 
+/* Draws content c for a tag of model with the model's file (esl_render), under the
+ * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when
+ * cap is too small. ls may be NULL (no file). */
+size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap);
+
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);
 

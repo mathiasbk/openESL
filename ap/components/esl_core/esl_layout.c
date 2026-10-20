@@ -1,5 +1,6 @@
 #include "esl_layout.h"
 #include "esl_barcode.h"
+#include "esl_render.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -192,6 +193,17 @@ int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t 
     }
     unlock(ls);
     return i;
+}
+
+size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap)
+{
+    if (!ls)
+        return esl_render(model, NULL, c, out, cap);
+    lock(ls);
+    const esl_layout_t *l = esl_model_name(model) ? ls->models[model - 1] : NULL;
+    size_t n = esl_render(model, l ? &l->bin : NULL, c, out, cap);
+    unlock(ls);
+    return n;
 }
 
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env)

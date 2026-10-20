@@ -39,6 +39,7 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 
 | # | Case | Checked |
 |---|---|---|
+| 0 | The AP draws what the tag draws (`esl_render.c`) | Every layout of `tag/designs/layouts/<model>.json` and `ap/test/layouts/<model>.json`, and the built-in `price` and `text`, with seven sets of fields and every flag combination (224 + 112 = 336 screens per model): the image the AP draws is byte for byte the one the tag's own code draws. Every screen saved below is compared the same way |
 | 1 | New tag, unknown to the AP | Start screen; the AP registers it at its first POLL (model, no content) |
 | 2 | New content (`PUT /api/tags/{mac}`) | Drawn at the next poll (G1, 2 min); the API confirms one poll later |
 | 3 | Same content again | `changed: false`, IDLE, no redraw for 5 min |

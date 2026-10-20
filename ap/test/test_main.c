@@ -15,6 +15,7 @@ void test_layout(void);
 void test_radio(void);
 void test_wifi(void);
 void test_screen(void);
+void test_render(void);
 void test_sched(void);
 void test_tagfw(void);
 
@@ -35,6 +36,7 @@ static const struct {
     {"radio", test_radio},
     {"wifi", test_wifi},
     {"screen", test_screen},
+    {"render", test_render},
     {"sched", test_sched},
     {"tagfw", test_tagfw},
 };

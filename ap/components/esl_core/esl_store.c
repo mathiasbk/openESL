@@ -45,7 +45,12 @@ static int find_evictable(const esl_store_t *st)
 
 static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
-    return t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
+    uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
+    /* A tag keeps the last next_poll_s it got when a reply has 0, and an image tag may
+       last have got ESL_IMAGE_BUSY_S: it is told its interval outright */
+    if (!v && t->image_capable)
+        v = ESL_TAG_BUILTIN_POLL_S;
+    return v;
 }
 
 /* Slot for an entry loaded at boot: free, or already holding the same MAC. */
@@ -70,6 +75,8 @@ static void set_content(esl_tag_t *t, const esl_content_t *c)
     t->content_id = esl_content_id(c);
     t->has_content = true;
     t->content_err = ESL_CERR_NONE;
+    t->image_id = 0;          /* drawn again when a tag needs it */
+    t->image_failed = 0;      /* a refusal was of the old content's image */
 }
 
 const char *esl_content_err_text(uint8_t err)
@@ -97,7 +104,10 @@ static int env_find(const esl_layout_env_t *env, const char *name)
  *   1. LAYOUT  - the layout file, since the content may use a layout from it
  *   2. CONTENT - what the client is waiting for
  *   3. CONFIG  - settings; also when content is held back (ESL_CERR_*)
- *   4. IDLE
+ *   4. IDLE    - the caller then offers an image (esl_image) or firmware (esl_tagfw)
+ * A tag that shows images (ESL_POLL_F_IMAGE) gets neither LAYOUT nor CONTENT: the AP
+ * draws its content itself, so here only a named layout missing from the file is
+ * noted (content_err), and the rest is CONFIG or IDLE.
  * One message per POLL; the next item goes out in the next round (after a layout
  * download the tag polls again at once, so content follows in the same wake-up).
  * next_poll_s in every reply is the tag's own interval (eff.poll_s), or shorter
@@ -122,6 +132,13 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     esl_tag_effective_cfg(t, st->next_poll_s, &eff);
     uint16_t next = next_poll(t, eff.poll_s, now_ms);
     t->content_err = ESL_CERR_NONE;
+    if (poll->flags & ESL_POLL_F_IMAGE) {
+        if (t->has_content && t->content.layout == ESL_LAYOUT_NAMED && env_find(env, t->content.name) < 0)
+            t->content_err = ESL_CERR_NOT_IN_FILE;
+        if (esl_tag_cfg_pending(t, st->next_poll_s))
+            return esl_config_msg_build(reply, next, &eff);
+        return esl_idle_build(reply, next);
+    }
     if (poll->has_layout_ver && poll->layout_ver == v)
         t->layout_failed = 0;
     if (poll->has_layout_ver && poll->layout_ver != v) {
@@ -159,7 +176,11 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
 
 bool esl_tag_pending(const esl_tag_t *t)
 {
-    return t->has_content && (!t->seen || t->shown_content_id != t->content_id);
+    if (!t->has_content || !t->seen)
+        return t->has_content;
+    if (t->image_capable)
+        return !t->image_id || t->shown_content_id != t->image_id;
+    return t->shown_content_id != t->content_id;
 }
 
 bool esl_tag_holds_data(const esl_tag_t *t)
@@ -385,6 +406,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->polls++;
         t->layout_capable = poll->has_layout_ver;
         t->layout_ver = poll->layout_ver;
+        t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
         n = poll_answer(st, t, poll, env, now_ms, reply);
         t->seen_dirty = !save;
         if (save)
@@ -416,6 +438,48 @@ bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, u
     }
     unlock(st);
     return offer;
+}
+
+bool esl_store_image_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint32_t id)
+{
+    bool offer = false;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = &st->tags[idx];
+        /* Only once it started on it: see esl_store_offer_taken */
+        if ((poll->flags & ESL_POLL_FLAG_DRAW_FAILED) && t->image_offered && t->image_taken)
+            t->image_failed = t->image_offered;
+        if (id && poll->content_id == id)
+            t->image_failed = 0;
+        offer = id && (poll->flags & ESL_POLL_F_IMAGE) && poll->content_id != id && t->image_failed != id;
+        if (offer) {
+            t->image_offered = id;
+            t->image_taken = false;
+        }
+    }
+    unlock(st);
+    return offer;
+}
+
+void esl_store_image_taken(esl_store_t *st, uint64_t mac, uint32_t id)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0 && id && st->tags[idx].image_offered == id)
+        st->tags[idx].image_taken = true;
+    unlock(st);
+}
+
+void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, uint32_t layout_ver, uint32_t id)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0 && st->tags[idx].has_content && st->tags[idx].content_id == content_id) {
+        st->tags[idx].image_id = id;
+        st->tags[idx].image_layout_ver = layout_ver;
+    }
+    unlock(st);
 }
 
 void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end)

@@ -7,6 +7,8 @@
 #include "esl_api.h"
 #include "esl_persist.h"
 #include "esl_radio.h"
+#include "esl_render.h"
+#include "esl_text.h"
 #include "esl_sched.h"
 #include "sim.h"
 
@@ -15,6 +17,8 @@
 static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
+static esl_image_t images;
+static uint8_t *image_mem;
 static esl_sched_entry_t sched_entries[CAP];
 static esl_sched_t sched;
 static bool ap_up;
@@ -164,10 +168,65 @@ void sim_ap_boot(void)
             esl_layouts_restore(&layouts, model, nvs.layout[model], nvs.layout_len[model]);
     esl_tagfw_init(&tagfw, &fops);
     esl_radio_set_tagfw(&tagfw);
+    /* as app_main: the image buffers from the heap, empty after a restart */
+    if (!image_mem)
+        image_mem = malloc(esl_image_mem_size());
+    esl_image_init(&images, image_mem, NULL);
+    esl_radio_set_image(&images);
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
         printf("  [%7.1f s] AP started\n", sim_now_ms / 1000.0);
+}
+
+/* ---- drawing (esl_render) ---- */
+
+static esl_layout_bin_t cmp_bin;
+static bool cmp_has_file;
+uint8_t sim_tag_model_code(void);
+
+int sim_ap_compile(const char *json, size_t len, char *err, size_t errlen)
+{
+    cmp_has_file = esl_layout_compile(json, len, sim_tag_model_code(), &cmp_bin, err, errlen);
+    return cmp_has_file ? cmp_bin.count : 0;
+}
+
+const uint8_t *sim_ap_bin(size_t *len)
+{
+    *len = cmp_has_file ? cmp_bin.size : 0;
+    return cmp_has_file ? cmp_bin.bin : NULL;
+}
+
+static bool content_from(esl_content_t *c, uint8_t layout, uint8_t flags, int n, const char *const *fields)
+{
+    uint8_t latin[256];
+    if (esl_content_init(c, layout, flags) != ESL_CONTENT_OK)
+        return false;
+    for (int i = 0; i < n; i++) {
+        size_t l = esl_utf8_to_latin1(fields[i], strlen(fields[i]), latin, sizeof(latin), NULL);
+        if (esl_content_add_field(c, latin, l) != ESL_CONTENT_OK)
+            return false;
+    }
+    esl_content_trim(c);
+    return true;
+}
+
+size_t sim_ap_render(uint8_t layout, uint8_t flags, int n, const char *const *fields, uint8_t *out, size_t cap)
+{
+    esl_content_t c;
+    if (!content_from(&c, layout, flags, n, fields))
+        return 0;
+    return esl_render(sim_tag_model_code(), cmp_has_file ? &cmp_bin : NULL, &c, out, cap);
+}
+
+size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
+{
+    esl_tag_t t;
+    const esl_layout_t *f;
+    if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT)
+        return 0;
+    f = layouts.models[t.model - 1];
+    return esl_render(t.model, f ? &f->bin : NULL, &t.content, out, cap);
 }
 
 void sim_ap_off(void)
@@ -261,6 +320,10 @@ static const char *msg_name(uint8_t t)
     case ESL_MSG_CONFIG: return "CONFIG";
     case ESL_MSG_LAYOUT: return "LAYOUT";
     case ESL_MSG_LAYOUT_REQ: return "LAYOUT_REQ";
+    case ESL_MSG_FW: return "FW";
+    case ESL_MSG_FW_REQ: return "FW_REQ";
+    case ESL_MSG_IMG: return "IMG";
+    case ESL_MSG_IMG_REQ: return "IMG_REQ";
     default: return "?";
     }
 }
@@ -292,6 +355,8 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
         sim_stats.polls++;
     else if (ev.msg_type == ESL_MSG_LAYOUT_REQ)
         sim_stats.layout_reqs++;
+    else if (ev.msg_type == ESL_MSG_IMG_REQ)
+        sim_stats.img_reqs++;
     if (n <= ESL_FCS_LEN) {
         sim_stats.unanswered++;
         return 0;
@@ -311,6 +376,7 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
     case ESL_MSG_CONTENT: sim_stats.content++; break;
     case ESL_MSG_CONFIG: sim_stats.config++; break;
     case ESL_MSG_LAYOUT: sim_stats.layout++; break;
+    case ESL_MSG_IMG: if (ev.msg_type == ESL_MSG_POLL) sim_stats.image++; break;
     }
     if (sim_verbose)
         printf("  [%7.1f s] tag -> %s, AP -> %s\n", sim_now_ms / 1000.0, msg_name(ev.msg_type),
