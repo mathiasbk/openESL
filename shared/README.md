@@ -15,17 +15,21 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `build` | `-DMODEL=<build>` for the tag firmware and the web renderer; `ESL_MODEL_<build>` in C |
 | `name` | the name in the API, layout files and release files (`/api/layouts/2.9`, `openesl-tag-2.9-v1.0.0.bin`) |
 | `id` | a stable id for the model (`solum-m2-29-bw`), for when two models share a size |
+| `vendor` | the maker, for people (`SoluM`); the README's list of supported tags shows it |
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
-| `chip`, `radio` | the tag's chip and radio; only `zbs243` is built so far |
+| `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`) |
+| `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); a tag with its maker's firmware would be another |
+| `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), RLE coded (`ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
 | `width`, `height` | the screen in the orientation the layouts use |
 | `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert` (`yellow` is refused until the firmware draws it) |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
 | `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
-| `status` | `supported`, `experimental` or `planned` |
+| `status` | `supported`, `experimental` or `planned`. A `planned` model is a tag someone has asked for: it needs only `id`, `vendor`, `label`, `product`, `chip`, `radio`, `protocol`, `width`, `height`, `colors` and `status`, shows in the README's list, and nothing is built or generated for it |
 
 `tools/gen_models.py` checks the file and writes `models_gen.h` (here; `ESL_MODEL_*`,
 `ESL_MODEL_COUNT`, `ESL_MODEL_LIST`, included by `proto.h`), `tag/src/model_gen.h`,
-`web/js/models.js` and the model block in `tools/esl-client/esl_client.py`. The generated
+`web/js/models.js`, the model block in `tools/esl-client/esl_client.py` and the list of
+supported tags in the top `README.md`. The generated
 files are checked in; `tools/check.py models` and CI fail when they are out of date. The
 Python tools in the repository read the JSON through `models.py`.
