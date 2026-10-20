@@ -30,7 +30,7 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# RAM: the C6 runs WiFi, 802.15.4, the HTTP server and up to 256 tags in 512 KB,
+# RAM: the C6 runs WiFi, 802.15.4, the HTTP server and the tag table (about 700 tags) in 512 KB,
 # and the API needs one free block of up to 23 KB. WiFi keeps fewer receive
 # buffers all the time (each 1.6 KB) and caps the ones it takes under load, and
 # each TCP connection buffers at most two segments: the API's replies are small
