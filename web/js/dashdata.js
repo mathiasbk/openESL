@@ -152,6 +152,20 @@ export function apFacts(ap) {
 
 // GET /api/tags/{mac}/image (docs/openapi.yaml): the screen as width x height pixels,
 // 0 white, 1 black, 2 red; null when the data is short
+// What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
+// becomes known, new content, or a new layout file, which changes the image id)
+export function screenKey(tag) {
+  return `${tag.content_id}/${tag.model}/${tag.image_id ?? ""}`;
+}
+
+// Whether a failed GET /api/tags/{mac}/image stands until the key changes: a 4xx does
+// (unknown tag or model, no content, content that cannot be drawn, an AP without
+// images); anything else (503, no answer, an AP restarting) is tried again
+export function screenErrorFinal(err) {
+  const status = err?.status ?? Number(/^(\d{3}):/.exec(String(err?.message))?.[1]);
+  return status >= 400 && status < 500;
+}
+
 export function decodeTagImage({ width, height, red, data }) {
   const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
   const col = Math.ceil(height / 8);

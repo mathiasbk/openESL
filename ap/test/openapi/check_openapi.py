@@ -262,7 +262,7 @@ def main():
         if str(status) not in responses:
             fail(f"{label}: the code answers {status}, which the spec does not list ({', '.join(responses)})")
             return status, reply
-        if expect is not None and status != expect:
+        if expect is not None and status not in (expect if isinstance(expect, tuple) else (expect,)):
             fail(f"{label}: expected {expect}, got {status}: {reply}")
         if not isinstance(reply, (dict, list)):
             fail(f"{label}: the reply is not JSON: {reply[:80]!r}")
@@ -288,7 +288,7 @@ def main():
             fail(f"example layout file does not fit LayoutFile: {e}")
         call(*op("/api/layouts/{model}", "put"), body=raw, values={"model": doc["model"]}, expect=200, what=name)
 
-    def run_all(methods, expect=200):
+    def run_all(methods, expect=200, image=(200, 409)):
         for path, m, o, params in ops:
             if m not in methods:
                 continue
@@ -301,9 +301,9 @@ def main():
             elif rb and path == "/api/tag-firmware":
                 body_ex = [("tag-29-ota.bin", tag_firmware_file())]
             values = {}
-            # the image needs a tag of known model with content it can draw, which the
-            # example tag is not before it polls: any status the spec lists, fitting it
-            exp = None if path == "/api/tags/{mac}/image" else expect
+            # the image needs a tag of known model: 404 before the example tag polls, after
+            # it 200, or 409 while the example layout file lacks the content's layout
+            exp = image if path == "/api/tags/{mac}/image" else expect
             for name, ex in body_ex or [(None, None)]:
                 if path == "/api/layouts/{model}" and ex:
                     values = {"model": ex["model"]}
@@ -311,7 +311,7 @@ def main():
 
     # every request example is accepted, and every reply fits, before and after the tags poll
     run_all(("put",))
-    run_all(("get",))
+    run_all(("get",), image=404)
     _, reply = call(*op("/api/tags", "get"))
     st, layouts = call(*op("/api/layouts", "get"))
     ver29 = next(x["version"] for x in layouts["layouts"] if x["model"] == "2.9")

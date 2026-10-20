@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, decodeTagImage } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
@@ -358,42 +358,48 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   // ---- The screen the AP draws for each tag (GET /api/tags/{mac}/image) ----
 
-  // screens: mac -> { content_id, img }, img null when the AP draws nothing for it (no
-  // content, content held back, or an AP from before images); fetched one at a time when
-  // the content changes, so a table of many tags costs the AP one drawing per change
-  function paintScreen(canvas, img) {
-    if (canvas.width !== img.width || canvas.height !== img.height) [canvas.width, canvas.height] = [img.width, img.height];
+  // screens: mac -> { want, key, canvas, retry_ms }: the screenKey() last fetched, and
+  // the key of the canvas, null when the AP draws nothing for it (no content, content
+  // held back, or an AP from before images). Fetched one at a time when screenKey() changes, so a table of many tags costs the AP one drawing per
+  // change, and painted once: render() moves the same canvas into the new row.
+  // retry_ms: a failure that may pass (screenErrorFinal) is tried again after that time.
+  const SCREEN_RETRY_MS = 15000;
+
+  function paintScreen(img) {
+    const canvas = document.createElement("canvas");
+    [canvas.width, canvas.height] = [img.width, img.height];
     const ctx = canvas.getContext("2d");
     const data = ctx.createImageData(img.width, img.height);
-    for (let i = 0; i < img.pixels.length; i++) {
-      const v = img.pixels[i];
-      data.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
-    }
+    const px = new Uint32Array(data.data.buffer);
+    const le = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+    const rgba = (r, g, b) => (le ? (0xff << 24) | (b << 16) | (g << 8) | r : (r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0;
+    const colours = [rgba(255, 255, 255), rgba(17, 17, 17), rgba(200, 30, 30)];
+    for (let i = 0; i < img.pixels.length; i++) px[i] = colours[img.pixels[i]];
     ctx.putImageData(data, 0, 0);
+    canvas.setAttribute("role", "img");
+    return canvas;
   }
 
   function screenCell(tag) {
     const td = cell("", "opt screen");
-    const s = screens.get(tag.mac);
     if (!tag.content_id) {
       td.textContent = "–";
       return td;
     }
-    if (!s || s.content_id !== tag.content_id) {
-      if (!screenQueue.some((q) => q.mac === tag.mac)) screenQueue.push({ mac: tag.mac, content_id: tag.content_id });
+    const key = screenKey(tag);
+    const s = screens.get(tag.mac);
+    if ((!s || s.want !== key || (s.retry_ms && Date.now() >= s.retry_ms)) && !screenQueue.some((q) => q.mac === tag.mac)) {
+      screenQueue.push({ mac: tag.mac, key });
       fetchScreens();
-      if (!s?.img) return td;
     }
-    if (!s.img) {
-      td.textContent = "–";
+    if (!s?.canvas) {
+      if (s && !s.retry_ms) td.textContent = "–";
       return td;
     }
-    const c = document.createElement("canvas");
-    paintScreen(c, s.img);
-    const waiting = tag.pending || s.content_id !== tag.content_id;
+    const c = s.canvas;
+    const waiting = tag.pending || s.key !== key;
     c.className = "screen" + (waiting ? " waiting" : "");
     c.title = waiting ? "What the AP draws for it; the tag does not show it yet" : "What the tag shows, as the AP draws it";
-    c.setAttribute("role", "img");
     c.setAttribute("aria-label", c.title);
     td.append(c);
     return td;
@@ -405,14 +411,20 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     let changed = false;
     try {
       while (screenQueue.length && client) {
-        const { mac, content_id } = screenQueue.shift();
+        const { mac, key } = screenQueue.shift();
         const c = client;
-        let img = null;
+        const old = screens.get(mac);
+        let s;
         try {
-          img = decodeTagImage(await c.call("GET", `/api/tags/${encodeURIComponent(mac)}/image`));
-        } catch { /* nothing drawn for it */ }
+          const img = decodeTagImage(await c.call("GET", `/api/tags/${encodeURIComponent(mac)}/image`));
+          s = { want: key, key, canvas: img ? paintScreen(img) : null, retry_ms: 0 };
+        } catch (e) {
+          // a final answer stands until the key changes; otherwise keep showing what we had
+          s = screenErrorFinal(e) ? { want: key, key, canvas: null, retry_ms: 0 }
+            : { want: key, key: old?.key, canvas: old?.canvas ?? null, retry_ms: Date.now() + SCREEN_RETRY_MS };
+        }
         if (c !== client) break;
-        screens.set(mac, { content_id, img });
+        screens.set(mac, s);
         changed = true;
       }
     } finally {
