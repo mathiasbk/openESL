@@ -53,6 +53,8 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 8 | AP gone for an hour with new content waiting | The backoff reaches 600 s (T11); the tag finds the AP within 600 s and gets the content |
 | 9 | AP gone for more than 2 hours | "No AP found" (T9); content again when the AP is back |
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
+| 11 | Content with `at`, poll interval 300 s | Shown just after it is due (the AP shortens the tag's sleep), not at the next 300 s poll |
+| 12 | Tag firmware over the air (`PUT /api/tag-firmware`, a 4 KB test image in two parts) | Downloaded, copied into the chip by the bootloader, restarted with the same screen, confirmed |
 
 The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the AP host tests, not end to end here.
 
