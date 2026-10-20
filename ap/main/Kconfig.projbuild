@@ -242,11 +242,25 @@ menu "OpenESL AP"
         default ESL_RADIO_AP
 
         config ESL_RADIO_AP
-            bool "AP: answer tag polls over 802.15.4"
+            bool "AP: answer tag polls"
         config ESL_RADIO_SNIFFER
             bool "Sniffer: log every frame on the channel, do not answer"
         config ESL_RADIO_STUB
             bool "Stub: no radio, simulated tags poll the store"
+    endchoice
+
+    choice ESL_RADIO_DRIVER
+        prompt "Radio driver"
+        depends on !ESL_RADIO_STUB
+        default ESL_RADIO_DRIVER_IEEE802154
+        help
+            The link the AP reaches its tags through (esl_link.h in
+            components/esl_core). radio.c, the radio task, is the same
+            for every driver.
+
+        config ESL_RADIO_DRIVER_IEEE802154
+            bool "802.15.4 radio of this chip (ESP32-C6, ESP32-C5)"
+            depends on SOC_IEEE802154_SUPPORTED
     endchoice
 
     config ESL_SNIFFER_HOP_MS
