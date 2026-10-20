@@ -82,9 +82,10 @@ def parts():
     return ps
 
 
-# The fields of a model's entry in shared/models.json that end up in its firmware (model_gen.h,
-# models_gen.h); the label, photo and status do not
-MODEL_FIELDS = ("code", "build", "name", "chip", "radio", "image", "width", "height", "colors", "panel")
+# The fields of a model's entry in shared/models.json that its firmware depends on (model_gen.h,
+# models_gen.h, and the radio, protocol and image format it is written for); the vendor, label,
+# photo and status do not
+MODEL_FIELDS = ("code", "build", "name", "chip", "radio", "protocol", "image", "width", "height", "colors", "panel")
 
 
 def read_version(at=None):
