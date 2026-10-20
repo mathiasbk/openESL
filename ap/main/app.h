@@ -7,6 +7,7 @@
 #include "esl_image.h"
 #include "esl_layout.h"
 #include "esl_radio.h"
+#include "esl_screen.h"
 #include "esl_store.h"
 
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
@@ -51,9 +52,14 @@ esp_err_t http_api_start(const esl_api_t *api);
 /* serial_api.c: the same API over the USB serial port */
 esp_err_t serial_api_start(const esl_api_t *api);
 
-/* display.c (ESL_DISPLAY): AP status on a small ST7789 LCD. Call once api is
+/* display.c (ESL_DISPLAY or ESL_RADIO_DRIVER_UART): the AP's status screen, on a small
+ * ST7789 LCD on this board and/or the radio coprocessor's. Call once api is
  * filled in; it refreshes on its own. */
 esp_err_t display_start(const esl_api_t *api);
+
+/* radio_uart.c: sends the status screen to the radio coprocessor (SCREEN), which
+ * shows it if it has an LCD. Dropped while the radio is not up. */
+void radio_screen(const esl_screen_t *s);
 
 /* health.c (ESL_WEBHOOK): posts the health report (GET /api/health) to the
  * webhook URL whenever it changes. Returns the notify struct for api->notify,

@@ -16,13 +16,14 @@ function tagFile(model, ver, size) {
 
 // An ESP32 app image: the header byte, and with version the app description after the
 // image and segment headers (esp_app_desc_t: magic word, then the version at 16)
-function apImage(size, version, chip = 13) {
+function apImage(size, version, chip = 13, project = "esl_ap") {
   const d = new Uint8Array(size);
   d[0] = 0xe9;
   d[12] = chip; // esp_image_header_t chip_id: 13 the ESP32-C6, 23 the C5
   if (version) {
     d.set([0x32, 0x54, 0xcd, 0xab], 32);
     d.set(enc.encode(version), 48);
+    d.set(enc.encode(project), 80);
   }
   return d;
 }
@@ -199,6 +200,10 @@ test("the page's firmware for the ticked tags", () => {
 test("the version in an AP image", () => {
   assert.equal(firmwareKind(apImage(4096, "0.4.3")).version, "0.4.3");
   assert.equal(firmwareKind(apImage(4096)).version, null); // no app description where it belongs
+  // another app for the chip, such as the radio coprocessor's: not for the AP
+  const radio = firmwareKind(apImage(4096, "0.5.0", 13, "esl_radio"));
+  assert.equal(radio.kind, null);
+  assert.match(radio.error, /radio coprocessor/);
 });
 
 test("versions compare by their numbers", () => {

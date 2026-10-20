@@ -651,7 +651,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example: { error: the image does not fit the app slot }
         "422":
-          description: An empty body, `offset` without `total` or the other way round, or an image that is not an app image for this chip
+          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, or an app that is not the AP firmware (another project name in its app description, such as the radio coprocessor's `esl_radio`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

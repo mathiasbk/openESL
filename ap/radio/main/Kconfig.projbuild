@@ -1,0 +1,18 @@
+menu "OpenESL radio coprocessor"
+
+    config ESL_COPROC_UART_NUM
+        int "UART to the AP host"
+        range 0 1
+        default 1
+
+    config ESL_COPROC_TX_GPIO
+        int "TX pin (to the host's RX)"
+        default 16
+        help
+            GPIO16 and GPIO17 are marked TX and RX on the ESP32-C6 Super Mini.
+
+    config ESL_COPROC_RX_GPIO
+        int "RX pin (from the host's TX)"
+        default 17
+
+endmenu

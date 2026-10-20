@@ -11,9 +11,9 @@
  * the task around it, and each driver fills in an esl_link_t:
  *
  *   main/radio_ieee802154.c  the 802.15.4 radio of the ESP32-C6/C5 itself
- *
- * A link to a radio on another chip (a second ESP32 over UART, say) is another
- * driver with the same three calls. Frames are always whole 802.15.4 PSDUs
+ *   main/radio_uart.c        an ESP32-C6 running ap/radio/ as a radio coprocessor
+ *                            on UART (docs/ap-radio-link.md)
+ * Frames are always whole 802.15.4 PSDUs
  * (docs/protokoll.md): the link carries them, it does not change them. The
  * protocol (what a POLL is, what the reply holds) is esl_radio_handle()'s and
  * never a driver's; a tag that speaks another protocol gets another handler,
