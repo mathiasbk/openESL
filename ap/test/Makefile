@@ -12,7 +12,8 @@ CFLAGS  += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 
-SRCS := $(wildcard $(CORE)/*.c) $(wildcard *.c) ../../tag/fonts/font_small.c
+TAG_SRCS := ../../tag/src/font.c ../../tag/src/barcode.c $(wildcard ../../tag/fonts/font_*.c)
+SRCS := $(wildcard $(CORE)/*.c) $(wildcard *.c) $(TAG_SRCS)
 BIN  := build/esl_tests
 
 .PHONY: all test openapi clean
@@ -27,7 +28,7 @@ test: $(BIN)
 
 build/api_host: $(wildcard $(CORE)/*.c) openapi/api_host.c $(wildcard $(CORE)/include/*.h) ../../shared/proto.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(wildcard $(CORE)/*.c) ../../tag/fonts/font_small.c openapi/api_host.c $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(wildcard $(CORE)/*.c) $(TAG_SRCS) openapi/api_host.c $(LDFLAGS) -o $@
 
 openapi:
 	python3 openapi/check_openapi.py
