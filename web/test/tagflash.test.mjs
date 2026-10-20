@@ -206,7 +206,7 @@ test("a typed MAC is not used on a tag that has its own, and a bad one touches n
   assert.equal(tag.eraseCount[0], 0);
 });
 
-test("firmware must end below the tag's layout and content store at 0xF400", () => {
+test("firmware must end below 0xF400 (CODE_SIZE in tag/tools/build.py)", () => {
   assert.equal(wf.CODE_LIMIT, 0xf400);
   const ok = new Uint8Array(0xf400).fill(0x12);
   assert.equal(wf.checkFirmware(ok), ok);

@@ -7,7 +7,9 @@
 #   ap-firmware:  <artifact>.bin (bootloader, partition table and app merged, written at 0) and
 #                 <artifact>-ota.bin (the app alone, for POST /api/ota) per board (ap/build.py):
 #                 openesl-ap*.bin (C6), openesl-ap-lcd*.bin (C6 with the status screen),
-#                 openesl-ap-c5-n16r8*.bin (ESP32-C5 with PSRAM)
+#                 openesl-ap-c5-n16r8*.bin (ESP32-C5 with PSRAM), openesl-ap-s3-n16r8*.bin (ESP32-S3 host),
+#                 and the radio coprocessor images for the S3 (openesl-ap-radio-c6.bin,
+#                 openesl-ap-radio-c6-lcd.bin; no -ota.bin)
 # The AP and the tags each get the version of the release they last changed in
 # (tools/fw_version.py), so the images of a release that changed only one of them are the
 # previous ones again for the other; the "Versions" step shows what this run built.
