@@ -30,7 +30,7 @@ uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint32_t layou
         f |= ESL_HEALTH_DRAW_FAILED;
     if (t->battery_mv && t->battery_mv < low)
         f |= ESL_HEALTH_LOW_BATTERY;
-    if (t->layout_capable && layout_ver && t->layout_failed == layout_ver)
+    if (t->layout_capable && !t->image_capable && layout_ver && t->layout_failed == layout_ver)
         f |= ESL_HEALTH_LAYOUT_FAILED;
     if (t->has_content && esl_tag_pending(t) && t->content_err)
         f |= ESL_HEALTH_CONTENT_ERROR;

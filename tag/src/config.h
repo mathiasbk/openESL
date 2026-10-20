@@ -33,5 +33,8 @@
    stops. Measured on the jig 2026-10-15: about 5 % of the AP's answers were lost, and
    stopping at the first miss made some rounds end after 2-9 blocks. */
 #define CFG_FW_MAX_MISS     8
+/* IMG_REQ per wake-up during an image download: a whole screen is 52 (2.9") or 55
+   (1.54") blocks of 92 bytes; the rest is room for repeats. Lost answers as for FW. */
+#define CFG_IMG_MAX_REQ     64
 
 #endif /* CONFIG_H */

@@ -16,6 +16,7 @@
  * and whether its controller wants the second RAM (0x26) written too before a full update.
  */
 #include "epd.h"
+#include "image.h"
 #include "hal/hal.h"
 #include "hal/hal_epd.h"
 
@@ -53,6 +54,17 @@ static const uint8_t __code panel_init[] = { EPD_INIT };
 
 static uint8_t __xdata col_black[DRAW_COL_BYTES];
 static uint8_t __xdata col_red[DRAW_COL_BYTES];
+
+/* Column x into col_black/col_red: from the scene, or from the image in the SPI flash
+   when s is 0. A flash read deselects the display (P1 is written whole) and leaves
+   its own chip deselected, so the display is selected again before its bytes go out. */
+static void column(draw_scene_t *s, uint16_t x)
+{
+    if (s)
+        draw_column(s, x, col_black, col_red);
+    else
+        image_column(x, col_black, col_red);
+}
 
 static void spi_byte(uint8_t b)
 {
@@ -147,7 +159,8 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     set_cursor();
     cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
 #endif
-    draw_begin(s);
+    if (s)
+        draw_begin(s);
     for (x = 0; x < DRAW_W; x += 8) {
 #if EPD_ROTATE_180
         cmd(CMD_RAM_X_COUNTER);
@@ -160,7 +173,7 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
         for (y = 0; y < DRAW_H; y++)
             rows[y] = 0;
         for (k = 0; k < 8 && x + k < DRAW_W; k++) {
-            draw_column(s, x + k, col_black, col_red);
+            column(s, x + k);
 #if EPD_ROTATE_180
             m = (uint8_t)(0x01 << k);
 #else
@@ -196,10 +209,11 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     set_cursor();
     cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
     hal_epd_dc(1);
-    hal_epd_cs(0);
-    draw_begin(s);
+    if (s)
+        draw_begin(s);
     for (x = 0; x < DRAW_W; x++) {
-        draw_column(s, x, col_black, col_red);
+        column(s, x);
+        hal_epd_cs(0);
         for (i = 0; i < DRAW_COL_BYTES; i++) {
             b = red ? col_red[i] : col_black[i];
             if (!red && EPD_BW_INVERT)
@@ -233,7 +247,8 @@ static void init_panel(void)
     }
 }
 
-bool epd_draw(draw_scene_t *s)
+/* s = 0: the image in the SPI flash */
+static bool update(draw_scene_t *s)
 {
     bool ok;
 
@@ -276,4 +291,14 @@ bool epd_draw(draw_scene_t *s)
     data(0x01);
     hal_epd_power(0);
     return ok;
+}
+
+bool epd_draw(draw_scene_t *s)
+{
+    return update(s);
+}
+
+bool epd_draw_image(void)
+{
+    return update((draw_scene_t *)0);
 }

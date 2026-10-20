@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "esl_api.h"
+#include "esl_image.h"
 #include "esl_layout.h"
 #include "esl_radio.h"
 #include "esl_store.h"

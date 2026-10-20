@@ -530,9 +530,15 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, "\"model\":null,");
     esl_sb_printf(out, "\"draw_failed\":%s,", (t->seen && (t->poll_flags & ESL_POLL_FLAG_DRAW_FAILED)) ? "true" : "false");
     esl_sb_printf(out, "\"content_id\":%" PRIu32 ",", t->has_content ? t->content_id : 0);
-    if (t->seen)
-        esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", t->shown_content_id);
-    else
+    if (t->seen) {
+        /* A tag that shows images reports the image id: the content it was drawn from
+           when that is its content's image, so clients compare content ids as before,
+           else 0 (an image id is not a content id; which content it was is not kept) */
+        uint32_t shown = t->shown_content_id;
+        if (t->image_capable)
+            shown = t->has_content && t->image_id && shown == t->image_id ? t->content_id : 0;
+        esl_sb_printf(out, "\"shown_content_id\":%" PRIu32 ",", shown);
+    } else
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
     write_tag_cfg(out, t, default_poll_s);
@@ -544,13 +550,14 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     if (model && api->layouts)
         esl_layouts_info(api->layouts, t->model, &v, NULL, NULL);
     bool capable = t->seen && t->layout_capable;
+    bool needs_file = capable && !t->image_capable; /* a tag that shows images needs no file */
     if (capable)
         esl_sb_printf(out, ",\"layout_version\":%" PRIu32 ",", t->layout_ver);
     else
         esl_sb_puts(out, ",\"layout_version\":null,");
     esl_sb_printf(out, "\"layout_pending\":%s,\"layout_failed\":%s,\"content_error\":",
-                  capable && t->layout_ver != v ? "true" : "false",
-                  capable && v && t->layout_failed == v ? "true" : "false");
+                  needs_file && t->layout_ver != v ? "true" : "false",
+                  needs_file && v && t->layout_failed == v ? "true" : "false");
     const char *err = t->has_content && esl_tag_pending(t) ? esl_content_err_text(t->content_err) : NULL;
     if (err)
         esl_sb_json_str(out, err);
@@ -558,6 +565,17 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, "null");
     /* the tag takes firmware over the radio (docs/tag-ota.md) */
     esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
+    /* the tag shows images the AP draws (protokoll.md "Image transfer"): the id of its
+       content's image once drawn, 0 before, and the image id the tag reports */
+    esl_sb_printf(out, ",\"image\":%s", t->seen && t->image_capable ? "true" : "false");
+    if (t->has_content)
+        esl_sb_printf(out, ",\"image_id\":%" PRIu32, t->image_id);
+    else
+        esl_sb_puts(out, ",\"image_id\":null");
+    if (t->seen && t->image_capable)
+        esl_sb_printf(out, ",\"shown_image_id\":%" PRIu32, t->shown_content_id);
+    else
+        esl_sb_puts(out, ",\"shown_image_id\":null");
     /* the firmware it is fetching from the AP: how far it is (null: none for it) */
     esl_tagfw_img_t img;
     uint16_t got;
@@ -1501,7 +1519,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         const char *err = esl_tag_pending(&t) ? esl_content_err_text(t.content_err) : NULL;
         if (err)
             esl_sb_printf(out, " (%s)", err);
-        if (t.seen && t.layout_capable && api->layouts) {
+        if (t.seen && t.layout_capable && !t.image_capable && api->layouts) {
             uint32_t v;
             esl_layouts_info(api->layouts, t.model, &v, NULL, NULL);
             if (v && t.layout_failed == v)

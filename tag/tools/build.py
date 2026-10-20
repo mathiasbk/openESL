@@ -45,12 +45,13 @@ CORE = ["src/proto.c", "src/font.c", "src/draw.c", "src/layout.c", "src/barcode.
 FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fonts", "font_*.c")))
 
 HOST_TARGETS = {
-    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "boot/boot_core.c", "test/fake_xflash.c",
-                                "test/test_ota.c", "test/test_main.c", "test/test_proto.c",
+    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+                                "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_layout.c",
-                                "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c",
+                                "test/test_app.c", "test/test_barcode.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
                                 "test/helpers.c"],
-    "test_epd": CORE + FONTS + ["src/epd.c", "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
+    "test_epd": CORE + FONTS + ["src/epd.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+                                "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
     "preview": CORE + FONTS + ["test/preview.c", "test/fake_epd.c", "test/helpers.c"],
 }
 
@@ -87,7 +88,7 @@ def host_model():
 
 
 HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c"] + CORE + FONTS + HAL_SOURCES + \
+FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FONTS + HAL_SOURCES + \
     ["src/hal/zbs243/xflash_zbs243.c"]
 BOOT_SOURCES = ["boot/boot_zbs243.c", "boot/boot_core.c"]
 HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES

@@ -1,7 +1,9 @@
 #include "tinytest.h"
 #include "esl_api.h"
 #include "esl_persist.h"
+#include "esl_image.h"
 #include "esl_radio.h"
+#include "esl_render.h"
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
@@ -839,6 +841,250 @@ static void test_layout_content_config(void)
     free(f29);
 }
 
+/* Tags that show what the AP draws (POLL bit5): the image is drawn when the tag polls
+ * with another image than its content gives, sent block by block, and never stored.
+ * docs/protokoll.md "Image transfer"; plan D in design-sending-alternativer. */
+static esl_image_t images;
+
+static void images_boot(void)
+{
+    static uint8_t *mem;
+    if (!mem)
+        mem = malloc(esl_image_mem_size());
+    esl_image_init(&images, mem, NULL);
+    esl_radio_set_image(&images);
+}
+
+static uint32_t image_id_of(const char *mac)
+{
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/api/tags/%s", mac);
+    CHECK_INT(esl_api_handle(&api, "GET", uri, AUTH, NULL, 0, 0, &out), 200);
+    return json_u32(resp, "\"image_id\":");
+}
+
+static void test_image_send(void)
+{
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
+    a.ota = true;
+    a.images = true;
+    esl_faketag_init(&b, 0x29B, 1, 3000, ESL_MODEL_29); /* draws itself, as before */
+
+    /* no content: IDLE, nothing drawn */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 0), ESL_MSG_IDLE);
+    CHECK_INT(images.drawn, 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"image\":true,\"image_id\":null"));
+
+    /* built-in content: drawn at the POLL, block 0 in the answer, the rest on IMG_REQ, all in one wake-up */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(put("000000000000029B", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    uint32_t cid = json_u32(resp, "\"content_id\":");
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(images.drawn, 1);
+    uint32_t id = image_id_of("000000000000029A");
+    CHECK(id != 0 && a.shown == id);
+    CHECK_INT(a.img_shown, 1);
+    CHECK_INT(a.img_blocks, (esl_render_size(ESL_MODEL_29) + ESL_IMG_CHUNK_MAX - 1) / ESL_IMG_CHUNK_MAX);
+    CHECK_INT(a.img_size_sent, esl_render_size(ESL_MODEL_29) % ESL_IMG_CHUNK_MAX);
+    CHECK_INT(a.contents, 0);
+    CHECK(HAS(resp, "\"pending\":true")); /* until the next POLL reports the id */
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 1000), ESL_MSG_CONTENT);
+    CHECK_INT(b.shown, cid);
+
+    /* the next POLL reports the id: shown, the buffer is free, nothing more is sent */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":false"));
+    CHECK_INT((int)json_u32(resp, "\"shown_content_id\":"), (int)cid);
+    CHECK_INT((int)json_u32(resp, "\"shown_image_id\":"), (int)id);
+    CHECK_INT(images.buf[0].mac, 0);
+    CHECK_INT(images.buf[1].mac, 0);
+    CHECK_INT(images.drawn, 1);
+
+    /* the same content again gives the same image: nothing to send */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 121000), ESL_MSG_IDLE);
+    CHECK_INT(images.drawn, 1); /* the same content id: the image id is known */
+    CHECK_INT(a.img_shown, 1);
+
+    /* named layout: drawn on the AP from the file, no LAYOUT to the tag; until it shows
+       the new image, shown_content_id is 0, not the old image's id */
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put("000000000000029A", SHELF), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"shown_content_id\":0,\"pending\":true"));
+    CHECK_INT((int)json_u32(resp, "\"shown_image_id\":"), (int)id);
+    uint32_t blocks = a.img_blocks;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 181000), ESL_MSG_IMG);
+    CHECK_INT(a.layout_blocks, 0);
+    CHECK_INT(a.layout_ver, 0);
+    CHECK_INT(a.img_shown, 2);
+    CHECK(a.img_blocks > blocks && a.shown == image_id_of("000000000000029A"));
+    CHECK(HAS(resp, "\"layout_pending\":false"));
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 241000), ESL_MSG_IDLE);
+
+    /* a new file for the model: the tag's image is drawn again with it, and back */
+    {
+        char *f2 = malloc(l29 + 1);
+        memcpy(f2, f29, l29);
+        f2[l29] = 0;
+        char *band = strstr(f2, "\"h\": 30, \"color\": \"black\"");
+        CHECK(band != NULL);
+        if (band)
+            band[6] = '2'; /* the black band 20 px instead of 30 */
+        uint32_t old = a.shown;
+        CHECK_INT(put_layout("2.9", f2, l29), 200);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 251000), ESL_MSG_IMG);
+        CHECK(a.shown != old && a.shown == image_id_of("000000000000029A"));
+        CHECK_INT(a.img_shown, 3);
+        CHECK_INT(put_layout("2.9", f29, l29), 200);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 261000), ESL_MSG_IMG);
+        CHECK(a.shown == old);
+        CHECK_INT(a.img_shown, 4);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 271000), ESL_MSG_IDLE);
+        free(f2);
+    }
+
+    /* the file is deleted: the tag keeps the image it shows (it needs no file) */
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 301000), ESL_MSG_IDLE);
+    CHECK_INT(a.img_shown, 4);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":false"));
+    /* named content set while the file was there, which is gone when the tag polls: held back,
+       like for a tag that draws itself */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 422);
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 200);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 331000), ESL_MSG_IDLE);
+    CHECK_INT(a.img_shown, 4);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
+    CHECK(HAS(resp, "\"pending\":true"));
+
+    /* the file is back, with the answer to the POLL lost: the retry gets block 0 again */
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    uint32_t drawn = images.drawn;
+    CHECK_INT(air(&a, 361000, true), 0);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 361000), ESL_MSG_IMG);
+    CHECK_INT(images.drawn, drawn + 1);
+    CHECK_INT(a.img_shown, 5);
+
+    /* the content changes while the tag downloads: the next block it asks for is block 0 of the new image */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"99,00\"]}"), 200);
+    {
+        uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+        size_t n = esl_faketag_poll(&a, PAN, rx);
+        size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 421000, tx, NULL);
+        CHECK_INT(esl_faketag_receive(&a, tx, m), ESL_MSG_IMG);
+        uint32_t first = a.img_dl_id;
+        CHECK(first != 0 && a.img_dl_got == ESL_IMG_CHUNK_MAX);
+        CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"89,00\"]}"), 200);
+        n = esl_faketag_img_request(&a, PAN, rx);
+        m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 421100, tx, NULL);
+        CHECK_INT(esl_faketag_receive(&a, tx, m), ESL_MSG_IMG);
+        CHECK(a.img_dl_id != first && a.img_dl_got == ESL_IMG_CHUNK_MAX);
+        for (int req = 0; req < ESL_FAKETAG_IMG_REQS && (n = esl_faketag_img_request(&a, PAN, rx)) != 0; req++) {
+            m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 421200 + req, tx, NULL);
+            if (!m || esl_faketag_receive(&a, tx, m) != ESL_MSG_IMG)
+                break;
+        }
+        CHECK_INT(a.img_shown, 6);
+        CHECK(a.shown == image_id_of("000000000000029A"));
+    }
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 481000), ESL_MSG_IDLE);
+
+    /* the panel fails: DRAWFAIL with the id, not offered again until the content changes */
+    a.img_bad = true;
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"49,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 541000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 6);
+    CHECK(a.img_failed != 0);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 601000), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"draw_failed\":true"));
+    CHECK(HAS(resp, "\"pending\":true"));
+    drawn = images.drawn;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 661000), ESL_MSG_IDLE);
+    CHECK_INT(images.drawn, drawn);
+    a.img_bad = false;
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"39,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 721000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 7);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 781000), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"draw_failed\":false"));
+
+    /* the AP restarts: the tag shows its image, the AP draws it once to know the id and sends nothing */
+    ap_boot();
+    images_boot();
+    drawn = images.drawn;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 841000), ESL_MSG_IDLE);
+    CHECK_INT(images.drawn, drawn + 1);
+    CHECK_INT(a.img_shown, 7);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":false"));
+
+    /* every buffer busy: the third tag is told to come back in ESL_IMAGE_BUSY_S */
+    esl_faketag_t c, d;
+    esl_faketag_init(&c, 0x29C, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&d, 0x29D, 1, 3000, ESL_MODEL_29);
+    c.images = d.images = true;
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"A\",\"1\"]}"), 200);
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"C\",\"3\"]}"), 200);
+    CHECK_INT(put("000000000000029D", "{\"layout\":\"price\",\"fields\":[\"D\",\"4\"]}"), 200);
+    {
+        uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+        size_t n = esl_faketag_poll(&a, PAN, rx);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 901000, tx, NULL) != 0); /* buffer 1 */
+        n = esl_faketag_poll(&c, PAN, rx);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 901100, tx, NULL) != 0); /* buffer 2 */
+    }
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 901200), ESL_MSG_IDLE);
+    CHECK_INT(d.next_poll_s, ESL_IMAGE_BUSY_S);
+    CHECK_INT(d.img_blocks, 0);
+    /* a gets the last block: its buffer is free before it polls again, d gets it, and
+       its interval back (a reply with 0 would leave it at ESL_IMAGE_BUSY_S) */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 902000), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 902100), ESL_MSG_IMG);
+    CHECK_INT(d.img_shown, 1);
+    CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 903000), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 903200), ESL_MSG_IDLE);
+    CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
+    /* c never came back: its buffer is free again after ESL_IMAGE_HOLD_MS */
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 901100 + ESL_IMAGE_HOLD_MS + 1), ESL_MSG_IMG);
+    CHECK_INT(c.img_shown, 1);
+
+    /* a tag that is deleted: its buffer goes when it polls again, with no content */
+    CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"A\",\"2\"]}"), 200);
+    {
+        uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+        size_t n = esl_faketag_poll(&a, PAN, rx);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 1101000, tx, NULL) != 0);
+    }
+    CHECK(images.buf[0].mac == 0x29A || images.buf[1].mac == 0x29A);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1102000), ESL_MSG_IDLE);
+    CHECK(images.buf[0].mac != 0x29A && images.buf[1].mac != 0x29A);
+
+    esl_radio_set_image(NULL);
+    free(f29);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -852,4 +1098,5 @@ void test_radio(void)
     test_layout_rejected_and_old_firmware();
     test_layout_many_tags();
     test_layout_content_config();
+    test_image_send();
 }

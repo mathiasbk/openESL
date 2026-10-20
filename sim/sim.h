@@ -72,8 +72,9 @@ void sim_drop_reply(uint8_t msg_type, int n);
 extern bool sim_die_on_drop;
 
 typedef struct {
-    unsigned polls, layout_reqs;            /* frames from the tag the AP handled */
+    unsigned polls, layout_reqs, img_reqs;  /* frames from the tag the AP handled */
     unsigned idle, content, config, layout; /* replies the tag received */
+    unsigned image;                         /* image transfers started (IMG as the answer to a POLL) */
     unsigned unanswered;                    /* frames with no reply (AP off or lost) */
 } sim_stats_t;
 extern sim_stats_t sim_stats;

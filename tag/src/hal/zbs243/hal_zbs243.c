@@ -548,7 +548,10 @@ void power_sleep_s(uint16_t s)
 
 /* ---- Display pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, SCK P0.0, MOSI P0.1 ---- */
 void hal_epd_power(bool on) { (void)on; }   /* no switchable display supply known */
-void hal_epd_cs(bool high)   { P1_7 = high; }
+/* P1 as a whole byte (it does not read back): flash nCS P1.1 high, BS1 P1.2 low, as
+   gpio_init() and xflash_zbs243.c leave it, so a bit write cannot disturb them while
+   the image streams from the flash to the display. */
+void hal_epd_cs(bool high)   { P1 = high ? 0x82 : 0x02; }
 void hal_epd_dc(bool high)   { P2_2 = high; }
 void hal_epd_rst(bool high)  { P2_0 = high; }
 void hal_epd_sck(bool high)  { P0_0 = high; }
