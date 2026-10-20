@@ -67,7 +67,6 @@ static bool st_load_to(void *ctx, uint8_t model, void *to, size_t len)
 
 static const esl_tagfw_ops_t ops = {NULL, NULL, NULL, st_erase, st_write, st_read, st_save_to, st_load_to};
 static esl_tagfw_t fw;
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false};
@@ -194,7 +193,8 @@ static void reset(void)
     erases = 0;
     fail_write = false;
     esl_tagfw_init(&fw, &ops);
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
     esl_radio_set_tagfw(&fw);
 }

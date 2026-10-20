@@ -88,7 +88,7 @@ class FakeAp(BaseHTTPRequestHandler):
         if not self._auth():
             return
         if self.path == "/api/layouts":
-            self._send(200, {"max_size": 8192, "max_binary_size": 768,
+            self._send(200, {"max_size": 8192, "max_binary_size": 2048,
                              "layouts": [{"model": m, "version": 1, "size": 1, "binary_size": 1,
                                           "layouts": [x["name"] for x in f["layouts"]]}
                                          for m, f in FakeAp.layouts.items()]})

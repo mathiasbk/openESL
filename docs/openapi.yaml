@@ -53,7 +53,7 @@ info:
     | `408` | over the USB port: a body that stops arriving |
     | `429` | five wrong tokens in a row: every request (also with the right token, also the `/setup` form) is refused for 60 s; not on the USB port |
     | `501` | OTA on a build or partition table without it |
-    | `507` | the tag table or the schedule is full |
+    | `507` | the tag table or the schedule is full, or NVS has no room for the content |
 
     **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become
     `?`) and rejects text that is too long with `422`: the fields share 96 bytes, one length
@@ -1074,7 +1074,7 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: out of memory }
     TableFull:
-      description: The tag table is full (`max_tags` in `GET /api/tags`), or with `at` the schedule (`max_scheduled`)
+      description: The tag table is full (`max_tags` in `GET /api/tags`, or no RAM left for more tags), NVS has no room to save the content (`no room to save it (NVS full)`; the tag keeps what it had), or with `at` the schedule (`max_scheduled`)
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -1199,12 +1199,12 @@ components:
               - $ref: "#/components/schemas/SetResult"
               - $ref: "#/components/schemas/Scheduled"
               - type: object
-                description: The table filled up during the batch (only when the same MAC ends up in two slots; rare)
+                description: The table filled up during the batch (only when the same MAC ends up in two slots, or there was no RAM for more tags; rare), or NVS had no room for its content
                 additionalProperties: false
                 required: [mac, error]
                 properties:
                   mac: { $ref: "#/components/schemas/Mac" }
-                  error: { type: string, enum: [tag table full, schedule full] }
+                  error: { type: string, enum: [tag table full, schedule full, no room to save it (NVS full)] }
 
     Scheduled:
       type: object
@@ -1258,12 +1258,13 @@ components:
     ApInfo:
       type: object
       additionalProperties: false
-      required: [fw, uptime_s, channel, max_tags, poll_s]
+      required: [fw, uptime_s, channel, max_tags, table_full, poll_s]
       properties:
         fw: { type: string, description: AP firmware version, example: "0.1.0" }
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
-        max_tags: { type: integer, minimum: 1, description: "How many tags the AP has room for (menuconfig, default 256)" }
+        max_tags: { type: integer, minimum: 1, description: "The most tags the AP keeps (menuconfig, default 1000); the C6 may run out of RAM before" }
+        table_full: { type: boolean, description: "A new tag found no room since a tag last got a slot (none free, and no RAM for more or max_tags reached): it is not listed until a slot frees" }
         poll_s:
           type: integer
           minimum: 0
@@ -1362,7 +1363,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Tag" }
       example:
-        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, poll_s: 0, reset: poweron }
+        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
         tags:
           - mac: "00000123456789A8"
             seen_s_ago: 12
@@ -1602,7 +1603,7 @@ components:
         model: { $ref: "#/components/schemas/ModelName" }
         version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version of the file the AP draws with (CRC-32 of the compiled file); null: no file" }
         size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
-        binary_size: { type: integer, minimum: 0, maximum: 768, description: Bytes of the compiled file }
+        binary_size: { type: integer, minimum: 0, maximum: 2048, description: Bytes of the compiled file }
         layouts: { type: array, items: { type: string }, description: The layout names in the file }
 
     LayoutInfo:
@@ -1615,7 +1616,7 @@ components:
       required: [max_size, max_binary_size, layouts]
       properties:
         max_size: { type: integer, const: 8192 }
-        max_binary_size: { type: integer, const: 768 }
+        max_binary_size: { type: integer, const: 2048 }
         layouts: { type: array, items: { $ref: "#/components/schemas/LayoutInfo" } }
 
     LayoutStored:
@@ -1700,7 +1701,7 @@ components:
         Keys starting with `_` and `description` are comments. Besides this structure the AP
         checks that every box is inside the screen (296×128 or 200×200), that a text box is
         at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
-        most 16 text lines and 10 rectangles per layout, and at most 768 bytes compiled.
+        most 32 text lines and 20 rectangles per layout, and at most 2048 bytes compiled.
       additionalProperties: false
       patternProperties: { "^_": true }
       required: [format, version, model, layouts]
