@@ -572,7 +572,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
     $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
-    // The first ticked tag, drawn by the tag's own code
+    // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
     const model = tags[0]?.model || Object.keys(TAG_MODELS)[0];
     const seq = ++stSeq;
