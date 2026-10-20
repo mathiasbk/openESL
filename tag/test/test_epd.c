@@ -19,6 +19,8 @@
 #include "draw.h"
 #include "layout.h"
 #include "helpers.h"
+#include "image.h"
+#include "hal/hal.h"
 #include "hal/hal_epd.h"
 
 int test_failures;
@@ -222,6 +224,48 @@ static void test_epd_stream(const char *out)
         save_ppm(out);
 }
 
+/* The same screen as an image in the SPI flash slot, streamed by epd_draw_image():
+   controller RAM ends up the same as when the scene is drawn. */
+static void test_epd_image(void)
+{
+    static const char *const f[] = { "Lettmelk 1 L", "24.90", "kr 24,90/l" };
+    static draw_scene_t sc;
+    uint8_t buf[ESL_MAX_PAYLOAD], b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
+    proto_reply_t rep;
+    int x, y, bad = 0;
+
+    uint8_t len = make_content(buf, 0, 1, ESL_LAYOUT_PRICE, ESL_CF_PRICE_HIGHLIGHT | ESL_CF_FRAME, 3, f);
+    proto_parse_reply(buf, len, &rep);
+    layout_build(&sc, &rep, buf);
+
+    fake_xflash_clear(true);
+    draw_begin(&sc);
+    for (x = 0; x < DRAW_W; x++) {
+        draw_column(&sc, (uint16_t)x, b, r);
+        memcpy(fake_xflash + IMG_SLOT + IMG_DATA_OFF + x * DRAW_COL_BYTES, b, DRAW_COL_BYTES);
+    }
+    reset_model();
+    CHECK(hal_xflash_open());
+    CHECK(epd_draw_image());
+    hal_xflash_close();
+    CHECK_EQ(n_out_of_window, 0);
+    CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);
+    CHECK_EQ(last_cmd, 0x10);
+    CHECK(asleep);
+    draw_begin(&sc);
+    for (x = 0; x < DRAW_W; x++) {
+        draw_column(&sc, (uint16_t)x, b, r);
+        for (y = 0; y < DRAW_H; y++) {
+            uint8_t m = (uint8_t)(0x80 >> (y & 7));
+            if (ram_pixel(x, y) != ((b[y >> 3] & m) ? 1 : 0))
+                bad++;
+        }
+    }
+    CHECK_EQ(bad, 0);
+    CHECK_EQ(fake_xflash_misuse, 0);
+    fake_xflash_clear(false);
+}
+
 /* The panel's EPD_INIT list is well formed: each count fits, and the list ends exactly
    where it says (a wrong count would make init_panel() read past the table on the tag). */
 static void test_epd_init_table(void)
@@ -253,6 +297,7 @@ int main(int argc, char **argv)
 {
     printf("test_epd_stream\n");
     test_epd_stream(argc > 1 ? argv[1] : NULL);
+    RUN(test_epd_image);
     RUN(test_epd_init_table);
     RUN(test_epd_no_busy);
     printf("\n%d checks, %d failures\n", test_checks, test_failures);

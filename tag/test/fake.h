@@ -5,7 +5,7 @@
 #include "compat.h"
 #include "draw.h"
 
-#define FAKE_MAX_FRAMES 16
+#define FAKE_MAX_FRAMES 80      /* a whole screen image is 52-55 blocks */
 
 /* Radio */
 extern uint8_t fake_tx[FAKE_MAX_FRAMES][128];

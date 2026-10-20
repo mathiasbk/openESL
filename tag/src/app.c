@@ -4,6 +4,7 @@
 #include "layout.h"
 #include "epd.h"
 #include "ota.h"
+#include "image.h"
 #include "hal/hal.h"
 
 #define RX_TRIES 3       /* other tags may be in the window; read up to 3 frames */
@@ -245,7 +246,7 @@ static uint8_t build_poll_frame(void)
 
     if (app.lay_rejected)
         flags |= ESL_POLL_F_LAYOUTFAIL;
-    flags |= ota_poll_flags();
+    flags |= ota_poll_flags() | image_poll_flags();
     proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags,
                      app.cfg.ver, layout_file_ver);
     return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LAYOUT);
@@ -354,6 +355,55 @@ static bool fw_transfer(void)
     return r == OTA_DONE;
 }
 
+/*
+ * reply is an IMG block (docs/protokoll.md part 1, "Image transfer"): writes it to the
+ * SPI flash and asks for the next ones in the same round, up to CFG_IMG_MAX_REQ, with
+ * lost answers handled as for FW. Returns IMAGE_DONE when the image is whole (or was
+ * in the slot already), IMAGE_STOP when the tag refused it; an unfinished download
+ * goes on at the next IMG the AP sends.
+ */
+static uint8_t image_transfer(void)
+{
+    uint8_t req = 0, miss = 0, r, n;
+
+    image_open();
+    r = image_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    while (r == IMAGE_MORE && ++req <= CFG_IMG_MAX_REQ) {
+        if ((req & 15) == 0)
+            hal_wdt_kick();
+        n = proto_build_img_req(txbuf + ESL_MAC_HDR_LEN, image.dl_id, image.dl_got, ESL_IMG_CHUNK_MAX);
+        if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
+                                              txbuf + ESL_MAC_HDR_LEN, n))) {
+            if (++miss > CFG_FW_MAX_MISS)
+                break;
+            continue;
+        }
+        if (reply.type != ESL_MSG_IMG)
+            break;                     /* the AP no longer has it */
+        r = image_block(&reply, rxbuf + rx_off + reply.field_off[0]);
+    }
+    image_close();
+    return r;
+}
+
+/* Draws the image in the slot (radio off). true = it is on the screen, and the tag
+   reports its id; the stored content is then no longer what the screen shows. */
+static bool show_image(void)
+{
+    if (!image_show()) {
+        app.poll_flags |= ESL_POLL_F_DRAWFAIL;
+        return false;
+    }
+    app.shown_id = image.slot_id;
+    shown.layout = 0;                /* no file layout on the screen: a new file changes nothing */
+    app.poll_flags &= (uint8_t)~ESL_POLL_F_DRAWFAIL;
+    if (content_len) {
+        content_len = 0;
+        app_store_save();
+    }
+    return true;
+}
+
 static uint16_t on_miss(void)
 {
     uint16_t sleep;
@@ -403,6 +453,7 @@ static void show_content(void)
         content_len = rx_plen;
         content_lay_ver = layout_file_ver;
         app_store_save();
+        image_forget();              /* the screen no longer shows the image in the slot */
     }
 }
 
@@ -443,20 +494,22 @@ void app_init(void)
     app.dl_got = 0;
     app.lay_rejected = 0;
     ota_init();
+    image_init(ota.present);
     hal_layout_store_read(layout_file, ESL_LBIN_MAX);
     layout_file_restore();
     stored_lay_ver = layout_file_ver;
     shown.layout = 0;
 
     radio_init(CFG_CHANNEL);
-    /* The last content if flash has it, else the start screen (T9) */
-    if (!show_stored_content() && !draw_status(msg_waiting))
+    /* The last image or content if flash has it, else the start screen (T9) */
+    if (!(image.slot_id && show_image()) && !show_stored_content() && !draw_status(msg_waiting))
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;
 }
 
 static uint16_t poll_round(void)
 {
     bool got, fw_done = false;
+    uint8_t img = IMAGE_MORE;        /* nothing to show */
 
     hal_wdt_kick();
     radio_on();
@@ -475,6 +528,10 @@ static uint16_t poll_round(void)
         /* The AP sends firmware only when nothing else is waiting: nothing to draw */
         fw_done = fw_transfer();
         reply.type = ESL_MSG_FW;
+        hal_wdt_kick();
+    } else if (got && reply.type == ESL_MSG_IMG) {
+        img = image_transfer();
+        reply.type = ESL_MSG_IMG;
         hal_wdt_kick();
     }
     radio_off();
@@ -496,6 +553,10 @@ static uint16_t poll_round(void)
 
     if (reply.type == ESL_MSG_CONTENT && reply.content_id != app.shown_id)
         show_content();
+    else if (img == IMAGE_DONE)
+        show_image();
+    else if (img == IMAGE_STOP)
+        app.poll_flags |= ESL_POLL_F_DRAWFAIL;   /* refused: the AP sees it and stops offering it */
     else if (app.lost_shown && app.shown_id == 0)
         draw_status(msg_waiting);    /* the AP is back but has no content for us */
     app.lost_shown = 0;

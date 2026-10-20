@@ -22,5 +22,8 @@
 
 /* Returns false if the display did not answer (BUSY never went low). */
 bool epd_draw(draw_scene_t *s);
+/* The same with the image in the SPI flash (image_column in image.h) as the source.
+   The flash must be open; its reads share SCK and MOSI with the display. */
+bool epd_draw_image(void);
 
 #endif /* EPD_H */
