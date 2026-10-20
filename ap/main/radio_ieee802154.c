@@ -6,6 +6,7 @@
 #include "esp_ieee802154.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -68,8 +69,9 @@ static volatile int tx_err = -1;
 /* A reply the radio refused (WiFi has the antenna under coexistence, say) is sent again
    while the tag still listens: it waits CFG_RX_TIMEOUT_MS (20 ms) after its POLL or
    request, and its own retry comes only after that. */
-#define TX_RETRIES       2
 #define TX_RETRY_US      12000   /* from the request's arrival */
+#define TX_RETRY_GAP_US  700     /* let a WiFi frame or another tag's frame pass */
+#define TX_RETRY_MAX     6
 
 static struct {
     uint32_t rx, polls, blocks, replies, tx_failed, tx_resent, dropped;
@@ -154,27 +156,40 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
         xSemaphoreGive(tx_idle);
         return;
     }
-    for (int tries = 0; tries < TX_RETRIES; tries++) {
-        /* Wait for it to go out; tx_idle stays given for the next request */
+    /* Wait for each try to finish; tx_idle stays given for the next request */
+    bool sent = true;
+    int first_err = -1;
+    for (int tries = 0;; tries++) {
         if (xSemaphoreTake(tx_idle, pdMS_TO_TICKS(20)) != pdTRUE)
             break;
         int e = tx_err;
-        if (e < 0 || esp_timer_get_time() - it->rx_us > TX_RETRY_US) {
+        if (e < 0) {
             xSemaphoreGive(tx_idle);
-            if (e >= 0)
-                ESP_LOGW(TAG, "reply not sent (tx error %d), too late to send again", e);
+            if (tries)
+                ESP_LOGW(TAG, "reply sent after %d resends (tx error %d)", tries, first_err);
             break;
         }
+        if (first_err < 0)
+            first_err = e;
+        if (tries >= TX_RETRY_MAX ||
+            esp_timer_get_time() + TX_RETRY_GAP_US - it->rx_us > TX_RETRY_US) {
+            xSemaphoreGive(tx_idle);
+            ESP_LOGW(TAG, "reply not sent (tx error %d) after %d resends", e, tries);
+            sent = false;
+            break;
+        }
+        esp_rom_delay_us(TX_RETRY_GAP_US);
         tx_err = -1;
         if (esp_ieee802154_transmit(tx_buf, false) != ESP_OK) {
             stats.tx_failed++;
             xSemaphoreGive(tx_idle);
+            sent = false;
             break;
         }
         stats.tx_resent++;
-        ESP_LOGW(TAG, "reply not sent (tx error %d), sent again", e);
     }
-    stats.replies++;
+    if (sent)
+        stats.replies++;
     if (us > stats.worst_us)
         stats.worst_us = us;
     if (us > 5000)
