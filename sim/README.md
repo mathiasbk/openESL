@@ -43,18 +43,16 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 1 | New tag, unknown to the AP | Start screen; the AP registers it at its first POLL (model, no content) |
 | 2 | New content (`PUT /api/tags/{mac}`) | Drawn at the next poll (G1, 2 min); the API confirms one poll later |
 | 3 | Same content again | `changed: false`, IDLE, no redraw for 5 min |
-| 4a | The first IMG block lost once | The retry in the same wake-up gets it, no miss |
-| 4b | The first IMG block lost in both tries | A miss, no backoff; the next wake-up gets it; `pending` until then |
+| 4a | CONTENT reply lost once | The retry in the same wake-up gets it, no miss |
+| 4b | CONTENT lost in both tries | A miss, no backoff; the next wake-up gets it; `pending` until then |
 | 4c | The POLL that confirms it is lost | The API stays `pending` until the next POLL |
-| 4d | The AP dies while sending the image, back after 3 min | Content survives the restart (NVS); the tag gets it when the AP is back |
-| 5 | Layout file (`PUT /api/layouts/{model}` with `tag/designs/layouts/`) and content with the `shelf` layout | The AP draws it from the file and sends the image at the next poll; no LAYOUT goes to the tag; `layout_pending: false` |
+| 4d | The AP dies while sending CONTENT, back after 3 min | Content survives the restart (NVS); the tag gets it when the AP is back |
+| 5 | Layout file (`PUT /api/layouts/{model}` with `tag/designs/layouts/`) and content with the `shelf` layout | Download and drawing in one wake-up; `layout_pending: false` |
 | 6 | CONFIG: `poll_s` 120, then back to the default | The tag sleeps 120 s, then 60 s; `config_pending: false` |
-| 7 | Tag restart with the AP off | The image comes back from the SPI flash slot (T12); no image or LAYOUT when the AP returns |
+| 7 | Tag restart with the AP off | The content comes back from flash (T12); no CONTENT or LAYOUT when the AP returns |
 | 8 | AP gone for an hour with new content waiting | The backoff reaches 600 s (T11); the tag finds the AP within 600 s and gets the content |
 | 9 | AP gone for more than 2 hours | "No AP found" (T9); content again when the AP is back |
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
-| 11 | Scheduled price (`at`) with a 5-minute interval | Drawn just after it is due, not at the next 300 s poll |
-| 12 | New tag firmware over the air (T15) | Download, install, restart and confirm; the screen is the same after the restart; a version mismatch is counted as `failed` and not offered again |
 
 The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the AP host tests, not end to end here.
 

@@ -43,7 +43,7 @@
 | Part | What to get |
 |---|---|
 | **Labels** | SoluM ST-GM29XX2 (2.9") or ST-GM16XX2 (1.54"). The 1.54" runs on one CR2450 battery, the 2.9" on two. |
-| **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD also shows a status screen. An ESP32-C5 build (16 MB flash, 8 MB PSRAM) is there too, but not tried on a board yet ([ap/boards](ap/boards/README.md)). |
+| **Access point** | Any ESP32-C6 board with USB. A board with a 0.96" LCD also shows a status screen. |
 | **For flashing labels** | A small board running atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), and a pogo-pin jig for the test pads behind the battery. OpenESL is tested with a Wemos D1 mini, but ZBS_Flasher also runs on an ESP32 or an Arduino Nano, and on most boards with about eight free pins and a serial port. |
 | **A browser** | A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer. The designer works in any modern browser. |
 
