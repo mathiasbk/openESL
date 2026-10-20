@@ -113,6 +113,67 @@ static int upload(size_t total)
     return status;
 }
 
+static void reset(void);
+
+/* One request as the AP's HTTP and serial glue hands it on (api_handle_tagfw_put in
+   ap/main/http_api.c): in pieces of piece bytes, each a part of its own */
+static int put_pieces(const char *uri, const uint8_t *body, size_t len, size_t piece)
+{
+    char puri[ESL_API_PIECE_URI_MAX];
+    int status = 200;
+    for (size_t got = 0; status == 200 && got < len; got += piece) {
+        size_t n = len - got < piece ? len - got : piece;
+        if (!esl_api_tagfw_piece_uri(uri, len, got, puri, sizeof(puri)))
+            return -1;
+        status = esl_api_handle(&api, "PUT", puri, AUTH, (const char *)body + got, n, 0, &out);
+    }
+    return status;
+}
+
+/* 16 KB parts, a whole file in one body, and a part for one tag, in 2 KB pieces */
+static void test_pieces(void)
+{
+    char buf[ESL_API_PIECE_URI_MAX];
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware?offset=16384&total=51216", 16384, 2048, buf, sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=18432&total=51216");
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware", 2064, 2048, buf, sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=2048&total=2064");
+    CHECK(esl_api_tagfw_piece_uri("/api/tag-firmware?to=0000012345678901&offset=0&total=2064", 2064, 0, buf,
+                                  sizeof(buf)));
+    CHECK_STR(buf, "/api/tag-firmware?offset=0&total=2064&to=0000012345678901");
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware?offset=0", 2064, 0, buf, sizeof(buf)));    /* goes whole: 400 */
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware/2.9", 10, 0, buf, sizeof(buf)));
+    CHECK(!esl_api_tagfw_piece_uri("/api/tags", 10, 0, buf, sizeof(buf)));
+    CHECK(!esl_api_tagfw_piece_uri("/api/tag-firmware?offset=0&total=1", 1, 0, buf, 8));          /* no room */
+
+    reset();
+    size_t total = make_file(ESL_MODEL_29, 204, 50 * 1024, 2);
+    char uri[96];
+    for (size_t off = 0; off < total; off += 16384) {
+        size_t n = total - off < 16384 ? total - off : 16384;
+        snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=%u&total=%u", (unsigned)off, (unsigned)total);
+        CHECK_INT(put_pieces(uri, file + off, n, 2048), 200);
+        if (off + n < total) {
+            snprintf(uri, sizeof(uri), "\"received\":%u,\"total\":%u}", (unsigned)(off + n), (unsigned)total);
+            CHECK(HAS(out.buf, uri));
+        }
+    }
+    CHECK(HAS(out.buf, "\"model\":\"2.9\",\"version\":\"0.2.4\",\"size\":51200"));
+    esl_tagfw_img_t img;
+    CHECK(esl_tagfw_get(&fw, ESL_MODEL_29, &img));
+    CHECK(img.crc == esl_crc32(file + ESL_FWF_HDR_LEN, 51200));
+
+    /* Whole, in one body, for one tag */
+    total = make_file(ESL_MODEL_29, 205, 2048, 3);
+    CHECK_INT(put_pieces("/api/tag-firmware?to=0000012345678901", file, total, 2048), 200);
+    CHECK(HAS(out.buf, "\"version\":\"0.2.5\""));
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, MAC));
+    CHECK(!esl_tagfw_for(&fw, ESL_MODEL_29, MAC + 1));
+    /* A bad header stops it at the first piece */
+    file[0] ^= 0xFF;
+    CHECK_INT(put_pieces("/api/tag-firmware", file, total, 2048), 422);
+}
+
 static void reset(void)
 {
     memset(mem, 0xFF, sizeof(mem));
@@ -373,6 +434,15 @@ static uint8_t poll_once(esl_faketag_t *t)
     return (uint8_t)esl_faketag_receive(t, tx, m);
 }
 
+/* One FW_REQ for the next block, and the AP's answer */
+static uint8_t fw_req_once(esl_faketag_t *t)
+{
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    size_t n = esl_faketag_fw_request(t, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 0, tx, NULL);
+    return (uint8_t)esl_faketag_receive(t, tx, m);
+}
+
 /* An image for one tag, then one more, then all; how far each one is */
 static void test_choose(void)
 {
@@ -409,6 +479,15 @@ static void test_choose(void)
     CHECK(HAS(out.buf, "\"received\":91,\"size\":2048}"));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tag-firmware/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(out.buf, "\"progress\":{\"received\":91,\"total\":2048}"));
+    /* Two more blocks; then the next POLL is answered with the block at 0 again, which
+       the tag skips: how far it is stays where it was */
+    CHECK_INT(fw_req_once(&a), ESL_MSG_FW);
+    CHECK_INT(fw_req_once(&a), ESL_MSG_FW);
+    CHECK_INT(a.fw_dl_got, 273);
+    CHECK_INT(poll_once(&a), ESL_MSG_FW);
+    CHECK_INT(a.fw_dl_got, 273);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000012345678901", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(out.buf, "\"received\":273,\"size\":2048}"));
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
     CHECK_INT(a.fw, 101);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE);
@@ -465,6 +544,7 @@ void test_tagfw(void)
     esl_sb_init(&out, resp, sizeof(resp));
     test_messages();
     test_upload();
+    test_pieces();
     test_offer();
     test_choose();
     esl_radio_set_tagfw(NULL);

@@ -39,6 +39,15 @@ void api_handle_init(void);
 int api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
 int api_handle_health(const esl_api_t *api, uint64_t now_ms, uint8_t *prev, esl_sb_t *out);
+/* api_handle() for PUT /api/tag-firmware (esl_api_tagfw_piece_uri() true), with a body of
+ * len bytes that read(ctx, buf, n) brings in (false when they did not all come): it goes
+ * on in pieces of up to piece_cap bytes, each a part of its own, so no buffer holds a
+ * whole part. The reply (the last piece's) goes to out, on resp; *got is the bytes read,
+ * short of len after an error reply. -1 when read failed. */
+typedef bool (*api_read_fn)(void *ctx, char *buf, size_t n);
+int api_handle_tagfw_put(const esl_api_t *api, const char *uri, const char *auth, size_t len, api_read_fn read,
+                         void *ctx, char *piece, size_t piece_cap, char *resp, size_t resp_cap, esl_sb_t *out,
+                         size_t *got);
 esp_err_t http_api_start(const esl_api_t *api);
 
 /* serial_api.c: the same API over the USB serial port */

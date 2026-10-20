@@ -75,6 +75,12 @@ static bool read_body(char *dst, size_t n)
     return true;
 }
 
+static bool read_piece(void *ctx, char *dst, size_t n)
+{
+    (void)ctx;
+    return read_body(dst, n);
+}
+
 static void reply(const char *seq, int status, const char *body, size_t len, bool more)
 {
     flockfile(stdout);
@@ -162,6 +168,27 @@ static void handle_line(char *line, char *resp, size_t cap)
         return;
     }
 #endif
+
+    char puri[ESL_API_PIECE_URI_MAX];
+    if (strcmp(method, "PUT") == 0 && len && esl_api_tagfw_piece_uri(uri, len, 0, puri, sizeof(puri))) {
+        /* Tag firmware goes on in pieces of the reply buffer: no buffer for the whole body */
+        char small[512];
+        esl_sb_t out;
+        size_t got;
+        int status = api_handle_tagfw_put(&serial_api, uri, "Bearer " SERIAL_TOKEN, len, read_piece, NULL, resp, cap,
+                                          small, sizeof(small), &out, &got);
+        if (status < 0) {
+            ESP_LOGW(TAG, "%s %s: body stopped arriving", method, uri);
+            static const char msg[] = "{\"error\":\"body incomplete\"}";
+            reply(seq, 408, msg, sizeof(msg) - 1, false);
+            return;
+        }
+        if (got < len)
+            read_body(NULL, len - got);
+        ESP_LOGI(TAG, "%s %s -> %d", method, uri, status);
+        reply(seq, status, out.buf, out.len, false);
+        return;
+    }
 
     char *body = NULL;
     if (len > ESL_API_MAX_BODY) {

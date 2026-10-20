@@ -483,11 +483,11 @@ void esl_store_image_known(esl_store_t *st, uint64_t mac, uint32_t content_id, u
     unlock(st);
 }
 
-void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end)
+void esl_store_fw_sent(esl_store_t *st, uint64_t mac, uint16_t ver, uint16_t end, bool offer)
 {
     lock(st);
     int idx = find(st, mac);
-    if (idx >= 0) {
+    if (idx >= 0 && !(offer && st->tags[idx].fw_got_ver == ver)) {
         st->tags[idx].fw_got_ver = ver;
         st->tags[idx].fw_got = end;
     }
