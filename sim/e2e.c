@@ -48,12 +48,92 @@ static void note(const char *fmt, ...)
     printf("\n");
 }
 
+static char *read_file(const char *path, size_t *len);
+
+/* The screen the tag drew against the one the AP draws for the same content (esl_render):
+   they must be the same bytes. Images are at most 1024 x 256 with two planes. */
+static uint8_t img_tag[1024 * 32 * 2], img_ap[1024 * 32 * 2];
+
+static int first_diff(size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        if (img_tag[i] != img_ap[i])
+            return (int)i;
+    return -1;
+}
+
 static void png(const char *name)
 {
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.png", outdir, name);
     CHECK(sim_tag_save_png(path), "could not write %s", path);
     note("screen -> %s", path);
+    if (sim_tag_shown_id()) {
+        size_t nt = sim_tag_screen(img_tag, sizeof(img_tag)), na = sim_ap_render_tag(sim_tag_mac, img_ap, sizeof(img_ap));
+        CHECK(nt && nt == na && first_diff(nt) < 0, "the AP draws the same screen (%s): %zu/%zu bytes, first difference at %d",
+              name, nt, na, nt == na ? first_diff(nt) : -1);
+    }
+}
+
+/* Every layout of a layout file, and the built-in ones, with a few sets of fields and every
+   flag combination, drawn by the tag's code and by esl_render: byte for byte the same. */
+static void render_compare_file(const char *path)
+{
+    static const char *const sets[][6] = {
+        { "Kramp", "Spann sort 12 l", "1626-160602/439", "17,25", "13,80", "x" },
+        { "Kärcher Prof.", "Nedre kuleledd, kat. 3/2 som brytes", "inkl. mva 3910,36", "3128,29", "2502,63", "æø" },
+        { "8713331002910", "4006381333931", "12345", "99,90", "79,92", "0" },
+        { "", "a", "", "", "", "" },
+        { "Åpent 9-21 ÆØÅ üé", "Kaffe filtermalt 500 g", "kr 99,80/kg", "Tilbud ut uken", "1", "2" },
+        { "Lettmelk 1 L", "24,90", "kr/l 24,90", "", "", "" },
+        { "Etlangtordutenmellomromsomikkefårplass", "Ja", "Nei", "123456789012", "x", "y" },
+    };
+    char err[200];
+    size_t len;
+    char *json = read_file(path, &len);
+    int count, cases = 0, bad = 0;
+    uint8_t layouts[2 + 16];
+    int nl = 0;
+
+    if (!json) {
+        note("%s: not found, skipped", path);
+        return;
+    }
+    count = sim_ap_compile(json, len, err, sizeof(err));
+    free(json);
+    CHECK(count > 0, "%s compiles: %s", path, err);
+    layouts[nl++] = 1;
+    layouts[nl++] = 2;
+    for (int i = 0; i < count; i++)
+        layouts[nl++] = (uint8_t)(0x10 + i);
+    for (int li = 0; li < nl; li++)
+        for (unsigned si = 0; si < sizeof(sets) / sizeof(sets[0]); si++)
+            for (uint8_t flags = 0; flags < 4; flags++) {
+                int nf = layouts[li] == 1 ? 3 : layouts[li] == 2 ? 4 : 6; /* as the API limits them */
+                const uint8_t *bin = sim_ap_bin(&len);
+                size_t na = sim_ap_render(layouts[li], flags, nf, sets[si], img_ap, sizeof(img_ap));
+                size_t nt = sim_tag_render(bin, len, layouts[li], flags, nf, sets[si], img_tag);
+                int d = nt == na && nt ? first_diff(nt) : -2;
+                cases++;
+                if (!nt || nt != na || d >= 0) {
+                    bad++;
+                    if (bad <= 5)
+                        note("DIFF %s layout 0x%02x set %u flags %u: tag %zu bytes, AP %zu bytes, first difference at %d",
+                             path, layouts[li], si, flags, nt, na, d);
+                }
+            }
+    CHECK(bad == 0, "%s: %d of %d screens differ between the tag and the AP", path, bad, cases);
+    note("%s: %d layouts, %d screens drawn by both, %d differ", path, count, cases, bad);
+}
+
+static void render_compare(const char *root)
+{
+    char path[512];
+    step("0. The AP draws what the tag draws (esl_render)");
+    snprintf(path, sizeof(path), "%s/tag/designs/layouts/%s.json", root, sim_tag_model);
+    render_compare_file(path);
+    snprintf(path, sizeof(path), "%s/ap/test/layouts/%s.json", root, sim_tag_model);
+    render_compare_file(path);
 }
 
 static int api(const char *method, const char *suffix, const char *body)
@@ -129,6 +209,8 @@ int e2e_run(const char *out, const char *root)
     snprintf(mac, sizeof(mac), "%016llX", (unsigned long long)sim_tag_mac);
     printf("End-to-end simulation: tag %s (%s\"), tag firmware tag/src + AP core ap/components/esl_core\n", mac,
            sim_tag_model);
+
+    render_compare(root);
 
     /* ------------------------------------------------------------------ */
     step("1. New tag, unknown to the AP");

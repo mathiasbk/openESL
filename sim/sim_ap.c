@@ -7,6 +7,8 @@
 #include "esl_api.h"
 #include "esl_persist.h"
 #include "esl_radio.h"
+#include "esl_render.h"
+#include "esl_text.h"
 #include "esl_sched.h"
 #include "sim.h"
 
@@ -168,6 +170,56 @@ void sim_ap_boot(void)
     ap_up = true;
     if (sim_verbose)
         printf("  [%7.1f s] AP started\n", sim_now_ms / 1000.0);
+}
+
+/* ---- drawing (esl_render) ---- */
+
+static esl_layout_bin_t cmp_bin;
+static bool cmp_has_file;
+uint8_t sim_tag_model_code(void);
+
+int sim_ap_compile(const char *json, size_t len, char *err, size_t errlen)
+{
+    cmp_has_file = esl_layout_compile(json, len, sim_tag_model_code(), &cmp_bin, err, errlen);
+    return cmp_has_file ? cmp_bin.count : 0;
+}
+
+const uint8_t *sim_ap_bin(size_t *len)
+{
+    *len = cmp_has_file ? cmp_bin.size : 0;
+    return cmp_has_file ? cmp_bin.bin : NULL;
+}
+
+static bool content_from(esl_content_t *c, uint8_t layout, uint8_t flags, int n, const char *const *fields)
+{
+    uint8_t latin[256];
+    if (esl_content_init(c, layout, flags) != ESL_CONTENT_OK)
+        return false;
+    for (int i = 0; i < n; i++) {
+        size_t l = esl_utf8_to_latin1(fields[i], strlen(fields[i]), latin, sizeof(latin), NULL);
+        if (esl_content_add_field(c, latin, l) != ESL_CONTENT_OK)
+            return false;
+    }
+    esl_content_trim(c);
+    return true;
+}
+
+size_t sim_ap_render(uint8_t layout, uint8_t flags, int n, const char *const *fields, uint8_t *out, size_t cap)
+{
+    esl_content_t c;
+    if (!content_from(&c, layout, flags, n, fields))
+        return 0;
+    return esl_render(sim_tag_model_code(), cmp_has_file ? &cmp_bin : NULL, &c, out, cap);
+}
+
+size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
+{
+    esl_tag_t t;
+    const esl_layout_t *f;
+    if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT)
+        return 0;
+    f = layouts.models[t.model - 1];
+    return esl_render(t.model, f ? &f->bin : NULL, &t.content, out, cap);
 }
 
 void sim_ap_off(void)

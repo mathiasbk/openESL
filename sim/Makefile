@@ -24,7 +24,7 @@ endif
 # The tag code is built as tools/build.py builds the host tests
 TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(TAG_FW_VER_$(1)) -DFW_VERSION_STR='"$(TAG_VERSION_$(1))"' \
              -I$(TAG)/src -I$(TAG)/boot -I$(ROOT)/shared -I$(TAG)/test
-AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared \
+AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared -I$(TAG)/src \
               -DSIM_ROOT='"$(abspath $(ROOT))"'
 
 TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/draw.c $(TAG)/src/layout.c $(TAG)/src/barcode.c \
