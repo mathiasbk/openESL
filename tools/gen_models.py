@@ -45,6 +45,8 @@ def validate(ms):
             continue
         if not re.fullmatch(r"[0-9]+", m["build"]):
             errors.append("%s: build must be digits (it is -DMODEL=<build> and ESL_MODEL_<build>)" % where)
+        if not re.fullmatch(r"[0-9A-Za-z._-]+", m["name"]):
+            errors.append("%s: name must be letters, digits, . _ or - (it names files and is split on spaces in CI)" % where)
         if not re.fullmatch(r"[a-z0-9-]+", m["id"]):
             errors.append("%s: id must be lower case letters, digits and -" % where)
         if m["chip"] not in CHIPS:

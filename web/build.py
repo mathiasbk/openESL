@@ -216,25 +216,52 @@ def tag_image_model(path):
     return None
 
 
+def ap_image(path):
+    """True when the file, or the <file>-ota.bin next to it, is an ESP32 app image (the merged
+    flasher image starts with the bootloader, so the -ota.bin is the one with the app header)"""
+    for p in (path, path[:-4] + "-ota.bin"):
+        try:
+            with open(p, "rb") as f:
+                data = f.read(80)
+        except OSError:
+            continue
+        if len(data) >= 80 and data[0] == 0xE9 and struct.unpack_from("<I", data, 32)[0] == 0xABCD5432:
+            return True
+    return False
+
+
 def add_firmware(*files):
     out = os.path.join(DIST, "firmware")
     os.makedirs(out, exist_ok=True)
-    # Sorted by what they are: the tag images by their model, the AP images by their name
+    # FIRMWARE_RELEASE is the release tag (v1.2.3) when the files come from a GitHub release;
+    # otherwise they were built from this checkout and get the VERSION file's version + "-dev"
+    release = os.environ.get("FIRMWARE_RELEASE", "")
+    # Sorted by what they are, whatever their order: the tag images by their model, the AP
+    # images by their app header and name. A file that is neither stops the build, so a wrong
+    # call in CI is not published; a release may lack a model that was added after it
     tags = {}      # build -> path
     ap = ap_lcd = "-"
     for f in files:
         if f == "-":
             continue
+        if f.endswith("-ota.bin"):
+            sys.exit("%s: give the flasher image; its -ota.bin is picked up next to it" % f)
+        if not os.path.exists(f):
+            if release:
+                print("%s: not in release %s, skipped" % (f, release))
+                continue
+            sys.exit("%s: no such file" % f)
         m = tag_image_model(f)
         if m:
             tags[m["build"]] = f
-        elif "lcd" in os.path.basename(f).lower():
-            ap_lcd = f
+        elif ap_image(f):
+            if "lcd" in os.path.basename(f).lower():
+                ap_lcd = f
+            else:
+                ap = f
         else:
-            ap = f
-    # FIRMWARE_RELEASE is the release tag (v1.2.3) when the files come from a GitHub release;
-    # otherwise they were built from this checkout and get the VERSION file's version + "-dev"
-    release = os.environ.get("FIRMWARE_RELEASE", "")
+            sys.exit("%s: neither a tag firmware image (OTA header in it or in its -ota.bin) nor an AP image "
+                     "(app header in its -ota.bin)" % f)
     info = {
         "version": release or open(os.path.join(ROOT, "VERSION")).read().strip() + "-dev",
         "release": bool(release),
@@ -243,11 +270,12 @@ def add_firmware(*files):
         "date": datetime.date.today().isoformat(),
         "tag": bool(tags),
         "ap": ap != "-",
-        "ap_lcd": ap_lcd != "-" and os.path.exists(ap_lcd),
+        "ap_lcd": ap_lcd != "-",
         # The AP and the tags each keep the version of the release they last changed in
         # (tools/fw_version.py), read from the -ota.bin images: the dashboard compares these
         # with what the AP and the tags run, so a release without changes for them offers
         # them nothing. tag_version is the first model's; tag_versions has every model's
+        # (the page names them when they differ)
         "ap_version": image_version(ap[:-4] + "-ota.bin") if ap != "-" else None,
         "tag_version": None,
         "tag_versions": {},
