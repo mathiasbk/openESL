@@ -17,7 +17,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `id` | a stable id for the model (`solum-m2-29-bw`), for when two models share a size |
 | `vendor` | the maker, for people (`SoluM`); the README's list of supported tags shows it |
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
-| `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`) |
+| `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`); a chip the firmware is built for is in `CHIPS` in `tag/tools/build.py` (see "Another chip" in `tag/README.md`) |
 | `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); a tag with its maker's firmware would be another |
 | `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), RLE coded (`ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
 | `width`, `height` | the screen in the orientation the layouts use |
