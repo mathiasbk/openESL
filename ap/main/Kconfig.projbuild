@@ -255,18 +255,18 @@ menu "OpenESL AP"
                 answers the tags through it (docs/ap-radio-link.md).
     endchoice
 
-    config ESL_LINK_UART_NUM
+    config ESL_COPROC_UART_NUM
         int "Radio coprocessor: UART"
         depends on ESL_RADIO_UART
         range 1 2
         default 1
 
-    config ESL_LINK_TX_GPIO
+    config ESL_COPROC_TX_GPIO
         int "Radio coprocessor: TX pin (to the radio's RX)"
         depends on ESL_RADIO_UART
         default 17
 
-    config ESL_LINK_RX_GPIO
+    config ESL_COPROC_RX_GPIO
         int "Radio coprocessor: RX pin (from the radio's TX)"
         depends on ESL_RADIO_UART
         default 18

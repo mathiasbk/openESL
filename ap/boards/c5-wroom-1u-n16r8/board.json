@@ -6,6 +6,7 @@
   "flash_mb": 16,
   "psram_mb": 8,
   "antenna": "external (u.FL)",
+  "radio": "native",
   "artifact": "openesl-ap-c5-n16r8",
   "release": "openesl-ap-esp32c5-n16r8",
   "status": "experimental"

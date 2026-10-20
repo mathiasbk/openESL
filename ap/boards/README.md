@@ -23,9 +23,13 @@ Each folder has:
   - `artifact`: the file names `build.py` writes in `out/` (`<artifact>.bin`, `<artifact>-ota.bin`)
   - `release`: the file names in a GitHub release (`<release>-<version>.bin`, `...-ota.bin`)
   - `status`: `supported` (tried on hardware) or `experimental`
-  - `radio`: for a chip without 802.15.4, the folder of the radio coprocessor firmware it uses
-    (`radio`: `ap/radio/`, an ESP32-C6 on UART). `build.py` builds it too, once, and the release
-    has it as `<release in radio.json>-<version>.bin`.
+  - `radio`: where the 802.15.4 radio is. `native`: on the AP chip itself (C6, C5;
+    `main/radio_ieee802154.c`). `uart`: a radio coprocessor on UART (`main/radio_uart.c`,
+    [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets
+    `CONFIG_ESL_RADIO_UART=y`.
+  - `radio_fw` (`uart` only): the folder of the coprocessor firmware (`radio`: `ap/radio/`, an
+    ESP32-C6). `build.py` builds it too, once, and the release has it as
+    `<release in radio.json>-<version>.bin`.
 - `sdkconfig.defaults`: read after `ap/sdkconfig.defaults` (settings for every board). Sets
   `CONFIG_IDF_TARGET`, the flash size and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME`, and
   anything else that differs.

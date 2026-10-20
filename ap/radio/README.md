@@ -7,5 +7,5 @@ host over UART and sends the replies the host gives it. See
 
     cd ap/radio && idf.py build          # or: cd ap && python build.py s3-n16r8-c6
 
-`ap/build.py` builds it with every board that names it (`"radio": "radio"` in board.json), into
+`ap/build.py` builds it with every board that names it (`"radio": "uart", "radio_fw": "radio"` in board.json), into
 `out/openesl-ap-radio-c6.bin` (written at 0) and `-ota.bin`.

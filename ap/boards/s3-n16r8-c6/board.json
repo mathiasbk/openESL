@@ -6,7 +6,8 @@
   "flash_mb": 16,
   "psram_mb": 8,
   "antenna": "on the module or external (u.FL), per module; the C6 radio has its own",
-  "radio": "radio",
+  "radio": "uart",
+  "radio_fw": "radio",
   "artifact": "openesl-ap-s3-n16r8",
   "release": "openesl-ap-esp32s3-n16r8",
   "status": "experimental"

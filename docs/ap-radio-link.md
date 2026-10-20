@@ -21,7 +21,7 @@ Status: experimental. Both images build; it has not been tried on hardware yet.
 | GND | GND |
 | 5V or 3V3 | 5V or 3V3 |
 
-The pins can be changed in menuconfig: `ESL_LINK_TX_GPIO`/`ESL_LINK_RX_GPIO` on both sides.
+The pins can be changed in menuconfig: `ESL_COPROC_TX_GPIO`/`ESL_COPROC_RX_GPIO` on both sides.
 Both chips keep their USB port for flashing and the log.
 
 ## Flashing
@@ -37,8 +37,8 @@ later steps in the issue.
 
 ## The link
 
-UART at 921600 baud, 8N1, no flow control. Code: `ap/components/esl_link` (tested on the PC
-in `ap/test/test_link.c`), used by `ap/main/radio_uart.c` on the host and `ap/radio/` on the C6.
+UART at 921600 baud, 8N1, no flow control. Code: `ap/components/esl_coproc` (tested on the PC
+in `ap/test/test_coproc.c`), used by `ap/main/radio_uart.c` on the host and `ap/radio/` on the C6.
 
 Every message is one frame: `A5 type len payload[len] crc16` (CRC-16/CCITT-FALSE over type, len
 and payload, little-endian). The receiver hunts for `A5`, so the C6's boot text or a frame cut

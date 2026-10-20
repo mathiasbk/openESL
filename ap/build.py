@@ -7,9 +7,9 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py --list             the boards: id, chip, status, file name
   python build.py --release          "<artifact> <release name>" per board (release.yml)
 
-A board with "radio" in board.json (an AP host without 802.15.4, such as the ESP32-S3) also
-builds that radio coprocessor firmware (<radio>/radio.json, e.g. radio/: an ESP32-C6), once,
-into the same files in out/ and in the release.
+A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
+also builds the radio coprocessor firmware its "radio_fw" names (<radio_fw>/radio.json, e.g.
+radio/: an ESP32-C6), once, into the same files in out/ and in the release.
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -58,7 +58,11 @@ def load_radios(boards):
     """The radio coprocessor firmware the boards use, each once, in board order."""
     radios = []
     for b in boards:
-        name = b.get("radio")
+        if b.get("radio", "native") not in ("native", "uart"):
+            sys.exit("board %s: radio must be \"native\" or \"uart\"" % b["id"])
+        name = b.get("radio_fw")
+        if b.get("radio") == "uart" and not name:
+            sys.exit("board %s: radio \"uart\" needs radio_fw, the coprocessor firmware" % b["id"])
         if not name or any(r["id"] == name for r in radios):
             continue
         path = os.path.join(HERE, name, "radio.json")
