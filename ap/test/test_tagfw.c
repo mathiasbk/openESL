@@ -154,6 +154,48 @@ static void test_messages(void)
     /* a block past the end of the image */
     n = esl_fw_msg_build(p, 0, 1, 1024, 1023, 0, ESL_MODEL_29, d, 3);
     CHECK(!esl_reply_parse(p, n, &rep));
+
+    /* IMG / IMG_REQ: a screen image, the same shape as FW */
+    esl_img_req_t ir = {ESL_MODEL_29, ESL_IMG_CHUNK_MAX, 0x89ABCDEFu, 4600}, iq;
+    CHECK_INT(esl_img_req_build(p, &ir), ESL_IREQ_LEN);
+    CHECK_MEM(p, "\x0A\x01\x01\x5C\xEF\xCD\xAB\x89\xF8\x11", ESL_IREQ_LEN);
+    CHECK(esl_img_req_parse(p, ESL_IREQ_LEN, &iq));
+    CHECK_INT(iq.model, ESL_MODEL_29);
+    CHECK_INT(iq.max, 92);
+    CHECK(iq.id == 0x89ABCDEFu);
+    CHECK_INT(iq.pos, 4600);
+    CHECK(!esl_img_req_parse(p, ESL_IREQ_LEN - 1, &iq));
+    p[0] = ESL_MSG_FW_REQ;
+    CHECK(!esl_img_req_parse(p, ESL_IREQ_LEN, &iq));
+
+    n = esl_img_msg_build(p, 300, 0x89ABCDEFu, 4736, 92, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK_INT(n, ESL_IMG_HDR_LEN + 3);
+    CHECK_MEM(p, "\x09\x01\x2C\x01\xEF\xCD\xAB\x89\x80\x12\x5C\x00\x01\x00\x07\x08\x09", n);
+    CHECK(esl_reply_parse(p, n, &rep));
+    CHECK_INT(rep.type, ESL_MSG_IMG);
+    CHECK_INT(rep.next_poll_s, 300);
+    CHECK(rep.img_id == 0x89ABCDEFu);
+    CHECK_INT(rep.layout_size, 4736);
+    CHECK_INT(rep.layout_pos, 92);
+    CHECK_INT(rep.fw_model, ESL_MODEL_29);
+    CHECK_INT(rep.img_fmt, ESL_IMG_FMT_RAW);
+    CHECK_INT(rep.layout_len, 3);
+    CHECK_INT(rep.layout_data[2], 9);
+    /* a full block, one past the end, id 0, an empty image, a short header */
+    uint8_t big[ESL_IMG_CHUNK_MAX + 1];
+    memset(big, 0xA5, sizeof(big));
+    n = esl_img_msg_build(p, 0, 1, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, big, sizeof(big));
+    CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
+    CHECK(esl_reply_parse(p, n, &rep));
+    CHECK_INT(rep.layout_len, ESL_IMG_CHUNK_MAX);
+    n = esl_img_msg_build(p, 0, 1, 4736, 4735, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 2);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 0, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 1, 0, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 0);
+    CHECK(!esl_reply_parse(p, n, &rep));
+    n = esl_img_msg_build(p, 0, 1, 4736, 0, ESL_MODEL_29, ESL_IMG_FMT_RAW, d, 3);
+    CHECK(!esl_reply_parse(p, ESL_IMG_HDR_LEN - 1, &rep));
 }
 
 static void test_upload(void)

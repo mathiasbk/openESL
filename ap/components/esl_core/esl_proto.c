@@ -143,6 +143,46 @@ size_t esl_fw_msg_build(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16
     return ESL_FW_HDR_LEN + n;
 }
 
+bool esl_img_req_parse(const uint8_t *p, size_t len, esl_img_req_t *out)
+{
+    if (len < ESL_IREQ_LEN || p[0] != ESL_MSG_IMG_REQ || p[1] != ESL_PROTO_VER)
+        return false;
+    out->model = p[ESL_IREQ_OFF_MODEL];
+    out->max = p[ESL_IREQ_OFF_MAX];
+    out->id = get32(&p[ESL_IREQ_OFF_ID]);
+    out->pos = get16(&p[ESL_IREQ_OFF_POS]);
+    return true;
+}
+
+size_t esl_img_req_build(uint8_t *out, const esl_img_req_t *req)
+{
+    out[0] = ESL_MSG_IMG_REQ;
+    out[1] = ESL_PROTO_VER;
+    out[ESL_IREQ_OFF_MODEL] = req->model;
+    out[ESL_IREQ_OFF_MAX] = req->max;
+    put32(&out[ESL_IREQ_OFF_ID], req->id);
+    put16(&out[ESL_IREQ_OFF_POS], req->pos);
+    return ESL_IREQ_LEN;
+}
+
+size_t esl_img_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t id, uint16_t size, uint16_t pos,
+                         uint8_t model, uint8_t fmt, const uint8_t *data, size_t n)
+{
+    if (n > ESL_IMG_CHUNK_MAX)
+        n = ESL_IMG_CHUNK_MAX;
+    out[0] = ESL_MSG_IMG;
+    out[1] = ESL_PROTO_VER;
+    put16(&out[ESL_OFF_NEXT_POLL], next_poll_s);
+    put32(&out[ESL_IMG_OFF_ID], id);
+    put16(&out[ESL_IMG_OFF_SIZE], size);
+    put16(&out[ESL_IMG_OFF_POS], pos);
+    out[ESL_IMG_OFF_MODEL] = model;
+    out[ESL_IMG_OFF_FMT] = fmt;
+    if (n)
+        memcpy(&out[ESL_IMG_OFF_DATA], data, n);
+    return ESL_IMG_HDR_LEN + n;
+}
+
 size_t esl_layout_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t ver, uint16_t size, uint16_t pos,
                             const uint8_t *data, size_t n)
 {
@@ -238,6 +278,19 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
         out->layout_data = &p[ESL_FW_OFF_DATA];
         out->layout_len = len - ESL_FW_HDR_LEN;
         return out->fw_ver != 0 && out->layout_pos <= out->layout_size &&
+               out->layout_len <= (size_t)(out->layout_size - out->layout_pos);
+    }
+    if (out->type == ESL_MSG_IMG) {
+        if (len < ESL_IMG_HDR_LEN || len > ESL_MAX_PAYLOAD)
+            return false;
+        out->img_id = get32(&p[ESL_IMG_OFF_ID]);
+        out->layout_size = get16(&p[ESL_IMG_OFF_SIZE]);
+        out->layout_pos = get16(&p[ESL_IMG_OFF_POS]);
+        out->fw_model = p[ESL_IMG_OFF_MODEL];
+        out->img_fmt = p[ESL_IMG_OFF_FMT];
+        out->layout_data = &p[ESL_IMG_OFF_DATA];
+        out->layout_len = len - ESL_IMG_HDR_LEN;
+        return out->img_id != 0 && out->layout_size != 0 && out->layout_pos <= out->layout_size &&
                out->layout_len <= (size_t)(out->layout_size - out->layout_pos);
     }
     if (out->type == ESL_MSG_CONFIG) {

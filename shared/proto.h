@@ -39,6 +39,9 @@
 #define ESL_POLL_F_LAYOUTFAIL 0x04  /* tagen avviste layoutfila AP-en tilbød sist (for stor, feil CRC, ugyldig) */
 #define ESL_POLL_F_OTA       0x08   /* the tag takes firmware over the air (FW / FW_REQ below) */
 #define ESL_POLL_F_FWFAIL    0x10   /* the tag rejected or rolled back the firmware version the AP offers */
+#define ESL_POLL_F_IMAGE     0x20   /* the tag shows images drawn by the AP (IMG / IMG_REQ below); content_id
+                                     * in its POLL is then the image_id it shows. The AP sends CONTENT and
+                                     * LAYOUT only to tags without this flag. */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -154,6 +157,46 @@
 #define ESL_FREQ_OFF_VER     4      /* u16 version being downloaded */
 #define ESL_FREQ_OFF_POS     6      /* u16 first byte the tag is missing */
 #define ESL_FREQ_OFF_CRC     8      /* u32 CRC-32 of the image being downloaded */
+
+/* ---- Image transfer (docs/protokoll.md part 1, "Image transfer") ----
+ * The AP draws the whole screen and the tag only shows it. The same pattern as the
+ * firmware transfer: the AP answers a POLL that has ESL_POLL_F_IMAGE and a content_id
+ * other than the image the AP wants shown with the first IMG block (after CONFIG,
+ * before FW); the tag asks for the rest with IMG_REQ, keeps the bytes in its SPI flash
+ * and writes them to the panel when it has them all. image_id is the CRC-32 of the
+ * image bytes as sent (size bytes), so the same picture always has the same id and is
+ * never sent twice; a CRC of 0 is sent as 1, since 0 means "no image". */
+
+#define ESL_MSG_IMG          0x09   /* AP -> tag: one block of a screen image */
+#define ESL_MSG_IMG_REQ      0x0A   /* tag -> AP: ask for the next block */
+
+/* IMG, 14 byte header + up to ESL_IMG_CHUNK_MAX bytes of data.
+ * next_poll_s at ESL_OFF_NEXT_POLL as in IDLE. */
+#define ESL_IMG_HDR_LEN      14
+#define ESL_IMG_OFF_ID       4      /* u32 image_id: CRC-32 (IEEE) of the size bytes sent, 0 sent as 1 */
+#define ESL_IMG_OFF_SIZE     8      /* u16 image size in bytes (the bytes sent, so a compressed image is shorter) */
+#define ESL_IMG_OFF_POS      10     /* u16 where in the image the data starts */
+#define ESL_IMG_OFF_MODEL    12     /* u8 tag model the image is drawn for */
+#define ESL_IMG_OFF_FMT      13     /* u8 ESL_IMG_FMT_* */
+#define ESL_IMG_OFF_DATA     14
+#define ESL_IMG_CHUNK_MAX    (ESL_MAX_PAYLOAD - ESL_IMG_HDR_LEN - ESL_MIC_RESERVE)   /* 92 */
+
+/* fmt: how the image bytes are laid out. ESL_IMG_FMT_RAW is 1 bit per pixel in screen
+ * coordinates, column by column as the tag's draw_column() gives it: (height + 7) / 8
+ * bytes per column, byte 0 bit 7 = row 0 (the top), column 0 (the left) first; the black
+ * plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a
+ * pixel is never set in both. The tag's epd layer rotates, transposes and inverts it for
+ * its panel. size is then exactly planes x width x ((height + 7) / 8) (4736 on the 2.9",
+ * 5000 on the 1.54"). Other values are reserved for compressed images, which may be no
+ * larger than the tag's image slot; a tag refuses a format it does not know. */
+#define ESL_IMG_FMT_RAW      0
+
+/* IMG_REQ, 10 byte */
+#define ESL_IREQ_LEN         10
+#define ESL_IREQ_OFF_MODEL   2      /* u8 tag model */
+#define ESL_IREQ_OFF_MAX     3      /* u8 most data bytes the tag wants (1..ESL_IMG_CHUNK_MAX) */
+#define ESL_IREQ_OFF_ID      4      /* u32 image_id being downloaded */
+#define ESL_IREQ_OFF_POS     8      /* u16 first byte the tag is missing */
 
 /* The image: the application linked from ESL_FW_APP_BASE (page 0 holds the bootloader),
  * at most up to the layout store page. */
