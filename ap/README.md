@@ -1,6 +1,6 @@
 # AP firmware (ESP32-C6, ESP-IDF)
 
-One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
+One ESP32-C6 is the whole AP: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag, and draws each tag's screen from them. Plan and requirements: [docs/ap-firmware.md](../docs/ap-firmware.md). API and radio protocol: [docs/protokoll.md](../docs/protokoll.md).
 
 **Status:** the core, the HTTP API (including layout files, per-tag settings and the status page), the radio receive path, the layout transfer and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, layout files downloaded block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
 
@@ -51,13 +51,26 @@ ap/
 
 ## How content and diffing work
 
-- `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag.
+- `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag. A tag that shows images reports the image id (CRC-32 of the image bytes) in POLL instead; the API shows it as `shown_image_id`, and `shown_content_id` is the content's id while the tag shows that content's image.
 - Trailing empty fields are removed before the id is computed, so `["a",""]` and `["a"]` are the same content.
 - Content with a layout from a layout file is stored by name; the id covers the name, so it is the same on both models. The store turns the name into "layout n of the file" for the tag's model each time it answers a POLL.
 - Text is converted to Latin-1. The fields share 96 bytes (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`: what is left of the 110-byte payload after the header and the 4 bytes reserved for a MIC), one length byte per field plus the text, so the AP rejects more than 92 bytes of text with four fields, or 90 with six, with `422`. Empty fields at the end are dropped first and cost nothing. `tag/tools/label_design.py` checks the same limit.
 - A tag is `pending` until it has reported the correct `content_id` in a POLL. After an AP restart the content is read from NVS; a tag that already shows it gets IDLE, not a redraw.
 - Every tag the AP has heard stays in the table across a restart or an OTA update, also one that only polls and has no content: what it said last (model, firmware, battery, signal) and the wall-clock time of its last POLL are kept in NVS (`s<slot>` in `esl_tags`, `esl_persist.h`). The record is written when a tag is new or changes model or firmware, every hour for the tags heard since, and right before an OTA restart, so one small write per tag per hour at most. After the restart such a tag shows those values with `seen_s_ago` counted from that time (once the AP knows the time again), and after the usual quiet period it is flagged `unseen` like any tag that has not polled since the restart; a tag that went quiet before the update is not forgotten. Flashing over USB from the web page without "Erase device" keeps it too. Erasing the flash (the web flasher's "Erase device", `idf.py erase-flash`) clears everything; use `esl-client backup` and `restore` for that.
 - Unknown tags that send POLL are added to the table without content (`content_id:0`). If the table is full, the tag that was seen longest ago and has no content is replaced when a client sends content for a new MAC.
+
+## How the AP draws a screen
+
+`esl_render.c` draws a tag's screen from its content, for the tag's model, and the tag only shows the image (`esl_image.h`, protokoll.md part 1 "Image transfer"). The page's previews (`web/`) and `tag/tools/render_host.py` run the same code, so what they show is what the tag gets.
+
+- A layout is a list of elements: a text element puts one field in a box, a rectangle element fills a box, a barcode element draws a field as Code 128 or EAN-13 (`tag/src/barcode.c`). Rectangles are drawn first, then the barcode, then the text; white text clears pixels, so white text on a black rectangle gives an inverted field.
+- **Text that is too long:** Each text element has a list of up to three fonts. The first font in which every character exists and the text fits on the element's lines, without truncation and without breaking a word, is used. If none fits, the last font is used, wrapped, and the last line ends with "…". Lines break at the last space that fits; a lone unit like "g" at the end goes down together with the number before it.
+- Layout 1, "price": the name at the top, in the medium font on up to two lines (three on the 1.54"), or in the small font on up to three lines. The price right-aligned in the large font, then the mid font, then the medium font (e.g. "2 for 30", which the price fonts lack); all three sit on the same baseline. If flag bit 0 is set the price is inverted: white digits in a black box, `ESL_INVERT_PAD` pixels around the font cell, right-aligned at the margin. The box must hold the whole font cell, so on the 2.9" a highlighted price uses the mid font; the 1.54" has room for the large one. The subtitle in the small font at the bottom.
+- Layout 2, "text": four lines in the medium font, or the small font for a line that does not fit. On the 1.54" each line may use two text lines.
+- Flag bit 1 gives a black frame around the whole screen.
+- Layouts from a layout file (A12-A14, below) use the same elements.
+
+Choices: **Highlighted price:** `price_highlight` gives white digits in a black box (like the stock SoluM firmware), not just bold black. On the 2.9" the box only fits the mid font (36 px), so a highlighted price is smaller than a plain one. **Shrinking text:** a long name or text line changes to the small font before it is truncated. This shows more of the text, but labels side by side can end up with different font sizes.
 
 ## HTTP API
 
@@ -170,7 +183,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 ## Dashboard on the AP
 
-`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
+`http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with its screen as the AP draws it and what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The status page links to it.
 
 The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 23 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 

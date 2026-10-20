@@ -1096,8 +1096,7 @@ async function apSend() {
   let note = uploaded ? ` The AP did not have the layout "${name}", so the layout file was uploaded first.` : "";
   const t = ap.tags.find((x) => x.mac === mac);
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
-  // A tag that shows the AP's images has no layout file of its own: the AP's file is the one to compare
-  if (!uploaded && !isBuiltin() && res.ok && t && !t.image && t.layout_version !== res.version && ap.fileVersion !== res.version) {
+  if (!uploaded && !isBuiltin() && res.ok && t && t.layout_version !== res.version && ap.fileVersion !== res.version) {
     note = " The tag has another version of the layout file than the editor; upload the file too.";
   }
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
