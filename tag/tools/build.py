@@ -9,7 +9,8 @@ Build script for the tag firmware. Works with and without make (the Makefile onl
                                   (MODEL=<build> from shared/models.json: 154 for the 1.54"
                                   -> build/fw154/; default 29)
   python tools/build.py hwtest    HAL bring-up program -> build/hwtest/hwtest.bin
-                                  (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead)
+                                  (HWTEST_MAIN=src/hal/zbs243/adcprobe.c builds an experiment instead;
+                                  HWTEST_CHIP=<chip> for another chip in CHIPS, default zbs243)
   python tools/build.py fonts     regenerates fonts/font_*.c from fonts/src/
   python tools/build.py clean
 
@@ -88,11 +89,55 @@ def host_model():
     return models.load()[0]["build"]
 
 
-HAL_SOURCES = ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"]
-FW_SOURCES = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS + HAL_SOURCES + \
-    ["src/hal/zbs243/xflash_zbs243.c"]
-BOOT_SOURCES = ["boot/boot_zbs243.c", "boot/boot_core.c"]
-HWTEST_SOURCES = [os.environ.get("HWTEST_MAIN", "src/hal/zbs243/hwtest.c")] + HAL_SOURCES
+# The chips the tag firmware is built for, by "chip" in shared/models.json (tools/gen_models.py
+# refuses a model whose chip is not here). A chip is its hardware layer in src/hal/<chip>/ (what
+# src/hal/hal.h and hal_epd.h declare), its bootloader in boot/<chip>/ (the functions in
+# boot/boot_core.h) and an entry here; everything else in src/ is the same for every chip.
+#   hal       the hardware layer, in the firmware and in hwtest
+#   hal_fw    the rest of it that only the firmware needs
+#   boot      the bootloader, linked alone at 0 (boot_core.c holds its decisions)
+#   hwtest    the bring-up program (python tools/build.py hwtest; HWTEST_MAIN picks another)
+#   build     how it is compiled: build_8051 (SDCC, MCS-51) for the ZBS243
+#   code_size, boot_size   the application ends below code_size and starts at boot_size; these
+#             must be ESL_FW_APP_END and ESL_FW_APP_BASE in shared/proto.h, which the bootloader,
+#             src/ota.c and the AP (esl_tagfw.c) use for every chip (cmd_fw checks it)
+CHIPS = {
+    "zbs243": {
+        "hal": ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"],
+        "hal_fw": ["src/hal/zbs243/xflash_zbs243.c"],
+        "boot": ["boot/zbs243/boot_zbs243.c", "boot/boot_core.c"],
+        "hwtest": "src/hal/zbs243/hwtest.c",
+        "build": "build_8051",
+        "code_size": CODE_SIZE,
+        "boot_size": BOOT_SIZE,
+    },
+}
+# What the firmware is built from besides the chip's own files
+FW_COMMON = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS
+
+
+def chip_of(m):
+    if m["chip"] not in CHIPS:
+        sys.exit("model %s: no tag firmware for chip %s (CHIPS in tag/tools/build.py)" % (m["name"], m["chip"]))
+    return CHIPS[m["chip"]]
+
+
+def proto_define(name):
+    """A number #defined in shared/proto.h ("0x0400u" -> 1024)"""
+    import re
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        mt = re.search(r"^#define\s+%s\s+(0x[0-9A-Fa-f]+|[0-9]+)u?\b" % name, f.read(), re.M)
+    if not mt:
+        sys.exit("shared/proto.h has no %s" % name)
+    return int(mt.group(1), 0)
+
+
+def check_app_area(name, chip):
+    """The OTA format (ESL_FW_APP_BASE/END in shared/proto.h) is the same for every chip so far"""
+    base, end = proto_define("ESL_FW_APP_BASE"), proto_define("ESL_FW_APP_END")
+    if (chip["boot_size"], chip["code_size"]) != (base, end):
+        sys.exit("chip %s: boot_size/code_size 0x%X/0x%X are not ESL_FW_APP_BASE/END 0x%X/0x%X in shared/proto.h" %
+                 (name, chip["boot_size"], chip["code_size"], base, end))
 
 
 def find_cc():
@@ -222,14 +267,19 @@ def cmd_fw():
     if not m:
         sys.exit("MODEL must be one of %s (shared/models.json)" % ", ".join(x["build"] for x in ms))
     model = m["build"]
+    chip = chip_of(m)
+    check_app_area(m["chip"], chip)
+    if chip["build"] != "build_8051":
+        sys.exit("chip %s: build.py has no %s yet" % (m["chip"], chip["build"]))
     subdir = models.fw_dir(m)
-    boot = build_8051(subdir + "/boot", "boot", BOOT_SOURCES, code_loc=0, limit=BOOT_SIZE, model="--model-small")
-    app = build_8051(subdir, "app", FW_SOURCES, ["-DMODEL=" + model, "-DFONT_TEXT_ONLY"], code_loc=BOOT_SIZE, limit=CODE_SIZE,
-                     tag_model=model)
+    boot_size = chip["boot_size"]
+    boot = build_8051(subdir + "/boot", "boot", chip["boot"], code_loc=0, limit=boot_size, model="--model-small")
+    app = build_8051(subdir, "app", FW_COMMON + chip["hal"] + chip["hal_fw"], ["-DMODEL=" + model, "-DFONT_TEXT_ONLY"],
+                     code_loc=boot_size, limit=chip["code_size"], tag_model=model)
     app += b"\xFF" * (-len(app) % 1024)   # the bootloader copies whole 1 KB pages
     out = os.path.join(BUILD, subdir)
     with open(os.path.join(out, "openesl.bin"), "wb") as f:
-        f.write(boot + b"\xFF" * (BOOT_SIZE - len(boot)) + app)
+        f.write(boot + b"\xFF" * (boot_size - len(boot)) + app)
     code = m["code"]                        # ESL_MODEL_* in shared/models_gen.h
     _, fw_ver = read_version(model)
     hdr = struct.pack("<IBBHII", OTA_FILE_MAGIC, OTA_FILE_FORMAT, code, fw_ver, len(app), crc32(app))
@@ -240,7 +290,13 @@ def cmd_fw():
 
 
 def cmd_hwtest():
-    build_8051("hwtest", "hwtest", HWTEST_SOURCES)
+    # The ZBS243 unless HWTEST_CHIP names another chip in CHIPS
+    name = os.environ.get("HWTEST_CHIP", "zbs243")
+    if name not in CHIPS:
+        sys.exit("HWTEST_CHIP=%s: not a chip in CHIPS (%s)" % (name, ", ".join(CHIPS)))
+    chip = CHIPS[name]
+    build_8051("hwtest", "hwtest", [os.environ.get("HWTEST_MAIN", chip["hwtest"])] + chip["hal"],
+               limit=chip["code_size"])
 
 
 def cmd_fonts():
