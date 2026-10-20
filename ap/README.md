@@ -205,6 +205,17 @@ idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
 
 The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed.
 
+**Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:
+
+| Way | NVS (tags, layouts, WiFi, token) |
+|---|---|
+| The web page's Flash AP tab without "Erase device" | kept: it writes the bootloader, the partition table, blank `otadata` and the app in `ota_0`, nothing else |
+| `esl-client --serial <port> ota openesl-ap-...-ota.bin --wait` | kept: the same as an OTA update over WiFi, through the USB port (`POST /api/ota` in parts); the partition table is not changed |
+| `idf.py flash` | kept, as the web page |
+| The release's single `openesl-ap-esp32c6-v<version>.bin` written at 0x0 (`esptool write_flash 0x0 ...`) | **erased**: the file is one image from 0x0 to the end of the app, and the gap between the partition table and the app (NVS and `otadata`) is blank bytes |
+
+So the single file is only for a new board or one that is erased anyway. When a release needs a new partition table (as when `tagfw` came), use the web page without "Erase device", or take `esl-client backup ap.json` first.
+
 ## Tests on the PC
 
 ```bash
