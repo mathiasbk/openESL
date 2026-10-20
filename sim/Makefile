@@ -10,8 +10,10 @@ CC      ?= cc
 ROOT    := $(abspath ..)
 TAG     := $(ROOT)/tag
 CORE    := $(ROOT)/ap/components/esl_core
-VERSION := $(shell python3 $(ROOT)/tools/fw_version.py tag)
-FW_VER  := $(shell echo $(VERSION) | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3}')
+# The firmware version of one tag model (tools/fw_version.py tag-<build>), as text and as the
+# number the tag sends in POLL
+tag_version = $(shell python3 $(ROOT)/tools/fw_version.py tag-$(1))
+tag_fw_ver  = $(shell python3 $(ROOT)/tools/fw_version.py tag-$(1) | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3}')
 
 WARN    := -Wall -Wextra -g -O1
 ifeq ($(SAN),1)
@@ -19,7 +21,7 @@ WARN    += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 # The tag code is built as tools/build.py builds the host tests
-TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(FW_VER) -DFW_VERSION_STR='"$(VERSION)"' \
+TAG_CFLAGS = -std=c99 $(WARN) -DMODEL=$(1) -DFW_VERSION=$(call tag_fw_ver,$(1)) -DFW_VERSION_STR='"$(call tag_version,$(1))"' \
              -I$(TAG)/src -I$(TAG)/boot -I$(ROOT)/shared -I$(TAG)/test
 AP_CFLAGS  := -std=c11 $(WARN) -Werror -Wpedantic -I$(CORE)/include -I$(ROOT)/shared \
               -DSIM_ROOT='"$(abspath $(ROOT))"'
