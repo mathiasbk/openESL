@@ -406,3 +406,7 @@ details.help > summary { cursor: pointer; color: var(--accent); font-size: 14px;
 details.help > p { max-width: 62ch; }
 .dash :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+
+/* Flash AP: the board list */
+.board-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 12px 0; font-weight: 600; }
+.board-choice select { max-width: 100%; font-weight: normal; }

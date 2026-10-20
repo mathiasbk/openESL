@@ -20,7 +20,7 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 export const fmtVer = (v) => `${Math.floor(v / 10000)}.${Math.floor(v / 100) % 100}.${v % 100}`;
 
 // What a firmware file is: { kind: "tag", model, version, size } for openesl-tag-*-ota.bin,
-// { kind: "ap", size, version } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin), or
+// { kind: "ap", size, version, chip } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin), or
 // { kind: null, error } for anything else, such as the flasher's openesl.bin or the
 // AP's merged image.
 export function firmwareKind(data) {
@@ -30,12 +30,16 @@ export function firmwareKind(data) {
     return { kind: "tag", model, version: fmtVer(u16(data, 6)), ver: u16(data, 6), size: u32(data, 8) };
   }
   // The AP checks the rest (chip, app description) and refuses what it cannot boot
-  if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length, version: appVersion(data) };
+  if (data.length >= 32 && data[0] === 0xe9) return { kind: "ap", size: data.length, version: appVersion(data), chip: CHIPS[u16(data, 12)] ?? null };
   return {
     kind: null,
-    error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-esp32c6-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
+    error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-<board>-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
   };
 }
+
+// chip_id in the ESP32 image header, as GET /api/ota names the chip ("chip")
+const CHIPS = { 13: "esp32c6", 23: "esp32c5" };
+const chipName = (c) => c.toUpperCase().replace(/^ESP32/, "ESP32-");
 
 // The version in an ESP32 app image (the VERSION file it was built from), or null: the image
 // header (24 bytes) and the first segment's header (8) come before esp_app_desc_t, whose
@@ -61,19 +65,23 @@ export function cmpVersion(a, b) {
 }
 
 // The AP image on this page that fits the AP, from GET /api/ota and the page's info.json:
-// the one with the status screen when the AP has one ("display" in GET /api/ota; an AP
-// whose firmware does not say gets the plain one, as most have no screen).
-// { file, version, newer } or null when the page has no AP image. version is the AP image's
+// one for its chip ("chip"; an AP whose firmware does not say is an ESP32-C6), with the status
+// screen when the AP has one ("display"; one that does not say gets the plain one, as most
+// have no screen). The boards are ap_boards in info.json; one from before that has the C6
+// images only. { file, version, newer, display } or null when the page has no AP image. version is the AP image's
 // own (ap_version in info.json: the release the AP last changed in), so a release that
 // changed only the tags is not newer for the AP; an info.json from before it has only the
 // release's version.
 export function apImageFor(ota, info) {
-  const lcd = ota?.display === true && info?.ota?.["ap-openesl-lcd"];
-  const file = lcd ? "ap-openesl-lcd-ota" : info?.ota?.["ap-openesl"] ? "ap-openesl-ota" : null;
-  if (!file) return null;
+  const boards = (info?.ap_boards || [
+    { file: "ap-openesl", target: "esp32c6", display: false },
+    { file: "ap-openesl-lcd", target: "esp32c6", display: true },
+  ]).filter((b) => info?.ota?.[b.file] && b.target === (ota?.chip || "esp32c6"));
+  const b = boards.find((x) => !!x.display === (ota?.display === true)) || boards.find((x) => !x.display);
+  if (!b) return null;
   const version = String(info.ap_version || info.version).replace(/^v/, "");
   const c = cmpVersion(version, ota?.version);
-  return { file, version, newer: info.release === true && c !== null && c > 0 };
+  return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: !!b.display };
 }
 
 // What to ask before new AP firmware goes out: kind is firmwareKind() of the image, ota
@@ -83,6 +91,8 @@ export function apSendQuestion(kind, ota, lcd = null) {
   const running = ota?.version;
   const c = cmpVersion(kind.version, running);
   lines.push(kind.version && running ? `Send AP firmware ${kind.version} to the AP? It runs ${running} now.` : "Send new firmware to the AP?");
+  if (kind.chip && ota?.chip && kind.chip !== ota.chip)
+    lines.push(`This image is for the ${chipName(kind.chip)}, and this AP is an ${chipName(ota.chip)}: it will refuse it.`);
   if (c === 0) lines.push(`That is the version it already runs.`);
   else if (c < 0) lines.push(`That is older than what it runs.`);
   if (lcd !== null && typeof ota?.display === "boolean" && lcd !== ota.display)
