@@ -913,6 +913,21 @@ static void test_image_send(void)
     CHECK_INT(images.buf[1].mac, 0);
     CHECK_INT(images.drawn, 1);
 
+    /* GET .../image: the same bytes, for the dashboard; also for a tag that draws itself */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"model\":\"2.9\",\"width\":296,\"height\":128"));
+    CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)id);
+    {
+        const char *d = strstr(resp, "\"data\":\"");
+        const char *e = d ? strchr(d + 8, '"') : NULL;
+        CHECK(e && (size_t)(e - d - 8) == (esl_render_size(ESL_MODEL_29) + 2) / 3 * 4);
+    }
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029B/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)id); /* the same content */
+    CHECK_INT(images.drawn, 1);                                  /* not through the buffers */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000999/image", AUTH, NULL, 0, 0, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags/000000000000029A/image", AUTH, "{}", 2, 0, &out), 405);
+
     /* the same content again gives the same image: nothing to send */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 121000), ESL_MSG_IDLE);

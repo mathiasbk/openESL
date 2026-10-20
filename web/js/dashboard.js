@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, decodeTagImage } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
@@ -45,6 +45,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
   let sending = false;
+  const screens = new Map(); // what the AP draws for each tag (screenCell)
+  const screenQueue = [];
+  let screenBusy = false;
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -77,6 +80,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    screens.clear();
+    screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
     $("dash-src").disabled = !!c;
     $("dash-conn").classList.toggle("connected", !!c);
@@ -324,14 +329,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
         next && !next.late ? "next " + next.text : null, tag.rssi == null ? null : `${tag.rssi} dBm`,
         battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
-      tr.append(cell(meta, "meta"));
+      tr.append(screenCell(tag), cell(meta, "meta"));
       return tr;
     }));
     if (!rows.length) {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
       const td = cell(list.tags.length ? "No tags match. " : "No tags yet. A tag shows up here after its first poll.", "muted empty");
-      td.colSpan = 9;
+      td.colSpan = 10;
       if (list.tags.length) {
         const b = document.createElement("button");
         b.type = "button";
@@ -349,6 +354,71 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
     renderSendTags();
     if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
+  }
+
+  // ---- The screen the AP draws for each tag (GET /api/tags/{mac}/image) ----
+
+  // screens: mac -> { content_id, img }, img null when the AP draws nothing for it (no
+  // content, content held back, or an AP from before images); fetched one at a time when
+  // the content changes, so a table of many tags costs the AP one drawing per change
+  function paintScreen(canvas, img) {
+    if (canvas.width !== img.width || canvas.height !== img.height) [canvas.width, canvas.height] = [img.width, img.height];
+    const ctx = canvas.getContext("2d");
+    const data = ctx.createImageData(img.width, img.height);
+    for (let i = 0; i < img.pixels.length; i++) {
+      const v = img.pixels[i];
+      data.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
+    }
+    ctx.putImageData(data, 0, 0);
+  }
+
+  function screenCell(tag) {
+    const td = cell("", "opt screen");
+    const s = screens.get(tag.mac);
+    if (!tag.content_id) {
+      td.textContent = "–";
+      return td;
+    }
+    if (!s || s.content_id !== tag.content_id) {
+      if (!screenQueue.some((q) => q.mac === tag.mac)) screenQueue.push({ mac: tag.mac, content_id: tag.content_id });
+      fetchScreens();
+      if (!s?.img) return td;
+    }
+    if (!s.img) {
+      td.textContent = "–";
+      return td;
+    }
+    const c = document.createElement("canvas");
+    paintScreen(c, s.img);
+    const waiting = tag.pending || s.content_id !== tag.content_id;
+    c.className = "screen" + (waiting ? " waiting" : "");
+    c.title = waiting ? "What the AP draws for it; the tag does not show it yet" : "What the tag shows, as the AP draws it";
+    c.setAttribute("role", "img");
+    c.setAttribute("aria-label", c.title);
+    td.append(c);
+    return td;
+  }
+
+  async function fetchScreens() {
+    if (screenBusy) return;
+    screenBusy = true;
+    let changed = false;
+    try {
+      while (screenQueue.length && client) {
+        const { mac, content_id } = screenQueue.shift();
+        const c = client;
+        let img = null;
+        try {
+          img = decodeTagImage(await c.call("GET", `/api/tags/${encodeURIComponent(mac)}/image`));
+        } catch { /* nothing drawn for it */ }
+        if (c !== client) break;
+        screens.set(mac, { content_id, img });
+        changed = true;
+      }
+    } finally {
+      screenBusy = false;
+      if (changed) render();
+    }
   }
 
   // ---- Send info to the tags ticked in the tag table ----

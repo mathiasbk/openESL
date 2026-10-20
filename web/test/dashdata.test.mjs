@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin, decodeTagImage } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -90,4 +90,17 @@ test("last and next check-in", () => {
   assert.deepEqual([late.late, late.text], [true, "3 min late"]);
   // another day: the date too
   assert.ok(fmtClock(-86400, now).length > fmtClock(0, now).length);
+});
+
+test("tag image: columns of rows, black plane then red", () => {
+  // 2 x 9 pixels: 2 bytes per column; black at (0,0) and (1,8), red at (1,1)
+  const bytes = new Uint8Array([0x80, 0x00, 0x00, 0x80, /* red */ 0x00, 0x00, 0x40, 0x00]);
+  const data = btoa(String.fromCharCode(...bytes));
+  const img = decodeTagImage({ width: 2, height: 9, red: true, data });
+  assert.equal(img.pixels[0], 1);
+  assert.equal(img.pixels[1 * 2 + 1], 2);
+  assert.equal(img.pixels[8 * 2 + 1], 1);
+  assert.equal(img.pixels.filter((v) => v).length, 3);
+  assert.equal(decodeTagImage({ width: 2, height: 9, red: true, data: btoa("\0\0\0\0") }), null);
+  assert.equal(decodeTagImage({ width: 2, height: 9, red: false, data }).pixels[1 * 2 + 1], 0);
 });

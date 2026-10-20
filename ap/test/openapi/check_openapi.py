@@ -301,10 +301,13 @@ def main():
             elif rb and path == "/api/tag-firmware":
                 body_ex = [("tag-29-ota.bin", tag_firmware_file())]
             values = {}
+            # the image needs a tag of known model with content it can draw, which the
+            # example tag is not before it polls: any status the spec lists, fitting it
+            exp = None if path == "/api/tags/{mac}/image" else expect
             for name, ex in body_ex or [(None, None)]:
                 if path == "/api/layouts/{model}" and ex:
                     values = {"model": ex["model"]}
-                call(path, m, o, params, body=ex, values=values, expect=expect, what=name or "")
+                call(path, m, o, params, body=ex, values=values, expect=exp, what=name or "")
 
     # every request example is accepted, and every reply fits, before and after the tags poll
     run_all(("put",))

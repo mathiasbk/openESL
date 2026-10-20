@@ -149,3 +149,21 @@ export function apFacts(ap) {
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
   return facts;
 }
+
+// GET /api/tags/{mac}/image (docs/openapi.yaml): the screen as width x height pixels,
+// 0 white, 1 black, 2 red; null when the data is short
+export function decodeTagImage({ width, height, red, data }) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const col = Math.ceil(height / 8);
+  const plane = width * col;
+  if (!width || !height || bytes.length < plane * (red ? 2 : 1)) return null;
+  const pixels = new Uint8Array(width * height);
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const i = x * col + (y >> 3);
+      const m = 0x80 >> (y & 7);
+      pixels[y * width + x] = red && bytes[plane + i] & m ? 2 : bytes[i] & m ? 1 : 0;
+    }
+  }
+  return { width, height, pixels };
+}

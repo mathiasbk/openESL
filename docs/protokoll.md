@@ -276,6 +276,7 @@ In short:
 | `GET`/`PUT /api/time` | The AP's clock (NTP over WiFi, or set by the client), which only scheduled content uses |
 | `GET /api/tags`, `GET /api/tags/{mac}` | The AP and its tags: last seen, battery, signal, model, what each tag shows, settings, layout file state |
 | `DELETE /api/tags/{mac}` | Forget a tag: its content, settings and scheduled content |
+| `GET /api/tags/{mac}/image` | The screen the AP draws for the tag's content (base64), for previews |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
 | `GET`/`PUT /api/config` | The AP-wide default poll interval, and the webhook the AP posts the health report to |
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent), for monitoring |
