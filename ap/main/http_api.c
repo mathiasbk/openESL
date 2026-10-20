@@ -124,10 +124,24 @@ static void log_oom(const char *what, size_t want)
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
+/* httpd_req_recv, but a client that sends nothing through RECV_TRIES receive
+ * timeouts (recv_wait_timeout, 5 s each) is given up on: the server runs every
+ * handler in one task, so waiting for it forever would hang every other request. */
+#define RECV_TRIES 3
+
+static int recv_some(httpd_req_t *req, char *buf, size_t len)
+{
+    int r = HTTPD_SOCK_ERR_TIMEOUT;
+    for (int i = 0; i < RECV_TRIES && r == HTTPD_SOCK_ERR_TIMEOUT; i++)
+        r = httpd_req_recv(req, buf, len);
+    return r;
+}
+
 static const char *method_name(int method)
 {
     switch (method) {
     case HTTP_GET:    return "GET";
+    case HTTP_POST:   return "POST";
     case HTTP_PUT:    return "PUT";
     case HTTP_DELETE: return "DELETE";
     default:          return "?";
@@ -156,9 +170,7 @@ static esp_err_t api_handler(httpd_req_t *req)
         }
         size_t got = 0;
         while (got < len) {
-            int r = httpd_req_recv(req, body + got, len - got);
-            if (r == HTTPD_SOCK_ERR_TIMEOUT)
-                continue;
+            int r = recv_some(req, body + got, len - got);
             if (r <= 0) {
                 free(body);
                 return ESP_FAIL; /* closes the connection */
@@ -273,9 +285,7 @@ static esp_err_t ota_post(httpd_req_t *req)
     size_t got = 0;
     while (status == 200 && got < len) {
         size_t want = len - got < OTA_CHUNK ? len - got : OTA_CHUNK;
-        int r = httpd_req_recv(req, chunk, want);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT)
-            continue;
+        int r = recv_some(req, chunk, want);
         if (r <= 0) {
             ESP_LOGW(TAG, "POST %s: body stopped arriving", req->uri);
             ota_part(0, 0, chunk, 0, &out); /* offset 0 drops the open upload, and size 0 opens no new one */
@@ -293,11 +303,10 @@ static esp_err_t ota_post(httpd_req_t *req)
         size_t rest = len - got;
         char junk[128];
         while (rest && rest <= 4 * OTA_CHUNK) {
-            int r = httpd_req_recv(req, junk, rest < sizeof(junk) ? rest : sizeof(junk));
-            if (r <= 0 && r != HTTPD_SOCK_ERR_TIMEOUT)
+            int r = recv_some(req, junk, rest < sizeof(junk) ? rest : sizeof(junk));
+            if (r <= 0)
                 break;
-            if (r > 0)
-                rest -= (size_t)r;
+            rest -= (size_t)r;
         }
     }
     return send_json(req, status, out.buf, out.len);
@@ -365,9 +374,7 @@ static esp_err_t setup_post(httpd_req_t *req)
     }
     size_t got = 0;
     while (got < len) {
-        int r = httpd_req_recv(req, body + got, len - got);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT)
-            continue;
+        int r = recv_some(req, body + got, len - got);
         if (r <= 0) {
             ret = ESP_FAIL;
             goto done;
@@ -490,7 +497,7 @@ esp_err_t http_api_start(const esl_api_t *api)
        several at once: let a new one close the oldest instead of being refused when
        all are taken. Each open socket also holds RAM in lwIP. */
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 15; /* two for /api/ota, three for the /api wildcard, two for /setup, /, two for the dashboard, and the rest */
+    cfg.max_uri_handlers = 15; /* two for /api/ota, four for the /api wildcard, two for /setup, /, two for the dashboard, and the rest */
 
     esp_err_t err = httpd_start(&server, &cfg);
     if (err != ESP_OK)
@@ -508,7 +515,7 @@ esp_err_t http_api_start(const esl_api_t *api)
             return err;
     }
 #endif
-    static const httpd_method_t methods[] = {HTTP_GET, HTTP_PUT, HTTP_DELETE};
+    static const httpd_method_t methods[] = {HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE};
     for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
         httpd_uri_t uri = {
             .uri = "/api/*",

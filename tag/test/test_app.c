@@ -333,6 +333,17 @@ static void test_layout_rejected(void)
     CHECK_EQ(fake_tx_count, 1);
     CHECK(sent(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_LAYOUTFAIL);
 
+    /* Another version clears the flag as soon as its download starts, even when the AP
+       stops answering partway: sent on, the AP would take it as a rejection of that one */
+    fake_radio_reset();
+    push_block(lver ^ 2, 0);
+    app_poll_once();
+    CHECK_EQ(app.lay_rejected, 0);
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(sent(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_LAYOUTFAIL, 0);
+
     /* A file for another model is rejected too */
     fresh();
     lsize = make_test_layout_file(lfile, &lver);

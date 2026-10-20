@@ -40,10 +40,18 @@ static const char *TAG = "radio";
 #define SNIFFER 0
 #endif
 
+#if SNIFFER && CONFIG_ESL_SNIFFER_HOP_MS
+#define HOP_MS CONFIG_ESL_SNIFFER_HOP_MS
+#define HOP_HOLD_US (10 * 1000000LL) /* stay on a channel this long after a frame */
+#else
+#define HOP_MS 0
+#endif
+
 typedef struct {
     uint8_t len; /* PSDU length incl. FCS */
     uint8_t psdu[ESL_PSDU_MAX];
     int8_t rssi;
+    uint8_t channel;
     int64_t rx_us;
 } rx_item_t;
 
@@ -70,6 +78,7 @@ void IRAM_ATTR esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_
         item.len = ESL_PSDU_MAX;
     memcpy(item.psdu, &frame[1], item.len);
     item.rssi = info->rssi;
+    item.channel = info->channel;
     item.rx_us = esp_timer_get_time();
     esp_ieee802154_receive_handle_done(frame);
     if (xQueueSendFromISR(rx_queue, &item, &woken) != pdTRUE)
@@ -107,7 +116,7 @@ static void __attribute__((unused)) log_frame(const rx_item_t *it)
     for (unsigned i = 0; i < it->len; i++)
         snprintf(&hex[3 * i], 4, "%02X ", it->psdu[i]);
     hex[3 * it->len] = '\0';
-    ESP_LOGI(TAG, "rx %u B rssi %d: %s", it->len, it->rssi, hex);
+    ESP_LOGI(TAG, "rx ch %u %u B rssi %d: %s", it->channel, it->len, it->rssi, hex);
 }
 
 static void __attribute__((unused)) handle_poll(const rx_item_t *it)
@@ -164,22 +173,51 @@ static void __attribute__((unused)) handle_poll(const rx_item_t *it)
              it->rssi, reply, (long long)us);
 }
 
+#if HOP_MS
+/* Move the sniffer to the next channel unless a frame was heard lately. */
+static void hop(int64_t *next_hop_us, int64_t last_frame_us)
+{
+    static uint8_t ch = 11;
+    int64_t now = esp_timer_get_time();
+    if (now < *next_hop_us || now - last_frame_us < HOP_HOLD_US)
+        return;
+    *next_hop_us = now + HOP_MS * 1000LL;
+    ch = ch >= 26 ? 11 : ch + 1;
+    esp_ieee802154_set_channel(ch);
+    esp_ieee802154_receive();
+    if (ch == 11)
+        ESP_LOGI(TAG, "hopping: channels 11-26, %d ms each", HOP_MS);
+}
+#endif
+
 static void radio_task(void *arg)
 {
     (void)arg;
     rx_item_t it;
     int64_t last_stats = esp_timer_get_time();
+#if HOP_MS
+    int64_t next_hop_us = 0, last_frame_us = -HOP_HOLD_US;
+    const TickType_t wait = pdMS_TO_TICKS(HOP_MS < 1000 ? HOP_MS : 1000);
+#else
+    const TickType_t wait = pdMS_TO_TICKS(1000);
+#endif
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
-        if (xQueueReceive(rx_queue, &it, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (xQueueReceive(rx_queue, &it, wait ? wait : 1) == pdTRUE) {
             stats.rx++;
 #if SNIFFER
             log_frame(&it);
+#if HOP_MS
+            last_frame_us = it.rx_us;
+#endif
 #else
             handle_poll(&it);
 #endif
         }
+#if HOP_MS
+        hop(&next_hop_us, last_frame_us);
+#endif
         if (esp_timer_get_time() - last_stats > 60 * 1000000LL) {
             last_stats = esp_timer_get_time();
             ESP_LOGI(TAG, "heap: free %u, largest block %u, lowest free %u",
