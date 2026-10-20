@@ -77,7 +77,7 @@ Change `printing` to the state your integration uses (for example `running` for 
 
 The layout `prusa` in [tag/designs/layouts/3d-printer-2.9.json](../tag/designs/layouts/3d-printer-2.9.json) (2.9" only) has five fields: `name`, `pct`, `left`, `done` and `bar`. Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text, and 31 spaces fill the frame. `pct` uses the `mid` font, which has digits only; the `%` is fixed text. Change the fixed text `PRUSA` to the name of your printer.
 
-Copy the layout into the AP's 2.9" file (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). The file holds at most 768 bytes and the layout takes 181, so drop example layouts no tag uses if it does not fit.
+Copy the layout into the AP's 2.9" file (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). The compiled file holds at most 2048 bytes and the layout takes 181, so drop example layouts no tag uses if it does not fit.
 
 Then the automation sends `layout: prusa` and the five fields (entities from the PrusaLink integration). It leaves the file name out, and shows the status and material when the printer is idle. It runs every 10 minutes while printing and rounds to 10 % and 10 minutes, so the tag redraws at most 6 times an hour:
 

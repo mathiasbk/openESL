@@ -138,7 +138,7 @@ How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. 
 
 The **version** of a layout file is the CRC-32 (IEEE 802.3, the same as zlib) of the whole binary file; 0 is counted as 1. It changes exactly when what the tags show changes; a JSON file that only differs in whitespace, descriptions or layout names gives the same binary and keeps the version. A new version gives the tags with content from that file new images (their `image_id` changes).
 
-The largest compiled file is **768 bytes** (`ESL_LBIN_MAX`). That is about 54 elements, for example 7 layouts of 7 elements. The AP refuses bigger files when they are uploaded.
+The largest compiled file is **2048 bytes** (`ESL_LBIN_MAX`). That is about 145 elements, for example 16 layouts of 9 elements; 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
 
 ### Sequence
 ```
@@ -282,8 +282,8 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 The AP also checks what it can draw, so a file that is accepted always gives a screen (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 16 text lines (each text element counts the most lines it can use) and 10 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
-- the binary file is at most 768 bytes;
+- per layout at most 32 text lines (each text element counts the most lines it can use) and 20 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
+- the binary file is at most 2048 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 
 `tag/tools/label_design.py` designs content for these layouts too: a label design with `"layout": "shelf"` takes its field names from the layout file (`render <design> <data> designs/layouts/2.9.json`).
