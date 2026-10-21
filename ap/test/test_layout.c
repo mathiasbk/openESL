@@ -306,6 +306,12 @@ static void test_errors(void)
 #undef T5
 #undef TALL
 
+    /* the two extra sizes: text20 needs 20 px, price44 44 px */
+    CHECK(compile_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"text20\",\"medium\"]}"));
+    CHECK(compile_el(TEXT_XYW ",\"h\":44,\"field\":\"a\",\"fonts\":[\"price44\",\"mid\"]}"));
+    bad_el(TEXT_XYW ",\"h\":30,\"field\":\"a\",\"fonts\":[\"price44\"]}", "too small for its smallest font (44 px");
+    bad_el(TEXT_XYW ",\"h\":16,\"field\":\"a\",\"fonts\":[\"text20\"]}", "too small for its smallest font (20 px");
+
     /* fixed texts: stored once at the end of the file, the element points at them */
     CHECK(compile_el(TEXT_XYW ",\"h\":30,\"text\":\"inkl. mva\",\"fonts\":[\"small\"]},"
                      TEXT_XYW ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]},"

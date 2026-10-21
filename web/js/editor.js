@@ -13,8 +13,8 @@ import { snapMove, resizeBox } from "./snap.js";
 import { ApClient, apBase } from "./apclient.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
-const FONTS = ["small", "medium", "mid", "large"];
-const FONT_PX = { small: 17, medium: 24, mid: 36, large: 52 };
+const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
+const FONT_PX = { small: 17, medium: 24, text20: 20, mid: 36, price44: 44, large: 52 };
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
 // On a model with red (colors in shared/models.json) the AP also takes these

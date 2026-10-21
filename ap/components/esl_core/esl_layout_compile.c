@@ -121,10 +121,11 @@ static bool keys_ok(cc_t *c, int obj, const char *const *allowed)
     return true;
 }
 
-static const char *const font_names[] = {"small", "medium", "large", "mid", NULL};
-static const uint8_t font_height[] = {ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_LARGE_H, ESL_FONT_MID_H};
-_Static_assert(ESL_FONT_SMALL == 0 && ESL_FONT_MEDIUM == 1 && ESL_FONT_LARGE == 2 && ESL_FONT_MID == 3,
-               "font_names order");
+static const char *const font_names[] = {"small", "medium", "large", "mid", "text20", "price44", NULL};
+static const uint8_t font_height[] = {ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_LARGE_H, ESL_FONT_MID_H,
+                                      ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H};
+_Static_assert(ESL_FONT_SMALL == 0 && ESL_FONT_MEDIUM == 1 && ESL_FONT_LARGE == 2 && ESL_FONT_MID == 3 &&
+               ESL_FONT_TEXT20 == 4 && ESL_FONT_PRICE44 == 5, "font_names order");
 
 static const char *const align_names[] = {"left", "center", "right", NULL};
 static const uint8_t align_opts[] = {ESL_LE_LEFT, ESL_LE_CENTER, ESL_LE_RIGHT};
@@ -340,13 +341,13 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 
     int fo = esl_json_obj_get(c->js, c->tok, e, "fonts");
     if (fo < 0 || T(c, fo)->type != ESL_JSON_ARRAY || T(c, fo)->size < 1 || T(c, fo)->size > 3)
-        return fail(c, "fonts must be a list of 1 to 3 fonts (small, medium, mid, large), tried in order");
+        return fail(c, "fonts must be a list of 1 to 3 fonts (small, medium, mid, large, text20, price44), tried in order");
     unsigned min_h = 255;
     int k = fo + 1;
     for (unsigned i = 0; i < T(c, fo)->size; i++, k = T(c, k)->next) {
         int font = pick(c, k, font_names);
         if (font < 0)
-            return fail(c, "unknown font in fonts (use small, medium, mid or large)");
+            return fail(c, "unknown font in fonts (use small, medium, mid, large, text20 or price44)");
         out[ESL_LE_OFF_FONT + i] = (uint8_t)font;
         if (font_height[font] < min_h)
             min_h = font_height[font];

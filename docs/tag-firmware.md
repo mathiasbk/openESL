@@ -32,7 +32,7 @@
 | `hal_gpio`, `hal_clock`, `hal_uart` | Clock, pins, debug output | Register findings |
 | `hal_timer`, `power` | Delays, deep sleep, wake after N seconds, watchdog | Register findings |
 | `epd` | SSD16xx: reset, init, write the black/white plane, update, wait for BUSY, sleep | GPIO, datasheet |
-| `font` | Generated tables: small (17 px) and medium (24 px) in Latin-1 for the status screens. The mid and large price fonts are only in the AP's drawing | Font generator |
+| `font` | Generated tables: small (17 px) and medium (24 px) in Latin-1 for the status screens. The mid, large, text20 and price44 fonts are only in the AP's drawing | Font generator |
 | `draw` | Calculates one pixel column at a time from a scene of text runs and rectangles and streams it to `epd` | `font` |
 | `status` | The screens the tag draws itself: "Waiting for content" (also at start-up, when it has no image) and "No AP found", with its MAC and firmware version (T9) | `draw` |
 | `image` | Stores the IMG blocks from the AP in the SPI flash, checks the image against its id and streams it to `epd` | `epd`, SPI flash |
@@ -65,7 +65,7 @@
 
 ## Fonts
 - The fonts are made with a Python script (Pillow) from a font with an open licence that allows embedding (Inter, OFL). The source font's licence file is in `tag/fonts/`.
-- Only the characters needed are generated: Latin-1 for small and medium fonts, only digits and ` ,-.:` for the mid and large price fonts. The tag firmware takes only small and medium (for its status screens); the AP takes all four.
+- Only the characters needed are generated: Latin-1 for small, medium and text20, only digits and ` ,-.:` for the mid, price44 and large price fonts. The tag firmware takes only small and medium (for its status screens); the AP takes all six.
 
 ## Memory and coding style on the 8051
 - Little internal RAM. Put buffers in `__xdata`, keep the stack small, avoid recursion and `printf` with floating point.
