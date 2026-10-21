@@ -7,9 +7,9 @@
 
 import { MODELS as REGISTRY } from "./models.js";
 
-// Per model name: the renderer file (render-<file>.js), the name to show, the screen size
+// Per model name: the renderer file (render-<file>.js), the name to show, the screen size, its colours
 export const MODELS = Object.fromEntries(
-  Object.entries(REGISTRY).map(([n, m]) => [n, { file: m.build, name: n + '"', width: m.width, height: m.height }]),
+  Object.entries(REGISTRY).map(([n, m]) => [n, { file: m.build, name: n + '"', width: m.width, height: m.height, colors: m.colors }]),
 );
 
 export const LAYOUT_PRICE = 1;

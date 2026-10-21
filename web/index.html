@@ -9,6 +9,7 @@
   <link rel="icon" href="img/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/designer.css">
 </head>
 <body>
   <header class="top">
@@ -71,135 +72,167 @@
   </main>
 
   <!-- ===================== Design ===================== -->
-  <main id="tab-design" class="tab" role="tabpanel" hidden>
-    <section class="toolbar">
-      <label>Tag
-        <select id="model"><!-- one option per model in js/models.js (editor.js) --></select>
-      </label>
-      <label>Layout <select id="layout-select"></select></label>
-      <button id="layout-add" title="New empty layout">New</button>
-      <select id="layout-template" title="Add a ready-made layout from the example file to this layout file">
-        <option value="">+ From template…</option>
-      </select>
-      <button id="layout-dup" title="Copy this layout">Copy</button>
-      <button id="layout-del" title="Delete this layout">Delete</button>
+  <main id="tab-design" class="tab designer" role="tabpanel" hidden>
+    <div class="dz-head">
+      <span id="model-tabs" class="model-tabs" role="radiogroup" aria-label="Tag model"><!-- one button per model in js/models.js (editor.js) --></span>
+      <span id="file-state" class="muted"></span>
       <span class="sep"></span>
-      <button id="file-example">Load example</button>
-      <label class="button">Open file…<input id="file-open" type="file" accept=".json,application/json" hidden></label>
-      <button id="file-save">Save layout file</button>
-      <button id="design-save" title="A label design (esl-label) for tag/tools/label_design.py">Save label design</button>
-    </section>
+      <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+      <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
+      <details class="menu" id="file-menu">
+        <summary>File</summary>
+        <div class="menu-list" role="menu">
+          <label class="item" role="menuitem">Open layout file…<input id="file-open" type="file" accept=".json,application/json" hidden></label>
+          <button id="file-save" class="item" role="menuitem">Save layout file</button>
+          <button id="design-save" class="item" role="menuitem" title="A label design (esl-label) for tag/tools/label_design.py">Save label design <span class="muted">for label_design.py</span></button>
+          <button id="json-open" class="item" role="menuitem">Show as JSON…</button>
+          <hr>
+          <button id="file-example" class="item" role="menuitem">Replace with the example file…</button>
+        </div>
+      </details>
+      <button id="send-open" class="primary">Send to tag…</button>
+    </div>
 
-    <div class="design">
-      <section class="stage-col">
-        <div class="add-row" id="add-row" role="toolbar" aria-label="Edit">
-          <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-          <button id="redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
-          <span id="add-group" class="add-group">
-          <span class="group-label">Add</span>
-          <button id="el-add-text">Text</button>
-          <button id="el-add-invert" title="White text in a black box">Inverted text</button>
-          <button id="el-add-fixed" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)">Fixed text</button>
-          <button id="el-add-hline">Line</button>
-          <button id="el-add-vline">Vertical line</button>
-          <button id="el-add-rect" title="A filled box; put white text on a black box for an inverted area">Box</button>
-            <button id="el-add-barcode" title="A field as a Code 128 or EAN-13 barcode (one per layout)">Barcode</button>
-          </span>
+    <div class="dz">
+      <aside class="dz-left">
+        <div class="dz-h">
+          <h3>Layouts</h3>
+          <details class="menu" id="layout-new">
+            <summary title="Add a layout to this layout file">+ New</summary>
+            <div class="menu-list" role="menu" id="layout-new-list">
+              <button id="layout-add" class="item" role="menuitem">Empty layout</button>
+              <hr>
+              <span class="menu-note">From the example file</span>
+              <!-- one item per template (editor.js) -->
+            </div>
+          </details>
         </div>
-        <div class="stage-scroll">
-          <div id="stage" class="stage">
-            <canvas id="screen"></canvas>
-            <div id="overlay" class="overlay"></div>
+        <ol id="layout-list" class="dz-list"></ol>
+        <div class="dz-h" id="el-head">
+          <h3>Elements</h3>
+          <span class="muted small">front at the top</span>
+        </div>
+        <ol id="el-list" class="dz-list el-list"></ol>
+      </aside>
+
+      <section class="dz-center">
+        <div class="dz-tools" id="add-group" role="toolbar" aria-label="Add">
+          <button id="el-add-text" class="tool" title="A field filled in by each update"><b>T</b>Text</button>
+          <button id="el-add-fixed" class="tool" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)"><b>“A”</b>Fixed text</button>
+          <button id="el-add-rect" class="tool" title="A filled box; put white text on a black box for an inverted area"><b class="ico-box"></b>Box</button>
+          <button id="el-add-hline" class="tool" title="A line 2 px thick; turn it with its handles or the More menu"><b class="ico-line"></b>Line</button>
+          <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
+        </div>
+        <div class="dz-canvas" id="dz-canvas">
+          <div class="stage-scroll">
+            <div id="stage" class="stage">
+              <canvas id="screen"></canvas>
+              <div id="overlay" class="overlay"></div>
+            </div>
           </div>
+          <div id="el-bar" class="el-bar" role="toolbar" aria-label="Selected element" hidden></div>
         </div>
-        <div class="stage-bar">
-          <label>Zoom
-            <select id="zoom" title="Fit: the whole tag fits on the screen">
-              <option value="fit">Fit</option>
-              <option value="1">1×</option>
-              <option value="2">2×</option>
-              <option value="3">3×</option>
-              <option value="4">4×</option>
-              <option value="6">6×</option>
-            </select>
-          </label>
-          <label><input type="checkbox" id="opt-boxes" checked> Show boxes</label>
-          <label><input type="checkbox" id="opt-highlight" checked> <code>price_highlight</code></label>
-          <label><input type="checkbox" id="opt-frame"> <code>frame</code></label>
+        <div class="dz-foot">
+          <details class="limits" id="limits">
+            <summary><span id="limits-ring" class="ring"></span><span id="limits-text"></span></summary>
+            <div class="limits-pop">
+              <b>What the AP allows for this layout</b>
+              <div id="meters" class="meters"></div>
+            </div>
+          </details>
           <span id="status" class="status" role="status"></span>
+          <span class="sep"></span>
+          <label title="Show the outline and name of every element"><input type="checkbox" id="opt-boxes" checked> Outlines</label>
+          <span class="muted">Preview with</span>
+          <label title="price_highlight in the update: the price drawn white on black"><input type="checkbox" id="opt-highlight" checked> highlighted price</label>
+          <label title="frame in the update: a frame round the screen"><input type="checkbox" id="opt-frame"> frame</label>
+          <select id="zoom" aria-label="Zoom" title="Fit: the whole tag fits in the window">
+            <option value="fit">Fit</option>
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+            <option value="4">4×</option>
+            <option value="6">6×</option>
+          </select>
         </div>
-        <div id="meters" class="meters" aria-label="What this layout uses of the AP's limits"></div>
-        <section class="sample-box" aria-labelledby="sample-h">
-          <h3 id="sample-h">Sample text <span class="summary-note">what the preview shows, and what "Send sample to tag" sends</span></h3>
-          <div id="sample" class="form sample-grid"></div>
+      </section>
+
+      <aside class="dz-right">
+        <div class="dz-sec dz-title">
+          <input id="lay-name" class="title-input" spellcheck="false" aria-label="Layout name">
+          <span id="lay-sub" class="muted small"></span>
+        </div>
+        <p id="builtin-note" class="dz-sec hint" hidden>Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own. You can still try the sample text and send it.</p>
+        <section class="dz-sec">
+          <div class="dz-h"><h3>Fields and sample text</h3><button id="field-add" class="link">+ Field</button></div>
+          <div id="sample" class="fields"></div>
+          <p id="sample-count" class="count"></p>
         </section>
-        <details class="tips">
+        <section class="dz-sec" id="sel-sec" hidden>
+          <div class="dz-h"><h3 id="sel-title">Selected</h3></div>
+          <div id="el-form" class="el-form"></div>
+        </section>
+        <section class="dz-sec" id="desc-sec">
+          <div class="dz-h"><h3>Description</h3></div>
+          <input id="lay-desc" class="soft" placeholder="What the layout is for (optional)" aria-label="Description">
+        </section>
+        <details class="dz-sec tips">
           <summary>Keys and tips</summary>
           <ul>
-            <li>Drag a box to move it, drag its corner to resize. It snaps to the screen's edges and centre and to the other boxes; hold <kbd>Alt</kbd> to place it freely.</li>
+            <li>Drag a box to move it, drag its edge or corner to resize. It snaps to the screen's edges and centre and to the other boxes; hold <kbd>Alt</kbd> to place it freely.</li>
             <li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move the selected box 1 px (<kbd>Shift</kbd>: 10 px). <kbd>Tab</kbd> picks the next box, <kbd>Esc</kbd> deselects, <kbd>Delete</kbd> removes it, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicates it, <kbd>Ctrl</kbd>+<kbd>C</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd> copy it to another layout.</li>
             <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes.</li>
-            <li>Lines are thin boxes. For white text on black, put white text on a black box, or use inverted text.</li>
-            <li>The preview is drawn and the file is checked by the AP's own code, so what you see is what the tag shows.</li>
+            <li>Drag an element in the list to draw it further forward or back.</li>
+            <li>For white text on black, give the text the colour Inverted, or put white text on a black box.</li>
+            <li>The preview is the tag's own pixels, drawn and checked by the AP's code, so what you see is what the tag shows.</li>
           </ul>
         </details>
-      </section>
-
-      <section class="side">
-        <details open id="list-panel">
-          <summary>Elements</summary>
-          <ol id="el-list" class="el-list"></ol>
-        </details>
-        <details open id="el-panel">
-          <summary>Element <span id="el-title" class="summary-note"></span></summary>
-          <div class="el-actions">
-            <button id="el-up" title="Draw earlier (further back)" aria-label="Draw earlier">↑</button>
-            <button id="el-down" title="Draw later (further front)" aria-label="Draw later">↓</button>
-            <button id="el-dup" title="Copy the selected element (Ctrl+D)">Duplicate</button>
-            <button id="el-del" title="Delete the selected element (Delete)">Delete</button>
-          </div>
-          <div id="el-form" class="form"></div>
-        </details>
-        <details open id="layout-panel">
-          <summary>Layout</summary>
-          <div class="form">
-            <label>Name <input id="lay-name" spellcheck="false"></label>
-            <label>Fields <input id="lay-fields" spellcheck="false" placeholder="name, price, unit"></label>
-            <label>Description <input id="lay-desc"></label>
-            <p class="hint">Up to six fields, in the order the client sends them. For two prices, add a field for each, e.g. <code>price, price_ex</code>, and send both in the update: the AP does not work out VAT, so each product can have its own rate.</p>
-          </div>
-        </details>
-        <details open id="ap-panel">
-          <summary>Send to AP</summary>
-          <div class="form">
-            <ol class="hint steps">
-              <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
-              <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
-              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
-            </ol>
-            <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
-            <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
-            <div class="buttons tight">
-              <button id="ap-connect">Connect</button>
-              <button id="ap-upload" title="PUT /api/layouts/{model}: the AP draws the tags of this model with it">Upload layout file</button>
-            </div>
-            <label>Tag <select id="ap-tag"><option value="">(connect first)</option></select></label>
-            <div class="buttons tight">
-              <button id="ap-send" title="PUT /api/tags/{mac} with this layout and the sample text">Send sample to tag</button>
-              <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
-            </div>
-            <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself, and on https (such as GitHub Pages) the browser only lets it call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
-          </div>
-        </details>
-        <details>
-          <summary>Layout file (JSON)</summary>
-          <textarea id="json" spellcheck="false" rows="16"></textarea>
-          <p class="hint">Upload with <code>PUT /api/layouts/<span class="model-name">2.9</span></code>:</p>
-          <pre id="upload-cmd" class="cmd"></pre>
-        </details>
-      </section>
+      </aside>
     </div>
+
+    <dialog id="send-dlg" class="dlg" aria-labelledby="send-h">
+      <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+      <h3 id="send-h">Send to a tag</h3>
+      <div id="ap-setup">
+        <p class="hint">A web page cannot reach the AP by itself. Start the bridge in <code>tools/esl-client</code> on this computer and connect to it. The address is the same one the Dashboard tab uses.</p>
+        <div class="form">
+          <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
+          <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
+        </div>
+        <details class="hint how">
+          <summary>How do I connect?</summary>
+          <ol class="steps">
+            <li>Start the bridge: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
+            <li>Enter <code>http://localhost:8080</code> above and press Connect.</li>
+          </ol>
+          <p>On https (such as GitHub Pages) the browser only lets the page call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
+        </details>
+        <div class="buttons tight"><button id="ap-connect" class="primary">Connect</button></div>
+      </div>
+      <div id="ap-conn" class="conn" hidden><span class="dot"></span><span id="ap-conn-text"></span><button id="ap-change" class="link">Change</button></div>
+      <div id="ap-pick" hidden>
+        <h4 id="ap-tags-h" class="sub-h">Tag</h4>
+        <div id="ap-tags" class="tag-pick" role="radiogroup" aria-labelledby="ap-tags-h"></div>
+        <h4 class="sub-h">Sends</h4>
+        <p id="ap-sends" class="small"></p>
+      </div>
+      <p id="ap-status" class="hint" role="status"></p>
+      <div class="dlg-buttons">
+        <button id="ap-upload" title="PUT /api/layouts/{model}: the AP draws the tags of this model with it">Upload layout file only</button>
+        <span class="sep"></span>
+        <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
+        <button id="ap-send" class="primary" title="PUT /api/tags/{mac} with this layout and the sample text">Send</button>
+      </div>
+    </dialog>
+
+    <dialog id="json-dlg" class="dlg wide" aria-labelledby="json-h">
+      <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+      <h3 id="json-h">Layout file (JSON)</h3>
+      <p class="hint">Edits here change the design at once.</p>
+      <textarea id="json" spellcheck="false" rows="20"></textarea>
+      <p class="hint">Upload with <code>PUT /api/layouts/<span class="model-name">2.9</span></code>:</p>
+      <pre id="upload-cmd" class="cmd"></pre>
+    </dialog>
   </main>
 
   <!-- ===================== Flash tag ===================== -->
