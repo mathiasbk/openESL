@@ -6,7 +6,8 @@
  *   TIME <ms since boot>                                  ->  OK\n
  *
  * <auth> is the whole Authorization value with spaces as '+', '-' for none. POLL makes
- * the tag poll as firmware with settings and (unless '-') layout files would. */
+ * the tag poll as firmware with settings would, with (images 1) or without SPI flash;
+ * a shown id equal to its content_id counts as that content's image. */
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +16,6 @@
 
 #define CAP 8
 
-static esl_tag_t tags[CAP];
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_notify_t notify;
@@ -127,7 +127,8 @@ int main(void)
     uint64_t now_ms = 1000;
     char line[512];
 
-    esl_store_init(&st, tags, CAP, NULL, 0);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
     esl_layouts_init(&layouts, NULL);
     memset(fw_mem, 0xFF, sizeof(fw_mem));
     esl_tagfw_init(&tagfw, &fw_ops);
@@ -136,9 +137,9 @@ int main(void)
     esl_sched_set_time(&sched, 1792065600u, now_ms, ESL_TIME_NTP);
 
     while (fgets(line, sizeof(line), stdin)) {
-        char method[16], uri[256], auth[128], mac_s[32], ver_s[16];
+        char method[16], uri[256], auth[128], mac_s[32];
         unsigned long len;
-        unsigned model;
+        unsigned model, images;
         uint32_t shown;
         unsigned long long t;
 
@@ -155,14 +156,17 @@ int main(void)
             printf("%d %u\n", status, (unsigned)out.len);
             fwrite(out.buf, 1, out.len, stdout);
             putchar('\n');
-        } else if (sscanf(line, "POLL %31s %u %15s %" SCNu32, mac_s, &model, ver_s, &shown) == 4) {
+        } else if (sscanf(line, "POLL %31s %u %u %" SCNu32, mac_s, &model, &images, &shown) == 4) {
             uint64_t mac;
             if (!esl_mac_parse(mac_s, strlen(mac_s), &mac))
                 return 1;
             uint8_t reply[ESL_MAX_PAYLOAD];
             esl_layout_env_t env;
-            esl_poll_t p = {2, 2950, shown, 0, (uint8_t)model, true, 0, strcmp(ver_s, "-") != 0,
-                            (uint32_t)strtoul(ver_s, NULL, 10)};
+            esl_tag_t t;
+            if (images && shown && esl_store_get(&st, mac, &t) && t.has_content && t.content_id == shown)
+                esl_store_image_known(&st, mac, shown, 0, shown);
+            esl_poll_t p = {2, 2950, shown, images ? ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE : 0, (uint8_t)model,
+                            true, 0};
             esl_layouts_env(&layouts, (uint8_t)model, &env);
             esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
             puts("OK");

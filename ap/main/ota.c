@@ -72,6 +72,24 @@ static int fail(char *err, size_t errlen, int status, const char *msg)
     return status;
 }
 
+/* An app image's esp_app_desc_t comes after the image header (24 bytes) and the
+ * first segment's header (8): its magic word, then the project name at 48. Another
+ * app for the same chip (ap/radio/'s esl_radio, say) would boot and leave the AP
+ * without WiFi, so only an image of this project goes in. One too short to say is
+ * left to esp_ota_end(). */
+static bool is_ap_image(const void *data, size_t len)
+{
+    const uint8_t *d = data;
+    const esp_app_desc_t *own = esp_app_get_description();
+    uint32_t magic;
+    if (len < 32 + 48 + sizeof(own->project_name))
+        return true;
+    memcpy(&magic, d + 32, 4);
+    if (magic != ESP_APP_DESC_MAGIC_WORD)
+        return true;
+    return strncmp((const char *)d + 32 + 48, own->project_name, sizeof(own->project_name)) == 0;
+}
+
 int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t *out)
 {
     char err[96];
@@ -87,6 +105,8 @@ int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t 
             status = fail(err, sizeof(err), 501, "no second app slot (the partition table has no ota_1)");
         else if (size == 0 || size > target->size)
             status = fail(err, sizeof(err), 413, "the image does not fit the app slot");
+        else if (!is_ap_image(data, len))
+            status = fail(err, sizeof(err), 422, "not AP firmware: another app for this chip (the radio coprocessor's?)");
         else if (esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &handle) != ESP_OK)
             status = fail(err, sizeof(err), 500, "could not start writing the app slot");
         else {
@@ -165,7 +185,8 @@ int ota_info(esl_sb_t *out)
 #else
     const bool display = false;
 #endif
-    esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s", kept ? "true" : "false", display ? "true" : "false");
+    esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s,\"chip\":\"%s\"", kept ? "true" : "false",
+                  display ? "true" : "false", CONFIG_IDF_TARGET);
     lock();
     esl_sb_printf(out, ",\"uploading\":%s}", open_ ? "true" : "false");
     unlock();

@@ -1,11 +1,11 @@
-// limits.js - how much of the tag's drawing budget a layout uses, counted the way the AP's
+// limits.js - how much of the AP's drawing budget a layout uses, counted the way the AP's
 // compiler counts it (esl_layout_compile.c): each text element needs as many lines of text
 // as its largest font choice can fit (1..3, capped by "lines"), and each rect element and
 // each inverted or highlighted text needs one rectangle. The limits themselves come from the
 // renderer (renderer.limits), so they follow shared/proto.h. A barcode needs neither, but a
 // layout holds at most limits.barcodes of them.
 
-const INVERTED = new Set(["invert", "highlight"]);
+const INVERTED = new Set(["invert", "highlight", "red_invert"]);
 
 // One element: { runs, rects, barcodes }.
 export function elementUsage(e, limits) {

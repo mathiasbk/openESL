@@ -6,8 +6,9 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -39,11 +40,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
-  let last = null;        // { list, health, wifi, ota, tagfw }
+  let last = null;        // { list, health, wifi, ota, tagfw, layouts }
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
   let sending = false;
+  const screens = new Map(); // what the AP draws for each tag (screenCell)
+  const screenQueue = [];
+  let screenBusy = false;
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -76,6 +80,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    screens.clear();
+    screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
     $("dash-src").disabled = !!c;
     $("dash-conn").classList.toggle("connected", !!c);
@@ -131,8 +137,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const wifi = await optional("/api/wifi");
       const ota = await optional("/api/ota");
       const tagfw = await optional("/api/tag-firmware");
+      const layouts = await optional("/api/layouts");
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw };
+      last = { list, health, wifi, ota, tagfw, layouts };
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
@@ -213,7 +220,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const ap = list.ap;
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap).concat([["Tags", `${list.tags.length} of ${ap.max_tags}`]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
@@ -251,7 +258,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     };
     const tiles = [
-      tile("all", list.tags.length, `tags, of ${ap.max_tags}`, ""),
+      tile("all", list.tags.length, ap.table_full ? "tags, full: no room for more" : `tags, of ${ap.max_tags}`,
+           ap.table_full ? "bad" : ""),
       tile("bad", counts.bad, counts.bad === 1 ? "needs attention" : "need attention", counts.bad ? "bad" : "good"),
       tile("busy", counts.busy, "busy or late", counts.busy ? "busy" : ""),
     ];
@@ -323,14 +331,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
         next && !next.late ? "next " + next.text : null, tag.rssi == null ? null : `${tag.rssi} dBm`,
         battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
-      tr.append(cell(meta, "meta"));
+      tr.append(screenCell(tag), cell(meta, "meta"));
       return tr;
     }));
     if (!rows.length) {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
       const td = cell(list.tags.length ? "No tags match. " : "No tags yet. A tag shows up here after its first poll.", "muted empty");
-      td.colSpan = 9;
+      td.colSpan = 10;
       if (list.tags.length) {
         const b = document.createElement("button");
         b.type = "button";
@@ -348,6 +356,84 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
     renderSendTags();
     if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
+  }
+
+  // ---- The screen the AP draws for each tag (GET /api/tags/{mac}/image) ----
+
+  // screens: mac -> { want, key, canvas, retry_ms }: the screenKey() last fetched, and
+  // the key of the canvas, null when the AP draws nothing for it (no content, content
+  // held back, or an AP from before images). Fetched one at a time when screenKey()
+  // changes, so a table of many tags costs the AP one drawing per change, and painted
+  // once: render() moves the same canvas into the new row.
+  // retry_ms: a failure that may pass (screenErrorFinal) is tried again after that time.
+  const SCREEN_RETRY_MS = 15000;
+
+  function paintScreen(img) {
+    const canvas = document.createElement("canvas");
+    [canvas.width, canvas.height] = [img.width, img.height];
+    const ctx = canvas.getContext("2d");
+    const data = ctx.createImageData(img.width, img.height);
+    const px = new Uint32Array(data.data.buffer);
+    const le = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+    const rgba = (r, g, b) => (le ? (0xff << 24) | (b << 16) | (g << 8) | r : (r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0;
+    const colours = [rgba(255, 255, 255), rgba(17, 17, 17), rgba(200, 30, 30)];
+    for (let i = 0; i < img.pixels.length; i++) px[i] = colours[img.pixels[i]];
+    ctx.putImageData(data, 0, 0);
+    canvas.setAttribute("role", "img");
+    return canvas;
+  }
+
+  function screenCell(tag) {
+    const td = cell("", "opt screen");
+    if (!tag.content_id) {
+      td.textContent = "–";
+      return td;
+    }
+    const key = screenKey(tag, last?.layouts);
+    const s = screens.get(tag.mac);
+    if ((!s || s.want !== key || (s.retry_ms && Date.now() >= s.retry_ms)) && !screenQueue.some((q) => q.mac === tag.mac)) {
+      screenQueue.push({ mac: tag.mac, key });
+      fetchScreens();
+    }
+    if (!s?.canvas) {
+      if (s && !s.retry_ms) td.textContent = "–";
+      return td;
+    }
+    const c = s.canvas;
+    const waiting = tag.pending || s.key !== key;
+    c.className = "screen" + (waiting ? " waiting" : "");
+    c.title = waiting ? "What the AP draws for it; the tag does not show it yet" : "What the tag shows, as the AP draws it";
+    c.setAttribute("aria-label", c.title);
+    td.append(c);
+    return td;
+  }
+
+  async function fetchScreens() {
+    if (screenBusy) return;
+    screenBusy = true;
+    let changed = false;
+    try {
+      while (screenQueue.length && client) {
+        const { mac, key } = screenQueue.shift();
+        const c = client;
+        const old = screens.get(mac);
+        let s;
+        try {
+          const img = decodeTagImage(await c.call("GET", `/api/tags/${encodeURIComponent(mac)}/image`));
+          s = { want: key, key, canvas: img ? paintScreen(img) : null, retry_ms: 0 };
+        } catch (e) {
+          // a final answer stands until the key changes; otherwise keep showing what we had
+          s = screenErrorFinal(e) ? { want: key, key, canvas: null, retry_ms: 0 }
+            : { want: key, key: old?.key, canvas: old?.canvas ?? null, retry_ms: Date.now() + SCREEN_RETRY_MS };
+        }
+        if (c !== client) break;
+        screens.set(mac, s);
+        changed = true;
+      }
+    } finally {
+      screenBusy = false;
+      if (changed) render();
+    }
   }
 
   // ---- Send info to the tags ticked in the tag table ----
@@ -488,9 +574,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
     $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
-    // The first ticked tag, drawn by the tag's own code
+    // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
-    const model = tags[0]?.model || "2.9";
+    const model = tags[0]?.model || Object.keys(TAG_MODELS)[0];
     const seq = ++stSeq;
     if (!row) return ($("st-preview").hidden = true);
     try {
@@ -509,8 +595,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const ctx = c.getContext("2d");
       const img = ctx.createImageData(w, h);
       for (let i = 0; i < w * h; i++) {
-        const v = out.pixels[i] ? 17 : 255;
-        img.data.set([v, v, v, 255], i * 4);
+        const v = out.pixels[i];
+        img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
       }
       ctx.putImageData(img, 0, 0);
       c.title = "Preview: " + row.mac;
@@ -696,7 +782,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const b = document.createElement("button");
       b.className = "small fw-up";
       b.textContent = "\u2191 " + img.version; // arrow up
-      b.title = `Update the AP to ${img.version}` + (img.file.includes("lcd") ? " (with the status screen)" : "");
+      b.title = `Update the AP to ${img.version}` + (img.display ? " (with the status screen)" : "");
       b.setAttribute("aria-label", "Update the AP to " + img.version);
       b.disabled = sending;
       b.onclick = () => sendPageApFirmware(img);
@@ -744,19 +830,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   }
 
-  // The choices in "Send": the files published with this page, then a file of your own
-  const FILES = [
-    ["tag-29-ota", 'Tag firmware for the 2.9"'],
-    ["tag-154-ota", 'Tag firmware for the 1.54"'],
-    ["ap-openesl-ota", "AP firmware"],
-    ["ap-openesl-lcd-ota", "AP firmware with the status screen"],
+  // The choices in "Send": the files published with this page, then a file of your own. The AP
+  // images are one per board (ap_boards in info.json; one from before that has the C6 ones)
+  const TAG_FILES = Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${name}"`]);
+  const apBoards = (info) => info?.ap_boards || [
+    { file: "ap-openesl", target: "esp32c6", display: false },
+    { file: "ap-openesl-lcd", target: "esp32c6", display: true },
   ];
+  const apFileLabel = (b) => "AP firmware" + (b.target !== "esp32c6" ? " for the " + b.target.toUpperCase().replace(/^ESP32/, "ESP32-") : "") +
+    (b.display ? " with the status screen" : "");
   // The tag images published with this page, read once: model -> { data, kind }
   const pageImgs = {};
   const pageData = {};
   let pageInfo = null;    // firmware/info.json
   async function loadPageTagImages(info) {
-    for (const k of ["tag-29", "tag-154"]) {
+    for (const k of Object.values(TAG_MODELS).map((m) => `tag-${m.build}`)) {
       if (!info?.ota?.[k]) continue;
       try {
         const r = await fetch(`${firmwareBase}firmware/${k}-ota.bin`, { cache: "no-cache" });
@@ -789,7 +877,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       pageInfo = info;
       // each file with its own version: the AP's and the tags' can differ (ap_version, tag_version)
       const ver = (k) => (k.startsWith("ap") ? info.ap_version : info.tag_version) || info.version;
-      const opts = FILES.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
+      const files = [...TAG_FILES, ...apBoards(info).map((b) => [b.file + "-ota", apFileLabel(b)])];
+      const opts = files.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
         const o = document.createElement("option");
@@ -838,7 +927,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return;
     }
     const v = $("fw-src").value;
-    return sendData(data, v === "ap-openesl-lcd-ota" ? true : v === "ap-openesl-ota" ? false : null);
+    const board = apBoards(pageInfo).find((b) => b.file + "-ota" === v);
+    return sendData(data, board ? !!board.display : null);
   }
 
   // The arrow-up button next to the AP's firmware
@@ -852,7 +942,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
     openFw();
     $("fw-msg").scrollIntoView({ block: "nearest" });
-    return sendData(data, img.file.includes("lcd"));
+    return sendData(data, img.display);
   }
 
   // The arrow-up buttons: in the tag table for one tag (mac), in the firmware table for all

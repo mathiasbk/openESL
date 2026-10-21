@@ -19,14 +19,14 @@
 // and can be downloaded from the page; the flash-tui's backup folder works the same way.
 
 import * as zp from "./zbs.js";
+import { MODELS as REGISTRY } from "./models.js";
 
-export const MODELS = {
-  "2.9": { name: '2.9"', macCode: 0x3b, firmware: "firmware/tag-29.bin" },
-  "1.54": { name: '1.54"', macCode: 0x34, firmware: "firmware/tag-154.bin" },
-};
+export const MODELS = Object.fromEntries(
+  Object.entries(REGISTRY).map(([n, m]) => [n, { name: n + '"', macCode: m.macCode, firmware: `firmware/tag-${m.build}.bin` }]),
+);
 
-// tag/tools/build.py CODE_SIZE: from 0xF400 the tag keeps its layout file (0xF400) and its
-// last content (0xF800), and the stock MAC sits at 0xFC00
+// tag/tools/build.py CODE_SIZE: 0xF400 is a free page, the tag keeps its settings at 0xF800,
+// and the stock MAC sits at 0xFC00
 export const CODE_LIMIT = 0xf400;
 export const STOCK_MAC_ADDR = 0xfc06;
 export const INFO_MAC_ADDR = 0x10;
@@ -103,7 +103,7 @@ export function modelOfMac(mac) {
 export function checkFirmware(data) {
   if (!data || !data.length) throw new JobError("firmware", "the firmware file is empty");
   if (data.length > CODE_LIMIT)
-    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (the tag's layout and content store starts there)`);
+    throw new JobError("firmware", `firmware is ${data.length} bytes, over the 0x${zp.hex(CODE_LIMIT, 4)} limit (the tag keeps its settings and the stock MAC above it)`);
   if (data.every((b) => b === 0xff)) throw new JobError("firmware", "the firmware file is only 0xFF");
   return data;
 }

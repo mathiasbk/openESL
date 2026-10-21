@@ -3,7 +3,7 @@
 #include "esl_layout.h"
 #include <stdlib.h>
 
-/* Layout files: the compiler (JSON -> what the tags download, krav A13) and
+/* Layout files: the compiler (JSON -> the binary the AP draws with, krav A13) and
  * the storage per model. The tests use fixed copies of the example files
  * (ap/test/layouts/, two layouts each) so their sizes do not change when the
  * examples grow; the files in tag/designs/layouts/ are compiled too, so they
@@ -267,7 +267,11 @@ static void test_errors(void)
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"x\":5}", "key \"x\" appears twice");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":100,\"w\":10,\"h\":29}", "y + h = 129 is past the bottom");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"colour\":\"black\"}", "unknown key \"colour\"");
-    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "color must be");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"pink\"}", "color must be");
+    /* the 2.9" has no red: the AP refuses red before it looks at anything else */
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "black/white model");
+    bad_el(TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"red_invert\"}", "black/white model");
+    CHECK(!esl_model_has_red(ESL_MODEL_29) && !esl_model_has_red(ESL_MODEL_154) && !esl_model_has_red(0));
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"invert\"}", "a rect can be");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"field\":\"a\"}", "field is only for text");
     bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"medium\"],\"field\":\"c\"}", "field \"c\" is not in the layout's fields");
@@ -280,22 +284,26 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"valign\":\"center\"}", "valign must be");
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
-    bad_el(TEXT_A ",\"color\":\"invert\"}", "black border of an inverted field");
-    /* the tag's scene: 16 text lines and 10 rectangles per screen */
+    bad_el(TEXT_A ",\"color\":\"invert\"}", "border of an inverted field");
+    /* the AP's scene: 32 text lines and 20 rectangles per screen (esl_render.c) */
 #define TALL TEXT_XYW ",\"h\":128,\"field\":\"a\",\"fonts\":[\"small\"]"
+#define T5 TALL "}," TALL "}," TALL "}," TALL "}," TALL "}"
 #define R1 "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}"
 #define R5 R1 "," R1 "," R1 "," R1 "," R1
-    bad_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":2}",
-           "layouts[0]: needs up to 17 lines of text, the tag draws at most 16");
-    bad_el(R5 "," R5 "," TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}",
-           "needs 11 rectangles");
-    bad_el(R5 "," R5 "," R1, "needs 11 rectangles");
-    /* 9 rects + one inverted field, and 5 * 3 + 1 lines, are exactly the limits */
-    CHECK(compile_el(R5 "," R1 "," R1 "," R1 "," R1 ","
-                     TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"));
-    CHECK(compile_el(TALL "}," TALL "}," TALL "}," TALL "}," TALL "}," TALL ",\"lines\":1}"));
+#define R10 R5 "," R5
+#define HIGHLIGHT TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"highlight\"}"
+    bad_el(T5 "," T5 "," TALL ",\"lines\":3}",
+           "layouts[0]: needs up to 33 lines of text, the AP draws at most 32");
+    bad_el(R10 "," R10 "," HIGHLIGHT, "needs 21 rectangles");
+    bad_el(R10 "," R10 "," R1, "needs 21 rectangles");
+    /* 19 rects + one inverted field, and 10 * 3 + 2 lines, are exactly the limits */
+    CHECK(compile_el(R10 "," R5 "," R1 "," R1 "," R1 "," R1 "," HIGHLIGHT));
+    CHECK(compile_el(T5 "," T5 "," TALL ",\"lines\":2}"));
+#undef HIGHLIGHT
+#undef R10
 #undef R5
 #undef R1
+#undef T5
 #undef TALL
 
     /* fixed texts: stored once at the end of the file, the element points at them */
@@ -347,39 +355,45 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"module\":1}", "module is only for barcode");
 #undef BC
 
-    /* too big for the tags: 16 layouts of 4 rects = 4 + 16 * 57 bytes */
+    /* too big: 16 layouts of 10 rects = 4 + 16 * 141 bytes */
     static char js[8192];
     esl_sb_t sb;
     esl_sb_init(&sb, js, sizeof(js));
     esl_sb_puts(&sb, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[");
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 16; i++) {
         esl_sb_printf(&sb, "%s{\"name\":\"l%d\",\"fields\":[\"a\"],\"elements\":[", i ? "," : "", i);
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 10; k++)
             esl_sb_printf(&sb, "%s{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}", k ? "," : "");
         esl_sb_puts(&sb, "]}");
     }
     esl_sb_puts(&sb, "]}");
     CHECK(!sb.overflow);
     CHECK(!compile(js, ESL_MODEL_29));
-    CHECK(HAS(err, "layouts[13]: the file is too big for the tags: at most 768 bytes"));
+    CHECK(HAS(err, "layouts[14]: the file is too big: at most 2048 bytes compiled"));
+}
+
+static void *no_memory(size_t n)
+{
+    (void)n;
+    return NULL;
 }
 
 static void test_storage(void)
 {
     static esl_layouts_t ls;
     fake_t f = {0};
-    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL};
     char buf[512];
     esl_sb_t sb;
     bool changed;
     uint32_t v;
     size_t len, bsize;
     esl_layout_env_t env;
-    uint8_t msg[ESL_MAX_PAYLOAD];
-    esl_reply_t r;
     uint8_t nf;
 
     esl_layouts_init(&ls, &ops);
+    /* a model holds memory only while it has a file */
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
     CHECK(!esl_layouts_info(&ls, ESL_MODEL_29, &v, &len, &bsize));
     CHECK_INT(v, 0);
     esl_layouts_env(&ls, ESL_MODEL_29, &env);
@@ -387,18 +401,6 @@ static void test_storage(void)
     CHECK_INT(env.count, 0);
     esl_layouts_env(NULL, ESL_MODEL_29, &env);
     CHECK_INT(env.version, 0);
-
-    /* no file: a LAYOUT with version 0 tells the tag to use the built-in layouts */
-    size_t n = esl_layouts_block(&ls, ESL_MODEL_29, 0, 0, 94, 60, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.type, ESL_MSG_LAYOUT);
-    CHECK_INT(r.next_poll_s, 60);
-    CHECK_INT(r.layout_ver, 0);
-    CHECK_INT(r.layout_size, 0);
-    CHECK_INT(r.layout_len, 0);
-    n = esl_layouts_block(NULL, ESL_MODEL_29, 0, 0, 94, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, 0);
 
     /* store the example file */
     size_t jl;
@@ -419,6 +421,32 @@ static void test_storage(void)
     CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed), v);
     CHECK(!changed);
     CHECK_INT(f.saves, 1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] != NULL && ls.models[ESL_MODEL_154 - 1] == NULL);
+    CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
+
+    /* no memory: 0 back (the API answers 500), the old file stays, nothing is persisted */
+    {
+        char *spaced = malloc(jl + 1);
+        memcpy(spaced, js, jl);
+        spaced[jl] = ' ';
+        esl_layout_bin_t bin2 = bin;
+        bin2.version = bin.version + 1;
+        ls.ops.alloc = no_memory;
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, spaced, jl + 1, &bin2, &changed), 0);
+        CHECK(!changed);
+        CHECK_INT(f.saves, 1);
+        CHECK_INT(ls.models[ESL_MODEL_29 - 1]->len, jl);
+        CHECK_INT(ls.models[ESL_MODEL_29 - 1]->bin.version, v);
+        size_t jl154;
+        char *js154 = read_example_layout("1.54.json", &jl154);
+        CHECK(js154 != NULL && esl_layout_compile(js154, jl154, ESL_MODEL_154, &bin2, err, sizeof(err)));
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_154, js154, jl154, &bin2, &changed), 0);
+        CHECK(!changed);
+        CHECK(ls.models[ESL_MODEL_154 - 1] == NULL);
+        ls.ops.alloc = NULL;
+        free(js154);
+        free(spaced);
+    }
 
     uint32_t v2;
     CHECK(esl_layouts_info(&ls, ESL_MODEL_29, &v2, &len, &bsize));
@@ -442,32 +470,6 @@ static void test_storage(void)
     CHECK_STR(env.names[1], "sign");
     CHECK_INT(env.nfields[0], 4);
 
-    /* blocks: from the start, by position, at most max and ESL_LAYOUT_CHUNK_MAX bytes */
-    n = esl_layouts_block(&ls, ESL_MODEL_29, 0, 0, 200, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, v);
-    CHECK_INT(r.layout_size, bin.size);
-    CHECK_INT(r.layout_pos, 0);
-    CHECK_INT(r.layout_len, ESL_LAYOUT_CHUNK_MAX);
-    CHECK_INT(n, ESL_MAX_PAYLOAD - ESL_MIC_RESERVE);
-    CHECK_MEM(r.layout_data, bin.bin, ESL_LAYOUT_CHUNK_MAX);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 94, 50, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_pos, 94);
-    CHECK_INT(r.layout_len, 50);
-    CHECK_MEM(r.layout_data, &bin.bin[94], 50);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 150, 94, 0, msg); /* the last, short block */
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_len, bin.size - 150);
-    /* the file changed under the tag (or it asks for an old version): block 0 of the current one */
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v ^ 1, 94, 94, 0, msg);
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_ver, v);
-    CHECK_INT(r.layout_pos, 0);
-    n = esl_layouts_block(&ls, ESL_MODEL_29, v, 4000, 94, 0, msg); /* past the end */
-    CHECK(esl_reply_parse(msg, n, &r));
-    CHECK_INT(r.layout_pos, 0);
-
     esl_sb_init(&sb, buf, sizeof(buf));
     CHECK(!esl_layouts_write(&ls, ESL_MODEL_154, &sb));
     CHECK(!esl_layouts_write(&ls, 9, &sb));
@@ -479,6 +481,7 @@ static void test_storage(void)
     CHECK(!esl_layouts_delete(&ls, 0));
     CHECK_INT(f.erases, 1);
     CHECK_INT(esl_layouts_find(&ls, ESL_MODEL_29, "sign", 4, &nf), -1);
+    CHECK(ls.models[ESL_MODEL_29 - 1] == NULL);
 
     /* restore at boot compiles the file again and does not write back */
     int saves = f.saves;

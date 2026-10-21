@@ -1,0 +1,9 @@
+# A C6 with a 0.96" ST7789 screen: the radio, and the AP host's status screen (SCREEN over
+# UART). The screen settings are those of the AP board c6-supermini-lcd (ap/boards/).
+CONFIG_ESL_DISPLAY=y
+CONFIG_ESL_LCD_PIN_MOSI=6
+CONFIG_ESL_LCD_PIN_SCLK=7
+CONFIG_ESL_LCD_PIN_CS=14
+CONFIG_ESL_LCD_PIN_DC=15
+CONFIG_ESL_LCD_PIN_RST=21
+CONFIG_ESL_LCD_PIN_BL=22

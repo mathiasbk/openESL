@@ -9,6 +9,7 @@
   <link rel="icon" href="img/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/designer.css">
 </head>
 <body>
   <header class="top">
@@ -29,13 +30,13 @@
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
       <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
       <p id="home-fw" class="muted"></p>
     </section>
     <div class="cards">
       <a class="card link" href="#design">
         <h3>Design labels</h3>
-        <p>Lay out text, inverted fields, lines and boxes for each tag model, with a preview drawn by the tag's own code. Save the layout file for the AP.</p>
+        <p>Lay out text, inverted fields, lines and boxes for each tag model, with a preview drawn by the AP's own code. Save the layout file for the AP.</p>
         <span class="go">Open the designer</span>
       </a>
       <a class="card link" href="#tag">
@@ -45,16 +46,16 @@
       </a>
       <a class="card link" href="#ap">
         <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6 board over USB.</p>
+        <p>Put the AP firmware on an ESP32-C6 or ESP32-C5 board over USB.</p>
         <span class="go">Open the AP flasher</span>
       </a>
     </div>
     <section class="card wide">
       <h3>How it fits together</h3>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
+        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
-        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The tags download it over the radio.</li>
+        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
         <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client tag-ota</code> sends new tag firmware to the tags over the radio; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
       </ol>
@@ -64,145 +65,174 @@
       <ul>
         <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
         <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB.</li>
+        <li>For the AP: an ESP32-C6 board with USB (an ESP32-C5 with PSRAM is experimental).</li>
       </ul>
       <p class="muted">Setting up and running the AP: the <a href="#setup">Set up</a> tab. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>
   </main>
 
   <!-- ===================== Design ===================== -->
-  <main id="tab-design" class="tab" role="tabpanel" hidden>
-    <section class="toolbar">
-      <label>Tag
-        <select id="model">
-          <option value="2.9">2.9" (296 × 128)</option>
-          <option value="1.54">1.54" (200 × 200)</option>
-        </select>
-      </label>
-      <label>Layout <select id="layout-select"></select></label>
-      <button id="layout-add" title="New empty layout">New</button>
-      <select id="layout-template" title="Add a ready-made layout from the example file to this layout file">
-        <option value="">+ From template…</option>
-      </select>
-      <button id="layout-dup" title="Copy this layout">Copy</button>
-      <button id="layout-del" title="Delete this layout">Delete</button>
+  <main id="tab-design" class="tab designer" role="tabpanel" hidden>
+    <div class="dz-head">
+      <span id="model-tabs" class="model-tabs" role="radiogroup" aria-label="Tag model"><!-- one button per model in js/models.js (editor.js) --></span>
+      <span id="file-state" class="muted"></span>
       <span class="sep"></span>
-      <button id="file-example">Load example</button>
-      <label class="button">Open file…<input id="file-open" type="file" accept=".json,application/json" hidden></label>
-      <button id="file-save">Save layout file</button>
-      <button id="design-save" title="A label design (esl-label) for tag/tools/label_design.py">Save label design</button>
-    </section>
+      <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+      <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
+      <details class="menu" id="file-menu">
+        <summary>File</summary>
+        <div class="menu-list" role="menu">
+          <label class="item" role="menuitem">Open layout file…<input id="file-open" type="file" accept=".json,application/json" hidden></label>
+          <button id="file-save" class="item" role="menuitem">Save layout file</button>
+          <button id="design-save" class="item" role="menuitem" title="A label design (esl-label) for tag/tools/label_design.py">Save label design <span class="muted">for label_design.py</span></button>
+          <button id="json-open" class="item" role="menuitem">Show as JSON…</button>
+          <hr>
+          <button id="file-example" class="item" role="menuitem">Replace with the example file…</button>
+        </div>
+      </details>
+      <button id="send-open" class="primary">Send to tag…</button>
+    </div>
 
-    <div class="design">
-      <section class="stage-col">
-        <div class="add-row" id="add-row" role="toolbar" aria-label="Edit">
-          <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-          <button id="redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" aria-label="Redo">↷</button>
-          <span id="add-group" class="add-group">
-          <span class="group-label">Add</span>
-          <button id="el-add-text">Text</button>
-          <button id="el-add-invert" title="White text in a black box">Inverted text</button>
-          <button id="el-add-fixed" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)">Fixed text</button>
-          <button id="el-add-hline">Line</button>
-          <button id="el-add-vline">Vertical line</button>
-          <button id="el-add-rect" title="A filled box; put white text on a black box for an inverted area">Box</button>
-            <button id="el-add-barcode" title="A field as a Code 128 or EAN-13 barcode (one per layout)">Barcode</button>
-          </span>
+    <div class="dz">
+      <aside class="dz-left">
+        <div class="dz-h">
+          <h3>Layouts</h3>
+          <details class="menu" id="layout-new">
+            <summary title="Add a layout to this layout file">+ New</summary>
+            <div class="menu-list" role="menu" id="layout-new-list">
+              <button id="layout-add" class="item" role="menuitem">Empty layout</button>
+              <hr>
+              <span class="menu-note">From the example file</span>
+              <!-- one item per template (editor.js) -->
+            </div>
+          </details>
         </div>
-        <div class="stage-scroll">
-          <div id="stage" class="stage">
-            <canvas id="screen"></canvas>
-            <div id="overlay" class="overlay"></div>
+        <ol id="layout-list" class="dz-list"></ol>
+        <div class="dz-h" id="el-head">
+          <h3>Elements</h3>
+          <span class="muted small">front at the top</span>
+        </div>
+        <ol id="el-list" class="dz-list el-list"></ol>
+      </aside>
+
+      <section class="dz-center">
+        <div class="dz-tools" id="add-group" role="toolbar" aria-label="Add">
+          <button id="el-add-text" class="tool" title="A field filled in by each update"><b>T</b>Text</button>
+          <button id="el-add-fixed" class="tool" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)"><b>“A”</b>Fixed text</button>
+          <button id="el-add-rect" class="tool" title="A filled box; put white text on a black box for an inverted area"><b class="ico-box"></b>Box</button>
+          <button id="el-add-hline" class="tool" title="A line 2 px thick; turn it with its handles or the More menu"><b class="ico-line"></b>Line</button>
+          <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
+        </div>
+        <div class="dz-canvas" id="dz-canvas">
+          <div class="stage-scroll">
+            <div id="stage" class="stage">
+              <canvas id="screen"></canvas>
+              <div id="overlay" class="overlay"></div>
+            </div>
           </div>
+          <div id="el-bar" class="el-bar" role="toolbar" aria-label="Selected element" hidden></div>
         </div>
-        <div class="stage-bar">
-          <label>Zoom
-            <select id="zoom" title="Fit: the whole tag fits on the screen">
-              <option value="fit">Fit</option>
-              <option value="1">1×</option>
-              <option value="2">2×</option>
-              <option value="3">3×</option>
-              <option value="4">4×</option>
-              <option value="6">6×</option>
-            </select>
-          </label>
-          <label><input type="checkbox" id="opt-boxes" checked> Show boxes</label>
-          <label><input type="checkbox" id="opt-highlight" checked> <code>price_highlight</code></label>
-          <label><input type="checkbox" id="opt-frame"> <code>frame</code></label>
+        <div class="dz-foot">
+          <details class="limits" id="limits">
+            <summary><span id="limits-ring" class="ring"></span><span id="limits-text"></span></summary>
+            <div class="limits-pop">
+              <b>What the AP allows for this layout</b>
+              <div id="meters" class="meters"></div>
+            </div>
+          </details>
           <span id="status" class="status" role="status"></span>
+          <span class="sep"></span>
+          <label title="Show the outline and name of every element"><input type="checkbox" id="opt-boxes" checked> Outlines</label>
+          <span class="muted">Preview with</span>
+          <label title="price_highlight in the update: the price drawn white on black"><input type="checkbox" id="opt-highlight" checked> highlighted price</label>
+          <label title="frame in the update: a frame round the screen"><input type="checkbox" id="opt-frame"> frame</label>
+          <select id="zoom" aria-label="Zoom" title="Fit: the whole tag fits in the window">
+            <option value="fit">Fit</option>
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+            <option value="4">4×</option>
+            <option value="6">6×</option>
+          </select>
         </div>
-        <div id="meters" class="meters" aria-label="What this layout uses of the tag's limits"></div>
-        <section class="sample-box" aria-labelledby="sample-h">
-          <h3 id="sample-h">Sample text <span class="summary-note">what the preview shows, and what "Send sample to tag" sends</span></h3>
-          <div id="sample" class="form sample-grid"></div>
+      </section>
+
+      <aside class="dz-right">
+        <div class="dz-sec dz-title">
+          <input id="lay-name" class="title-input" spellcheck="false" aria-label="Layout name">
+          <span id="lay-sub" class="muted small"></span>
+        </div>
+        <p id="builtin-note" class="dz-sec hint" hidden>Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own. You can still try the sample text and send it.</p>
+        <section class="dz-sec">
+          <div class="dz-h"><h3>Fields and sample text</h3><button id="field-add" class="link">+ Field</button></div>
+          <div id="sample" class="fields"></div>
+          <p id="sample-count" class="count"></p>
         </section>
-        <details class="tips">
+        <section class="dz-sec" id="sel-sec" hidden>
+          <div class="dz-h"><h3 id="sel-title">Selected</h3></div>
+          <div id="el-form" class="el-form"></div>
+        </section>
+        <section class="dz-sec" id="desc-sec">
+          <div class="dz-h"><h3>Description</h3></div>
+          <input id="lay-desc" class="soft" placeholder="What the layout is for (optional)" aria-label="Description">
+        </section>
+        <details class="dz-sec tips">
           <summary>Keys and tips</summary>
           <ul>
-            <li>Drag a box to move it, drag its corner to resize. It snaps to the screen's edges and centre and to the other boxes; hold <kbd>Alt</kbd> to place it freely.</li>
+            <li>Drag a box to move it, drag its edge or corner to resize. It snaps to the screen's edges and centre and to the other boxes; hold <kbd>Alt</kbd> to place it freely.</li>
             <li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move the selected box 1 px (<kbd>Shift</kbd>: 10 px). <kbd>Tab</kbd> picks the next box, <kbd>Esc</kbd> deselects, <kbd>Delete</kbd> removes it, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicates it, <kbd>Ctrl</kbd>+<kbd>C</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd> copy it to another layout.</li>
             <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes.</li>
-            <li>Lines are thin boxes. For white text on black, put white text on a black box, or use inverted text.</li>
-            <li>The preview is drawn by the tag's own code and the file is checked by the AP's own compiler, so what you see is what the tag shows.</li>
+            <li>Drag an element in the list to draw it further forward or back.</li>
+            <li>For white text on black, give the text the colour Inverted, or put white text on a black box.</li>
+            <li>The preview is the tag's own pixels, drawn and checked by the AP's code, so what you see is what the tag shows.</li>
           </ul>
         </details>
-      </section>
-
-      <section class="side">
-        <details open id="list-panel">
-          <summary>Elements</summary>
-          <ol id="el-list" class="el-list"></ol>
-        </details>
-        <details open id="el-panel">
-          <summary>Element <span id="el-title" class="summary-note"></span></summary>
-          <div class="el-actions">
-            <button id="el-up" title="Draw earlier (further back)" aria-label="Draw earlier">↑</button>
-            <button id="el-down" title="Draw later (further front)" aria-label="Draw later">↓</button>
-            <button id="el-dup" title="Copy the selected element (Ctrl+D)">Duplicate</button>
-            <button id="el-del" title="Delete the selected element (Delete)">Delete</button>
-          </div>
-          <div id="el-form" class="form"></div>
-        </details>
-        <details open id="layout-panel">
-          <summary>Layout</summary>
-          <div class="form">
-            <label>Name <input id="lay-name" spellcheck="false"></label>
-            <label>Fields <input id="lay-fields" spellcheck="false" placeholder="name, price, unit"></label>
-            <label>Description <input id="lay-desc"></label>
-            <p class="hint">Up to six fields, in the order the client sends them. For two prices, add a field for each, e.g. <code>price, price_ex</code>, and send both in the update: the AP does not work out VAT, so each product can have its own rate.</p>
-          </div>
-        </details>
-        <details open id="ap-panel">
-          <summary>Send to AP</summary>
-          <div class="form">
-            <ol class="hint steps">
-              <li>Start the bridge on this computer: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
-              <li>Enter <code>http://localhost:8080</code> below and press Connect.</li>
-              <li>Pick a tag and send. If the AP does not have the layout yet, the layout file is uploaded first.</li>
-            </ol>
-            <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
-            <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
-            <div class="buttons tight">
-              <button id="ap-connect">Connect</button>
-              <button id="ap-upload" title="PUT /api/layouts/{model}: the tags of this model download it at their next poll">Upload layout file</button>
-            </div>
-            <label>Tag <select id="ap-tag"><option value="">(connect first)</option></select></label>
-            <div class="buttons tight">
-              <button id="ap-send" title="PUT /api/tags/{mac} with this layout and the sample text">Send sample to tag</button>
-              <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
-            </div>
-            <p id="ap-status" class="hint" role="status"></p>
-            <p class="hint">A web page cannot reach the AP by itself, and on https (such as GitHub Pages) the browser only lets it call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
-          </div>
-        </details>
-        <details>
-          <summary>Layout file (JSON)</summary>
-          <textarea id="json" spellcheck="false" rows="16"></textarea>
-          <p class="hint">Upload with <code>PUT /api/layouts/<span class="model-name">2.9</span></code>:</p>
-          <pre id="upload-cmd" class="cmd"></pre>
-        </details>
-      </section>
+      </aside>
     </div>
+
+    <dialog id="send-dlg" class="dlg" aria-labelledby="send-h">
+      <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+      <h3 id="send-h">Send to a tag</h3>
+      <div id="ap-setup">
+        <p class="hint">A web page cannot reach the AP by itself. Start the bridge in <code>tools/esl-client</code> on this computer and connect to it. The address is the same one the Dashboard tab uses.</p>
+        <div class="form">
+          <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
+          <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
+        </div>
+        <details class="hint how">
+          <summary>How do I connect?</summary>
+          <ol class="steps">
+            <li>Start the bridge: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
+            <li>Enter <code>http://localhost:8080</code> above and press Connect.</li>
+          </ol>
+          <p>On https (such as GitHub Pages) the browser only lets the page call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
+        </details>
+        <div class="buttons tight"><button id="ap-connect" class="primary">Connect</button></div>
+      </div>
+      <div id="ap-conn" class="conn" hidden><span class="dot"></span><span id="ap-conn-text"></span><button id="ap-change" class="link">Change</button></div>
+      <div id="ap-pick" hidden>
+        <h4 id="ap-tags-h" class="sub-h">Tag</h4>
+        <div id="ap-tags" class="tag-pick" role="radiogroup" aria-labelledby="ap-tags-h"></div>
+        <h4 class="sub-h">Sends</h4>
+        <p id="ap-sends" class="small"></p>
+      </div>
+      <p id="ap-status" class="hint" role="status"></p>
+      <div class="dlg-buttons">
+        <button id="ap-upload" title="PUT /api/layouts/{model}: the AP draws the tags of this model with it">Upload layout file only</button>
+        <span class="sep"></span>
+        <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
+        <button id="ap-send" class="primary" title="PUT /api/tags/{mac} with this layout and the sample text">Send</button>
+      </div>
+    </dialog>
+
+    <dialog id="json-dlg" class="dlg wide" aria-labelledby="json-h">
+      <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+      <h3 id="json-h">Layout file (JSON)</h3>
+      <p class="hint">Edits here change the design at once.</p>
+      <textarea id="json" spellcheck="false" rows="20"></textarea>
+      <p class="hint">Upload with <code>PUT /api/layouts/<span class="model-name">2.9</span></code>:</p>
+      <pre id="upload-cmd" class="cmd"></pre>
+    </dialog>
   </main>
 
   <!-- ===================== Flash tag ===================== -->
@@ -213,14 +243,7 @@
       <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
       <h3 class="sub">1. Choose the tag model</h3>
       <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
-        <button type="button" class="model" role="radio" data-model="2.9" aria-checked="true">
-          <img src="img/tag-29.jpg" width="529" height="280" alt="Photo of the 2.9&quot; tag">
-          <span class="name">2.9"</span><span class="muted">296 × 128, ST-GM29XX2</span>
-        </button>
-        <button type="button" class="model" role="radio" data-model="1.54" aria-checked="false">
-          <img src="img/tag-154.jpg" width="245" height="280" alt="Photo of the 1.54&quot; tag">
-          <span class="name">1.54"</span><span class="muted">200 × 200, ST-GM16XX2</span>
-        </button>
+        <!-- one button per model in js/models.js (main.js) -->
       </div>
       <h3 class="sub">2. Firmware and flasher</h3>
       <div class="form row">
@@ -270,18 +293,19 @@
   <!-- ===================== Flash AP ===================== -->
   <main id="tab-ap" class="tab" role="tabpanel" hidden>
     <section class="card">
-      <h2>Flash the access point (ESP32-C6)</h2>
-      <p>Connect the ESP32-C6 board by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
-      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
+      <h2>Flash the access point</h2>
+      <p>Pick the board, connect it by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
       <p id="ap-fw-info" class="muted"></p>
-      <label id="ap-lcd-choice" hidden><input type="checkbox" id="ap-lcd"> The board has a 0.96" LCD (ST7789, 160x80): show the AP's status on it</label>
-      <p id="ap-lcd-note" class="muted" hidden>For ESP32-C6 boards with a small screen. Leave it off for boards without one, like the C6 Super Mini. The screen pins are a guess until checked on the board (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#status-screen-boards-with-an-lcd">ap/README.md</a>).</p>
+      <label id="ap-board-choice" class="board-choice" hidden>Board <select id="ap-board"></select></label>
+      <p id="ap-board-note" class="muted" hidden></p>
       <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
         <button slot="activate">Connect and flash AP</button>
         <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
         <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
       </esp-web-install-button>
+      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
+      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
+      <p class="warn">With another flashing tool: a release's single AP file (<code>openesl-ap-...-v&lt;version&gt;.bin</code>, without <code>-ota</code>) written at 0x0 erases the AP's tags, layout files, WiFi and token too, since it holds blank bytes over that area. To keep them over USB, use this page without "Erase device", or write the <code>-ota.bin</code> to 0x90000 after erasing <code>otadata</code> at 0x7E000 with esptool, or on Linux and macOS use <code>esl-client --serial &lt;port&gt; ota openesl-ap-...-ota.bin</code> (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#build-and-flash">ap/README.md</a>).</p>
     </section>
     <section class="card">
       <h2>Then: WiFi and API token</h2>
@@ -348,7 +372,7 @@
         </div>
         <div class="table-wrap dash-wrap">
           <table class="dash-tags tag-table" role="table">
-            <thead role="rowgroup"><tr role="row"><th class="sel" role="columnheader"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th role="columnheader">State</th><th role="columnheader">Tag</th><th class="opt" role="columnheader">Model</th><th class="opt" role="columnheader">Last seen</th><th class="opt" role="columnheader">Next check-in</th><th class="opt num" role="columnheader">Signal</th><th class="opt num" role="columnheader">Battery</th><th class="opt" role="columnheader">Firmware</th></tr></thead>
+            <thead role="rowgroup"><tr role="row"><th class="sel" role="columnheader"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th role="columnheader">State</th><th role="columnheader">Tag</th><th class="opt" role="columnheader">Model</th><th class="opt" role="columnheader">Last seen</th><th class="opt" role="columnheader">Next check-in</th><th class="opt num" role="columnheader">Signal</th><th class="opt num" role="columnheader">Battery</th><th class="opt" role="columnheader">Firmware</th><th class="opt" role="columnheader" title="What the AP draws for the tag's content">Screen</th></tr></thead>
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
@@ -486,8 +510,8 @@
       <h2>Running it</h2>
       <ul>
         <li><strong>Content.</strong> Your software sends text per tag with <code>PUT /api/tags/{mac}</code>, or many at once with <code>PUT /api/tags</code>; the AP stores it and hands it to the tag at its next poll (about a minute). <code>"at"</code> in the request sets it at a given time, so a price change can be sent the day before. The <a href="#api">API</a> tab has every call, and <code>tools/esl-client</code> is a complete command-line client (<code>price</code>, <code>text</code>, <code>sync prices.csv</code> from an Excel export, <code>--at</code>).</li>
-        <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, layout file rejected), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
-        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-esp32c6-&lt;version&gt;-ota.bin</code>: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
+        <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, content the AP cannot draw), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
+        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-&lt;board&gt;-&lt;version&gt;-ota.bin</code> per board: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
         <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook and the schedule; <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
         <li><strong>Long-term test.</strong> <code>esl-client log week.csv</code> records every tag once a minute, and <code>report week.csv</code> sums up gaps, battery and AP restarts.</li>
       </ul>

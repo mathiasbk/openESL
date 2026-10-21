@@ -16,12 +16,14 @@ function tagFile(model, ver, size) {
 
 // An ESP32 app image: the header byte, and with version the app description after the
 // image and segment headers (esp_app_desc_t: magic word, then the version at 16)
-function apImage(size, version) {
+function apImage(size, version, chip = 13, project = "esl_ap") {
   const d = new Uint8Array(size);
   d[0] = 0xe9;
+  d[12] = chip; // esp_image_header_t chip_id: 13 the ESP32-C6, 23 the C5
   if (version) {
     d.set([0x32, 0x54, 0xcd, 0xab], 32);
     d.set(enc.encode(version), 48);
+    d.set(enc.encode(project), 80);
   }
   return d;
 }
@@ -198,6 +200,10 @@ test("the page's firmware for the ticked tags", () => {
 test("the version in an AP image", () => {
   assert.equal(firmwareKind(apImage(4096, "0.4.3")).version, "0.4.3");
   assert.equal(firmwareKind(apImage(4096)).version, null); // no app description where it belongs
+  // another app for the chip, such as the radio coprocessor's: not for the AP
+  const radio = firmwareKind(apImage(4096, "0.5.0", 13, "esl_radio"));
+  assert.equal(radio.kind, null);
+  assert.match(radio.error, /radio coprocessor/);
 });
 
 test("versions compare by their numbers", () => {
@@ -210,8 +216,8 @@ test("versions compare by their numbers", () => {
 
 test("the page's AP image that fits the AP", () => {
   const info = { version: "v0.4.4", release: true, ota: { "ap-openesl": true, "ap-openesl-lcd": true } };
-  assert.deepEqual(apImageFor({ version: "0.4.3", display: true }, info), { file: "ap-openesl-lcd-ota", version: "0.4.4", newer: true });
-  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, info), { file: "ap-openesl-ota", version: "0.4.4", newer: true });
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: true }, info), { file: "ap-openesl-lcd-ota", version: "0.4.4", newer: true, display: true });
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, info), { file: "ap-openesl-ota", version: "0.4.4", newer: true, display: false });
   assert.equal(apImageFor({ version: "0.4.3" }, info).file, "ap-openesl-ota");        // older firmware does not say
   assert.equal(apImageFor({ version: "0.4.4", display: false }, info).newer, false);  // already runs it
   assert.equal(apImageFor({ version: "0.4.3" }, { ...info, version: "0.4.4-dev", release: false }).newer, false); // not a release
@@ -219,8 +225,22 @@ test("the page's AP image that fits the AP", () => {
   assert.equal(apImageFor({ version: "0.4.3" }, null), null);
   // a release that changed only the tags: the AP image is still 0.4.3, so nothing new for the AP
   const parts = { ...info, version: "v0.4.4", ap_version: "0.4.3", tag_version: "0.4.4" };
-  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, parts), { file: "ap-openesl-ota", version: "0.4.3", newer: false });
+  assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, parts), { file: "ap-openesl-ota", version: "0.4.3", newer: false, display: false });
   assert.equal(apImageFor({ version: "0.4.2" }, parts).newer, true);
+});
+
+test("the page's AP image for the AP's chip and board (ap_boards)", () => {
+  const ap_boards = [
+    { id: "c6-supermini", target: "esp32c6", display: false, file: "ap-openesl" },
+    { id: "c6-supermini-lcd", target: "esp32c6", display: true, file: "ap-openesl-lcd" },
+    { id: "c5-wroom-1u-n16r8", target: "esp32c5", display: false, file: "ap-openesl-c5-n16r8" },
+  ];
+  const info = { version: "v0.4.8", release: true, ap_boards, ota: { "ap-openesl": true, "ap-openesl-lcd": true, "ap-openesl-c5-n16r8": true } };
+  assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c5", display: false }, info).file, "ap-openesl-c5-n16r8-ota");
+  assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c6", display: true }, info).file, "ap-openesl-lcd-ota");
+  assert.equal(apImageFor({ version: "0.4.7", display: false }, info).file, "ap-openesl-ota");   // no chip: a C6
+  assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c5", display: true }, info).file, "ap-openesl-c5-n16r8-ota"); // no C5 with a screen
+  assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c5" }, { ...info, ota: { "ap-openesl": true } }), null); // no image for its chip
 });
 
 test("what is asked before AP firmware goes out", () => {
@@ -234,4 +254,7 @@ test("what is asked before AP firmware goes out", () => {
   assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { ...ota, display: true }, false), /screen goes dark/);
   assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { version: "0.4.3" }, true), /status screen/); // the AP does not say
   assert.match(apSendQuestion(firmwareKind(apImage(4096)), null), /^Send new firmware to the AP\?/);
+  assert.equal(firmwareKind(apImage(4096, "0.4.4", 23)).chip, "esp32c5");
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4", 23)), { ...ota, chip: "esp32c6" }), /for the ESP32-C5, and this AP is an ESP32-C6/);
+  assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { ...ota, chip: "esp32c6" }), /refuse/);
 });

@@ -1,6 +1,6 @@
-# Extra defaults for ESP32-C6 boards with a 0.96" 160x80 ST7789 LCD (ESL_DISPLAY).
-# Build with:
-#   idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build
+# ESP32-C6 boards with a 0.96" 160x80 ST7789 LCD (ESL_DISPLAY): the c6-supermini board
+# (board.json "base", read first) plus the screen. Build with:
+#   python build.py c6-supermini-lcd
 # The pins are a guess (the Waveshare ESP32-C6-LCD layout); check them against the
 # board and change them here or in menuconfig.
 CONFIG_ESL_DISPLAY=y

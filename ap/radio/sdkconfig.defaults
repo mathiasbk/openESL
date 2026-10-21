@@ -1,0 +1,18 @@
+CONFIG_IDF_TARGET="esp32c6"
+CONFIG_IEEE802154_ENABLED=y
+
+# The log goes to the built-in USB port; the UART pins are the link to the host
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# The UART and 802.15.4 paths run from IRAM, so a flash write cannot delay a reply
+CONFIG_UART_ISR_IN_IRAM=y
+
+# A radio stuck in a busy loop restarts (the host then sees its HELLO and configures it)
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_PANIC=y

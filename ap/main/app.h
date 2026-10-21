@@ -4,12 +4,14 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "esl_api.h"
+#include "esl_image.h"
 #include "esl_layout.h"
 #include "esl_radio.h"
+#include "esl_screen.h"
 #include "esl_store.h"
 
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
-esp_err_t store_nvs_init(esl_store_t *st, unsigned cap, uint16_t next_poll_s);
+esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s);
 /* The clock for the time a tag was last heard (stored with it); call after sched_start(). */
 void store_nvs_set_clock(esl_sched_t *sched);
 /* Saves every tag's last poll now: before a planned restart (OTA). */
@@ -32,20 +34,32 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
- * HTTP and serial transports; call api_handle_init() before either starts.
- * api_handle_health() is esl_api_health() under the same mutex. */
+ * HTTP and serial transports; call api_handle_init() before either starts. */
 void api_handle_init(void);
 int api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
-int api_handle_health(const esl_api_t *api, uint64_t now_ms, uint8_t *prev, esl_sb_t *out);
+/* api_handle() for PUT /api/tag-firmware (esl_api_tagfw_piece_uri() true), with a body of
+ * len bytes that read(ctx, buf, n) brings in (false when they did not all come): it goes
+ * on in pieces of up to piece_cap bytes, each a part of its own, so no buffer holds a
+ * whole part. The reply (the last piece's) goes to out, on resp; *got is the bytes read,
+ * short of len after an error reply. -1 when read failed. */
+typedef bool (*api_read_fn)(void *ctx, char *buf, size_t n);
+int api_handle_tagfw_put(const esl_api_t *api, const char *uri, const char *auth, size_t len, api_read_fn read,
+                         void *ctx, char *piece, size_t piece_cap, char *resp, size_t resp_cap, esl_sb_t *out,
+                         size_t *got);
 esp_err_t http_api_start(const esl_api_t *api);
 
 /* serial_api.c: the same API over the USB serial port */
 esp_err_t serial_api_start(const esl_api_t *api);
 
-/* display.c (ESL_DISPLAY): AP status on a small ST7789 LCD. Call once api is
+/* display.c (ESL_DISPLAY or ESL_RADIO_DRIVER_UART): the AP's status screen, on a small
+ * ST7789 LCD on this board and/or the radio coprocessor's. Call once api is
  * filled in; it refreshes on its own. */
 esp_err_t display_start(const esl_api_t *api);
+
+/* radio_uart.c: sends the status screen to the radio coprocessor (SCREEN), which
+ * shows it if it has an LCD. Dropped while the radio is not up. */
+void radio_screen(const esl_screen_t *s);
 
 /* health.c (ESL_WEBHOOK): posts the health report (GET /api/health) to the
  * webhook URL whenever it changes. Returns the notify struct for api->notify,
@@ -78,6 +92,6 @@ esl_tagfw_t *tagfw_start(void);
 void captive_dns_start(void);
 void captive_dns_stop(void);
 
-/* radio_ieee802154.c (AP or sniffer mode) or radio_stub.c. ls (layout files,
- * sent to the tags in blocks) may be NULL. */
+/* radio.c (AP or sniffer mode, over the link of the radio driver) or
+ * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);

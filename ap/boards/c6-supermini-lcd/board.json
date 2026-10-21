@@ -1,0 +1,14 @@
+{
+  "id": "c6-supermini-lcd",
+  "base": "c6-supermini",
+  "label": "ESP32-C6 with a 0.96\" ST7789 status screen (Waveshare ESP32-C6-LCD layout)",
+  "target": "esp32c6",
+  "chip_family": "ESP32-C6",
+  "flash_mb": 4,
+  "psram_mb": 0,
+  "antenna": "on the board",
+  "radio": "native",
+  "artifact": "openesl-ap-lcd",
+  "release": "openesl-ap-esp32c6-lcd",
+  "status": "supported"
+}

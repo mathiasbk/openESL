@@ -7,20 +7,20 @@ int test_checks;
 void test_proto(void);
 void test_font(void);
 void test_draw(void);
-void test_layout(void);
+void test_status(void);
 void test_app(void);
-void test_barcode(void);
 void test_ota(void);
+void test_image(void);
 
 int main(void)
 {
     test_proto();
     test_font();
     test_draw();
-    test_layout();
+    test_status();
     test_app();
-    test_barcode();
     test_ota();
+    test_image();
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

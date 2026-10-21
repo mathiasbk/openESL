@@ -1,0 +1,11 @@
+# OpenESL AP partition table for 16 MB flash (ESP32-S3 N16R8, boards/s3-n16r8-c6). The first part is laid
+# out like the C6's (boards/c6-supermini/partitions.csv): the same NVS, so 1000 tags and
+# the layout files fit as there. The app slots are 3 MB each, and tagfw has room for the
+# firmware of 16 tag models (64 KB each, ESL_TAGFW_SLOT). About 6.5 MB is left at the end.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x75000
+otadata,  data, ota,     0x7E000,  0x2000
+phy_init, data, phy,     0x80000,  0x1000
+ota_0,    app,  ota_0,   0x90000,  0x300000
+ota_1,    app,  ota_1,   0x390000, 0x300000
+tagfw,    data, 0x40,    0x690000, 0x100000

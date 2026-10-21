@@ -1,0 +1,353 @@
+{
+ "format": "esl-layouts",
+ "version": 1,
+ "model": "1.54",
+ "description": "Layouts only for the sim comparison: wrapping before a short last word, invert and highlight, barcodes centred and right-aligned with an odd rest",
+ "layouts": [
+  {
+   "name": "wrap",
+   "fields": [
+    "a",
+    "b"
+   ],
+   "elements": [
+    {
+     "type": "text",
+     "field": "a",
+     "x": 0,
+     "y": 0,
+     "w": 66,
+     "h": 54,
+     "fonts": [
+      "small"
+     ],
+     "lines": 3
+    },
+    {
+     "type": "text",
+     "field": "a",
+     "x": 68,
+     "y": 0,
+     "w": 83,
+     "h": 54,
+     "fonts": [
+      "small"
+     ],
+     "lines": 3
+    },
+    {
+     "type": "text",
+     "field": "b",
+     "x": 0,
+     "y": 56,
+     "w": 89,
+     "h": 72,
+     "fonts": [
+      "medium",
+      "small"
+     ],
+     "lines": 3
+    },
+    {
+     "type": "text",
+     "field": "b",
+     "x": 100,
+     "y": 56,
+     "w": 71,
+     "h": 72,
+     "fonts": [
+      "small"
+     ],
+     "lines": 0,
+     "align": "right"
+    }
+   ]
+  },
+  {
+   "name": "inverted",
+   "fields": [
+    "a",
+    "b",
+    "c"
+   ],
+   "elements": [
+    {
+     "type": "text",
+     "field": "a",
+     "x": 2,
+     "y": 2,
+     "w": 196,
+     "h": 34,
+     "fonts": [
+      "medium",
+      "small"
+     ],
+     "color": "invert",
+     "align": "center",
+     "valign": "middle",
+     "lines": 1
+    },
+    {
+     "type": "text",
+     "field": "b",
+     "x": 2,
+     "y": 40,
+     "w": 196,
+     "h": 40,
+     "fonts": [
+      "mid",
+      "medium"
+     ],
+     "color": "highlight",
+     "align": "right",
+     "valign": "bottom",
+     "lines": 1
+    },
+    {
+     "type": "rect",
+     "x": 0,
+     "y": 84,
+     "w": 200,
+     "h": 116
+    },
+    {
+     "type": "text",
+     "field": "c",
+     "x": 4,
+     "y": 86,
+     "w": 192,
+     "h": 112,
+     "fonts": [
+      "small"
+     ],
+     "color": "white",
+     "lines": 0
+    }
+   ]
+  },
+  {
+   "name": "ean-odd",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "ean13",
+     "module": 1,
+     "x": 1,
+     "y": 10,
+     "w": 198,
+     "h": 40,
+     "align": "center"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "ean-even",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "ean13",
+     "module": 1,
+     "x": 0,
+     "y": 10,
+     "w": 199,
+     "h": 40,
+     "align": "center"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "c128-a",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "code128",
+     "module": 1,
+     "x": 1,
+     "y": 10,
+     "w": 197,
+     "h": 40,
+     "align": "center"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "c128-b",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "code128",
+     "module": 1,
+     "x": 2,
+     "y": 10,
+     "w": 196,
+     "h": 40,
+     "align": "center"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "c128-wide",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "code128",
+     "module": 0,
+     "x": 0,
+     "y": 10,
+     "w": 199,
+     "h": 40,
+     "align": "center"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "ean-right",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "ean13",
+     "module": 1,
+     "x": 1,
+     "y": 10,
+     "w": 198,
+     "h": 40,
+     "align": "right"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  },
+  {
+   "name": "c128-right",
+   "fields": [
+    "code",
+    "text"
+   ],
+   "elements": [
+    {
+     "type": "barcode",
+     "field": "code",
+     "symbology": "code128",
+     "module": 1,
+     "x": 1,
+     "y": 10,
+     "w": 197,
+     "h": 40,
+     "align": "right"
+    },
+    {
+     "type": "text",
+     "field": "text",
+     "x": 0,
+     "y": 60,
+     "w": 200,
+     "h": 30,
+     "fonts": [
+      "medium"
+     ],
+     "align": "center"
+    }
+   ]
+  }
+ ]
+}

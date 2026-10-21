@@ -77,7 +77,7 @@ Change `printing` to the state your integration uses (for example `running` for 
 
 The layout `prusa` in [tag/designs/layouts/3d-printer-2.9.json](../tag/designs/layouts/3d-printer-2.9.json) (2.9" only) has five fields: `name`, `pct`, `left`, `done` and `bar`. Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text, and 31 spaces fill the frame. `pct` uses the `mid` font, which has digits only; the `%` is fixed text. Change the fixed text `PRUSA` to the name of your printer.
 
-Copy the layout into the AP's 2.9" file (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). The file holds at most 768 bytes and the layout takes 181, so drop example layouts no tag uses if it does not fit.
+Copy the layout into the AP's 2.9" file (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). The compiled file holds at most 2048 bytes and the layout takes 181, so drop example layouts no tag uses if it does not fit.
 
 Then the automation sends `layout: prusa` and the five fields (entities from the PrusaLink integration). It leaves the file name out, and shows the status and material when the printer is idle. It runs every 10 minutes while printing and rounds to 10 % and 10 minutes, so the tag redraws at most 6 times an hour:
 
@@ -132,7 +132,7 @@ actions:
 - **Text:** 4 fields (lines), 92 characters in all after conversion to Latin-1 (96 bytes with the length bytes, [protokoll.md](protokoll.md) part 1). æøå work. Over the limit the AP answers `422` and the tag keeps what it shows.
 - **Line width:** about 20 characters per line on the 2.9" before the text drops to a smaller font or is cut with "…". The 1.54" wraps to two lines per field.
 - **When it shows:** the tag polls the AP every 60 s, so a change shows within about a minute plus drawing.
-- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): drawing costs power, sending does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
+- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): a new screen costs power (the image download and the refresh), the same text again does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
 - **"Done at":** changes when the estimate moves, which is an extra redraw. Remove the line if that is too often.
 
 ## Test without the automation

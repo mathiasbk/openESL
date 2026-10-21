@@ -1,11 +1,15 @@
-# Builds the tag firmware (both models, after the host tests) and the AP firmware.
+# Builds the tag firmware (every model in shared/models.json, after the host tests) and the AP
+# firmware (every board in ap/boards/).
 # Called by web.yml (every push and pull request) and release.yml (a VERSION bump merged to master, a tag v*, or by hand), so CI and
 # releases build the firmware the same way. Artifacts:
-#   tag-firmware: tag-29.bin, tag-154.bin (bootloader and application, for the flasher),
-#                 tag-29-ota.bin, tag-154-ota.bin (the application with its header, for PUT /api/tag-firmware)
-#   ap-firmware:  openesl-ap.bin (bootloader, partition table and app merged, written at 0),
-#                 openesl-ap-lcd.bin (the same with the status screen, ap/sdkconfig.lcd),
-#                 openesl-ap-ota.bin / openesl-ap-lcd-ota.bin (the app alone, for POST /api/ota)
+#   tag-firmware: tag-<build>.bin (bootloader and application, for the flasher) and tag-<build>-ota.bin
+#                 (the application with its header, for PUT /api/tag-firmware): tag-29*.bin, tag-154*.bin
+#   ap-firmware:  <artifact>.bin (bootloader, partition table and app merged, written at 0) and
+#                 <artifact>-ota.bin (the app alone, for POST /api/ota) per board (ap/build.py):
+#                 openesl-ap*.bin (C6), openesl-ap-lcd*.bin (C6 with the status screen),
+#                 openesl-ap-c5-n16r8*.bin (ESP32-C5 with PSRAM), openesl-ap-s3-n16r8*.bin (ESP32-S3 host),
+#                 and the radio coprocessor images for the S3 (openesl-ap-radio-c6.bin,
+#                 openesl-ap-radio-c6-lcd.bin; no -ota.bin)
 # The AP and the tags each get the version of the release they last changed in
 # (tools/fw_version.py), so the images of a release that changed only one of them are the
 # previous ones again for the other; the "Versions" step shows what this run built.
@@ -37,11 +41,10 @@ jobs:
           curl -sSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.5.0/sdcc-4.5.0-amd64-unknown-linux2.5.tar.bz2/download
           mkdir -p "$HOME/sdcc" && tar xjf sdcc.tar.bz2 -C "$HOME/sdcc" --strip-components=1
       - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
+      - name: Model registry (the generated files match shared/models.json)
+        run: python3 tools/gen_models.py --check
       - name: Host tests
-        run: |
-          # zxing-cpp reads back the barcodes the tag code draws (tag/test/test_label_barcode.py)
-          python3 -m pip install --user zxing-cpp==3.1.1 pillow
-          python3 tag/tools/build.py test
+        run: python3 tag/tools/build.py test
       - name: End-to-end simulation (tag firmware against the AP core, sim/README.md)
         run: |
           make -C sim SAN=1
@@ -53,15 +56,8 @@ jobs:
           path: sim/build/*/screens/
       - name: Versions (tools/fw_version.py)
         run: python3 tools/fw_version.py --all
-      - name: Build firmware (2.9" and 1.54")
-        run: |
-          MODEL=29 python3 tag/tools/build.py fw
-          MODEL=154 python3 tag/tools/build.py fw
-          mkdir -p out
-          cp tag/build/fw/openesl.bin out/tag-29.bin
-          cp tag/build/fw154/openesl.bin out/tag-154.bin
-          cp tag/build/fw/openesl-ota.bin out/tag-29-ota.bin
-          cp tag/build/fw154/openesl-ota.bin out/tag-154-ota.bin
+      - name: Build firmware (every model in shared/models.json)
+        run: python3 tools/check.py --strict tag-fw   # writes out/tag-<build>.bin and out/tag-<build>-ota.bin
       - uses: actions/upload-artifact@v7
         with:
           name: tag-firmware
@@ -74,26 +70,23 @@ jobs:
         with:
           fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Host tests (AP core, with AddressSanitizer)
-        run: make -C ap/test SAN=1
+        run: |
+          # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
+          python3 -m pip install --user zxing-cpp==3.1.1 pillow
+          make -C ap/test SAN=1
       - name: Tool tests (esl-client against a fake AP, power budget)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
       - name: Versions (tools/fw_version.py)
         run: python3 tools/fw_version.py --all
-      - name: Build AP (ESP-IDF v5.5.5) and merge it into one image
+      - name: Build AP for every board (ESP-IDF v5.5.5), each merged into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
-          target: esp32c6
+          target: esp32c6   # only for the action; ap/build.py takes the chip from each board
           path: ap
-          command: >-
-            mkdir -p out &&
-            idf.py build && (cd build && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap.bin @flash_args) &&
-            cp build/esl_ap.bin out/openesl-ap-ota.bin &&
-            idf.py -B build-lcd -D SDKCONFIG=build-lcd/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lcd" build &&
-            cp build-lcd/esl_ap.bin out/openesl-ap-lcd-ota.bin &&
-            cd build-lcd && python -m esptool --chip esp32c6 merge_bin -o ../out/openesl-ap-lcd.bin @flash_args
+          command: python build.py
       - uses: actions/upload-artifact@v7
         with:
           name: ap-firmware

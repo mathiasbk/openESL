@@ -90,6 +90,18 @@ void app_main(void)
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
     api.tagfw = tagfw_start();
     esl_radio_set_tagfw(api.tagfw);
+    /* Images for tags that show what the AP draws: two buffers of the largest screen
+       (about 10 KB), drawn when a tag needs one and dropped again (esl_image.h). Only
+       the radio task uses them for now, so no lock. Without the memory the AP still
+       works, but those tags get no new content. */
+    static esl_image_t images;
+    uint8_t *image_mem = malloc(esl_image_mem_size());
+    if (image_mem) {
+        esl_image_init(&images, image_mem, NULL);
+        esl_radio_set_image(&images);
+    } else {
+        ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());
+    }
     api_handle_init();
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);
@@ -99,17 +111,18 @@ void app_main(void)
     ESP_ERROR_CHECK(serial_api_start(&api));
 #endif
 
-#if CONFIG_ESL_DISPLAY
+#if CONFIG_ESL_DISPLAY || CONFIG_ESL_RADIO_DRIVER_UART
     err = display_start(&api);
     if (err != ESP_OK)
         ESP_LOGE(TAG, "display: %s", esp_err_to_name(err)); /* the AP works without it */
 #endif
 
     ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
-    /* The tag table (ESL_MAX_TAGS x sizeof(esl_tag_t)) is the one thing that grows with
-       the configuration; this shows how much room is left for a bigger one. */
-    ESP_LOGI(TAG, "free heap %lu bytes, tag table %u bytes", (unsigned long)esp_get_free_heap_size(),
-             (unsigned)(CONFIG_ESL_MAX_TAGS * sizeof(esl_tag_t)));
+    /* The tag table is the one thing that grows with the number of tags (store_nvs.c
+       stops it before WiFi and HTTP run short); this shows how much
+       room is left for it. */
+    ESP_LOGI(TAG, "free heap %lu bytes, tag table %u slots of %u bytes", (unsigned long)esp_get_free_heap_size(),
+             esl_store_slots(&store), (unsigned)sizeof(esl_tag_t));
 #if CONFIG_ESL_OTA
     /* Everything started. A new image with a WiFi network to join is kept once
        it can be reached (wifi.c, api_handle()), otherwise it is good enough now;

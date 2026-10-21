@@ -4,8 +4,10 @@ const font_t __code *font_get(uint8_t id)
 {
     switch (id) {
     case FONT_SMALL:  return &font_small;
+#ifndef FONT_TEXT_ONLY   /* the tag firmware has only small and medium (tools/build.py) */
     case FONT_LARGE:  return &font_large;
     case FONT_MID:    return &font_mid;
+#endif
     default:          return &font_medium;
     }
 }

@@ -8,14 +8,14 @@
 #include "sdkconfig.h"
 
 /* Radio stub: no 802.15.4. CONFIG_ESL_STUB_TAGS simulated tags poll the AP
- * every CONFIG_ESL_STUB_INTERVAL_S seconds and "show" whatever CONTENT they
- * get, so the HTTP API (pending, shown_content_id, seen_s_ago, model) can be
- * tested with curl before any tag radio works.
+ * every CONFIG_ESL_STUB_INTERVAL_S seconds and "show" whatever image they get,
+ * so the HTTP API (pending, shown_content_id, seen_s_ago, model) can be tested
+ * with curl before any tag radio works.
  *
  * The simulated tags are esl_faketag (components/esl_core), and their frames go
- * through esl_radio_handle() exactly like frames from the real radio, layout
- * file downloads included (esl_faketag_round). Odd tags report model 2.9",
- * even tags 1.54".
+ * through esl_radio_handle() exactly like frames from the real radio, image
+ * downloads included (esl_faketag_round). Odd tags report model 2.9", even
+ * tags 1.54".
  *
  * Simulated MACs: 00000000FAC70001, 00000000FAC70002, ...
  *
@@ -43,16 +43,11 @@ static void stub_task(void *arg)
         for (int i = 0; i < CONFIG_ESL_STUB_TAGS; i++) {
             esl_faketag_t *t = &tags[i];
             uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
-            uint32_t had = t->layout_ver;
             uint8_t type = esl_faketag_round(t, st, stub_layouts, stub_pan, (int8_t)(-50 - i), now_ms);
             char mac[17];
             esl_mac_format(t->mac, mac);
-            if (t->layout_ver != had)
-                ESP_LOGI(TAG, "%s now has layout file %08lX (%u bytes)", mac, (unsigned long)t->layout_ver,
-                         (unsigned)t->layout_size);
-            if (type == ESL_MSG_CONTENT)
-                ESP_LOGI(TAG, "%s got CONTENT id=%08lX layout %u, now showing it", mac, (unsigned long)t->shown,
-                         (unsigned)t->content.layout);
+            if (type == ESL_MSG_IMG)
+                ESP_LOGI(TAG, "%s got IMG, now showing %08lX", mac, (unsigned long)t->shown);
             else if (type == ESL_MSG_CONFIG)
                 ESP_LOGI(TAG, "%s got CONFIG ver=%04X, interval now %u s", mac, (unsigned)t->cfg_ver,
                          (unsigned)t->interval_s);
