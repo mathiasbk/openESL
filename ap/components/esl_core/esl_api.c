@@ -1046,6 +1046,26 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
     return 200;
 }
 
+esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms)
+{
+    esl_health_cfg_t cfg = {0, 0}; /* the defaults, as the dashboard asks GET /api/health */
+    if (tag_health(api, t, now_ms, &cfg))
+        return ESL_TAG_BAD;
+    uint16_t def_poll = esl_store_get_next_poll(api->store);
+    esl_tag_cfg_t eff;
+    esl_tag_effective_cfg(t, def_poll, &eff); /* "poll_s" in GET /api/tags */
+    uint64_t poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
+    if (t->seen && (now_ms - t->last_seen_ms) / 1000 > poll_s + ESL_TAG_CHECKIN_GRACE_S)
+        return ESL_TAG_BUSY;
+    esl_tagfw_img_t img;
+    uint16_t got;
+    if (t->seen && esl_tagfw_get(api->tagfw, t->model, &img) && tag_fw_update(api, t, &img, &got) == FWU_UPDATING)
+        return ESL_TAG_BUSY;
+    if (esl_tag_pending(t) || esl_tag_cfg_pending(t, def_poll))
+        return ESL_TAG_BUSY;
+    return ESL_TAG_OK;
+}
+
 static int get_health(const esl_api_t *api, const char *method, const char *uri, uint64_t now_ms, esl_sb_t *out)
 {
     if (strcmp(method, "GET") != 0)

@@ -93,6 +93,14 @@ bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
                    esl_sb_t *out);
 
+/* What the dashboard shows for a tag (tagState in web/js/dashdata.js): BAD when
+ * GET /api/health lists a problem for it, BUSY when its poll is late or it is
+ * still getting firmware, content or settings, OK otherwise. The AP's status
+ * screen counts its tags by this. */
+typedef enum { ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BAD } esl_tag_level_t;
+#define ESL_TAG_CHECKIN_GRACE_S 15 /* CHECKIN_GRACE_S in dashdata.js: late after poll_s + this */
+esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms);
+
 /* The status page at / (krav A6): an HTML table with the same data as
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
