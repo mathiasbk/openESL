@@ -10,6 +10,8 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_st7789.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 /* A small ST7789 LCD, e.g. on the ESP32-C6 boards with a 0.96" 160x80 screen.
  * The text comes from esl_screen.c (host-tested); this file only drives the
@@ -24,6 +26,7 @@ static const char *TAG = "lcd";
 static esp_lcd_panel_handle_t panel;
 static uint8_t *pix;
 static uint16_t *band;
+static SemaphoreHandle_t band_sent; /* given when the bus is done with band */
 
 /* esl_screen_color_t -> RGB565, byte-swapped for the SPI bus */
 #define RGB(r, g, b) (uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
@@ -33,13 +36,27 @@ static const uint16_t palette[] = {
     SWAP(RGB(255, 190, 0)),   SWAP(RGB(255, 40, 40)),   SWAP(RGB(140, 140, 140)),
 };
 
+static bool band_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *ev, void *ctx)
+{
+    (void)io;
+    (void)ev;
+    (void)ctx;
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(band_sent, &woken);
+    return woken == pdTRUE;
+}
+
+/* draw_bitmap only queues the DMA transfer, so wait until the bus is done
+ * with band before filling it again: otherwise the next rows overwrite the
+ * ones still being sent, and lines show up in the wrong place. */
 static void flush(void)
 {
     for (int y = 0; y < H; y += BAND) {
         int rows = H - y < BAND ? H - y : BAND;
         for (int i = 0; i < rows * W; i++)
             band[i] = palette[pix[y * W + i] % (sizeof(palette) / sizeof(palette[0]))];
-        esp_lcd_panel_draw_bitmap(panel, 0, y, W, y + rows, band);
+        if (esp_lcd_panel_draw_bitmap(panel, 0, y, W, y + rows, band) == ESP_OK)
+            xSemaphoreTake(band_sent, pdMS_TO_TICKS(100));
     }
 }
 
@@ -56,7 +73,8 @@ esp_err_t esl_lcd_start(const esl_screen_t *s)
 {
     pix = malloc(W * H);
     band = heap_caps_malloc(W * BAND * sizeof(uint16_t), MALLOC_CAP_DMA);
-    if (!pix || !band)
+    band_sent = xSemaphoreCreateBinary();
+    if (!pix || !band || !band_sent)
         return ESP_ERR_NO_MEM;
 
 #if CONFIG_ESL_LCD_PIN_BL >= 0
@@ -86,6 +104,7 @@ esp_err_t esl_lcd_start(const esl_screen_t *s)
         .lcd_param_bits = 8,
         .spi_mode = 0,
         .trans_queue_depth = 4,
+        .on_color_trans_done = band_done,
     };
     err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_cfg, &io);
     if (err != ESP_OK)

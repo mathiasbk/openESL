@@ -72,7 +72,10 @@ if ESL_DISPLAY
         default y
     config ESL_LCD_BGR
         bool "BGR colour order"
-        default y
+        default n
+        help
+            Turn on if red and blue come out swapped (the title line,
+            light blue, shows as yellow).
     config ESL_LCD_REFRESH_MS
         int "Refresh interval (ms)"
         range 200 60000
