@@ -23,6 +23,7 @@ const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
 const RECT_COLORS_RED = [...RECT_COLORS, "red"];
 const LINE_COLORS_RED = [...LINE_COLORS, "red"];
 const ICON_MAX = 128;                         // ESL_ICON_MAX_W / _H in shared/proto.h
+const ICON_FILE_MAX = 16;                     // ESL_LBIN_ICON_MAX: icons in one layout file
 const COLOR_NAMES = {
   black: "Black", white: "White", invert: "Inverted", highlight: "Highlight",
   frame: "Frame", red: "Red", red_invert: "Red inverted",
@@ -1146,6 +1147,10 @@ function addElement(kind) {
 async function addIcon(file) {
   const lay = layout();
   if (!lay || !file) return;
+  if (Object.keys(doc().icons ?? {}).length >= ICON_FILE_MAX) {
+    setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+    return;
+  }
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
@@ -1227,6 +1232,10 @@ function pasteElement() {
     d.icons ??= {};
     let name = c.icon;
     for (let n = 2; d.icons[name] && JSON.stringify(d.icons[name]) !== JSON.stringify(pic); n++) name = c.icon.slice(0, 16 - String(n).length) + n;
+    if (!d.icons[name] && Object.keys(d.icons).length >= ICON_FILE_MAX) {
+      setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+      return;
+    }
     d.icons[name] = pic;
     c.icon = name;
   }

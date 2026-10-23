@@ -248,9 +248,10 @@
  * A line element:
  *   ESL_LE_OFF_OPTS    ESL_LE_RISING: from the bottom-left to the top-right corner of the box,
  *                      else from the top-left to the bottom-right
- *   ESL_LE_OFF_WIDTH   line width in pixels, 1..ESL_LINE_W_MAX; every pixel whose centre is
- *                      at most width / 2 from the line is drawn, so the ends are round
- *   a box 1 pixel high or wide is a straight line; a wider line reaches width / 2 past the box
+ *   ESL_LE_OFF_WIDTH   line width in pixels, 1..ESL_LINE_W_MAX
+ *   a box 1 pixel high or wide is a straight line: exactly width pixels thick, (width - 1) / 2
+ *   of them above or left of the box, with square ends. A slanted line is every pixel whose
+ *   centre is at most width / 2 from it, so it reaches width / 2 past the box, with round ends
  * An icon element:
  *   ESL_LE_OFF_FIELD   the icon's number in the file
  *   ESL_LE_OFF_COLOR   black, white or red: the icon's 1 bits are drawn, 0 bits left as they are */

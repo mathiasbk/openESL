@@ -319,7 +319,7 @@ static bool qr_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, un
         v++;
     if (!v)
         return fail(c, "the box must be at least %u px wide and high for a QR code (21 modules%s and %d of white "
-                    "on each side)", ESL_QR_MIN_SIDE * (mw ? mw : 1), mw > 1 ? "" : " of 1 px", ESL_QR_QUIET);
+                    "on each side)", ESL_QR_MIN_SIDE * (mw ? mw : 1), mw > 1 ? "" : " of 1 px", (int)ESL_QR_QUIET);
     if (++lay->qrs > ESL_DRAW_MAX_QR)
         return fail(c, "the AP draws at most %d QR code per screen", ESL_DRAW_MAX_QR);
     lay->qr_field = (int8_t)fi;
