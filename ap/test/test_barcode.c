@@ -218,15 +218,15 @@ static void test_element(void)
     save("qr-url", "qr", "https://openesl.example/p/123");
     span(64, &first, &last, &narrow);
     CHECK(first > 0 && last < W - 1);
-    CHECK_INT((last + first + 1) / 2, W / 2);   /* centred */
+    CHECK(abs((last + first + 1) / 2 - W / 2) <= 1);   /* centred, to the pixel */
     CHECK_INT(bin.qr_field[0], 0);
     CHECK_INT(bin.qr_ecc[0], ESL_QR_LEVEL_M);
     CHECK_INT(bin.qr_cap[0], (int)esl_qr_capacity(10, ESL_QR_ECC_M)); /* 128 px holds version 10 (57) */
     qr_layout("L", 1, "left", 4, 4, 120, 120);
     draw("Ost 1 kg 129,90");
     save("qr-l1", "qr", "Ost 1 kg 129,90");
-    span(4 + (120 - 21) / 2, &first, &last, &narrow);   /* in the middle of the box */
-    CHECK_INT(first, 4);
+    span(4 + (120 - 25) / 2 + 2, &first, &last, &narrow); /* the top row, in the middle of the box */
+    CHECK_INT(first, 4 + ESL_QR_QUIET);         /* the quiet zone is inside the box */
     CHECK_INT(last - first + 1, 21);            /* version 1, 1 px, the top row of two finders */
     qr_layout("H", 2, "right", 0, 0, W, H);
     draw("HELLO WORLD 0123456789 abcdefghijklmnopqrstuvwxyz");
@@ -243,7 +243,7 @@ static void test_element(void)
     }
     /* longer than the box can hold: nothing */
     qr_layout("Q", 0, "left", 0, 0, 40, 40);
-    CHECK_INT(bin.qr_cap[0], (int)esl_qr_capacity(5, ESL_QR_ECC_Q));   /* 37 modules fit 40 px */
+    CHECK_INT(bin.qr_cap[0], (int)esl_qr_capacity(4, ESL_QR_ECC_Q));   /* 33 modules and the quiet zone fit 40 px */
     CHECK_INT(draw("https://openesl.example/a/rather/long/address/for/a/small/box/x/y"), 0);
 
     if (list)

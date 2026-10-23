@@ -7,10 +7,10 @@ What a layout made in the [Label designer](Label-designer) can hold.
 - **Text fields:** up to six per layout, sent by your software with each update. Six fonts, aligned left, centre or right, up to three lines, in black, white, inverted or highlighted. Text that does not fit can drop to a smaller font or be cut with "…". A text field can also format a number such as a price: two, none or automatic decimals (`199,90`, `199`, `199,-`) and a thousands separator (`1 299,90`), whatever form your software sends it in.
 - **Fixed text** that is part of the layout, such as "inkl. mva".
 - **Boxes** in black or white, filled or only a border, with round corners if you like. A black area with white text is a black box with white text on it, or inverted text.
-- **Lines:** straight or slanted, of any width.
+- **Lines:** straight or slanted, 1 to 16 px wide. A straight line is exactly as thick as its width, with square ends; a slanted line has round ends.
 - **Icons:** small pictures, made from a PNG with the Icon button in the designer. Dark pixels are drawn, up to 128 px.
 - **Barcode:** one per layout, Code 128 or EAN-13, from a field.
-- **QR code:** one per layout, from a field, for example a link to the product.
+- **QR code:** one per layout, from a field, for example a link to the product. The box includes a white border (the quiet zone) of 2 modules on every side, drawn white even on a black background, so phones can read it. The box must be at least 25 px wide and high (21 modules of 1 px plus the border). The code grows with the text: if the text is too long for the largest code the box holds, the AP refuses the update with `422`, and the designer says so under the preview.
 
 The AP does not calculate anything, such as VAT: send both prices as fields.
 

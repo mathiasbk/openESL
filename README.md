@@ -168,7 +168,7 @@ Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml
 
 ## A clean implementation
 
-OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
+OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
 
 ## Contributing
 
@@ -188,8 +188,9 @@ This project would be much harder without the people who opened up these tags fi
 
 - **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for the reverse engineering of the ZBS243 and the SoluM tags.
 - **atc1441** for [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), the flasher used to read and write the tags, and for a lot of public research and videos on these tags.
+- **Project Nayuki** for the [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT) that our QR encoder follows.
 - The **[OpenEPaperLink](https://github.com/OpenEPaperLink)** project and its contributors for documenting the tags, pinouts and flashing.
 
 ## Licence
 
-OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), and ESP-IDF and its components keep theirs (Apache-2.0).
+OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), ESP-IDF and its components keep theirs (Apache-2.0), and the QR encoder in `ap/components/esl_core/esl_qr.c` follows Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT, its notice is in the file).

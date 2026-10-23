@@ -56,6 +56,12 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
 /* Index of name in a compiled file, or -1. */
 int esl_layout_bin_find(const esl_layout_bin_t *b, const char *name, size_t len);
 
+/* Checks the barcode and QR fields of content c against layout i of a compiled file for
+ * model: they must be ones the AP can encode and fit in the element's box. Returns true if
+ * they are fine, else false with a message in msg. */
+bool esl_layout_check_fields(const esl_layout_bin_t *b, int i, uint8_t model, const esl_content_t *c, char *msg,
+                             size_t msglen);
+
 /* ---- storage --------------------------------------------------------------- */
 
 typedef struct {
@@ -124,11 +130,9 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
 
-/* Checks the barcode and QR fields of content c (a named layout) against the layout of that
- * name in model's file: they must be ones the AP can encode and fit in the element's box.
- * Returns true if it is fine, or if the file has no such layout; else false with a
- * message in msg. */
-bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
+/* esl_layout_check_fields for content c (a named layout) and the layout of that name in
+ * model's file, under the lock. True if the file has no such layout. */
+bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
 
 /* Draws content c for a tag of model with the model's file (esl_render), under the
  * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when

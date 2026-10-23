@@ -29,17 +29,14 @@ typedef struct {
     struct cc_icons *ic;  /* malloc'd: the AP compiles at boot on the main task's small stack */
 } cc_t;
 
-#define ESL_ICON_ROWS_MAX ((ESL_ICON_MAX_W + 7) / 8 * ESL_ICON_MAX_H)
-
-/* The icons ("icons" in the file), compiled in order into bin */
+/* The icons ("icons" in the file), checked first and written into the file at the end */
 struct cc_icons {
     uint8_t n;
     char name[ESL_LBIN_ICON_MAX][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     uint16_t w[ESL_LBIN_ICON_MAX];
     uint8_t h[ESL_LBIN_ICON_MAX];
-    size_t size;                    /* bytes used in bin */
-    uint8_t bin[ESL_LBIN_MAX];
-    uint8_t rows[ESL_ICON_ROWS_MAX]; /* one icon as written in the file */
+    size_t size; /* bytes they take compiled */
+    int data[ESL_LBIN_ICON_MAX]; /* the token of each icon's "data" */
 };
 
 static bool fail(cc_t *c, const char *fmt, ...)
@@ -346,13 +343,13 @@ static bool qr_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, un
         return false;
     out[ESL_LE_OFF_MODULE] = (uint8_t)mw;
 
-    /* the largest version the box holds */
+    /* the largest version the box holds with its quiet zone */
     unsigned side = (w < h ? w : h) / (mw ? mw : 1), v = 0;
-    while (v < ESL_QR_VERSION_MAX && ESL_QR_SIZE(v + 1) <= side)
+    while (v < ESL_QR_VERSION_MAX && ESL_QR_SIZE(v + 1) + 2 * ESL_QR_QUIET <= side)
         v++;
     if (!v)
-        return fail(c, "the box must be at least %u px wide and high for a QR code (%s)", ESL_QR_MIN_SIDE * (mw ? mw : 1),
-                    mw > 1 ? "21 modules" : "21 modules of 1 px");
+        return fail(c, "the box must be at least %u px wide and high for a QR code (21 modules%s and %d of white "
+                    "on each side)", ESL_QR_MIN_SIDE * (mw ? mw : 1), mw > 1 ? "" : " of 1 px", (int)ESL_QR_QUIET);
     if (++lay->qrs > ESL_DRAW_MAX_QR)
         return fail(c, "the AP draws at most %d QR code per screen", ESL_DRAW_MAX_QR);
     lay->qr_field = (int8_t)fi;
@@ -592,8 +589,24 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     return true;
 }
 
-/* Base64 (RFC 4648, with or without padding) into out; the number of bytes, or -1. */
-static int base64_decode(const char *s, size_t n, uint8_t *out, size_t cap)
+/* Where base64_decode puts the bytes of an icon: row by row in, column by column out. With
+ * col NULL it only counts them. */
+typedef struct {
+    uint8_t *col;
+    size_t row, cb; /* bytes per row of the picture, per column of the file */
+} icon_out_t;
+
+static void icon_put(const icon_out_t *o, size_t i, uint8_t b)
+{
+    size_t y = i / o->row, x0 = (i % o->row) * 8;
+    for (unsigned k = 0; k < 8; k++)
+        if (b & (0x80 >> k))
+            o->col[(x0 + k) * o->cb + y / 8] |= (uint8_t)(0x80 >> (y % 8));
+}
+
+/* Base64 (RFC 4648, with or without padding) of a JSON string as it is in the file (so "\/"
+ * is "/"); the number of bytes, or -1. At most cap bytes go to o, which may be NULL. */
+static int base64_decode(const char *s, size_t n, const icon_out_t *o, size_t cap)
 {
     uint32_t acc = 0;
     int bits = 0;
@@ -603,6 +616,8 @@ static int base64_decode(const char *s, size_t n, uint8_t *out, size_t cap)
         n--;
     for (size_t i = 0; i < n; i++) {
         char ch = s[i];
+        if (ch == '\\' && i + 1 < n && s[i + 1] == '/')
+            ch = s[++i];
         int v = ch >= 'A' && ch <= 'Z'   ? ch - 'A'
                 : ch >= 'a' && ch <= 'z' ? ch - 'a' + 26
                 : ch >= '0' && ch <= '9' ? ch - '0' + 52
@@ -617,7 +632,9 @@ static int base64_decode(const char *s, size_t n, uint8_t *out, size_t cap)
             bits -= 8;
             if (len >= cap)
                 return -1;
-            out[len++] = (uint8_t)(acc >> bits);
+            if (o && o->col)
+                icon_put(o, len, (uint8_t)(acc >> bits));
+            len++;
         }
     }
     return (int)len;
@@ -625,12 +642,12 @@ static int base64_decode(const char *s, size_t n, uint8_t *out, size_t cap)
 
 /* "icons": {"name": {"w": .., "h": .., "data": "<base64>"}, ...}. data is the picture row
  * by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost
- * pixel, 1 = drawn. Stored in the file column by column, as screen images are. */
+ * pixel, 1 = drawn. Only checked here; icons_write puts them in the file. */
 static bool icons(cc_t *c, int obj)
 {
+    _Static_assert(ESL_ICON_MAX_W == ESL_ICON_MAX_H, "one limit in the message below");
     static const char *const keys[] = {"w", "h", "data", NULL};
     struct cc_icons *ic = c->ic;
-    uint8_t *rows = ic->rows;
 
     if (T(c, obj)->type != ESL_JSON_OBJECT || T(c, obj)->size > ESL_LBIN_ICON_MAX)
         return fail(c, "icons must be an object with up to %d icons by name", ESL_LBIN_ICON_MAX);
@@ -657,30 +674,37 @@ static bool icons(cc_t *c, int obj)
         size_t row = (w + 7) / 8, need = row * h;
         int got = td < 0 || T(c, td)->type != ESL_JSON_STRING
                       ? -2
-                      : base64_decode(&c->js[T(c, td)->start], (size_t)(T(c, td)->end - T(c, td)->start), rows,
-                                      ESL_ICON_ROWS_MAX);
+                      : base64_decode(&c->js[T(c, td)->start], (size_t)(T(c, td)->end - T(c, td)->start), NULL, need);
         if (got != (int)need)
             return fail(c, "icons.%s: data must be base64 of %u bytes (%u rows of %u)", name, (unsigned)need, h,
                         (unsigned)row);
-        size_t cb = (h + 7) / 8, size = ESL_LBIN_ICON_HDR + w * cb;
+        size_t size = ESL_LBIN_ICON_HDR + w * ((h + 7) / 8);
         if (ic->size + size > ESL_LBIN_MAX)
             return fail(c, "the icons are too big: at most %d bytes compiled", ESL_LBIN_MAX);
-        uint8_t *p = ic->bin + ic->size;
-        p[0] = (uint8_t)w;
-        p[1] = (uint8_t)(w >> 8);
-        p[2] = (uint8_t)h;
-        p += ESL_LBIN_ICON_HDR;
-        memset(p, 0, w * cb);
-        for (unsigned y = 0; y < h; y++)
-            for (unsigned x = 0; x < w; x++)
-                if (rows[y * row + x / 8] & (0x80 >> (x % 8)))
-                    p[x * cb + y / 8] |= (uint8_t)(0x80 >> (y % 8));
         ic->size += size;
+        ic->data[i] = td;
         ic->w[i] = (uint16_t)w;
         ic->h[i] = (uint8_t)h;
         ic->n = (uint8_t)(i + 1);
     }
     return true;
+}
+
+/* The icons checked by icons(), column by column as screen images are, at p */
+static void icons_write(const cc_t *c, uint8_t *p)
+{
+    const struct cc_icons *ic = c->ic;
+    for (unsigned i = 0; i < ic->n; i++) {
+        unsigned w = ic->w[i], h = ic->h[i];
+        icon_out_t o = {p + ESL_LBIN_ICON_HDR, (w + 7) / 8, (h + 7) / 8};
+        const esl_jtok_t *t = T(c, ic->data[i]);
+        p[0] = (uint8_t)w;
+        p[1] = (uint8_t)(w >> 8);
+        p[2] = (uint8_t)h;
+        memset(o.col, 0, w * o.cb);
+        base64_decode(&c->js[t->start], (size_t)(t->end - t->start), &o, o.row * h);
+        p += ESL_LBIN_ICON_HDR + w * o.cb;
+    }
 }
 
 static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
@@ -855,7 +879,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts and icons", ESL_LBIN_MAX);
         goto done;
     }
-    memcpy(&out->bin[pos], c.ic->bin, c.ic->size);
+    icons_write(&c, &out->bin[pos]);
     pos += c.ic->size;
     out->bin[ESL_LBIN_OFF_NICON] = c.ic->n;
     out->count = (uint8_t)tok[ls].size;
@@ -885,4 +909,37 @@ int esl_layout_bin_find(const esl_layout_bin_t *b, const char *name, size_t len)
         if (strlen(b->names[i]) == len && memcmp(b->names[i], name, len) == 0)
             return i;
     return -1;
+}
+
+bool esl_layout_check_fields(const esl_layout_bin_t *b, int i, uint8_t model, const esl_content_t *c, char *msg,
+                             size_t msglen)
+{
+    if (b->bc_field[i] >= 0) {
+        uint8_t len;
+        const uint8_t *t = esl_content_field(c, (unsigned)b->bc_field[i], &len);
+        uint8_t sym = b->bc_sym[i];
+        int m = len ? esl_barcode_modules(sym, t, len) : 0;
+        if (m < 0) {
+            snprintf(msg, msglen, "field %d of layout %s is a %s barcode: %s", b->bc_field[i], b->names[i],
+                     esl_barcode_name(sym),
+                     sym == ESL_BC_EAN13 ? "it takes 12 digits, or 13 with a correct check digit"
+                                         : "it takes ASCII characters only");
+            return false;
+        }
+        if (m > b->bc_max[i]) {
+            snprintf(msg, msglen, "field %d of layout %s is too long for its barcode on model %s (%d of %u modules)",
+                     b->bc_field[i], b->names[i], esl_model_name(model), m, (unsigned)b->bc_max[i]);
+            return false;
+        }
+    }
+    if (b->qr_field[i] >= 0) {
+        uint8_t len;
+        esl_content_field(c, (unsigned)b->qr_field[i], &len);
+        if (len > b->qr_cap[i]) {
+            snprintf(msg, msglen, "field %d of layout %s is too long for its QR code on model %s (%u of %u bytes)",
+                     b->qr_field[i], b->names[i], esl_model_name(model), (unsigned)len, (unsigned)b->qr_cap[i]);
+            return false;
+        }
+    }
+    return true;
 }

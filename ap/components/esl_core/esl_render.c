@@ -86,12 +86,14 @@ typedef struct {
     uint8_t border;    /* 0 = filled, else only a border this wide */
 } rd_rect_t;
 
-/* A line from (ax, ay) to (bx, by), width w: the pixels whose centre is at most w / 2
- * from the segment. Drawn between columns x0 and x1, rows y0 and y1 (the box around it). */
+/* A line from (ax, ay) to (bx, by), width w. A slanted one is the pixels whose centre is at
+ * most w / 2 from the segment, drawn between columns x0 and x1, rows y0 and y1 (the box
+ * around it). A straight one is exactly that box: w pixels thick, with square ends. */
 typedef struct {
     int16_t ax, ay, bx, by;
     uint8_t w;
     uint8_t color;
+    bool straight;
     int16_t x0, x1, y0, y1;
 } rd_line_t;
 
@@ -112,8 +114,8 @@ typedef struct {
 } rd_bars_t;
 
 typedef struct {
-    uint16_t x0, y0;
-    uint8_t size;        /* modules per side */
+    uint16_t x0, y0;     /* the top-left of the quiet zone; the code starts ESL_QR_QUIET modules in */
+    uint8_t size;        /* modules per side, without the quiet zone */
     uint8_t m;           /* pixels per module */
     uint8_t bits[ESL_QR_BYTES];
 } rd_qr_t;
@@ -194,10 +196,29 @@ static void add_line(rd_scene_t *s, int16_t ax, int16_t ay, int16_t bx, int16_t 
     l->by = by;
     l->w = w;
     l->color = color;
+    l->straight = ax == bx || ay == by;
     l->x0 = (int16_t)((ax < bx ? ax : bx) - r);
     l->x1 = (int16_t)((ax > bx ? ax : bx) + r);
     l->y0 = (int16_t)((ay < by ? ay : by) - r);
     l->y1 = (int16_t)((ay > by ? ay : by) + r);
+    if (l->straight) {
+        /* the box itself along the line, w pixels across it, (w - 1) / 2 of them before it */
+        int16_t before = (int16_t)((w - 1) / 2), after = (int16_t)(w / 2);
+        if (ay == by) {
+            l->x0 = ax < bx ? ax : bx;
+            l->x1 = ax > bx ? ax : bx;
+            l->y0 = (int16_t)(ay - before);
+            l->y1 = (int16_t)(ay + after);
+        }
+        if (ax == bx) {
+            l->x0 = (int16_t)(ax - before);
+            l->x1 = (int16_t)(ax + after);
+            if (ay != by) {
+                l->y0 = ay < by ? ay : by;
+                l->y1 = ay > by ? ay : by;
+            }
+        }
+    }
     if (l->y0 < 0)
         l->y0 = 0;
     if (l->y1 >= (int16_t)s->m.h)
@@ -350,8 +371,12 @@ static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *r
 {
     int16_t y, top = -1, bottom = -1;
 
-    if ((int16_t)x < l->x0 || (int16_t)x > l->x1)
+    if ((int16_t)x < l->x0 || (int16_t)x > l->x1 || l->y0 > l->y1)
         return;
+    if (l->straight) {
+        fill_span(black, red, (uint16_t)l->y0, (uint16_t)l->y1, l->color);
+        return;
+    }
     /* the pixels of a line in one column are one run (the shape is convex) */
     for (y = l->y0; y <= l->y1; y++) {
         if (line_hit(l, x, y)) {
@@ -431,17 +456,21 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
             fill_span(black, red, b->y0, b->y1, RD_BLACK);
     }
 
-    if (s->nqr && x >= s->qr.x0 && x < s->qr.x0 + s->qr.size * s->qr.m) {
+    if (s->nqr && x >= s->qr.x0 && x < s->qr.x0 + (s->qr.size + 2 * ESL_QR_QUIET) * s->qr.m) {
         const rd_qr_t *q = &s->qr;
         unsigned col = (unsigned)(x - q->x0) / q->m, r, top;
-        for (r = 0; r < q->size; r = top) {
+        uint16_t y0 = (uint16_t)(q->y0 + ESL_QR_QUIET * q->m);
+        /* the quiet zone and the light modules are white, whatever is under them */
+        fill_span(black, red, q->y0, (uint16_t)(q->y0 + (q->size + 2 * ESL_QR_QUIET) * q->m - 1), RD_WHITE);
+        col = col < ESL_QR_QUIET || col >= q->size + ESL_QR_QUIET ? q->size : col - ESL_QR_QUIET; /* past the code: none */
+        for (r = 0; col < q->size && r < q->size; r = top) {
             /* a run of dark modules down this column is one span */
             top = r + 1;
             if (!esl_qr_module(q->bits, q->size, col, r))
                 continue;
             while (top < q->size && esl_qr_module(q->bits, q->size, col, top))
                 top++;
-            fill_span(black, red, (uint16_t)(q->y0 + r * q->m), (uint16_t)(q->y0 + top * q->m - 1), RD_BLACK);
+            fill_span(black, red, (uint16_t)(y0 + r * q->m), (uint16_t)(y0 + top * q->m - 1), RD_BLACK);
         }
     }
 
@@ -748,13 +777,14 @@ static void place_qr(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint8_
     if (s->nqr || e->font[0] > ESL_QR_LEVEL_H)
         return;
     n = esl_qr_encode(t, len, e->font[0], ESL_QR_VERSION_MAX, q->bits);
-    if (!n || n > side)
+    if (!n || n + 2 * ESL_QR_QUIET > side)
         return;
+    used = (uint16_t)(n + 2 * ESL_QR_QUIET); /* modules, with the quiet zone */
     if (!mw)
-        mw = (uint8_t)(side / n > ESL_QR_MODULE_MAX ? ESL_QR_MODULE_MAX : side / n);
-    if (!mw || (uint16_t)n * mw > side)
+        mw = (uint8_t)(side / used > ESL_QR_MODULE_MAX ? ESL_QR_MODULE_MAX : side / used);
+    if (!mw || used * mw > side)
         return;
-    used = (uint16_t)(n * mw);
+    used = (uint16_t)(used * mw);
     q->size = n;
     q->m = mw;
     q->x0 = e->x;
@@ -1011,7 +1041,7 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
 
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
 {
-    static rd_scene_t scene; /* about 1.2 KB; not reentrant, see esl_render.h */
+    static rd_scene_t scene; /* about 2 KB; not reentrant, see esl_render.h */
     static rd_builtin_t bi;
     rd_model_t m;
     rd_file_t fl;

@@ -23,6 +23,7 @@ const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
 const RECT_COLORS_RED = [...RECT_COLORS, "red"];
 const LINE_COLORS_RED = [...LINE_COLORS, "red"];
 const ICON_MAX = 128;                         // ESL_ICON_MAX_W / _H in shared/proto.h
+const ICON_FILE_MAX = 16;                     // ESL_LBIN_ICON_MAX: icons in one layout file
 const COLOR_NAMES = {
   black: "Black", white: "White", invert: "Inverted", highlight: "Highlight",
   frame: "Frame", red: "Red", red_invert: "Red inverted",
@@ -266,7 +267,9 @@ function compileAndDraw() {
   }
   paint(out.pixels, r.width, r.height);
   refreshMeters(res);
-  if (res.ok) {
+  if (out.refused) {
+    setStatus("The AP would refuse this sample text: " + out.refused, "error");
+  } else if (res.ok) {
     setStatus("✓ The AP accepts this layout", "ok");
     $("status").title = `Layout file version ${res.version.toString(16).toUpperCase().padStart(8, "0")}, ${res.size} bytes compiled`;
   } else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
@@ -567,7 +570,8 @@ function onKey(ev) {
   if (mod && key === "z") undoRedo(ev.shiftKey);
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
-  else if (mod && key === "c" && e && !window.getSelection()?.toString()) state.clip = structuredClone(e);
+  else if (mod && key === "c" && e && !window.getSelection()?.toString())
+    state.clip = { ...structuredClone(e), _icon: e.type === "icon" ? structuredClone(doc().icons?.[e.icon]) : undefined };
   else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
@@ -1009,8 +1013,8 @@ function moreMenu(e, btn, select, open) {
       });
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). Leave a white border of " +
-      "2 to 4 modules around the box for phones to read it; on the 2.9\", 2 px modules scan well.";
+    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). The box includes a white " +
+      "border of 2 modules for phones to read it; on the 2.9\", 2 px modules scan well.";
     list.append(p);
   }
   if (e.type === "rect" || e.type === "line") {
@@ -1040,7 +1044,7 @@ function moreMenu(e, btn, select, open) {
       const d = row("Direction");
       for (const [val, icon, name] of [["down", "╲", "Down: top-left to bottom-right"], ["up", "╱", "Up: bottom-left to top-right"]])
         btn(d, icon, name, () => (val === "down" ? delete e.direction : (e.direction = val)), (e.direction || "down") === val);
-      num(row("Width"), "Line width in pixels", "width", 1, state.renderer.limits.lineWidthMax, 1, "Line width; a wide line reaches half its width past the box, with round ends");
+      num(row("Width"), "Line width in pixels", "width", 1, state.renderer.limits.lineWidthMax, 1, "Line width; a straight line is exactly this thick, a slanted one reaches half its width past the box, with round ends");
       const p = document.createElement("p");
       p.className = "hint";
       p.textContent = "The line runs corner to corner in its box: 1 px high is a straight line across, 1 px wide a straight line down.";
@@ -1056,9 +1060,10 @@ function moreMenu(e, btn, select, open) {
     ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
     ["⤓", "Against the bottom", () => (e.y = height - e.h)],
   ]) btn(place, label, title, act);
-  const fill = row("Fill");
-  btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
-  btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
+  // an icon is the size of its picture
+  const fill = e.type === "icon" ? null : row("Fill");
+  if (fill) btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
+  if (fill) btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
   if (e.type === "rect" || e.type === "line") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
     [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
     e.x = clamp(e.x, 0, width - e.w);
@@ -1120,6 +1125,7 @@ function refreshAll() {
 
 // Something in the document changed. form: only the numbers moved (drag/keys).
 function changed({ form = false, keepForm = false } = {}) {
+  fitCorners(element());
   if (form) {
     drawOverlay();
     updatePositionInputs();
@@ -1131,6 +1137,14 @@ function changed({ form = false, keepForm = false } = {}) {
   refreshJson();
   compileAndDraw();
   save();
+}
+
+// A box made smaller keeps its corner radius and border within half its shorter side, as
+// the compiler wants
+function fitCorners(e) {
+  if (e?.type !== "rect") return;
+  const half = Math.floor(Math.min(e.w, e.h) / 2);
+  for (const k of ["radius", "border"]) if (e[k] > half) e[k] = half;
 }
 
 // ---------- actions ----------
@@ -1156,6 +1170,10 @@ function addElement(kind) {
 async function addIcon(file) {
   const lay = layout();
   if (!lay || !file) return;
+  if (Object.keys(doc().icons ?? {}).length >= ICON_FILE_MAX) {
+    setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+    return;
+  }
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
@@ -1228,8 +1246,22 @@ function duplicateElement() {
 function pasteElement() {
   const lay = layout();
   const { width, height } = MODELS[state.model];
-  const c = structuredClone(state.clip);
+  const { _icon: pic, ...c } = structuredClone(state.clip);
   if (usesField(c) && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  if (c.type === "icon") {
+    // the picture comes along; under another name if this file has a different one by that name
+    if (!pic || pic.w > width || pic.h > height) return;
+    const d = doc();
+    d.icons ??= {};
+    let name = c.icon;
+    for (let n = 2; d.icons[name] && JSON.stringify(d.icons[name]) !== JSON.stringify(pic); n++) name = c.icon.slice(0, 16 - String(n).length) + n;
+    if (!d.icons[name] && Object.keys(d.icons).length >= ICON_FILE_MAX) {
+      setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+      return;
+    }
+    d.icons[name] = pic;
+    c.icon = name;
+  }
   c.w = Math.min(c.w, width);
   c.h = Math.min(c.h, height);
   const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
@@ -1327,6 +1359,7 @@ function initActions() {
     } else if (act === "delete") {
       if (doc().layouts.length <= 1 || !confirm(`Delete the layout "${layout().name}"?`)) return;
       doc().layouts.splice(+state.sel.slice(5), 1);
+      pruneIcons();
       state.sel = "file:0";
       state.el = -1;
       refreshAll();

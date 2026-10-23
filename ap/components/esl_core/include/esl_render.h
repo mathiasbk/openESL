@@ -20,8 +20,9 @@
  * MSB is row 0 (the top), then downwards; bit 1 = ink in that plane, and a pixel is
  * never set in both planes. Unused bits at the end of the last byte are 0.
  *
- * Not reentrant: the scene is static (about 0.8 KB), so calls must not overlap (the
- * AP's callers hold the layouts lock while drawing, which also keeps file valid).
+ * Not reentrant: the scene is static (about 2 KB, and esl_qr.c keeps 3.3 KB for one code),
+ * so calls must not overlap (the AP's callers hold the layouts lock while drawing, which
+ * also keeps file valid).
  * Screens up to 256 rows; a taller model gives 0. */
 
 #define ESL_RENDER_COL_BYTES(h) (((h) + 7) / 8)
