@@ -253,6 +253,25 @@ void test_content(void)
     CHECK(!esl_layout_name_valid("a b", 3));
     CHECK(!esl_layout_name_valid("text", 4));
     CHECK(esl_layout_name_valid("texts", 5));
+    CHECK(!esl_layout_name_valid("image", 5)); /* a picture (ESL_LAYOUT_IMAGE) */
+    {
+        /* a picture: model and CRC in its one field, so each picture has its own id,
+           and it survives the NVS format */
+        esl_content_t p1, p2, back;
+        uint8_t model, blob[ESL_PERSIST_BLOB_MAX];
+        uint32_t crc;
+        uint64_t mac;
+        esl_content_init_image(&p1, ESL_MODEL_29, 0x12345678u);
+        esl_content_init_image(&p2, ESL_MODEL_29, 0x12345679u);
+        CHECK(esl_content_image(&p1, &model, &crc));
+        CHECK_INT(model, ESL_MODEL_29);
+        CHECK_INT(crc, 0x12345678u);
+        CHECK(esl_content_id(&p1) != esl_content_id(&p2));
+        CHECK_INT(esl_content_layout_hash(&p1), 0);
+        CHECK(esl_persist_decode(blob, esl_persist_encode(0xA1, &p1, blob), &mac, &back));
+        CHECK(esl_content_equal(&p1, &back));
+        CHECK(!esl_content_image(&n1, &model, &crc));
+    }
     CHECK(esl_layout_name_valid("0123456789012345678901234567890", 31));
     CHECK(!esl_layout_name_valid("01234567890123456789012345678901", 32));
     esl_content_add_field(&n1, S("Kaffe"));

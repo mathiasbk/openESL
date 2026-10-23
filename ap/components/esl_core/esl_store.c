@@ -136,6 +136,7 @@ static void set_content(esl_store_t *st, unsigned slot, const esl_content_t *c)
     t->content_id = esl_content_id(c);
     t->layout_hash = esl_content_layout_hash(c);
     t->has_content = true;
+    t->has_image = c->layout == ESL_LAYOUT_IMAGE;
     t->content_err = ESL_CERR_NONE;
     t->image_id = 0;          /* drawn again when a tag needs it */
     t->image_failed = 0;      /* a refusal was of the old content's image */
@@ -382,8 +383,12 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
     res->pending = esl_tag_pending(t);
     unlock(st);
 
-    if (!res->changed || !st->ops.persist_save || st->ops.persist_save(st->ops.ctx, (unsigned)idx, mac, c))
+    if (!res->changed || !st->ops.persist_save || st->ops.persist_save(st->ops.ctx, (unsigned)idx, mac, c)) {
+        /* a picture it had is not needed any more */
+        if (res->changed && old.has_image && c->layout != ESL_LAYOUT_IMAGE && st->ops.persist_image)
+            st->ops.persist_image(st->ops.ctx, (unsigned)idx, NULL, 0);
         return ESL_STORE_OK;
+    }
     /* Not saved: back to what it had (NVS still holds that), unless it changed meanwhile */
     lock(st);
     t = at(st, (unsigned)idx);
@@ -391,6 +396,7 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
         t->has_content = old.has_content;
         t->content_id = old.content_id;
         t->layout_hash = old.layout_hash;
+        t->has_image = old.has_image;
         t->image_id = old.image_id;
         t->image_failed = old.image_failed;
         t->content_err = old.content_err;
@@ -399,6 +405,42 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
     }
     unlock(st);
     return ESL_STORE_NOT_SAVED;
+}
+
+bool esl_store_takes_images(const esl_store_t *st)
+{
+    return st->ops.persist_image && st->ops.load_image;
+}
+
+esl_store_err_t esl_store_set_image(esl_store_t *st, uint64_t mac, const uint8_t *data, size_t len,
+                                    const esl_content_t *c, esl_set_result_t *res)
+{
+    if (!esl_store_takes_images(st))
+        return ESL_STORE_NOT_SAVED;
+    save_lock(st);
+    lock(st);
+    int idx = claim(st, mac);
+    bool same = idx >= 0 && at(st, (unsigned)idx)->has_content && at(st, (unsigned)idx)->content_id == esl_content_id(c);
+    unlock(st);
+    esl_store_err_t err = ESL_STORE_FULL;
+    if (idx >= 0) {
+        /* The slot stays the tag's: deleting it takes save_lock too */
+        if (same || st->ops.persist_image(st->ops.ctx, (unsigned)idx, data, len))
+            err = set_saved(st, mac, c, res);
+        else
+            err = ESL_STORE_NOT_SAVED;
+    }
+    save_unlock(st);
+    return err;
+}
+
+size_t esl_store_get_image(esl_store_t *st, uint64_t mac, uint8_t *buf, size_t cap)
+{
+    lock(st);
+    int idx = find(st, mac);
+    bool has = idx >= 0 && at(st, (unsigned)idx)->has_image;
+    unlock(st);
+    return has && st->ops.load_image ? st->ops.load_image(st->ops.ctx, (unsigned)idx, buf, cap) : 0;
 }
 
 esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_cfg_t *cfg, esl_cfg_result_t *res)
@@ -603,9 +645,10 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
     save_lock(st);
     lock(st);
     int idx = find(st, mac);
-    bool had_content = false, had_cfg = false;
+    bool had_content = false, had_cfg = false, had_image = false;
     if (idx >= 0) {
         had_content = at(st, (unsigned)idx)->has_content;
+        had_image = at(st, (unsigned)idx)->has_image;
         had_cfg = !esl_tag_cfg_is_default(&at(st, (unsigned)idx)->cfg);
         memset(at(st, (unsigned)idx), 0, sizeof(esl_tag_t));
         st->full = false;
@@ -613,6 +656,8 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
     unlock(st);
     if (idx >= 0 && had_content && st->ops.persist_erase)
         st->ops.persist_erase(st->ops.ctx, (unsigned)idx);
+    if (idx >= 0 && had_image && st->ops.persist_image)
+        st->ops.persist_image(st->ops.ctx, (unsigned)idx, NULL, 0);
     if (idx >= 0 && had_cfg && st->ops.persist_cfg)
         st->ops.persist_cfg(st->ops.ctx, (unsigned)idx, mac, NULL);
     if (idx >= 0 && st->ops.persist_seen)

@@ -48,6 +48,12 @@ typedef struct {
      * the table, and NVS ends up with what the table says. May be NULL. */
     void (*save_lock)(void *ctx);
     void (*save_unlock)(void *ctx);
+    /* A picture for the tag in slot (PUT /api/tags/{mac}/image), in esl_image's stored
+     * form; data NULL = erase. False when it could not be saved. Both NULL: the AP takes
+     * no pictures. */
+    bool (*persist_image)(void *ctx, unsigned slot, const uint8_t *data, size_t len);
+    /* Reads it back into buf (cap bytes): its length, 0 when there is none or it does not fit. */
+    size_t (*load_image)(void *ctx, unsigned slot, uint8_t *buf, size_t cap);
 } esl_store_ops_t;
 
 /* One slot of the table. Kept small, since there is one per tag for the whole run
@@ -66,6 +72,7 @@ typedef struct {
     bool image_rle : 1;       /* ... and ESL_POLL_F_IMG_RLE: it takes coded images */
     bool image_taken : 1;     /* it asked for a block of image_offered */
     bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
+    bool has_image : 1;       /* its content is a picture (ESL_LAYOUT_IMAGE), kept with ops.persist_image */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
@@ -198,6 +205,19 @@ void esl_store_note_due(esl_store_t *st, uint64_t mac, uint32_t due_s);
 /* Replaces a tag's settings (all fields 0 = defaults), creating the tag if
  * needed, like esl_store_set. Values are not range-checked here. */
 esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_cfg_t *cfg, esl_cfg_result_t *res);
+
+/* Pictures (ESL_LAYOUT_IMAGE): the store saves them with ops.persist_image. */
+bool esl_store_takes_images(const esl_store_t *st);
+/* Sets a picture as the tag's content, like esl_store_set: data (len bytes) is the
+ * stored form, c the content naming it (esl_content_init_image). The picture is saved
+ * first, then the content; a picture the tag already has is not saved again. When the
+ * content cannot be saved after the picture was, the tag keeps its old content, which
+ * no longer matches the picture if it was one too: it is not drawn until the next one. */
+esl_store_err_t esl_store_set_image(esl_store_t *st, uint64_t mac, const uint8_t *data, size_t len,
+                                    const esl_content_t *c, esl_set_result_t *res);
+/* The stored picture of the tag into buf (cap bytes, outside the lock): its length, 0
+ * when it has none. Content that is not a picture leaves no picture behind (erased). */
+size_t esl_store_get_image(esl_store_t *st, uint64_t mac, uint8_t *buf, size_t cap);
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac);
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out);

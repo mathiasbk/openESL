@@ -21,12 +21,14 @@ void test_barcode(void);
 void test_sched(void);
 void test_tagfw(void);
 void test_coproc(void);
+void test_png(void);
 
 static const struct {
     const char *name;
     void (*fn)(void);
 } tests[] = {
     {"crc32", test_crc32},
+    {"png", test_png},
     {"text", test_text},
     {"number", test_number},
     {"content", test_content},

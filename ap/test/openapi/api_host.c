@@ -117,6 +117,33 @@ static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
 
 static const esl_tagfw_ops_t fw_ops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
 
+/* Pictures (PUT /api/tags/{mac}/image), one per slot */
+static uint8_t img_mem[CAP][16384];
+static size_t img_len[CAP];
+
+static bool img_save(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    if (slot >= CAP || len > sizeof(img_mem[0]))
+        return false;
+    if (data)
+        memcpy(img_mem[slot], data, len);
+    img_len[slot] = data ? len : 0;
+    return true;
+}
+
+static size_t img_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
+{
+    (void)ctx;
+    if (slot >= CAP || !img_len[slot] || img_len[slot] > cap)
+        return 0;
+    memcpy(buf, img_mem[slot], img_len[slot]);
+    return img_len[slot];
+}
+
+static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                          NULL, NULL, NULL, NULL, img_save, img_load};
+
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
 int main(void)
@@ -128,7 +155,7 @@ int main(void)
     char line[512];
 
     esl_store_free(&st);
-    esl_store_init(&st, CAP, NULL, 0);
+    esl_store_init(&st, CAP, &store_ops, 0);
     esl_layouts_init(&layouts, NULL);
     memset(fw_mem, 0xFF, sizeof(fw_mem));
     esl_tagfw_init(&tagfw, &fw_ops);

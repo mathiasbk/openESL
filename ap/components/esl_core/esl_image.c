@@ -1,7 +1,9 @@
 #include "esl_image.h"
 #include "esl_crc32.h"
+#include "esl_png.h"
 #include "esl_render.h"
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void lock(esl_image_t *im)
@@ -49,6 +51,230 @@ size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max)
     return o;
 }
 
+size_t esl_img_rle_decode(const uint8_t *in, size_t n, uint8_t *out, size_t raw)
+{
+    size_t i = 0, o = 0;
+    /* decoding in place: the bytes written may not reach input not read yet */
+    size_t ahead = (uintptr_t)out < (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
+    while (i < n) {
+        uint8_t c = in[i];
+        if (c & 0x80) {
+            size_t r = (size_t)c - 0x80 + 2;
+            if (i + 2 > n || o + r > raw || o + r > ahead + i + 2)
+                return 0;
+            memset(out + o, in[i + 1], r);
+            o += r;
+            i += 2;
+        } else {
+            size_t l = (size_t)c + 1;
+            if (i + 1 + l > n || o + l > raw || o > ahead + i + 1)
+                return 0;
+            memmove(out + o, in + i + 1, l);
+            o += l;
+            i += 1 + l;
+        }
+    }
+    return o == raw ? o : 0;
+}
+
+/* ---- pictures from clients ------------------------------------------------------- */
+
+/* white, black, red: the colours of the image planes (none, black plane, red plane) */
+static const int16_t ink[3][3] = {{255, 255, 255}, {0, 0, 0}, {255, 0, 0}};
+
+typedef struct {
+    bool (*read)(void *ctx, uint8_t *buf, size_t n);
+    void *ctx;
+    uint8_t head[8];   /* the first bytes, read to tell PNG from raw, given out again */
+    size_t head_len, head_pos;
+    uint16_t w, h;
+    bool red, dither;
+    size_t col_bytes, plane;
+    uint8_t *out;
+    int16_t *err;      /* dither: errors for this row and the next, (w + 2) * 3 each */
+} pic_t;
+
+static bool pic_read(void *ctx, uint8_t *buf, size_t n)
+{
+    pic_t *p = ctx;
+    while (n && p->head_pos < p->head_len) {
+        *buf++ = p->head[p->head_pos++];
+        n--;
+    }
+    return !n || p->read(p->ctx, buf, n);
+}
+
+static bool pic_header(void *ctx, uint32_t w, uint32_t h)
+{
+    pic_t *p = ctx;
+    return w == p->w && h == p->h;
+}
+
+/* The nearest colour the model has, weighing green most and blue least, as the eye does */
+static unsigned nearest(const int *v, bool red)
+{
+    unsigned best = 0;
+    long best_d = -1;
+    for (unsigned k = 0; k < (red ? 3u : 2u); k++) {
+        long dr = v[0] - ink[k][0], dg = v[1] - ink[k][1], db = v[2] - ink[k][2];
+        long d = 3 * dr * dr + 4 * dg * dg + 2 * db * db;
+        if (best_d < 0 || d < best_d) {
+            best = k;
+            best_d = d;
+        }
+    }
+    return best;
+}
+
+static bool pic_row(void *ctx, uint32_t y, const uint8_t *rgb)
+{
+    pic_t *p = ctx;
+    size_t stride = ((size_t)p->w + 2) * 3;
+    int16_t *e = p->err ? p->err + (y & 1) * stride : NULL, *next = p->err ? p->err + ((y + 1) & 1) * stride : NULL;
+    if (next)
+        memset(next, 0, stride * sizeof(*next));
+    uint8_t bit = (uint8_t)(0x80 >> (y % 8));
+    for (unsigned x = 0; x < p->w; x++) {
+        int v[3];
+        for (unsigned c = 0; c < 3; c++) {
+            v[c] = rgb[3 * x + c] + (e ? e[(x + 1) * 3 + c] : 0);
+            v[c] = v[c] < 0 ? 0 : v[c] > 255 ? 255 : v[c];
+        }
+        unsigned k = nearest(v, p->red);
+        size_t at = x * p->col_bytes + y / 8;
+        if (k == 1)
+            p->out[at] |= bit;
+        else if (k == 2)
+            p->out[p->plane + at] |= bit;
+        if (!e)
+            continue;
+        /* Floyd-Steinberg: 7/16 to the right, 3/16, 5/16 and 1/16 to the row below */
+        for (unsigned c = 0; c < 3; c++) {
+            int d = v[c] - ink[k][c];
+            e[(x + 2) * 3 + c] = (int16_t)(e[(x + 2) * 3 + c] + d * 7 / 16);
+            next[x * 3 + c] = (int16_t)(next[x * 3 + c] + d * 3 / 16);
+            next[(x + 1) * 3 + c] = (int16_t)(next[(x + 1) * 3 + c] + d * 5 / 16);
+            next[(x + 2) * 3 + c] = (int16_t)(next[(x + 2) * 3 + c] + d / 16);
+        }
+    }
+    return true;
+}
+
+esl_pic_err_t esl_image_picture(uint8_t model, bool dither, size_t len, bool (*read)(void *ctx, uint8_t *buf, size_t n),
+                                void *ctx, uint8_t *out)
+{
+    pic_t p = {read, ctx, {0}, 0, 0, 0, 0, false, dither, 0, 0, out, NULL};
+    size_t raw = esl_render_size(model);
+    if (!raw || !esl_render_model(model, &p.w, &p.h, &p.red))
+        return ESL_PIC_ERR_SIZE;
+    p.col_bytes = ESL_RENDER_COL_BYTES(p.h);
+    p.plane = p.col_bytes * p.w;
+    p.head_len = len < sizeof(p.head) ? len : sizeof(p.head);
+    if (!read(ctx, p.head, p.head_len))
+        return ESL_PIC_ERR_READ;
+    if (p.head_len < sizeof(p.head) || memcmp(p.head, esl_png_signature, sizeof(p.head)) != 0) {
+        /* the image bytes as they are */
+        if (len != raw)
+            return ESL_PIC_ERR_FORMAT;
+        memcpy(out, p.head, p.head_len);
+        if (!read(ctx, out + p.head_len, raw - p.head_len))
+            return ESL_PIC_ERR_READ;
+        for (size_t i = 0; p.red && i < p.plane; i++)
+            if (out[i] & out[p.plane + i])
+                return ESL_PIC_ERR_BOTH;
+        return ESL_PIC_OK;
+    }
+    memset(out, 0, raw);
+    if (dither) {
+        p.err = calloc(2 * ((size_t)p.w + 2) * 3, sizeof(int16_t));
+        if (!p.err)
+            return ESL_PIC_ERR_NOMEM;
+    }
+    esl_png_io_t io = {&p, pic_read, pic_header, pic_row};
+    esl_png_err_t err = esl_png_decode(&io);
+    free(p.err);
+    switch (err) {
+    case ESL_PNG_OK:              return ESL_PIC_OK;
+    case ESL_PNG_ERR_READ:        return ESL_PIC_ERR_READ;
+    case ESL_PNG_ERR_UNSUPPORTED: return ESL_PIC_ERR_UNSUPPORTED;
+    case ESL_PNG_ERR_SIZE:        return ESL_PIC_ERR_SIZE;
+    case ESL_PNG_ERR_NOMEM:       return ESL_PIC_ERR_NOMEM;
+    default:                      return ESL_PIC_ERR_BAD;
+    }
+}
+
+size_t esl_image_pack(uint64_t mac, uint8_t model, const uint8_t *raw, uint8_t *out)
+{
+    size_t n = esl_render_size(model);
+    for (int i = 0; i < 8; i++)
+        out[i] = (uint8_t)(mac >> (8 * i));
+    out[8] = model;
+    /* coded only when shorter, as draw() does, so a tag gets the same bytes and id */
+    size_t m = n ? esl_img_rle_encode(raw, n, out + ESL_IMAGE_STORED_HDR, n - 1) : 0;
+    out[9] = m ? ESL_IMG_FMT_RLE : ESL_IMG_FMT_RAW;
+    if (!m) {
+        memcpy(out + ESL_IMAGE_STORED_HDR, raw, n);
+        m = n;
+    }
+    return ESL_IMAGE_STORED_HDR + m;
+}
+
+size_t esl_image_unpack(uint64_t mac, uint8_t model, bool rle, uint8_t *buf, size_t len, size_t cap, uint8_t *fmt)
+{
+    size_t raw = esl_render_size(model);
+    if (!raw || len < ESL_IMAGE_STORED_HDR || len > ESL_IMAGE_STORED_MAX(raw) || len > cap)
+        return 0;
+    uint64_t m = 0;
+    for (int i = 7; i >= 0; i--)
+        m = m << 8 | buf[i];
+    size_t n = len - ESL_IMAGE_STORED_HDR;
+    if (m != mac || buf[8] != model)
+        return 0;
+    if (buf[9] == ESL_IMG_FMT_RAW && n == raw) {
+        memmove(buf, buf + ESL_IMAGE_STORED_HDR, n);
+        *fmt = ESL_IMG_FMT_RAW;
+        return n;
+    }
+    if (buf[9] != ESL_IMG_FMT_RLE || n >= raw)
+        return 0;
+    *fmt = ESL_IMG_FMT_RLE;
+    if (rle) {
+        memmove(buf, buf + ESL_IMAGE_STORED_HDR, n);
+        return n;
+    }
+    /* decoded in place, from the end of the buffer */
+    if (cap < raw + ESL_IMG_RLE_MARGIN(raw))
+        return 0;
+    uint8_t *in = buf + cap - n;
+    memmove(in, buf + ESL_IMAGE_STORED_HDR, n);
+    *fmt = ESL_IMG_FMT_RAW;
+    return esl_img_rle_decode(in, n, buf, raw);
+}
+
+/* The tag's stored picture, unpacked into buf (cap bytes); 0 when it is missing, or not
+   the one content names (it changed meanwhile, or is for another model) */
+static size_t stored_picture(esl_store_t *st, uint64_t mac, uint8_t model, const esl_content_t *c, bool rle,
+                             uint8_t *buf, size_t cap, uint8_t *fmt)
+{
+    uint8_t m;
+    uint32_t crc;
+    if (!esl_content_image(c, &m, &crc) || m != model)
+        return 0;
+    size_t len = esl_store_get_image(st, mac, buf, cap);
+    if (!len || esl_crc32(buf, len) != crc)
+        return 0;
+    return esl_image_unpack(mac, model, rle, buf, len, cap, fmt);
+}
+
+size_t esl_image_screen(esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t model, const esl_content_t *c,
+                        uint8_t *out, size_t cap)
+{
+    uint8_t fmt;
+    if (c->layout == ESL_LAYOUT_IMAGE)
+        return stored_picture(st, mac, model, c, false, out, cap, &fmt);
+    return esl_layouts_render(ls, model, c, out, cap);
+}
+
 size_t esl_image_mem_size(void)
 {
     size_t max = 0;
@@ -57,7 +283,7 @@ size_t esl_image_mem_size(void)
         if (n > max)
             max = n;
     }
-    return ESL_IMAGE_BUFS * (max + ESL_IMG_RLE_MARGIN(max));
+    return ESL_IMAGE_BUFS * (ESL_IMAGE_STORED_MAX(max) + ESL_IMG_RLE_MARGIN(max));
 }
 
 void esl_image_init(esl_image_t *im, uint8_t *mem, const esl_image_ops_t *ops)
@@ -119,11 +345,15 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     if (!esl_store_get_content(st, t->mac, &c) || esl_content_id(&c) != t->content_id)
         return false;
     /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the
-       start, else (it would not be shorter) drawn again raw */
+       start, else (it would not be shorter) drawn again raw. A picture is read back as
+       it was stored, coded when that was shorter. */
     size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
     uint8_t fmt = ESL_IMG_FMT_RAW;
-    if (t->image_rle && raw && cap >= raw + m &&
-        esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
+    if (c.layout == ESL_LAYOUT_IMAGE) {
+        if (!(n = stored_picture(st, t->mac, t->model, &c, t->image_rle, b->data, cap, &fmt)))
+            return false;
+    } else if (t->image_rle && raw && cap >= raw + m &&
+               esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
         n = esl_img_rle_encode(b->data + m, raw, b->data, raw - 1);
         if (n)
             fmt = ESL_IMG_FMT_RLE;

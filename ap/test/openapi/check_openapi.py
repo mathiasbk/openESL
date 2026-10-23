@@ -15,8 +15,10 @@ say the same:
 import json
 import os
 import re
+import struct
 import subprocess
 import sys
+import zlib
 
 try:
     import yaml
@@ -62,7 +64,7 @@ class Validator:
     KNOWN = {"type", "enum", "const", "properties", "required", "additionalProperties", "patternProperties",
              "unevaluatedProperties", "items", "minItems", "maxItems", "minimum", "maximum", "pattern",
              "minLength", "maxLength", "allOf", "oneOf", "anyOf", "not", "$ref",
-             "description", "example", "examples", "default", "summary", "title"}
+             "description", "example", "examples", "default", "summary", "title", "contentEncoding"}
 
     def __init__(self, spec):
         self.spec = spec
@@ -160,6 +162,22 @@ class Validator:
         if "not" in s and not self.check(v, s["not"], where):
             out.append(f"{where}: matches what it must not")
         return out
+
+
+def png_file(w=296, h=128):
+    """A 1-bit grey PNG of w x h: a black box on white"""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b""
+    for y in range(h):
+        bits = [1 if 10 <= x < 60 and 10 <= y < 40 else 0 for x in range(w)]
+        row = bytearray((w + 7) // 8)
+        for x, b in enumerate(bits):
+            if not b:
+                row[x // 8] |= 0x80 >> (x % 8)
+        rows += b"\0" + bytes(row)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 1, 0, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
 # ---- the API on the host ---------------------------------------------------------------
@@ -300,6 +318,8 @@ def main():
                     fail(f"{m.upper()} {path}: no request example")
             elif rb and path == "/api/tag-firmware":
                 body_ex = [("tag-29-ota.bin", tag_firmware_file())]
+            elif rb and path == "/api/tags/{mac}/image":
+                body_ex = [("picture.png", png_file())]
             values = {}
             # the image needs a tag of known model: 404 before the example tag polls, after
             # it 200, or 409 while the example layout file lacks the content's layout
@@ -320,6 +340,15 @@ def main():
         ap.poll(t["mac"], 1, True, t["content_id"])     # shows its content's image
     ap.poll("0000000000000154", 2, False, 0)            # 1.54" without SPI flash
     run_all(("get",))
+
+    # a picture: of the screen's size, else 422; not a PNG, 415; then the tag shows it
+    pic = op("/api/tags/{mac}/image", "put")
+    call(*pic, body=png_file(37, 13), expect=422, what="of another size")
+    call(*pic, body=b"GIF89a", expect=415, what="not a PNG")
+    call(*pic, body=png_file()[:-30], expect=400, what="cut short")
+    call(*pic, body=png_file(), expect=200, what="picture.png")
+    call(*op("/api/tags/{mac}", "get"))
+    call(*op("/api/tags/{mac}/image", "get"), expect=200, what="of the picture")
 
     # errors get a status the spec lists, with a reply that fits it
     for path, m, o, params in ops:

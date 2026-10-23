@@ -445,6 +445,93 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [Content]
+      operationId: setTagImage
+      summary: Show a picture on a tag
+      description: |
+        A picture the client drew becomes the tag's content, for what a layout cannot show
+        (a chart, a logo, a dashboard drawn in Home Assistant). Layouts stay the way for
+        price labels: a picture costs about 5 KB of NVS per tag (less when it has large
+        areas of one colour), a layout entry about 300 bytes.
+
+        The body is a PNG of exactly the tag's screen size (`width` x `height` in
+        `GET /api/tags/{mac}/image`, 296 x 128 for the 2.9"), any colour type and bit depth,
+        not interlaced; transparency is laid over white. Each pixel becomes the nearest
+        colour the tag has (white, black, and red on a model with red), or with
+        `dither=true` the colours are mixed by error diffusion (Floyd–Steinberg), for
+        photos and shades of grey. A 1-bit black and white PNG is shown as it is. The body
+        may also be the raw image in the format `GET` gives (`data`, decoded from base64),
+        of exactly that many bytes. Content-Type is not checked.
+
+        The tag must have polled once, so its model is known. The picture is kept in NVS and
+        shown like other content: `content_id` changes with the picture, the same picture
+        again gives `changed: false`, and the tag gets it at its next poll. `GET
+        /api/tags/{mac}` then has `layout: "image"` and no fields. Content set later (a
+        layout, `PUT /api/tags`) replaces it, and the picture is erased. Pictures cannot be
+        scheduled (`at`). Pictures leave 32 KB of NVS free for content, settings and layout
+        files: past that a new picture gets 507.
+
+        Over WiFi the PNG is decoded as it arrives, so it may be up to 512 KB; over the USB
+        port a request body is at most 24,576 bytes.
+      parameters:
+        - name: dither
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Mix the colours by error diffusion instead of taking the nearest one
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, format: binary }
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Stored; the tag fetches it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetResult" }
+        "400":
+          description: A bad MAC or `dither`, no body, a broken PNG (also one with data past its last row), a body that ended early, or a raw image with a pixel in both the black and the red plane
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409":
+          description: The tag's model is not known yet (it has not polled), or the tag was deleted or changed while the picture came in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415":
+          description: Not a PNG (nor a raw image of the right size), an interlaced PNG, or one with a colour type, bit depth or critical chunk PNG does not have
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The picture is not the size of the tag's screen; the message gives the size
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This AP keeps no pictures
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No memory to decode the picture (up to about 56 KB, 32 KB of it in one block)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: No room in NVS for the picture (32 KB is kept free for other content), or the tag table is full
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/tags/{mac}/config:
     parameters:
       - $ref: "#/components/parameters/mac"
@@ -1340,7 +1427,7 @@ components:
         - $ref: "#/components/schemas/TagFields"
         - type: object
           properties:
-            layout: { type: string, description: The layout of the content }
+            layout: { type: string, description: "The layout of the content, `image` for a picture (`PUT /api/tags/{mac}/image`)" }
             fields:
               type: array
               items: { type: string }
