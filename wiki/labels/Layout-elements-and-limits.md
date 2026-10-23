@@ -4,7 +4,7 @@ What a layout made in the [Label designer](Label-designer) can hold.
 
 ## Elements
 
-- **Text fields:** up to six per layout, sent by your software with each update. Six fonts, aligned left, centre or right, up to three lines, in black, white, inverted or highlighted. Text that does not fit can drop to a smaller font or be cut with "…".
+- **Text fields:** up to six per layout, sent by your software with each update. Six fonts, aligned left, centre or right, up to three lines, in black, white, inverted or highlighted. Text that does not fit can drop to a smaller font or be cut with "…". A text field can also format a number such as a price: two, none or automatic decimals (`199,90`, `199`, `199,-`) and a thousands separator (`1 299,90`), whatever form your software sends it in.
 - **Fixed text** that is part of the layout, such as "inkl. mva".
 - **Boxes** in black or white, filled or only a border, with round corners if you like. A black area with white text is a black box with white text on it, or inverted text.
 - **Lines:** straight or slanted, of any width.
