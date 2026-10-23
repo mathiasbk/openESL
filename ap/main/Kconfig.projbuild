@@ -62,6 +62,18 @@ menu "OpenESL AP"
             call the AP's plain http API, a page from the AP itself may.
             Its API calls need the token as usual.
 
+    config ESL_WEB_DESIGNER
+        bool "Design tab next to the dashboard (the web page's label designer)"
+        depends on ESL_WEB_DASHBOARD
+        default n
+        help
+            The web page's Design tab on the same page, packed the same way
+            (about 32 KB more gzipped): it opens the layout files stored on
+            this AP and saves them back to it (GET and PUT /api/layouts/...),
+            and sends to a tag. The renderer it previews with comes from the
+            published web page, so the browser needs the internet. On for the
+            boards with flash and PSRAM to spare.
+
     config ESL_STATUS_PAGE
         bool "Status page at / (no token)"
         default y
