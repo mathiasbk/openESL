@@ -141,11 +141,59 @@ export function apFacts(ap) {
     ["Running for", fmtAgo(ap.uptime_s)],
     ["Last start", RESET_TEXT[ap.reset] || ap.reset || "–"],
     ["Radio channel", String(ap.channel)],
-    ["Poll interval", ap.poll_s ? `${ap.poll_s} s` : "tags' own"],
+    ["Poll interval", ap.poll_s ? fmtInterval(ap.poll_s) : `tag default (${fmtInterval(TAG_BUILTIN_POLL_S)})`],
   ];
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
   return facts;
+}
+
+// 30 -> "30 s", 120 -> "2 min", 90 -> "90 s", 3600 -> "1 h"
+export function fmtInterval(s) {
+  if (s % 3600 === 0) return `${s / 3600} h`;
+  if (s % 60 === 0) return `${s / 60} min`;
+  return `${s} s`;
+}
+
+// The poll interval for all tags (PUT /api/config poll_s): 0 lets each tag use its default
+// (TAG_BUILTIN_POLL_S), otherwise POLL_MIN_S..POLL_MAX_S as the AP takes it
+// (ESL_CFG_POLL_MIN_S/MAX_S in shared/proto.h)
+export const POLL_MIN_S = 10;
+export const POLL_MAX_S = 3600;
+// 60 s is left out: it is the tag default (0), which the AP sends as 60 s anyway
+export const POLL_PRESETS = [30, 120, 300, 600, 1800, 3600];
+
+// The "Other" field: "300" -> { poll_s: 300 }, anything else (empty too) -> { error }
+export function parsePoll(text) {
+  const t = String(text).trim();
+  const v = Number(t);
+  if (t === "" || !Number.isInteger(v) || v < POLL_MIN_S || v > POLL_MAX_S)
+    return { error: `The interval must be a whole number of seconds from ${POLL_MIN_S} to ${POLL_MAX_S}.` };
+  return { poll_s: v };
+}
+
+// Years on one CR2450 (a 1.54" tag, one display update a day) for a poll interval, from
+// the table in docs/strombudsjett.md (tools/power-budget); between two rows the nearer one
+const BATTERY_YEARS = [[30, 7.5], [60, 9.3], [120, 10.7], [300, 11.7], [600, 12.1]];
+export function batteryYears(poll_s) {
+  const s = poll_s || TAG_BUILTIN_POLL_S;
+  let best = BATTERY_YEARS[0];
+  for (const row of BATTERY_YEARS) if (Math.abs(Math.log(row[0] / s)) < Math.abs(Math.log(best[0] / s))) best = row;
+  return s < 30 ? null : best[1];
+}
+
+// What an interval means for the tags: how long a new price may take, the battery, and the
+// tags that keep their own interval (config.poll_s in GET /api/tags) and so ignore it
+export function pollNote(poll_s, tags = []) {
+  const s = poll_s || TAG_BUILTIN_POLL_S;
+  const years = batteryYears(s);
+  const parts = [`A new price shows within ${fmtInterval(s)}.`];
+  if (years >= 10) parts.push(`Over 10 years on one CR2450, so the cells' shelf life sets the limit, not the polls.`);
+  else if (years) parts.push(`About ${years} years on one CR2450 (a 1.54" tag, one update a day; a 2.9" tag lasts longer).`);
+  else parts.push(`Polls this often drain the battery noticeably faster; 60 s or more is kinder.`);
+  const own = tags.filter((t) => t.config?.poll_s).length;
+  if (own) parts.push(own === 1 ? "One tag has an interval of its own set and keeps it." : `${own} tags have an interval of their own set and keep it.`);
+  return parts.join(" ");
 }
 
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
