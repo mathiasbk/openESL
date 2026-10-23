@@ -144,6 +144,22 @@ typedef struct {
     esl_rcache_stats_t stats;
 } esl_rcache_t;
 
+#define ESL_RSYNC_IMAGES 32
+
+/* What the radio tells the host at a sync, besides its log: its clock, what it lacks
+ * and what it holds, so the host sends only what is missing. */
+typedef struct {
+    uint32_t now_ms;                       /* the radio's clock (as esl_rlog_t.t_ms) */
+    bool want;
+    uint64_t want_mac;
+    uint32_t want_image;
+    uint8_t want_fw_model;
+    unsigned n_tags;                       /* tags it has state for: 0 after a restart */
+    unsigned n_images;
+    uint32_t images[ESL_RSYNC_IMAGES];     /* the ids it holds */
+    esl_rfw_t fw[ESL_RCACHE_MODELS];       /* the firmware it holds, by model - 1 */
+} esl_rsync_t;
+
 /* Memory comes from the caller: tags (max_tags), images (n_images, each with data of
  * image_cap bytes: the largest image it is to hold) and the log (log_cap entries).
  * pan is the network's PAN ID; frames to another PAN or address are not answered. */
@@ -187,6 +203,9 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
  * makes it due at once). */
 bool esl_rcache_sync_due(const esl_rcache_t *rc, uint64_t now_ms, uint64_t last_sync_ms);
 
+/* What to tell the host at a sync (now_ms on the radio's clock). */
+void esl_rcache_sync_req(const esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req);
+
 /* ---- the log ---- */
 
 unsigned esl_rcache_log_count(const esl_rcache_t *rc);
@@ -198,3 +217,5 @@ void esl_rcache_log_drop(esl_rcache_t *rc, unsigned n);
  * host also sends the state of every tag in the log it fetches): cleared once a sync
  * has asked for it. */
 void esl_rcache_want_clear(esl_rcache_t *rc);
+/* The host has more to send than one sync carried: sync again soon (after the clear). */
+void esl_rcache_want_more(esl_rcache_t *rc);

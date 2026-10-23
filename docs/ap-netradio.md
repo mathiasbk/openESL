@@ -4,8 +4,9 @@ A separate AP setup, not a variant of [the S3 with a C6 on a cable](ap-radio-lin
 runs the AP, and the ESP32-C6 that talks to the tags sits somewhere else on the same WiFi network,
 each on its own power supply, with no wire between them. Short name in code and file names: `netradio`.
 
-**Status: planned.** Only the radio's reply cache is written and tested on the PC
-(`ap/components/esl_core/esl_rcache.c`, `ap/test/test_rcache.c`). There is no firmware for it yet, and
+**Status: planned.** Only the radio's reply cache and the S3's side of a sync are written and tested on the PC
+(`ap/components/esl_core/esl_rcache.c` and `esl_rhost.c`, tested in `ap/test/test_rcache.c` and
+`test_rhost.c`). There is no firmware for it yet, and
 nothing in a release. The steps left are at the end.
 
 **Read the limits first.** The setup works only because the radio answers the tags on its own and uses
@@ -76,8 +77,15 @@ takes 22–110 ms, so that cannot work. Instead:
 3. **The radio decides when to use WiFi** (`esl_rcache_sync_due()`): only when no tag frame has come for
    60 ms (300 ms while a tag is in the middle of an image), every 10 s when nothing is missing, 1 s after
    a tag it lacked something for, and at 30 s whatever the tags are doing. The S3 never starts an
-   exchange. In one sync it sends its log and
-   says what it lacks, and the S3 answers with the state of every tag in the log and anything new.
+   exchange.
+4. **A sync** (`esl_rcache_sync_req()` on the radio, `esl_rhost` on the S3): the radio sends its log, its
+   clock, what it lacks and which images and firmware it holds. The S3 replays the log at the times the
+   frames came (turned into its own clock), then answers with what changed since it last told the radio:
+   the state of every tag that differs (also tags that did not poll, so new content is waiting at the
+   radio before the tag wakes up), the images the radio lacks for them, tag firmware for a model a tag
+   is to get, the default interval, and the tags deleted since. A radio that restarted gets everything
+   again. Drawing is the slow part, so one sync draws at most 8 images and sends at most 4; with many
+   changes at once the S3 says there is more, and the rest follow at the next syncs, 1 s apart.
 
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.
 Only the link to the radio differs.
@@ -106,7 +114,7 @@ WiFi RSSI −74 to −77 dBm, coex at the default, power save MIN (MAX made no d
 |---|---|---|
 | 1 | Measure WiFi against 802.15.4 on the C6 | done (above) |
 | 2a | The radio's reply cache and log, tested against fake tags on the PC | done |
-| 2b | The S3 side: build each tag's state from the store, replay the log | |
+| 2b | The S3 side: build each tag's state from the store, replay the log (`esl_rhost`), tested end to end with the cache and fake tags | done |
 | 3 | One radio over WiFi: TCP with TLS-PSK, the S3 announces `_openesl-ap._tcp` on mDNS, the radio connects; set-up and pairing on the radio's own set-up page with a code from the dashboard; a "Radios" tab | |
 | 4 | Tag firmware kept in the radio's flash, so the S3 does not send it for every tag | |
 | 5 | Several radios per S3: each tag owned by the radio that hears it best, never switched mid-image | |

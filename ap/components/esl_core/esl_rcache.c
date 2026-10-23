@@ -396,3 +396,23 @@ void esl_rcache_want_clear(esl_rcache_t *rc)
     rc->want_image = 0;
     rc->want_fw_model = 0;
 }
+
+void esl_rcache_want_more(esl_rcache_t *rc)
+{
+    rc->want = true;
+}
+
+void esl_rcache_sync_req(const esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req)
+{
+    memset(req, 0, sizeof(*req));
+    req->now_ms = (uint32_t)now_ms;
+    req->want = rc->want;
+    req->want_mac = rc->want_mac;
+    req->want_image = rc->want_image;
+    req->want_fw_model = rc->want_fw_model;
+    req->n_tags = rc->n_tags;
+    for (unsigned i = 0; i < rc->n_images && req->n_images < ESL_RSYNC_IMAGES; i++)
+        if (rc->images[i].id)
+            req->images[req->n_images++] = rc->images[i].id;
+    memcpy(req->fw, rc->fw, sizeof(req->fw));
+}

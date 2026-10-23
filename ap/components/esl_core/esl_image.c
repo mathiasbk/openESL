@@ -457,6 +457,31 @@ size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint
     return n;
 }
 
+size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t *out, size_t cap,
+                      uint32_t *id, uint8_t *model, uint8_t *fmt)
+{
+    esl_tag_t t;
+    esl_image_buf_t b;
+    memset(&b, 0, sizeof(b));
+    b.data = out;
+    if (!esl_store_get(st, mac, &t))
+        return 0;
+    lock(im);
+    uint32_t ver = layout_ver(ls, t.model);
+    bool ok = draw(st, ls, &t, ver, &b, cap, 0);
+    if (ok) {
+        im->drawn++;
+        esl_store_image_known(st, mac, b.content_id, ver, b.id);
+    }
+    unlock(im);
+    if (!ok)
+        return 0;
+    *id = b.id;
+    *model = b.model;
+    *fmt = b.fmt;
+    return b.size;
+}
+
 void esl_image_release(esl_image_t *im, uint64_t mac)
 {
     lock(im);

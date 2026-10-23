@@ -136,5 +136,12 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
 size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
                        uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out);
 
+/* The tag's image drawn into out (cap bytes, at least esl_image_mem_size() /
+ * ESL_IMAGE_BUFS) instead of a buffer, for a radio that keeps its own copy (esl_rhost):
+ * returns its length (0 when the tag has no content it can be drawn for) with its id,
+ * model and format, and records the id with the tag as esl_image_prepare does. */
+size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t *out, size_t cap,
+                      uint32_t *id, uint8_t *model, uint8_t *fmt);
+
 /* Frees the tag's buffer, if any (the tag was deleted, or shows its image). */
 void esl_image_release(esl_image_t *im, uint64_t mac);
