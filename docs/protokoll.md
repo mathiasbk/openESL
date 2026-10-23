@@ -108,37 +108,43 @@ The AP compiles the JSON layout file (part 3) into this format and draws each ta
 
 | Bytes | Content |
 |---|---|
-| 0 | format = 1 |
+| 0 | format = 2 (1 had no icons, lines or open and rounded rectangles) |
 | 1 | model (as in POLL) |
 | 2 | number of layouts n, 1..16 |
 | 3 | number of fixed texts t, 0..32 |
+| 4 | number of icons i, 0..16 |
 | then n times | number of elements (1 byte), then the elements, 14 bytes each |
 | then t times | a fixed text: its length (1 byte, 1..64), then the Latin-1 text |
+| then i times | an icon: width (2 bytes, 1..128), height (1 byte, 1..128), then the picture as a raw screen image (format 0 under "IMG"): width columns of (height + 7) / 8 bytes, bit 7 of byte 0 the top row, 1 = drawn |
 
 Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 
 | Offset | Bytes | Field |
 |---|---|---|
-| 0 | 1 | kind: 1 = text, 2 = filled rectangle, 3 = barcode |
-| 1 | 1 | text field 0..5 (text and barcode), or 0x80 + i for fixed text i of the file |
-| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
-| 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom) |
-| 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits |
+| 0 | 1 | kind: 1 = text, 2 = rectangle, 3 = barcode, 4 = line, 5 = icon, 6 = QR code |
+| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file |
+| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF. QR code: the first byte is the error correction level (0 = L, 1 = M, 2 = Q, 3 = H), the other two 0xFF |
+| 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom). Rectangle: border width, 0 = filled. Line: bit 0 set = from the bottom-left to the top-right corner of the box, else from the top-left to the bottom-right |
+| 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits. QR code: module size in pixels 1..8, 0 = the largest that fits. Rectangle: corner radius. Line: width 1..16 |
 | 7 | 1 | colour: 0 black, 1 white, 2 inverted (white text in a black box), 3 highlight (inverted if flag bit0, else black), 4 frame (black if flag bit1, else not drawn), 5 red (text or rectangle), 6 red inverted (white text in a red box). 5 and 6 only on a model with red (`colors` in `shared/models.json`) |
 | 8 | 2 | x (pixels from the left) |
 | 10 | 1 | y (pixels from the top) |
 | 11 | 2 | w |
 | 13 | 1 | h |
 
+A **line** runs corner to corner in its box (a box 1 pixel high or wide is a straight line). Every pixel whose centre is at most width / 2 from the segment is drawn, worked out in whole numbers so every platform draws the same pixels; the ends are round. A **rectangle** with a radius leaves out the pixels whose centre is outside the quarter circle in each corner; with a border, the same shape shrunk by the border (radius minus border) is left as it is inside. An **icon** draws its 1 bits in the element's colour and leaves the rest. Lines, rectangles and icons can be black, white or red (rectangles also frame).
+
 How a text element is drawn (font fallback, wrapping, "…", inverted box) is in `ap/components/esl_core/esl_render.c`; the built-in layouts `price` and `text` are the same kind of element list. The content flags (bit0 highlighted price, bit1 frame) come from `price_highlight` and `frame` in `PUT /api/tags`.
 
 A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the AP adds the check digit) or 13 with a correct check digit. The AP refuses content whose barcode field cannot be encoded, or does not fit the box even with 1-pixel modules, in `PUT /api/tags` (part 2). At most one barcode per layout.
+
+A **QR code** element (ISO/IEC 18004, byte mode, versions 1–10, the mask chosen by the standard's penalty rules; `esl_qr.c`) draws its field as the smallest version that holds it at the element's error correction level, square in its box, placed by both alignments, with modules of the element's size or, at 0, the largest whole number of pixels that fits. It is always black and has no quiet zone of its own: leave 2–4 modules of white round it. The compiler works out the largest version the box holds, and the AP refuses content whose QR field is longer than that version takes (`PUT /api/tags`, part 2). At most one QR code per layout.
 
 How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. EAN-13 is specified from 0.264 mm per module (80 %), so a 2-pixel module (0.45 mm) on the 2.9" is a safe choice; 1-pixel modules are below the standard and need a good scanner.
 
 The **version** of a layout file is the CRC-32 (IEEE 802.3, the same as zlib) of the whole binary file; 0 is counted as 1. It changes exactly when what the tags show changes; a JSON file that only differs in whitespace, descriptions or layout names gives the same binary and keeps the version. A new version gives the tags with content from that file new images (their `image_id` changes).
 
-The largest compiled file is **2048 bytes** (`ESL_LBIN_MAX`). That is about 145 elements, for example 16 layouts of 9 elements; 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
+The largest compiled file is **4096 bytes** (`ESL_LBIN_MAX`). That is about 290 elements, or for example 16 layouts of 9 elements and 1.9 KB of icons (a 64×64 icon is 515 bytes); 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
 
 ### Sequence
 ```
@@ -263,28 +269,35 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn. The Design tab makes them from a PNG |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
 | `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
-| `elements` | 1 or more, drawn in order (all rectangles, then the barcode, then all text, see `esl_render.c`) |
-| `type` | `"text"` (one field in a box), `"rect"` (filled box) or `"barcode"` (one field as a barcode) |
-| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen |
-| `field` | text and barcode: a name from `fields` (or its index) |
+| `elements` | 1 or more, drawn in order (all rectangles, then lines, then icons, then the barcode and QR code, then all text, see `esl_render.c`) |
+| `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
+| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon takes only `x` and `y` (or `w` and `h` equal to the icon's). A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
+| `direction` | line only: `down` (default, top-left to bottom-right corner) or `up` (bottom-left to top-right) |
+| `width` | line only: 1–16 px, default 1. A wide line reaches width / 2 past its box, and its ends are round |
+| `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
+| `icon` | icon only, required: a name from `icons` |
+| `field` | text, barcode and qr: a name from `fields` (or its index) |
 | `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
-| `module` | barcode only: module width 1–4 px, 0 (default) = the widest that fits the box |
+| `module` | barcode: module width 1–4 px; qr: module size 1–8 px; 0 (default) = the largest that fits the box |
+| `ecc` | qr only: error correction `L`, `M` (default), `Q` or `H` (about 7, 15, 25 or 30 % of the code can be lost); higher takes more modules for the same text |
 | `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `text20` (20 px), `mid` (36 px), `price44` (44 px), `large` (52 px); `mid`, `price44` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
-| `align`, `valign` | text only (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
+| `align`, `valign` | text and qr (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
 | `lines` | text only: 0–3, 0 (default) = as many as the box holds |
-| `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text and rect) and `red_invert` (text: white text in a red box) |
+| `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`; not lines and icons); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text, rect, line and icon) and `red_invert` (text: white text in a red box) |
 | keys starting with `_`, `description` | ignored (comments) |
 
 The AP also checks what it can draw, so a file that is accepted always gives a screen (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 32 text lines (each text element counts the most lines it can use) and 20 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
-- the binary file is at most 2048 bytes;
+- a QR code is black, one per layout, its box at least 21 modules wide and high; content whose QR field is longer than the largest version the box holds takes is refused with `422`;
+- per layout at most 32 text lines (each text element counts the most lines it can use), 20 rectangles (`rect` elements plus `invert`/`highlight` text), 16 lines and 8 icons (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`, `ESL_DRAW_MAX_LINES`, `ESL_DRAW_MAX_ICONS`);
+- the binary file is at most 4096 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 
 `tag/tools/label_design.py` designs content for these layouts too: a label design with `"layout": "shelf"` takes its field names from the layout file (`render <design> <data> designs/layouts/2.9.json`).

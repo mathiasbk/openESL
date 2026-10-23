@@ -66,6 +66,11 @@ async function create(model, base) {
       fixedTextBytes: call("web_limit", "number", ["number"], [12]),
       fields: call("web_limit", "number", ["number"], [13]),
       jsonBytes: call("web_limit", "number", ["number"], [14]),
+      lines: call("web_limit", "number", ["number"], [17]),
+      icons: call("web_limit", "number", ["number"], [18]),
+      lineWidthMax: call("web_limit", "number", ["number"], [19]),
+      qrs: call("web_limit", "number", ["number"], [20]),
+      qrModuleMax: call("web_limit", "number", ["number"], [21]),
     },
 
     loadLayouts(text) {

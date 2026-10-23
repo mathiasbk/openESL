@@ -1,0 +1,58 @@
+# The GitHub wiki (https://github.com/mathiasbk/openESL/wiki) is made from the pages in wiki/.
+# Every pull request checks their links (tools/check_wiki.py). Each push to master publishes
+# wiki/ to the wiki repository, replacing what is there, so the wiki describes the latest
+# release. Edit the pages in wiki/ through a pull request: edits made on the wiki's own pages
+# on GitHub are overwritten by the next publish.
+#
+# One-time setup: Settings -> Features -> Wikis on, a first page created in the Wiki tab (so
+# the wiki repository exists), and "Restrict editing to collaborators only".
+name: Wiki
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 tools/check_wiki.py
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: wiki
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Publish wiki/ to the GitHub wiki
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          if ! git clone "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "$RUNNER_TEMP/wiki"; then
+            echo "::error::Could not clone the wiki. Turn it on (Settings -> Features -> Wikis) and create a first page in the Wiki tab."
+            exit 1
+          fi
+          find "$RUNNER_TEMP/wiki" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -r wiki/. "$RUNNER_TEMP/wiki/"
+          cd "$RUNNER_TEMP/wiki"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Wiki from ${GITHUB_SHA::7}"
+          git push origin HEAD
