@@ -19,7 +19,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
 | `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`); a chip the firmware is built for is in `CHIPS` in `tag/tools/build.py` (see "Another chip" in `tag/README.md`) |
 | `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); a tag with its maker's firmware would be another |
-| `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), RLE coded (`ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
+| `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), coded (`ESL_IMG_FMT_2D` or `ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
 | `width`, `height` | the screen in the orientation the layouts use |
 | `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert` (`yellow` is refused until the firmware draws it) |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |

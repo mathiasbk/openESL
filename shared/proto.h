@@ -43,6 +43,7 @@
                                      * in its POLL is then the image_id it shows. A tag without it (no SPI
                                      * flash) cannot show content. */
 #define ESL_POLL_F_IMG_RLE   0x40   /* the tag also takes ESL_IMG_FMT_RLE images */
+#define ESL_POLL_F_IMG_2D    0x80   /* ... and ESL_IMG_FMT_2D images */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -167,9 +168,30 @@
  * ESL_IMG_FMT_RLE is the raw image run-length coded, sent only to a tag whose POLL has
  * ESL_POLL_F_IMG_RLE: a control byte c, then for c < 0x80 the next c + 1 bytes as they
  * are, for c >= 0x80 the next byte c - 0x80 + 2 times (2 to 129). It ends exactly at
- * the raw size; image_id is the CRC-32 of the coded bytes. */
+ * the raw size; image_id is the CRC-32 of the coded bytes.
+ *
+ * ESL_IMG_FMT_2D is the raw image coded column against column, modelled on CCITT T.6
+ * (G4) with its own run codes, sent only to a tag whose POLL has ESL_POLL_F_IMG_2D. It
+ * is a bit string, most significant bit first, and columns follow each other with no
+ * padding: every column of the raw image (the red plane's after the black plane's),
+ * height pixels each, coded against the column before it (the first against an empty
+ * one). Ink is colour 1. In a column, a change is a row y whose pixel differs from row
+ * y - 1 (row -1 has no ink). Coding goes down the column from a0 = -1 with colour 0: b1
+ * is the first change in the reference column below a0 to the other colour than the
+ * current one, b2 the change after b1 (height if none), and from s = max(a0, 0):
+ *   1, 011, 010, 000011, 000010, 0000011, 0000010  vertical: the next change a1 is at b1,
+ *       b1 + 1, b1 - 1, b1 + 2, b1 - 2, b1 + 3, b1 - 3; rows s..a1 - 1 get the colour,
+ *       the colour flips and a0 = a1
+ *   0001  pass: rows s..b2 - 1 get the colour, a0 = b2
+ *   001 r1 r2  horizontal: r1 rows of the colour from s, then r2 of the other, a0 = s + r1
+ *       + r2; r1 and r2 are Exp-Golomb codes of order 2 (r + 4 in binary, b bits, after
+ *       b - 3 zeros)
+ * until a0 is the height. After the last column the last byte is filled with zeros, and
+ * nothing follows. Decoded it is exactly the raw image; image_id is the CRC-32 of the
+ * coded bytes. */
 #define ESL_IMG_FMT_RAW      0
 #define ESL_IMG_FMT_RLE      1
+#define ESL_IMG_FMT_2D       2
 
 /* IMG_REQ, 10 byte */
 #define ESL_IREQ_LEN         10

@@ -100,7 +100,7 @@ typedef struct {
     uint32_t id;          /* image id (CRC-32 of data) */
     uint16_t size;        /* bytes as sent */
     uint8_t model;
-    uint8_t fmt;          /* ESL_IMG_FMT_*: RLE for a tag that takes it, when that is shorter */
+    uint8_t fmt;          /* ESL_IMG_FMT_*: 2D or RLE for a tag that takes it, when that is shorter */
     uint64_t used_ms;     /* last block sent, or drawn */
     bool sent;            /* the last block went out: free for another tag */
     uint8_t *data;        /* cap bytes */
