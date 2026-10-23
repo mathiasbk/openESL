@@ -35,3 +35,5 @@ The C6 with screen is wired the same way.
 The S3 is updated over the air like any AP. The C6 radio is not updated by the S3 yet, so it is flashed with esptool when it changes.
 
 The link between the chips: [docs/ap-radio-link.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-radio-link.md).
+
+Want the C6 somewhere else, with no wire? That is a separate setup with real limits: [ESP32-S3 with a wireless C6 radio](ESP32-S3-with-wireless-C6).

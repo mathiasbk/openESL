@@ -14,6 +14,7 @@ void test_store(void);
 void test_api(void);
 void test_layout(void);
 void test_radio(void);
+void test_rcache(void);
 void test_wifi(void);
 void test_screen(void);
 void test_render(void);
@@ -40,6 +41,7 @@ static const struct {
     {"api", test_api},
     {"layout", test_layout},
     {"radio", test_radio},
+    {"rcache", test_rcache},
     {"wifi", test_wifi},
     {"screen", test_screen},
     {"render", test_render},

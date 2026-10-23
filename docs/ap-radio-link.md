@@ -13,6 +13,8 @@ ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
 
 Status: experimental. All three images build; it has not been tried on hardware yet.
 
+For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md).
+
 ## Wiring
 
 ![Wiring between the ESP32-S3 and the ESP32-C6](images/ap-s3-c6-wiring.svg)
