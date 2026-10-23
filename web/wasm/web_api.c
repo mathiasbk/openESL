@@ -47,7 +47,8 @@ EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_CONTENT_FIELD_SPACE; }
  * inverted field, 4 lines per text element, 5..8 height of the fonts small, medium, mid, large,
  * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text,
  * 13 fields per layout, 14 bytes of JSON in the file, 15 height of text20, 16 height of price44,
- * 17 lines per screen, 18 icons per screen, 19 widest line. */
+ * 17 lines per screen, 18 icons per screen, 19 widest line, 20 QR codes per screen, 21 largest
+ * QR module. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
 {
     static const int v[] = { ESL_DRAW_MAX_RUNS, ESL_DRAW_MAX_RECTS, ESL_LBIN_MAX, ESL_INVERT_PAD,
@@ -55,7 +56,7 @@ EMSCRIPTEN_KEEPALIVE int web_limit(int what)
                              ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
                              ESL_LBIN_TEXT_LEN_MAX, ESL_MAX_FIELDS, ESL_LAYOUT_MAX_SIZE,
                              ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H, ESL_DRAW_MAX_LINES, ESL_DRAW_MAX_ICONS,
-                             ESL_LINE_W_MAX };
+                             ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
 }
 

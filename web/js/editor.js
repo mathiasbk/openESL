@@ -81,7 +81,7 @@ const element = () => (layout() && layout().elements[state.el]) || null;
 const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : layout()?.fields || []);
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
 // Text and barcode elements show a field from each update; the rest are part of the layout
-const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode";
+const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr";
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
@@ -272,6 +272,7 @@ function refreshMeters(res) {
   const lay = layout();
   const meters = [];
   $("el-add-barcode").disabled = false;
+  $("el-add-qr").disabled = false;
   if (lay) {
     const u = layoutUsage(lay, lim);
     meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
@@ -281,6 +282,9 @@ function refreshMeters(res) {
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
     $("el-add-barcode").title = u.barcodes >= lim.barcodes ? "A layout has at most one barcode" : "A field as a Code 128 or EAN-13 barcode (one per layout)";
+    $("el-add-qr").disabled = u.qrs >= lim.qrs;
+    $("el-add-qr").title = u.qrs >= lim.qrs ? "A layout has at most one QR code" : "A field as a QR code, e.g. a link (one per layout)";
+    if (u.qrs) meters.push(["QR codes", u.qrs, lim.qrs, "QR codes in this layout"]);
   }
   meters.push(["Compiled file", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
   meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to tag uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
@@ -342,7 +346,7 @@ function drawOverlay() {
   const lay = layout();
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" ? " barcode" : "") +
+    b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
       (e.type === "icon" ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
@@ -351,7 +355,7 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : elementName(e);
+    tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
     b.append(tag);
     if (e.type !== "icon") for (const h of HANDLES) {
       const g = document.createElement("span");
@@ -380,15 +384,15 @@ function refreshList() {
     const ico = document.createElement("span");
     const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
     ico.className = "ico" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : inverted ? " inv" : "");
-    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥" }[e.type] ??
+    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦" }[e.type] ??
       (e.text !== undefined ? "“”" : "T");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = e.type === "barcode" ? fieldLabel(e.field) : elementName(e);
+    name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
     dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
-      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.color && e.color !== "black" ? e.color : "";
+      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
     return li;
@@ -405,6 +409,7 @@ function rectName(e) {
 
 function elementName(e) {
   if (e.type === "barcode") return `barcode (${fieldLabel(e.field)})`;
+  if (e.type === "qr") return `QR code (${fieldLabel(e.field)})`;
   if (e.type !== "text") return rectName(e);
   return e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
 }
@@ -761,7 +766,7 @@ function refreshElement() {
     box.append(l);
     return s;
   };
-  if (e.type === "barcode") {
+  if (e.type === "barcode" || e.type === "qr") {
     sel("Shows", lay.fields.map((f) => [f, "field " + f]), fieldLabel(e.field), (v) => (e.field = v));
   } else if (e.type === "text") {
     // A field filled in by each update, or a fixed text that is part of the layout.
@@ -880,8 +885,13 @@ function refreshBar() {
     select(bar, "Code", [["code128", "Code 128"], ["ean13", "EAN-13"]], e.symbology, (v) => (e.symbology = v));
     sep();
     alignRow(bar);
+  } else if (e.type === "qr") {
+    select(bar, "Error correction", [["L", "L 7 %"], ["M", "M 15 %"], ["Q", "Q 25 %"], ["H", "H 30 %"]], e.ecc || "M",
+      (v) => (v === "M" ? delete e.ecc : (e.ecc = v)));
+    sep();
+    alignRow(bar);
   }
-  if (e.type !== "barcode") {
+  if (e.type !== "barcode" && e.type !== "qr") {
     if (e.type === "text") sep();
     const red = MODELS[state.model].colors?.includes("red");
     const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
@@ -962,6 +972,22 @@ function moreMenu(e, btn, select, open) {
       : "Code 128 takes letters, digits and signs; digits only give the shortest code. ") +
       `The bars fill the box, which must be at least ${lim.barcodeMinH} px high; "auto" uses the widest module that fits. ` +
       "On the 2.9\", 2 px modules scan reliably.";
+    list.append(p);
+  }
+  if (e.type === "qr") {
+    const lim = state.renderer.limits;
+    const v = row("Vertical");
+    for (const [val, icon, name] of [["top", "⯅", "Top"], ["middle", "≡", "Middle"], ["bottom", "⯆", "Bottom"]])
+      btn(v, icon, "Vertical: " + name.toLowerCase(), () => (val === "top" ? delete e.valign : (e.valign = val)), (e.valign || "top") === val);
+    select(row("Module"), "Module size", [["0", "auto"], ...Array.from({ length: lim.qrModuleMax }, (_, i) => [String(i + 1), i + 1 + " px"])],
+      String(e.module || 0), (val) => {
+        if (+val) e.module = +val;
+        else delete e.module;
+      });
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). Leave a white border of " +
+      "2 to 4 modules around the box for phones to read it; on the 2.9\", 2 px modules scan well.";
     list.append(p);
   }
   if (e.type === "rect" || e.type === "line") {
@@ -1095,6 +1121,7 @@ function addElement(kind) {
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
     hline: { type: "line", x: 4, y: Math.floor(height / 2), w: width - 8, h: 1, width: 2 },
     barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },
+    qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
   }[kind];
   lay.elements.push(e);
   state.el = lay.elements.length - 1;
@@ -1370,7 +1397,7 @@ function initActions() {
   $("json").addEventListener("blur", refreshJson);
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
-  for (const k of ["text", "fixed", "rect", "hline", "barcode"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["text", "fixed", "rect", "hline", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-add-icon").addEventListener("click", () => $("icon-file").click());
   $("icon-file").addEventListener("change", (ev) => {
     addIcon(ev.target.files[0]);

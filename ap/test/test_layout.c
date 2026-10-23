@@ -442,6 +442,35 @@ static void test_shapes(void)
         strcat(many, i ? "," LINE "}" : LINE "}");
     bad_el(many, "at most 16 lines per screen");
 #undef LINE
+    /* a QR code: level in the first font byte, module size in lines, alignment in opts */
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"b\",\"x\":10,\"y\":20,\"w\":60,\"h\":60,\"ecc\":\"H\",\"module\":2,"
+                     "\"align\":\"right\",\"valign\":\"bottom\"}"));
+    {
+        static const uint8_t expect_qr[] = {ESL_LE_QR, 1, ESL_QR_LEVEL_H, 0xFF, 0xFF, ESL_LE_RIGHT | ESL_LE_BOTTOM, 2,
+                                            ESL_LE_BLACK, 10, 0, 20, 60, 0, 60};
+        CHECK_MEM(e, expect_qr, sizeof(expect_qr));
+        CHECK_INT(bin.qr_field[0], 1);
+        CHECK_INT(bin.qr_ecc[0], ESL_QR_LEVEL_H);
+        CHECK_INT(bin.qr_cap[0], 24); /* 30 modules of 2 px: version 3 (29 modules), 24 bytes at H */
+        CHECK_INT(bin.bc_field[0], -1);
+    }
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":21,\"h\":21}"));
+    CHECK_INT(e[ESL_LE_OFF_ECC], ESL_QR_LEVEL_M);
+    CHECK_INT(bin.qr_cap[0], 14);
+#define QR "{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":60"
+    bad_el(QR ",\"ecc\":\"X\"}", "ecc must be L, M, Q or H");
+    bad_el(QR ",\"module\":9}", "module must be a whole number from 0 to 8");
+    bad_el(QR ",\"color\":\"white\"}", "a QR code is black");
+    bad_el(QR ",\"symbology\":\"ean13\"}", "symbology is only for barcode elements");
+    bad_el(QR ",\"fonts\":[\"small\"]}", "fonts is only for text elements");
+    bad_el(QR "}," QR "}", "at most 1 QR code per screen");
+    bad_el("{\"type\":\"qr\",\"text\":\"x\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR code takes a field, not a fixed text");
+    bad_el("{\"type\":\"qr\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR element needs a field");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":20}", "at least 21 px wide and high");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":40,\"module\":2}", "at least 42 px");
+    bad_el("{\"type\":\"barcode\",\"field\":0,\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":200,\"h\":20,\"ecc\":\"L\"}",
+           "ecc is only for QR elements");
+#undef QR
 #define RECT "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":40,\"h\":20"
     bad_el(RECT ",\"radius\":11}", "radius must be a whole number from 0 to 10");
     bad_el(RECT ",\"border\":11}", "border must be a whole number from 0 to 10");

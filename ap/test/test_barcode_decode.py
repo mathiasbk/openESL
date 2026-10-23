@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover
     zxingcpp = None
 
-FORMATS = {"ean13": "EAN13", "code128": "Code128"}
+FORMATS = {"ean13": "EAN13", "code128": "Code128", "qr": "QRCode"}
 
 
 @unittest.skipIf(zxingcpp is None, "zxing-cpp is not installed")
