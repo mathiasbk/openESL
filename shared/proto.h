@@ -199,20 +199,28 @@
 /*
  * Layoutfila kompilert (binær, laget av AP-en fra JSON-fila; esl_render.c tegner med den):
  *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)
- *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)
+ *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)   4 antall ikoner i (0..ESL_LBIN_ICON_MAX)
  *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver,
- *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst.
+ *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst,
+ *   så i ikoner: bredde (u16), høyde (u8), så bildet som et skjermbilde (ESL_IMG_FMT_RAW):
+ *   bredde kolonner fra venstre, (høyde + 7) / 8 byte hver, bit 7 i byte 0 = øverste rad,
+ *   1 = blekk.
  * Et tekst- eller strekkodeelement med felt ESL_LE_FIELD_FIXED | i tegner fast tekst i i stedet
  * for et tekstfelt.
  * Versjonen er CRC32 (IEEE, som esl_crc32 på AP-en) av hele fila, 0 regnes som 1.
  */
-#define ESL_LBIN_FORMAT      1
-#define ESL_LBIN_HDR_LEN     4
+#define ESL_LBIN_FORMAT      2      /* 2: ikoner, linjer og runde/åpne rektangler */
+#define ESL_LBIN_HDR_LEN     5
 #define ESL_LBIN_OFF_NTEXT   3
+#define ESL_LBIN_OFF_NICON   4
 #define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
 #define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
+#define ESL_LBIN_ICON_MAX    16     /* ikoner per fil */
+#define ESL_LBIN_ICON_HDR    3      /* u16 bredde, u8 høyde */
+#define ESL_ICON_MAX_W       128    /* største ikon i piksler */
+#define ESL_ICON_MAX_H       128
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         2048   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
+#define ESL_LBIN_MAX         4096   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
@@ -230,6 +238,26 @@
 #define ESL_LE_TEXT          1
 #define ESL_LE_RECT          2
 #define ESL_LE_BARCODE       3      /* text field drawn as a barcode, bars the full height of the box */
+#define ESL_LE_LINE          4      /* a straight line between two corners of the box */
+#define ESL_LE_ICON          5      /* an icon from the file, its size is the box */
+
+/* A rect element also uses (0 in a plain filled rect, so older files compile the same):
+ *   ESL_LE_OFF_RADIUS  corner radius in pixels, at most half the shorter side
+ *   ESL_LE_OFF_BORDER  0 = filled, else only a border this many pixels wide
+ * A line element:
+ *   ESL_LE_OFF_OPTS    ESL_LE_RISING: from the bottom-left to the top-right corner of the box,
+ *                      else from the top-left to the bottom-right
+ *   ESL_LE_OFF_WIDTH   line width in pixels, 1..ESL_LINE_W_MAX; every pixel whose centre is
+ *                      at most width / 2 from the line is drawn, so the ends are round
+ *   a box 1 pixel high or wide is a straight line; a wider line reaches width / 2 past the box
+ * An icon element:
+ *   ESL_LE_OFF_FIELD   the icon's number in the file
+ *   ESL_LE_OFF_COLOR   black, white or red: the icon's 1 bits are drawn, 0 bits left as they are */
+#define ESL_LE_OFF_RADIUS    ESL_LE_OFF_LINES
+#define ESL_LE_OFF_BORDER    ESL_LE_OFF_OPTS
+#define ESL_LE_OFF_WIDTH     ESL_LE_OFF_LINES
+#define ESL_LE_RISING        0x01
+#define ESL_LINE_W_MAX       16
 
 /* A barcode element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_FONT    symbology (ESL_BC_*), the two other font bytes ESL_FONT_NONE
@@ -280,6 +308,8 @@
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
 #define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
 #define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_LINES   16     /* linjer per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_ICONS   8      /* ikoner per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */

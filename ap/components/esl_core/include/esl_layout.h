@@ -69,7 +69,7 @@ typedef struct {
 } esl_layout_t;
 
 /* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
- * the AP has about 60 KB free and a file costs 2.6 KB plus its JSON, so holding
+ * the AP has about 60 KB free and a file costs 4.6 KB plus its JSON, so holding
  * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
 typedef struct {
     esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */

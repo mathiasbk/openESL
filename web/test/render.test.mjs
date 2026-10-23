@@ -6,10 +6,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { loadRenderer, MODELS } from "../js/renderer.js";
+import { layoutUsage } from "../js/limits.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WASM = new URL("../dist/wasm/", import.meta.url);
@@ -83,5 +85,43 @@ for (const model of Object.keys(MODELS)) {
     assert.equal(res.ok, false);
     assert.match(res.error, /at most 93 with 3 fields/);
     assert.ok(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(13), ""]).ok);
+  });
+
+  test(`lines, round and open boxes and icons, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const { width, height } = MODELS[model];
+    const file = {
+      format: "esl-layouts", version: 1, model,
+      icons: { star: { w: 9, h: 3, data: "gAA+AP+A" } },
+      layouts: [{
+        name: "shapes", fields: ["a"],
+        elements: [
+          { type: "rect", x: 2, y: 2, w: width - 4, h: height - 4, radius: 12, border: 3 },
+          { type: "line", x: 10, y: 10, w: width - 20, h: height - 20, width: 4 },
+          { type: "line", x: 10, y: 10, w: width - 20, h: height - 20, direction: "up", color: "white" },
+          { type: "line", x: 10, y: Math.floor(height / 2), w: width - 20, h: 1 },
+          { type: "icon", icon: "star", x: Math.floor(width / 2) - 4, y: 30 },
+          { type: "text", field: "a", x: 20, y: 30, w: 100, h: 24, fonts: ["medium"] },
+        ],
+      }],
+    };
+    const text = JSON.stringify(file);
+    const res = r.loadLayouts(text);
+    assert.ok(res.ok, res.error);
+    const u = layoutUsage(file.layouts[0], r.limits);
+    assert.deepEqual([u.rects, u.lines, u.icons, u.runs], [1, 3, 1, 1]);
+    const tmp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "shapes.json");
+    writeFileSync(tmp, text);
+    const a = r.render(0x10, 0, ["Hei"]);
+    const b = native(model, tmp, 0x10, 0, ["Hei"]);
+    assert.ok(a.ok && b.ok, a.error || b.error);
+    assert.deepEqual(a.pixels, b.pixels);
+    // the icon's first row: one pixel at its left edge
+    const ix = Math.floor(width / 2) - 4;
+    assert.equal(a.pixels[30 * width + ix], 1);
+    assert.equal(a.pixels[30 * width + ix + 1], 0);
+    // an icon that is not in the file is the AP's message
+    file.layouts[0].elements.push({ type: "icon", icon: "moon", x: 0, y: 0 });
+    assert.match(r.loadLayouts(JSON.stringify(file)).error, /icon "moon" is not in the file's icons/);
   });
 }

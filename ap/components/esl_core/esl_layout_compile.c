@@ -25,7 +25,21 @@ typedef struct {
     uint8_t ntext;
     uint8_t tlen[ESL_LBIN_TEXT_MAX];
     uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
+    struct cc_icons *ic;  /* malloc'd: the AP compiles at boot on the main task's small stack */
 } cc_t;
+
+#define ESL_ICON_ROWS_MAX ((ESL_ICON_MAX_W + 7) / 8 * ESL_ICON_MAX_H)
+
+/* The icons ("icons" in the file), compiled in order into bin */
+struct cc_icons {
+    uint8_t n;
+    char name[ESL_LBIN_ICON_MAX][ESL_LAYOUT_FIELD_NAME_MAX + 1];
+    uint16_t w[ESL_LBIN_ICON_MAX];
+    uint8_t h[ESL_LBIN_ICON_MAX];
+    size_t size;                    /* bytes used in bin */
+    uint8_t bin[ESL_LBIN_MAX];
+    uint8_t rows[ESL_ICON_ROWS_MAX]; /* one icon as written in the file */
+};
 
 static bool fail(cc_t *c, const char *fmt, ...)
 #if defined(__GNUC__)
@@ -139,7 +153,7 @@ typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
-    unsigned barcodes;
+    unsigned barcodes, lines, icons;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
     uint16_t bc_max;
@@ -231,13 +245,53 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
 }
 
 /* One element into 14 bytes at out. */
+/* Keys that only some element types take: "key" is refused unless the type is in kinds. */
+typedef struct {
+    const char *key;
+    const char *kinds; /* the types that take it, as type letters: t text, r rect, b barcode, l line, i icon */
+    const char *what;  /* for the message */
+} only_t;
+
+static bool only_ok(cc_t *c, int e, char kind)
+{
+    static const only_t only[] = {
+        {"field", "tb", "text and barcode elements"},     {"text", "tb", "text elements"},
+        {"fonts", "t", "text elements"},                  {"valign", "t", "text elements"},
+        {"lines", "t", "text elements"},                  {"align", "tb", "text and barcode elements"},
+        {"symbology", "b", "barcode elements"},           {"module", "b", "barcode elements"},
+        {"radius", "r", "rect elements"},                 {"border", "r", "rect elements"},
+        {"direction", "l", "line elements"},              {"width", "l", "line elements"},
+        {"icon", "i", "icon elements"},
+    };
+    for (size_t i = 0; i < sizeof(only) / sizeof(only[0]); i++)
+        if (!strchr(only[i].kinds, kind) && esl_json_obj_get(c->js, c->tok, e, only[i].key) >= 0)
+            return fail(c, "%s is only for %s", only[i].key, only[i].what);
+    return true;
+}
+
+/* An optional whole number key: def when it is missing; false after fail() when it is
+ * not a number from lo to hi. */
+static bool opt_uint(cc_t *c, int e, const char *key, unsigned lo, unsigned hi, unsigned def, unsigned *out)
+{
+    int t = esl_json_obj_get(c->js, c->tok, e, key);
+    *out = def;
+    if (t < 0)
+        return true;
+    if (!get_uint(c, t, out) || *out < lo || *out > hi)
+        return fail(c, "%s must be a whole number from %u to %u", key, lo, hi);
+    return true;
+}
+
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
-    static const char *const keys[] = {"type", "x", "y", "w", "h", "field", "fonts", "align", "valign",
-                                       "lines", "color", "symbology", "module", "text", NULL};
-    static const char *const types[] = {"text", "rect", "barcode", NULL};
+    static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
+                                       "valign", "lines", "color",  "symbology", "module", "text", "radius",
+                                       "border", "direction", "width", "icon", NULL};
+    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", NULL};
+    static const char kinds[] = "trbli";
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
+    int icon = -1;
 
     if (T(c, e)->type != ESL_JSON_OBJECT)
         return fail(c, "must be an object");
@@ -246,17 +300,57 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int ty = esl_json_obj_get(c->js, c->tok, e, "type");
     int kind = ty < 0 ? -1 : pick(c, ty, types);
     if (kind < 0)
-        return fail(c, "type must be \"text\", \"rect\" or \"barcode\"");
-    bool text = kind == 0, barcode = kind == 2;
+        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"line\" or \"icon\"");
+    if (!only_ok(c, e, kinds[kind]))
+        return false;
+    bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4;
+    bool rising = false;
 
-    for (int i = 0; i < 4; i++) {
-        int t = esl_json_obj_get(c->js, c->tok, e, box[i]);
-        if (t < 0 || !get_uint(c, t, &v[i]))
-            return fail(c, "%s must be a whole number of pixels, 0 or more", box[i]);
+    if (is_icon) {
+        int t = esl_json_obj_get(c->js, c->tok, e, "icon");
+        if (t >= 0 && T(c, t)->type == ESL_JSON_STRING)
+            for (icon = 0; icon < c->ic->n && !esl_json_str_eq(c->js, T(c, t), c->ic->name[icon]); icon++)
+                ;
+        if (t < 0 || T(c, t)->type != ESL_JSON_STRING)
+            return fail(c, "an icon element needs icon: the name of an icon in the file's icons");
+        if (icon == c->ic->n) {
+            char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
+            str_copy(c, t, name, sizeof(name));
+            return fail(c, "icon \"%s\" is not in the file's icons", name);
+        }
+        for (int i = 0; i < 2; i++) {
+            int b = esl_json_obj_get(c->js, c->tok, e, box[i]);
+            if (b < 0 || !get_uint(c, b, &v[i]))
+                return fail(c, "%s must be a whole number of pixels, 0 or more", box[i]);
+        }
+        v[2] = c->ic->w[icon];
+        v[3] = c->ic->h[icon];
+        for (int i = 2; i < 4; i++) {
+            unsigned given;
+            int b = esl_json_obj_get(c->js, c->tok, e, box[i]);
+            if (b >= 0 && (!get_uint(c, b, &given) || given != v[i]))
+                return fail(c, "%s must be the icon's %s (%u), or left out", box[i], i == 2 ? "width" : "height",
+                            v[i]);
+        }
+    } else {
+        for (int i = 0; i < 4; i++) {
+            int t = esl_json_obj_get(c->js, c->tok, e, box[i]);
+            if (t < 0 || !get_uint(c, t, &v[i]))
+                return fail(c, "%s must be a whole number of pixels, 0 or more", box[i]);
+        }
     }
     unsigned x = v[0], y = v[1], w = v[2], h = v[3];
     if (w == 0 || h == 0)
         return fail(c, "w and h must be at least 1");
+    if (line) {
+        static const char *const dirs[] = {"down", "up", NULL};
+        int d = esl_json_obj_get(c->js, c->tok, e, "direction");
+        int di = d < 0 ? 0 : pick(c, d, dirs);
+        if (di < 0)
+            return fail(c, "direction must be down (top-left to bottom-right) or up (bottom-left to top-right)");
+        /* a straight line has no direction: the same line compiles the same */
+        rising = di == 1 && w > 1 && h > 1;
+    }
     if (x + w > c->scr_w)
         return fail(c, "x + w = %u is past the right edge of the screen (%u)", x + w, (unsigned)c->scr_w);
     if (y + h > c->scr_h)
@@ -267,7 +361,11 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "y and h must be at most 255 (the layout format has one byte for each)");
 
     memset(out, 0, ESL_LE_SIZE);
-    out[ESL_LE_OFF_KIND] = text ? ESL_LE_TEXT : barcode ? ESL_LE_BARCODE : ESL_LE_RECT;
+    out[ESL_LE_OFF_KIND] = text      ? ESL_LE_TEXT
+                           : barcode ? ESL_LE_BARCODE
+                           : line    ? ESL_LE_LINE
+                           : is_icon ? ESL_LE_ICON
+                                     : ESL_LE_RECT;
     out[ESL_LE_OFF_FONT] = out[ESL_LE_OFF_FONT + 1] = out[ESL_LE_OFF_FONT + 2] = ESL_FONT_NONE;
     out[ESL_LE_OFF_X] = (uint8_t)x;
     out[ESL_LE_OFF_X + 1] = (uint8_t)(x >> 8);
@@ -287,20 +385,35 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
                     esl_model_name(c->model));
     out[ESL_LE_OFF_COLOR] = color;
 
-    if (!barcode) {
-        static const char *const barcode_only[] = {"symbology", "module"};
-        for (int i = 0; i < 2; i++)
-            if (esl_json_obj_get(c->js, c->tok, e, barcode_only[i]) >= 0)
-                return fail(c, "%s is only for barcode elements", barcode_only[i]);
+    if (line || is_icon) {
+        if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
+            return fail(c, "a%s can be black, white or red", line ? " line" : "n icon");
+        if (is_icon) {
+            out[ESL_LE_OFF_FIELD] = (uint8_t)icon;
+            if (++lay->icons > ESL_DRAW_MAX_ICONS)
+                return fail(c, "the AP draws at most %d icons per screen", ESL_DRAW_MAX_ICONS);
+            return true;
+        }
+        unsigned lw;
+        if (!opt_uint(c, e, "width", 1, ESL_LINE_W_MAX, 1, &lw))
+            return false;
+        out[ESL_LE_OFF_WIDTH] = (uint8_t)lw;
+        out[ESL_LE_OFF_OPTS] = rising ? ESL_LE_RISING : 0;
+        if (++lay->lines > ESL_DRAW_MAX_LINES)
+            return fail(c, "the AP draws at most %d lines per screen", ESL_DRAW_MAX_LINES);
+        return true;
     }
 
     if (!text && !barcode) {
-        static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines", "text"};
-        for (int i = 0; i < 6; i++)
-            if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
-                return fail(c, "%s is only for text elements", text_only[i]);
+        unsigned radius, border, half = (w < h ? w : h) / 2;
         if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT)
             return fail(c, "a rect can be black, white, red or frame");
+        if (!opt_uint(c, e, "radius", 0, half > 255 ? 255 : half, 0, &radius))
+            return false;
+        if (!opt_uint(c, e, "border", 0, half > 255 ? 255 : half, 0, &border))
+            return false;
+        out[ESL_LE_OFF_RADIUS] = (uint8_t)radius;
+        out[ESL_LE_OFF_BORDER] = (uint8_t)border;
         lay->rects++;
         return true;
     }
@@ -392,6 +505,97 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     return true;
 }
 
+/* Base64 (RFC 4648, with or without padding) into out; the number of bytes, or -1. */
+static int base64_decode(const char *s, size_t n, uint8_t *out, size_t cap)
+{
+    uint32_t acc = 0;
+    int bits = 0;
+    size_t len = 0;
+
+    while (n && s[n - 1] == '=')
+        n--;
+    for (size_t i = 0; i < n; i++) {
+        char ch = s[i];
+        int v = ch >= 'A' && ch <= 'Z'   ? ch - 'A'
+                : ch >= 'a' && ch <= 'z' ? ch - 'a' + 26
+                : ch >= '0' && ch <= '9' ? ch - '0' + 52
+                : ch == '+'              ? 62
+                : ch == '/'              ? 63
+                                         : -1;
+        if (v < 0)
+            return -1;
+        acc = (acc << 6) | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (len >= cap)
+                return -1;
+            out[len++] = (uint8_t)(acc >> bits);
+        }
+    }
+    return (int)len;
+}
+
+/* "icons": {"name": {"w": .., "h": .., "data": "<base64>"}, ...}. data is the picture row
+ * by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost
+ * pixel, 1 = drawn. Stored in the file column by column, as screen images are. */
+static bool icons(cc_t *c, int obj)
+{
+    static const char *const keys[] = {"w", "h", "data", NULL};
+    struct cc_icons *ic = c->ic;
+    uint8_t *rows = ic->rows;
+
+    if (T(c, obj)->type != ESL_JSON_OBJECT || T(c, obj)->size > ESL_LBIN_ICON_MAX)
+        return fail(c, "icons must be an object with up to %d icons by name", ESL_LBIN_ICON_MAX);
+    int k = obj + 1;
+    for (unsigned i = 0; i < T(c, obj)->size; i++, k = T(c, k + 1)->next) {
+        char *name = ic->name[i];
+        int v = k + 1;
+        unsigned w, h;
+        if (T(c, k)->end - T(c, k)->start > ESL_LAYOUT_FIELD_NAME_MAX)
+            return fail(c, "icon names must be 1-16 of a-z 0-9 _, starting with a letter");
+        str_copy(c, k, name, ESL_LAYOUT_FIELD_NAME_MAX + 1);
+        if (!field_name_ok(name))
+            return fail(c, "icon names must be 1-16 of a-z 0-9 _, starting with a letter");
+        for (unsigned j = 0; j < i; j++)
+            if (strcmp(ic->name[j], name) == 0)
+                return fail(c, "the icon \"%s\" appears twice", name);
+        if (T(c, v)->type != ESL_JSON_OBJECT || !keys_ok(c, v, keys))
+            return T(c, v)->type != ESL_JSON_OBJECT ? fail(c, "icons.%s must be an object", name) : false;
+        int tw = esl_json_obj_get(c->js, c->tok, v, "w"), th = esl_json_obj_get(c->js, c->tok, v, "h");
+        if (tw < 0 || !get_uint(c, tw, &w) || w < 1 || w > ESL_ICON_MAX_W || th < 0 || !get_uint(c, th, &h) ||
+            h < 1 || h > ESL_ICON_MAX_H)
+            return fail(c, "icons.%s: w and h must be 1 to %d pixels", name, ESL_ICON_MAX_W);
+        int td = esl_json_obj_get(c->js, c->tok, v, "data");
+        size_t row = (w + 7) / 8, need = row * h;
+        int got = td < 0 || T(c, td)->type != ESL_JSON_STRING
+                      ? -2
+                      : base64_decode(&c->js[T(c, td)->start], (size_t)(T(c, td)->end - T(c, td)->start), rows,
+                                      ESL_ICON_ROWS_MAX);
+        if (got != (int)need)
+            return fail(c, "icons.%s: data must be base64 of %u bytes (%u rows of %u)", name, (unsigned)need, h,
+                        (unsigned)row);
+        size_t cb = (h + 7) / 8, size = ESL_LBIN_ICON_HDR + w * cb;
+        if (ic->size + size > ESL_LBIN_MAX)
+            return fail(c, "the icons are too big: at most %d bytes compiled", ESL_LBIN_MAX);
+        uint8_t *p = ic->bin + ic->size;
+        p[0] = (uint8_t)w;
+        p[1] = (uint8_t)(w >> 8);
+        p[2] = (uint8_t)h;
+        p += ESL_LBIN_ICON_HDR;
+        memset(p, 0, w * cb);
+        for (unsigned y = 0; y < h; y++)
+            for (unsigned x = 0; x < w; x++)
+                if (rows[y * row + x / 8] & (0x80 >> (x % 8)))
+                    p[x * cb + y / 8] |= (uint8_t)(0x80 >> (y % 8));
+        ic->size += size;
+        ic->w[i] = (uint16_t)w;
+        ic->h[i] = (uint8_t)h;
+        ic->n = (uint8_t)(i + 1);
+    }
+    return true;
+}
+
 static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
 {
     static const char *const keys[] = {"name", "fields", "elements", "description", NULL};
@@ -466,7 +670,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
 bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_bin_t *out, char *err,
                         size_t errlen)
 {
-    static const char *const keys[] = {"format", "version", "model", "layouts", "description", NULL};
+    static const char *const keys[] = {"format", "version", "model", "layouts", "icons", "description", NULL};
     cc_t c;
     memset(&c, 0, sizeof(c));
     c.js = json;
@@ -488,9 +692,11 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     unsigned max_tok = (unsigned)(len / 2 + 2);
     tok = malloc(sizeof(esl_jtok_t) * max_tok);
     c.text = malloc(sizeof(*c.text) * ESL_LBIN_TEXT_MAX);
-    if (!tok || !c.text) {
+    c.ic = calloc(1, sizeof(*c.ic));
+    if (!tok || !c.text || !c.ic) {
         free(tok);
         free(c.text);
+        free(c.ic);
         return fail(&c, "out of memory");
     }
     c.tok = tok;
@@ -528,6 +734,10 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         goto done;
     }
 
+    int ic = esl_json_obj_get(json, tok, 0, "icons");
+    if (ic >= 0 && !icons(&c, ic))
+        goto done;
+
     size_t pos = ESL_LBIN_HDR_LEN;
     out->bin[0] = ESL_LBIN_FORMAT;
     out->bin[1] = model;
@@ -550,6 +760,13 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         pos += c.tlen[i];
     }
     out->bin[ESL_LBIN_OFF_NTEXT] = c.ntext;
+    if (pos + c.ic->size > ESL_LBIN_MAX) {
+        fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts and icons", ESL_LBIN_MAX);
+        goto done;
+    }
+    memcpy(&out->bin[pos], c.ic->bin, c.ic->size);
+    pos += c.ic->size;
+    out->bin[ESL_LBIN_OFF_NICON] = c.ic->n;
     out->count = (uint8_t)tok[ls].size;
     out->size = (uint16_t)pos;
     out->version = esl_crc32(out->bin, pos);
@@ -560,6 +777,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
 done:
     free(tok);
     free(c.text);
+    free(c.ic);
     if (!ok) {
         out->count = 0;
         out->size = 0;
