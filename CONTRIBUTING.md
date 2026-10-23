@@ -37,7 +37,7 @@ New hardware facts (registers, timings, pinouts) go in [docs/kildelogg.md](docs/
 
 - Target `development`.
 - Fill in the template: **Summary** (a small diagram, pseudocode or a trimmed diff), **Evidence** (before/after, what you ran, which hardware), and **Merge danger** (one-way or two-way door, and what breaks if it is wrong).
-- Keep it to one change. Docs that describe the change go in the same pull request.
+- Keep it to one change. Docs that describe the change go in the same pull request: `docs/` and the READMEs for how it works, and the wiki pages in `wiki/` for how to use it. The wiki is published from `wiki/` when a release reaches `master` (`.github/workflows/wiki.yml`), so edit it there, not on GitHub's wiki pages; `python tools/check.py wiki` checks its links.
 - Title and body in English.
 
 ## 5. Review and merge
