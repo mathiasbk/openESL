@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The AP board (ap/boards/<board>/, set by ap/CMakeLists.txt); "host" in the host tests and sim */
+#ifndef ESL_BOARD
+#define ESL_BOARD "host"
+#endif
+
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
 #define PATH_CONFIG "/api/config"
@@ -1254,8 +1259,18 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
     if (plen == base || (plen == base + 1 && uri[base] == '/')) {
         if (strcmp(method, "GET") != 0)
             return api_error(out, 405, "method not allowed");
-        esl_sb_printf(out, "{\"max_size\":%u,\"max_binary_size\":%u,\"layouts\":[", (unsigned)ESL_LAYOUT_MAX_SIZE,
-                      (unsigned)ESL_LBIN_MAX);
+        esl_sb_printf(out, "{\"max_size\":%u,\"max_binary_size\":%u,", (unsigned)esl_limits.json_bytes,
+                      (unsigned)esl_limits.file_bytes);
+        /* The board's limits, named as in the web page's renderer.limits, so the designer can
+         * show this AP's instead of the default board's */
+        esl_sb_printf(out,
+                      "\"board\":\"%s\",\"limits\":{\"runs\":%u,\"rects\":%u,\"lines\":%u,\"icons\":%u,"
+                      "\"barcodes\":%u,\"qrs\":%u,\"fileBytes\":%u,\"jsonBytes\":%u,\"fields\":%u,"
+                      "\"fixedTextBytes\":%u},\"layouts\":[",
+                      ESL_BOARD, (unsigned)esl_limits.runs, (unsigned)esl_limits.rects, (unsigned)esl_limits.lines,
+                      (unsigned)esl_limits.icons, (unsigned)ESL_DRAW_MAX_BARCODES, (unsigned)ESL_DRAW_MAX_QR,
+                      (unsigned)esl_limits.file_bytes, (unsigned)esl_limits.json_bytes, (unsigned)ESL_MAX_FIELDS,
+                      (unsigned)ESL_LBIN_TEXT_LEN_MAX);
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
             if (m > 1)
                 esl_sb_putc(out, ',');

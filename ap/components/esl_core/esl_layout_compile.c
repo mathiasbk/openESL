@@ -29,6 +29,24 @@ typedef struct {
     struct cc_icons *ic;  /* malloc'd: the AP compiles at boot on the main task's small stack */
 } cc_t;
 
+esl_limits_t esl_limits = {
+    .runs = ESL_DRAW_MAX_RUNS,
+    .rects = ESL_DRAW_MAX_RECTS,
+    .lines = ESL_DRAW_MAX_LINES,
+    .icons = ESL_DRAW_MAX_ICONS,
+    .file_bytes = ESL_LBIN_MAX,
+    .json_bytes = ESL_LAYOUT_MAX_SIZE,
+};
+
+_Static_assert(ESL_DRAW_MAX_RUNS <= ESL_DRAW_CAP_RUNS && ESL_DRAW_MAX_RECTS <= ESL_DRAW_CAP_RECTS &&
+                   ESL_DRAW_MAX_LINES <= ESL_DRAW_CAP_LINES && ESL_DRAW_MAX_ICONS <= ESL_DRAW_CAP_ICONS &&
+                   ESL_LBIN_MAX <= ESL_LBIN_CAP,
+               "a limit is larger than the room for it (ESL_*_CAP)");
+_Static_assert(ESL_DRAW_CAP_RUNS <= 255 && ESL_DRAW_CAP_RECTS <= 255 && ESL_DRAW_CAP_LINES <= 255 &&
+                   ESL_DRAW_CAP_ICONS <= 255,
+               "esl_render.c counts runs, rects, lines and icons in a byte");
+_Static_assert(ESL_LBIN_CAP <= 65535 && ESL_LAYOUT_MAX_SIZE <= 65535, "sizes are 16 bits");
+
 /* The icons ("icons" in the file), checked first and written into the file at the end */
 struct cc_icons {
     uint8_t n;
@@ -467,8 +485,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
             return fail(c, "a%s can be black, white or red", line ? " line" : "n icon");
         if (is_icon) {
             out[ESL_LE_OFF_FIELD] = (uint8_t)icon;
-            if (++lay->icons > ESL_DRAW_MAX_ICONS)
-                return fail(c, "the AP draws at most %d icons per screen", ESL_DRAW_MAX_ICONS);
+            if (++lay->icons > esl_limits.icons)
+                return fail(c, "the AP draws at most %d icons per screen", esl_limits.icons);
             return true;
         }
         unsigned lw;
@@ -476,8 +494,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
             return false;
         out[ESL_LE_OFF_WIDTH] = (uint8_t)lw;
         out[ESL_LE_OFF_OPTS] = rising ? ESL_LE_RISING : 0;
-        if (++lay->lines > ESL_DRAW_MAX_LINES)
-            return fail(c, "the AP draws at most %d lines per screen", ESL_DRAW_MAX_LINES);
+        if (++lay->lines > esl_limits.lines)
+            return fail(c, "the AP draws at most %d lines per screen", esl_limits.lines);
         return true;
     }
 
@@ -679,8 +697,8 @@ static bool icons(cc_t *c, int obj)
             return fail(c, "icons.%s: data must be base64 of %u bytes (%u rows of %u)", name, (unsigned)need, h,
                         (unsigned)row);
         size_t size = ESL_LBIN_ICON_HDR + w * ((h + 7) / 8);
-        if (ic->size + size > ESL_LBIN_MAX)
-            return fail(c, "the icons are too big: at most %d bytes compiled", ESL_LBIN_MAX);
+        if (ic->size + size > esl_limits.file_bytes)
+            return fail(c, "the icons are too big: at most %d bytes compiled", esl_limits.file_bytes);
         ic->size += size;
         ic->data[i] = td;
         ic->w[i] = (uint16_t)w;
@@ -753,9 +771,9 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     if (el < 0 || T(c, el)->type != ESL_JSON_ARRAY || T(c, el)->size < 1)
         return fail(c, "elements must be a list of at least one element");
     size_t need = 1 + (size_t)T(c, el)->size * ESL_LE_SIZE;
-    if (T(c, el)->size > 255 || *pos + need > ESL_LBIN_MAX)
+    if (T(c, el)->size > 255 || *pos + need > esl_limits.file_bytes)
         return fail(c, "the file is too big: at most %d bytes compiled, about %d elements in all",
-                    ESL_LBIN_MAX, (ESL_LBIN_MAX - ESL_LBIN_HDR_LEN) / ESL_LE_SIZE);
+                    esl_limits.file_bytes, (esl_limits.file_bytes - ESL_LBIN_HDR_LEN) / ESL_LE_SIZE);
     out->bin[(*pos)++] = (uint8_t)T(c, el)->size;
     k = el + 1;
     for (unsigned i = 0; i < T(c, el)->size; i++, k = T(c, k)->next) {
@@ -766,12 +784,12 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     }
     c->ei = -1;
 
-    if (lay.runs > ESL_DRAW_MAX_RUNS)
+    if (lay.runs > esl_limits.runs)
         return fail(c, "needs up to %u lines of text, the AP draws at most %d per screen (lower lines or h)",
-                    lay.runs, ESL_DRAW_MAX_RUNS);
-    if (lay.rects > ESL_DRAW_MAX_RECTS)
+                    lay.runs, esl_limits.runs);
+    if (lay.rects > esl_limits.rects)
         return fail(c, "needs %u rectangles (rect elements and inverted fields), the AP draws at most %d",
-                    lay.rects, ESL_DRAW_MAX_RECTS);
+                    lay.rects, esl_limits.rects);
     out->nfields[c->li] = lay.nfields;
     out->bc_field[c->li] = lay.bc_field;
     out->bc_sym[c->li] = lay.bc_sym;
@@ -800,8 +818,8 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         return fail(&c, "unknown model");
     c.model = model;
     c.has_red = esl_model_has_red(model);
-    if (len == 0 || len > ESL_LAYOUT_MAX_SIZE)
-        return fail(&c, "the file must be 1 to %d bytes", ESL_LAYOUT_MAX_SIZE);
+    if (len == 0 || len > esl_limits.json_bytes)
+        return fail(&c, "the file must be 1 to %d bytes", esl_limits.json_bytes);
 
     /* Every token takes at least two bytes of input except the last. */
     unsigned max_tok = (unsigned)(len / 2 + 2);
@@ -866,8 +884,8 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     }
     c.li = -1;
     for (unsigned i = 0; i < c.ntext; i++) {
-        if (pos + 1 + c.tlen[i] > ESL_LBIN_MAX) {
-            fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts", ESL_LBIN_MAX);
+        if (pos + 1 + c.tlen[i] > esl_limits.file_bytes) {
+            fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts", esl_limits.file_bytes);
             goto done;
         }
         out->bin[pos++] = c.tlen[i];
@@ -875,8 +893,8 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         pos += c.tlen[i];
     }
     out->bin[ESL_LBIN_OFF_NTEXT] = c.ntext;
-    if (pos + c.ic->size > ESL_LBIN_MAX) {
-        fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts and icons", ESL_LBIN_MAX);
+    if (pos + c.ic->size > esl_limits.file_bytes) {
+        fail(&c, "the file is too big: at most %d bytes compiled with the fixed texts and icons", esl_limits.file_bytes);
         goto done;
     }
     icons_write(&c, &out->bin[pos]);

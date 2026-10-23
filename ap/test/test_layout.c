@@ -473,6 +473,18 @@ static void test_shapes(void)
     for (int i = 0; i < ESL_DRAW_MAX_LINES + 1; i++)
         strcat(many, i ? "," LINE "}" : LINE "}");
     bad_el(many, "at most 16 lines per screen");
+    /* the compiler checks the limits in esl_limits (the web renderer sets them to its AP's) */
+    {
+        esl_limits_t keep = esl_limits;
+        char two[200] = LINE "}," LINE "}";
+        CHECK(compile_el(two));
+        esl_limits.lines = 1;
+        bad_el(two, "at most 1 lines per screen");
+        esl_limits.lines = keep.lines;
+        esl_limits.runs = 1;
+        bad_el(TEXT_A "}," TEXT_A "}", "needs up to 2 lines of text, the AP draws at most 1 per screen");
+        esl_limits = keep;
+    }
 #undef LINE
     /* a QR code: level in the first font byte, module size in lines, alignment in opts */
     CHECK(compile_el("{\"type\":\"qr\",\"field\":\"b\",\"x\":10,\"y\":20,\"w\":66,\"h\":66,\"ecc\":\"H\",\"module\":2,"

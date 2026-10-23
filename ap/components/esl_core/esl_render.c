@@ -53,12 +53,12 @@ size_t esl_render_size(uint8_t model)
 
 /* ---- the scene ------------------------------------------------------------- */
 
-#define RD_MAX_RUNS     ESL_DRAW_MAX_RUNS
-#define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
+#define RD_MAX_RUNS     ESL_DRAW_CAP_RUNS
+#define RD_MAX_RECTS    ESL_DRAW_CAP_RECTS
 #define RD_MAX_BARCODES ESL_DRAW_MAX_BARCODES
 #define RD_MAX_NUMS     ESL_DRAW_MAX_NUMS
-#define RD_MAX_LINES_DRAWN ESL_DRAW_MAX_LINES
-#define RD_MAX_ICONS    ESL_DRAW_MAX_ICONS
+#define RD_MAX_LINES_DRAWN ESL_DRAW_CAP_LINES
+#define RD_MAX_ICONS    ESL_DRAW_CAP_ICONS
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
 
 #define RD_BLACK 0

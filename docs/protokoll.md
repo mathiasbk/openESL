@@ -146,6 +146,8 @@ The **version** of a layout file is the CRC-32 (IEEE 802.3, the same as zlib) of
 
 The largest compiled file is **4096 bytes** (`ESL_LBIN_MAX`). That is about 290 elements, or for example 16 layouts of 9 elements and 1.9 KB of icons (a 64×64 icon is 515 bytes); 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
 
+These limits, and the per-layout ones below, belong to the AP, not the tag: the AP draws the image, and the tag only shows it. They are set per AP board (`"limits"` in `ap/boards/<board>/board.json`); the numbers here are the ESP32-C6's, the default and the smallest. Boards with PSRAM (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) allow 64 text lines, 40 rectangles, 32 lines and 16 icons per layout, so a file such an AP accepts can be refused by a C6. `GET /api/layouts` says which board an AP is and what it allows (`board`, `limits`), and the designer shows the limits of the AP it is connected to.
+
 ### Sequence
 ```
 Tag                                      AP
@@ -298,8 +300,8 @@ The AP also checks what it can draw, so a file that is accepted always gives a s
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
 - a QR code is black, one per layout, its box at least 25 modules wide and high (21 and the quiet zone); content whose QR field is longer than the largest version the box holds takes is refused with `422`;
-- per layout at most 32 text lines (each text element counts the most lines it can use), 20 rectangles (`rect` elements plus `invert`/`highlight` text), 16 lines and 8 icons (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`, `ESL_DRAW_MAX_LINES`, `ESL_DRAW_MAX_ICONS`);
-- the binary file is at most 4096 bytes;
+- per layout at most 32 text lines (each text element counts the most lines it can use), 20 rectangles (`rect` elements plus `invert`/`highlight` text), 16 lines and 8 icons (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`, `ESL_DRAW_MAX_LINES`, `ESL_DRAW_MAX_ICONS`) on the ESP32-C6; other boards may allow more (above);
+- the binary file is at most 4096 bytes (on every board so far);
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 
 `tag/tools/label_design.py` designs content for these layouts too: a label design with `"layout": "shelf"` takes its field names from the layout file (`render <design> <data> designs/layouts/2.9.json`).

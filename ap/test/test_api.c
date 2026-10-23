@@ -375,7 +375,9 @@ static void test_layouts(void)
 
     CHECK_INT(req("GET", "/api/layouts", NULL, NULL, 0), 401);
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"layouts\":["
+    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
+                    "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
+                    "\"jsonBytes\":8192,\"fields\":6,\"fixedTextBytes\":64},\"layouts\":["
                     "{\"model\":\"2.9\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);

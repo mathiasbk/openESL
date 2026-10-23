@@ -1700,11 +1700,37 @@ components:
     LayoutList:
       type: object
       additionalProperties: false
-      required: [max_size, max_binary_size, layouts]
+      required: [max_size, max_binary_size, board, limits, layouts]
       properties:
-        max_size: { type: integer, const: 8192 }
-        max_binary_size: { type: integer, const: 4096 }
+        max_size: { type: integer, minimum: 1, description: "Bytes of JSON a layout file may have (limits.jsonBytes); 8192 on every board so far" }
+        max_binary_size: { type: integer, minimum: 1, description: "Bytes a compiled layout file may have (limits.fileBytes)" }
+        board:
+          type: string
+          description: The AP board the firmware is built for (ap/boards/), e.g. c6-supermini or s3-n16r8-c6
+          examples: [c6-supermini]
+        limits: { $ref: "#/components/schemas/LayoutLimits" }
         layouts: { type: array, items: { $ref: "#/components/schemas/LayoutInfo" } }
+
+    LayoutLimits:
+      type: object
+      description: >-
+        What one layout file may hold on this AP, named as in the web page's renderer.limits. The
+        board sets runs, rects, lines, icons, fileBytes and jsonBytes ("limits" in
+        ap/boards/<board>/board.json; boards with PSRAM allow more), so a file one AP accepts can be
+        too big for another. The designer shows these for the AP it is connected to.
+      additionalProperties: false
+      required: [runs, rects, lines, icons, barcodes, qrs, fileBytes, jsonBytes, fields, fixedTextBytes]
+      properties:
+        runs: { type: integer, minimum: 1, description: "Lines of text per screen (each text element counts the most lines it can use); 32 on the ESP32-C6" }
+        rects: { type: integer, minimum: 1, description: "rect elements plus invert/highlight/red_invert text per screen; 20 on the ESP32-C6" }
+        lines: { type: integer, minimum: 1, description: "line elements per screen; 16 on the ESP32-C6" }
+        icons: { type: integer, minimum: 1, description: "icon elements per screen; 8 on the ESP32-C6" }
+        barcodes: { type: integer, const: 1, description: barcode elements per layout }
+        qrs: { type: integer, const: 1, description: QR elements per layout }
+        fileBytes: { type: integer, minimum: 1, description: "Bytes of the compiled file; 4096 on the ESP32-C6" }
+        jsonBytes: { type: integer, minimum: 1, description: "Bytes of the JSON file; 8192 on the ESP32-C6" }
+        fields: { type: integer, const: 6, description: Fields per layout }
+        fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
 
     LayoutStored:
       allOf:
