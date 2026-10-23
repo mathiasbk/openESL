@@ -10,12 +10,13 @@ A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32
 
 These come from measurements on a C6, not guesses.
 
-- **Changes show up later.** A new price reaches the radio at its next sync with the S3, every 10–30 s, and is shown when the label next wakes up. So add 10–30 s to the label's usual interval.
+- **Changes show up later.** A new price reaches the radio at its next sync with the S3, normally within 10 s (about 5 s on average), up to 30 s when the labels keep the radio busy, and is shown when the label next wakes up. Add that to the label's usual interval.
+- **Big updates take longer.** Images (about 5 KB each) and label firmware (about 53 KB) go over WiFi in the pauses between labels, and while they do the radio hears almost no labels. When many labels change at once, the radio gets their images over several syncs, and new label firmware rolls out more slowly than with a cable.
 - **The dashboard lags.** "Last seen", battery and whether a label got its image come in batches and can be up to 30 s old.
-- **WiFi takes the radio from the labels.** The C6 has one radio for WiFi and the labels. Each WiFi packet blocks the labels for about 90 ms, while a label listens only 20 ms for a reply. The radio therefore uses WiFi as little as it can, between labels. Expect about 2–3 % of first replies to be missed (the label simply tries again). Do not open the radio's address in a browser or point anything else at it while it runs.
+- **WiFi takes the radio from the labels.** The C6 has one radio for WiFi and the labels. Each WiFi packet blocks the labels for about 90 ms, while a label listens only 20 ms for a reply. The radio therefore uses WiFi as little as it can, between labels. About 2–3 % of first replies were missed when measured with one small packet every 5 s (the label simply tries again); real syncs are larger and not measured yet. The AP never sends to the radio on its own, it only answers. Do not open the radio's address in a browser or point anything else at it while it runs.
 - **It needs good WiFi where the radio sits.** Weak WiFi makes every packet longer and costs more label replies.
 - **Many labels on one radio:** more retries, as the quiet moments between labels get shorter. Not measured yet.
-- **New labels and new images cost a little battery.** Until the radio has what a label needs, it tells the label to come back in 5 s.
+- **New labels and new images cost a little battery.** Until the radio has what a label needs, it tells the label to come back in 5 s, at most 3 times in a row.
 - **If WiFi or the S3 goes down,** the labels keep showing what they have and get nothing new. After a long outage the dashboard misses some battery readings.
 - **Two chips to update:** the S3 over the air as usual, the radio separately.
 

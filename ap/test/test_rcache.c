@@ -65,7 +65,7 @@ static esl_content_t price(const char *name, const char *p)
 static void host_push(uint64_t mac, uint64_t now_ms, uint16_t fw_ver)
 {
     esl_tag_t t;
-    esl_rtag_state_t s = {mac, esl_store_tag_poll_s(&st, mac), false, {0}, 0, fw_ver};
+    esl_rtag_state_t s = {mac, esl_store_tag_poll_s(&st, mac), false, {0}, 0, fw_ver, 0, 0};
     if (esl_store_get(&st, mac, &t)) {
         s.has_cfg = t.seen && t.cfg_capable;
         esl_tag_effective_cfg(&t, esl_store_get_next_poll(&st), &s.cfg);
@@ -281,6 +281,111 @@ static void test_rcache_fw(void)
     CHECK_INT(b.fw_installs, 0);
 }
 
+/* A raw image of the 2.9" screen filled with v, put in the cache; returns its id (its CRC-32, as the tag checks). */
+static uint32_t put_raw(uint8_t v)
+{
+    static uint8_t img[8192];
+    size_t n = esl_render_size(ESL_MODEL_29);
+    memset(img, v, n);
+    uint32_t id = esl_crc32(img, n);
+    CHECK(esl_rcache_put_image(&rc, id, ESL_MODEL_29, ESL_IMG_FMT_RAW, img, n));
+    return id;
+}
+
+/* One frame from a fake tag to the cache and the reply back; the reply's type. */
+static uint8_t frame(esl_faketag_t *t, size_t n, const uint8_t *rx, uint64_t now_ms)
+{
+    uint8_t tx[ESL_PSDU_MAX];
+    size_t m = esl_rcache_handle(&rc, rx, n, -60, now_ms, tx);
+    return m ? esl_faketag_receive(t, tx, m) : 0;
+}
+
+static void test_rcache_waits(void)
+{
+    uint8_t rx[ESL_PSDU_MAX];
+    esl_faketag_t a, b;
+    boot();
+
+    /* a tag the host never tells it about (its table is full, say): a few short waits,
+       then the tag keeps its own interval, and the radio still asks for it */
+    esl_faketag_init(&a, 0x40, 1, 3000, ESL_MODEL_29);
+    for (int i = 0; i < ESL_RCACHE_WAIT_TRIES; i++) {
+        CHECK_INT(round_rc(&a, 1000 + i * 5000), ESL_MSG_IDLE);
+        CHECK_INT(a.interval_s, ESL_RCACHE_WAIT_S);
+    }
+    CHECK_INT(round_rc(&a, 20000), ESL_MSG_IDLE);
+    CHECK_INT(a.interval_s, ESL_FAKETAG_POLL_S);
+    CHECK_INT(round_rc(&a, 80000), ESL_MSG_IDLE);
+    CHECK_INT(a.interval_s, ESL_FAKETAG_POLL_S);
+    CHECK(rc.want && rc.want_mac == 0x40);
+    CHECK_INT(rc.stats.waits, ESL_RCACHE_WAIT_TRIES);
+
+    /* an image that never comes (too large for the cache, say): likewise, at the tag's interval */
+    esl_rtag_state_t s = {0x40, 60, false, {0}, 0x1234, 0, 0, 0};
+    CHECK(esl_rcache_set_tag(&rc, &s));
+    for (int i = 0; i < ESL_RCACHE_WAIT_TRIES; i++) {
+        round_rc(&a, 100000 + i * 5000);
+        CHECK_INT(a.next_poll_s, ESL_RCACHE_WAIT_S);
+    }
+    CHECK(esl_rcache_set_tag(&rc, &s)); /* the same state again: no more waits */
+    round_rc(&a, 120000);
+    CHECK_INT(a.next_poll_s, 60);
+    s.image_id = 0x5678;                /* another state: it may wait again */
+    CHECK(esl_rcache_set_tag(&rc, &s));
+    round_rc(&a, 180000);
+    CHECK_INT(a.next_poll_s, ESL_RCACHE_WAIT_S);
+
+    /* an image the host says the tag refused (the radio restarted since): not offered */
+    s.image_id = put_raw(0x00);
+    s.image_failed = s.image_id;
+    CHECK(esl_rcache_set_tag(&rc, &s));
+    CHECK_INT(round_rc(&a, 240000), ESL_MSG_IDLE);
+    CHECK_INT(a.next_poll_s, 60);
+    s.image_failed = 0;
+    CHECK(esl_rcache_set_tag(&rc, &s));
+
+    /* the image changes while the tag fetches it: the next IMG_REQ gets block 0 of the new one */
+    boot();
+    esl_faketag_init(&a, 0x41, 1, 3000, ESL_MODEL_29);
+    esl_rtag_state_t sa = {0x41, 60, false, {0}, put_raw(0x00), 0, 0, 0};
+    CHECK(esl_rcache_set_tag(&rc, &sa));
+    CHECK_INT(frame(&a, esl_faketag_poll(&a, PAN, rx), rx, 1000), ESL_MSG_IMG);
+    CHECK_INT(frame(&a, esl_faketag_img_request(&a, PAN, rx), rx, 1005), ESL_MSG_IMG);
+    CHECK(a.img_dl_got > ESL_IMG_CHUNK_MAX && rc.mid_blocks && rc.mid_image == sa.image_id);
+    sa.image_id = put_raw(0xFF);
+    CHECK(esl_rcache_set_tag(&rc, &sa));
+    CHECK_INT(frame(&a, esl_faketag_img_request(&a, PAN, rx), rx, 1010), ESL_MSG_IMG);
+    CHECK_INT((long long)a.img_dl_id, (long long)sa.image_id);
+    CHECK(a.img_dl_got <= ESL_IMG_CHUNK_MAX);
+
+    /* another tag polls in between: the radio still knows a tag is mid-image, and does
+       not give away the image it fetches when the cache is full */
+    esl_faketag_init(&b, 0x42, 1, 3000, ESL_MODEL_29);
+    esl_rtag_state_t sb = {0x42, 60, false, {0}, 0, 0, 0, 0};
+    CHECK(esl_rcache_set_tag(&rc, &sb));
+    CHECK_INT(frame(&b, esl_faketag_poll(&b, PAN, rx), rx, 1015), ESL_MSG_IDLE);
+    CHECK(rc.mid_blocks);
+    CHECK(!esl_rcache_sync_due(&rc, 1015 + ESL_RCACHE_QUIET_MS, 0));
+    sa.image_id = 0; /* no tag names it any more, yet it is being fetched */
+    uint32_t fetched = rc.mid_image;
+    CHECK(esl_rcache_set_tag(&rc, &sa));
+    put_raw(0x11);
+    put_raw(0x22);
+    put_raw(0x33);
+    CHECK(esl_rcache_has_image(&rc, fetched));
+    /* the tag finishes: the image is no longer held for it */
+    a.img_dl_id = 0;
+    sa.image_id = fetched;
+    CHECK(esl_rcache_set_tag(&rc, &sa));
+    while (a.img_dl_id == 0 || a.img_dl_got < a.img_dl_size) {
+        size_t n = a.img_dl_id ? esl_faketag_img_request(&a, PAN, rx) : esl_faketag_poll(&a, PAN, rx);
+        if (frame(&a, n, rx, 1020) != ESL_MSG_IMG)
+            break;
+    }
+    CHECK(!rc.mid_blocks);
+    CHECK_INT((long long)a.shown, (long long)fetched);
+}
+
 static void test_rcache_bits(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN_CFG];
@@ -325,7 +430,7 @@ static void test_rcache_bits(void)
     CHECK(esl_rcache_put_image(&rc, 1, ESL_MODEL_29, 0, img, sizeof(img)));
     CHECK(esl_rcache_put_image(&rc, 2, ESL_MODEL_29, 0, img, sizeof(img)));
     CHECK(esl_rcache_put_image(&rc, 3, ESL_MODEL_29, 0, img, sizeof(img)));
-    esl_rtag_state_t s = {0x20, 60, false, {0}, 1, 0};
+    esl_rtag_state_t s = {0x20, 60, false, {0}, 1, 0, 0, 0};
     CHECK(esl_rcache_set_tag(&rc, &s));
     CHECK(esl_rcache_put_image(&rc, 4, ESL_MODEL_29, 0, img, sizeof(img)));
     CHECK(esl_rcache_has_image(&rc, 1) && !esl_rcache_has_image(&rc, 2) && esl_rcache_has_image(&rc, 4));
@@ -353,5 +458,6 @@ void test_rcache(void)
     test_rcache_refused();
     test_rcache_config();
     test_rcache_fw();
+    test_rcache_waits();
     test_rcache_bits();
 }

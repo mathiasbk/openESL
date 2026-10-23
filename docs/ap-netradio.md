@@ -17,17 +17,29 @@ the S3, the cable is better in every way; the wireless radio is for when it cann
 These come from measurements on a C6 (below), not from guesses. They are what to expect, and what to
 tell anyone who picks this setup.
 
-- **Changes reach a tag later.** The radio fetches from the S3 at most every 10 s when something is
-  waiting, every 30 s at the latest, and never while a tag is fetching an image. A new price is drawn on
-  the S3, sent to the radio at its next sync, and shown when the tag next wakes up. On top of the tag's
-  interval, add up to about 10–30 s.
+- **Changes reach a tag later.** The radio syncs with the S3 every 10 s, and 1 s after a tag it lacked
+  something for. It waits for a quiet moment between tags, so when the tags keep it busy a sync can
+  slip, up to 30 s; then it syncs anyway, and a tag in the middle of an image may lose a reply and try
+  again. A new price is drawn on the S3, sent to the radio at its next sync, and shown when the tag next
+  wakes up: on top of the tag's interval, add up to 10 s (about 5 s on average), and up to 30 s when the
+  tags are busy.
+- **Images and firmware go over WiFi in the pauses, and cost tag replies while they do.** The radio
+  fetches what it lacks in one go at a sync. An image is a few KB (about 5 KB for a 2.9" screen),
+  firmware for a tag model about 53 KB. That is many WiFi packets in a row, and while they go the radio
+  hears almost no tags: with steady traffic about 40 % of frames were lost in the measurements. How
+  long an image sync takes is not measured yet; firmware takes seconds. So new tag firmware rolls out
+  more slowly than with a cabled radio, and when many tags change at once (every price in a shop) the
+  radio gets their images over several syncs, so the last tags show the change later.
 - **The dashboard is behind.** "Last seen", battery, RSSI and whether an image arrived come in batches
   with each sync, so they can be up to 30 s old. The tag table on the S3 is right, only late.
 - **WiFi costs tag replies.** The C6 has one 2.4 GHz radio for WiFi and 802.15.4. Every WiFi exchange,
   even one small packet, takes it from the tags for about 80–95 ms, and a tag listens only 20 ms for a
   reply. With one packet every 5 s, 2.6 % of first replies were lost (the tag tries once more, so
   very few wake-ups fail entirely); with several packets a second, about 40 % are lost and the setup is
-  useless. Nothing else may talk to the radio over WiFi: no dashboard, no API, no pings.
+  useless. So the radio decides when WiFi is used: the S3 never sends on its own, it only answers
+  (no pings or keepalives from the S3, TCP keepalive off), and nothing else may talk to the radio over
+  WiFi: no dashboard, no API. Broadcasts on the network (ARP, other devices' mDNS) reach it anyway;
+  they are part of the 0.6–1.4 % lost with no traffic at all.
 - **Coex must stay at the driver's default.** Giving 802.15.4 a higher priority kills WiFi (measured),
   because the radio listening between frames counts as busy. There is nothing to tune here.
 - **It needs good WiFi where the radio sits.** A weak signal means a lower bit rate, so every packet
@@ -38,7 +50,8 @@ tell anyone who picks this setup.
 - **A tag the radio has nothing for polls more often.** When the radio lacks something for a tag (a tag
   it has not heard of, or an image or firmware it has not got yet) it tells the tag to come back in 5 s
   and asks the S3 at the next sync. That costs the tag battery until the radio has it, normally one or
-  two wake-ups.
+  two wake-ups. After 3 such replies in a row the tag gets its usual interval again, so a radio that
+  cannot get what it lacks (its table is full, an image too large for it) does not keep a tag awake.
 - **When WiFi or the S3 is gone, the tags see the old state.** The radio keeps answering from what it
   has: the image it was told about, the interval, the settings. Nothing new reaches the tags, and if the
   outage is long, the oldest log entries are dropped (counted), so the S3 misses some battery readings
@@ -61,8 +74,9 @@ takes 22–110 ms, so that cannot work. Instead:
 2. **It logs every frame it got.** At each sync the S3 fetches the log and runs it through
    `esl_radio_handle()`, so its tag table ends up as if it had heard the tags itself, only later.
 3. **The radio decides when to use WiFi** (`esl_rcache_sync_due()`): only when no tag frame has come for
-   60 ms (300 ms in the middle of an image), every 10 s when nothing is missing, 1 s after a tag it
-   lacked something for, and every 30 s whatever the tags are doing. In one sync it sends its log and
+   60 ms (300 ms while a tag is in the middle of an image), every 10 s when nothing is missing, 1 s after
+   a tag it lacked something for, and at 30 s whatever the tags are doing. The S3 never starts an
+   exchange. In one sync it sends its log and
    says what it lacks, and the S3 answers with the state of every tag in the log and anything new.
 
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.

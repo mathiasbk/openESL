@@ -23,7 +23,7 @@ The AP firmware is built for several boards. This page compares them; how to fla
 
 **ESP32-S3 + ESP32-C6 with screen.** The same, with a C6 that has the 0.96" screen as the radio, flashed with its own radio image (`openesl-ap-radio-esp32c6-lcd`). The S3 sends its status to the C6, which shows the AP's address, WiFi and tag count like the C6 with screen does on its own. Same wiring; the screen uses other pins.
 
-**ESP32-S3 + wireless ESP32-C6.** A separate setup for when the radio cannot sit next to the S3. Over WiFi the C6 cannot pass frames to the S3 and back in time, so it answers the tags itself from a cache the S3 fills, and the S3 learns afterwards what happened. That has real costs: changes reach the tags 10–30 s later, the dashboard lags, and every WiFi packet takes the C6's radio from the tags for about 90 ms. Read the limits in [ap-netradio.md](ap-netradio.md) before choosing it; the cable is better whenever it is possible.
+**ESP32-S3 + wireless ESP32-C6.** A separate setup for when the radio cannot sit next to the S3. Over WiFi the C6 cannot pass frames to the S3 and back in time, so it answers the tags itself from a cache the S3 fills, and the S3 learns afterwards what happened. That has real costs: changes reach the tags up to 10 s later (30 s when the tags keep it busy), the dashboard lags, images and firmware go over WiFi only in pauses and cost tag replies while they do, and every WiFi packet takes the C6's radio from the tags for about 90 ms. Read the limits in [ap-netradio.md](ap-netradio.md) before choosing it; the cable is better whenever it is possible.
 
 ![Wiring between the ESP32-S3 and the ESP32-C6: GPIO17 to GPIO17, GPIO18 to GPIO16, GND, and 5V only when the C6 has no USB cable](images/ap-s3-c6-wiring.svg)
 

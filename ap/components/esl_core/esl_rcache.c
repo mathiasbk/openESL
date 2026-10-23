@@ -14,6 +14,7 @@ void esl_rcache_init(esl_rcache_t *rc, uint16_t pan, esl_rtag_t *tags, unsigned 
     rc->image_cap = image_cap;
     rc->log = log;
     rc->log_cap = log_cap;
+    rc->default_poll_s = ESL_RCACHE_DEFAULT_POLL_S;
     if (ops)
         rc->ops = *ops;
     for (unsigned i = 0; i < n_images; i++) {
@@ -32,6 +33,14 @@ static esl_rtag_t *find_tag(esl_rcache_t *rc, uint64_t mac)
     return NULL;
 }
 
+static bool same_state(const esl_rtag_state_t *a, const esl_rtag_state_t *b)
+{
+    return a->next_poll_s == b->next_poll_s && a->has_cfg == b->has_cfg &&
+           (!a->has_cfg || esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg)) &&
+           a->image_id == b->image_id && a->fw_ver == b->fw_ver && a->image_failed == b->image_failed &&
+           a->fw_failed == b->fw_failed;
+}
+
 bool esl_rcache_set_tag(esl_rcache_t *rc, const esl_rtag_state_t *s)
 {
     esl_rtag_t *t = find_tag(rc, s->mac);
@@ -40,9 +49,21 @@ bool esl_rcache_set_tag(esl_rcache_t *rc, const esl_rtag_state_t *s)
             return false;
         t = &rc->tags[rc->n_tags++];
         memset(t, 0, sizeof(*t));
+    } else if (!same_state(&t->s, s)) {
+        t->waits = 0;
     }
     t->s = *s;
+    /* refusals the host knows of (from before a restart of the radio) */
+    if (s->image_failed)
+        t->image_failed = s->image_failed;
+    if (s->fw_failed)
+        t->fw_failed = s->fw_failed;
     return true;
+}
+
+void esl_rcache_set_default_poll(esl_rcache_t *rc, uint16_t poll_s)
+{
+    rc->default_poll_s = poll_s ? poll_s : ESL_RCACHE_DEFAULT_POLL_S;
 }
 
 void esl_rcache_drop_tag(esl_rcache_t *rc, uint64_t mac)
@@ -82,12 +103,15 @@ bool esl_rcache_put_image(esl_rcache_t *rc, uint32_t id, uint8_t model, uint8_t 
         return false;
     esl_rimage_t *im = find_image(rc, id);
     if (!im) {
-        /* a free slot, else the one used the longest ago that no tag needs, else the oldest */
+        /* a free slot, else the one used the longest ago that no tag needs, else the
+           oldest, but not the one a tag is fetching */
         esl_rimage_t *unneeded = NULL, *oldest = NULL;
         for (unsigned i = 0; i < rc->n_images && !im; i++) {
             esl_rimage_t *c = &rc->images[i];
             if (!c->id)
                 im = c;
+            else if (rc->mid_blocks && c->id == rc->mid_image && rc->n_images > 1)
+                continue;
             else if (!image_named(rc, c->id) && (!unneeded || c->used < unneeded->used))
                 unneeded = c;
             else if (!oldest || c->used < oldest->used)
@@ -187,6 +211,7 @@ static size_t image_block(esl_rcache_t *rc, esl_rimage_t *im, uint16_t pos, uint
         n = ESL_IMG_CHUNK_MAX;
     im->used = ++rc->clock;
     rc->mid_blocks = pos + n < im->size;
+    rc->mid_image = im->id;
     return esl_img_msg_build(out, next, im->id, im->size, pos, im->model, im->fmt, im->data + pos, n);
 }
 
@@ -205,16 +230,41 @@ static size_t fw_block(esl_rcache_t *rc, const esl_rfw_t *f, uint8_t model, uint
     if (!rc->ops.read_fw || !rc->ops.read_fw(rc->ops.ctx, model, pos, data, n))
         return 0;
     rc->mid_blocks = pos + n < f->size;
+    rc->mid_image = 0;
     return esl_fw_msg_build(out, next, f->ver, f->size, pos, f->crc, model, data, n);
+}
+
+/* IDLE "come back soon" while the radio waits for the host, ESL_RCACHE_WAIT_TRIES
+   times in a row, then next: the host may not be able to deliver, and a tag woken
+   every few seconds empties its battery. *waits counts them. */
+static size_t wait_reply(esl_rcache_t *rc, uint8_t *waits, uint16_t next, uint8_t *out)
+{
+    if (*waits >= ESL_RCACHE_WAIT_TRIES)
+        return esl_idle_build(out, next);
+    (*waits)++;
+    rc->stats.waits++;
+    return esl_idle_build(out, ESL_RCACHE_WAIT_S);
+}
+
+/* The wait count of a tag the radio has no state for. */
+static uint8_t *unknown_waits(esl_rcache_t *rc, uint64_t mac)
+{
+    for (unsigned i = 0; i < ESL_RCACHE_UNKNOWN; i++)
+        if (rc->unknown[i].mac == mac)
+            return &rc->unknown[i].waits;
+    unsigned i = rc->unknown_next++ % ESL_RCACHE_UNKNOWN;
+    rc->unknown[i].mac = mac;
+    rc->unknown[i].waits = 0;
+    return &rc->unknown[i].waits;
 }
 
 static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_poll_t *poll, uint8_t *out)
 {
     if (!t) {
-        /* a tag the host has not told it about (new, or the radio restarted) */
+        /* a tag the host has not told it about (new, or the radio restarted); once it
+           has waited enough, the default interval */
         want(rc, mac, 0, 0);
-        rc->stats.waits++;
-        return esl_idle_build(out, ESL_RCACHE_WAIT_S);
+        return wait_reply(rc, unknown_waits(rc, mac), rc->default_poll_s, out);
     }
     uint16_t next = t->s.next_poll_s;
 
@@ -237,9 +287,9 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
         esl_rimage_t *im = find_image(rc, id);
         if (!im) {
             want(rc, mac, id, 0);
-            rc->stats.waits++;
-            return esl_idle_build(out, ESL_RCACHE_WAIT_S);
+            return wait_reply(rc, &t->waits, next, out);
         }
+        t->waits = 0;
         t->image_taken = 0;
         return image_block(rc, im, 0, ESL_IMG_CHUNK_MAX, next, out);
     }
@@ -249,15 +299,16 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
         const esl_rfw_t *f = fw_for(rc, poll->model);
         if (!f || f->ver != ver) {
             want(rc, mac, 0, poll->model);
-            rc->stats.waits++;
-            return esl_idle_build(out, ESL_RCACHE_WAIT_S);
+            return wait_reply(rc, &t->waits, next, out);
         }
         size_t n = fw_block(rc, f, poll->model, 0, ESL_FW_CHUNK_MAX, next, out);
         if (n) {
+            t->waits = 0;
             t->fw_taken = 0;
             return n;
         }
     }
+    t->waits = 0;
     return esl_idle_build(out, next);
 }
 
@@ -276,7 +327,10 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
         return 0;
     log_frame(rc, psdu, psdu_len, rssi, now_ms);
     rc->last_rx_ms = now_ms;
-    rc->mid_blocks = false;
+    /* a frame from the tag that was fetching: its reply says whether it still is; another
+       tag's POLL in between leaves it be */
+    if (f.src_mac == rc->mid_mac)
+        rc->mid_blocks = false;
     esl_rtag_t *t = find_tag(rc, f.src_mac);
 
     if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
@@ -286,8 +340,11 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
             if (ireq.id == im->id)
                 t->image_taken = im->id;
             n = image_block(rc, im, ireq.id == im->id ? ireq.pos : 0, ireq.max, t->s.next_poll_s, reply);
+            rc->mid_mac = f.src_mac;
         } else {
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : ESL_RCACHE_WAIT_S);
+            if (!t || t->s.image_id)
+                want(rc, f.src_mac, t ? t->s.image_id : 0, 0);
+            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
         }
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         rc->stats.blocks++;
@@ -297,9 +354,14 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
             if (same)
                 t->fw_taken = fw->ver;
             n = fw_block(rc, fw, freq.model, same ? freq.pos : 0, freq.max, t->s.next_poll_s, reply);
+            if (n)
+                rc->mid_mac = f.src_mac;
         }
-        if (!n)
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : ESL_RCACHE_WAIT_S);
+        if (!n) {
+            if (t && t->s.fw_ver)
+                want(rc, f.src_mac, 0, freq.model);
+            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
+        }
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         rc->stats.polls++;
         n = on_poll(rc, t, f.src_mac, &poll, reply);
@@ -311,6 +373,7 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
 
 bool esl_rcache_sync_due(const esl_rcache_t *rc, uint64_t now_ms, uint64_t last_sync_ms)
 {
+    /* wraps to a large number when last_sync_ms is later than now_ms: due at once */
     uint64_t since = now_ms - last_sync_ms;
     if (since >= ESL_RCACHE_SYNC_MAX_MS)
         return true;
