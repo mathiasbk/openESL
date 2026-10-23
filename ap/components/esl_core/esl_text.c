@@ -1,5 +1,6 @@
 #include "esl_text.h"
 #include <string.h>
+#include "proto.h" /* shared/proto.h */
 
 static uint8_t map_codepoint(uint32_t cp)
 {
@@ -107,4 +108,106 @@ size_t esl_utf8_to_latin1(const char *in, size_t in_len, uint8_t *out, size_t ou
         o += n;
     }
     return o;
+}
+
+#define NUM_INT_MAX  12 /* digits before the decimal sign */
+#define NUM_FRAC_MAX 6  /* and after it: 10^18 still fits in 64 bits */
+
+size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *out, size_t cap)
+{
+    uint8_t mode = opts & ESL_LE_NUM_MASK;
+    size_t a = 0, b = len, dec = len, i;
+    unsigned nint = 0, nfrac = 0, nd, commas = 0, dots = 0;
+    bool neg = false, dash = false;
+    uint64_t v = 0, p;
+
+    if (mode < ESL_LE_NUM_KEEP || mode > ESL_LE_NUM_DASH || cap < ESL_LE_NUM_MAX_LEN)
+        return 0;
+    while (a < b && in[a] == ' ')
+        a++;
+    while (b > a && in[b - 1] == ' ')
+        b--;
+    if (a < b && in[a] == '-') {
+        neg = true;
+        a++;
+    }
+    if (b - a >= 2 && in[b - 1] == '-' && (in[b - 2] == ',' || in[b - 2] == '.')) {
+        dash = true; /* "199,-" */
+        b -= 2;
+    }
+    for (i = a; i < b; i++) {
+        if (in[i] == ',')
+            commas++, dec = i;
+        else if (in[i] == '.')
+            dots++;
+        else if ((in[i] < '0' || in[i] > '9') && in[i] != ' ')
+            return 0;
+    }
+    /* With a comma it is the decimal sign and dots group thousands (1.299,90);
+     * without, one dot is the decimal sign (1299.9) and several group thousands, as
+     * does a dot before ",-" (1.299,-). */
+    if (commas > 1 || (dash && commas))
+        return 0;
+    if (!commas && dots == 1 && !dash)
+        for (i = a; i < b; i++)
+            if (in[i] == '.')
+                dec = i;
+    if (dec < b)
+        for (i = dec + 1; i < b; i++)
+            if (in[i] == '.' || in[i] == ' ')
+                return 0;
+    for (i = a; i < b; i++) {
+        if (in[i] < '0' || in[i] > '9')
+            continue;
+        if (i < dec ? ++nint > NUM_INT_MAX : ++nfrac > NUM_FRAC_MAX)
+            return 0;
+        v = v * 10 + (uint64_t)(in[i] - '0');
+    }
+    if (!nint && !nfrac)
+        return 0;
+
+    nd = mode == ESL_LE_NUM_KEEP ? nfrac : mode == ESL_LE_NUM_0 ? 0 : 2;
+    for (; nfrac > nd; nfrac--)
+        v = nfrac == nd + 1 ? (v + 5) / 10 : v / 10; /* rounds half up at the last digit dropped */
+    for (; nfrac < nd; nfrac++)
+        v *= 10;
+    for (p = 1, i = 0; i < nd; i++)
+        p *= 10;
+    if (nd && v % p == 0 && (mode == ESL_LE_NUM_AUTO || mode == ESL_LE_NUM_DASH)) {
+        dash = mode == ESL_LE_NUM_DASH;
+        v /= p;
+        nd = 0;
+        p = 1;
+    } else if (mode != ESL_LE_NUM_KEEP) {
+        dash = false;
+    }
+
+    char digits[24];
+    uint64_t whole = v / p, frac = v % p;
+    unsigned nw = 0;
+    do {
+        digits[nw++] = (char)('0' + whole % 10);
+        whole /= 10;
+    } while (whole);
+
+    size_t n = 0;
+    if (neg && v)
+        out[n++] = '-';
+    for (i = nw; i-- > 0;) {
+        out[n++] = (uint8_t)digits[i];
+        if ((opts & ESL_LE_NUM_THOUSANDS) && i && i % 3 == 0 && nw > 3)
+            out[n++] = ' ';
+    }
+    if (nd) {
+        out[n++] = ',';
+        for (i = nd; i-- > 0;) {
+            out[n + i] = (uint8_t)('0' + frac % 10);
+            frac /= 10;
+        }
+        n += nd;
+    } else if (dash) {
+        out[n++] = ',';
+        out[n++] = '-';
+    }
+    return n;
 }

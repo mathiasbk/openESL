@@ -185,15 +185,44 @@ static int fixed_text(cc_t *c, int v)
     return (int)(ESL_LE_FIELD_FIXED | c->ntext++);
 }
 
+/* "decimals" and "thousands": how a text element draws a number (ESL_LE_NUM_* in opts). */
+static bool number_format(cc_t *c, int e, uint8_t *opts)
+{
+    static const char *const modes[] = {"keep", "auto", "dash", NULL};
+    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH};
+    uint8_t num = 0;
+
+    int d = esl_json_obj_get(c->js, c->tok, e, "decimals");
+    if (d >= 0) {
+        unsigned n;
+        int m = pick(c, d, modes);
+        if (m >= 0)
+            num = mode_bits[m];
+        else if (get_uint(c, d, &n) && (n == 0 || n == 2))
+            num = n ? ESL_LE_NUM_2 : ESL_LE_NUM_0;
+        else
+            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00) or \"keep\"");
+    }
+    int t = esl_json_obj_get(c->js, c->tok, e, "thousands");
+    if (t >= 0) {
+        if (T(c, t)->type != ESL_JSON_TRUE && T(c, t)->type != ESL_JSON_FALSE)
+            return fail(c, "thousands must be true or false");
+        if (T(c, t)->type == ESL_JSON_TRUE)
+            num |= (uint8_t)((num ? 0 : ESL_LE_NUM_KEEP) | ESL_LE_NUM_THOUSANDS);
+    }
+    *opts |= num;
+    return true;
+}
+
 /* The rest of a barcode element (box, field and colour are done). */
 static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, unsigned w, unsigned h,
                             uint8_t color)
 {
     static const char *const syms[] = {"code128", "ean13", NULL};
-    static const char *const text_only[] = {"fonts", "valign", "lines"};
+    static const char *const text_only[] = {"fonts", "valign", "lines", "decimals", "thousands"};
     _Static_assert(ESL_BC_CODE128 == 0 && ESL_BC_EAN13 == 1, "syms order");
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 5; i++)
         if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
             return fail(c, "%s is only for text elements", text_only[i]);
     if (color != ESL_LE_BLACK)
@@ -234,7 +263,7 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type", "x", "y", "w", "h", "field", "fonts", "align", "valign",
-                                       "lines", "color", "symbology", "module", "text", NULL};
+                                       "lines", "color", "symbology", "module", "text", "decimals", "thousands", NULL};
     static const char *const types[] = {"text", "rect", "barcode", NULL};
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
@@ -295,8 +324,9 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     }
 
     if (!text && !barcode) {
-        static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines", "text"};
-        for (int i = 0; i < 6; i++)
+        static const char *const text_only[] = {"field", "fonts", "align", "valign", "lines", "text", "decimals",
+                                                "thousands"};
+        for (int i = 0; i < 8; i++)
             if (esl_json_obj_get(c->js, c->tok, e, text_only[i]) >= 0)
                 return fail(c, "%s is only for text elements", text_only[i]);
         if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT)
@@ -362,6 +392,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     if (vi < 0)
         return fail(c, "valign must be top, middle or bottom");
     out[ESL_LE_OFF_OPTS] = (uint8_t)(align_opts[ai] | valign_opts[vi]);
+    if (!number_format(c, e, &out[ESL_LE_OFF_OPTS]))
+        return false;
 
     unsigned lines = 0;
     int ln = esl_json_obj_get(c->js, c->tok, e, "lines");

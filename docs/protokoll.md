@@ -276,6 +276,8 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `text20` (20 px), `mid` (36 px), `price44` (44 px), `large` (52 px); `mid`, `price44` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
 | `align`, `valign` | text only (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
 | `lines` | text only: 0–3, 0 (default) = as many as the box holds |
+| `decimals` | text only: draws a number (e.g. a price) the same way whatever the client sends (`1299.9`, `1299,90`, `1 299,90`, `1.299,90`, `199,-`): `2` → `1299,90`, `0` → `1300` (rounded), `"auto"` → `199` or `199,90` (no decimals when they are `,00`), `"dash"` → `199,-` or `199,90`, `"keep"` → the decimals as sent, with a decimal comma. Text that is not a number is drawn as sent. Default: no format, the text as sent |
+| `thousands` | text only: `true` puts a space between every three digits, `1 299,90` (with no `decimals`, the decimals as sent). Default `false` |
 | `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text and rect) and `red_invert` (text: white text in a red box) |
 | keys starting with `_`, `description` | ignored (comments) |
 

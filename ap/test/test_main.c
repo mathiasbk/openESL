@@ -4,6 +4,7 @@ int tt_checks, tt_failures;
 
 void test_crc32(void);
 void test_text(void);
+void test_number(void);
 void test_content(void);
 void test_proto(void);
 void test_frame(void);
@@ -27,6 +28,7 @@ static const struct {
 } tests[] = {
     {"crc32", test_crc32},
     {"text", test_text},
+    {"number", test_number},
     {"content", test_content},
     {"proto", test_proto},
     {"frame", test_frame},

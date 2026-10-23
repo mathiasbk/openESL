@@ -11,6 +11,13 @@ static const char FILE_29[] =
     "\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":296,\"h\":128},"
     "{\"type\":\"text\",\"field\":\"title\",\"x\":8,\"y\":40,\"w\":280,\"h\":48,\"fonts\":[\"medium\"],\"color\":\"white\"}]}]}";
 
+static const char FILE_PRICE[] =
+    "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+    "{\"name\":\"fmt\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":296,\"h\":60,\"fonts\":[\"large\"],\"decimals\":2,\"thousands\":true}]},"
+    "{\"name\":\"raw\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":296,\"h\":60,\"fonts\":[\"large\"]}]}]}";
+
 static size_t ink(const uint8_t *img, size_t n)
 {
     size_t k = 0;
@@ -19,6 +26,12 @@ static size_t ink(const uint8_t *img, size_t n)
             if (img[i] & m)
                 k++;
     return k;
+}
+
+static void named(esl_content_t *c, const char *layout, const char *f0)
+{
+    esl_content_init_named(c, layout, strlen(layout), 0);
+    esl_content_add_field(c, (const uint8_t *)f0, strlen(f0));
 }
 
 static void content(esl_content_t *c, uint8_t layout, const char *f0)
@@ -78,4 +91,17 @@ void test_render(void)
     CHECK(n == 296 * 16);
     content(&c, ESL_LAYOUT_FILE + 3, "Hei");
     CHECK(esl_render(ESL_MODEL_29, NULL, &c, img, sizeof(img)) == n && memcmp(img, img2, n) == 0);
+
+    /* a number format: "1299.9" is drawn as "1 299,90"; text that is not a number as sent */
+    CHECK(esl_layout_compile(FILE_PRICE, sizeof(FILE_PRICE) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    named(&c, "fmt", "1299.9");
+    n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
+    named(&c, "raw", "1 299,90");
+    CHECK(n == 296 * 16 && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
+    named(&c, "raw", "1299.9");
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) != 0);
+    named(&c, "fmt", "12:30");
+    n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
+    named(&c, "raw", "12:30");
+    CHECK(n && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
 }

@@ -7,6 +7,7 @@
 #include <string.h>
 #include "barcode.h" /* tag/src */
 #include "font.h"    /* tag/src */
+#include "esl_text.h"
 #include "models_gen.h"
 
 /* ---- the model ------------------------------------------------------------- */
@@ -54,6 +55,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_MAX_RUNS     ESL_DRAW_MAX_RUNS
 #define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
 #define RD_MAX_BARCODES ESL_DRAW_MAX_BARCODES
+#define RD_MAX_NUMS     8 /* formatted numbers per screen; more are drawn as sent */
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
 
 #define RD_BLACK 0
@@ -93,6 +95,9 @@ typedef struct {
     rd_run_t run[RD_MAX_RUNS];
     rd_rect_t rect[RD_MAX_RECTS];
     rd_bars_t bars;
+    /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
+    uint8_t nnums;
+    uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
 } rd_scene_t;
 
 static void scene_clear(rd_scene_t *s)
@@ -100,6 +105,7 @@ static void scene_clear(rd_scene_t *s)
     s->nruns = 0;
     s->nrects = 0;
     s->nbars = 0;
+    s->nnums = 0;
 }
 
 static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uint16_t y, const uint8_t *text,
@@ -703,6 +709,13 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                 } else if (e->field < nfields) {
                     t = text[e->field];
                     len = lens[e->field];
+                }
+                if (len && e->kind == ESL_LE_TEXT && (e->opts & ESL_LE_NUM_MASK) && s->nnums < RD_MAX_NUMS) {
+                    size_t n = esl_format_number(t, len, e->opts, s->num[s->nnums], ESL_LE_NUM_MAX_LEN);
+                    if (n) {
+                        t = s->num[s->nnums++];
+                        len = (uint8_t)n;
+                    }
                 }
                 if (len && e->kind == ESL_LE_TEXT)
                     place_text(s, e, t, len, color);

@@ -227,6 +227,18 @@
 #define ESL_LE_OFF_W         11     /* u16 */
 #define ESL_LE_OFF_H         13     /* u8 */
 
+/* Tallformat for et tekstelement, i bit 4-7 av ESL_LE_OFF_OPTS (0 = teksten som sendt).
+ * Bit 4-6 er hvor mange desimaler, bit 7 tusenskille (mellomrom). Teksten må være et tall
+ * ("1299.9", "1299,90", "1 299,90", "199,-"); annen tekst tegnes uendret. Desimaltegnet er komma. */
+#define ESL_LE_NUM_MASK      0x70
+#define ESL_LE_NUM_KEEP      0x10   /* desimalene som sendt */
+#define ESL_LE_NUM_0         0x20   /* ingen desimaler, avrundet */
+#define ESL_LE_NUM_2         0x30   /* alltid to desimaler */
+#define ESL_LE_NUM_AUTO      0x40   /* to desimaler, ingen når de er ,00 */
+#define ESL_LE_NUM_DASH      0x50   /* to desimaler, ",-" når de er ,00 */
+#define ESL_LE_NUM_THOUSANDS 0x80   /* mellomrom mellom hver tredje siffer: 1 299,90 */
+#define ESL_LE_NUM_MAX_LEN   32     /* lengste formaterte tall */
+
 #define ESL_LE_TEXT          1
 #define ESL_LE_RECT          2
 #define ESL_LE_BARCODE       3      /* text field drawn as a barcode, bars the full height of the box */
