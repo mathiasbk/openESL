@@ -499,6 +499,16 @@ static void test_layouts(void)
     /* the model not known yet: checked against every file with the layout */
     CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
 
+    /* a QR field must fit its box: 30 px at H holds version 3 (29 modules), 24 bytes */
+    const char *qr29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"qr\","
+                       "\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\",\"ecc\":\"H\","
+                       "\"x\":0,\"y\":0,\"w\":30,\"h\":30}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, qr29, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/12345\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/123456\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/1234567\"]}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"field 0 of layout qr is too long for its QR code on model 2.9 (25 of 24 bytes)\"}");
+
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
 
     /* named content the tag cannot get yet says why */

@@ -1,6 +1,7 @@
 #include "esl_barcode.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
+#include "esl_qr.h"
 #include "esl_text.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -153,10 +154,13 @@ typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
-    unsigned barcodes, lines, icons;
+    unsigned barcodes, lines, icons, qrs;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
     uint16_t bc_max;
+    int8_t qr_field;      /* the QR element, the same */
+    uint8_t qr_ecc;
+    uint16_t qr_cap;
 } lay_t;
 
 static bool field_name_ok(const char *s)
@@ -255,10 +259,11 @@ typedef struct {
 static bool only_ok(cc_t *c, int e, char kind)
 {
     static const only_t only[] = {
-        {"field", "tb", "text and barcode elements"},     {"text", "tb", "text elements"},
-        {"fonts", "t", "text elements"},                  {"valign", "t", "text elements"},
-        {"lines", "t", "text elements"},                  {"align", "tb", "text and barcode elements"},
-        {"symbology", "b", "barcode elements"},           {"module", "b", "barcode elements"},
+        {"field", "tbq", "text, barcode and QR elements"}, {"text", "tbq", "text elements"},
+        {"fonts", "t", "text elements"},                  {"valign", "tq", "text and QR elements"},
+        {"lines", "t", "text elements"},                  {"align", "tbq", "text, barcode and QR elements"},
+        {"symbology", "b", "barcode elements"},           {"module", "bq", "barcode and QR elements"},
+        {"ecc", "q", "QR elements"},
         {"radius", "r", "rect elements"},                 {"border", "r", "rect elements"},
         {"direction", "l", "line elements"},              {"width", "l", "line elements"},
         {"icon", "i", "icon elements"},
@@ -282,13 +287,57 @@ static bool opt_uint(cc_t *c, int e, const char *key, unsigned lo, unsigned hi, 
     return true;
 }
 
+/* The rest of a QR element (box, field and colour are done). */
+static bool qr_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, unsigned w, unsigned h, uint8_t color)
+{
+    static const char *const levels[] = {"L", "M", "Q", "H", NULL};
+    _Static_assert(ESL_QR_LEVEL_L == ESL_QR_ECC_L && ESL_QR_LEVEL_H == ESL_QR_ECC_H, "QR levels");
+
+    if (color != ESL_LE_BLACK)
+        return fail(c, "a QR code is black");
+    int ec = esl_json_obj_get(c->js, c->tok, e, "ecc");
+    int li = ec < 0 ? ESL_QR_LEVEL_M : pick(c, ec, levels);
+    if (li < 0)
+        return fail(c, "ecc must be L, M, Q or H (about 7, 15, 25 or 30 %% of the code can be lost)");
+    out[ESL_LE_OFF_ECC] = (uint8_t)li;
+
+    int a = esl_json_obj_get(c->js, c->tok, e, "align");
+    int ai = a < 0 ? 0 : pick(c, a, align_names);
+    int va = esl_json_obj_get(c->js, c->tok, e, "valign");
+    int vi = va < 0 ? 0 : pick(c, va, valign_names);
+    if (ai < 0)
+        return fail(c, "align must be left, center or right");
+    if (vi < 0)
+        return fail(c, "valign must be top, middle or bottom");
+    out[ESL_LE_OFF_OPTS] = (uint8_t)(align_opts[ai] | valign_opts[vi]);
+
+    unsigned mw;
+    if (!opt_uint(c, e, "module", 0, ESL_QR_MODULE_MAX, 0, &mw))
+        return false;
+    out[ESL_LE_OFF_MODULE] = (uint8_t)mw;
+
+    /* the largest version the box holds */
+    unsigned side = (w < h ? w : h) / (mw ? mw : 1), v = 0;
+    while (v < ESL_QR_VERSION_MAX && ESL_QR_SIZE(v + 1) <= side)
+        v++;
+    if (!v)
+        return fail(c, "the box must be at least %u px wide and high for a QR code (%s)", ESL_QR_MIN_SIDE * (mw ? mw : 1),
+                    mw > 1 ? "21 modules" : "21 modules of 1 px");
+    if (++lay->qrs > ESL_DRAW_MAX_QR)
+        return fail(c, "the AP draws at most %d QR code per screen", ESL_DRAW_MAX_QR);
+    lay->qr_field = (int8_t)fi;
+    lay->qr_ecc = (uint8_t)li;
+    lay->qr_cap = (uint16_t)esl_qr_capacity((uint8_t)v, (uint8_t)li);
+    return true;
+}
+
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
                                        "valign", "lines", "color",  "symbology", "module", "text", "radius",
-                                       "border", "direction", "width", "icon", NULL};
-    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", NULL};
-    static const char kinds[] = "trbli";
+                                       "border", "direction", "width", "icon", "ecc", NULL};
+    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", NULL};
+    static const char kinds[] = "trbliq";
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
     int icon = -1;
@@ -300,10 +349,10 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int ty = esl_json_obj_get(c->js, c->tok, e, "type");
     int kind = ty < 0 ? -1 : pick(c, ty, types);
     if (kind < 0)
-        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"line\" or \"icon\"");
+        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"qr\", \"line\" or \"icon\"");
     if (!only_ok(c, e, kinds[kind]))
         return false;
-    bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4;
+    bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4, qr = kind == 5;
     bool rising = false;
 
     if (is_icon) {
@@ -365,6 +414,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
                            : barcode ? ESL_LE_BARCODE
                            : line    ? ESL_LE_LINE
                            : is_icon ? ESL_LE_ICON
+                           : qr      ? ESL_LE_QR
                                      : ESL_LE_RECT;
     out[ESL_LE_OFF_FONT] = out[ESL_LE_OFF_FONT + 1] = out[ESL_LE_OFF_FONT + 2] = ESL_FONT_NONE;
     out[ESL_LE_OFF_X] = (uint8_t)x;
@@ -404,7 +454,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return true;
     }
 
-    if (!text && !barcode) {
+    if (!text && !barcode && !qr) {
         unsigned radius, border, half = (w < h ? w : h) / 2;
         if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT)
             return fail(c, "a rect can be black, white, red or frame");
@@ -422,8 +472,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int f = esl_json_obj_get(c->js, c->tok, e, "field");
     int fx = esl_json_obj_get(c->js, c->tok, e, "text");
     unsigned fi = 0;
-    if (fx >= 0 && barcode)
-        return fail(c, "a barcode takes a field, not a fixed text");
+    if (fx >= 0 && (barcode || qr))
+        return fail(c, "a %s takes a field, not a fixed text", qr ? "QR code" : "barcode");
     if (fx >= 0 && f >= 0)
         return fail(c, "give either field or text, not both");
     if (fx >= 0) {
@@ -433,6 +483,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         out[ESL_LE_OFF_FIELD] = (uint8_t)fb;
     } else if (f < 0)
         return fail(c, barcode ? "a barcode element needs a field"
+                       : qr    ? "a QR element needs a field"
                                : "a text element needs a field or a fixed text");
     if (fx >= 0) {
         /* the fixed text is in place */
@@ -451,6 +502,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 
     if (barcode)
         return barcode_element(c, e, lay, out, fi, w, h, color);
+    if (qr)
+        return qr_element(c, e, lay, out, fi, w, h, color);
 
     int fo = esl_json_obj_get(c->js, c->tok, e, "fonts");
     if (fo < 0 || T(c, fo)->type != ESL_JSON_ARRAY || T(c, fo)->size < 1 || T(c, fo)->size > 3)
@@ -602,6 +655,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     lay_t lay;
     memset(&lay, 0, sizeof(lay));
     lay.bc_field = -1;
+    lay.qr_field = -1;
 
     if (T(c, l)->type != ESL_JSON_OBJECT)
         return fail(c, "must be an object");
@@ -664,6 +718,9 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     out->bc_field[c->li] = lay.bc_field;
     out->bc_sym[c->li] = lay.bc_sym;
     out->bc_max[c->li] = lay.bc_max;
+    out->qr_field[c->li] = lay.qr_field;
+    out->qr_ecc[c->li] = lay.qr_ecc;
+    out->qr_cap[c->li] = lay.qr_cap;
     return true;
 }
 

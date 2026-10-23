@@ -6,6 +6,7 @@
 #include "esl_render.h"
 #include <string.h>
 #include "barcode.h" /* tag/src */
+#include "esl_qr.h"
 #include "font.h"    /* tag/src */
 #include "models_gen.h"
 
@@ -109,13 +110,21 @@ typedef struct {
 } rd_bars_t;
 
 typedef struct {
+    uint16_t x0, y0;
+    uint8_t size;        /* modules per side */
+    uint8_t m;           /* pixels per module */
+    uint8_t bits[ESL_QR_BYTES];
+} rd_qr_t;
+
+typedef struct {
     rd_model_t m;
-    uint8_t nruns, nrects, nbars, nlines, nicons;
+    uint8_t nruns, nrects, nbars, nlines, nicons, nqr;
     rd_run_t run[RD_MAX_RUNS];
     rd_rect_t rect[RD_MAX_RECTS];
     rd_line_t line[RD_MAX_LINES_DRAWN];
     rd_icon_t icon[RD_MAX_ICONS];
     rd_bars_t bars;
+    rd_qr_t qr;
 } rd_scene_t;
 
 static void scene_clear(rd_scene_t *s)
@@ -125,6 +134,7 @@ static void scene_clear(rd_scene_t *s)
     s->nbars = 0;
     s->nlines = 0;
     s->nicons = 0;
+    s->nqr = 0;
 }
 
 static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uint16_t y, const uint8_t *text,
@@ -413,6 +423,20 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         uint16_t m = (uint16_t)((x - b->x0) / b->mw);
         if (m < b->nmod && (b->bits[m >> 3] & (0x80 >> (m & 7))))
             fill_span(black, red, b->y0, b->y1, RD_BLACK);
+    }
+
+    if (s->nqr && x >= s->qr.x0 && x < s->qr.x0 + s->qr.size * s->qr.m) {
+        const rd_qr_t *q = &s->qr;
+        unsigned col = (unsigned)(x - q->x0) / q->m, r, top;
+        for (r = 0; r < q->size; r = top) {
+            /* a run of dark modules down this column is one span */
+            top = r + 1;
+            if (!esl_qr_module(q->bits, q->size, col, r))
+                continue;
+            while (top < q->size && esl_qr_module(q->bits, q->size, col, top))
+                top++;
+            fill_span(black, red, (uint16_t)(q->y0 + r * q->m), (uint16_t)(q->y0 + top * q->m - 1), RD_BLACK);
+        }
     }
 
     for (i = 0; i < s->nruns; i++)
@@ -709,6 +733,37 @@ static void place_barcode(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, u
     s->nbars = 1;
 }
 
+static void place_qr(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint8_t len)
+{
+    rd_qr_t *q = &s->qr;
+    uint16_t side = e->w < e->h ? e->w : e->h, used;
+    uint8_t mw = e->lines, n;
+
+    if (s->nqr || e->font[0] > ESL_QR_LEVEL_H)
+        return;
+    n = esl_qr_encode(t, len, e->font[0], ESL_QR_VERSION_MAX, q->bits);
+    if (!n || n > side)
+        return;
+    if (!mw)
+        mw = (uint8_t)(side / n > ESL_QR_MODULE_MAX ? ESL_QR_MODULE_MAX : side / n);
+    if (!mw || (uint16_t)n * mw > side)
+        return;
+    used = (uint16_t)(n * mw);
+    q->size = n;
+    q->m = mw;
+    q->x0 = e->x;
+    if ((e->opts & 0x03) == ESL_LE_RIGHT)
+        q->x0 += (uint16_t)(e->w - used);
+    else if ((e->opts & 0x03) == ESL_LE_CENTER)
+        q->x0 += (uint16_t)((e->w - used) / 2);
+    q->y0 = e->y;
+    if ((e->opts & 0x0C) == ESL_LE_BOTTOM)
+        q->y0 += (uint16_t)(e->h - used);
+    else if ((e->opts & 0x0C) == ESL_LE_MIDDLE)
+        q->y0 += (uint16_t)((e->h - used) / 2);
+    s->nqr = 1;
+}
+
 /* ---- the layout file (esl_layout_bin_t) ---- */
 
 typedef struct {
@@ -923,6 +978,8 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     place_text(s, e, t, len, color);
                 else if (len && e->kind == ESL_LE_BARCODE)
                     place_barcode(s, e, t, len);
+                else if (len && e->kind == ESL_LE_QR)
+                    place_qr(s, e, t, len);
             }
         }
         if (wire)

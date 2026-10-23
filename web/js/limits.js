@@ -3,11 +3,12 @@
 // as its largest font choice can fit (1..3, capped by "lines"), and each rect element and
 // each inverted or highlighted text needs one rectangle. The limits themselves come from the
 // renderer (renderer.limits), so they follow shared/proto.h. A barcode needs neither, but a
-// layout holds at most limits.barcodes of them, limits.lines line elements and limits.icons icons.
+// layout holds at most limits.barcodes of them, limits.qrs QR codes, limits.lines line elements
+// and limits.icons icons.
 
 const INVERTED = new Set(["invert", "highlight", "red_invert"]);
 
-const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0 };
+const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0, qrs: 0 };
 
 // One element: { runs, rects, barcodes, lines, icons }.
 export function elementUsage(e, limits) {
@@ -15,6 +16,7 @@ export function elementUsage(e, limits) {
   if (e.type === "barcode") return { ...NONE, barcodes: 1 };
   if (e.type === "line") return { ...NONE, lines: 1 };
   if (e.type === "icon") return { ...NONE, icons: 1 };
+  if (e.type === "qr") return { ...NONE, qrs: 1 };
   if (e.type !== "text") return { ...NONE };
   let most = 1;
   for (const f of (e.fonts || []).slice(0, 3)) {
@@ -37,6 +39,7 @@ export function layoutUsage(layout, limits) {
     barcodes: elements.reduce((a, u) => a + u.barcodes, 0),
     lines: elements.reduce((a, u) => a + u.lines, 0),
     icons: elements.reduce((a, u) => a + u.icons, 0),
+    qrs: elements.reduce((a, u) => a + u.qrs, 0),
     elements,
   };
 }

@@ -240,6 +240,7 @@
 #define ESL_LE_BARCODE       3      /* text field drawn as a barcode, bars the full height of the box */
 #define ESL_LE_LINE          4      /* a straight line between two corners of the box */
 #define ESL_LE_ICON          5      /* an icon from the file, its size is the box */
+#define ESL_LE_QR            6      /* text field drawn as a QR code (ISO/IEC 18004, byte mode) */
 
 /* A rect element also uses (0 in a plain filled rect, so older files compile the same):
  *   ESL_LE_OFF_RADIUS  corner radius in pixels, at most half the shorter side
@@ -258,6 +259,22 @@
 #define ESL_LE_OFF_WIDTH     ESL_LE_OFF_LINES
 #define ESL_LE_RISING        0x01
 #define ESL_LINE_W_MAX       16
+
+/* A QR element uses the text element's bytes like this (the rest as for text):
+ *   ESL_LE_OFF_ECC     error correction level ESL_QR_LEVEL_L..H
+ *   ESL_LE_OFF_OPTS    alignment in the box, as for text
+ *   ESL_LE_OFF_MODULE  module size in pixels, 1..ESL_QR_MODULE_MAX, 0 = the largest that fits
+ *   ESL_LE_OFF_COLOR   ESL_LE_BLACK
+ * The code takes the smallest version (1..10) that holds the field; the box holds the code
+ * without its quiet zone, so leave white around it. A field that does not fit the box with
+ * 1-pixel modules draws nothing (the AP rejects such content). */
+#define ESL_LE_OFF_ECC       ESL_LE_OFF_FONT
+#define ESL_QR_LEVEL_L       0
+#define ESL_QR_LEVEL_M       1
+#define ESL_QR_LEVEL_Q       2
+#define ESL_QR_LEVEL_H       3
+#define ESL_QR_MODULE_MAX    8
+#define ESL_QR_MIN_SIDE      21     /* version 1 with 1-pixel modules */
 
 /* A barcode element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_FONT    symbology (ESL_BC_*), the two other font bytes ESL_FONT_NONE
@@ -310,6 +327,7 @@
 #define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
 #define ESL_DRAW_MAX_LINES   16     /* linjer per skjerm (esl_render.c) */
 #define ESL_DRAW_MAX_ICONS   8      /* ikoner per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
