@@ -38,13 +38,26 @@ void esl_screen_make(const esl_screen_info_t *in, esl_screen_t *out)
     snprintf(t[0], sizeof(t[0]), "OpenESL %s\tch %u", in->fw ? in->fw : "", (unsigned)in->channel);
     out->color[0] = ESL_SCREEN_TITLE;
 
-    if (!in->tags)
+    /* the dashboard's tag states, each in its colour; states no tag is in are left out */
+    out->color[1] = ESL_SCREEN_TEXT;
+    if (!in->tags) {
         snprintf(t[1], sizeof(t[1]), "No tags yet");
-    else if (in->pending)
-        snprintf(t[1], sizeof(t[1]), "%u tag%s, %u pending", in->tags, in->tags == 1 ? "" : "s", in->pending);
-    else
-        snprintf(t[1], sizeof(t[1]), "%u tag%s, all shown", in->tags, in->tags == 1 ? "" : "s");
-    out->color[1] = in->pending ? ESL_SCREEN_WARN : ESL_SCREEN_TEXT;
+    } else {
+        const struct {
+            unsigned n;
+            uint8_t color;
+            const char *what;
+        } part[] = {{in->ok, ESL_SCREEN_OK, "OK"}, {in->busy, ESL_SCREEN_WARN, "busy"}, {in->bad, ESL_SCREEN_BAD, "bad"}};
+        size_t n = 0;
+        for (size_t i = 0; i < sizeof(part) / sizeof(part[0]); i++) {
+            if (!part[i].n || n >= sizeof(t[1]))
+                continue;
+            int w = snprintf(t[1] + n, sizeof(t[1]) - n, "%s%c%u %s", n ? "  " : "", part[i].color, part[i].n,
+                             part[i].what);
+            if (w > 0)
+                n += (size_t)w;
+        }
+    }
     if (in->table_full || (in->tags >= in->tags_max && in->tags_max)) {
         snprintf(t[1], sizeof(t[1]), "%u tags: table full", in->tags);
         out->color[1] = ESL_SCREEN_BAD;
@@ -57,7 +70,7 @@ void esl_screen_make(const esl_screen_info_t *in, esl_screen_t *out)
         out->color[2] = ESL_SCREEN_BAD;
     } else if (w->connected) {
         snprintf(t[2], sizeof(t[2]), "%s", w->ip);
-        out->color[2] = ESL_SCREEN_OK;
+        out->color[2] = ESL_SCREEN_TEXT;
     } else if (w->setup_ssid[0]) {
         put_ssid(t[2], sizeof(t[2]), "Setup: ", w->setup_ssid);
         snprintf(t[3], sizeof(t[3]), "%s/setup", w->setup_ip[0] ? w->setup_ip : "192.168.4.1");
@@ -78,11 +91,18 @@ static uint8_t glyph(uint8_t ch)
     return '?';
 }
 
+/* A byte that sets the colour of the rest of the line (esl_screen.h) */
+static bool is_color(uint8_t ch)
+{
+    return ch >= ESL_SCREEN_TEXT && ch <= ESL_SCREEN_DIM;
+}
+
 static unsigned text_width(const uint8_t *s, size_t n)
 {
     unsigned w = 0;
     for (size_t i = 0; i < n; i++)
-        w += font_small.widths[glyph(s[i]) - font_small.first];
+        if (!is_color(s[i]))
+            w += font_small.widths[glyph(s[i]) - font_small.first];
     return w;
 }
 
@@ -92,6 +112,10 @@ static unsigned draw_text(const uint8_t *s, size_t n, unsigned x, unsigned x_end
 {
     const font_t *f = &font_small;
     for (size_t i = 0; i < n; i++) {
+        if (is_color(s[i])) {
+            color = s[i];
+            continue;
+        }
         uint8_t ch = glyph(s[i]);
         unsigned gw = f->widths[ch - f->first];
         if (x + gw > x_end)

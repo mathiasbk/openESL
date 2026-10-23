@@ -43,8 +43,11 @@ static void gather(esl_screen_info_t *in)
         if (!esl_store_get_slot(api->store, s, &t))
             continue;
         in->tags++;
-        if (esl_tag_pending(&t))
-            in->pending++;
+        switch (esl_api_tag_level(api, &t, now_ms)) {
+        case ESL_TAG_OK:   in->ok++; break;
+        case ESL_TAG_BUSY: in->busy++; break;
+        case ESL_TAG_BAD:  in->bad++; break;
+        }
         if (t.seen && now_ms - t.last_seen_ms < SEEN_RECENT_MS)
             in->seen++;
     }

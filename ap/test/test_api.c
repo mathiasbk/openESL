@@ -954,6 +954,37 @@ static void test_health(void)
     CHECK_MEM(streamed, resp, out.len);
 }
 
+/* What the dashboard and the status screen show for a tag */
+static void test_tag_level(void)
+{
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    esl_layouts_init(&layouts, NULL);
+    const uint64_t poll_ms = (uint64_t)ESL_TAG_BUILTIN_POLL_S * 1000, now = UINT64_C(1000) * 1000;
+    for (int m = 1; m <= 4; m++) {
+        char uri[40];
+        snprintf(uri, sizeof(uri), "/api/tags/%016X", m);
+        CHECK_INT(req("PUT", uri, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    }
+    uint32_t id = json_u32(resp, "\"content_id\":");
+    poll_flags(1, id, 2950, 0, true, now - poll_ms / 2);                          /* shows it */
+    poll_flags(2, id, 2950, 0, true, now - poll_ms / 2);                          /* gets new content below */
+    poll_flags(3, id, 2950, 0, true, now - poll_ms - (ESL_TAG_CHECKIN_GRACE_S + 5) * 1000); /* late */
+    poll_flags(4, id, 2950, 0, true, now - 4 * poll_ms);                          /* silent */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"b\"]}", 0), 200);
+    esl_tag_level_t want[] = {ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BUSY, ESL_TAG_BAD};
+    for (int m = 1; m <= 4; m++) {
+        esl_tag_t t;
+        CHECK(esl_store_get(&st, (uint64_t)m, &t));
+        CHECK_INT(esl_api_tag_level(&api, &t, now), want[m - 1]);
+    }
+    /* within the grace it is not late yet */
+    esl_tag_t t;
+    poll_flags(3, id, 2950, 0, true, now - poll_ms - (ESL_TAG_CHECKIN_GRACE_S - 5) * 1000);
+    CHECK(esl_store_get(&st, 3, &t));
+    CHECK_INT(esl_api_tag_level(&api, &t, now), ESL_TAG_OK);
+}
+
 void test_api(void)
 {
     esl_store_free(&st);
@@ -971,4 +1002,5 @@ void test_api(void)
     test_streaming();
     test_webhook_config();
     test_health();
+    test_tag_level();
 }
