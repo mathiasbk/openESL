@@ -1,5 +1,6 @@
 #include "esl_image.h"
 #include "esl_crc32.h"
+#include "esl_img2d.h"
 #include "esl_png.h"
 #include "esl_render.h"
 #include <stdint.h>
@@ -345,15 +346,31 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     if (!esl_store_get_content(st, t->mac, &c) || esl_content_id(&c) != t->content_id)
         return false;
     /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the
-       start, else (it would not be shorter) drawn again raw. A picture is read back as
-       it was stored, coded when that was shorter. */
+       start, 2D first (a fraction of RLE on text and bars), then RLE; else (it would not
+       be shorter) drawn again raw. A picture is coded 2D the same way, else read back as
+       it was stored (RLE coded when that was shorter). */
     size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
     uint8_t fmt = ESL_IMG_FMT_RAW;
+    uint16_t w = 0, h = 0;
+    bool red, has_h = esl_render_model(t->model, &w, &h, &red);
     if (c.layout == ESL_LAYOUT_IMAGE) {
-        if (!(n = stored_picture(st, t->mac, t->model, &c, t->image_rle, b->data, cap, &fmt)))
+        if (t->image_2d && has_h && raw && cap >= raw + m &&
+            stored_picture(st, t->mac, t->model, &c, false, b->data, cap, &fmt) == raw) {
+            memmove(b->data + m, b->data, raw);
+            n = esl_img_2d_encode(b->data + m, raw, h, b->data, raw - 1);
+            if (n)
+                fmt = ESL_IMG_FMT_2D;
+        }
+        if (!n && !(n = stored_picture(st, t->mac, t->model, &c, t->image_rle, b->data, cap, &fmt)))
             return false;
-    } else if (t->image_rle && raw && cap >= raw + m &&
+    } else if (t->image_2d && has_h && raw && cap >= raw + m &&
                esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
+        n = esl_img_2d_encode(b->data + m, raw, h, b->data, raw - 1);
+        if (n)
+            fmt = ESL_IMG_FMT_2D;
+    }
+    if (!n && c.layout != ESL_LAYOUT_IMAGE && t->image_rle && raw && cap >= raw + m &&
+        esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
         n = esl_img_rle_encode(b->data + m, raw, b->data, raw - 1);
         if (n)
             fmt = ESL_IMG_FMT_RLE;

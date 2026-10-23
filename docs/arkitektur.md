@@ -15,7 +15,7 @@
 1. The client sends `PUT /api/tags/{mac}` to the AP with the new text fields.
 2. The AP calculates a new `content_id` (CRC32 of the content), stores it in NVS and replies immediately.
 3. The next time the tag wakes (within 60 s) it sends `POLL` with the id of the image it shows.
-4. The AP sees that it is out of date, draws the screen into a 1-bit image and replies with the first `IMG` block; the tag fetches the rest with `IMG_REQ` in the same wake-up (52 blocks raw on the 2.9", fewer when run-length coded).
+4. The AP sees that it is out of date, draws the screen into a 1-bit image and replies with the first `IMG` block; the tag fetches the rest with `IMG_REQ` in the same wake-up (52 blocks raw on the 2.9"; coded column against column, a shelf screen takes 6).
 5. The tag checks the image, stores it in its SPI flash, streams it to the display (a few seconds for a black/white full update; measured in phase 2) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new image id is the acknowledgement (see [protokoll.md](protokoll.md)).
 6. The next time the client reads `GET /api/tags`, `shown_content_id` shows that the tag has the new content.
 
@@ -27,7 +27,7 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 
 ### The AP draws, the tag shows an image
 - Up to tag firmware 0.4.7 the tag drew the text itself from one CONTENT packet. That kept the radio short, but every layout, font and barcode had to fit the tag's 64 KB flash and its RAM.
-- Now the AP draws the whole screen (`ap/components/esl_core/esl_render.c`, with the code the tag used) and sends it as a 1-bit image in IMG blocks, run-length coded when that is shorter. The tag stores it in its SPI flash (the same chip as the OTA slots) and streams it to the display controller a column at a time, so it never needs the whole image in RAM.
+- Now the AP draws the whole screen (`ap/components/esl_core/esl_render.c`, with the code the tag used) and sends it as a 1-bit image in IMG blocks, coded when that is shorter (column against column, as fax machines code a page, or run-length coded). The tag stores it in its SPI flash (the same chip as the OTA slots) and streams it to the display controller a column at a time, so it never needs the whole image in RAM.
 - The cost is radio time: about 50 blocks per new screen instead of one packet. Not measured yet; the estimate is a few mC per new screen, next to 22 mC for the display refresh ([strombudsjett.md](strombudsjett.md)).
 - The image id is the CRC-32 of the image, so the same content gives the same image and is never sent twice, also after an AP restart. The AP keeps no images: it draws one when a tag needs it.
 - The tag draws only its start-up and "No AP found" screens itself.

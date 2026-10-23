@@ -22,7 +22,7 @@ flowchart TB
     client -- "only data, no pixels<br/>HTTP with an API token, over WiFi or USB" --> render
     layout --> render
     fonts --> render
-    render -- "802.15.4 radio, when the label polls (every 60 s)<br/>1 bit per pixel, run-length coded, 92-byte blocks" --> label
+    render -- "802.15.4 radio, when the label polls (every 60 s)<br/>1 bit per pixel, compressed, 92-byte blocks" --> label
 ```
 
 More: [How it works](How-it-works).

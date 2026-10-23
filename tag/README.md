@@ -10,7 +10,7 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 |---|---|
 | Packets: POLL (with the model byte, T18, and `cfg_ver`), IDLE, CONFIG, IMG, IMG_REQ, FW, FW_REQ and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
 | Settings from the AP (CONFIG: interval, backoff cap, "No AP found" delay), kept in flash through `hal_store_*` (`app.c`) | Done, tested on PC (fake flash); the flash store itself is tested on the tag by `hwtest`, not yet with CONFIG on the air |
-| Screen images from the AP ([protokoll.md](../docs/protokoll.md) part 1, "Image transfer"): download into the SPI flash slot, CRC-32 check, RLE, streamed to the panel (`image.c`, `app.c`); the slot is kept, so a restart shows the last screen without the AP (T12) | Done, tested on PC and on the 1.54" (hardware test C) |
+| Screen images from the AP ([protokoll.md](../docs/protokoll.md) part 1, "Image transfer"): download into the SPI flash slot, CRC-32 check, the 2D and RLE codes, streamed to the panel (`image.c`, `app.c`); the slot is kept, so a restart shows the last screen without the AP (T12) | Done, tested on PC and on the 1.54" (hardware test C) |
 | Fonts: small (17 px) and medium (24 px) for the status screens; the price fonts large (52 px) and mid (36 px), digits and ` ,-.:` only, are drawn by the AP | Done, generated from Inter (OFL) |
 | Column-by-column drawing (`draw.c`) of the status screens (`status.c`) for both models | Done, tested on PC for both models |
 | State machine: POLL, retry, draw only a new image, longer interval without AP, "No AP found" screen (`app.c`) | Done, tested on PC with a fake radio |

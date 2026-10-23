@@ -36,7 +36,8 @@ CODE_SIZE = 0xF400              # 0xF400-0xF7FF: free (the probes' logs), 0xF800
 BOOT_SIZE = 0x400               # page 0: the bootloader (boot/); the application starts here (ESL_FW_APP_BASE)
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test"),
-            os.path.join(TAG, "boot")]
+            os.path.join(TAG, "boot"),
+            os.path.join(ROOT, "ap", "components", "esl_core", "include")]   # host tests: the AP's image coder
 
 OTA_FILE_MAGIC = 0x5746534F     # ESL_FWF_MAGIC in shared/proto.h
 OTA_FILE_FORMAT = 1
@@ -52,7 +53,7 @@ HOST_TARGETS = {
                                 "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_status.c",
                                 "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
-                                "test/helpers.c"],
+                                "test/helpers.c", "../ap/components/esl_core/esl_img2d.c"],
     "test_epd": CORE + FONTS + ["src/epd.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
                                 "test/test_epd.c", "test/fake_hal.c", "test/helpers.c"],
 }
