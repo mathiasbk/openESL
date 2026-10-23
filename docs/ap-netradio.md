@@ -99,7 +99,9 @@ takes 22–110 ms, so that cannot work. Instead:
    next sync, and every log entry has one too. When an answer did not arrive whole, the radio sends its
    log again (the S3 skips what it replayed already) and the S3 tells it everything again, after the
    radio forgets its tags. The same happens when the radio restarted (a new boot number) or the S3 did
-   (it does not know the radio yet), so a tag deleted meanwhile is gone from the radio too.
+   (it does not know the radio yet), so a tag deleted meanwhile is gone from the radio too. Telling it
+   everything again costs one larger sync: about 40 bytes per tag (some 40 KB for 1000 tags), plus
+   the images the radio lacks as tags ask for them.
 
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.
 Only the link to the radio differs.
