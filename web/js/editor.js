@@ -1651,6 +1651,8 @@ function initOnAp() {
   $("ap-token").placeholder = "the AP's API token";
   $("ap-token").addEventListener("change", apDisconnected);
   $("ap-save").hidden = $("ap-reload").hidden = false;
+  new MutationObserver(() => { if (!$("tab-design").hidden) apStart(); })
+    .observe($("tab-design"), { attributes: true, attributeFilter: ["hidden"] });
   // the outcome of Save and Reload goes in the status bar too, since the dialog is closed
   const toStatus = () => setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
   $("ap-save").addEventListener("click", async () => {
@@ -1667,12 +1669,23 @@ function initOnAp() {
   return () => $("ap-token").value;
 }
 
-// On the AP's own page, once the first model is loaded: connect with the kept token and open
-// the AP's file, or ask for the token where Send to tag does
+// On the AP's own page, once the first model is loaded and whenever the tab is shown while not
+// connected: connect with the kept token (the Dashboard may have stored it meanwhile) and open
+// the AP's file, or ask for the token where Send to tag does. Not while the tab is hidden: its
+// dialog is modal, and would leave the Dashboard tab unclickable behind it.
+let apStarting = false;
+let apReady = false;      // the first model is loaded (initEditor)
 async function apStart() {
-  if ($("ap-token").value) await apRun("Connecting", apConnect);
-  if (!ap.connected) return $("send-open").click();
-  if ($("ap-status").textContent) setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  if (!apReady || $("tab-design").hidden || ap.connected || apStarting || $("send-dlg").open) return;
+  apStarting = true;
+  try {
+    try { $("ap-token").value ||= localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
+    if ($("ap-token").value) await apRun("Connecting", apConnect);
+    if (!ap.connected) return $("send-open").click();
+    if ($("ap-status").textContent) setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  } finally {
+    apStarting = false;
+  }
 }
 
 // The web page's Send to tag: the bridge's address (the Dashboard's) and a token for this session
@@ -1739,5 +1752,8 @@ export async function initEditor({ sameOrigin = false, rendererBase: base } = {}
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
   fitHeight();
-  if (onAp) await apStart();
+  if (onAp) {
+    apReady = true;
+    await apStart();
+  }
 }
