@@ -16,6 +16,11 @@
  *   (docs/protokoll.md part 3). */
 #define ESL_LAYOUT_NAMED 0xFF
 #define ESL_LAYOUT_NAME_MAX 31
+/* ESL_LAYOUT_IMAGE: a picture a client sent (PUT /api/tags/{mac}/image), shown as it is.
+ * The picture itself is kept apart (esl_store ops.persist_image, esl_image's stored
+ * form); the content's one field is the model it is for and the CRC-32 of the stored
+ * picture, so a new picture gives a new content_id. "image" in the API. */
+#define ESL_LAYOUT_IMAGE 0xFE
 
 #define ESL_CFLAG_PRICE_HIGHLIGHT ESL_CF_PRICE_HIGHLIGHT
 #define ESL_CFLAG_FRAME ESL_CF_FRAME
@@ -50,9 +55,13 @@ int esl_content_max_fields(uint8_t layout);
 esl_content_err_t esl_content_init(esl_content_t *c, uint8_t layout, uint8_t flags);
 /* For a layout from the layout file, by name (see esl_layout_name_valid). */
 esl_content_err_t esl_content_init_named(esl_content_t *c, const char *name, size_t len, uint8_t flags);
+/* For a picture (ESL_LAYOUT_IMAGE) for a tag of model; crc is the CRC-32 of its stored form. */
+void esl_content_init_image(esl_content_t *c, uint8_t model, uint32_t crc);
+/* True for a picture, with its model and CRC. */
+bool esl_content_image(const esl_content_t *c, uint8_t *model, uint32_t *crc);
 
 /* A layout name in a layout file: 1..31 of a-z 0-9 . _ -, starting with a
- * letter or digit, and not "price" or "text" (the built-in layouts). */
+ * letter or digit, and not "price", "text" (the built-in layouts) or "image" (a picture). */
 bool esl_layout_name_valid(const char *s, size_t len);
 
 esl_content_err_t esl_content_add_field(esl_content_t *c, const uint8_t *latin1, size_t len);
