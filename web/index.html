@@ -417,6 +417,17 @@
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
         <dl id="dash-ap" class="facts"></dl>
         <p id="dash-wifi" class="muted"></p>
+        <form id="dash-poll" class="form row">
+          <label>Poll interval for all tags
+            <select id="dash-poll-sel"></select>
+          </label>
+          <label id="dash-poll-other" hidden>Seconds
+            <input id="dash-poll-s" type="number" min="10" max="3600" step="1" inputmode="numeric">
+          </label>
+          <button id="dash-poll-save" type="submit">Save</button>
+        </form>
+        <p id="dash-poll-note" class="hint"></p>
+        <p id="dash-poll-msg" class="hint" role="status"></p>
       </details>
       <details id="dash-fw-box" class="card wide fold">
         <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>

@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
@@ -40,7 +40,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
-  let last = null;        // { list, health, wifi, ota, tagfw, layouts }
+  let last = null;        // { list, health, wifi, ota, tagfw, layouts, config }
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
@@ -138,8 +138,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const ota = await optional("/api/ota");
       const tagfw = await optional("/api/tag-firmware");
       const layouts = await optional("/api/layouts");
+      const config = await optional("/api/config");
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw, layouts };
+      last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
@@ -169,6 +170,73 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (visible()) refresh();
     else timer = setTimeout(tick, REFRESH_MS);
   }
+
+  // The poll interval for all tags (PUT /api/config). What the AP has is shown until the
+  // choice is changed here; then it stays as chosen until it is saved
+  let pollDirty = false;
+  const pollMsg = (text, cls = "") => {
+    $("dash-poll-msg").textContent = text;
+    $("dash-poll-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  // the interval chosen in the form: { poll_s } or { error }
+  const pollChosen = () => {
+    const v = $("dash-poll-sel").value;
+    return v === "other" ? parsePoll($("dash-poll-s").value) : { poll_s: Number(v) };
+  };
+  function showPollNote() {
+    const c = pollChosen();
+    $("dash-poll-other").hidden = $("dash-poll-sel").value !== "other";
+    $("dash-poll-note").textContent = c.error ? "" : pollNote(c.poll_s, last?.list?.tags);
+  }
+  function renderPoll() {
+    const cur = last.list.ap.poll_s || 0;
+    const sel = $("dash-poll-sel");
+    if (!sel.options.length) {
+      const opt = (value, text) => sel.append(new Option(text, value));
+      opt("0", `Tag default (${fmtInterval(TAG_BUILTIN_POLL_S)})`);
+      for (const s of POLL_PRESETS) opt(String(s), fmtInterval(s));
+      opt("other", "Other …");
+    }
+    if (!pollDirty) {
+      const preset = [...sel.options].some((o) => o.value === String(cur));
+      sel.value = preset ? String(cur) : "other";
+      $("dash-poll-s").value = preset ? "" : cur;
+    }
+    $("dash-poll-save").disabled = !pollDirty;
+    showPollNote();
+  }
+  const pollChanged = () => {
+    pollDirty = true;
+    pollMsg("");
+    if (last) renderPoll();
+  };
+  $("dash-poll-sel").addEventListener("change", () => {
+    if ($("dash-poll-sel").value === "other" && !$("dash-poll-s").value) $("dash-poll-s").value = last?.list?.ap.poll_s || TAG_BUILTIN_POLL_S;
+    pollChanged();
+    if ($("dash-poll-sel").value === "other") $("dash-poll-s").focus();
+  });
+  $("dash-poll-s").addEventListener("input", pollChanged);
+  $("dash-poll").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!client) return;
+    const c = pollChosen();
+    if (c.error) return pollMsg(c.error, "error");
+    // the AP's built-in value (menuconfig) is a reset, so a later firmware default applies
+    const builtin = last?.config?.builtin_poll_s;
+    const body = { poll_s: c.poll_s === builtin ? null : c.poll_s };
+    $("dash-poll-save").disabled = true;
+    try {
+      await client.call("PUT", "/api/config", body);
+      pollDirty = false;
+      pollMsg(c.poll_s
+        ? `Saved. The tags poll every ${fmtInterval(c.poll_s)} from their next poll.`
+        : `Saved. The tags go back to their default ${fmtInterval(TAG_BUILTIN_POLL_S)} from their next poll.`, "ok");
+      refresh();
+    } catch (e) {
+      pollMsg("Not saved: " + e.message, "error");
+      $("dash-poll-save").disabled = false;
+    }
+  });
 
   // The filter of the tag table: "all", "bad", "busy" or "model:<model>", kept in this browser
   let filter = store.get("dash.filter") || "all";
@@ -230,6 +298,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
+    renderPoll();
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]

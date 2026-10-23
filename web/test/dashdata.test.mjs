@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -68,10 +68,29 @@ test("AP facts", () => {
   assert.equal(f.Firmware, "0.1.0");
   assert.equal(f["Running for"], "1 d 1 h");
   assert.equal(f["Last start"], "watchdog (stuck task)");
-  assert.equal(f["Poll interval"], "tags' own");
+  assert.equal(f["Poll interval"], "tag default (1 min)");
   assert.equal(f["AP time"], "not set");
   assert.equal(f.Scheduled, "1 of 64");
   assert.ok(!("AP time" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
+});
+
+test("poll interval for all tags", () => {
+  assert.equal(fmtInterval(30), "30 s");
+  assert.equal(fmtInterval(90), "90 s");
+  assert.equal(fmtInterval(120), "2 min");
+  assert.equal(fmtInterval(3600), "1 h");
+  assert.deepEqual(parsePoll(""), { poll_s: 0 });
+  assert.deepEqual(parsePoll(" 300 "), { poll_s: 300 });
+  assert.deepEqual(parsePoll("3600"), { poll_s: 3600 });
+  for (const bad of ["9", "3601", "12.5", "abc", "-60"]) assert.ok(parsePoll(bad).error, bad);
+  assert.equal(batteryYears(0), 9.3); // the tag default, 60 s
+  assert.equal(batteryYears(300), 11.7);
+  assert.equal(batteryYears(3600), 12.1);
+  assert.equal(batteryYears(10), null);
+  assert.equal(pollNote(300), "A new price shows within 5 min. About 11.7 years on one CR2450 (a 1.54\" tag, one update a day; a 2.9\" tag lasts longer).");
+  assert.match(pollNote(10), /drain the battery/);
+  assert.match(pollNote(60, [tag("A", { config: { poll_s: 30 } }), tag("B")]), /One tag has an interval of its own set/);
+  assert.match(pollNote(60, [tag("A", { config: { poll_s: 30 } }), tag("B", { config: { poll_s: 600 } })]), /2 tags have an interval of their own set/);
 });
 
 test("last and next check-in", () => {
