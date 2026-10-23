@@ -17,21 +17,39 @@ void esl_rhost_init(esl_rhost_t *h, esl_store_t *st, esl_layouts_t *ls, esl_imag
     h->img_cap = img_cap;
     h->max_draws = ESL_RHOST_DRAWS;
     h->max_images = ESL_RHOST_IMAGES;
-    esl_rhost_reset(h);
+    memset(sent, 0, max_sent * sizeof(sent[0]));
 }
 
-void esl_rhost_reset(esl_rhost_t *h)
+void esl_rhost_begin(esl_rhost_t *h, const esl_rsync_t *req)
 {
-    memset(h->sent, 0, h->max_sent * sizeof(h->sent[0]));
-    h->default_sent = 0;
+    bool restarted = !h->have_radio || req->boot != h->radio_boot;
+    if (restarted || req->ack != h->seq) {
+        /* a radio that restarted (or one the host does not know: it restarted), or one
+           that missed the last answer: it forgets its tags and is told everything */
+        memset(h->sent, 0, h->max_sent * sizeof(h->sent[0]));
+        h->default_sent = 0;
+        h->clear = true;
+        h->stats.resets++;
+    }
+    if (restarted) {
+        h->have_radio = true;
+        h->radio_boot = req->boot;
+        h->replayed_any = false; /* its log counts from 0 again */
+    }
+    h->stats.radio_log_dropped = req->log_dropped;
 }
 
 void esl_rhost_replay(esl_rhost_t *h, const esl_rsync_t *req, const esl_rlog_t *e, uint64_t now_ms)
 {
-    uint8_t tx[ESL_PSDU_MAX];
+    if (h->replayed_any && (int32_t)(e->seq - h->replay_next) < 0) {
+        h->stats.skipped++; /* sent again after an answer it did not get */
+        return;
+    }
+    h->replayed_any = true;
+    h->replay_next = e->seq + 1;
     uint32_t age = req->now_ms - e->t_ms; /* the radio's clock, wrapping at 32 bits */
     uint64_t at = age < now_ms ? now_ms - age : 0;
-    esl_radio_handle(h->st, h->ls, h->pan, e->psdu, e->len, e->rssi, at, tx, NULL);
+    esl_radio_replay(h->st, h->ls, h->pan, e->psdu, e->len, e->rssi, at);
     h->stats.replayed++;
 }
 
@@ -103,34 +121,87 @@ static bool state(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, esl_rtag_
     return true;
 }
 
-static bool held(const uint32_t *ids, unsigned n, uint32_t id)
+/* What one answer sends, and what the radio is known to hold. */
+typedef struct {
+    const esl_rhost_out_t *out;
+    unsigned draws, images, free;
+    uint32_t have[ESL_RSYNC_IMAGES + ESL_RHOST_IMAGES * 2];
+    unsigned n_have;
+    bool more;
+} answer_t;
+
+static bool held(const answer_t *a, uint32_t id)
 {
-    for (unsigned i = 0; i < n; i++)
-        if (ids[i] == id)
+    for (unsigned i = 0; i < a->n_have; i++)
+        if (a->have[i] == id)
             return true;
     return false;
 }
 
-bool esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, uint64_t now_ms, const esl_rhost_out_t *out)
+/* The tag needs its image at the radio: it does not show it, has not refused it, and
+   the radio lacks it. */
+static bool needs_image(const answer_t *a, const esl_tag_t *t, uint32_t id)
 {
-    (void)now_ms;
-    unsigned draws = h->max_draws, images = h->max_images;
-    bool more = false;
-    uint32_t have[ESL_RSYNC_IMAGES + ESL_RHOST_IMAGES * 2];
-    unsigned n_have = 0;
-    bool fw_needed[ESL_RCACHE_MODELS] = {false};
+    return id && t->shown_content_id != id && t->image_failed != id && !held(a, id);
+}
 
+/* Sends the tag's image (id, as its state names it). The image drawn now may have
+   another id (the tag's flags changed what format it takes): *id is then the new one.
+   False when it could not be drawn or sent. */
+static bool send_image(esl_rhost_t *h, answer_t *a, uint64_t mac, uint32_t *id)
+{
+    if (!a->images || a->n_have >= sizeof(a->have) / sizeof(a->have[0])) {
+        a->more = true;
+        return false;
+    }
+    if (h->img_id != *id && !draw(h, mac, &a->draws)) {
+        a->more = a->more || a->draws == 0;
+        return false;
+    }
+    *id = h->img_id;
+    a->images--;
+    if (a->free)
+        a->free--;
+    a->have[a->n_have++] = h->img_id;
+    if (!a->out->image(a->out->ctx, h->img_id, h->img_model, h->img_fmt, h->img, h->img_size)) {
+        h->stats.refused++;
+        return false;
+    }
+    h->stats.images++;
+    return true;
+}
+
+void esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, const esl_rhost_out_t *out)
+{
+    answer_t a;
+    bool fw_needed[ESL_RCACHE_MODELS] = {false};
+    memset(&a, 0, sizeof(a));
+    a.out = out;
+    a.draws = h->max_draws;
+    a.images = h->max_images;
+    a.free = req->free_images;
+    for (unsigned i = 0; i < req->n_images && a.n_have < ESL_RSYNC_IMAGES; i++)
+        a.have[a.n_have++] = req->images[i];
     h->stats.syncs++;
-    if (req->n_tags == 0)
-        esl_rhost_reset(h); /* it has nothing: it restarted */
-    for (unsigned i = 0; i < req->n_images && n_have < ESL_RSYNC_IMAGES; i++)
-        have[n_have++] = req->images[i];
     h->img_id = 0;
 
+    if (h->clear) {
+        out->clear(out->ctx);
+        h->clear = false;
+    }
     uint16_t def = esl_store_get_next_poll(h->st);
     if (def != h->default_sent) {
         out->default_poll(out->ctx, def);
         h->default_sent = def;
+    }
+
+    /* the images of the tags it lacked something for first: they are awake now */
+    for (unsigned i = 0; i < ESL_RCACHE_WANTS; i++) {
+        esl_tag_t t;
+        esl_rtag_state_t s;
+        if (req->wants[i] && esl_store_get(h->st, req->wants[i], &t) && state(h, &t, &a.draws, &s) &&
+            needs_image(&a, &t, s.image_id))
+            send_image(h, &a, t.mac, &s.image_id);
     }
 
     unsigned slots = esl_store_slots(h->st);
@@ -147,12 +218,15 @@ bool esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, uint64_t now_ms, c
         }
         if (!used)
             continue;
-        if (!state(h, &t, &draws, &s)) {
-            more = true;
+        if (!state(h, &t, &a.draws, &s)) {
+            a.more = true;
             continue;
         }
         if (s.fw_ver && t.model <= ESL_RCACHE_MODELS)
             fw_needed[t.model - 1] = true;
+        /* its image ahead of the tag, while the radio has a slot to spare for it */
+        if (needs_image(&a, &t, s.image_id) && a.free)
+            send_image(h, &a, t.mac, &s.image_id);
         /* the tag the radio asked for is sent again even if it seems to have it */
         if (!same(prev, &s) || t.mac == req->want_mac) {
             if (out->tag(out->ctx, &s)) {
@@ -160,27 +234,7 @@ bool esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, uint64_t now_ms, c
                 h->stats.tags++;
             } else {
                 h->stats.refused++;
-                continue;
             }
-        }
-        /* its image, when the radio lacks it */
-        if (s.image_id && !held(have, n_have, s.image_id)) {
-            if (!images || n_have >= sizeof(have) / sizeof(have[0])) {
-                more = true;
-                continue;
-            }
-            if (h->img_id != s.image_id && !draw(h, t.mac, &draws)) {
-                more = true;
-                continue;
-            }
-            if (h->img_id != s.image_id)
-                continue; /* drawn otherwise now (the content changed meanwhile): next time */
-            images--;
-            have[n_have++] = s.image_id;
-            if (out->image(out->ctx, h->img_id, h->img_model, h->img_fmt, h->img, h->img_size))
-                h->stats.images++;
-            else
-                h->stats.refused++;
         }
     }
 
@@ -201,5 +255,5 @@ bool esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, uint64_t now_ms, c
             h->stats.fws++;
         }
     }
-    return more;
+    out->end(out->ctx, ++h->seq, a.more);
 }

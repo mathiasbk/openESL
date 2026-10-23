@@ -27,10 +27,17 @@ tell anyone who picks this setup.
 - **Images and firmware go over WiFi in the pauses, and cost tag replies while they do.** The radio
   fetches what it lacks in one go at a sync. An image is a few KB (about 5 KB for a 2.9" screen),
   firmware for a tag model about 53 KB. That is many WiFi packets in a row, and while they go the radio
-  hears almost no tags: with steady traffic about 40 % of frames were lost in the measurements. How
-  long an image sync takes is not measured yet; firmware takes seconds. So new tag firmware rolls out
-  more slowly than with a cabled radio, and when many tags change at once (every price in a shop) the
-  radio gets their images over several syncs, so the last tags show the change later.
+  hears almost no tags: with steady traffic about 40 % of frames were lost in the measurements.
+  **How long the radio is deaf during a sync** is not measured yet. An estimate from the measurements:
+  a sync with nothing new is a few packets, about 0.1–0.3 s; each image adds a handful of packets,
+  about 0.3–0.5 s, so a sync with 4 images about 1.5–2 s; tag firmware takes seconds. New tag firmware
+  therefore rolls out more slowly than with a cabled radio.
+- **A change to every tag at once takes minutes.** A sync sends at most 4 images, and syncs come 1 s
+  apart while more is waiting, so 1000 tags with new prices take about 250 syncs: roughly 4 minutes of
+  image traffic or more (an estimate), during which many first replies are lost and tags retry. The
+  images of tags that are polling go first, then, while the radio has slots to spare, those of tags
+  that will poll later. A radio with few image slots gets most images only when their tag polls, so the
+  last tags show the change up to an interval or two later.
 - **The dashboard is behind.** "Last seen", battery, RSSI and whether an image arrived come in batches
   with each sync, so they can be up to 30 s old. The tag table on the S3 is right, only late.
 - **WiFi costs tag replies.** The C6 has one 2.4 GHz radio for WiFi and 802.15.4. Every WiFi exchange,
@@ -83,9 +90,16 @@ takes 22–110 ms, so that cannot work. Instead:
    frames came (turned into its own clock), then answers with what changed since it last told the radio:
    the state of every tag that differs (also tags that did not poll, so new content is waiting at the
    radio before the tag wakes up), the images the radio lacks for them, tag firmware for a model a tag
-   is to get, the default interval, and the tags deleted since. A radio that restarted gets everything
-   again. Drawing is the slow part, so one sync draws at most 8 images and sends at most 4; with many
-   changes at once the S3 says there is more, and the rest follow at the next syncs, 1 s apart.
+   is to get, the default interval, and the tags deleted since. Images go only to tags that do not
+   show them yet and have not refused them: first for the tags the radio lacked something for (they are
+   awake), then for others while the radio has free slots. Drawing is the slow part, so one sync draws
+   at most 8 images and sends at most 4; with more waiting the S3 says so, and the rest follow at the
+   next syncs, 1 s apart. The replay draws nothing.
+5. **Nothing is lost on a broken link.** Every answer has a number that the radio acknowledges in its
+   next sync, and every log entry has one too. When an answer did not arrive whole, the radio sends its
+   log again (the S3 skips what it replayed already) and the S3 tells it everything again, after the
+   radio forgets its tags. The same happens when the radio restarted (a new boot number) or the S3 did
+   (it does not know the radio yet), so a tag deleted meanwhile is gone from the radio too.
 
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.
 Only the link to the radio differs.

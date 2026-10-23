@@ -94,6 +94,8 @@ typedef struct {
  * strong. t_ms is the radio's own clock (the low 32 bits, 49 days): the host turns it
  * into its own time with the radio's clock at the sync (esl_rhost). */
 typedef struct {
+    uint32_t seq;            /* counts every frame logged since the radio started, so a log
+                                sent again is not replayed twice */
     uint32_t t_ms;
     int8_t rssi;
     uint8_t len;             /* PSDU length including the FCS */
@@ -113,6 +115,7 @@ typedef struct {
 } esl_rcache_stats_t;
 
 #define ESL_RCACHE_MODELS 32
+#define ESL_RCACHE_WANTS  8   /* tags it lacks something for, as one sync can send */
 
 typedef struct {
     esl_rtag_t *tags;
@@ -125,6 +128,8 @@ typedef struct {
     unsigned log_cap, log_head, log_len;
     esl_rcache_ops_t ops;
     uint16_t pan;
+    uint32_t boot;           /* set by the caller after init, different at every start (a random
+                                number): the host tells a restarted radio everything again */
     uint16_t default_poll_s; /* the host's default interval (esl_store_get_next_poll), for unknown tags */
     uint32_t clock;          /* counts uses, for replacing images */
 
@@ -141,22 +146,35 @@ typedef struct {
     uint64_t want_mac;       /* the last tag it lacked state, an image or firmware for */
     uint32_t want_image;
     uint8_t want_fw_model;
+    uint64_t wants[ESL_RCACHE_WANTS];   /* the last tags it lacked something for, 0 = none */
+    unsigned wants_next;
+
+    /* the sync in progress */
+    uint32_t log_seq;        /* of the next frame logged */
+    uint32_t acked;          /* the seq of the last answer it got whole (esl_rcache_sync_end) */
+    unsigned sync_log;       /* log entries sent with the sync in progress */
     esl_rcache_stats_t stats;
 } esl_rcache_t;
 
 #define ESL_RSYNC_IMAGES 32
 
-/* What the radio tells the host at a sync, besides its log: its clock, what it lacks
- * and what it holds, so the host sends only what is missing. */
+/* What the radio tells the host at a sync, besides its log (the log_n oldest entries):
+ * its clock, what it lacks and what it holds, so the host sends only what is missing. */
 typedef struct {
+    uint32_t boot;                         /* esl_rcache_t.boot: another one means it restarted */
+    uint32_t ack;                          /* the seq of the last answer it got whole */
     uint32_t now_ms;                       /* the radio's clock (as esl_rlog_t.t_ms) */
+    unsigned log_n;                        /* log entries that go with this sync */
+    uint32_t log_dropped;                  /* frames its log had no room for, since it started */
     bool want;
     uint64_t want_mac;
     uint32_t want_image;
     uint8_t want_fw_model;
-    unsigned n_tags;                       /* tags it has state for: 0 after a restart */
+    uint64_t wants[ESL_RCACHE_WANTS];      /* tags it lacked something for (state or image), 0 = none */
+    unsigned n_tags;                       /* tags it has state for */
     unsigned n_images;
-    uint32_t images[ESL_RSYNC_IMAGES];     /* the ids it holds */
+    uint32_t images[ESL_RSYNC_IMAGES];     /* the ids it holds (the first ESL_RSYNC_IMAGES) */
+    unsigned free_images;                  /* slots free, or holding an image no tag's state names */
     esl_rfw_t fw[ESL_RCACHE_MODELS];       /* the firmware it holds, by model - 1 */
 } esl_rsync_t;
 
@@ -177,6 +195,8 @@ bool esl_rcache_set_tag(esl_rcache_t *rc, const esl_rtag_state_t *s);
 void esl_rcache_set_default_poll(esl_rcache_t *rc, uint16_t poll_s);
 /* Forgets a tag (deleted on the host). */
 void esl_rcache_drop_tag(esl_rcache_t *rc, uint64_t mac);
+/* Forgets every tag: the host restarted and sends them all again. */
+void esl_rcache_clear_tags(esl_rcache_t *rc);
 /* Stores an image (size bytes, at most image_cap), replacing the one used the longest
  * ago that no tag's state names, else the oldest, but never the one a tag is fetching
  * (unless it is the only slot). False when it does not fit. */
@@ -203,8 +223,15 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
  * makes it due at once). */
 bool esl_rcache_sync_due(const esl_rcache_t *rc, uint64_t now_ms, uint64_t last_sync_ms);
 
-/* What to tell the host at a sync (now_ms on the radio's clock). */
-void esl_rcache_sync_req(const esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req);
+/* A sync: what to tell the host (now_ms on the radio's clock), sent with the req->log_n
+ * oldest log entries. Then the host's answer is applied (esl_rcache_set_tag and so on),
+ * and esl_rcache_sync_end() with the answer's seq once it came whole. When it did not
+ * (the link broke), the next sync sends the log again; the host skips what it has. */
+void esl_rcache_sync_req(esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req);
+/* The host's answer seq came whole: the log sent with the sync is dropped, what the
+ * radio lacked is cleared, and with more (the host has more to send) it syncs again
+ * soon. */
+void esl_rcache_sync_end(esl_rcache_t *rc, uint32_t seq, bool more);
 
 /* ---- the log ---- */
 

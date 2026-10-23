@@ -61,6 +61,11 @@ bool esl_rcache_set_tag(esl_rcache_t *rc, const esl_rtag_state_t *s)
     return true;
 }
 
+void esl_rcache_clear_tags(esl_rcache_t *rc)
+{
+    rc->n_tags = 0;
+}
+
 void esl_rcache_set_default_poll(esl_rcache_t *rc, uint16_t poll_s)
 {
     rc->default_poll_s = poll_s ? poll_s : ESL_RCACHE_DEFAULT_POLL_S;
@@ -157,8 +162,11 @@ static void log_frame(esl_rcache_t *rc, const uint8_t *psdu, size_t len, int8_t 
         rc->log_head = (rc->log_head + 1) % rc->log_cap;
         rc->log_len--;
         rc->stats.log_dropped++;
+        if (rc->sync_log)
+            rc->sync_log--; /* one of those sent with the sync in progress */
     }
     esl_rlog_t *e = &rc->log[(rc->log_head + rc->log_len) % rc->log_cap];
+    e->seq = rc->log_seq++;
     e->t_ms = (uint32_t)now_ms;
     e->rssi = rssi;
     e->len = (uint8_t)len;
@@ -192,6 +200,11 @@ static void want(esl_rcache_t *rc, uint64_t mac, uint32_t image, uint8_t fw_mode
 {
     rc->want = true;
     rc->want_mac = mac;
+    bool listed = false;
+    for (unsigned i = 0; i < ESL_RCACHE_WANTS; i++)
+        listed |= rc->wants[i] == mac;
+    if (!listed)
+        rc->wants[rc->wants_next++ % ESL_RCACHE_WANTS] = mac;
     if (image)
         rc->want_image = image;
     if (fw_model)
@@ -395,6 +408,7 @@ void esl_rcache_want_clear(esl_rcache_t *rc)
     rc->want_mac = 0;
     rc->want_image = 0;
     rc->want_fw_model = 0;
+    memset(rc->wants, 0, sizeof(rc->wants));
 }
 
 void esl_rcache_want_more(esl_rcache_t *rc)
@@ -402,10 +416,15 @@ void esl_rcache_want_more(esl_rcache_t *rc)
     rc->want = true;
 }
 
-void esl_rcache_sync_req(const esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req)
+void esl_rcache_sync_req(esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req)
 {
     memset(req, 0, sizeof(*req));
+    req->boot = rc->boot;
+    req->ack = rc->acked;
     req->now_ms = (uint32_t)now_ms;
+    req->log_n = rc->sync_log = rc->log_len;
+    req->log_dropped = rc->stats.log_dropped;
+    memcpy(req->wants, rc->wants, sizeof(req->wants));
     req->want = rc->want;
     req->want_mac = rc->want_mac;
     req->want_image = rc->want_image;
@@ -414,5 +433,18 @@ void esl_rcache_sync_req(const esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *r
     for (unsigned i = 0; i < rc->n_images && req->n_images < ESL_RSYNC_IMAGES; i++)
         if (rc->images[i].id)
             req->images[req->n_images++] = rc->images[i].id;
+    for (unsigned i = 0; i < rc->n_images; i++)
+        if (!rc->images[i].id || !image_named(rc, rc->images[i].id))
+            req->free_images++;
     memcpy(req->fw, rc->fw, sizeof(req->fw));
+}
+
+void esl_rcache_sync_end(esl_rcache_t *rc, uint32_t seq, bool more)
+{
+    esl_rcache_log_drop(rc, rc->sync_log);
+    rc->sync_log = 0;
+    rc->acked = seq;
+    esl_rcache_want_clear(rc);
+    if (more)
+        esl_rcache_want_more(rc);
 }

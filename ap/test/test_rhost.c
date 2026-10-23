@@ -77,18 +77,36 @@ static void out_default(void *ctx, uint16_t poll_s)
 {
     esl_rcache_set_default_poll(ctx, poll_s);
 }
-static const esl_rhost_out_t out = {&rc, out_tag, out_drop, out_image, out_fw, out_default};
+static void out_clear(void *ctx)
+{
+    esl_rcache_clear_tags(ctx);
+}
+static bool lose_end; /* the link breaks before the end of the answer */
+static void out_end(void *ctx, uint32_t seq, bool more)
+{
+    if (!lose_end)
+        esl_rcache_sync_end(ctx, seq, more);
+}
+static const esl_rhost_out_t out = {&rc, out_clear, out_tag, out_drop, out_image, out_fw, out_default, out_end};
 
-static void radio_boot(void)
+/* The radio starts, with n_images image slots and max_tags tags */
+static void radio_start(unsigned n_images, unsigned max_tags)
 {
     static uint8_t *idata;
+    static uint32_t boots;
     static const esl_rcache_ops_t ops = {NULL, radio_read_fw};
     size_t cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
     if (!idata)
         idata = malloc(IMAGES * cap);
     for (unsigned i = 0; i < IMAGES; i++)
         rimages[i].data = idata + i * cap;
-    esl_rcache_init(&rc, PAN, rtags, TAGS, rimages, IMAGES, cap, rlog, LOG, &ops);
+    esl_rcache_init(&rc, PAN, rtags, max_tags, rimages, n_images, cap, rlog, LOG, &ops);
+    rc.boot = 0x5EED0000 + ++boots;
+}
+
+static void radio_boot(void)
+{
+    radio_start(IMAGES, TAGS);
 }
 
 static void boot(void)
@@ -116,14 +134,12 @@ static void sync_at(uint64_t now_ms)
 {
     esl_rsync_t req;
     esl_rcache_sync_req(&rc, now_ms + RADIO_CLOCK, &req);
-    unsigned n = esl_rcache_log_count(&rc);
-    for (unsigned i = 0; i < n; i++)
+    esl_rhost_begin(&host, &req);
+    unsigned drawn = images.drawn;
+    for (unsigned i = 0; i < req.log_n; i++)
         esl_rhost_replay(&host, &req, esl_rcache_log_at(&rc, i), now_ms);
-    esl_rcache_log_drop(&rc, n);
-    bool more = esl_rhost_answer(&host, &req, now_ms, &out);
-    esl_rcache_want_clear(&rc);
-    if (more)
-        esl_rcache_want_more(&rc);
+    CHECK_INT(images.drawn, drawn); /* the replay draws nothing */
+    esl_rhost_answer(&host, &req, &out);
 }
 
 /* One wake-up of a fake tag at host time now_ms, against the radio */
@@ -309,9 +325,119 @@ static void test_rhost_refused_fw(void)
     CHECK_INT(rc.fw[ESL_MODEL_29 - 1].ver, 0);
 }
 
+/* More image tags than the radio has image slots, the way they would run: each tag
+   wakes at its interval, the radio syncs when esl_rcache_sync_due() says. Every tag
+   gets its image, the images sent stay near one per tag, and once all show theirs the
+   radio stops asking. */
+static void test_rhost_slots(void)
+{
+    enum { N = 12 };
+    esl_faketag_t t[N];
+    uint64_t next[N], last_sync = 0;
+    boot();
+    radio_start(4, TAGS);
+    for (unsigned i = 0; i < N; i++) {
+        esl_faketag_init(&t[i], 0xD00 + i, 1, 3000, ESL_MODEL_29);
+        next[i] = 1000 + i * 4700; /* spread over the minute */
+    }
+    bool priced = false;
+    unsigned syncs_late = 0, images_late = 0;
+    for (uint64_t now = 0; now < 600000; now += 50) {
+        for (unsigned i = 0; i < N; i++)
+            if (now >= next[i]) {
+                wake(&t[i], now);
+                next[i] = now + t[i].interval_s * 1000u;
+            }
+        if (now == 120000 && !priced) {
+            for (unsigned i = 0; i < N; i++) {
+                char p[8];
+                snprintf(p, sizeof(p), "%u,50", i + 20);
+                set_price(0xD00 + i, "Vare", p);
+            }
+            priced = true;
+        }
+        if (esl_rcache_sync_due(&rc, now + RADIO_CLOCK, last_sync + RADIO_CLOCK)) {
+            unsigned before = host.stats.images;
+            sync_at(now);
+            last_sync = now;
+            if (now > 400000) {
+                syncs_late++;
+                images_late += host.stats.images - before;
+            }
+        }
+    }
+    for (unsigned i = 0; i < N; i++)
+        CHECK_INT(t[i].img_shown, 1);
+    CHECK(host.stats.images <= N + ESL_RHOST_IMAGES);
+    CHECK(syncs_late > 0 && syncs_late <= 25); /* every 10 s, not every second */
+    CHECK_INT(images_late, 0);
+    CHECK(!rc.want);
+}
+
+/* What the link can do: an answer lost on the way, so the log comes again; a radio
+   with no room for a tag; a host that restarted and forgot what it told the radio. */
+static void test_rhost_link(void)
+{
+    esl_faketag_t a, b;
+    esl_tag_t t;
+    boot();
+    esl_faketag_init(&a, 0xE1, 1, 3000, ESL_MODEL_29);
+    wake(&a, 1000);
+    sync_at(2000);
+    wake(&a, 62000);
+    CHECK(esl_store_get(&st, 0xE1, &t));
+    unsigned polls = t.polls;
+
+    /* the answer is lost: the radio keeps its log and sends it again; the host replays
+       nothing twice, and tells the radio everything again */
+    set_price(0xE1, "Ost", "89,00");
+    lose_end = true;
+    sync_at(63000);
+    lose_end = false;
+    CHECK(esl_store_get(&st, 0xE1, &t) && t.polls == polls + 1);
+    CHECK_INT(esl_rcache_log_count(&rc), 1);
+    unsigned resets = host.stats.resets;
+    sync_at(64000);
+    CHECK_INT(host.stats.skipped, 1);
+    CHECK_INT(host.stats.resets, resets + 1);
+    CHECK(esl_store_get(&st, 0xE1, &t) && t.polls == polls + 1);
+    CHECK_INT(esl_rcache_log_count(&rc), 0);
+    CHECK_INT(wake(&a, 122000), ESL_MSG_IMG);
+
+    /* a radio with room for one tag: the second is refused, and sent once there is room */
+    radio_start(IMAGES, 1);
+    esl_faketag_init(&b, 0xE2, 1, 3000, ESL_MODEL_29);
+    wake(&b, 130000);
+    sync_at(131000);
+    CHECK_INT(rc.n_tags, 1);
+    CHECK(host.stats.refused > 0);
+    CHECK_INT(wake(&b, 140000), ESL_MSG_IDLE); /* no room: the default interval, no waits */
+    CHECK_INT(b.interval_s, ESL_RCACHE_DEFAULT_POLL_S);
+    CHECK(esl_store_delete(&st, 0xE1));
+    sync_at(141000);
+    CHECK_INT(rc.n_tags, 1);
+    CHECK_INT((long long)rtags[0].s.mac, 0xE2);
+
+    /* the host restarts (its table survives in NVS on the S3; here the store stays) and
+       a tag was deleted meanwhile: the radio forgets its tags and gets the rest again */
+    radio_start(IMAGES, TAGS);
+    sync_at(150000);
+    wake(&a, 151000);
+    sync_at(152000);
+    CHECK_INT(rc.n_tags, 2);
+    static uint8_t img[8192];
+    esl_rhost_init(&host, &st, NULL, &images, &fw, PAN, sent, TAGS, img, esl_image_mem_size() / ESL_IMAGE_BUFS);
+    CHECK(esl_store_delete(&st, 0xE2));
+    sync_at(160000);
+    CHECK_INT(rc.n_tags, 1);
+    CHECK_INT((long long)rtags[0].s.mac, 0xE1);
+}
+
 void test_rhost(void)
 {
     test_rhost_content();
     test_rhost_many();
     test_rhost_refused_fw();
+    test_rhost_slots();
+    test_rhost_link();
 }
