@@ -16,7 +16,8 @@
   <a href="https://mathiasbk.github.io/openESL/#ap">Flash the AP</a> ·
   <a href="https://mathiasbk.github.io/openESL/#tag">Flash a tag</a> ·
   <a href="https://mathiasbk.github.io/openESL/#design">Label designer</a> ·
-  <a href="https://mathiasbk.github.io/openESL/#api">API docs</a>
+  <a href="https://mathiasbk.github.io/openESL/#api">API docs</a> ·
+  <a href="https://github.com/mathiasbk/openESL/wiki">Wiki</a>
 </p>
 
 <p align="center">
@@ -72,7 +73,7 @@ The list is made from [shared/models.json](shared/models.json), the one place a 
 
 ## Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
+The step-by-step guide is in the [wiki](https://github.com/mathiasbk/openESL/wiki). Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, then give it your WiFi and an API token over the same USB cable.
 2. **Flash the labels** one at a time in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware, then starts polling the AP.
@@ -138,6 +139,7 @@ Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's 
 |---|---|
 | [web/](web/README.md) | Web page: label designer, and flashing of tags and the AP from the browser |
 | [docs/](docs/README.md) | Requirements, architecture, protocol, work plan, risks and hardware notes |
+| [wiki/](wiki/) | The user guide, published to the [GitHub wiki](https://github.com/mathiasbk/openESL/wiki) from master |
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [ap/](ap/) | AP firmware (ESP-IDF) with the HTTP API, for the boards in [ap/boards](ap/boards/README.md), and the C6 radio coprocessor in [ap/radio](ap/radio/README.md) |
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |

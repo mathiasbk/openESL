@@ -12,6 +12,7 @@ machine, so a change can be checked before it is pushed.
 
 Steps:
   models    the generated model files match shared/models.json (tools/gen_models.py --check)
+  wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
   tag       tag host tests (tag/tools/build.py test)
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
@@ -108,6 +109,10 @@ def step_models():
     run([PY, "tools/gen_models.py", "--check"])
 
 
+def step_wiki():
+    run([PY, "tools/check_wiki.py"])
+
+
 def step_tag():
     need_host_cc()
     run([PY, "tag/tools/build.py", "test"])
@@ -184,6 +189,7 @@ def step_web():
 
 STEPS = {
     "models": (step_models, "Python"),
+    "wiki": (step_wiki, "Python"),
     "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
