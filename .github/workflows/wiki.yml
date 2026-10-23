@@ -35,6 +35,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Publish wiki/ to the GitHub wiki
         env:
           TOKEN: ${{ github.token }}

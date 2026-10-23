@@ -20,6 +20,7 @@ WIKI = os.path.join(ROOT, "wiki")
 REPO = "mathiasbk/openESL"
 BLOB = re.compile(r"^https://github\.com/%s/(?:blob|tree)/master/([^#?]+)(?:#(.*))?$" % REPO, re.I)
 RAW = re.compile(r"^https://raw\.githubusercontent\.com/%s/master/([^#?]+)$" % REPO, re.I)
+OTHER_BRANCH = re.compile(r"^https://github\.com/%s/(?:blob|tree)/(?!master/)" % REPO, re.I)
 RAW_WIKI = re.compile(r"^https://raw\.githubusercontent\.com/wiki/%s/([^#?]+)$" % REPO, re.I)
 PAGE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9.-]*)(?:#(.*))?$")
 LINK = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|<img[^>]*\ssrc=\"([^\"]+)\"")
@@ -34,14 +35,18 @@ def slug(heading):
 
 
 def anchors(path):
-    found, fence = set(), False
+    """The anchors of every heading in a file; a heading seen before gets -1, -2, ... as on GitHub."""
+    found, seen, fence = set(), {}, False
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.lstrip().startswith("```"):
                 fence = not fence
             m = None if fence else HEADING.match(line)
             if m:
-                found.add(slug(m.group(1)))
+                a = slug(m.group(1))
+                n = seen.get(a, 0)
+                seen[a] = n + 1
+                found.add(a if n == 0 else "%s-%d" % (a, n))
     return found
 
 
@@ -61,12 +66,18 @@ def main():
     for page, rel in sorted(pages.items()):
         text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
         text = re.sub(r"```.*?```", "", text, flags=re.S)
+        text = re.sub(r"`[^`\n]*`", "", text)          # inline code: examples, not links
+        for m in re.finditer(r"\[\[([^\]]+)\]\]", text):
+            errors.append("%s: [[%s]]: use a Markdown link, [text](Page), which this check can follow"
+                          % (rel, m.group(1)))
         for m in LINK.finditer(text):
             url = m.group(1) or m.group(2)
             where = "%s: %s" % (rel, url)
             if url.startswith("#"):
                 if url[1:] not in anchors(os.path.join(ROOT, rel)):
                     errors.append(where + ": no such heading on this page")
+            elif OTHER_BRANCH.match(url):
+                errors.append(where + ": link to master, which the wiki describes, not another branch")
             elif BLOB.match(url):
                 path, anchor = BLOB.match(url).groups()
                 full = os.path.join(ROOT, path.replace("%20", " "))
