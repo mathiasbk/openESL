@@ -37,6 +37,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -64,8 +65,10 @@ EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "
 
 # The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and
 # the room the renderer sets aside for each (ESL_*_CAP in shared/proto.h; jsonBytes needs none)
-LIMIT_CAPS = {"runs": "ESL_DRAW_CAP_RUNS", "rects": "ESL_DRAW_CAP_RECTS", "lines": "ESL_DRAW_CAP_LINES",
-              "icons": "ESL_DRAW_CAP_ICONS", "fileBytes": "ESL_LBIN_CAP", "jsonBytes": None}
+# (the limit's own macro there gives its default)
+LIMIT_CAPS = {"runs": ("ESL_DRAW_MAX_RUNS", "ESL_DRAW_CAP_RUNS"), "rects": ("ESL_DRAW_MAX_RECTS", "ESL_DRAW_CAP_RECTS"),
+              "lines": ("ESL_DRAW_MAX_LINES", "ESL_DRAW_CAP_LINES"), "icons": ("ESL_DRAW_MAX_ICONS", "ESL_DRAW_CAP_ICONS"),
+              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None)}
 DEFAULT_BOARD = "c6-supermini"     # ap/CMakeLists.txt
 
 
@@ -73,7 +76,15 @@ def limit_caps():
     """-D flags that give the renderer room for the largest limits any AP board has, so it can
     take those of the AP it talks to (web_set_limit). It starts with the defaults in
     shared/proto.h, which are the default board's: that board sets no limits of its own."""
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        proto = f.read()
     caps = {}
+    for limit, cap in LIMIT_CAPS.values():
+        if cap:
+            m = re.search(r"#define\s+%s\s+(\d+)" % limit, proto)
+            if not m:
+                sys.exit("shared/proto.h has no default for %s" % limit)
+            caps[cap] = int(m.group(1))
     for path in sorted(glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))):
         with open(path, encoding="utf-8") as f:
             b = json.load(f)
@@ -83,9 +94,9 @@ def limit_caps():
         for k, v in limits.items():
             if k not in LIMIT_CAPS or not isinstance(v, int) or v < 1:
                 sys.exit("%s: limits.%s = %r is not a known limit with a whole number" % (path, k, v))
-            cap = LIMIT_CAPS[k]
+            cap = LIMIT_CAPS[k][1]
             if cap:
-                caps[cap] = max(caps.get(cap, 0), v)
+                caps[cap] = max(caps[cap], v)
     return ["-D%s=%d" % kv for kv in sorted(caps.items())]
 
 
