@@ -177,7 +177,12 @@ esl_pic_err_t esl_image_picture(uint8_t model, bool dither, size_t len, bool (*r
         if (len != raw)
             return ESL_PIC_ERR_FORMAT;
         memcpy(out, p.head, p.head_len);
-        return read(ctx, out + p.head_len, raw - p.head_len) ? ESL_PIC_OK : ESL_PIC_ERR_READ;
+        if (!read(ctx, out + p.head_len, raw - p.head_len))
+            return ESL_PIC_ERR_READ;
+        for (size_t i = 0; p.red && i < p.plane; i++)
+            if (out[i] & out[p.plane + i])
+                return ESL_PIC_ERR_BOTH;
+        return ESL_PIC_OK;
     }
     memset(out, 0, raw);
     if (dither) {

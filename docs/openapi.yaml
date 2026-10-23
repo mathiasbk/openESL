@@ -469,7 +469,8 @@ paths:
         again gives `changed: false`, and the tag gets it at its next poll. `GET
         /api/tags/{mac}` then has `layout: "image"` and no fields. Content set later (a
         layout, `PUT /api/tags`) replaces it, and the picture is erased. Pictures cannot be
-        scheduled (`at`).
+        scheduled (`at`). Pictures leave 32 KB of NVS free for content, settings and layout
+        files: past that a new picture gets 507.
 
         Over WiFi the PNG is decoded as it arrives, so it may be up to 512 KB; over the USB
         port a request body is at most 24,576 bytes.
@@ -493,7 +494,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SetResult" }
         "400":
-          description: A bad MAC or `dither`, no body, a broken PNG, or a body that ended early
+          description: A bad MAC or `dither`, no body, a broken PNG (also one with data past its last row), a body that ended early, or a raw image with a pixel in both the black and the red plane
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -501,13 +502,13 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownTag" }
         "409":
-          description: The tag's model is not known yet (it has not polled)
+          description: The tag's model is not known yet (it has not polled), or the tag was deleted or changed while the picture came in
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "415":
-          description: Not a PNG (nor a raw image of the right size), or an interlaced PNG
+          description: Not a PNG (nor a raw image of the right size), an interlaced PNG, or one with a colour type, bit depth or critical chunk PNG does not have
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -522,12 +523,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "503":
-          description: No memory to decode the picture (about 40 KB)
+          description: No memory to decode the picture (up to about 56 KB, 32 KB of it in one block)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "507":
-          description: No room in NVS for the picture, or the tag table is full
+          description: No room in NVS for the picture (32 KB is kept free for other content), or the tag table is full
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

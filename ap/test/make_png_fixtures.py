@@ -190,7 +190,13 @@ def main():
     bad_adler[idat + 4 + ilen - 1] ^= 0x55
     bad_adler[idat + 4 + ilen:idat + 8 + ilen] = struct.pack(
         ">I", zlib.crc32(bytes(bad_adler[idat:idat + 4 + ilen])) & 0xFFFFFFFF)
+    # more rows than IHDR says (the image is 9 rows, IHDR 8): bytes past the last row
+    tall, _ = make(16, 9, 2, 8, z(), 1000, extra=False)
+    trailing = bytearray(tall)
+    trailing[8 + 8 + 7] = 8
+    trailing[ihdr_end - 4:ihdr_end] = struct.pack(">I", zlib.crc32(bytes(trailing[12:ihdr_end - 4])) & 0xFFFFFFFF)
     bad += [
+        ("trailing", bytes(trailing), "ESL_PNG_ERR_BAD"),
         ("not_png", b"GIF89a" + base[6:], "ESL_PNG_ERR_NOT_PNG"),
         ("bad_crc", bytes(flipped_crc), "ESL_PNG_ERR_BAD"),
         ("interlaced", bytes(interlaced), "ESL_PNG_ERR_UNSUPPORTED"),

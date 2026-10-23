@@ -968,10 +968,11 @@ BACKUP_FORMAT = "openesl-backup"
 CONTENT_KEYS = ("layout", "fields", "price_highlight", "frame")
 
 
-def backup(cli, now=None):
+def backup(cli, now=None, warn=None):
     """Everything the AP keeps in NVS that the API can read back: the default poll
     interval and the webhook, the layout files, each tag's content and settings, and
-    the scheduled content. Not the WiFi (its password cannot be read) or the token."""
+    the scheduled content. Not the WiFi (its password cannot be read) or the token.
+    A picture the AP cannot give back is left out, with a line to warn()."""
     st = cli.tags()
     tags = []
     for t in st.get("tags", []):
@@ -980,7 +981,13 @@ def backup(cli, now=None):
         if t.get("content_id", 0):
             d = cli.tag(t["mac"])
             if d.get("layout") == "image":  # a picture: its raw bytes, put back with PUT .../image
-                row["image"] = cli.tag_image(t["mac"])["data"]
+                try:
+                    row["image"] = cli.tag_image(t["mac"])["data"]
+                except ApiError as e:
+                    if e.status not in (404, 409):
+                        raise
+                    if warn:
+                        warn(f"warning: {t['mac']}: its picture was left out (HTTP {e.status}: {e.body.strip()})")
             else:
                 row.update({k: d[k] for k in CONTENT_KEYS if d.get(k) is not None})
         if cfg:
@@ -1095,7 +1102,8 @@ def restore(cli, b, dry_run=False, now=None):
             sent += 1
         except ApiError as e:
             if e.status not in (404, 409):
-                raise
+                lines.append(f"error: {mac}: HTTP {e.status}: {e.body.strip()}; {sent} tags were restored before it")
+                return lines, False
             later.append(mac)
     if later:
         lines.append(f"warning: {len(later)} pictures wait until their tags have polled this AP; run restore "
@@ -1333,7 +1341,7 @@ def main(argv=None):
                 print(f"the AP offers {r.get('model')} firmware {r.get('version')} to the tags; "
                       f"each takes it at its next poll (\"tag-ota\" shows how far they are)")
         elif args.cmd == "backup":
-            b = backup(cli)
+            b = backup(cli, warn=lambda line: print(line, file=sys.stderr))
             text = json.dumps(b, indent=1, ensure_ascii=False)
             if args.file == "-":
                 print(text)

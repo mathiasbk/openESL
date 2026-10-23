@@ -438,6 +438,24 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1)
 
+    def test_backup_and_restore_picture_errors(self):
+        self.run_cli("text", "00000123456789A8", "x")
+        cli = esl_client.Client(self.url, TOKEN)
+        cli.set_image("00000123456789A8", bytes(4736))
+        # the AP cannot give the picture back: the tag is left out, with a warning
+        del FakeAp.images["00000123456789A8"]
+        warnings = []
+        b = esl_client.backup(cli, warn=warnings.append)
+        self.assertEqual(b["tags"], [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("00000123456789A8: its picture was left out (HTTP 404", warnings[0])
+        # a picture the AP refuses stops the restore, saying how far it got
+        b["tags"] = [{"mac": "00000123456789A8", "image": base64.b64encode(bytes(100)).decode()}]
+        lines, ok = esl_client.restore(cli, b, False)
+        self.assertFalse(ok)
+        self.assertIn("error: 00000123456789A8: HTTP 415", lines[-1])
+        self.assertIn("0 tags were restored before it", lines[-1])
+
     def test_tag_ota(self):
         rc, out = self.run_cli("tag-ota")
         self.assertEqual(rc, 0)

@@ -240,6 +240,7 @@ typedef struct {
     httpd_req_t *req;
     size_t left;      /* body bytes not received yet */
     size_t pos, len;
+    unsigned reads;   /* buffers received */
     char buf[IMAGE_IN];
 } image_body_t;
 
@@ -248,6 +249,11 @@ static bool image_read(void *ctx, uint8_t *out, size_t n)
     image_body_t *b = ctx;
     while (n) {
         if (b->pos == b->len) {
+            /* Inflating can keep the CPU busy without waiting on the network (the
+               bytes are in the socket buffer already): a tick off every 16 KB lets
+               the idle task feed the task watchdog */
+            if (++b->reads % 16 == 0)
+                vTaskDelay(1);
             size_t want = b->left < IMAGE_IN ? b->left : IMAGE_IN;
             int r = want ? recv_some(b->req, b->buf, want) : 0;
             if (r <= 0)
@@ -265,6 +271,14 @@ static bool image_read(void *ctx, uint8_t *out, size_t n)
     return true;
 }
 
+static void image_hold(bool take)
+{
+    if (take)
+        xSemaphoreTake(api_mutex, portMAX_DELAY);
+    else
+        xSemaphoreGive(api_mutex);
+}
+
 static esp_err_t image_put(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
@@ -278,11 +292,12 @@ static esp_err_t image_put(httpd_req_t *req)
     body->req = req;
     body->left = req->content_len;
     body->pos = body->len = 0;
+    body->reads = 0;
     char *auth = get_auth(req);
     esl_sb_t out;
     esl_sb_init(&out, resp, IMAGE_RESP);
     xSemaphoreTake(api_mutex, portMAX_DELAY);
-    int status = esl_api_image_put(api, req->uri, auth, req->content_len, image_read, body,
+    int status = esl_api_image_put(api, req->uri, auth, req->content_len, image_read, body, image_hold,
                                    (uint64_t)esp_timer_get_time() / 1000, &out);
     xSemaphoreGive(api_mutex);
     free(auth);

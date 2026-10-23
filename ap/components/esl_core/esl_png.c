@@ -46,6 +46,7 @@ typedef struct {
     size_t out;          /* bytes inflated so far */
     uint32_t adler_a, adler_b;
     huff_t lit, dist, lens; /* lens: the code for the code lengths of a dynamic block */
+    bool fixed_built;    /* lit and dist hold the fixed codes */
 
     /* rows */
     size_t rowbytes;     /* one row without its filter byte */
@@ -255,11 +256,14 @@ static void row_done(dec_t *d)
 
 /* One inflated byte: the filter type of a row, or the next byte of it, unfiltered as
    it comes (a filter needs only the bytes before it in the row and the row above).
-   Bytes after the last row are ignored. */
+   Bytes after the last row are an error (a stream that inflates far past the
+   picture is a zip bomb, not a picture). */
 static void row_byte(dec_t *d, uint8_t v)
 {
-    if (d->y >= d->h)
+    if (d->y >= d->h) {
+        fail(d, ESL_PNG_ERR_BAD);
         return;
+    }
     if (d->col == 0) {
         if (v > 4)
             fail(d, ESL_PNG_ERR_BAD);
@@ -424,6 +428,9 @@ static void stored(dec_t *d)
 
 static void fixed(dec_t *d)
 {
+    if (d->fixed_built)
+        return;
+    d->fixed_built = true;
     uint8_t len[288];
     unsigned i = 0;
     for (; i < 144; i++)
@@ -530,6 +537,7 @@ static void inflate_idat(dec_t *d)
             fixed(d);
             codes(d);
         } else if (type == 2) {
+            d->fixed_built = false;
             if (dynamic(d))
                 codes(d);
         } else

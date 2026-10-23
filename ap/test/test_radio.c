@@ -843,7 +843,8 @@ static size_t png_chunk(uint8_t *out, const char *type, const uint8_t *data, siz
 {
     be32_put(out, (uint32_t)len);
     memcpy(out + 4, type, 4);
-    memcpy(out + 8, data, len);
+    if (len)
+        memcpy(out + 8, data, len);
     be32_put(out + 8 + len, esl_crc32(out + 4, 4 + len));
     return 12 + len;
 }
@@ -887,6 +888,17 @@ static size_t make_png(uint8_t *out, uint32_t w, uint32_t h, uint8_t (*grey)(uin
     m += png_chunk(out + m, "IDAT", z, o);
     m += png_chunk(out + m, "IEND", NULL, 0);
     return m;
+}
+
+/* esl_api_image_put's hold: counts, and deletes hold_delete while the lock is let go */
+static unsigned hold_calls;
+static uint64_t hold_delete;
+
+static void test_hold(bool take)
+{
+    hold_calls++;
+    if (!take && hold_delete)
+        esl_store_delete(&st, hold_delete);
 }
 
 static uint8_t grey_half(uint32_t x, uint32_t y)
@@ -1098,10 +1110,24 @@ static void test_picture(void)
     CHECK(!esl_api_image_put_uri("GET", "/api/tags/00000000000002A3/image"));
     CHECK(!esl_api_image_put_uri("PUT", "/api/tags/00000000000002A3"));
     CHECK(!esl_api_image_put_uri("PUT", "/api/tags/2A3/image"));
-    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", "Bearer nope", n, src_read, NULL, 0, &out), 401);
-    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", AUTH, n, src_read, NULL, 0, &out), 200);
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", "Bearer nope", n, src_read, NULL, NULL, 0, &out), 401);
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", AUTH, n, src_read, NULL, NULL, 0, &out), 200);
     CHECK(HAS(resp, "\"changed\":false"));
     CHECK_INT(src_left, 0);
+
+    /* the lock is let go while the body comes in; a tag deleted meanwhile is not
+       given the picture */
+    src_p = png;
+    src_left = n;
+    hold_calls = 0;
+    hold_delete = 0x2A3;
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", AUTH, n, src_read, NULL, test_hold, 0, &out),
+              409);
+    CHECK_INT(hold_calls, 2);
+    esl_tag_t gone;
+    CHECK(!esl_store_get(&st, 0x2A3, &gone));
+    for (unsigned s = 0; s < CAP; s++)
+        CHECK_INT(nvs.img_len[s], 0);
     esl_radio_set_image(NULL);
 }
 

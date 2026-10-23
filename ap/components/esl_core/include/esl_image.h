@@ -63,6 +63,7 @@ typedef enum {
     ESL_PIC_ERR_UNSUPPORTED,
     ESL_PIC_ERR_SIZE,      /* not the screen's size */
     ESL_PIC_ERR_NOMEM,
+    ESL_PIC_ERR_BOTH,      /* a raw image with a pixel set in both the black and the red plane */
 } esl_pic_err_t;
 
 /* Reads a picture of len bytes for a tag of model through read (exactly n bytes, or

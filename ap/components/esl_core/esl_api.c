@@ -1446,8 +1446,11 @@ static bool body_read(void *ctx, uint8_t *buf, size_t n)
     return b->read(b->ctx, buf, n);
 }
 
+/* hold (may be NULL) is let go while the body is read and decoded, which can take
+   as long as the client takes to send it, and taken again to store the picture. */
 static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t len,
-                     bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, esl_sb_t *out)
+                     bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, void (*hold)(bool take),
+                     esl_sb_t *out)
 {
     esl_tag_t t;
     if (!esl_store_takes_images(api->store))
@@ -1472,7 +1475,11 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
         return api_error(out, 503, "no memory for the picture");
     uint8_t *stored = img + raw;
     body_t body = {read, ctx, len};
+    if (hold)
+        hold(false);
     esl_pic_err_t err = esl_image_picture(t.model, dither, len, body_read, &body, img);
+    if (hold)
+        hold(true);
     int status = 200;
     if (err) {
         uint16_t w = 0, h = 0;
@@ -1491,11 +1498,14 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
             status = api_error(out, 400, "a broken PNG file");
             break;
         case ESL_PIC_ERR_UNSUPPORTED:
-            status = api_error(out, 415, "interlaced PNG files are not taken");
+            status = api_error(out, 415, "this kind of PNG is not taken (interlaced, or a colour type, bit depth or critical chunk PNG does not have)");
             break;
         case ESL_PIC_ERR_SIZE:
             snprintf(msg, sizeof(msg), "the picture must be %ux%u pixels, the tag's screen", (unsigned)w, (unsigned)h);
             status = api_error(out, 422, msg);
+            break;
+        case ESL_PIC_ERR_BOTH:
+            status = api_error(out, 400, "a raw image with a pixel set in both the black and the red plane");
             break;
         default:
             status = api_error(out, 503, "no memory for the picture");
@@ -1504,6 +1514,11 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
         free(img);
         return status;
     }
+    uint8_t model = t.model;
+    if (!esl_store_get(api->store, mac, &t) || t.model != model) {
+        free(img);
+        return api_error(out, 409, "the tag was deleted or changed while the picture came in");
+    }
     size_t n = esl_image_pack(mac, t.model, img, stored);
     esl_content_t c;
     esl_set_result_t r;
@@ -1511,7 +1526,7 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     esl_store_err_t serr = esl_store_set_image(api->store, mac, stored, n, &c, &r);
     free(img);
     if (serr)
-        return api_error(out, 507, serr == ESL_STORE_NOT_SAVED ? "no room to save the picture (NVS full)"
+        return api_error(out, 507, serr == ESL_STORE_NOT_SAVED ? "no room to save the picture: NVS is full, or nearly (some is kept for content)"
                                                                : store_err_text(serr));
     write_set_result(out, mac, &r);
     return status;
@@ -1544,7 +1559,8 @@ bool esl_api_image_put_uri(const char *method, const char *uri)
 }
 
 int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, size_t len,
-                      bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, uint64_t now_ms, esl_sb_t *out)
+                      bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, void (*hold)(bool take),
+                      uint64_t now_ms, esl_sb_t *out)
 {
     unsigned wait_s;
     uint64_t mac;
@@ -1559,7 +1575,7 @@ int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, s
         return api_error(out, 401, "unauthorized");
     if (!image_uri(uri, &mac))
         return api_error(out, 400, "mac must be 16 hex digits");
-    return put_image(api, mac, uri, len, read, ctx, out);
+    return put_image(api, mac, uri, len, read, ctx, hold, out);
 }
 
 static int handle_tagfw(const esl_api_t *api, const char *method, const char *uri, size_t plen,
@@ -1901,7 +1917,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         status = tag_image(api, mac, out);
     else if (item_image && strcmp(method, "PUT") == 0) {
         const uint8_t *p = (const uint8_t *)body;
-        status = put_image(api, mac, uri, body ? body_len : 0, mem_read, &p, out);
+        status = put_image(api, mac, uri, body ? body_len : 0, mem_read, &p, NULL, out);
     } else if (item_image)
         return api_error(out, 405, "method not allowed");
     else if (collection && strcmp(method, "GET") == 0)
