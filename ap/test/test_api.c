@@ -375,7 +375,7 @@ static void test_layouts(void)
 
     CHECK_INT(req("GET", "/api/layouts", NULL, NULL, 0), 401);
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":2048,\"layouts\":["
+    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"layouts\":["
                     "{\"model\":\"2.9\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);
@@ -396,7 +396,7 @@ static void test_layouts(void)
     uint32_t v = json_u32(resp, "\"version\":");
     CHECK(v != 0);
     CHECK_INT(json_u32(resp, "\"size\":"), len29);
-    CHECK_INT(json_u32(resp, "\"binary_size\":"), 174);
+    CHECK_INT(json_u32(resp, "\"binary_size\":"), 175);
     CHECK_INT(req("PUT", "/api/layouts/2.9/", AUTH, f29, 0), 200);
     CHECK(HAS(resp, "\"changed\":false"));
     CHECK_INT(json_u32(resp, "\"version\":"), v);
@@ -405,7 +405,7 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     char expect[256];
     snprintf(expect, sizeof(expect),
-             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":174,\"layouts\":[\"shelf\",\"sign\"]}",
+             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
              (unsigned)v, (unsigned)len29);
     CHECK(HAS(resp, expect));
     CHECK(HAS(resp, "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}"));

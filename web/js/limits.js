@@ -3,15 +3,19 @@
 // as its largest font choice can fit (1..3, capped by "lines"), and each rect element and
 // each inverted or highlighted text needs one rectangle. The limits themselves come from the
 // renderer (renderer.limits), so they follow shared/proto.h. A barcode needs neither, but a
-// layout holds at most limits.barcodes of them.
+// layout holds at most limits.barcodes of them, limits.lines line elements and limits.icons icons.
 
 const INVERTED = new Set(["invert", "highlight", "red_invert"]);
 
-// One element: { runs, rects, barcodes }.
+const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0 };
+
+// One element: { runs, rects, barcodes, lines, icons }.
 export function elementUsage(e, limits) {
-  if (e.type === "rect") return { runs: 0, rects: 1, barcodes: 0 };
-  if (e.type === "barcode") return { runs: 0, rects: 0, barcodes: 1 };
-  if (e.type !== "text") return { runs: 0, rects: 0, barcodes: 0 };
+  if (e.type === "rect") return { ...NONE, rects: 1 };
+  if (e.type === "barcode") return { ...NONE, barcodes: 1 };
+  if (e.type === "line") return { ...NONE, lines: 1 };
+  if (e.type === "icon") return { ...NONE, icons: 1 };
+  if (e.type !== "text") return { ...NONE };
   let most = 1;
   for (const f of (e.fonts || []).slice(0, 3)) {
     const fh = limits.fontHeight[f];
@@ -21,16 +25,18 @@ export function elementUsage(e, limits) {
     if (n > limits.linesPerText) n = limits.linesPerText;
     if (n > most) most = n;
   }
-  return { runs: most, rects: INVERTED.has(e.color) ? 1 : 0, barcodes: 0 };
+  return { ...NONE, runs: most, rects: INVERTED.has(e.color) ? 1 : 0 };
 }
 
-// A whole layout: { runs, rects, barcodes, elements: [{ runs, rects, barcodes }] }.
+// A whole layout: { runs, rects, barcodes, lines, icons, elements: [ the same per element ] }.
 export function layoutUsage(layout, limits) {
   const elements = (layout?.elements || []).map((e) => elementUsage(e, limits));
   return {
     runs: elements.reduce((a, u) => a + u.runs, 0),
     rects: elements.reduce((a, u) => a + u.rects, 0),
     barcodes: elements.reduce((a, u) => a + u.barcodes, 0),
+    lines: elements.reduce((a, u) => a + u.lines, 0),
+    icons: elements.reduce((a, u) => a + u.icons, 0),
     elements,
   };
 }
