@@ -1,6 +1,6 @@
 # Label designer
 
-A **layout** says where each text field goes on the label, in which font, and what fixed text, boxes, lines and barcodes are around it. Your software then sends only the text fields and the layout's name.
+A **layout** says where each text field goes on the label, in which font, and what fixed text, boxes, lines, icons, barcodes and QR codes are around it. Your software then sends only the text fields and the layout's name.
 
 The AP comes with two layouts: `price` (name, price, unit price) and `text` (up to four lines).
 
@@ -11,7 +11,7 @@ Open the [Design](https://mathiasbk.github.io/openESL/#design) tab. It works in 
 ![The label designer](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/web-designer.png)
 
 - **Left:** the layouts in the file, and the elements of the one you picked. "+ New" adds an empty layout or a copy of an example, such as the product labels `vare`, `vare-mva` and `vare-priser`.
-- **Middle:** the label, with the tools over it (text, fixed text, box, line, barcode). Drag and resize boxes; they snap to the edges, the centre and each other (hold Alt to turn it off). The bar next to the selected element sets font, alignment and colour, and more under "More".
+- **Middle:** the label, with the tools over it (text, fixed text, box, line, icon, barcode, QR code). Drag and resize boxes; they snap to the edges, the centre and each other (hold Alt to turn it off). The bar next to the selected element sets font, alignment and colour, and more under "More".
 - **Right:** the layout's name, its fields with the sample text the preview shows, and where the selected element is.
 - **Under the label:** how much of the AP's limits the layout uses, and whether the AP will accept it.
 
