@@ -44,6 +44,8 @@
                                      * flash) cannot show content. */
 #define ESL_POLL_F_IMG_RLE   0x40   /* the tag also takes ESL_IMG_FMT_RLE images */
 #define ESL_POLL_F_IMG_2D    0x80   /* ... and ESL_IMG_FMT_2D images */
+/* The flags byte is full: every bit is taken, 0x04 included (retired, and kept unused
+ * since older firmware set it). A new capability needs a field of its own after cfg_ver. */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,

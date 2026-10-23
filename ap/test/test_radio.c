@@ -758,6 +758,7 @@ static void test_image_rle(void)
             raw[i] = pass == 3 ? 0 : pass == 4 ? (uint8_t)(i * 7 + (i >> 3)) : (uint8_t)((i / 37) & 1 ? 0xFF : i % 3);
         size_t m = ESL_IMG_RLE_MARGIN(n);
         memcpy(buf + m, raw, n);
+        CHECK_INT((int)esl_img_rle_encode(raw, n, NULL, n + m), (int)esl_img_rle_encode(raw, n, back, n + m));   /* counted */
         size_t c = esl_img_rle_encode(buf + m, n, buf, n + m);   /* in place */
         CHECK(c > 0);
         CHECK_INT((int)rle_decode(buf, c, back, sizeof(back)), (int)n);
@@ -1154,6 +1155,58 @@ static void test_picture(void)
     esl_radio_set_image(NULL);
 }
 
+/* The shorter code is sent: 2D on text, RLE on a half dithered picture; and a tag that
+   goes back to firmware without 2D gets its image drawn again, not the 2D one it can
+   no longer take */
+static void test_image_choice(void)
+{
+    static uint8_t img[4736], back[5000];
+    const size_t raw29 = esl_render_size(ESL_MODEL_29);
+    memset(&nvs, 0, sizeof(nvs));
+    esl_layouts_init(&layouts, NULL);
+    ap_boot();
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x2B1, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"x\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_2D);
+
+    /* 100 dithered columns, the rest white */
+    uint32_t seed = 3;
+    memset(img, 0, sizeof(img));
+    for (size_t i = 0; i < 100 * 16; i++) {
+        seed = seed * 1103515245u + 12345u;
+        img[i] = (uint8_t)(seed >> 16);
+    }
+    size_t lr = esl_img_rle_encode(img, raw29, NULL, raw29 - 1), l2 = esl_img_2d_encode(img, raw29, 128, NULL, raw29 - 1);
+    CHECK(lr > 0 && l2 > lr);
+    CHECK_INT(put_picture("00000000000002B1", "", img, raw29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 2);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK_INT(buf_of(0x2B1)->size, lr);
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, img, raw29) == 0);
+
+    /* only 2D shorter than raw (no RLE): 2D within raw - 1 */
+    a.img_rle = false;
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"y\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 121000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_2D);
+    uint32_t shown = a.shown;
+
+    /* back to older firmware (RLE, no 2D) and a fresh start: the cached 2D image is not
+       sent, it is drawn again as RLE and shown */
+    a.img_rle = true;
+    a.img_2d = false;
+    a.shown = 0;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 122000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK(a.shown != 0 && a.shown != shown);
+    CHECK_INT(a.img_failed, 0);
+    esl_radio_set_image(NULL);
+}
+
 /* ESL_IMG_FMT_2D: a decoder written from the description in shared/proto.h, apart
    from the tag's (tag/src/image.c, tested in tag/test/test_image.c) */
 typedef struct {
@@ -1289,6 +1342,8 @@ static void test_image_2d(void)
             static uint8_t sep[16384];
             size_t c = esl_img_2d_encode(raw, n, (uint16_t)h, sep, sizeof(sep));
             CHECK(c > 0);
+            CHECK_INT((int)esl_img_2d_encode(raw, n, (uint16_t)h, NULL, sizeof(sep)), (int)c);   /* counted */
+            CHECK_INT((int)esl_img_2d_encode(raw, n, (uint16_t)h, NULL, c - 1), 0);
             CHECK_INT((int)decode_2d(sep, c, h, back, cols), (int)n);
             CHECK(memcmp(back, raw, n) == 0);
             if (c > 1)
@@ -1448,6 +1503,7 @@ void test_radio(void)
     test_image_send();
     test_image_rle();
     test_picture();
+    test_image_choice();
     test_image_2d();
     test_link();
 }

@@ -21,8 +21,10 @@ static void put(bits_t *b, uint32_t v, unsigned n)
         if (++b->nacc == 8) {
             if (b->o >= b->max || b->o >= b->limit)
                 b->full = true;
-            else
+            else if (b->out)
                 b->out[b->o++] = b->acc;
+            else
+                b->o++;
             b->acc = 0;
             b->nacc = 0;
         }
@@ -69,7 +71,7 @@ size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, 
         memcpy(cur, in + x * cb, cb);
         b.limit = ahead + (x + 1) * cb;
         int a0 = -1, col = 0;
-        while (a0 < h) {
+        while (a0 < h && !b.full) {
             int a1 = change_to(cur, a0, !col, h);
             int b1 = change_to(ref, a0, !col, h);
             int b2 = change_to(ref, b1, col, h);

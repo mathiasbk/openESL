@@ -189,8 +189,7 @@ static __code const uint8_t ink_from[8] = {0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0
    bit: a call per bit costs the 8051 more than the rest of the decoder. In internal RAM
    (__data), like the state below, which the 8051 reaches several times faster than
    external RAM. */
-static uint8_t __data bit_buf, bit_n, bit_v;
-static uint8_t bit_ok;
+static uint8_t __data bit_buf, bit_n, bit_v, bit_ok;
 #define BIT() (bit_n ? (bit_n--, bit_v = bit_buf >> 7, bit_buf <<= 1, bit_v) : bit_load())
 
 static uint8_t bit_load(void)

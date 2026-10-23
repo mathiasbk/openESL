@@ -9,7 +9,8 @@
  * n must be a whole number of columns. Returns the coded length, 0 when it does not
  * fit in max (or h is over ESL_IMG_2D_MAX_H). out may be in - margin, margin >= 0
  * (coding in place): a column is read before its code is written, and the coder
- * gives 0 rather than write over a column it has not read. A tag decodes it with the
+ * gives 0 rather than write over a column it has not read. out NULL only counts: the
+ * length the code would have, 0 when it is over max. A tag decodes it with the
  * previous and the current column in RAM (tag/src/image.c). Kept free of the rest of
  * esl_core, so the tag's host tests code with it too. */
 #define ESL_IMG_2D_MAX_H 512
