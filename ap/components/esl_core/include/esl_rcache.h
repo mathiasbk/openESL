@@ -29,8 +29,9 @@
  * not got yet) the reply is IDLE with a short interval, ESL_RCACHE_WAIT_S, and the
  * radio asks the host for it at its next sync; after ESL_RCACHE_WAIT_TRIES such replies
  * in a row the tag gets its own interval again (the host's default for a tag it knows
- * nothing of: a tag keeps the last interval it got, so it has to be sent), so a host that cannot deliver (a full table, an image too large)
- * does not keep it awake.
+ * nothing of: a tag keeps the last interval it got, so it has to be sent), so a host
+ * that cannot deliver (an image too large, say) does not keep it awake. A tag it has
+ * no state for while its table is full gets the default at once.
  *
  * WiFi on the C6 takes the radio from 802.15.4 for 80-95 ms per exchange
  * (docs/ap-netradio.md, "Limits"), so the radio syncs with the host only when no

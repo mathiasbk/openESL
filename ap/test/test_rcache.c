@@ -450,6 +450,21 @@ static void test_rcache_bits(void)
     s.next_poll_s = 120;
     CHECK(esl_rcache_set_tag(&rc, &s));
     CHECK_INT(rc.n_tags, TAGS);
+
+    /* with the table full, more unknown tags than it counts, polling in turn: none is
+       kept awake, and none makes it sync early (the host could not add them) */
+    esl_rcache_want_clear(&rc);
+    unsigned waits = rc.stats.waits;
+    for (int round = 0; round < 3; round++)
+        for (unsigned i = 0; i < ESL_RCACHE_UNKNOWN + 2; i++) {
+            esl_faketag_t u;
+            esl_faketag_init(&u, 0x500 + i, 1, 3000, ESL_MODEL_29);
+            u.seq = (uint8_t)round;
+            CHECK_INT(round_rc(&u, 200000 + round * 1000 + i), ESL_MSG_IDLE);
+            CHECK_INT(u.interval_s, ESL_RCACHE_DEFAULT_POLL_S);
+        }
+    CHECK(!rc.want);
+    CHECK_INT(rc.stats.waits, waits);
 }
 
 void test_rcache(void)

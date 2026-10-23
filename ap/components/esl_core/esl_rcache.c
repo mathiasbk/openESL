@@ -263,6 +263,10 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
     if (!t) {
         /* a tag the host has not told it about (new, or the radio restarted); once it
            has waited enough, the default interval */
+        if (rc->n_tags >= rc->max_tags) {
+            /* no room for it here whatever the host says: no wait, and no early sync */
+            return esl_idle_build(out, rc->default_poll_s);
+        }
         want(rc, mac, 0, 0);
         return wait_reply(rc, unknown_waits(rc, mac), rc->default_poll_s, out);
     }
@@ -291,6 +295,7 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
         }
         t->waits = 0;
         t->image_taken = 0;
+        rc->mid_mac = mac;
         return image_block(rc, im, 0, ESL_IMG_CHUNK_MAX, next, out);
     }
 
@@ -303,6 +308,7 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
         }
         size_t n = fw_block(rc, f, poll->model, 0, ESL_FW_CHUNK_MAX, next, out);
         if (n) {
+            rc->mid_mac = mac;
             t->waits = 0;
             t->fw_taken = 0;
             return n;
