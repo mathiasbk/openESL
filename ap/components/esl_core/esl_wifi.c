@@ -162,6 +162,7 @@ static void page_head(esl_sb_t *out)
                 "label{display:block;margin-top:12px}input{width:100%;padding:6px;box-sizing:border-box}"
                 "button{margin-top:16px;padding:8px 16px}.m{background:#eef;padding:8px}"
                 ".e{background:#fee;padding:8px}small{color:#555}"
+                "select{width:100%;padding:6px;margin-top:6px}"
                 "</style></head><body><h1>OpenESL AP setup</h1>");
 }
 
@@ -185,15 +186,25 @@ void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, c
         esl_sb_puts(out, "no network saved.");
     }
     esl_sb_puts(out, "</p><form method=\"post\" action=\"/setup\">"
-                     "<label>Network (SSID)<input name=\"ssid\" list=\"nets\" maxlength=\"32\" required value=\"");
+                     "<label>Network (SSID)<input name=\"ssid\" maxlength=\"32\" required value=\"");
     html_esc(out, st->ssid);
-    esl_sb_puts(out, "\"></label><datalist id=\"nets\">");
-    for (unsigned i = 0; i < st->scan_count && i < ESL_WIFI_SCAN_MAX; i++) {
-        esl_sb_puts(out, "<option value=\"");
-        html_esc(out, st->scan[i]);
-        esl_sb_printf(out, "\">%d dBm</option>", (int)st->scan_rssi[i]);
+    esl_sb_puts(out, "\"></label>");
+    /* The networks found, strongest first, in a menu that fills in the name (a
+       datalist only suggests while typing, and phones and the captive portal's
+       own window often never show it). The name is in the page once, so a full
+       list of long names still fits ESL_WIFI_PAGE_SIZE. */
+    if (st->scan_count) {
+        esl_sb_printf(out, "<select class=\"nets\" aria-label=\"Networks found\"><option value=\"\">"
+                           "Pick one of the %u networks found (strongest first)</option>", st->scan_count);
+        for (unsigned i = 0; i < st->scan_count && i < ESL_WIFI_SCAN_MAX; i++) {
+            esl_sb_puts(out, "<option>");
+            html_esc(out, st->scan[i]);
+            esl_sb_puts(out, "</option>");
+        }
+        esl_sb_puts(out, "</select><script>var n=document.querySelector(\".nets\");n.onchange=function(){"
+                         "if(n.value){n.form.ssid.value=n.value;n.form.pass.focus()}}</script>");
     }
-    esl_sb_puts(out, "</datalist>"
+    esl_sb_puts(out, ""
                      "<label>Password <small>(empty for an open network)</small>"
                      "<input name=\"pass\" type=\"password\" maxlength=\"63\" autocomplete=\"off\"></label>");
     if (token_set)

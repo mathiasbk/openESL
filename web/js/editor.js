@@ -42,12 +42,18 @@ const BUILTIN = {
 };
 const STORE = "openesl.editor.";
 const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to tag
+const DASH_TOKEN = "openesl.dash.token"; // and its token, which the AP's own page shares
 
 const $ = (id) => document.getElementById(id);
 const store = {
   get(k) { try { return localStorage.getItem(STORE + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(STORE + k, v); } catch { /* private mode */ } },
 };
+
+// On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
+// origin, and the layout files stored on the AP are what the editor opens and saves
+let onAp = false;
+let rendererBase;       // where the renderer is loaded from (renderer.js), when not next to it
 
 const state = {
   model: "2.9",
@@ -113,7 +119,8 @@ function save() {
 }
 
 // The file as it was last saved to a file, opened, or stored on the AP, so the head can say
-// when the editor has changes that are only in this browser.
+// when the editor has changes that are only in this browser. On the AP's own page it is the
+// file the AP has, so the head says what is not saved to the AP.
 function markClean() {
   store.set("clean." + state.model, JSON.stringify(doc()));
   refreshFileState();
@@ -126,8 +133,10 @@ function refreshFileState() {
   if (clean !== JSON.stringify(doc())) {
     const d = document.createElement("span");
     d.className = "dirty";
-    d.textContent = " · ● changes only in this browser";
-    d.title = "Kept in this browser. Save the layout file or send it to the AP to keep it elsewhere.";
+    d.textContent = onAp ? " · ● not saved to the AP" : " · ● changes only in this browser";
+    d.title = onAp
+      ? "Kept in this browser. Save to AP stores it on the AP, which then draws its tags with it."
+      : "Kept in this browser. Save the layout file or send it to the AP to keep it elsewhere.";
     fs.append(d);
   }
 }
@@ -221,7 +230,7 @@ async function loadModel(model) {
     state.history[model] = new History();
     state.history[model].reset(JSON.stringify(state.docs[model]));
   }
-  state.renderer = await loadRenderer(model);
+  state.renderer = await loadRenderer(model, rendererBase);
   document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
@@ -230,6 +239,7 @@ async function loadModel(model) {
   ap.mac = "";
   refreshAll();
   refreshTemplates(model);
+  if (onAp && ap.connected && !(model in ap.files)) await apRun("Reading the AP's layout file", () => apOpen(model));
 }
 
 // ---------- drawing ----------
@@ -1339,7 +1349,7 @@ function initActions() {
       state.sel = "file:0";
       refreshAll();
       save();
-      markClean();
+      if (!onAp) markClean();
     } catch (e) {
       setStatus(e.message, "error");
     }
@@ -1354,14 +1364,14 @@ function initActions() {
       state.sel = "file:0";
       refreshAll();
       save();
-      markClean();
+      if (!onAp) markClean();
     } catch (e) {
       setStatus("Could not read " + f.name + ": " + e.message, "error");
     }
   });
   $("file-save").addEventListener("click", () => {
     download(state.model + ".json", JSON.stringify(doc(), null, 2) + "\n");
-    markClean();
+    if (!onAp) markClean();
   });
   $("design-save").addEventListener("click", () => {
     const name = layoutName();
@@ -1426,7 +1436,8 @@ function initActions() {
 
 // ---------- send to the AP ----------
 
-const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "" };
+// files: on the AP's own page, model -> the layout file the AP has (null: none), once read
+const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {} };
 
 // The version of the model's layout file on the AP (GET /api/layouts), null when it has none
 async function apFileVersion() {
@@ -1438,6 +1449,7 @@ async function apFileVersion() {
 function apButtons(busy = false) {
   $("ap-connect").disabled = busy;
   $("ap-upload").disabled = busy || !ap.connected || isBuiltin();
+  if (onAp) $("ap-save").disabled = $("ap-reload").disabled = busy || !ap.connected;
   for (const id of ["ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected || !ap.mac;
 }
 
@@ -1460,6 +1472,7 @@ function apDisconnected() {
 }
 
 function apClient() {
+  if (onAp) return new ApClient("", $("ap-token").value.trim());
   const { base, error } = apBase($("ap-url").value);
   if (error) throw new Error(error);
   return new ApClient(base, $("ap-token").value.trim());
@@ -1546,9 +1559,47 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
-  const where = apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  const where = onAp ? location.host || "this AP" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
+  if (onAp) {
+    try { localStorage.setItem(DASH_TOKEN, $("ap-token").value.trim()); } catch { /* private mode */ }
+    if (!(state.model in ap.files)) return apOpen(state.model);
+  }
   return ["", ""];
+}
+
+// On the AP's own page: open the layout file the AP has for this model. Changes made here
+// and not saved to the AP yet stay (the head says so); otherwise the AP's file replaces
+// what the editor had, and a model without a file on the AP keeps the editor's.
+async function apOpen(model, discard = false) {
+  let file = null;
+  try {
+    file = await apClient().call("GET", "/api/layouts/" + encodeURIComponent(model));
+  } catch (e) {
+    if (!/^404\b/.test(e.message)) throw e;
+  }
+  ap.files[model] = file;
+  if (model !== state.model) return ["", ""];
+  const wasClean = store.get("clean." + model) === JSON.stringify(doc());
+  if (!file) {
+    // nothing on the AP: whatever the editor has is not saved there
+    store.set("clean." + model, "");
+    refreshFileState();
+    return [`The AP has no ${model}" layout file yet. Save to AP stores this one.`, ""];
+  }
+  if (!discard && !wasClean && JSON.stringify(file) !== JSON.stringify(doc())) {
+    store.set("clean." + model, JSON.stringify(file));
+    refreshFileState();
+    return ["Your changes from before are kept. Reload from the AP drops them.", ""];
+  }
+  setDoc(file);
+  state.history[model].reset(JSON.stringify(file));
+  if (!state.sel.startsWith("builtin:") && !layout()) state.sel = file.layouts?.length ? "file:0" : "builtin:price";
+  refreshAll();
+  save();
+  markClean();
+  refreshUndo();
+  return [`Opened the ${model}" layout file stored on the AP.`, "ok"];
 }
 
 async function apUpload() {
@@ -1556,6 +1607,7 @@ async function apUpload() {
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
   ap.fileVersion = res.version;
+  ap.files[state.model] = structuredClone(doc());
   markClean();
   return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
@@ -1600,7 +1652,57 @@ async function apCheck() {
   return [`The tag shows it (seen ${ago(t.seen_s_ago)}).`, "ok"];
 }
 
-function initAp() {
+// On the AP's own page the token is all it needs; the Dashboard tab keeps it under the same
+// key, so one entry serves both. Save to AP and Reload from the AP stand for the file menu's
+// file on disk there: the AP's own file is the one the editor opens.
+function initOnAp() {
+  $("ap-url").closest("label").hidden = true;
+  document.querySelector("#ap-setup .how").hidden = true;
+  document.querySelector("#ap-setup > p.hint").textContent =
+    "Enter the AP's API token once; this browser keeps it for this address, and the Dashboard tab uses it too.";
+  try { $("ap-token").value = localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
+  $("ap-token").placeholder = "the AP's API token";
+  $("ap-token").addEventListener("change", apDisconnected);
+  $("ap-save").hidden = $("ap-reload").hidden = false;
+  new MutationObserver(() => { if (!$("tab-design").hidden) apStart(); })
+    .observe($("tab-design"), { attributes: true, attributeFilter: ["hidden"] });
+  // the outcome of Save and Reload goes in the status bar too, since the dialog is closed
+  const toStatus = () => setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  $("ap-save").addEventListener("click", async () => {
+    await apRun("Saving", apUpload);
+    toStatus();
+  });
+  $("ap-reload").addEventListener("click", async () => {
+    closeMenus();
+    if (store.get("clean." + state.model) !== JSON.stringify(doc()) &&
+      !confirm(`Drop the changes to the ${state.model}" layout file and open the one stored on the AP?`)) return;
+    await apRun("Reading the AP's layout file", () => apOpen(state.model, true));
+    toStatus();
+  });
+  return () => $("ap-token").value;
+}
+
+// On the AP's own page, once the first model is loaded and whenever the tab is shown while not
+// connected: connect with the kept token (the Dashboard may have stored it meanwhile) and open
+// the AP's file, or ask for the token where Send to tag does. Not while the tab is hidden: its
+// dialog is modal, and would leave the Dashboard tab unclickable behind it.
+let apStarting = false;
+let apReady = false;      // the first model is loaded (initEditor)
+async function apStart() {
+  if (!apReady || $("tab-design").hidden || ap.connected || apStarting || $("send-dlg").open) return;
+  apStarting = true;
+  try {
+    try { $("ap-token").value ||= localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
+    if ($("ap-token").value) await apRun("Connecting", apConnect);
+    if (!ap.connected) return $("send-open").click();
+    if ($("ap-status").textContent) setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  } finally {
+    apStarting = false;
+  }
+}
+
+// The web page's Send to tag: the bridge's address (the Dashboard's) and a token for this session
+function initOnWeb() {
   const sess = {
     get(k) { try { return sessionStorage.getItem(STORE + k) || ""; } catch { return ""; } },
     set(k, v) { try { sessionStorage.setItem(STORE + k, v); } catch { /* private mode */ } },
@@ -1614,6 +1716,19 @@ function initAp() {
     apDisconnected();
   });
   $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
+  return () => {
+    // The Dashboard's address may have changed since
+    try {
+      const u = localStorage.getItem(DASH_URL);
+      if (u && u !== $("ap-url").value && !ap.connected) $("ap-url").value = u;
+    } catch { /* private mode */ }
+    return $("ap-url").value;
+  };
+}
+
+function initAp() {
+  // what Connect needs (the token on the AP, the address on the web), "" before it is entered
+  const canConnect = onAp ? initOnAp() : initOnWeb();
   $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
   $("ap-change").addEventListener("click", apDisconnected);
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
@@ -1623,12 +1738,7 @@ function initAp() {
     apStatus("");
     apShow();
     $("send-dlg").showModal();
-    // The Dashboard's address may have changed since
-    try {
-      const u = localStorage.getItem(DASH_URL);
-      if (u && u !== $("ap-url").value && !ap.connected) $("ap-url").value = u;
-    } catch { /* private mode */ }
-    if ($("ap-url").value && !ap.connected) apRun("Connecting", apConnect);
+    if (canConnect() && !ap.connected) apRun("Connecting", apConnect);
     else if (ap.connected) apRun("Reading the tags", async () => {
       ap.tags = (await apClient().tags()).tags || [];
       return ["", ""];
@@ -1637,7 +1747,11 @@ function initAp() {
   apDisconnected();
 }
 
-export async function initEditor() {
+// sameOrigin: on the AP's own page (js/apdesign.js); rendererBase: where render-<model>.js
+// and .wasm are, when not in ../wasm/ next to this file
+export async function initEditor({ sameOrigin = false, rendererBase: base } = {}) {
+  onAp = sameOrigin;
+  rendererBase = base;
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
   } catch {
@@ -1651,4 +1765,8 @@ export async function initEditor() {
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
   fitHeight();
+  if (onAp) {
+    apReady = true;
+    await apStart();
+  }
 }

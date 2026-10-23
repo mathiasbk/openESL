@@ -22,6 +22,7 @@ Undo and redo with Ctrl+Z and Ctrl+Shift+Z. Arrows, Tab, Delete and Ctrl+D (dupl
 ## Getting it onto the AP
 
 - **Send to tag…** in the designer uploads the layout file to the AP and puts the sample text on a label you pick. It goes through the bridge in [esl-client](https://github.com/mathiasbk/openESL/blob/master/tools/esl-client/README.md) (`esl_client.py --serial /dev/ttyACM0 serve`), since a web page may not call the AP on your network directly.
+- **On the AP itself:** an AP with room for it (the [ESP32-S3 + ESP32-C6](ESP32-S3-and-C6) and the [ESP32-C5](ESP32-C5)) has the designer too, at `http://openesl.local/dashboard#design`. There it opens the layout files stored on that AP, **Save to AP** writes your changes back, and **File → Reload from the AP** drops changes you have not saved. The head says when something is not saved to the AP yet. It uses the Dashboard's token, and it needs the internet for the preview, which it loads from the web page.
 - Or save the file (File menu) and upload it yourself: `esl_client.py layout-put 2.9 layouts.json`, or `PUT /api/layouts/{model}`.
 
 There is one layout file per label model, holding up to 16 layouts. The built-in `price` and `text` can always be used, with or without a file. When you upload a new version, the AP draws every label that uses it again, and each label gets its new screen at its next poll. A layout the AP cannot draw gets a `422` with the reason, the same message the designer shows.
