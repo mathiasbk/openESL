@@ -53,6 +53,10 @@ FONTS = [
     ("large", "Inter-Bold.ttf", 56, 52, 42, PRICE),
     # Price font between medium and large: "129,90" fits the 1.54" (152 px) and long prices the 2.9"
     ("mid", "Inter-Bold.ttf", 39, 36, 29, PRICE),
+    # Between small and medium (Latin-1, like small and medium)
+    ("text20", "Inter-SemiBold.ttf", 16, 20, 16, LATIN1),
+    # Price between mid and large: "129,90" fits the 1.54" (152 px)
+    ("price44", "Inter-Bold.ttf", 44, 44, 35, PRICE),
 ]
 
 

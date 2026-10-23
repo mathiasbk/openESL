@@ -266,13 +266,17 @@
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */
 #define ESL_FONT_LARGE       2      /* 52 px, bare siffer og " ,-.:" */
 #define ESL_FONT_MID         3      /* 36 px, samme tegn som LARGE */
-#define ESL_FONT_COUNT       4
+#define ESL_FONT_TEXT20      4      /* 20 px, Latin-1 (AP-en; tagen tegner den ikke) */
+#define ESL_FONT_PRICE44     5      /* 44 px, samme tegn som LARGE (AP-en; tagen tegner den ikke) */
+#define ESL_FONT_COUNT       6
 #define ESL_FONT_NONE        0xFF
 /* Fonthøyder i piksler (= height i tag/fonts/font_*.c), brukt av AP-en når den sjekker layouter */
 #define ESL_FONT_SMALL_H     17
 #define ESL_FONT_MEDIUM_H    24
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
+#define ESL_FONT_TEXT20_H    20
+#define ESL_FONT_PRICE44_H   44
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
 #define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
 #define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */

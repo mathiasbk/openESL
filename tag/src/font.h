@@ -16,7 +16,9 @@
 #define FONT_MEDIUM  1
 #define FONT_LARGE   2   /* digits and " ,-.:" only, for the price (52 px) */
 #define FONT_MID     3   /* the same characters as FONT_LARGE, 36 px */
-#define FONT_COUNT   4
+#define FONT_TEXT20  4   /* 20 px, Latin-1; the AP only */
+#define FONT_PRICE44 5   /* the same characters as FONT_LARGE, 44 px; the AP only */
+#define FONT_COUNT   6
 
 #define FONT_ELLIPSIS 0x7F   /* "…", used when text is truncated */
 
@@ -35,6 +37,8 @@ extern const font_t __code font_small;
 extern const font_t __code font_medium;
 extern const font_t __code font_large;
 extern const font_t __code font_mid;
+extern const font_t __code font_text20;
+extern const font_t __code font_price44;
 
 /* Unknown ids give the medium font. */
 const font_t __code *font_get(uint8_t id);

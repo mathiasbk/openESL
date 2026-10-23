@@ -121,7 +121,7 @@ Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 |---|---|---|
 | 0 | 1 | kind: 1 = text, 2 = filled rectangle, 3 = barcode |
 | 1 | 1 | text field 0..5 (text and barcode), or 0x80 + i for fixed text i of the file |
-| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
+| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
 | 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom) |
 | 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits |
 | 7 | 1 | colour: 0 black, 1 white, 2 inverted (white text in a black box), 3 highlight (inverted if flag bit0, else black), 4 frame (black if flag bit1, else not drawn), 5 red (text or rectangle), 6 red inverted (white text in a red box). 5 and 6 only on a model with red (`colors` in `shared/models.json`) |
@@ -273,7 +273,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
 | `module` | barcode only: module width 1–4 px, 0 (default) = the widest that fits the box |
-| `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `mid` (36 px), `large` (52 px); `mid` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
+| `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `text20` (20 px), `mid` (36 px), `price44` (44 px), `large` (52 px); `mid`, `price44` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
 | `align`, `valign` | text only (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
 | `lines` | text only: 0–3, 0 (default) = as many as the box holds |
 | `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text and rect) and `red_invert` (text: white text in a red box) |

@@ -57,6 +57,8 @@ async function create(model, base) {
         medium: call("web_limit", "number", ["number"], [6]),
         mid: call("web_limit", "number", ["number"], [7]),
         large: call("web_limit", "number", ["number"], [8]),
+        text20: call("web_limit", "number", ["number"], [15]),
+        price44: call("web_limit", "number", ["number"], [16]),
       },
       barcodes: call("web_limit", "number", ["number"], [9]),
       barcodeMinH: call("web_limit", "number", ["number"], [10]),

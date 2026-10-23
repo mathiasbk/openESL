@@ -5,6 +5,7 @@ idf_component_register(
          esl_store.c esl_text.c esl_wifi.c esl_screen.c esl_render.c
          ../../../tag/src/font.c ../../../tag/src/barcode.c
          ../../../tag/fonts/font_small.c ../../../tag/fonts/font_medium.c ../../../tag/fonts/font_mid.c ../../../tag/fonts/font_large.c
+         ../../../tag/fonts/font_text20.c ../../../tag/fonts/font_price44.c
     INCLUDE_DIRS include ../../../shared
     # font.h, barcode.h: the tag's fonts and barcodes for the status screen and esl_render.c; private, since tag/src also has an app.h
     PRIV_INCLUDE_DIRS ../../../tag/src)

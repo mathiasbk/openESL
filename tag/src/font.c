@@ -7,6 +7,8 @@ const font_t __code *font_get(uint8_t id)
 #ifndef FONT_TEXT_ONLY   /* the tag firmware has only small and medium (tools/build.py) */
     case FONT_LARGE:  return &font_large;
     case FONT_MID:    return &font_mid;
+    case FONT_TEXT20: return &font_text20;
+    case FONT_PRICE44: return &font_price44;
 #endif
     default:          return &font_medium;
     }

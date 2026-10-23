@@ -21,6 +21,11 @@ for (const model of Object.keys(MODELS)) {
     }
   });
 
+  test(`${model}: the designer knows the height of every font`, async () => {
+    const r = await loadRenderer(model, WASM);
+    assert.deepEqual(r.limits.fontHeight, { small: 17, text20: 20, medium: 24, mid: 36, price44: 44, large: 52 });
+  });
+
   test(`${model}: over the limits, the compiler names the same counts`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width } = MODELS[model];
