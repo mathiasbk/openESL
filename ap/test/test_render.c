@@ -16,7 +16,14 @@ static const char FILE_PRICE[] =
     "{\"name\":\"fmt\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
     "\"x\":0,\"y\":0,\"w\":296,\"h\":60,\"fonts\":[\"large\"],\"decimals\":2,\"thousands\":true}]},"
     "{\"name\":\"raw\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
-    "\"x\":0,\"y\":0,\"w\":296,\"h\":60,\"fonts\":[\"large\"]}]}]}";
+    "\"x\":0,\"y\":0,\"w\":296,\"h\":60,\"fonts\":[\"large\"]}]},"
+    /* tall enough for two lines of large: a formatted number still keeps to one, in mid */
+    "{\"name\":\"tall\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"],\"decimals\":2,\"thousands\":true}]},"
+    "{\"name\":\"tall1\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"],\"lines\":1}]},"
+    "{\"name\":\"tall0\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"]}]}]}";
 
 static size_t ink(const uint8_t *img, size_t n)
 {
@@ -99,6 +106,12 @@ void test_render(void)
     named(&c, "raw", "1 299,90");
     CHECK(n == 296 * 16 && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
     named(&c, "raw", "1299.9");
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) != 0);
+    named(&c, "tall", "12345.5");
+    n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
+    named(&c, "tall1", "12 345,50");
+    CHECK(n && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
+    named(&c, "tall0", "12 345,50"); /* as text it wraps after "12" */
     CHECK(esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) != 0);
     named(&c, "fmt", "12:30");
     n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));

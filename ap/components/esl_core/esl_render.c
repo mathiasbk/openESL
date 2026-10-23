@@ -55,7 +55,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_MAX_RUNS     ESL_DRAW_MAX_RUNS
 #define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
 #define RD_MAX_BARCODES ESL_DRAW_MAX_BARCODES
-#define RD_MAX_NUMS     8 /* formatted numbers per screen; more are drawn as sent */
+#define RD_MAX_NUMS     ESL_DRAW_MAX_NUMS
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
 
 #define RD_BLACK 0
@@ -710,15 +710,22 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     t = text[e->field];
                     len = lens[e->field];
                 }
+                rd_elem_t one;
+                const rd_elem_t *te = e;
                 if (len && e->kind == ESL_LE_TEXT && (e->opts & ESL_LE_NUM_MASK) && s->nnums < RD_MAX_NUMS) {
                     size_t n = esl_format_number(t, len, e->opts, s->num[s->nnums], ESL_LE_NUM_MAX_LEN);
                     if (n) {
                         t = s->num[s->nnums++];
                         len = (uint8_t)n;
+                        /* a number on one line: its thousands spaces are not places to wrap,
+                           so a smaller font is used when it does not fit */
+                        one = *e;
+                        one.lines = 1;
+                        te = &one;
                     }
                 }
                 if (len && e->kind == ESL_LE_TEXT)
-                    place_text(s, e, t, len, color);
+                    place_text(s, te, t, len, color);
                 else if (len && e->kind == ESL_LE_BARCODE)
                     place_barcode(s, e, t, len);
             }
@@ -732,7 +739,7 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
 
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
 {
-    static rd_scene_t scene; /* 1 KB; not reentrant, see esl_render.h */
+    static rd_scene_t scene; /* about 1.2 KB; not reentrant, see esl_render.h */
     static rd_builtin_t bi;
     rd_model_t m;
     rd_file_t fl;

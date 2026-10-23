@@ -240,6 +240,15 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"decimals\":1}", "decimals must be 0, 2");
     bad_el(TEXT_A ",\"decimals\":\"two\"}", "decimals must be 0, 2");
     bad_el(TEXT_A ",\"thousands\":1}", "thousands must be true or false");
+    {
+        static char els[2048];
+        size_t n = 0;
+        for (int i = 0; i <= ESL_DRAW_MAX_NUMS; i++)
+            n += (size_t)snprintf(els + n, sizeof(els) - n, "%s" TEXT_A ",\"decimals\":2}", i ? "," : "");
+        bad_el(els, "at most 8 numbers");
+        els[strrchr(els, '{') - els - 1] = '\0'; /* one fewer */
+        CHECK(compile_el(els));
+    }
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"decimals\":2}",
            "decimals is only for text elements");
     bad_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"code128\",\"x\":0,\"y\":0,"

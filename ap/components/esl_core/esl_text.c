@@ -123,12 +123,12 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
 
     if (mode < ESL_LE_NUM_KEEP || mode > ESL_LE_NUM_DASH || cap < ESL_LE_NUM_MAX_LEN)
         return 0;
-    while (a < b && in[a] == ' ')
+    while (a < b && (in[a] == ' ' || in[a] == 0xA0))
         a++;
-    while (b > a && in[b - 1] == ' ')
+    while (b > a && (in[b - 1] == ' ' || in[b - 1] == 0xA0))
         b--;
-    if (a < b && in[a] == '-') {
-        neg = true;
+    if (a < b && (in[a] == '-' || in[a] == '+')) {
+        neg = in[a] == '-';
         a++;
     }
     if (b - a >= 2 && in[b - 1] == '-' && (in[b - 2] == ',' || in[b - 2] == '.')) {
@@ -140,7 +140,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
             commas++, dec = i;
         else if (in[i] == '.')
             dots++;
-        else if ((in[i] < '0' || in[i] > '9') && in[i] != ' ')
+        else if ((in[i] < '0' || in[i] > '9') && in[i] != ' ' && in[i] != 0xA0)
             return 0;
     }
     /* With a comma it is the decimal sign and dots group thousands (1.299,90);
@@ -154,8 +154,19 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
                 dec = i;
     if (dec < b)
         for (i = dec + 1; i < b; i++)
-            if (in[i] == '.' || in[i] == ' ')
+            if (in[i] < '0' || in[i] > '9')
                 return 0;
+    /* Before the decimal sign a space or dot only groups thousands: one, after a digit,
+     * and then exactly three digits ("1 299", "1.299.000"; not "1.000.5" or "12 34") */
+    for (i = a; i < dec && i < b; i++) {
+        if (in[i] >= '0' && in[i] <= '9')
+            continue;
+        size_t k = i + 1;
+        while (k < dec && k < b && in[k] >= '0' && in[k] <= '9')
+            k++;
+        if (i == a || k - i != 4)
+            return 0;
+    }
     for (i = a; i < b; i++) {
         if (in[i] < '0' || in[i] > '9')
             continue;

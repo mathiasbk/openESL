@@ -138,7 +138,7 @@ static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT,
 typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
-    unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
+    unsigned runs, rects, nums; /* what the layout needs at most from the AP's scene (esl_render.c) */
     unsigned barcodes;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
@@ -394,6 +394,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     out[ESL_LE_OFF_OPTS] = (uint8_t)(align_opts[ai] | valign_opts[vi]);
     if (!number_format(c, e, &out[ESL_LE_OFF_OPTS]))
         return false;
+    if ((out[ESL_LE_OFF_OPTS] & ESL_LE_NUM_MASK) && ++lay->nums > ESL_DRAW_MAX_NUMS)
+        return fail(c, "the AP formats at most %d numbers (decimals, thousands) per layout", ESL_DRAW_MAX_NUMS);
 
     unsigned lines = 0;
     int ln = esl_json_obj_get(c->js, c->tok, e, "lines");

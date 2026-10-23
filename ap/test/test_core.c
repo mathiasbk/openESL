@@ -112,6 +112,10 @@ void test_number(void)
     num(",5", ESL_LE_NUM_2, "0,50");
     num("199", ESL_LE_NUM_2, "199,00");
     num("-12.5", ESL_LE_NUM_2, "-12,50");
+    num("+5", ESL_LE_NUM_2, "5,00");
+    num("\xA0" "1\xA0" "299,90\xA0", ESL_LE_NUM_2, "1299,90");
+    num(".5", ESL_LE_NUM_2, "0,50");
+    num("1.299", ESL_LE_NUM_2, "1,30"); /* one dot and no comma: the decimal sign */
 
     /* decimals */
     num("199.9", ESL_LE_NUM_0, "200");
@@ -143,6 +147,11 @@ void test_number(void)
     num("1,2,3", ESL_LE_NUM_2, NULL);
     num("1,5.5", ESL_LE_NUM_2, NULL);
     num("12.5 0", ESL_LE_NUM_2, NULL);
+    num("1.000.5", ESL_LE_NUM_2, NULL);
+    num("12 34", ESL_LE_NUM_2, NULL);
+    num("1  299", ESL_LE_NUM_2, NULL);
+    num(".299,90", ESL_LE_NUM_2, NULL);
+    num("1 2990,5", ESL_LE_NUM_2, NULL);
     num("1,5,-", ESL_LE_NUM_2, NULL);
     num("", ESL_LE_NUM_2, NULL);
     num(" - ", ESL_LE_NUM_2, NULL);

@@ -943,7 +943,7 @@ function moreMenu(e, btn, select, open) {
       .setAttribute("role", "switch");
     const pn = document.createElement("p");
     pn.className = "hint";
-    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen; text that is not a number is drawn as sent.";
+    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
     list.append(pn);
   }
   if (e.type === "barcode") {
