@@ -1138,7 +1138,7 @@ async function addIcon(file) {
   try {
     bmp = await createImageBitmap(file);
   } catch {
-    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG or GIF)", "error");
     return;
   }
   const max = Math.min(ICON_MAX, width, height);

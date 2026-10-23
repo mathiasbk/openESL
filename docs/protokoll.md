@@ -268,7 +268,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
-| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn. The Design tab makes them from a PNG |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn. The Design tab makes them from a PNG, JPEG or GIF |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
