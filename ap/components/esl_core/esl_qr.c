@@ -1,10 +1,31 @@
 #include "esl_qr.h"
 #include <string.h>
 
-/* QR codes, written from ISO/IEC 18004: byte mode, versions 1..ESL_QR_VERSION_MAX.
- * The tables are the standard's (error correction per version and level, alignment
- * pattern positions); the rest is worked out. Not reentrant: one code at a time (the AP
- * draws under the layouts lock). */
+/* QR codes (ISO/IEC 18004): byte mode, versions 1..ESL_QR_VERSION_MAX. The tables are the
+ * standard's (error correction per version and level, alignment pattern positions). The
+ * codeword count, Reed-Solomon, format and version bits and data placement follow Project
+ * Nayuki's QR Code generator library (MIT), whose notice is below. Not reentrant: one code
+ * at a time (the AP draws under the layouts lock).
+ *
+ * QR Code generator library (C)
+ * Copyright (c) Project Nayuki. (MIT License)
+ * https://www.nayuki.io/page/qr-code-generator-library
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ * - The above copyright notice and this permission notice shall be included in
+ *   all copies or substantial portions of the Software.
+ * - The Software is provided "as is", without warranty of any kind, express or
+ *   implied, including but not limited to the warranties of merchantability,
+ *   fitness for a particular purpose and noninfringement. In no event shall the
+ *   authors or copyright holders be liable for any claim, damages or other
+ *   liability, whether in an action of contract, tort or otherwise, arising from,
+ *   out of or in connection with the Software or the use or other dealings in the
+ *   Software. */
 
 /* Error correction codewords per block, and blocks, per level (L M Q H) and version 1..10 */
 static const uint8_t EC_PER_BLOCK[4][ESL_QR_VERSION_MAX] = {

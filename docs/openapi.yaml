@@ -1776,7 +1776,7 @@ components:
           description: |
             `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
             field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`; `qr`: one
-            field as a QR code (black, no quiet zone of its own)
+            field as a QR code (black, with a white quiet zone of 2 modules inside the box)
         radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
         border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
         direction:
@@ -1784,7 +1784,7 @@ components:
           enum: [down, up]
           default: down
           description: "line only: the line runs from the top-left to the bottom-right corner of its box (`down`) or from the bottom-left to the top-right (`up`); a box 1 px high or wide is a straight line"
-        width: { type: integer, minimum: 1, maximum: 16, default: 1, description: "line only: in pixels; a wide line reaches width / 2 past its box, and the ends are round" }
+        width: { type: integer, minimum: 1, maximum: 16, default: 1, description: "line only: in pixels. A straight line is exactly this thick, (width - 1) / 2 of it above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round" }
         icon: { type: string, description: "icon only, required: a name from the file's `icons`" }
         field: { type: [string, integer], description: "text, barcode and qr: a name from `fields`, or its index" }
         text:

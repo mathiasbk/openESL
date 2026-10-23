@@ -52,7 +52,7 @@ _spec.loader.exec_module(tag_build)
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
-              "esl_render.c", "esl_qr.c"]
+              "esl_render.c", "esl_qr.c", "esl_barcode.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
 MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]

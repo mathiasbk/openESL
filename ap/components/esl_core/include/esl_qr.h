@@ -3,7 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* QR codes (ISO/IEC 18004) for the qr layout element, written from the standard: byte mode
+/* QR codes (ISO/IEC 18004) for the qr layout element, after Project Nayuki's QR Code
+ * generator library (MIT, notice in esl_qr.c): byte mode
  * (ISO 8859-1, which is what the fields are in), versions 1 to ESL_QR_VERSION_MAX, the
  * four error correction levels, and the mask with the lowest penalty. */
 

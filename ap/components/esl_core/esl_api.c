@@ -355,7 +355,7 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
             model = t.model;
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
             if ((model == ESL_MODEL_UNKNOWN || m == model) &&
-                !esl_layouts_check_barcode(api->layouts, m, c, msg, MSG_MAX))
+                !esl_layouts_check_content(api->layouts, m, c, msg, MSG_MAX))
                 return 422;
     }
     return 0;

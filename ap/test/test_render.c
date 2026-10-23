@@ -42,6 +42,9 @@ static void test_shapes(void)
         "\"layouts\":[{\"name\":\"s\",\"fields\":[\"a\"],\"elements\":["
         "{\"type\":\"line\",\"x\":10,\"y\":20,\"w\":41,\"h\":1},"
         "{\"type\":\"line\",\"x\":10,\"y\":30,\"w\":41,\"h\":1,\"width\":3},"
+        "{\"type\":\"line\",\"x\":10,\"y\":40,\"w\":41,\"h\":1,\"width\":2},"
+        "{\"type\":\"line\",\"x\":10,\"y\":50,\"w\":41,\"h\":1,\"width\":4},"
+        "{\"type\":\"line\",\"x\":180,\"y\":10,\"w\":1,\"h\":30,\"width\":2},"
         "{\"type\":\"line\",\"x\":60,\"y\":10,\"w\":41,\"h\":41},"
         "{\"type\":\"line\",\"x\":110,\"y\":10,\"w\":41,\"h\":41,\"direction\":\"up\"},"
         "{\"type\":\"line\",\"x\":160,\"y\":10,\"w\":11,\"h\":91},"
@@ -60,12 +63,21 @@ static void test_shapes(void)
     esl_content_add_field(&c, (const uint8_t *)"x", 1);
     CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
 
-    /* straight lines: 1 px from end to end, nothing past the ends; 3 px is rows 29-31 */
+    /* straight lines: exactly their box along them and width px across it, (width - 1) / 2
+     * before it: 1 px is row 20, 3 px rows 29-31, 2 px rows 40-41, 4 px rows 49-52 */
     for (x = 10; x <= 50; x++)
         CHECK(px(img, x, 20) && !px(img, x, 19) && !px(img, x, 21));
     CHECK(!px(img, 9, 20) && !px(img, 51, 20));
     CHECK(px(img, 30, 29) && px(img, 30, 31) && !px(img, 30, 28) && !px(img, 30, 32));
-    CHECK(px(img, 9, 30) && !px(img, 8, 30)); /* a round end, 1.5 px past the end point */
+    CHECK(!px(img, 9, 30) && !px(img, 51, 30) && px(img, 10, 31) && px(img, 50, 29)); /* square ends */
+    for (x = 10; x <= 50; x++) {
+        CHECK(!px(img, x, 39) && px(img, x, 40) && px(img, x, 41) && !px(img, x, 42));
+        CHECK(!px(img, x, 48) && px(img, x, 49) && px(img, x, 52) && !px(img, x, 53));
+    }
+    CHECK(!px(img, 9, 40) && !px(img, 51, 40) && !px(img, 9, 50) && !px(img, 51, 50));
+    for (y = 10; y <= 39; y++)
+        CHECK(!px(img, 179, y) && px(img, 180, y) && px(img, 181, y) && !px(img, 182, y));
+    CHECK(!px(img, 180, 9) && !px(img, 180, 40));
     /* 45 degrees: one pixel per column, down from (60, 10), and up from (110, 50) */
     for (x = 60; x <= 100; x++) {
         n = 0;
@@ -90,6 +102,23 @@ static void test_shapes(void)
     CHECK(px(img, 230, 20) && px(img, 231, 20) && !px(img, 232, 20) && px(img, 249, 20) && !px(img, 247, 20));
     /* a square border, 1 px */
     CHECK(px(img, 200, 60) && px(img, 229, 89) && px(img, 215, 60) && !px(img, 215, 61) && !px(img, 215, 75));
+    /* a QR code on a black box: its quiet zone (2 modules of 2 px) is white, the finder black */
+    {
+        static const char qr[] =
+            "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"q\","
+            "\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":100,\"h\":100},"
+            "{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":50,\"h\":50}]}]}";
+        CHECK(esl_layout_compile(qr, sizeof(qr) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+        esl_content_init_named(&c, "q", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)"x", 1);
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        CHECK(!px(img, 0, 0) && !px(img, 3, 3) && !px(img, 49, 0) && !px(img, 0, 49) && !px(img, 49, 49));
+        CHECK(px(img, 4, 4) && px(img, 17, 4) && px(img, 50, 0) && px(img, 0, 50));
+        CHECK(esl_layout_compile(shapes, sizeof(shapes) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+        esl_content_init_named(&c, "s", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)"x", 1);
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    }
     /* the icon: its two pixels where they are in the picture, nothing else */
     CHECK(px(img, 260, 50) && px(img, 267, 51) && !px(img, 261, 50) && !px(img, 260, 51) && !px(img, 267, 50));
 }

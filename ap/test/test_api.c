@@ -499,10 +499,10 @@ static void test_layouts(void)
     /* the model not known yet: checked against every file with the layout */
     CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
 
-    /* a QR field must fit its box: 30 px at H holds version 3 (29 modules), 24 bytes */
+    /* a QR field must fit its box: 34 px at H holds version 3 (29 modules and 2 x 2 of quiet zone), 24 bytes */
     const char *qr29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"qr\","
                        "\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\",\"ecc\":\"H\","
-                       "\"x\":0,\"y\":0,\"w\":30,\"h\":30}]}]}";
+                       "\"x\":0,\"y\":0,\"w\":34,\"h\":34}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, qr29, 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/12345\"]}", 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/123456\"]}", 0), 200);

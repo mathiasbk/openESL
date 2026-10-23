@@ -132,13 +132,13 @@ Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 | 11 | 2 | w |
 | 13 | 1 | h |
 
-A **line** runs corner to corner in its box (a box 1 pixel high or wide is a straight line). Every pixel whose centre is at most width / 2 from the segment is drawn, worked out in whole numbers so every platform draws the same pixels; the ends are round. A **rectangle** with a radius leaves out the pixels whose centre is outside the quarter circle in each corner; with a border, the same shape shrunk by the border (radius minus border) is left as it is inside. An **icon** draws its 1 bits in the element's colour and leaves the rest. Lines, rectangles and icons can be black, white or red (rectangles also frame).
+A **line** runs corner to corner in its box (a box 1 pixel high or wide is a straight line). A straight line is its box along it and exactly width pixels across it, (width − 1) / 2 of them above or left of the box, with square ends. A slanted line is every pixel whose centre is at most width / 2 from the segment, worked out in whole numbers so every platform draws the same pixels; its ends are round. A **rectangle** with a radius leaves out the pixels whose centre is outside the quarter circle in each corner; with a border, the same shape shrunk by the border (radius minus border) is left as it is inside. An **icon** draws its 1 bits in the element's colour and leaves the rest. Lines, rectangles and icons can be black, white or red (rectangles also frame).
 
 How a text element is drawn (font fallback, wrapping, "…", inverted box) is in `ap/components/esl_core/esl_render.c`; the built-in layouts `price` and `text` are the same kind of element list. The content flags (bit0 highlighted price, bit1 frame) come from `price_highlight` and `frame` in `PUT /api/tags`.
 
 A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the AP adds the check digit) or 13 with a correct check digit. The AP refuses content whose barcode field cannot be encoded, or does not fit the box even with 1-pixel modules, in `PUT /api/tags` (part 2). At most one barcode per layout.
 
-A **QR code** element (ISO/IEC 18004, byte mode, versions 1–10, the mask chosen by the standard's penalty rules; `esl_qr.c`) draws its field as the smallest version that holds it at the element's error correction level, square in its box, placed by both alignments, with modules of the element's size or, at 0, the largest whole number of pixels that fits. It is always black and has no quiet zone of its own: leave 2–4 modules of white round it. The compiler works out the largest version the box holds, and the AP refuses content whose QR field is longer than that version takes (`PUT /api/tags`, part 2). At most one QR code per layout.
+A **QR code** element (ISO/IEC 18004, byte mode, versions 1–10, the mask chosen by the standard's penalty rules; `esl_qr.c`, after Project Nayuki's QR Code generator library, MIT) draws its field as the smallest version that holds it at the element's error correction level, square in its box, placed by both alignments, with modules of the element's size or, at 0, the largest whole number of pixels that fits. The box also holds a quiet zone of 2 modules on every side (`ESL_QR_QUIET`), drawn white over whatever is under it, so phones read the code on a black band too. The code is black. The compiler works out the largest version the box holds with its quiet zone, and the AP refuses content whose QR field is longer than that version takes (`PUT /api/tags`, part 2). At most one QR code per layout.
 
 How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. EAN-13 is specified from 0.264 mm per module (80 %), so a 2-pixel module (0.45 mm) on the 2.9" is a safe choice; 1-pixel modules are below the standard and need a good scanner.
 
@@ -268,7 +268,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
-| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn. The Design tab makes them from a PNG |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
@@ -277,7 +277,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
 | `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon takes only `x` and `y` (or `w` and `h` equal to the icon's). A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
 | `direction` | line only: `down` (default, top-left to bottom-right corner) or `up` (bottom-left to top-right) |
-| `width` | line only: 1–16 px, default 1. A wide line reaches width / 2 past its box, and its ends are round |
+| `width` | line only: 1–16 px, default 1. A straight line is exactly `width` px thick, (width − 1) / 2 of them above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round |
 | `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
 | `icon` | icon only, required: a name from `icons` |
 | `field` | text, barcode and qr: a name from `fields` (or its index) |
@@ -294,7 +294,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 The AP also checks what it can draw, so a file that is accepted always gives a screen (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- a QR code is black, one per layout, its box at least 21 modules wide and high; content whose QR field is longer than the largest version the box holds takes is refused with `422`;
+- a QR code is black, one per layout, its box at least 25 modules wide and high (21 and the quiet zone); content whose QR field is longer than the largest version the box holds takes is refused with `422`;
 - per layout at most 32 text lines (each text element counts the most lines it can use), 20 rectangles (`rect` elements plus `invert`/`highlight` text), 16 lines and 8 icons (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`, `ESL_DRAW_MAX_LINES`, `ESL_DRAW_MAX_ICONS`);
 - the binary file is at most 4096 bytes;
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.

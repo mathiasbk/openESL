@@ -265,16 +265,18 @@
  *   ESL_LE_OFF_OPTS    alignment in the box, as for text
  *   ESL_LE_OFF_MODULE  module size in pixels, 1..ESL_QR_MODULE_MAX, 0 = the largest that fits
  *   ESL_LE_OFF_COLOR   ESL_LE_BLACK
- * The code takes the smallest version (1..10) that holds the field; the box holds the code
- * without its quiet zone, so leave white around it. A field that does not fit the box with
- * 1-pixel modules draws nothing (the AP rejects such content). */
+ * The code takes the smallest version (1..10) that holds the field. The box holds the code
+ * and a white quiet zone of ESL_QR_QUIET modules on every side, which is drawn white, so
+ * phones read it on any background. A field that does not fit the box with 1-pixel modules
+ * draws nothing (the AP rejects such content). */
 #define ESL_LE_OFF_ECC       ESL_LE_OFF_FONT
 #define ESL_QR_LEVEL_L       0
 #define ESL_QR_LEVEL_M       1
 #define ESL_QR_LEVEL_Q       2
 #define ESL_QR_LEVEL_H       3
 #define ESL_QR_MODULE_MAX    8
-#define ESL_QR_MIN_SIDE      21     /* version 1 with 1-pixel modules */
+#define ESL_QR_QUIET         2u     /* modules of white round the code, inside the box */
+#define ESL_QR_MIN_SIDE      (21 + 2 * ESL_QR_QUIET) /* version 1 with 1-pixel modules */
 
 /* A barcode element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_FONT    symbology (ESL_BC_*), the two other font bytes ESL_FONT_NONE

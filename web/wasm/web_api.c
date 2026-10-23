@@ -14,7 +14,8 @@
  *   web_render(layout, flags, n, f0, ..., f5)
  *                                draws content with fields in UTF-8 (converted to Latin-1 as
  *                                the AP does) into the frame buffer. layout 1 = price,
- *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error
+ *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error,
+ *                                2 = drawn, but the AP would refuse the content (web_error)
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
  *                                1 = black, 2 = red
  */
@@ -156,5 +157,9 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
             size_t at = (size_t)x * cb + (size_t)(y >> 3);
             fb[y][x] = (img[at] & m) ? 1 : (red && (img[DRAW_W * cb + at] & m)) ? 2 : 0;
         }
+    /* drawn, but PUT /api/tags would refuse it: a barcode or QR field that does not fit its box */
+    if (bin_ver && layout >= 16 && layout - 16 < bin.count &&
+        !esl_layout_check_fields(&bin, layout - 16, MODEL_CODE, &c, err, sizeof(err)))
+        return 2;
     return 1;
 }

@@ -87,6 +87,18 @@ for (const model of Object.keys(MODELS)) {
     assert.ok(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(13), ""]).ok);
   });
 
+  test(`a QR field too long for its box is drawn, with the AP's reason, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const file = { format: "esl-layouts", version: 1, model, layouts: [{ name: "q", fields: ["url"],
+      elements: [{ type: "qr", field: "url", x: 0, y: 0, w: 25, h: 25 }] }] };
+    assert.ok(r.loadLayouts(JSON.stringify(file)).ok);
+    const fits = r.render(0x10, 0, ["x".repeat(14)]);   // version 1 at M holds 14 bytes
+    assert.ok(fits.ok && !fits.refused);
+    const long = r.render(0x10, 0, ["x".repeat(15)]);
+    assert.ok(long.ok);
+    assert.match(long.refused, /too long for its QR code on model .* \(15 of 14 bytes\)/);
+  });
+
   test(`lines, round and open boxes and icons, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width, height } = MODELS[model];

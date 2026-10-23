@@ -3,7 +3,8 @@
 //
 //   const r = await loadRenderer("2.9");        // or "1.54"
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
-//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red) }
+//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red),
+//                                       refused (why the AP would refuse these fields, if it would) }
 
 import { MODELS as REGISTRY } from "./models.js";
 
@@ -102,12 +103,14 @@ async function create(model, base) {
       const f = fields.slice(0, 6).map((s) => String(s ?? ""));
       const n = f.length;
       while (f.length < 6) f.push("");
-      const ok = call("web_render", "number",
+      const res = call("web_render", "number",
         ["number", "number", "number", "string", "string", "string", "string", "string", "string"],
-        [layout, flags, n, ...f]) === 1;
-      if (!ok) return { ok, error: error() };
+        [layout, flags, n, ...f]);
+      if (!res) return { ok: false, error: error() };
       const at = call("web_fb", "number", [], []);
-      return { ok, pixels: M.HEAPU8.slice(at, at + width * height) };
+      const out = { ok: true, pixels: M.HEAPU8.slice(at, at + width * height) };
+      if (res === 2) out.refused = error();   // drawn, but PUT /api/tags would refuse these fields
+      return out;
     },
   };
 }
