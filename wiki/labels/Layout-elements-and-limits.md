@@ -7,8 +7,8 @@ What a layout made in the [Label designer](Label-designer) can hold.
 - **Text fields:** up to six per layout, sent by your software with each update. Six fonts, aligned left, centre or right, up to three lines, in black, white, inverted or highlighted. Text that does not fit can drop to a smaller font or be cut with "…".
 - **Fixed text** that is part of the layout, such as "inkl. mva".
 - **Boxes** in black or white, filled or only a border, with round corners if you like. A black area with white text is a black box with white text on it, or inverted text.
-- **Lines:** straight or slanted, of any width.
-- **Icons:** small pictures, made from a PNG with the Icon button in the designer. Dark pixels are drawn, up to 128 px.
+- **Lines:** straight or slanted, 1 to 16 px wide.
+- **Icons:** small pictures, made from a PNG, JPEG or SVG with the Icon button in the designer. Dark pixels are drawn, up to 128 px.
 - **Barcode:** one per layout, Code 128 or EAN-13, from a field.
 - **QR code:** one per layout, from a field, for example a link to the product.
 
