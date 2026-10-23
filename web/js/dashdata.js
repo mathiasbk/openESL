@@ -160,14 +160,14 @@ export function fmtInterval(s) {
 // (ESL_CFG_POLL_MIN_S/MAX_S in shared/proto.h)
 export const POLL_MIN_S = 10;
 export const POLL_MAX_S = 3600;
-export const POLL_PRESETS = [30, 60, 120, 300, 600, 1800, 3600];
+// 60 s is left out: it is the tag default (0), which the AP sends as 60 s anyway
+export const POLL_PRESETS = [30, 120, 300, 600, 1800, 3600];
 
-// "300" -> { poll_s: 300 }, "" -> { poll_s: 0 }, anything else -> { error }
+// The "Other" field: "300" -> { poll_s: 300 }, anything else (empty too) -> { error }
 export function parsePoll(text) {
   const t = String(text).trim();
-  if (t === "" || t === "0") return { poll_s: 0 };
   const v = Number(t);
-  if (!Number.isInteger(v) || v < POLL_MIN_S || v > POLL_MAX_S)
+  if (t === "" || !Number.isInteger(v) || v < POLL_MIN_S || v > POLL_MAX_S)
     return { error: `The interval must be a whole number of seconds from ${POLL_MIN_S} to ${POLL_MAX_S}.` };
   return { poll_s: v };
 }
@@ -188,7 +188,8 @@ export function pollNote(poll_s, tags = []) {
   const s = poll_s || TAG_BUILTIN_POLL_S;
   const years = batteryYears(s);
   const parts = [`A new price shows within ${fmtInterval(s)}.`];
-  if (years) parts.push(`About ${years} years on one CR2450 (a 1.54" tag, one update a day; a 2.9" tag lasts longer).`);
+  if (years >= 10) parts.push(`Over 10 years on one CR2450, so the cells' shelf life sets the limit, not the polls.`);
+  else if (years) parts.push(`About ${years} years on one CR2450 (a 1.54" tag, one update a day; a 2.9" tag lasts longer).`);
   else parts.push(`Polls this often drain the battery noticeably faster; 60 s or more is kinder.`);
   const own = tags.filter((t) => t.config?.poll_s).length;
   if (own) parts.push(own === 1 ? "One tag has an interval of its own set and keeps it." : `${own} tags have an interval of their own set and keep it.`);

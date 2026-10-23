@@ -79,15 +79,15 @@ test("poll interval for all tags", () => {
   assert.equal(fmtInterval(90), "90 s");
   assert.equal(fmtInterval(120), "2 min");
   assert.equal(fmtInterval(3600), "1 h");
-  assert.deepEqual(parsePoll(""), { poll_s: 0 });
   assert.deepEqual(parsePoll(" 300 "), { poll_s: 300 });
   assert.deepEqual(parsePoll("3600"), { poll_s: 3600 });
-  for (const bad of ["9", "3601", "12.5", "abc", "-60"]) assert.ok(parsePoll(bad).error, bad);
+  for (const bad of ["", " ", "0", "9", "3601", "12.5", "abc", "-60"]) assert.ok(parsePoll(bad).error, bad);
   assert.equal(batteryYears(0), 9.3); // the tag default, 60 s
   assert.equal(batteryYears(300), 11.7);
   assert.equal(batteryYears(3600), 12.1);
   assert.equal(batteryYears(10), null);
-  assert.equal(pollNote(300), "A new price shows within 5 min. About 11.7 years on one CR2450 (a 1.54\" tag, one update a day; a 2.9\" tag lasts longer).");
+  assert.equal(pollNote(0), "A new price shows within 1 min. About 9.3 years on one CR2450 (a 1.54\" tag, one update a day; a 2.9\" tag lasts longer).");
+  assert.equal(pollNote(300), "A new price shows within 5 min. Over 10 years on one CR2450, so the cells' shelf life sets the limit, not the polls.");
   assert.match(pollNote(10), /drain the battery/);
   assert.match(pollNote(60, [tag("A", { config: { poll_s: 30 } }), tag("B")]), /One tag has an interval of its own set/);
   assert.match(pollNote(60, [tag("A", { config: { poll_s: 30 } }), tag("B", { config: { poll_s: 600 } })]), /2 tags have an interval of their own set/);

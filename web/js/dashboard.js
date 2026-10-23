@@ -174,6 +174,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The poll interval for all tags (PUT /api/config). What the AP has is shown until the
   // choice is changed here; then it stays as chosen until it is saved
   let pollDirty = false;
+  let pollSaving = false; // a PUT is under way: a refresh meanwhile leaves Save off
   const pollMsg = (text, cls = "") => {
     $("dash-poll-msg").textContent = text;
     $("dash-poll-msg").className = "hint" + (cls ? " " + cls : "");
@@ -185,7 +186,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   };
   function showPollNote() {
     const c = pollChosen();
-    $("dash-poll-other").hidden = $("dash-poll-sel").value !== "other";
+    const other = $("dash-poll-sel").value === "other";
+    $("dash-poll-other").hidden = !other;
+    $("dash-poll-s").disabled = !other;
     $("dash-poll-note").textContent = c.error ? "" : pollNote(c.poll_s, last?.list?.tags);
   }
   function renderPoll() {
@@ -193,7 +196,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const sel = $("dash-poll-sel");
     if (!sel.options.length) {
       const opt = (value, text) => sel.append(new Option(text, value));
-      opt("0", `Tag default (${fmtInterval(TAG_BUILTIN_POLL_S)})`);
+      opt("0", `${fmtInterval(TAG_BUILTIN_POLL_S)} (tag default)`);
       for (const s of POLL_PRESETS) opt(String(s), fmtInterval(s));
       opt("other", "Other …");
     }
@@ -202,7 +205,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       sel.value = preset ? String(cur) : "other";
       $("dash-poll-s").value = preset ? "" : cur;
     }
-    $("dash-poll-save").disabled = !pollDirty;
+    $("dash-poll-save").disabled = pollSaving || !pollDirty;
     showPollNote();
   }
   const pollChanged = () => {
@@ -225,6 +228,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const builtin = last?.config?.builtin_poll_s;
     const body = { poll_s: c.poll_s === builtin ? null : c.poll_s };
     $("dash-poll-save").disabled = true;
+    pollSaving = true;
     try {
       await client.call("PUT", "/api/config", body);
       pollDirty = false;
@@ -234,7 +238,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       refresh();
     } catch (e) {
       pollMsg("Not saved: " + e.message, "error");
-      $("dash-poll-save").disabled = false;
+    } finally {
+      pollSaving = false;
+      $("dash-poll-save").disabled = !pollDirty;
     }
   });
 
