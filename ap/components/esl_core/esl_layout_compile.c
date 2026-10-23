@@ -150,7 +150,7 @@ static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT,
 typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
-    unsigned runs, rects; /* what the layout needs at most from the AP's scene (esl_render.c) */
+    unsigned runs, rects, nums; /* what the layout needs at most from the AP's scene (esl_render.c) */
     unsigned barcodes, lines, icons, qrs;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
@@ -198,6 +198,35 @@ static int fixed_text(cc_t *c, int v)
     memcpy(c->text[c->ntext], latin1, n);
     c->tlen[c->ntext] = (uint8_t)n;
     return (int)(ESL_LE_FIELD_FIXED | c->ntext++);
+}
+
+/* "decimals" and "thousands": how a text element draws a number (ESL_LE_NUM_* in opts). */
+static bool number_format(cc_t *c, int e, uint8_t *opts)
+{
+    static const char *const modes[] = {"keep", "auto", "dash", NULL};
+    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH};
+    uint8_t num = 0;
+
+    int d = esl_json_obj_get(c->js, c->tok, e, "decimals");
+    if (d >= 0) {
+        unsigned n;
+        int m = pick(c, d, modes);
+        if (m >= 0)
+            num = mode_bits[m];
+        else if (get_uint(c, d, &n) && (n == 0 || n == 2))
+            num = n ? ESL_LE_NUM_2 : ESL_LE_NUM_0;
+        else
+            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00) or \"keep\"");
+    }
+    int t = esl_json_obj_get(c->js, c->tok, e, "thousands");
+    if (t >= 0) {
+        if (T(c, t)->type != ESL_JSON_TRUE && T(c, t)->type != ESL_JSON_FALSE)
+            return fail(c, "thousands must be true or false");
+        if (T(c, t)->type == ESL_JSON_TRUE)
+            num |= (uint8_t)((num ? 0 : ESL_LE_NUM_KEEP) | ESL_LE_NUM_THOUSANDS);
+    }
+    *opts |= num;
+    return true;
 }
 
 /* The rest of a barcode element (box, field and colour are done). */
@@ -264,6 +293,7 @@ static bool only_ok(cc_t *c, int e, char kind)
         {"radius", "r", "rect elements"},                 {"border", "r", "rect elements"},
         {"direction", "l", "line elements"},              {"width", "l", "line elements"},
         {"icon", "i", "icon elements"},
+        {"decimals", "t", "text elements"},               {"thousands", "t", "text elements"},
     };
     for (size_t i = 0; i < sizeof(only) / sizeof(only[0]); i++)
         if (!strchr(only[i].kinds, kind) && esl_json_obj_get(c->js, c->tok, e, only[i].key) >= 0)
@@ -332,7 +362,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
                                        "valign", "lines", "color",  "symbology", "module", "text", "radius",
-                                       "border", "direction", "width", "icon", "ecc", NULL};
+                                       "border", "direction", "width", "icon", "ecc", "decimals", "thousands", NULL};
     static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", NULL};
     static const char kinds[] = "trbliq";
     static const char *const box[] = {"x", "y", "w", "h"};
@@ -525,6 +555,10 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     if (vi < 0)
         return fail(c, "valign must be top, middle or bottom");
     out[ESL_LE_OFF_OPTS] = (uint8_t)(align_opts[ai] | valign_opts[vi]);
+    if (!number_format(c, e, &out[ESL_LE_OFF_OPTS]))
+        return false;
+    if ((out[ESL_LE_OFF_OPTS] & ESL_LE_NUM_MASK) && ++lay->nums > ESL_DRAW_MAX_NUMS)
+        return fail(c, "the AP formats at most %d numbers (decimals, thousands) per layout", ESL_DRAW_MAX_NUMS);
 
     unsigned lines = 0;
     int ln = esl_json_obj_get(c->js, c->tok, e, "lines");

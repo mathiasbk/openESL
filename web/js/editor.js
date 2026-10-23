@@ -961,6 +961,19 @@ function moreMenu(e, btn, select, open) {
     p.className = "hint";
     p.textContent = "The tag uses the first font the text fits in, otherwise the last one with “…”.";
     list.append(p);
+    // A price or other number: decimals and thousands separator (the AP formats it)
+    const nr = row("Number");
+    select(nr, "Decimals", [["", "as sent"], ["2", "199,90"], ["0", "199"], ["auto", "199 or 199,90"],
+      ["dash", "199,- or 199,90"], ["keep", "as sent, comma"]], String(e.decimals ?? ""), (val) => {
+      if (val === "") delete e.decimals;
+      else e.decimals = /^\d$/.test(val) ? +val : val;
+    });
+    btn(nr, "1 000", "Thousands separator: 1 299,90", () => (e.thousands ? delete e.thousands : (e.thousands = true)), !!e.thousands)
+      .setAttribute("role", "switch");
+    const pn = document.createElement("p");
+    pn.className = "hint";
+    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
+    list.append(pn);
   }
   if (e.type === "barcode") {
     const lim = state.renderer.limits;

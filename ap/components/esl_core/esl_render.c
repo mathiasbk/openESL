@@ -8,6 +8,7 @@
 #include "barcode.h" /* tag/src */
 #include "esl_qr.h"
 #include "font.h"    /* tag/src */
+#include "esl_text.h"
 #include "models_gen.h"
 
 /* ---- the model ------------------------------------------------------------- */
@@ -55,6 +56,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_MAX_RUNS     ESL_DRAW_MAX_RUNS
 #define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
 #define RD_MAX_BARCODES ESL_DRAW_MAX_BARCODES
+#define RD_MAX_NUMS     ESL_DRAW_MAX_NUMS
 #define RD_MAX_LINES_DRAWN ESL_DRAW_MAX_LINES
 #define RD_MAX_ICONS    ESL_DRAW_MAX_ICONS
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
@@ -126,6 +128,9 @@ typedef struct {
     rd_line_t line[RD_MAX_LINES_DRAWN];
     rd_icon_t icon[RD_MAX_ICONS];
     rd_bars_t bars;
+    /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
+    uint8_t nnums;
+    uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
     rd_qr_t qr;
 } rd_scene_t;
 
@@ -134,6 +139,7 @@ static void scene_clear(rd_scene_t *s)
     s->nruns = 0;
     s->nrects = 0;
     s->nbars = 0;
+    s->nnums = 0;
     s->nlines = 0;
     s->nicons = 0;
     s->nqr = 0;
@@ -1004,8 +1010,22 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     t = text[e->field];
                     len = lens[e->field];
                 }
+                rd_elem_t one;
+                const rd_elem_t *te = e;
+                if (len && e->kind == ESL_LE_TEXT && (e->opts & ESL_LE_NUM_MASK) && s->nnums < RD_MAX_NUMS) {
+                    size_t n = esl_format_number(t, len, e->opts, s->num[s->nnums], ESL_LE_NUM_MAX_LEN);
+                    if (n) {
+                        t = s->num[s->nnums++];
+                        len = (uint8_t)n;
+                        /* a number on one line: its thousands spaces are not places to wrap,
+                           so a smaller font is used when it does not fit */
+                        one = *e;
+                        one.lines = 1;
+                        te = &one;
+                    }
+                }
                 if (len && e->kind == ESL_LE_TEXT)
-                    place_text(s, e, t, len, color);
+                    place_text(s, te, t, len, color);
                 else if (len && e->kind == ESL_LE_BARCODE)
                     place_barcode(s, e, t, len);
                 else if (len && e->kind == ESL_LE_QR)

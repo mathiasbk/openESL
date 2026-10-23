@@ -175,6 +175,20 @@ static void test_binary(void)
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_COLOR], ESL_LE_BLACK);
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_FONT + 1], ESL_FONT_NONE);
 
+    /* number format in the high bits of opts */
+    CHECK(compile_el(TEXT_A ",\"align\":\"right\",\"decimals\":2,\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_RIGHT | ESL_LE_NUM_2 | ESL_LE_NUM_THOUSANDS);
+    CHECK(compile_el(TEXT_A ",\"decimals\":0}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_0);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"auto\",\"thousands\":false}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_AUTO);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"dash\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_DASH);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"keep\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP);
+    CHECK(compile_el(TEXT_A ",\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP | ESL_LE_NUM_THOUSANDS);
+
     /* a barcode element: symbology in the first font byte, module width in lines */
     CHECK(compile_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"ean13\",\"module\":2,"
                      "\"x\":10,\"y\":70,\"w\":226,\"h\":40,\"align\":\"center\"}"));
@@ -222,6 +236,24 @@ static void bad_file(const char *js, uint8_t model, const char *want)
 
 static void test_errors(void)
 {
+    /* number format */
+    bad_el(TEXT_A ",\"decimals\":1}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"decimals\":\"two\"}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"thousands\":1}", "thousands must be true or false");
+    {
+        static char els[2048];
+        size_t n = 0;
+        for (int i = 0; i <= ESL_DRAW_MAX_NUMS; i++)
+            n += (size_t)snprintf(els + n, sizeof(els) - n, "%s" TEXT_A ",\"decimals\":2}", i ? "," : "");
+        bad_el(els, "at most 8 numbers");
+        els[strrchr(els, '{') - els - 1] = '\0'; /* one fewer */
+        CHECK(compile_el(els));
+    }
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"decimals\":2}",
+           "decimals is only for text elements");
+    bad_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"code128\",\"x\":0,\"y\":0,"
+           "\"w\":296,\"h\":10,\"thousands\":true}", "thousands is only for text elements");
+
     /* the whole file */
     bad_file("{\"format\":", ESL_MODEL_29, "invalid JSON");
     bad_file("[]", ESL_MODEL_29, "must be a JSON object");
