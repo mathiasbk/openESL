@@ -17,9 +17,12 @@ const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
 const FONT_PX = { small: 17, medium: 24, text20: 20, mid: 36, price44: 44, large: 52 };
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
+const LINE_COLORS = ["black", "white"];      // lines and icons
 // On a model with red (colors in shared/models.json) the AP also takes these
 const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
 const RECT_COLORS_RED = [...RECT_COLORS, "red"];
+const LINE_COLORS_RED = [...LINE_COLORS, "red"];
+const ICON_MAX = 128;                         // ESL_ICON_MAX_W / _H in shared/proto.h
 const COLOR_NAMES = {
   black: "Black", white: "White", invert: "Inverted", highlight: "Highlight",
   frame: "Frame", red: "Red", red_invert: "Red inverted",
@@ -77,6 +80,8 @@ const layout = () => (isBuiltin() ? null : doc().layouts[+state.sel.slice(5)] ||
 const element = () => (layout() && layout().elements[state.el]) || null;
 const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : layout()?.fields || []);
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
+// Text and barcode elements show a field from each update; the rest are part of the layout
+const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr";
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
@@ -267,13 +272,19 @@ function refreshMeters(res) {
   const lay = layout();
   const meters = [];
   $("el-add-barcode").disabled = false;
+  $("el-add-qr").disabled = false;
   if (lay) {
     const u = layoutUsage(lay, lim);
     meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
-    meters.push(["Boxes", u.rects, lim.rects, "Filled boxes, lines and inverted or highlighted text in this layout"]);
+    meters.push(["Boxes", u.rects, lim.rects, "Boxes and inverted or highlighted text in this layout"]);
+    if (u.lines) meters.push(["Lines", u.lines, lim.lines, "Line elements in this layout"]);
+    if (u.icons) meters.push(["Icons", u.icons, lim.icons, "Icon elements in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
     $("el-add-barcode").title = u.barcodes >= lim.barcodes ? "A layout has at most one barcode" : "A field as a Code 128 or EAN-13 barcode (one per layout)";
+    $("el-add-qr").disabled = u.qrs >= lim.qrs;
+    $("el-add-qr").title = u.qrs >= lim.qrs ? "A layout has at most one QR code" : "A field as a QR code, e.g. a link (one per layout)";
+    if (u.qrs) meters.push(["QR codes", u.qrs, lim.qrs, "QR codes in this layout"]);
   }
   meters.push(["Compiled file", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
   meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to tag uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
@@ -335,7 +346,8 @@ function drawOverlay() {
   const lay = layout();
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (e.type === "rect" ? " rect" : e.type === "barcode" ? " barcode" : "") + (i === state.el ? " sel" : "");
+    b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
+      (e.type === "icon" ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
       width: (100 * e.w) / width + "%", height: (100 * e.h) / height + "%",
@@ -343,10 +355,9 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "rect" ? rectName(e) : e.type === "barcode" ? "▥ " + fieldLabel(e.field)
-      : e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
+    tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
     b.append(tag);
-    for (const h of HANDLES) {
+    if (e.type !== "icon") for (const h of HANDLES) {
       const g = document.createElement("span");
       g.className = "grip " + h;
       g.dataset.h = h;
@@ -372,16 +383,16 @@ function refreshList() {
     li.draggable = true;
     const ico = document.createElement("span");
     const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
-    ico.className = "ico" + (e.type === "rect" ? " rect" : inverted ? " inv" : "");
-    ico.textContent = e.type === "rect" ? "▬" : e.type === "barcode" ? "▥" : e.text !== undefined ? "“”" : "T";
+    ico.className = "ico" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : inverted ? " inv" : "");
+    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦" }[e.type] ??
+      (e.text !== undefined ? "“”" : "T");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = e.type === "rect" ? rectName(e) : e.type === "barcode" ? fieldLabel(e.field)
-      : e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
+    name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
     dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
-      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.color && e.color !== "black" ? e.color : "";
+      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
     return li;
@@ -389,12 +400,16 @@ function refreshList() {
 }
 
 function rectName(e) {
-  const kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : "box";
+  let kind;
+  if (e.type === "icon") kind = "icon " + e.icon;
+  else if (e.type === "line") kind = e.h === 1 ? "line" : e.w === 1 ? "vertical line" : "slanted line";
+  else kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : e.border ? "frame box" : "box";
   return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
 }
 
 function elementName(e) {
   if (e.type === "barcode") return `barcode (${fieldLabel(e.field)})`;
+  if (e.type === "qr") return `QR code (${fieldLabel(e.field)})`;
   if (e.type !== "text") return rectName(e);
   return e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
 }
@@ -480,7 +495,7 @@ function initDrag() {
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
-      resize: ev.target.dataset.h || null,
+      resize: (element().type !== "icon" && ev.target.dataset.h) || null,
       sx: ev.clientX, sy: ev.clientY,
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
@@ -643,7 +658,7 @@ function refreshSample() {
   const vals = samples();
   const lay = layout();
   const e = element();
-  const selField = e && e.text === undefined && e.type !== "rect" ? fieldLabel(e.field) : null;
+  const selField = e && usesField(e) ? fieldLabel(e.field) : null;
   names.forEach((n, i) => {
     const row = document.createElement("div");
     row.className = "row";
@@ -667,7 +682,7 @@ function refreshSample() {
     const x = document.createElement("button");
     x.className = "x";
     x.textContent = "✕";
-    const used = lay?.elements.some((el) => el.type !== "rect" && el.text === undefined && fieldLabel(el.field) === n);
+    const used = lay?.elements.some((el) => usesField(el) && fieldLabel(el.field) === n);
     x.disabled = !lay || used || names.length <= 1;
     x.title = x.ariaLabel = used ? `${n} is shown by an element; change or delete that first` : `Remove the field ${n}`;
     if (!lay) x.style.visibility = "hidden";   // keeps its cell in the grid
@@ -751,7 +766,7 @@ function refreshElement() {
     box.append(l);
     return s;
   };
-  if (e.type === "barcode") {
+  if (e.type === "barcode" || e.type === "qr") {
     sel("Shows", lay.fields.map((f) => [f, "field " + f]), fieldLabel(e.field), (v) => (e.field = v));
   } else if (e.type === "text") {
     // A field filled in by each update, or a fixed text that is part of the layout.
@@ -793,6 +808,10 @@ function refreshElement() {
     inp.min = k === "w" || k === "h" ? 1 : 0;
     inp.value = e[k];
     inp.dataset.k = k;
+    if (e.type === "icon" && (k === "w" || k === "h")) {
+      inp.disabled = true;
+      inp.title = "An icon is drawn at its own size";
+    }
     inp.setAttribute("aria-label", { x: "Left", y: "Top", w: "Width", h: "Height" }[k] + " in pixels");
     inp.addEventListener("input", () => {
       if (inp.value === "") return;
@@ -866,11 +885,17 @@ function refreshBar() {
     select(bar, "Code", [["code128", "Code 128"], ["ean13", "EAN-13"]], e.symbology, (v) => (e.symbology = v));
     sep();
     alignRow(bar);
+  } else if (e.type === "qr") {
+    select(bar, "Error correction", [["L", "L 7 %"], ["M", "M 15 %"], ["Q", "Q 25 %"], ["H", "H 30 %"]], e.ecc || "M",
+      (v) => (v === "M" ? delete e.ecc : (e.ecc = v)));
+    sep();
+    alignRow(bar);
   }
-  if (e.type !== "barcode") {
+  if (e.type !== "barcode" && e.type !== "qr") {
     if (e.type === "text") sep();
     const red = MODELS[state.model].colors?.includes("red");
-    const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS) : red ? RECT_COLORS_RED : RECT_COLORS;
+    const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
+      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : red ? LINE_COLORS_RED : LINE_COLORS;
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = SWATCH[e.color || "black"];
@@ -962,6 +987,56 @@ function moreMenu(e, btn, select, open) {
       "On the 2.9\", 2 px modules scan reliably.";
     list.append(p);
   }
+  if (e.type === "qr") {
+    const lim = state.renderer.limits;
+    const v = row("Vertical");
+    for (const [val, icon, name] of [["top", "⯅", "Top"], ["middle", "≡", "Middle"], ["bottom", "⯆", "Bottom"]])
+      btn(v, icon, "Vertical: " + name.toLowerCase(), () => (val === "top" ? delete e.valign : (e.valign = val)), (e.valign || "top") === val);
+    select(row("Module"), "Module size", [["0", "auto"], ...Array.from({ length: lim.qrModuleMax }, (_, i) => [String(i + 1), i + 1 + " px"])],
+      String(e.module || 0), (val) => {
+        if (+val) e.module = +val;
+        else delete e.module;
+      });
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). Leave a white border of " +
+      "2 to 4 modules around the box for phones to read it; on the 2.9\", 2 px modules scan well.";
+    list.append(p);
+  }
+  if (e.type === "rect" || e.type === "line") {
+    const half = Math.floor(Math.min(e.w, e.h) / 2);
+    const num = (r, label, key, min, max, def, hint) => {
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.min = min;
+      inp.max = max;
+      inp.value = e[key] ?? def;
+      inp.title = hint;
+      inp.setAttribute("aria-label", label);
+      inp.addEventListener("change", () => {
+        const v = clamp(Math.round(+inp.value || 0), min, max);
+        // the bar is drawn again on a change, which blurs this input and fires change once more
+        if (v === (e[key] ?? def)) return;
+        if (v === def) delete e[key];
+        else e[key] = v;
+        changed({});
+      });
+      r.append(inp);
+    };
+    if (e.type === "rect") {
+      num(row("Corners"), "Corner radius in pixels", "radius", 0, half, 0, `Round corners, 0 to ${half} px (half the shorter side)`);
+      num(row("Border"), "Border width in pixels", "border", 0, half, 0, "0 fills the box, more draws only a border this wide");
+    } else {
+      const d = row("Direction");
+      for (const [val, icon, name] of [["down", "╲", "Down: top-left to bottom-right"], ["up", "╱", "Up: bottom-left to top-right"]])
+        btn(d, icon, name, () => (val === "down" ? delete e.direction : (e.direction = val)), (e.direction || "down") === val);
+      num(row("Width"), "Line width in pixels", "width", 1, state.renderer.limits.lineWidthMax, 1, "Line width; a wide line reaches half its width past the box, with round ends");
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = "The line runs corner to corner in its box: 1 px high is a straight line across, 1 px wide a straight line down.";
+      list.append(p);
+    }
+  }
   const place = row("Place");
   for (const [label, title, act] of [
     ["⇤", "Against the left edge", () => (e.x = 0)],
@@ -974,7 +1049,7 @@ function moreMenu(e, btn, select, open) {
   const fill = row("Fill");
   btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
   btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
-  if (e.type === "rect") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
+  if (e.type === "rect" || e.type === "line") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
     [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
     e.x = clamp(e.x, 0, width - e.w);
     e.y = clamp(e.y, 0, height - e.h);
@@ -1057,12 +1132,63 @@ function addElement(kind) {
     text: { type: "text", field: lay.fields[0], x: 4, y: 4, w: Math.min(120, width - 4), h: 24, fonts: ["medium", "small"] },
     fixed: { type: "text", text: "inkl. mva", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
-    hline: { type: "rect", x: 4, y: Math.floor(height / 2), w: width - 8, h: 2 },
+    hline: { type: "line", x: 4, y: Math.floor(height / 2), w: width - 8, h: 1, width: 2 },
     barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },
+    qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
   }[kind];
   lay.elements.push(e);
   state.el = lay.elements.length - 1;
   changed();
+}
+
+// An icon from a picture file: drawn at its own size (scaled down to fit ICON_MAX and the
+// screen), dark pixels drawn, light and transparent ones left.
+async function addIcon(file) {
+  const lay = layout();
+  if (!lay || !file) return;
+  const { width, height } = MODELS[state.model];
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
+    return;
+  }
+  const max = Math.min(ICON_MAX, width, height);
+  const k = Math.min(1, max / bmp.width, max / bmp.height);
+  const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement("canvas");
+  [c.width, c.height] = [w, h];
+  const ctx = c.getContext("2d");
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const row = Math.ceil(w / 8);
+  const bits = new Uint8Array(row * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = 4 * (y * w + x);
+      // over white, then the AP's picture rule (esl_image.c): dark if 3R + 4G + 2B is below grey 128
+      const a = px[i + 3], over = (c) => (c * a + 255 * (255 - a)) / 255;
+      if (3 * over(px[i]) + 4 * over(px[i + 1]) + 2 * over(px[i + 2]) < 9 * 128) bits[y * row + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  const d = doc();
+  d.icons ??= {};
+  let base = file.name.replace(/\.[^.]*$/, "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^[^a-z]+/, "").slice(0, 12) || "icon";
+  let name = base;
+  for (let n = 2; d.icons[name]; n++) name = base + n;
+  d.icons[name] = { w, h, data: btoa(String.fromCharCode(...bits)) };
+  lay.elements.push({ type: "icon", icon: name, x: Math.floor((width - w) / 2), y: Math.floor((height - h) / 2), w, h });
+  state.el = lay.elements.length - 1;
+  changed();
+}
+
+// Icons no element in any layout draws are dropped, so they do not take room in the file
+function pruneIcons() {
+  const d = doc();
+  if (!d.icons) return;
+  const used = new Set(d.layouts.flatMap((l) => l.elements.filter((e) => e.type === "icon").map((e) => e.icon)));
+  for (const k of Object.keys(d.icons)) if (!used.has(k)) delete d.icons[k];
+  if (!Object.keys(d.icons).length) delete d.icons;
 }
 
 function deleteElement() {
@@ -1070,6 +1196,7 @@ function deleteElement() {
   if (!element() || lay.elements.length <= 1) return;
   lay.elements.splice(state.el, 1);
   state.el = -1;
+  pruneIcons();
   changed();
 }
 
@@ -1092,7 +1219,7 @@ function pasteElement() {
   const lay = layout();
   const { width, height } = MODELS[state.model];
   const c = structuredClone(state.clip);
-  if (c.type !== "rect" && c.text === undefined && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  if (usesField(c) && !lay.fields.includes(c.field)) c.field = lay.fields[0];
   c.w = Math.min(c.w, width);
   c.h = Math.min(c.h, height);
   const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
@@ -1283,7 +1410,12 @@ function initActions() {
   $("json").addEventListener("blur", refreshJson);
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
-  for (const k of ["text", "fixed", "rect", "hline", "barcode"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["text", "fixed", "rect", "hline", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  $("el-add-icon").addEventListener("click", () => $("icon-file").click());
+  $("icon-file").addEventListener("change", (ev) => {
+    addIcon(ev.target.files[0]);
+    ev.target.value = "";
+  });
   $("undo").addEventListener("click", () => undoRedo(false));
   $("redo").addEventListener("click", () => undoRedo(true));
   $("dz-canvas").addEventListener("scroll", placeBar);

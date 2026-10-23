@@ -6,6 +6,7 @@
 #include "esl_render.h"
 #include <string.h>
 #include "barcode.h" /* tag/src */
+#include "esl_qr.h"
 #include "font.h"    /* tag/src */
 #include "esl_text.h"
 #include "models_gen.h"
@@ -56,6 +57,8 @@ size_t esl_render_size(uint8_t model)
 #define RD_MAX_RECTS    ESL_DRAW_MAX_RECTS
 #define RD_MAX_BARCODES ESL_DRAW_MAX_BARCODES
 #define RD_MAX_NUMS     ESL_DRAW_MAX_NUMS
+#define RD_MAX_LINES_DRAWN ESL_DRAW_MAX_LINES
+#define RD_MAX_ICONS    ESL_DRAW_MAX_ICONS
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
 
 #define RD_BLACK 0
@@ -79,7 +82,26 @@ typedef struct {
     uint16_t x0, x1;
     uint16_t y0, y1;
     uint8_t color;
+    uint8_t radius;    /* rounded corners, 0 = square */
+    uint8_t border;    /* 0 = filled, else only a border this wide */
 } rd_rect_t;
+
+/* A line from (ax, ay) to (bx, by), width w: the pixels whose centre is at most w / 2
+ * from the segment. Drawn between columns x0 and x1, rows y0 and y1 (the box around it). */
+typedef struct {
+    int16_t ax, ay, bx, by;
+    uint8_t w;
+    uint8_t color;
+    int16_t x0, x1, y0, y1;
+} rd_line_t;
+
+typedef struct {
+    const uint8_t *data;   /* the icon's columns in the layout file */
+    uint16_t x, w;
+    uint16_t y;
+    uint8_t col_bytes;
+    uint8_t color;
+} rd_icon_t;
 
 typedef struct {
     uint16_t x0;
@@ -90,14 +112,24 @@ typedef struct {
 } rd_bars_t;
 
 typedef struct {
+    uint16_t x0, y0;
+    uint8_t size;        /* modules per side */
+    uint8_t m;           /* pixels per module */
+    uint8_t bits[ESL_QR_BYTES];
+} rd_qr_t;
+
+typedef struct {
     rd_model_t m;
-    uint8_t nruns, nrects, nbars;
+    uint8_t nruns, nrects, nbars, nlines, nicons, nqr;
     rd_run_t run[RD_MAX_RUNS];
     rd_rect_t rect[RD_MAX_RECTS];
+    rd_line_t line[RD_MAX_LINES_DRAWN];
+    rd_icon_t icon[RD_MAX_ICONS];
     rd_bars_t bars;
     /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
     uint8_t nnums;
     uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
+    rd_qr_t qr;
 } rd_scene_t;
 
 static void scene_clear(rd_scene_t *s)
@@ -106,6 +138,9 @@ static void scene_clear(rd_scene_t *s)
     s->nrects = 0;
     s->nbars = 0;
     s->nnums = 0;
+    s->nlines = 0;
+    s->nicons = 0;
+    s->nqr = 0;
 }
 
 static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uint16_t y, const uint8_t *text,
@@ -141,7 +176,46 @@ static bool add_rect(rd_scene_t *s, uint16_t x0, uint16_t y0, uint16_t x1, uint1
     r->y0 = y0;
     r->y1 = y1;
     r->color = color;
+    r->radius = 0;
+    r->border = 0;
     return true;
+}
+
+static void add_line(rd_scene_t *s, int16_t ax, int16_t ay, int16_t bx, int16_t by, uint8_t w, uint8_t color)
+{
+    rd_line_t *l;
+    int16_t r = (int16_t)((w + 1) / 2);
+    if (s->nlines >= RD_MAX_LINES_DRAWN)
+        return;
+    l = &s->line[s->nlines++];
+    l->ax = ax;
+    l->ay = ay;
+    l->bx = bx;
+    l->by = by;
+    l->w = w;
+    l->color = color;
+    l->x0 = (int16_t)((ax < bx ? ax : bx) - r);
+    l->x1 = (int16_t)((ax > bx ? ax : bx) + r);
+    l->y0 = (int16_t)((ay < by ? ay : by) - r);
+    l->y1 = (int16_t)((ay > by ? ay : by) + r);
+    if (l->y0 < 0)
+        l->y0 = 0;
+    if (l->y1 >= (int16_t)s->m.h)
+        l->y1 = (int16_t)(s->m.h - 1);
+}
+
+static void add_icon(rd_scene_t *s, const uint8_t *data, uint16_t x, uint16_t y, uint16_t w, uint8_t h, uint8_t color)
+{
+    rd_icon_t *ic;
+    if (s->nicons >= RD_MAX_ICONS)
+        return;
+    ic = &s->icon[s->nicons++];
+    ic->data = data;
+    ic->x = x;
+    ic->y = y;
+    ic->w = w;
+    ic->col_bytes = (uint8_t)((h + 7) / 8);
+    ic->color = color;
 }
 
 /* ---- one column (tag/src/draw.c) ------------------------------------------------ */
@@ -193,6 +267,105 @@ static void blit_column(const rd_model_t *mo, uint8_t *black, uint8_t *red, cons
     }
 }
 
+/* Rows left out at the top (and bottom) of column i of a corner with radius r, i counted
+ * from the rect's nearer side: the pixels whose centre is outside the quarter circle. */
+static uint16_t corner_inset(uint8_t r, uint16_t i)
+{
+    int32_t dx, dy;
+    uint16_t j;
+
+    if (i >= r)
+        return 0;
+    dx = 2 * (int32_t)r - 2 * (int32_t)i - 1;
+    for (j = 0; j < r; j++) {
+        dy = 2 * (int32_t)r - 2 * (int32_t)j - 1;
+        if (dx * dx + dy * dy <= 4 * (int32_t)r * r)
+            break;
+    }
+    return j;
+}
+
+/* The rows of column x inside a rect with rounded corners; false if none */
+static bool rect_span(uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1, uint8_t r, uint16_t x, uint16_t *top,
+                      uint16_t *bottom)
+{
+    uint16_t i = (uint16_t)(x - x0 < x1 - x ? x - x0 : x1 - x);
+    uint16_t in = corner_inset(r, i);
+    if (y0 + in > y1 - in || in > y1)
+        return false;
+    *top = (uint16_t)(y0 + in);
+    *bottom = (uint16_t)(y1 - in);
+    return true;
+}
+
+static void draw_rect(const rd_model_t *mo, const rd_rect_t *r, uint16_t x, uint8_t *black, uint8_t *red)
+{
+    uint16_t t, b, it, ib, last = (uint16_t)(mo->h - 1);
+    uint8_t ri;
+
+    if (x < r->x0 || x > r->x1 || r->y0 > r->y1 || r->y0 >= mo->h)
+        return;
+    if (!rect_span(r->x0, r->x1, r->y0, r->y1, r->radius, x, &t, &b) || t > last)
+        return;
+    if (b > last)
+        b = last;
+    if (r->border && r->x0 + r->border <= r->x1 - r->border && r->y0 + r->border <= r->y1 - r->border &&
+        x >= r->x0 + r->border && x <= r->x1 - r->border) {
+        ri = r->radius > r->border ? (uint8_t)(r->radius - r->border) : 0;
+        if (rect_span((uint16_t)(r->x0 + r->border), (uint16_t)(r->x1 - r->border), (uint16_t)(r->y0 + r->border),
+                      (uint16_t)(r->y1 - r->border), ri, x, &it, &ib)) {
+            if (it > t)
+                fill_span(black, red, t, (uint16_t)(it - 1 < b ? it - 1 : b), r->color);
+            if (ib < b)
+                fill_span(black, red, (uint16_t)(ib + 1), b, r->color);
+            return;
+        }
+    }
+    fill_span(black, red, t, b, r->color);
+}
+
+/* Is the centre of pixel (x, y) at most w / 2 from the line? In whole numbers, so every
+ * platform draws the same pixels: 4 d^2 <= w^2 with d the distance to the segment. */
+static bool line_hit(const rd_line_t *l, int32_t x, int32_t y)
+{
+    int32_t dx = l->bx - l->ax, dy = l->by - l->ay;
+    int32_t px = x - l->ax, py = y - l->ay;
+    int64_t len2 = (int64_t)dx * dx + (int64_t)dy * dy;
+    int64_t dot = (int64_t)px * dx + (int64_t)py * dy;
+    int64_t w2 = (int64_t)l->w * l->w;
+
+    if (dot <= 0 || len2 == 0)
+        return 4 * ((int64_t)px * px + (int64_t)py * py) <= w2;
+    if (dot >= len2) {
+        int64_t qx = x - l->bx, qy = y - l->by;
+        return 4 * (qx * qx + qy * qy) <= w2;
+    }
+    {
+        int64_t cross = (int64_t)px * dy - (int64_t)py * dx;
+        return 4 * cross * cross <= w2 * len2;
+    }
+}
+
+static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *red)
+{
+    int16_t y, top = -1, bottom = -1;
+
+    if ((int16_t)x < l->x0 || (int16_t)x > l->x1)
+        return;
+    /* the pixels of a line in one column are one run (the shape is convex) */
+    for (y = l->y0; y <= l->y1; y++) {
+        if (line_hit(l, x, y)) {
+            if (top < 0)
+                top = y;
+            bottom = y;
+        } else if (top >= 0) {
+            break;
+        }
+    }
+    if (top >= 0)
+        fill_span(black, red, (uint16_t)top, (uint16_t)bottom, l->color);
+}
+
 static uint8_t run_char(const rd_run_t *r, uint8_t i)
 {
     return i < r->len ? r->text[i] : FONT_ELLIPSIS;
@@ -238,10 +411,17 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
     memset(black, 0, mo->col_bytes);
     memset(red, 0, mo->col_bytes);
 
-    for (i = 0; i < s->nrects; i++) {
-        const rd_rect_t *r = &s->rect[i];
-        if (x >= r->x0 && x <= r->x1 && r->y0 <= r->y1 && r->y0 < mo->h)
-            fill_span(black, red, r->y0, r->y1 < mo->h ? r->y1 : (uint16_t)(mo->h - 1), r->color);
+    for (i = 0; i < s->nrects; i++)
+        draw_rect(mo, &s->rect[i], x, black, red);
+
+    for (i = 0; i < s->nlines; i++)
+        draw_line(&s->line[i], x, black, red);
+
+    for (i = 0; i < s->nicons; i++) {
+        const rd_icon_t *ic = &s->icon[i];
+        if (x >= ic->x && x < ic->x + ic->w)
+            blit_column(mo, black, red, ic->data + (size_t)(x - ic->x) * ic->col_bytes, ic->col_bytes, ic->y,
+                        ic->color);
     }
 
     if (s->nbars && x >= s->bars.x0) {
@@ -249,6 +429,20 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         uint16_t m = (uint16_t)((x - b->x0) / b->mw);
         if (m < b->nmod && (b->bits[m >> 3] & (0x80 >> (m & 7))))
             fill_span(black, red, b->y0, b->y1, RD_BLACK);
+    }
+
+    if (s->nqr && x >= s->qr.x0 && x < s->qr.x0 + s->qr.size * s->qr.m) {
+        const rd_qr_t *q = &s->qr;
+        unsigned col = (unsigned)(x - q->x0) / q->m, r, top;
+        for (r = 0; r < q->size; r = top) {
+            /* a run of dark modules down this column is one span */
+            top = r + 1;
+            if (!esl_qr_module(q->bits, q->size, col, r))
+                continue;
+            while (top < q->size && esl_qr_module(q->bits, q->size, col, top))
+                top++;
+            fill_span(black, red, (uint16_t)(q->y0 + r * q->m), (uint16_t)(q->y0 + top * q->m - 1), RD_BLACK);
+        }
     }
 
     for (i = 0; i < s->nruns; i++)
@@ -545,12 +739,44 @@ static void place_barcode(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, u
     s->nbars = 1;
 }
 
+static void place_qr(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint8_t len)
+{
+    rd_qr_t *q = &s->qr;
+    uint16_t side = e->w < e->h ? e->w : e->h, used;
+    uint8_t mw = e->lines, n;
+
+    if (s->nqr || e->font[0] > ESL_QR_LEVEL_H)
+        return;
+    n = esl_qr_encode(t, len, e->font[0], ESL_QR_VERSION_MAX, q->bits);
+    if (!n || n > side)
+        return;
+    if (!mw)
+        mw = (uint8_t)(side / n > ESL_QR_MODULE_MAX ? ESL_QR_MODULE_MAX : side / n);
+    if (!mw || (uint16_t)n * mw > side)
+        return;
+    used = (uint16_t)(n * mw);
+    q->size = n;
+    q->m = mw;
+    q->x0 = e->x;
+    if ((e->opts & 0x03) == ESL_LE_RIGHT)
+        q->x0 += (uint16_t)(e->w - used);
+    else if ((e->opts & 0x03) == ESL_LE_CENTER)
+        q->x0 += (uint16_t)((e->w - used) / 2);
+    q->y0 = e->y;
+    if ((e->opts & 0x0C) == ESL_LE_BOTTOM)
+        q->y0 += (uint16_t)(e->h - used);
+    else if ((e->opts & 0x0C) == ESL_LE_MIDDLE)
+        q->y0 += (uint16_t)((e->h - used) / 2);
+    s->nqr = 1;
+}
+
 /* ---- the layout file (esl_layout_bin_t) ---- */
 
 typedef struct {
     const uint8_t *bin;
     uint16_t size;
     uint16_t text_pos; /* where the fixed texts start, 0 = no file */
+    uint16_t icon_pos; /* where the icons start */
 } rd_file_t;
 
 /* Where the fixed texts start: after the header and every layout's elements */
@@ -562,6 +788,7 @@ static void file_open(rd_file_t *fl, const esl_layout_bin_t *file)
     fl->bin = file ? file->bin : 0;
     fl->size = file ? file->size : 0;
     fl->text_pos = 0;
+    fl->icon_pos = 0;
     if (!file || file->size < ESL_LBIN_HDR_LEN)
         return;
     for (k = file->bin[2]; k; k--) {
@@ -570,6 +797,34 @@ static void file_open(rd_file_t *fl, const esl_layout_bin_t *file)
         pos = (uint16_t)(pos + 1 + (uint16_t)file->bin[pos] * ESL_LE_SIZE);
     }
     fl->text_pos = pos;
+    for (k = file->bin[ESL_LBIN_OFF_NTEXT]; k; k--) {
+        if (pos >= file->size)
+            return;
+        pos = (uint16_t)(pos + 1 + file->bin[pos]);
+    }
+    fl->icon_pos = pos;
+}
+
+/* Icon i of the file: its size, and its columns (NULL if the file has no such icon) */
+static const uint8_t *file_icon(const rd_file_t *fl, uint8_t i, uint16_t *w, uint8_t *h)
+{
+    uint16_t pos = fl->icon_pos;
+
+    if (!pos || i >= fl->bin[ESL_LBIN_OFF_NICON])
+        return 0;
+    for (;;) {
+        if (pos + ESL_LBIN_ICON_HDR > fl->size)
+            return 0;
+        *w = ESL_GET_U16(fl->bin + pos);
+        *h = fl->bin[pos + 2];
+        pos += ESL_LBIN_ICON_HDR;
+        if (!i--)
+            break;
+        pos = (uint16_t)(pos + (uint16_t)(*w * ((*h + 7) / 8)));
+    }
+    if (pos + (uint32_t)*w * ((*h + 7) / 8) > fl->size)
+        return 0;
+    return fl->bin + pos;
 }
 
 static const uint8_t *fixed_text(const rd_file_t *fl, uint8_t i, uint8_t *len)
@@ -693,14 +948,29 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
             break;
         }
         color = resolve_color(e->color, flags);
-        if (color != COLOR_NONE) {
+        if (color == COLOR_INVERT)
+            color = e->kind == ESL_LE_TEXT ? color : RD_BLACK;
+        else if (color == COLOR_RED_INVERT)
+            color = e->kind == ESL_LE_TEXT ? color : RD_RED;
+        if (color != COLOR_NONE && e->w && e->h) {
             if (e->kind == ESL_LE_RECT) {
-                if (color == COLOR_INVERT)
-                    color = RD_BLACK;
-                else if (color == COLOR_RED_INVERT)
-                    color = RD_RED;
-                if (e->w && e->h)
-                    add_rect(s, e->x, e->y, (uint16_t)(e->x + e->w - 1), (uint16_t)(e->y + e->h - 1), color);
+                if (add_rect(s, e->x, e->y, (uint16_t)(e->x + e->w - 1), (uint16_t)(e->y + e->h - 1), color)) {
+                    s->rect[s->nrects - 1].radius = e->lines; /* ESL_LE_OFF_RADIUS */
+                    s->rect[s->nrects - 1].border = e->opts;  /* ESL_LE_OFF_BORDER */
+                }
+            } else if (e->kind == ESL_LE_LINE) {
+                int16_t x0 = (int16_t)e->x, x1 = (int16_t)(e->x + e->w - 1);
+                int16_t y0 = (int16_t)e->y, y1 = (int16_t)(e->y + e->h - 1);
+                if (e->opts & ESL_LE_RISING)
+                    add_line(s, x0, y1, x1, y0, e->lines ? e->lines : 1, color);
+                else
+                    add_line(s, x0, y0, x1, y1, e->lines ? e->lines : 1, color);
+            } else if (e->kind == ESL_LE_ICON) {
+                uint16_t iw;
+                uint8_t ih;
+                const uint8_t *d = file_icon(fl, e->field, &iw, &ih);
+                if (d && iw == e->w && ih == e->h)
+                    add_icon(s, d, e->x, e->y, iw, ih, color);
             } else {
                 const uint8_t *t = 0;
                 uint8_t len = 0;
@@ -728,6 +998,8 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     place_text(s, te, t, len, color);
                 else if (len && e->kind == ESL_LE_BARCODE)
                     place_barcode(s, e, t, len);
+                else if (len && e->kind == ESL_LE_QR)
+                    place_qr(s, e, t, len);
             }
         }
         if (wire)

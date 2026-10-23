@@ -250,6 +250,15 @@ bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_conte
                      l->bin.bc_field[i], c->name, esl_model_name(model), m, (unsigned)l->bin.bc_max[i]);
         }
     }
+    if (ok && i >= 0 && l->bin.qr_field[i] >= 0) {
+        uint8_t len;
+        esl_content_field(c, (unsigned)l->bin.qr_field[i], &len);
+        if (len > l->bin.qr_cap[i]) {
+            ok = false;
+            snprintf(msg, msglen, "field %d of layout %s is too long for its QR code on model %s (%u of %u bytes)",
+                     l->bin.qr_field[i], c->name, esl_model_name(model), (unsigned)len, (unsigned)l->bin.qr_cap[i]);
+        }
+    }
     unlock(ls);
     return ok;
 }

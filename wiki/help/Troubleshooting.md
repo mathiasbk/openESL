@@ -1,0 +1,30 @@
+# Troubleshooting
+
+See also the [FAQ](FAQ).
+
+## The access point
+
+
+**The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome or Edge on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
+
+**I lost the API token.** Set a new one over USB, which needs no old token: the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, or `esl_client.py --serial /dev/ttyACM0 wifi --new-token NEWTOKEN`.
+
+**All my requests get 429.** Five wrong tokens in a row lock the API for 60 seconds. Wait and use the right token.
+
+**The AP is not on the network after I changed WiFi password.** After three minutes without a connection it opens its setup network `openesl-XXXX` again. Join it from a phone and pick the network again.
+
+**`openesl.local` does not work.** Some networks and Windows setups do not resolve `.local` names. Use the AP's IP address from your router, or from the screen on boards that have one.
+
+**The web page cannot reach my AP over WiFi.** That is on purpose in browsers: a page on https may not call a plain http address on your network. Open the dashboard on the AP itself (`http://openesl.local/dashboard`), connect over USB, or run the bridge (`esl_client.py serve`).
+
+**I flashed the AP and everything is gone.** It was flashed with "Erase device", or with the single `.bin` at 0x0. Restore from your backup (`esl_client.py restore ap.json`). See [Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything).
+
+## The labels
+
+**The label shows "No AP found".** It cannot hear the AP. Check that the AP runs OpenESL firmware and is in range. The label tries again less often to save battery, so give it a few minutes after the AP is back.
+
+**The label does not show what I sent.** Look it up on the dashboard: it says what the label is waiting for or what is wrong. A label shows new content at its next poll, so allow a minute or so. A label on firmware 0.4.x cannot show screens from a 0.5.0 AP; update it ([Firmware updates](Updating-labels)).
+
+**The battery shows 0.** The 1.54" cannot measure its battery voltage yet, so it reports 0 (unknown).
+
+Still stuck? [Open an issue](https://github.com/mathiasbk/openESL/issues) with what you tried and what the dashboard says.

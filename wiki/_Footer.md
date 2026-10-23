@@ -1,0 +1,1 @@
+OpenESL is released under the [MIT licence](https://github.com/mathiasbk/openESL/blob/master/LICENSE). These pages are made from the [wiki/ folder](https://github.com/mathiasbk/openESL/tree/master/wiki) in the repository: to fix something, send a pull request there, or [open an issue](https://github.com/mathiasbk/openESL/issues).

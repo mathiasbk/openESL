@@ -1603,7 +1603,7 @@ components:
         model: { $ref: "#/components/schemas/ModelName" }
         version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version of the file the AP draws with (CRC-32 of the compiled file); null: no file" }
         size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
-        binary_size: { type: integer, minimum: 0, maximum: 2048, description: Bytes of the compiled file }
+        binary_size: { type: integer, minimum: 0, maximum: 4096, description: Bytes of the compiled file }
         layouts: { type: array, items: { type: string }, description: The layout names in the file }
 
     LayoutInfo:
@@ -1616,7 +1616,7 @@ components:
       required: [max_size, max_binary_size, layouts]
       properties:
         max_size: { type: integer, const: 8192 }
-        max_binary_size: { type: integer, const: 2048 }
+        max_binary_size: { type: integer, const: 4096 }
         layouts: { type: array, items: { $ref: "#/components/schemas/LayoutInfo" } }
 
     LayoutStored:
@@ -1701,7 +1701,8 @@ components:
         Keys starting with `_` and `description` are comments. Besides this structure the AP
         checks that every box is inside the screen (296×128 or 200×200), that a text box is
         at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
-        most 32 text lines and 20 rectangles per layout, and at most 2048 bytes compiled.
+        most 32 text lines, 20 rectangles, 16 lines and 8 icons per layout, and at most 4096
+        bytes compiled.
       additionalProperties: false
       patternProperties: { "^_": true }
       required: [format, version, model, layouts]
@@ -1710,6 +1711,12 @@ components:
         version: { const: 1 }
         model: { $ref: "#/components/schemas/ModelName", description: The same as the model in the URL }
         description: { type: string }
+        icons:
+          type: object
+          maxProperties: 16
+          description: Small pictures that `icon` elements draw, by name
+          propertyNames: { pattern: "^[a-z][a-z0-9_]{0,15}$" }
+          additionalProperties: { $ref: "#/components/schemas/Icon" }
         layouts:
           type: array
           minItems: 1
@@ -1739,19 +1746,47 @@ components:
           type: array
           minItems: 1
           items: { $ref: "#/components/schemas/Element" }
-          description: Drawn in order (all rectangles, then the barcode, then all text)
+          description: Drawn in order (all rectangles, lines, icons, then the barcode and QR code, then all text)
+
+    Icon:
+      type: object
+      additionalProperties: false
+      required: [w, h, data]
+      properties:
+        w: { type: integer, minimum: 1, maximum: 128 }
+        h: { type: integer, minimum: 1, maximum: 128 }
+        data:
+          type: string
+          description: |
+            Base64 of the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a
+            row's first byte its leftmost pixel; a 1 bit is drawn in the element's colour, a 0 bit
+            leaves what is under it
 
     Element:
       type: object
       additionalProperties: false
       patternProperties: { "^_": true }
-      required: [type, x, y, w, h]
+      required: [type, x, y]
+      description: |
+        Every element needs `x` and `y`, and all but `icon` (whose size is the icon's) `w` and `h`.
       properties:
         type:
           type: string
-          enum: [text, rect, barcode]
-          description: "`text`: one field in a box; `rect`: a filled box; `barcode`: one field as a barcode"
-        field: { type: [string, integer], description: "text and barcode: a name from `fields`, or its index" }
+          enum: [text, rect, barcode, line, icon, qr]
+          description: |
+            `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
+            field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`; `qr`: one
+            field as a QR code (black, no quiet zone of its own)
+        radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
+        border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
+        direction:
+          type: string
+          enum: [down, up]
+          default: down
+          description: "line only: the line runs from the top-left to the bottom-right corner of its box (`down`) or from the bottom-left to the top-right (`up`); a box 1 px high or wide is a straight line"
+        width: { type: integer, minimum: 1, maximum: 16, default: 1, description: "line only: in pixels; a wide line reaches width / 2 past its box, and the ends are round" }
+        icon: { type: string, description: "icon only, required: a name from the file's `icons`" }
+        field: { type: [string, integer], description: "text, barcode and qr: a name from `fields`, or its index" }
         text:
           type: string
           minLength: 1
@@ -1767,9 +1802,16 @@ components:
         module:
           type: integer
           minimum: 0
-          maximum: 4
+          maximum: 8
           default: 0
-          description: "barcode only: module width in pixels, 0 = the widest that fits the box"
+          description: "barcode: module width in pixels, at most 4; qr: module size in pixels, at most 8; 0 = the largest that fits the box"
+        ecc:
+          type: string
+          enum: [L, M, Q, H]
+          default: M
+          description: |
+            qr only: error correction level (about 7, 15, 25 or 30 % of the code can be lost). Content
+            whose QR field is longer than the largest version the box holds takes is refused with 422.
         x: { type: integer, minimum: 0 }
         y: { type: integer, minimum: 0 }
         w: { type: integer, minimum: 1 }

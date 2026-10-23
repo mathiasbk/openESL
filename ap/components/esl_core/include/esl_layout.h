@@ -40,6 +40,11 @@ typedef struct {
     int8_t bc_field[ESL_LAYOUT_FILE_MAX];
     uint8_t bc_sym[ESL_LAYOUT_FILE_MAX];
     uint16_t bc_max[ESL_LAYOUT_FILE_MAX];
+    /* The QR element of each layout, if any: its field (-1 = none), level and the most bytes
+     * it holds in its box. */
+    int8_t qr_field[ESL_LAYOUT_FILE_MAX];
+    uint8_t qr_ecc[ESL_LAYOUT_FILE_MAX];
+    uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
 } esl_layout_bin_t;
 
 /* Compiles a layout file for model. Returns false with a message in err (at
@@ -69,7 +74,7 @@ typedef struct {
 } esl_layout_t;
 
 /* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
- * the AP has about 60 KB free and a file costs 2.6 KB plus its JSON, so holding
+ * the AP has about 60 KB free and a file costs 4.6 KB plus its JSON, so holding
  * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
 typedef struct {
     esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
@@ -119,8 +124,8 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
 
-/* Checks the barcode field of content c (a named layout) against the layout of that name
- * in model's file: it must be one the tag can encode and fit in the element's box.
+/* Checks the barcode and QR fields of content c (a named layout) against the layout of that
+ * name in model's file: they must be ones the AP can encode and fit in the element's box.
  * Returns true if it is fine, or if the file has no such layout; else false with a
  * message in msg. */
 bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
