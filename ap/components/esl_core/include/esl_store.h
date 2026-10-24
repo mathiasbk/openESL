@@ -70,6 +70,7 @@ typedef struct {
                                  ESL_POLL_F_FWFAIL is about it (RAM only) */
     bool image_capable : 1;   /* its last POLL had ESL_POLL_F_IMAGE */
     bool image_rle : 1;       /* ... and ESL_POLL_F_IMG_RLE: it takes coded images */
+    bool image_2d : 1;        /* ... and ESL_POLL_F_IMG_2D: it takes 2D coded images */
     bool image_taken : 1;     /* it asked for a block of image_offered */
     bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
     bool has_image : 1;       /* its content is a picture (ESL_LAYOUT_IMAGE), kept with ops.persist_image */

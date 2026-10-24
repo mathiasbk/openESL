@@ -525,6 +525,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->polls++;
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
         t->image_rle = t->image_capable && (poll->flags & ESL_POLL_F_IMG_RLE);
+        t->image_2d = t->image_capable && (poll->flags & ESL_POLL_F_IMG_2D);
         n = poll_answer(st, t, poll, env, now_ms, reply);
         t->seen_dirty = !save;
         if (save)

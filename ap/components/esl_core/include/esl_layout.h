@@ -22,16 +22,34 @@
  * persist hooks are called after it is released. Only the JSON is persisted;
  * the binary is compiled again at boot. */
 
-#define ESL_LAYOUT_MAX_SIZE 8192 /* JSON file */
+#ifndef ESL_LAYOUT_MAX_SIZE
+#define ESL_LAYOUT_MAX_SIZE 8192 /* JSON file; per AP board, as ESL_LBIN_MAX in shared/proto.h */
+#endif
 #define ESL_LAYOUT_FIELD_NAME_MAX 16
 #define ESL_LAYOUT_ERR_MAX 160
 
 /* ---- compiler ------------------------------------------------------------ */
 
+/* The limits the compiler checks a file against: the AP board's (ESL_DRAW_MAX_*, ESL_LBIN_MAX
+ * and ESL_LAYOUT_MAX_SIZE, set per board in ap/boards/<board>/board.json). GET /api/layouts
+ * reports them. The web page's renderer (web/wasm/web_api.c) is built with room for the
+ * largest board (ESL_*_CAP) and sets them to those of the AP it talks to; nothing else
+ * changes them. Each is at most its ESL_*_CAP. */
+typedef struct {
+    uint16_t runs;       /* lines of text per screen */
+    uint16_t rects;      /* rectangles and inverted fields per screen */
+    uint16_t lines;      /* line elements per screen */
+    uint16_t icons;      /* icons per screen */
+    uint16_t file_bytes; /* compiled file */
+    uint16_t json_bytes; /* JSON file */
+} esl_limits_t;
+
+extern esl_limits_t esl_limits;
+
 typedef struct {
     uint32_t version; /* CRC32 of bin, never 0 */
     uint16_t size;    /* bytes used in bin */
-    uint8_t bin[ESL_LBIN_MAX];
+    uint8_t bin[ESL_LBIN_CAP];
     uint8_t count;    /* layouts in the file */
     uint8_t nfields[ESL_LAYOUT_FILE_MAX];
     char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];

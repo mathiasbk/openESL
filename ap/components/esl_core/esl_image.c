@@ -1,5 +1,6 @@
 #include "esl_image.h"
 #include "esl_crc32.h"
+#include "esl_img2d.h"
 #include "esl_png.h"
 #include "esl_render.h"
 #include <stdint.h>
@@ -31,8 +32,11 @@ size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max)
             uint8_t v = in[i];
             if (o + 2 > max || o + 2 > ahead + i)
                 return 0;
-            out[o++] = (uint8_t)(0x80 + r - 2);
-            out[o++] = v;
+            if (out) {
+                out[o] = (uint8_t)(0x80 + r - 2);
+                out[o + 1] = v;
+            }
+            o += 2;
             i += r;
             continue;
         }
@@ -43,9 +47,11 @@ size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max)
             l++;
         if (o + 1 + l > max || o + 1 > ahead + i)
             return 0;
-        out[o++] = (uint8_t)(l - 1);
-        memmove(out + o, in + i, l);
-        o += l;
+        if (out) {
+            out[o] = (uint8_t)(l - 1);
+            memmove(out + o + 1, in + i, l);
+        }
+        o += 1 + l;
         i += l;
     }
     return o;
@@ -344,22 +350,47 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
        Another content_id than t's: it changed meanwhile, and is drawn on the next POLL */
     if (!esl_store_get_content(st, t->mac, &c) || esl_content_id(&c) != t->content_id)
         return false;
-    /* Coded for a tag that takes it: drawn ESL_IMG_RLE_MARGIN in and coded down to the
-       start, else (it would not be shorter) drawn again raw. A picture is read back as
-       it was stored, coded when that was shorter. */
+    /* Coded for a tag that takes it: drawn (or a picture read back and unpacked)
+       ESL_IMG_RLE_MARGIN in, both codes counted, and the shorter coded down to the start
+       (2D is a fraction of RLE on text and bars, but RLE wins on dithered pictures);
+       raw when neither is shorter. 2D is counted as coded in place, m ahead, so it is
+       only picked when it does not overtake the image (it can on dense columns at the
+       left; RLE never does). Should coding still give 0, the image is read again and
+       sent raw. */
+    bool picture = c.layout == ESL_LAYOUT_IMAGE;
     size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
     uint8_t fmt = ESL_IMG_FMT_RAW;
-    if (c.layout == ESL_LAYOUT_IMAGE) {
-        if (!(n = stored_picture(st, t->mac, t->model, &c, t->image_rle, b->data, cap, &fmt)))
-            return false;
-    } else if (t->image_rle && raw && cap >= raw + m &&
-               esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw) {
-        n = esl_img_rle_encode(b->data + m, raw, b->data, raw - 1);
-        if (n)
-            fmt = ESL_IMG_FMT_RLE;
+    uint16_t w = 0, h = 0;
+    bool red, has_h = esl_render_model(t->model, &w, &h, &red);
+    bool got = false;
+    if (raw && cap >= raw + m && (t->image_rle || (t->image_2d && has_h))) {
+        if (picture && stored_picture(st, t->mac, t->model, &c, false, b->data, cap, &fmt) == raw) {
+            memmove(b->data + m, b->data, raw);
+            got = true;
+        } else if (!picture)
+            got = esl_layouts_render(ls, t->model, &c, b->data + m, cap - m) == raw;
     }
-    if (!n)
-        n = esl_layouts_render(ls, t->model, &c, b->data, cap);
+    if (got) {
+        uint8_t *in = b->data + m;
+        size_t lr = t->image_rle ? esl_img_rle_encode(in, raw, NULL, raw - 1) : 0;
+        size_t l2 = t->image_2d && has_h ? esl_img_2d_count(in, raw, h, m, (lr ? lr : raw) - 1) : 0;
+        if (l2) {
+            n = esl_img_2d_encode(in, raw, h, b->data, l2);
+            fmt = ESL_IMG_FMT_2D;
+        } else if (lr) {
+            n = esl_img_rle_encode(in, raw, b->data, lr);
+            fmt = ESL_IMG_FMT_RLE;
+        } else {
+            memmove(b->data, in, raw);
+            n = raw;
+            fmt = ESL_IMG_FMT_RAW;
+        }
+    }
+    if (!n) {
+        fmt = ESL_IMG_FMT_RAW;
+        n = picture ? stored_picture(st, t->mac, t->model, &c, false, b->data, cap, &fmt)
+                    : esl_layouts_render(ls, t->model, &c, b->data, cap);
+    }
     if (!n)
         return false;
     uint32_t id = esl_crc32(b->data, n);
@@ -387,7 +418,10 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
         return NULL;
     uint32_t ver = layout_ver(ls, t.model);
     esl_image_buf_t *b = find(im, mac);
-    if (b && t.has_content && !t.content_err && b->content_id == t.content_id && b->layout_ver == ver)
+    /* and in a format the tag (still) takes: a tag back on older firmware gets it drawn again */
+    if (b && t.has_content && !t.content_err && b->content_id == t.content_id && b->layout_ver == ver &&
+        (b->fmt == ESL_IMG_FMT_RAW || (b->fmt == ESL_IMG_FMT_RLE && t.image_rle) ||
+         (b->fmt == ESL_IMG_FMT_2D && t.image_2d)))
         return b;
     if (!b) {
         if (!t.has_content || t.content_err)

@@ -43,6 +43,9 @@
                                      * in its POLL is then the image_id it shows. A tag without it (no SPI
                                      * flash) cannot show content. */
 #define ESL_POLL_F_IMG_RLE   0x40   /* the tag also takes ESL_IMG_FMT_RLE images */
+#define ESL_POLL_F_IMG_2D    0x80   /* ... and ESL_IMG_FMT_2D images */
+/* The flags byte is full: every bit is taken, 0x04 included (retired, and kept unused
+ * since older firmware set it). A new capability needs a field of its own after cfg_ver. */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -167,9 +170,30 @@
  * ESL_IMG_FMT_RLE is the raw image run-length coded, sent only to a tag whose POLL has
  * ESL_POLL_F_IMG_RLE: a control byte c, then for c < 0x80 the next c + 1 bytes as they
  * are, for c >= 0x80 the next byte c - 0x80 + 2 times (2 to 129). It ends exactly at
- * the raw size; image_id is the CRC-32 of the coded bytes. */
+ * the raw size; image_id is the CRC-32 of the coded bytes.
+ *
+ * ESL_IMG_FMT_2D is the raw image coded column against column, modelled on CCITT T.6
+ * (G4) with its own run codes, sent only to a tag whose POLL has ESL_POLL_F_IMG_2D. It
+ * is a bit string, most significant bit first, and columns follow each other with no
+ * padding: every column of the raw image (the red plane's after the black plane's),
+ * height pixels each, coded against the column before it (the first against an empty
+ * one). Ink is colour 1. In a column, a change is a row y whose pixel differs from row
+ * y - 1 (row -1 has no ink). Coding goes down the column from a0 = -1 with colour 0: b1
+ * is the first change in the reference column below a0 to the other colour than the
+ * current one, b2 the change after b1 (height if none), and from s = max(a0, 0):
+ *   1, 011, 010, 000011, 000010, 0000011, 0000010  vertical: the next change a1 is at b1,
+ *       b1 + 1, b1 - 1, b1 + 2, b1 - 2, b1 + 3, b1 - 3; rows s..a1 - 1 get the colour,
+ *       the colour flips and a0 = a1
+ *   0001  pass: rows s..b2 - 1 get the colour, a0 = b2
+ *   001 r1 r2  horizontal: r1 rows of the colour from s, then r2 of the other, a0 = s + r1
+ *       + r2; r1 and r2 are Exp-Golomb codes of order 2 (r + 4 in binary, b bits, after
+ *       b - 3 zeros)
+ * until a0 is the height. After the last column the last byte is filled with zeros, and
+ * nothing follows. Decoded it is exactly the raw image; image_id is the CRC-32 of the
+ * coded bytes. */
 #define ESL_IMG_FMT_RAW      0
 #define ESL_IMG_FMT_RLE      1
+#define ESL_IMG_FMT_2D       2
 
 /* IMG_REQ, 10 byte */
 #define ESL_IREQ_LEN         10
@@ -220,7 +244,18 @@
 #define ESL_ICON_MAX_W       128    /* største ikon i piksler */
 #define ESL_ICON_MAX_H       128
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         4096   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
+/* Største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først). Denne og ESL_DRAW_MAX_RUNS,
+ * _RECTS, _LINES og _ICONS er AP-kortets grenser: et kort kan sette andre i "limits" i
+ * ap/boards/<kort>/board.json (ap/CMakeLists.txt), og verdiene her er standarden (ESP32-C6).
+ * ESL_*_CAP er plassen koden setter av; den er grensen, unntatt i nettsidens renderer, som
+ * bygges med plass til det største kortet og tar grensene til AP-en den snakker med
+ * (esl_limits i esl_layout.h). */
+#ifndef ESL_LBIN_MAX
+#define ESL_LBIN_MAX         4096
+#endif
+#ifndef ESL_LBIN_CAP
+#define ESL_LBIN_CAP         ESL_LBIN_MAX
+#endif
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
@@ -340,10 +375,31 @@
 #define ESL_FONT_TEXT20_H    20
 #define ESL_FONT_PRICE44_H   44
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_LINES   16     /* linjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_ICONS   8      /* ikoner per skjerm (esl_render.c) */
+/* Per skjerm (esl_render.c); per AP-kort, som ESL_LBIN_MAX */
+#ifndef ESL_DRAW_MAX_RUNS
+#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer */
+#endif
+#ifndef ESL_DRAW_MAX_RECTS
+#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt */
+#endif
+#ifndef ESL_DRAW_MAX_LINES
+#define ESL_DRAW_MAX_LINES   16     /* linjer */
+#endif
+#ifndef ESL_DRAW_MAX_ICONS
+#define ESL_DRAW_MAX_ICONS   8      /* ikoner */
+#endif
+#ifndef ESL_DRAW_CAP_RUNS
+#define ESL_DRAW_CAP_RUNS    ESL_DRAW_MAX_RUNS
+#endif
+#ifndef ESL_DRAW_CAP_RECTS
+#define ESL_DRAW_CAP_RECTS   ESL_DRAW_MAX_RECTS
+#endif
+#ifndef ESL_DRAW_CAP_LINES
+#define ESL_DRAW_CAP_LINES   ESL_DRAW_MAX_LINES
+#endif
+#ifndef ESL_DRAW_CAP_ICONS
+#define ESL_DRAW_CAP_ICONS   ESL_DRAW_MAX_ICONS
+#endif
 #define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 

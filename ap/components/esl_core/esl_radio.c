@@ -158,6 +158,7 @@ void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t batt
     t->flags = ESL_POLL_F_BOOTED;
     t->images = true;
     t->img_rle = true;
+    t->img_2d = true;
     t->interval_s = ESL_FAKETAG_POLL_S;
 }
 
@@ -173,6 +174,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_IMAGE;
     if (t->images && t->img_rle)
         flags |= ESL_POLL_F_IMG_RLE;
+    if (t->images && t->img_2d)
+        flags |= ESL_POLL_F_IMG_2D;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
     esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver};
@@ -252,7 +255,8 @@ static void on_img(esl_faketag_t *t, const esl_reply_t *r)
     if (r->img_id != t->img_dl_id || r->size != t->img_dl_size) {
         bool raw = r->img_fmt == ESL_IMG_FMT_RAW && r->size == esl_render_size(t->model);
         bool rle = t->img_rle && r->img_fmt == ESL_IMG_FMT_RLE && r->size < esl_render_size(t->model);
-        if (r->fw_model != t->model || !(raw || rle)) {
+        bool c2d = t->img_2d && r->img_fmt == ESL_IMG_FMT_2D && r->size < esl_render_size(t->model);
+        if (r->fw_model != t->model || !(raw || rle || c2d)) {
             t->img_failed = r->img_id;
             t->img_dl_id = 0;
             return;

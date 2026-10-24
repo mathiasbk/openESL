@@ -29,6 +29,16 @@ Each folder has:
     [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets
     `CONFIG_ESL_RADIO_DRIVER_UART=y`. `net`: a radio over WiFi (`main/radio_net.c`, the radio in
     `ap/netradio/`, [docs/ap-netradio.md](../../docs/ap-netradio.md)); `CONFIG_ESL_RADIO_DRIVER_NET=y`.
+  - `limits` (optional): what one layout file may hold on this board, where it differs from the
+    defaults in `shared/proto.h` and `components/esl_core/include/esl_layout.h` (the ESP32-C6's,
+    which the default board `c6-supermini` keeps): `runs` (lines of text per screen, 32),
+    `rects` (rectangles and inverted text, 20), `lines` (16), `icons` (8), `fileBytes` (the
+    compiled file, 4096) and `jsonBytes` (the JSON file, 8192). The AP draws every image, so these
+    are the AP's RAM, not the tag's. `CMakeLists.txt` passes them to the compiler, `GET
+    /api/layouts` reports them with the board's `id`, and the designer shows the connected AP's.
+    `web/build.py` gives the web renderer room for the largest value of any board. The boards with
+    8 MB PSRAM set `runs` 64, `rects` 40, `lines` 32 and `icons` 16; `jsonBytes` stays 8192 on
+    every board, since the layout files share NVS with the tags.
   - `radio_fw` (`uart` and `net`): the radio boards in `ap/radio/boards/` (or `ap/netradio/boards/`) the radio can be
     (a name or a list: `["c6", "c6-lcd"]`). `build.py` builds each one too, once, and the
     release has it as `<release in its radio.json>-<version>.bin`.
@@ -44,7 +54,8 @@ Each folder has:
 1. Copy the folder closest to it, rename it, and change `board.json` and `sdkconfig.defaults`.
 2. `python build.py <board>` (ESP-IDF v5.5.5, with the chip's compiler: `./install.sh esp32s3`
    for the S3, which is Xtensa where the C6 and C5 are RISC-V). For a new chip the component manager writes
-   `dependencies.lock.<chip>` next to `dependencies.lock`; commit it.
+   `dependencies.lock.<chip>` next to `dependencies.lock`; commit it. A board with the Design tab
+   (`CONFIG_ESL_WEB_DESIGNER=y`) also needs the renderer: `python web/build.py --wasm` (Emscripten 3.1.74) first.
 3. Flash `out/<artifact>.bin` at 0 with esptool, try it with a tag, and set `status` to
    `supported` when it works. A host without its tag radio yet can be tried with
    `CONFIG_ESL_RADIO_STUB=y` added to its `sdkconfig.defaults` in a local copy: simulated tags

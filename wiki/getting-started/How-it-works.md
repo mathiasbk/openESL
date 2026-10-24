@@ -10,12 +10,12 @@ flowchart TB
     client -- "only data, no pixels<br/>HTTP with an API token, over WiFi or USB" --> render
     layout --> render
     fonts --> render
-    render -- "802.15.4 radio, when the label polls (every 60 s)<br/>1 bit per pixel, run-length coded, 92-byte blocks" --> label
+    render -- "802.15.4 radio, when the label polls (every 60 s)<br/>1 bit per pixel, compressed, 92-byte blocks" --> label
 ```
 
 1. **Your software sends data, not pixels.** One HTTP request per label (or up to 50 at once) names a layout and gives the text fields. See [Sending content](Sending-content).
 2. **The access point draws the screen.** It keeps the text per label, and draws the label's screen from the layout file for that model and the fonts built into its firmware. The drawing code is the same C code as the preview in the [Label designer](Label-designer), the simulator and the tests, so what you see in the browser is what the label shows.
-3. **The label asks, the AP answers.** Every 60 seconds the label wakes, asks "anything new?", and goes back to sleep. When its screen has changed, the AP sends the new image over the 802.15.4 radio in small blocks.
+3. **The label asks, the AP answers.** Every 60 seconds the label wakes, asks "anything new?", and goes back to sleep. When its screen has changed, the AP sends the new image over the 802.15.4 radio in small blocks. The image is compressed column against column, the way a fax compresses a page, so a typical price label is about 500 bytes: six radio blocks instead of 52.
 4. **The label shows it.** It stores the image in its SPI flash and draws it on the e-paper panel. After a restart it shows the last image again, even without the AP.
 
 An image that has not changed is never sent again, and a label only redraws when its screen really changed. That is what keeps the batteries going.

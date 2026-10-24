@@ -10,6 +10,7 @@
 #include "model.h"
 #include "ota.h"
 #include "image.h"
+#include "esl_img2d.h"
 
 static uint8_t img[IMG_RAW_SIZE];
 static uint32_t img_id;
@@ -122,7 +123,7 @@ static void test_refused(void)
     CHECK_EQ(image.rejected, 0);
 
     setup(true);
-    CHECK_EQ(image_poll_flags(), ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE);
+    CHECK_EQ(image_poll_flags(), ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE | ESL_POLL_F_IMG_2D);
     CHECK_EQ(image.slot_id, 0);
     image_open();
     CHECK_EQ(feed(img_id, IMG_RAW_SIZE, 0, MODEL_CODE + 1, ESL_IMG_FMT_RAW), IMAGE_STOP);   /* another model */
@@ -242,12 +243,14 @@ static void rle_code(void)
         img_id = 1;
 }
 
+static uint8_t feed_fmt = ESL_IMG_FMT_RLE;   /* test_2d sends ESL_IMG_FMT_2D */
+
 static uint8_t feed_code(uint16_t pos)
 {
     proto_reply_t r;
     uint16_t left = code_len - pos;
     uint8_t n = (uint8_t)(left > ESL_IMG_CHUNK_MAX ? ESL_IMG_CHUNK_MAX : left);
-    uint8_t len = make_img_block(pl, 0, img_id, code_len, pos, MODEL_CODE, ESL_IMG_FMT_RLE, code + pos, n);
+    uint8_t len = make_img_block(pl, 0, img_id, code_len, pos, MODEL_CODE, feed_fmt, code + pos, n);
 
     memset(&r, 0, sizeof(r));
     CHECK_EQ(proto_parse_reply(pl, len, &r), PROTO_OK);
@@ -331,6 +334,102 @@ static void test_rle(void)
     CHECK_EQ(download_code(), IMAGE_STOP);
     CHECK(image.rejected == img_id);
     CHECK_EQ(fake_xflash_misuse, 0);
+}
+
+/* ESL_IMG_FMT_2D: img coded as the AP does, with its coder (esl_img2d.c) */
+
+static void code_2d(void)
+{
+    code_len = (uint16_t)esl_img_2d_encode(img, IMG_RAW_SIZE, DRAW_H, code, sizeof(code) - 1);
+    CHECK(code_len > 0);
+    img_id = proto_crc32(0, code, code_len);
+    if (!img_id)
+        img_id = 1;
+}
+
+static void test_2d(void)
+{
+    uint16_t x, i;
+    uint8_t keep;
+
+    feed_fmt = ESL_IMG_FMT_2D;
+    /* text-like columns, a bar at the top and bottom row, a slope */
+    memset(img, 0, sizeof(img));
+    for (x = 0; x < DRAW_W; x++) {
+        img[x * DRAW_COL_BYTES] = 0x80;
+        img[x * DRAW_COL_BYTES + DRAW_COL_BYTES - 1] |= 0x80 >> ((DRAW_H - 1) & 7);
+        if (x >= 20 && x < 60)
+            img[x * DRAW_COL_BYTES + 2] = (uint8_t)(x * 7);
+        if (x < DRAW_H)
+            img[x * DRAW_COL_BYTES + x / 8] |= 0xFF >> (x & 7);
+    }
+    code_2d();
+    CHECK(code_len < IMG_RAW_SIZE / 4);
+    setup(true);
+    CHECK_EQ(download_code(), IMAGE_DONE);
+    CHECK(image.slot_id == img_id);
+    CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_2D);
+    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* a restart finds it */
+    ota_init();
+    image_init(ota.present);
+    CHECK(image.slot_id == img_id);
+    CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_2D);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* every mode: a picture whose columns differ from the one before by a little and by a lot */
+    memset(img, 0, sizeof(img));
+    for (i = 0; i < IMG_RAW_SIZE / DRAW_COL_BYTES; i++)
+        for (x = 0; x < DRAW_H; x++)
+            if ((x >= i % 4 && x < i % 4 + 20) ||                  /* moves 1 to 3 rows: vertical */
+                (i % 9 == 0 && x >= 60 && x < 70) ||               /* there in one column: pass */
+                (i % 13 == 0 && x >= 30 && x < 33 + i % 40))       /* new runs: horizontal */
+                img[i * DRAW_COL_BYTES + x / 8] |= 0x80 >> (x & 7);
+    code_2d();
+    CHECK_EQ(download_code(), IMAGE_DONE);
+    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* a code cut short is refused, though its CRC is right */
+    code_len -= 2;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... a whole code with a byte after it */
+    code_2d();
+    code[code_len++] = 0x00;
+    img_id = proto_crc32(0, code, code_len);
+    CHECK_EQ(download_code(), IMAGE_STOP);
+    CHECK(image.rejected == img_id);
+
+    /* ... one bits that are not zero after the last column (white: one bit per column) */
+    memset(img, 0, sizeof(img));
+    code_2d();
+    if ((DRAW_W * (1 + MODEL_HAS_RED)) % 8) {
+        code[code_len - 1] |= 1;
+        img_id = proto_crc32(0, code, code_len);
+        CHECK_EQ(download_code(), IMAGE_STOP);
+        CHECK(image.rejected == img_id);
+    }
+
+    /* ... and one with a bit flipped: refused, or a picture of the right size (never past the screen) */
+    for (i = 0; i < IMG_RAW_SIZE; i++)
+        img[i] = (uint8_t)(i % 11 == 0 ? i : 0);
+    for (i = 0; i < 40; i++) {
+        code_2d();
+        keep = (uint8_t)(1 << (i & 7));
+        code[(i * 13) % code_len] ^= keep;
+        img_id = proto_crc32(0, code, code_len);
+        CHECK(download_code() != IMAGE_MORE);
+    }
+    CHECK_EQ(fake_xflash_misuse, 0);
+    feed_fmt = ESL_IMG_FMT_RLE;
 }
 
 /* Blocks out of order, repeated, and a download that stops halfway and goes on */
@@ -515,5 +614,6 @@ void test_image(void)
     RUN(test_download);
     RUN(test_download_blocks);
     RUN(test_rle);
+    RUN(test_2d);
     RUN(test_app_download);
 }

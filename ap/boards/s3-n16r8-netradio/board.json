@@ -10,5 +10,6 @@
   "radio_fw": ["c6"],
   "artifact": "openesl-ap-s3-n16r8-netradio",
   "release": "openesl-ap-esp32s3-n16r8-netradio",
-  "status": "experimental"
+  "status": "experimental",
+  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16 }
 }

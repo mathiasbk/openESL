@@ -46,4 +46,30 @@ if(NOT board_target STREQUAL "esp32c6")
     idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_CURRENT_LIST_DIR}/dependencies.lock.${board_target}")
 endif()
 
+# The board's layout limits ("limits" in board.json, boards/README.md) for the layout compiler
+# and renderer in esl_core; a limit the board does not set keeps the default in shared/proto.h
+# or esl_layout.h (the ESP32-C6's). web/build.py reads the same keys for the web renderer.
+set(limit_keys runs rects lines icons fileBytes jsonBytes)
+set(limit_macros ESL_DRAW_MAX_RUNS ESL_DRAW_MAX_RECTS ESL_DRAW_MAX_LINES ESL_DRAW_MAX_ICONS ESL_LBIN_MAX
+    ESL_LAYOUT_MAX_SIZE)
+idf_build_set_property(COMPILE_DEFINITIONS "ESL_BOARD=\"${BOARD}\"" APPEND)
+string(JSON board_limits ERROR_VARIABLE no_limits GET "${board_json}" limits)
+if(NOT no_limits)
+    string(JSON n_limits LENGTH "${board_limits}")
+endif()
+if(NOT no_limits AND n_limits GREATER 0)
+    math(EXPR last_limit "${n_limits} - 1")
+    foreach(i RANGE ${last_limit})
+        string(JSON key MEMBER "${board_limits}" ${i})
+        string(JSON value GET "${board_limits}" ${key})
+        list(FIND limit_keys "${key}" at)
+        if(at LESS 0 OR NOT value MATCHES "^[1-9][0-9]*$")
+            message(FATAL_ERROR "${board_json_file}: limits.${key} = ${value} is not a known limit with a whole number")
+        endif()
+        list(GET limit_macros ${at} macro)
+        idf_build_set_property(COMPILE_DEFINITIONS "${macro}=${value}" APPEND)
+        message(STATUS "OpenESL AP board ${BOARD}: ${key} = ${value}")
+    endforeach()
+endif()
+
 project(esl_ap)

@@ -22,7 +22,12 @@ const TABS = ["home", "design", "tag", "ap", "dashboard", "setup", "api"];
 function showTab(name) {
   if (!TABS.includes(name)) name = "home";
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
-  document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== "tab-" + name));
+  document.querySelectorAll(".tab").forEach((t) => {
+    // a modal dialog left open in a tab that is hidden (Back, a typed #name) would keep the
+    // whole page inert behind it, unseen
+    if (t.id !== "tab-" + name) t.querySelectorAll("dialog[open]").forEach((d) => d.close());
+    t.hidden = t.id !== "tab-" + name;
+  });
   // the API reference is large: load it the first time its tab is shown
   const frame = name === "api" && document.querySelector(".api-frame:not([src])");
   if (frame) frame.src = frame.dataset.src;

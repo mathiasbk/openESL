@@ -32,7 +32,8 @@
 
 /* ESL_IMG_FMT_RLE: n bytes coded into out, at most max bytes; 0 when it does not fit.
  * out may be in - ESL_IMG_RLE_MARGIN(n) (coding in place: the output never overtakes
- * the input by more than that, and gives 0 rather than write over input it has not read). */
+ * the input by more than that, and gives 0 rather than write over input it has not read).
+ * out NULL only counts: the length the code would have. */
 #define ESL_IMG_RLE_MARGIN(n) ((n) / 128 + 2)
 size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max);
 
@@ -100,7 +101,7 @@ typedef struct {
     uint32_t id;          /* image id (CRC-32 of data) */
     uint16_t size;        /* bytes as sent */
     uint8_t model;
-    uint8_t fmt;          /* ESL_IMG_FMT_*: RLE for a tag that takes it, when that is shorter */
+    uint8_t fmt;          /* ESL_IMG_FMT_*: 2D or RLE for a tag that takes it, when that is shorter */
     uint64_t used_ms;     /* last block sent, or drawn */
     bool sent;            /* the last block went out: free for another tag */
     uint8_t *data;        /* cap bytes */
