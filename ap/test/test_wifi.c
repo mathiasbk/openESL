@@ -141,6 +141,12 @@ static void test_setup_page(void)
     CHECK_STR(fake.pass, "secret12");
     CHECK_STR(fake.token, "");
     CHECK(HAS(buf, "joins <b>Home</b>."));
+    CHECK(HAS(buf, "http://openesl.local/")); /* no name known: the old default */
+
+    reset_fake();
+    strcpy(fake.st.hostname, "openesl-1a2b");
+    CHECK_INT(post("", "ssid=Home&new_token=", &out), 200);
+    CHECK(HAS(buf, "http://openesl-1a2b.local/"));
 
     reset_fake();
     CHECK_INT(post(NULL, "ssid=Home&new_token=longtoken1", &out), 200);

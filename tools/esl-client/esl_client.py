@@ -2,7 +2,8 @@
 """Example client for the OpenESL AP HTTP API (docs/protokoll.md part 2).
 
 Standard library only. URL and token come from --url/--token or the environment
-variables OPENESL_URL (default http://openesl.local) and OPENESL_TOKEN.
+variables OPENESL_URL (default http://openesl.local; a new AP is http://openesl-xxxx.local, with the
+digits of its setup network) and OPENESL_TOKEN.
 With --serial PORT (or OPENESL_SERIAL) it talks to the AP over its USB port
 instead (Linux/macOS); no token is needed there.
 

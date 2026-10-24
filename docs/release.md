@@ -65,6 +65,10 @@ Images to the tags get a second code, image format 2 ([protokoll.md](protokoll.m
 
 Layout files compile to layout format 2 (lines, round and open boxes, icons, QR codes). The AP sends every tag with a file layout its screen again once after the update, because the file's version changes, and QR codes now keep a quiet zone inside their box, so a QR box holds a smaller version than before. Going back to 0.5.x: a 0.5.x AP refuses at boot a stored file that uses `icons` or the `line` and `qr` types, or `radius`, `border`, `direction` or `width`, and the layouts of that model are gone until a file without them is uploaded. It also drops a picture put on a tag with `PUT /api/tags/{mac}/image` ("ignoring stored entry" in its log). Neither is erased while the AP runs 0.5.x, and the tags keep showing what they had: updating the AP to 0.6.0 again brings back the layout files and pictures that were not replaced in the meantime (tried on hardware). A layout file uploaded, or content sent to a tag, under 0.5.x wins, and a picture can then be lost. `esl-client backup` keeps the pictures too.
 
+### Upgrading from 0.6.x to the next release
+
+A new AP is `openesl-xxxx.local` on the network, with the four digits of its setup network, so two APs on one network get their own names. An AP that already has its WiFi saved keeps `openesl.local`, so bookmarks and Home Assistant keep working. Two such APs on one network still share the name until one is renamed: `esl_client.py --serial <port> wifi --hostname openesl-s3`, or "Name" in the WiFi card.
+
 ## 4. A bad release
 
 - **Fix forward:** the normal way. Fix it on `development` and make a patch release (X.Y.Z+1) the same way as above.

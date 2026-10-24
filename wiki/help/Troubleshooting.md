@@ -13,7 +13,7 @@ See also the [FAQ](FAQ).
 
 **The AP is not on the network after I changed WiFi password.** After three minutes without a connection it opens its setup network `openesl-XXXX` again. Join it from a phone and pick the network again.
 
-**`openesl.local` does not work.** Some networks and Windows setups do not resolve `.local` names. Use the AP's IP address from your router, or from the screen on boards that have one.
+**`openesl.local` does not work.** An AP set up after 0.6.0 is `openesl-xxxx.local`, with the four digits of its setup network; the WiFi card on the web page and `esl_client.py wifi` over USB show the name. Some networks and Windows setups do not resolve `.local` names. Use the AP's IP address from your router, or from the screen on boards that have one.
 
 **The web page cannot reach my AP over WiFi.** That is on purpose in browsers: a page on https may not call a plain http address on your network. Open the dashboard on the AP itself (`http://openesl.local/dashboard`), connect over USB, or run the bridge (`esl_client.py serve`).
 

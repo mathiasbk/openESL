@@ -38,7 +38,7 @@ Details: [Sending content](Sending-content).
 
 ## 5. Keep an eye on it
 
-Open `http://openesl.local/dashboard` to see every label, what it shows, its battery and signal, and what needs attention.
+Open `http://openesl-xxxx.local/dashboard`, with the four digits of its setup network ([finding the AP](WiFi-and-API-token#finding-the-ap-on-the-network)), to see every label, what it shows, its battery and signal, and what needs attention.
 
 Details: [Dashboard](Dashboard).
 

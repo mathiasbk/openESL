@@ -1624,7 +1624,7 @@ components:
         rssi: { type: integer, description: "Signal of the saved network in dBm, only while connected" }
         setup_ssid: { type: [string, "null"], description: "The setup network's name while it is open, e.g. `openesl-1A2B`" }
         token_set: { type: boolean, description: "An API token is set; until then every HTTP request gets `401`. The token itself is never shown" }
-        hostname: { type: string, description: "The AP's name on the network, `openesl` unless changed: what the router shows, and `<hostname>.local`" }
+        hostname: { type: string, description: "The AP's name on the network, `openesl-xxxx` (the digits of its setup network) on a new AP and `openesl` on one set up with 0.6.0 or older, unless changed: what the router shows, and `<hostname>.local`" }
         networks:
           type: array
           maxItems: 16
