@@ -146,7 +146,14 @@ export function apFacts(ap, ota) {
   ];
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
+  if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio)]);
   return facts;
+}
+
+// The network radio's line in the AP facts: "192.168.3.249, last seen 3 s ago", or "not connected"
+export function radioText(r) {
+  if (!r.connected) return "not connected";
+  return `${r.ip}, last seen ${fmtAgo(r.seen_s)} ago`;
 }
 
 // Which AP board this is: its name from GET /api/tags (board_name, in firmware after 0.6.0), or for an

@@ -14,6 +14,15 @@
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
  * host tests call it directly. */
 
+/* The network radio's link as the AP sees it (ap/main/radio_net.c), shown as "radio" in
+ * GET /api/tags. The driver keeps it up to date. */
+typedef struct {
+    bool up;                /* a radio is connected now */
+    uint32_t ip;            /* its address, host order */
+    uint64_t seen_ms;       /* when it last sent anything (ms since boot) */
+    uint16_t ver;           /* its firmware, as its HELLO says (0 before HELLO) */
+} esl_radio_link_t;
+
 #define ESL_API_MAX_BATCH  50
 #define ESL_API_MAX_BODY   24576
 #define ESL_API_MAX_TOKENS 1024
@@ -31,6 +40,7 @@ typedef struct {
     struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
     esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
     bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
+    const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

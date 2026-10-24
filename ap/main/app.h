@@ -95,3 +95,7 @@ void captive_dns_stop(void);
 /* radio.c (AP or sniffer mode, over the link of the radio driver) or
  * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);
+#if CONFIG_ESL_RADIO_DRIVER_NET
+/* radio_net.c: the link to the network radio, for GET /api/tags ("radio") */
+const esl_radio_link_t *radio_net_link(void);
+#endif

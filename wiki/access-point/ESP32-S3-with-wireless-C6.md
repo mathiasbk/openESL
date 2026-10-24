@@ -34,6 +34,8 @@ By hand instead:
 2. Flash the C6 with the radio firmware (`openesl-ap-netradio-c6`).
 3. Open the C6's USB port in a serial terminal and type `ssid <your network>`, `pass <password>` and `reboot`. It finds the S3 on its own; if not, type `host <the S3's address>` (it still looks for the S3 by itself if that address stops answering). `status` shows how it is doing.
 
+The dashboard's AP facts show the radio as **Radio (C6)**: its address and when it was last heard, or "not connected". The address comes from the connection, so there is nothing to set for it on the AP. Settings for the radio on the dashboard are not there yet.
+
 The details: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md#setting-it-up).
 
 ## How it works, in short

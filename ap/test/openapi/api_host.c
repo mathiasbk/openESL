@@ -150,7 +150,7 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL};
     uint64_t now_ms = 1000;
     char line[512];
 

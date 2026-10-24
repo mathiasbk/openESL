@@ -72,6 +72,12 @@ test("AP facts", () => {
   assert.equal(f["AP time"], "not set");
   assert.equal(f.Scheduled, "1 of 64");
   assert.ok(!("AP time" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
+  // the network radio: its address and when it was last heard, or that it is not connected
+  const up = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: true, ip: "192.168.3.249", seen_s: 3, fw: 1 } }));
+  assert.equal(up["Radio (C6)"], "192.168.3.249, last seen 3 s ago");
+  const down = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false } }));
+  assert.equal(down["Radio (C6)"], "not connected");
+  assert.ok(!("Radio (C6)" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
 });
 
 test("poll interval for all tags", () => {
