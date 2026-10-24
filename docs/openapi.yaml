@@ -1350,7 +1350,18 @@ components:
       required: [fw, uptime_s, channel, max_tags, table_full, poll_s]
       properties:
         fw: { type: string, description: AP firmware version, example: "0.1.0" }
+        board: { type: string, description: "The AP board the firmware was built for (`ap/boards/<board>/`), as `board` in `GET /api/layouts`; not sent by firmware 0.6.0 and older", example: s3-n16r8-c6 }
+        board_name: { type: string, description: "The board's short name for people (`name` in its board.json); not sent by firmware 0.6.0 and older", example: ESP32-S3 + C6 on cable }
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
+        radio:
+          type: object
+          description: "The network radio (ESP32-C6 over WiFi, docs/ap-netradio.md); not sent by an AP that has none"
+          required: [connected]
+          properties:
+            connected: { type: boolean, description: "A radio is connected now" }
+            ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
+            seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
+            fw: { type: integer, minimum: 0, description: "Its firmware version as a number, as in its HELLO (0 before HELLO; only while connected)" }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
         max_tags: { type: integer, minimum: 1, description: "The most tags the AP keeps (menuconfig, default 1000); the C6 may run out of RAM before" }
         table_full: { type: boolean, description: "A new tag found no room since a tag last got a slot (none free, and no RAM for more or max_tags reached): it is not listed until a slot frees" }
@@ -1452,7 +1463,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Tag" }
       example:
-        ap: { fw: "0.1.0", uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
+        ap: { fw: "0.1.0", board: c6-supermini, board_name: ESP32-C6, uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
         tags:
           - mac: "00000123456789A8"
             seen_s_ago: 12
@@ -1624,7 +1635,7 @@ components:
         rssi: { type: integer, description: "Signal of the saved network in dBm, only while connected" }
         setup_ssid: { type: [string, "null"], description: "The setup network's name while it is open, e.g. `openesl-1A2B`" }
         token_set: { type: boolean, description: "An API token is set; until then every HTTP request gets `401`. The token itself is never shown" }
-        hostname: { type: string, description: "The AP's name on the network, `openesl` unless changed: what the router shows, and `<hostname>.local`" }
+        hostname: { type: string, description: "The AP's name on the network, `openesl-xxxx` (the digits of its setup network) on a new AP and `openesl` on one set up with 0.6.0 or older, unless changed: what the router shows, and `<hostname>.local`" }
         networks:
           type: array
           maxItems: 16

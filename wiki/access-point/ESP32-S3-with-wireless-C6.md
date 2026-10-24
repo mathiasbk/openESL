@@ -26,9 +26,15 @@ These come from measurements on a C6, not guesses.
 
 ## Setting it up
 
+On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick **S3 + C6 over WiFi**. The page flashes the C6 radio, then the S3 (on its port marked **USB**), gives the S3 its WiFi and API token, and then gives the C6 the same network and the S3's address. It shows the C6's log until the C6 says it is connected to the AP, with the WiFi signal at the C6; below −75 dBm it warns.
+
+By hand instead:
+
 1. Flash the S3 with the `s3-n16r8-netradio` firmware, as any AP.
 2. Flash the C6 with the radio firmware (`openesl-ap-netradio-c6`).
 3. Open the C6's USB port in a serial terminal and type `ssid <your network>`, `pass <password>` and `reboot`. It finds the S3 on its own; if not, type `host <the S3's address>` (it still looks for the S3 by itself if that address stops answering). `status` shows how it is doing.
+
+The dashboard's AP facts show the radio as **Radio (C6)**: its address and when it was last heard, or "not connected". The address comes from the connection, so there is nothing to set for it on the AP. Settings for the radio on the dashboard are not there yet.
 
 The details: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md#setting-it-up).
 

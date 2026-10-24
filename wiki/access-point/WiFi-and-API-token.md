@@ -4,7 +4,7 @@ A freshly flashed AP needs two things: a WiFi network to join, and an **API toke
 
 ## Over USB, right after flashing
 
-On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab (step 2) or the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, press **Connect AP**. The page shows the networks the AP can see, fills in a random token if the AP has none, and watches it join. Close anything else that has the AP's port open first, such as `esl_client.py ... serve`.
+Right after flashing, step 3 of the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab does this over the same port. Later, on the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, press **Connect AP**. On an S3 or C5 board with two USB ports, use the one marked **USB**: the other (COM) can flash, but the WiFi setup gets no answer there. The page shows the networks the AP can see, fills in a random token if the AP has none, and watches it join. Close anything else that has the AP's port open first, such as `esl_client.py ... serve`.
 
 ## From a phone, on the setup network
 
@@ -22,6 +22,6 @@ If the saved network stops working (a new WiFi password, say), the setup network
 
 ## Finding the AP on the network
 
-The AP is `openesl.local` (mDNS), or look up its IP address in your router. To change the name: `esl_client.py wifi --hostname NAME`.
+The AP is `openesl-xxxx.local` (mDNS), with the same four digits as its setup network `openesl-XXXX`, so two APs on one network get their own names. An AP that already had its WiFi set up with 0.6.0 or older keeps `openesl.local`. Two of those on one network share the name until you rename one: `esl_client.py --serial /dev/ttyACM0 wifi --hostname openesl-s3`. Or look up its IP address in your router. The examples in this wiki use `openesl.local`: put your AP's name in. To change the name: `esl_client.py wifi --hostname NAME`.
 
 Next: [Flashing labels](Flashing-labels), or [AP settings](Access-point-settings).

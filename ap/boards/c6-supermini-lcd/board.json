@@ -1,5 +1,6 @@
 {
   "id": "c6-supermini-lcd",
+  "name": "ESP32-C6 with screen",
   "base": "c6-supermini",
   "label": "ESP32-C6 with a 0.96\" ST7789 status screen (Waveshare ESP32-C6-LCD layout)",
   "target": "esp32c6",

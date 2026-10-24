@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/designer.css">
+  <link rel="stylesheet" href="css/apwizard.css">
 </head>
 <body>
   <header class="top">
@@ -243,98 +244,48 @@
 
   <!-- ===================== Flash tag ===================== -->
   <main id="tab-tag" class="tab" role="tabpanel" hidden>
-    <section class="card">
-      <h2>Flash a tag with the ZBS_Flasher</h2>
-      <p>Needs a D1 mini running atc1441's ZBS_Flasher, connected by USB, and Chrome or Edge on a computer (Web Serial). Each tag goes through the same steps as <code>tools/flash-tui</code>: the MAC is read, the whole flash is backed up in this browser before anything is erased, the MAC is written to the info page if needed, then the firmware is written and verified. The info page is never erased.</p>
-      <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
-      <h3 class="sub">1. Choose the tag model</h3>
-      <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
-        <!-- one button per model in js/models.js (main.js) -->
+    <section class="wz">
+      <ol class="wz-steps" id="tw-steps" aria-label="Steps"></ol>
+      <div id="tw-body"></div>
+      <div class="wz-foot">
+        <button id="tw-back" type="button">← Back</button>
+        <span class="wz-grow"></span>
+        <button id="tw-next" type="button" class="primary">Next →</button>
       </div>
-      <h3 class="sub">2. Firmware and flasher</h3>
-      <div class="form row">
-        <label>Firmware
-          <select id="tag-fw-src">
-            <option value="release">Built from this page's version</option>
-            <option value="file">From a file…</option>
-          </select>
-        </label>
-        <input id="tag-fw-file" type="file" accept=".bin" hidden>
-        <span id="tag-fw-info" class="muted"></span>
-      </div>
-      <div class="buttons">
-        <button id="tag-connect">Connect flasher</button>
-        <button id="tag-flash" disabled>Flash tag in jig</button>
-        <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
-      </div>
-      <div id="tag-mac-ask" class="mac-ask" hidden>
-        <p class="warn">This tag has no MAC left: not in its info page and not at 0xFC06, where the stock firmware kept it (an earlier build was written over it). Type the 12 digits under the barcode on its label, or its whole MAC (16 digits), and flash it again. The MAC is written to the info page, so this is needed only once.</p>
-        <div class="buttons">
-          <input id="tag-mac" class="mono" placeholder="020793500102 or 000002079350341C" autocomplete="off" spellcheck="false">
-          <button id="tag-mac-go">Flash with this MAC</button>
+      <p class="muted"><span id="tag-fw-info"></span> Each tag goes through the same steps as <code>tools/flash-tui</code>: MAC, a backup of the whole flash before anything is erased, the MAC to the info page if needed, then write and verify. The info page is never erased.</p>
+    </section>
+    <section class="wz tw-backups">
+      <div class="wz-panel">
+        <div class="tw-bhead">
+          <div class="wz-grow">
+            <h2>Backups in this browser <span class="wz-badge" id="backup-count"></span></h2>
+            <p class="muted">The tags' own firmware, stored before the first flash. It stays in this browser until you clear the site's data, so export it and keep it somewhere safe. The barcode comes from the tag; you can also type or scan it.</p>
+          </div>
+          <p class="buttons tight">
+            <button id="backup-export-zip" type="button" class="primary">Export all (ZIP)</button>
+            <button id="backup-export-csv" type="button">List (CSV)</button>
+          </p>
         </div>
-      </div>
-      <progress id="tag-progress" max="1" value="0" hidden></progress>
-      <pre id="tag-log" class="log" aria-live="polite"></pre>
-    </section>
-    <section class="card">
-      <h2>After this: updates over the radio</h2>
-      <p>A tag flashed here once with firmware that has the bootloader (the releases after v0.2.0) does not have to come back to the jig for later versions. Each release has an <code>openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> per model; <code>esl-client tag-ota</code> with that file, or the Firmware card on the <a href="#dashboard">Dashboard</a> tab, gives it to the AP, and each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, checks it and restarts into it. In the Dashboard's tag table, a tag with older firmware than this page has gets a small arrow-up button in its firmware column that does the same (hover it to see the version). If the new firmware never reaches the AP, the tag goes back to the old one after 9 restarts.</p>
-      <p class="muted">Tried on two 1.54" tags on 2026-10-15: updates up and down took 4 to 8 minutes each at one poll a minute, and the tag kept its price through every restart. The AP needs one flash over USB with such a release first, for its tag firmware storage. There is no radio security yet (T16). Details: <a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">docs/tag-ota.md</a>.</p>
-    </section>
-    <section class="card">
-      <h2>Backups in this browser</h2>
-      <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode on the tag's label is filled in from the stock firmware when the tag is backed up; you can also type or scan it.</p>
-      <div class="table-wrap">
-        <table class="backups"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
-      </div>
-      <div class="buttons">
-        <button id="backup-export-zip">Export all (ZIP)</button>
-        <button id="backup-export-csv">Export list (CSV)</button>
-        <span id="backup-persist" class="muted"></span>
+        <div class="table-wrap">
+          <table class="backups tw-results"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
+        </div>
+        <p id="backup-persist" class="muted"></p>
       </div>
     </section>
   </main>
 
   <!-- ===================== Flash AP ===================== -->
+  <!-- js/apwizard.js: choose the AP, flash it, WiFi and token over USB, done -->
   <main id="tab-ap" class="tab" role="tabpanel" hidden>
-    <section class="card">
-      <h2>Flash the access point</h2>
-      <p>Pick the board, connect it by USB and press the button. Chrome or Edge on a computer is needed (Web Serial). If the board is not found, hold BOOT while you plug it in.</p>
-      <p id="ap-fw-info" class="muted"></p>
-      <label id="ap-board-choice" class="board-choice" hidden>Board <select id="ap-board"></select></label>
-      <p id="ap-board-note" class="muted" hidden></p>
-      <esp-web-install-button id="ap-install" manifest="firmware/ap-manifest.json">
-        <button slot="activate">Connect and flash AP</button>
-        <span slot="unsupported" class="warn">This browser cannot flash (no Web Serial). Use Chrome or Edge on a computer.</span>
-        <span slot="not-allowed" class="warn">Flashing needs a secure page (https).</span>
-      </esp-web-install-button>
-      <p>Before installing, the flasher asks <b>Erase device?</b> To update an AP that already runs OpenESL, leave <b>Erase device</b> unticked: only the firmware is written, and the AP keeps its WiFi, API token, tags, layout files and tag firmware. Tick it for a new board, for a board that ran something else, or to start over.</p>
-      <p class="warn">Erasing the device removes everything the AP has stored. An AP from before version 0.3.0 (an older partition table) must be erased. Before erasing an AP that is in use, <code>esl-client backup ap.json</code> saves its tags, layout files and settings, and <code>esl-client restore ap.json</code> puts them back afterwards. An AP on the network can also be updated without a cable, from the dashboard or with <code>esl-client ota</code>.</p>
-      <p class="warn">With another flashing tool: a release's single AP file (<code>openesl-ap-...-v&lt;version&gt;.bin</code>, without <code>-ota</code>) written at 0x0 erases the AP's tags, layout files, WiFi and token too, since it holds blank bytes over that area. To keep them over USB, use this page without "Erase device", or write the <code>-ota.bin</code> to 0x90000 after erasing <code>otadata</code> at 0x7E000 with esptool, or on Linux and macOS use <code>esl-client --serial &lt;port&gt; ota openesl-ap-...-ota.bin</code> (<a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md#build-and-flash">ap/README.md</a>).</p>
-    </section>
-    <section class="card">
-      <h2>Then: WiFi and API token</h2>
-      <p>When the flashing is done, close its window and press Connect AP: over the same USB cable, give the AP your network and an API token (a new random one is filled in for an AP that has none). Keep a copy of the token: every HTTP request needs it, and it cannot be read back. This can also be done later on the <a href="#setup">Set up</a> tab, or from a phone on the AP's own setup network <code>openesl-XXXX</code>.</p>
-      <p id="apwifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="#setup">Set up</a>).</p>
-      <div class="buttons">
-        <button id="apwifi-connect">Connect AP</button>
-        <span id="apwifi-state" class="muted" role="status"></span>
+    <section class="wz">
+      <ol class="wz-steps" id="wz-steps" aria-label="Steps"></ol>
+      <div id="wz-body"></div>
+      <div class="wz-foot">
+        <button id="wz-back" type="button">← Back</button>
+        <span class="wz-grow"></span>
+        <button id="wz-next" type="button" class="primary">Next →</button>
       </div>
-      <form id="apwifi-form" class="form wifi-form" hidden>
-        <label>Network <input id="apwifi-ssid" list="apwifi-networks" autocomplete="off" maxlength="32" spellcheck="false"></label>
-        <datalist id="apwifi-networks"></datalist>
-        <label>Password <input id="apwifi-pass" type="password" autocomplete="off" maxlength="63"></label>
-        <label><span></span><span><input type="checkbox" id="apwifi-show"> Show password</span></label>
-        <label>API token <input id="apwifi-token" class="mono" autocomplete="off" maxlength="128" spellcheck="false" placeholder="empty: keep the current one"></label>
-        <label><span></span><span><button id="apwifi-gen" type="button">New random token</button></span></label>
-        <label id="apwifi-hostname-label" hidden>Name <input id="apwifi-hostname" autocomplete="off" maxlength="32" spellcheck="false" placeholder="openesl" title="The AP's name on the network: what the router shows, and NAME.local"></label>
-        <div class="buttons tight">
-          <button id="apwifi-save" type="submit">Save</button>
-          <button id="apwifi-forget" type="button" title="PUT /api/wifi with no network: the AP forgets it and opens its setup network">Forget network</button>
-        </div>
-      </form>
-      <p id="apwifi-msg" class="hint wifi-msg" role="status"></p>
+      <p class="muted"><span id="ap-fw-info"></span> <a id="wz-other" href="#">Other ways to flash</a></p>
     </section>
   </main>
 
@@ -491,11 +442,11 @@
     <section class="card wide">
       <h2>First start</h2>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab can give it your WiFi and an API token over the same cable; then skip to step 4.</li>
+        <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab gives it your WiFi and an API token over the same cable; then skip to step 4.</li>
         <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi and token over USB above instead.</li>
         <li><strong>Fill in the form:</strong> pick your WiFi from the scan list, enter its password, and choose an <strong>API token</strong> (8 to 128 characters, letters, digits and punctuation, no spaces). The AP saves all three and joins your network at once; the setup network closes a minute later.</li>
-        <li><strong>Find it on your network</strong> at <code>http://openesl.local/</code> (mDNS; the name can be changed with "Name" in the WiFi card) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token. The dashboard is at <code>http://openesl.local/dashboard</code>: it asks for the token once.</li>
-        <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; status</code>.</li>
+        <li><strong>Find it on your network</strong> at <code>http://openesl-xxxx.local/</code>, with the same four digits as its setup network (mDNS; an AP set up with 0.6.0 or older keeps <code>openesl.local</code>, and the name can be changed with "Name" in the WiFi card) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token. The dashboard is at <code>http://openesl-xxxx.local/dashboard</code>: it asks for the token once.</li>
+        <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl-xxxx.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl-xxxx.local --token &lt;token&gt; status</code>.</li>
       </ol>
       <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi and token can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>
     </section>
@@ -543,6 +494,5 @@
   </main>
 
   <script type="module" src="js/main.js"></script>
-  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
 </body>
 </html>

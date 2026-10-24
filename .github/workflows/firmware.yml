@@ -13,6 +13,8 @@
 # The AP and the tags each get the version of the release they last changed in
 # (tools/fw_version.py), so the images of a release that changed only one of them are the
 # previous ones again for the other; the "Versions" step shows what this run built.
+# The AP is built one job per board and per radio (ap/build.py --jobs), side by side, and
+# collected into the ap-firmware artifact.
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
 
@@ -63,12 +65,10 @@ jobs:
           name: tag-firmware
           path: out/
 
-  ap-firmware:
+  ap-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Host tests (AP core, with AddressSanitizer)
         run: |
           # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
@@ -78,23 +78,60 @@ jobs:
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
+
+  # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:
+  # one after another they took 13 minutes, about 1.5 minutes each
+  ap-jobs:
+    runs-on: ubuntu-24.04
+    outputs:
+      jobs: ${{ steps.jobs.outputs.jobs }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: jobs
+        run: echo "jobs=$(python3 ap/build.py --jobs)" >> "$GITHUB_OUTPUT"
+
+  ap-build:
+    needs: ap-jobs
+    name: ap-build (${{ matrix.job.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.ap-jobs.outputs.jobs) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the release tags: tools/fw_version.py gives the AP and the tags their versions
       - name: Versions (tools/fw_version.py)
         run: python3 tools/fw_version.py --all
-      # the boards with the Design tab (ESL_WEB_DESIGNER) pack the renderer (ap/main/webui.py)
+      # the boards with the Design tab (ESL_WEB_DESIGNER) pack the renderer (ap/main/webui.py);
+      # the radio firmware has no web page
       - uses: mymindstorm/setup-emsdk@v16
+        if: ${{ !contains(matrix.job.args, '/') }}
         with:
           version: 3.1.74
           actions-cache-folder: emsdk-cache
       - name: Renderer for the AP's Design tab (web/dist/wasm/)
+        if: ${{ !contains(matrix.job.args, '/') }}
         run: python3 web/build.py --wasm
-      - name: Build AP for every board (ESP-IDF v5.5.5), each merged into one image
+      - name: Build ${{ matrix.job.name }} (ESP-IDF v5.5.5), merged into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
           target: esp32c6   # only for the action; ap/build.py takes the chip from each board
           path: ap
-          command: python build.py
+          command: python build.py ${{ matrix.job.args }}
       - uses: actions/upload-artifact@v7
         with:
-          name: ap-firmware
+          name: ap-build-${{ matrix.job.name }}
           path: ap/out/
+
+  # the images of every board and radio in one artifact, as web.yml and release.yml take them
+  ap-firmware:
+    needs: ap-build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/upload-artifact/merge@v7
+        with:
+          name: ap-firmware
+          pattern: ap-build-*

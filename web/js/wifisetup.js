@@ -1,7 +1,7 @@
 // wifisetup.js - "WiFi and API token over USB": GET and PUT /api/wifi over the AP's USB port
-// with Web Serial (js/apserial.js). The same card is on the Flash AP tab (step 2, right after
-// flashing) and on the Set up tab; initWifiSetup(prefix) wires one of them, by the prefix of
-// its element ids. Both share the one port (js/apport.js).
+// with Web Serial (js/apserial.js), on the Set up tab; initWifiSetup(prefix) wires it by the
+// prefix of its element ids. It shares the one port (js/apport.js) with the dashboard and the
+// Flash AP tab, whose step 3 does the same right after flashing (js/apwizard.js).
 import { describeWifi, checkWifi, checkToken, checkHostname, newToken } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 

@@ -22,7 +22,12 @@ export function onSerialChange(f) {
 // Asks the user for the port, opens it and waits until the AP answers
 export async function connectSerial() {
   if (ap) return ap;
-  const port = await navigator.serial.requestPort();
+  return connectSerialPort(await navigator.serial.requestPort());
+}
+
+// The same with a port the page already has (the one the Flash AP tab just flashed)
+export async function connectSerialPort(port) {
+  if (ap) return ap;
   // DTR and RTS stay as the port opened them, as with esl_client.py
   transport = await WebSerialTransport.open(port, { lowSignals: false });
   const a = new SerialAp(transport);
@@ -51,3 +56,6 @@ if (hasSerial()) {
     if (transport && ev.target === transport.port) disconnectSerial();
   });
 }
+
+// The port of the open connection, or null
+export const serialPort = () => transport?.port || null;

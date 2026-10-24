@@ -1,7 +1,8 @@
 # CI for every pull request: builds and tests the tag and AP firmware (firmware.yml) and the
 # web page (web/), and attaches the finished page to the run as the "web-page" artifact.
 # On master the page is built, tested and published to GitHub Pages; the firmware is not
-# built again there (its pull requests did that), unless there is no release yet.
+# built again there (its pull requests did that), unless there is no release yet. A pull
+# request that changes only documentation (docs/, wiki/, *.md) builds no firmware either.
 #
 # The flasher on the published page serves the firmware of the latest GitHub release, so
 # people flash released firmware. Before the first release, and on pull requests, it serves
@@ -25,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which firmware the page serves: the latest release, or (pull requests, or before the
-  # first release) the firmware built in this run. On master the firmware was already built
+  # Which firmware the page serves: the latest release, or (pull requests that change more
+  # than documentation, or before the first release) the firmware built in this run. On master the firmware was already built
   # and tested on its pull requests, so it is only built again when there is no release.
   source:
     runs-on: ubuntu-24.04
@@ -37,9 +38,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          latest() { gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true; }
           rel=""
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            rel=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+            rel=$(latest)
+          else
+            # a pull request that changes only documentation (docs/, wiki/, *.md) builds no
+            # firmware: its page takes the latest release's, as on master
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
+            fw=no
+            for f in $files; do
+              case "$f" in
+                docs/*|wiki/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
+                *) fw=yes; echo "Firmware is built: $f"; break ;;
+              esac
+            done
+            if [ "$fw" = no ] && [ -n "$files" ]; then
+              rel=$(latest)
+              echo "Only documentation changed: no firmware build, the page takes release $rel's"
+            fi
           fi
           echo "release=$rel" >> "$GITHUB_OUTPUT"
 

@@ -1,5 +1,6 @@
 {
   "id": "s3-n16r8-netradio",
+  "name": "ESP32-S3 + C6 over WiFi",
   "label": "ESP32-S3 with 16 MB flash and 8 MB PSRAM (e.g. ESP32-S3-DevKitC-1 N16R8) plus an ESP32-C6 as the 802.15.4 radio over WiFi, with no cable between them (read the limits in docs/ap-netradio.md first)",
   "target": "esp32s3",
   "chip_family": "ESP32-S3",

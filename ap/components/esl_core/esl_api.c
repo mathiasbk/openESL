@@ -12,6 +12,9 @@
 #ifndef ESL_BOARD
 #define ESL_BOARD "host"
 #endif
+#ifndef ESL_BOARD_NAME
+#define ESL_BOARD_NAME "host"
+#endif
 
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
@@ -782,6 +785,8 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_stream(out, 200);
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
+    /* which board this is (ap/boards/<board>/board.json), so a dashboard can tell two APs apart */
+    esl_sb_puts(out, ",\"board\":\"" ESL_BOARD "\",\"board_name\":\"" ESL_BOARD_NAME "\"");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
     esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"table_full\":%s,\"poll_s\":%u",
                   now_ms / 1000, (unsigned)api->channel, api->store->max,
@@ -798,6 +803,20 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             esl_sb_puts(out, ",\"time\":null");
         esl_sb_printf(out, ",\"scheduled\":%u,\"max_scheduled\":%u", esl_sched_count(api->sched),
                       api->sched->cap);
+    }
+    if (api->link) {
+        const esl_radio_link_t *l = api->link;
+        esl_sb_printf(out, ",\"radio\":{\"connected\":%s", l->up ? "true" : "false");
+        if (l->up) {
+            /* the radio's task writes seen_ms without the API's lock: a read just after
+               a write can see it ahead of now_ms */
+            uint64_t ago = l->seen_ms < now_ms ? now_ms - l->seen_ms : 0;
+            esl_sb_printf(out, ",\"ip\":\"%u.%u.%u.%u\",\"seen_s\":%" PRIu64 ",\"fw\":%u",
+                          (unsigned)(l->ip >> 24), (unsigned)((l->ip >> 16) & 0xff),
+                          (unsigned)((l->ip >> 8) & 0xff), (unsigned)(l->ip & 0xff),
+                          ago / 1000, (unsigned)l->ver);
+        }
+        esl_sb_puts(out, "}");
     }
     esl_sb_puts(out, "},\"tags\":[");
     bool first = true;

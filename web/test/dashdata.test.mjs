@@ -72,6 +72,12 @@ test("AP facts", () => {
   assert.equal(f["AP time"], "not set");
   assert.equal(f.Scheduled, "1 of 64");
   assert.ok(!("AP time" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
+  // the network radio: its address and when it was last heard, or that it is not connected
+  const up = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: true, ip: "192.168.3.249", seen_s: 3, fw: 1 } }));
+  assert.equal(up["Radio (C6)"], "192.168.3.249, last seen 3 s ago");
+  const down = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false } }));
+  assert.equal(down["Radio (C6)"], "not connected");
+  assert.ok(!("Radio (C6)" in Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60 }))));
 });
 
 test("poll interval for all tags", () => {
@@ -140,4 +146,14 @@ test("tag screen: fetched again when what it depends on changes, failures that p
   assert.equal(screenErrorFinal(new Error("429: too many requests")), false);
   assert.equal(screenErrorFinal(new Error("no answer from http://ap")), false);
   assert.equal(screenErrorFinal({ status: 0, message: "no answer from the AP on the USB port" }), false);
+});
+
+test("which AP: its board name, or the chip of an older AP", async () => {
+  const { apBoard, apIdentity } = await import("../js/dashdata.js");
+  const ap = { fw: "0.6.1", board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable" };
+  assert.equal(apBoard(ap, { chip: "esp32s3" }), "ESP32-S3 + C6 on cable");
+  assert.equal(apBoard({ fw: "0.5.0" }, { chip: "esp32s3" }), "ESP32-S3");
+  assert.equal(apBoard({ fw: "0.5.0" }, null), "");
+  assert.equal(apIdentity(ap, null, { hostname: "openesl-3f2a" }), "ESP32-S3 + C6 on cable · openesl-3f2a.local · 0.6.1");
+  assert.equal(apIdentity({ fw: "0.5.0" }, null, null), "0.5.0");
 });

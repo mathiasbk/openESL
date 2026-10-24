@@ -4,7 +4,7 @@ Everything is done from the web page at **[mathiasbk.github.io/openESL](https://
 
 ## 1. Flash the access point
 
-On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick your board, plug it in by USB and press the button. Then press **Connect AP** and give it your WiFi and an API token over the same cable. **Keep a copy of the token**: every API request needs it, and it cannot be read back.
+On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, follow the three steps: choose your AP, flash it (plug in each board when asked), then give it your WiFi and an API token over the same cable. **Keep a copy of the token**: every API request needs it, and it cannot be read back. The last step shows the AP's address and a button to its dashboard.
 
 Details: [Flashing the AP](Flashing-the-access-point) and [WiFi and API token](WiFi-and-API-token).
 
@@ -38,7 +38,7 @@ Details: [Sending content](Sending-content).
 
 ## 5. Keep an eye on it
 
-Open `http://openesl.local/dashboard` to see every label, what it shows, its battery and signal, and what needs attention.
+Open `http://openesl-xxxx.local/dashboard`, with the four digits of its setup network ([finding the AP](WiFi-and-API-token#finding-the-ap-on-the-network)), to see every label, what it shows, its battery and signal, and what needs attention.
 
 Details: [Dashboard](Dashboard).
 

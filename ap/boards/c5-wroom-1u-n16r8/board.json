@@ -1,5 +1,6 @@
 {
   "id": "c5-wroom-1u-n16r8",
+  "name": "ESP32-C5",
   "label": "ESP32-C5 with 16 MB flash and 8 MB PSRAM (WROOM-1U, external antenna), e.g. the Waveshare ESP32-C5-WIFI6-KIT N16R8",
   "target": "esp32c5",
   "chip_family": "ESP32-C5",

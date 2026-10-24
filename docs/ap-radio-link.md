@@ -38,9 +38,10 @@ Both chips keep their USB port for flashing and the log. The C6 with screen is w
    channel ..` when it reaches the C6, and `no answer from the radio` every two seconds when it
    does not (check TX/RX crossed and GND).
 
-The web flasher offers the S3 image (board "ESP32-S3 with PSRAM + C6 radio"), and the dashboard
-updates it over the API like any AP. The C6 radio image is flashed with esptool for now: the
-flasher does not offer it, and the S3 cannot update the C6 yet (later steps in the issue).
+The web page's Flash AP tab flashes both ("S3 + C6 on cable", with a plain C6 or one with the
+screen): the C6 radio image first, then the S3 on its port marked USB, then it shows the wiring.
+The dashboard updates the S3 over the API like any AP. The S3 cannot update the C6 yet (later steps
+in the issue), so a new radio image goes on from the web page or with esptool.
 The release has no `-ota.bin` for the radio, and an AP refuses the radio's app image if it is
 sent to it anyway (`main/ota.c` and the dashboard check the app's project name).
 

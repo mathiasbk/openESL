@@ -174,17 +174,18 @@ def designer_boards():
 
 def step_ap_fw():
     # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py);
-    # without Emscripten only the others are built
-    build = AP_BUILD
+    # without Emscripten only the others are built, and the step then counts as skipped (so
+    # --strict fails it): a partial build is not a passing one
+    build, left_out = AP_BUILD, []
     if shutil.which("emcc"):
         run([PY, "web/build.py", "--wasm"])
     else:
-        skip = designer_boards()
+        left_out = sorted(designer_boards())
         ids = [json.load(open(p))["id"] for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
-        rest = [i for i in ids if i not in skip]
-        print("note: no emcc (Emscripten %s), so %s (with the Design tab) are not built"
-              % (EMSCRIPTEN_VERSION, ", ".join(sorted(skip))))
-        build = " ".join([AP_BUILD] + sorted(rest))
+        rest = sorted(i for i in ids if i not in left_out)
+        if not rest:
+            raise Skip("emcc not found (Emscripten %s), which every board needs for its Design tab" % EMSCRIPTEN_VERSION)
+        build = " ".join([AP_BUILD] + rest)
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()
@@ -197,6 +198,9 @@ def step_ap_fw():
         run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", build])
     for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
+    if left_out:
+        raise Skip("emcc not found (Emscripten %s): built all but %s (the Design tab) and their radio "
+                   "coprocessor images" % (EMSCRIPTEN_VERSION, ", ".join(left_out)))
 
 
 def step_web():

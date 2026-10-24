@@ -1,5 +1,6 @@
 #include "esl_wifi.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esl_api.h"
 
@@ -305,7 +306,16 @@ int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char
     esl_sb_puts(out, "</b>");
     if (nl > 0)
         esl_sb_puts(out, " and uses the new API token");
-    esl_sb_puts(out, ".</p><p>Find it afterwards as http://openesl.local/ or by the address your router gives it. "
+    /* the name it has now: openesl-xxxx on a new AP, or what was set before */
+    esl_wifi_status_t *st = malloc(sizeof(*st));
+    if (st) {
+        memset(st, 0, sizeof(*st));
+        ops->status(ops->ctx, st);
+    }
+    esl_sb_puts(out, ".</p><p>Find it afterwards as http://");
+    html_esc(out, st && st->hostname[0] ? st->hostname : "openesl");
+    free(st);
+    esl_sb_puts(out, ".local/ or by the address your router gives it. "
                      "If it cannot join, the setup network comes back after a while.</p>"
                      "<p><a href=\"/setup\">Status</a></p></body></html>");
     return 200;

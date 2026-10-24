@@ -16,6 +16,8 @@ Each folder has:
 
 - `board.json`
   - `id`: the folder name
+  - `name`: a short name for people (`ESP32-S3 + C6 on cable`): `GET /api/tags` reports it
+    with the `id` as `board_name`, and the dashboard shows it
   - `base`: another board whose `sdkconfig.defaults` is read first (optional; the LCD board is
     the Super Mini plus a screen)
   - `target`: the ESP-IDF chip (`esp32c6`, `esp32c5`, ...); the build takes the chip from here

@@ -4,7 +4,7 @@
 
 ## Tools
 - **ESP-IDF** (latest stable 5.x, pinned version). Apache 2.0, fine commercially.
-- Components: `esp_wifi`, `esp_http_server` (the API), `esl_json` (a small JSON parser and writer of our own, host-tested; cJSON is not used), `mdns` (the name `openesl.local`), `nvs_flash`, `esp_ieee802154`.
+- Components: `esp_wifi`, `esp_http_server` (the API), `esl_json` (a small JSON parser and writer of our own, host-tested; cJSON is not used), `mdns` (the name `openesl-xxxx.local`, or `openesl.local` on an AP set up with 0.6.0 or older), `nvs_flash`, `esp_ieee802154`.
 - Not Arduino: ESP-IDF gives direct access to the 802.15.4 driver and the coexistence settings.
 
 ## Tasks

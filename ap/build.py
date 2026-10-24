@@ -6,6 +6,10 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py c6-supermini ...   only these boards
   python build.py --list             the boards: id, chip, status, file name
   python build.py --release          "<artifact> <release name>" per board (release.yml)
+  python build.py --jobs             the CI build jobs as JSON, one per board and one per radio
+                                     (firmware.yml builds them side by side)
+  python build.py --no-radio <board>...  only the boards, not their radio firmware
+  python build.py radio/c6 ...       only this radio firmware (<project>/<id>, as --jobs names it)
 
 A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
 also builds the radio coprocessor firmware for each radio board its "radio_fw" names
@@ -128,16 +132,30 @@ def main():
         for b in boards + load_radios(boards):
             print(b["artifact"], b["release"])
         return
+    if args == ["--jobs"]:
+        jobs = [{"name": b["id"], "args": "--no-radio " + b["id"]} for b in boards]
+        jobs += [{"name": "%s-%s" % (r["project"], r["id"]), "args": "%s/%s" % (r["project"], r["id"])}
+                 for r in load_radios(boards)]
+        print(json.dumps(jobs))
+        return
+    no_radio = "--no-radio" in args
+    args = [a for a in args if a != "--no-radio"]
     by_id = {b["id"]: b for b in boards}
-    unknown = [a for a in args if a not in by_id]
+    radios = {"%s/%s" % (r["project"], r["id"]): r for r in load_radios(boards)}
+    unknown = [a for a in args if a not in by_id and a not in radios]
     if unknown:
-        sys.exit("unknown board %s; the boards are %s" % (", ".join(unknown), ", ".join(by_id)))
+        sys.exit("unknown board %s; the boards are %s" % (", ".join(unknown), ", ".join(list(by_id) + list(radios))))
     if not shutil.which("idf.py"):
         sys.exit("idf.py not found: source ESP-IDF v5.5.5's export.sh first")
-    chosen = [by_id[a] for a in args] or boards
+    chosen = [by_id[a] for a in args if a in by_id]
+    chosen_radios = [radios[a] for a in args if a in radios]
+    if not args:
+        chosen = boards
     for b in chosen:
         build(b)
-    for r in load_radios(chosen):
+    if not no_radio:
+        chosen_radios += [r for r in load_radios(chosen) if r not in chosen_radios]
+    for r in chosen_radios:
         build_radio(r)
 
 

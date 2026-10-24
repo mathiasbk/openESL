@@ -141,6 +141,12 @@ static void test_setup_page(void)
     CHECK_STR(fake.pass, "secret12");
     CHECK_STR(fake.token, "");
     CHECK(HAS(buf, "joins <b>Home</b>."));
+    CHECK(HAS(buf, "http://openesl.local/")); /* no name known: the old default */
+
+    reset_fake();
+    strcpy(fake.st.hostname, "openesl-1a2b");
+    CHECK_INT(post("", "ssid=Home&new_token=", &out), 200);
+    CHECK(HAS(buf, "http://openesl-1a2b.local/"));
 
     reset_fake();
     CHECK_INT(post(NULL, "ssid=Home&new_token=longtoken1", &out), 200);
@@ -210,7 +216,7 @@ static void test_api_wifi(void)
     esl_sb_t out;
     esl_store_free(&st);
     esl_store_init(&st, 4, NULL, 0);
-    esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false};
+    esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL};
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi", AUTH, NULL, 0, 0, &out), 404);

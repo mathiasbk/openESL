@@ -121,10 +121,11 @@ async function readTwice(fl, page, addr, length, what, progress) {
 
 // Runs the whole job on the tag in the jig. Never throws for tag problems: returns a result.
 // manualMac (barcode or MAC, see macFromEntry) is used only if the tag has no MAC of its own;
-// res.macSource is then "typed in".
+// res.macSource is then "typed in". stage(name) is told each part as it starts: "mac", "backup",
+// "write" (erase and write) and "verify".
 // backups: { has(macHex) -> Promise<bool>, save(macHex, flash, info, model, barcode) -> Promise,
 //            and optionally get(macHex) -> Promise<{ flash, barcode }>, setBarcode(macHex, barcode) }
-export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, writeMac = true, resetAfter = true, manualMac = "" } = {}) {
+export async function flashTag(fl, model, firmware, backups, { log = () => {}, progress, stage = () => {}, writeMac = true, resetAfter = true, manualMac = "" } = {}) {
   const res = { model, mac: null, macSource: "", barcode: "", backup: "", ok: false, step: "", message: "", seconds: 0 };
   const t0 = Date.now();
   const prog = (label) => progress && ((d, t) => progress(label, d, t));
@@ -150,6 +151,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
     }
     touched = true;
 
+    stage("mac");
     const info = await readTwice(fl, zp.PAGE_INFO, 0, zp.INFO_SIZE, "info page");
     let mac = macFromInfo(info);
     let needMacWrite = false;
@@ -183,6 +185,7 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
     log(`MAC ${res.mac} (from ${res.macSource})`);
     if (res.barcode) log("Barcode " + res.barcode);
 
+    stage("backup");
     if (await backups.has(res.mac)) {
       res.backup = "exists";
       log("A backup of this tag is already stored");
@@ -238,10 +241,12 @@ export async function flashTag(fl, model, firmware, backups, { log = () => {}, p
       }
     }
 
+    stage("write");
     log("Erasing main flash ...");
     await fl.eraseMain();
     log("Writing firmware ...");
     await fl.write(0, fw, prog("Write"));
+    stage("verify");
     log("Verifying ...");
     await fl.selectPage(zp.PAGE_MAIN);
     const back = await fl.read(0, fw.length, prog("Verify"));
