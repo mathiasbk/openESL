@@ -15,7 +15,7 @@ The default poll interval and the webhook, the layout files, each label's conten
 ## When to take one
 
 - Before every AP update.
-- Before flashing with "Erase device" or the single `.bin` file, which wipe the AP.
+- Before **Erase and flash as new** on the Flash AP tab, or flashing the single `.bin` file, which wipe the AP.
 - Before moving to a new AP.
 
 ## Moving to a new AP

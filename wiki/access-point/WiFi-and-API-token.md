@@ -4,7 +4,7 @@ A freshly flashed AP needs two things: a WiFi network to join, and an **API toke
 
 ## Over USB, right after flashing
 
-On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab (step 2) or the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, press **Connect AP**. The page shows the networks the AP can see, fills in a random token if the AP has none, and watches it join. Close anything else that has the AP's port open first, such as `esl_client.py ... serve`.
+Right after flashing, step 3 of the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab does this over the same port. Later, on the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, press **Connect AP**. On an S3 or C5 board with two USB ports, use the one marked **USB**: the other (COM) can flash, but the WiFi setup gets no answer there. The page shows the networks the AP can see, fills in a random token if the AP has none, and watches it join. Close anything else that has the AP's port open first, such as `esl_client.py ... serve`.
 
 ## From a phone, on the setup network
 

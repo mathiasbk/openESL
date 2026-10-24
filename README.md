@@ -75,7 +75,7 @@ The list is made from [shared/models.json](shared/models.json), the one place a 
 
 The step-by-step guide is in the [wiki](https://github.com/mathiasbk/openESL/wiki). Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
 
-1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, then give it your WiFi and an API token over the same USB cable.
+1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab: a guide that picks your AP setup, flashes each board in it (also the C6 radio of an S3 setup), gives the AP your WiFi and an API token over the same USB cable, and shows where it is on your network.
 2. **Flash the labels** one at a time in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware, then starts polling the AP.
 3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab and send them to the AP, or start with the built-in `price` and `text` layouts.
 4. **Send content** from your own software:

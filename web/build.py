@@ -9,13 +9,16 @@ Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static 
                                    used by web/test/render.test.mjs
   python web/build.py --firmware <file>...
                                    copies firmware into web/dist/firmware/ with the AP's
-                                   manifests for esp-web-tools and info.json (used by the
-                                   GitHub workflow). Each file is told apart by its header:
-                                   a tag image (tag-<build>.bin for the flasher, named after
-                                   the model in the OTA header of its -ota.bin) or an AP image
-                                   (the board in ap/boards/ is the one whose "artifact" or
-                                   "release" name the file starts with; the page offers a choice
-                                   of board). "-" means no file.
+                                   manifests (the parts the Flash AP tab writes) and info.json
+                                   (used by the GitHub workflow). Each file is told apart by
+                                   its name or header: a C6 radio image for the boards with a
+                                   C6 radio (named after "artifact" or "release" in
+                                   ap/radio/boards/ or ap/netradio/boards/), a tag image
+                                   (tag-<build>.bin for the flasher, named after the model in
+                                   the OTA header of its -ota.bin) or an AP image (the board in
+                                   ap/boards/ is the one whose "artifact" or "release" name the
+                                   file starts with; the page offers a choice of board). "-"
+                                   means no file.
                                    FIRMWARE_RELEASE=v1.2.3 marks them as that release. A
                                    <file>-ota.bin next to each one is copied too, for the
                                    dashboard's updates through the API
@@ -166,6 +169,8 @@ def copy_static():
             shutil.copy2(src, dst)
     # the API reference (api.html) reads the spec next to it
     shutil.copy2(os.path.join(ROOT, "docs", "openapi.yaml"), DIST)
+    # the Flash AP tab shows how an S3 and its C6 radio are wired
+    shutil.copy2(os.path.join(ROOT, "docs", "images", "ap-s3-c6-wiring.svg"), os.path.join(DIST, "img"))
     # the example layout files, so the editor can open them
     lay = os.path.join(DIST, "designs", "layouts")
     os.makedirs(lay, exist_ok=True)
@@ -178,9 +183,9 @@ def copy_static():
 # whole also wipes the NVS partition (WiFi, API token, tags, layout files). The manifest instead
 # lists the parts of the image that hold something: bootloader, partition table, otadata (blank,
 # so the board starts the new app in ota_0) and the app. NVS, phy_init, ota_1 and tagfw are left
-# alone, so flashing without "Erase device" in esp-web-tools keeps everything the AP has stored.
-# This relies on the board already having the same partition table; an AP with an older layout
-# must be flashed with "Erase device" (the page says so).
+# alone, so flashing them over a board that runs OpenESL keeps everything the AP has stored.
+# This relies on the board already having the same partition table: the Flash AP tab reads the
+# table on the board first and erases a blank board, and asks before it erases one with another.
 PT_OFFSET = 0x8000
 PT_SIZE = 0x1000
 
@@ -222,18 +227,18 @@ def split_ap_image(src, out, name):
     return files
 
 
-def ap_manifest(out, name, version, path, parts, chip_family):
+def ap_manifest(out, name, version, path, parts, chip_family, manifest_name=None):
     manifest = {
         "name": name,
         "version": version,
-        # esp-web-tools asks "Erase device?" before installing (not ticked by default); without
-        # it only the parts below are written and the AP keeps its settings and tags
-        "new_install_prompt_erase": True,
+        # The Flash AP tab writes only the parts below for an AP that already runs OpenESL, so it
+        # keeps its settings and tags, and erases the flash first for a new board
         # the version in the address keeps a browser from flashing an image cached from an older release
         "builds": [{"chipFamily": chip_family,
                     "parts": [{"path": f + "?v=" + version, "offset": off} for f, off in parts]}],
     }
-    with open(os.path.join(out, path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")), "w") as f:
+    manifest_name = manifest_name or path.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")
+    with open(os.path.join(out, manifest_name), "w") as f:
         json.dump(manifest, f, indent=2)
 
 
@@ -312,16 +317,30 @@ def ap_boards():
     return sorted(boards.values(), key=lambda b: (b["status"] != "supported", b.get("base") is not None, b["id"]))
 
 
-def ap_radio_names():
-    """artifact and release names of the radio firmware (ap/radio/boards/*/radio.json for boards
-    with "radio": "uart", ap/netradio/boards/*/radio.json for "net"): the flasher does not offer
-    it yet (docs/ap-radio-link.md, docs/ap-netradio.md)"""
-    names = []
-    for path in glob.glob(os.path.join(ROOT, "ap", "*", "boards", "*", "radio.json")):
-        with open(path) as f:
-            r = json.load(f)
-        names += [r["artifact"], r["release"]]
-    return names
+def ap_radios():
+    """The radio firmware for the boards with a C6 radio: ap/radio/boards/*/radio.json for boards
+    with "radio": "uart" (kind "uart"), ap/netradio/boards/*/radio.json for "net" (kind "net"),
+    each with its key "<kind>-<id>" (docs/ap-radio-link.md, docs/ap-netradio.md)"""
+    radios = []
+    for kind, folder in (("uart", "radio"), ("net", "netradio")):
+        for path in sorted(glob.glob(os.path.join(ROOT, "ap", folder, "boards", "*", "radio.json"))):
+            with open(path) as f:
+                r = json.load(f)
+            r["kind"], r["key"] = kind, "%s-%s" % (kind, r["id"])
+            radios.append(r)
+    return radios
+
+
+def ap_radio_for(path):
+    """The radio whose artifact (CI: openesl-ap-radio-c6-lcd.bin) or release name
+    (openesl-ap-radio-esp32c6-v1.2.3.bin) the file name starts with, the longest match, or None"""
+    stem = os.path.basename(path)[:-4].lower()
+    best, n = None, 0
+    for r in ap_radios():
+        for name in (r["artifact"], r["release"]):
+            if (stem == name or stem.startswith(name + "-")) and len(name) > n:
+                best, n = r, len(name)
+    return best
 
 
 def ap_board_for(path, boards):
@@ -363,6 +382,7 @@ def add_firmware(*files):
     tags = {}      # build -> path
     boards = ap_boards()
     aps = {}       # board id -> path
+    radios = {}    # radio key -> path
     for f in files:
         if f == "-":
             continue
@@ -373,9 +393,9 @@ def add_firmware(*files):
                 print("%s: not in release %s, skipped" % (f, release))
                 continue
             sys.exit("%s: no such file" % f)
-        stem = os.path.basename(f)[:-4].lower()
-        if any(stem == n or stem.startswith(n + "-") for n in ap_radio_names()):
-            print("%s: radio coprocessor firmware, not offered by the flasher yet" % f)
+        r = ap_radio_for(f)
+        if r:
+            radios[r["key"]] = f
             continue
         m = tag_image_model(f)
         if m:
@@ -429,10 +449,28 @@ def add_firmware(*files):
         title = "OpenESL AP, %s%s" % (b["chip_family"], " with status screen" if b["display"] else "")
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
-        # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "") + (" + C6 radio over WiFi" if b.get("radio") == "net" else "")
+        # name is the board's name in board.json, as the AP's API and dashboard give it; label
+        # (board.json) goes under it
+        short = b.get("name") or b["chip_family"] + (" with status screen" if b["display"] else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
-                                  "display": b["display"], "file": name[:-4], "manifest": manifest})
+                                  "chip_family": b["chip_family"], "display": b["display"], "file": name[:-4],
+                                  "manifest": manifest, "radio": b.get("radio", "native"),
+                                  # the radio firmware this board takes, as keys in "radios"
+                                  "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])]})
+    # The C6 radio images for the boards with "radio": "uart" or "net" (the Flash AP tab flashes
+    # the C6 before the main board), split and listed like the AP's: a radio on the network keeps
+    # its WiFi in NVS when it is flashed again
+    info["radios"] = []
+    for r in ap_radios():
+        if r["key"] not in radios:
+            continue
+        name = "radio-%s.bin" % r["key"]
+        manifest = name.replace(".bin", "-manifest.json")
+        ap_manifest(out, "OpenESL radio, %s" % r["label"], info["version"], name,
+                    split_ap_image(radios[r["key"]], out, name), r["chip_family"], manifest)
+        info["radios"].append({"key": r["key"], "kind": r["kind"], "id": r["id"], "label": r["label"],
+                               "status": r["status"], "chip_family": r["chip_family"],
+                               "display": r["id"].endswith("-lcd"), "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)

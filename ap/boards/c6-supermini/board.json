@@ -1,5 +1,6 @@
 {
   "id": "c6-supermini",
+  "name": "ESP32-C6",
   "label": "ESP32-C6 (4 MB flash), e.g. the C6 Super Mini",
   "target": "esp32c6",
   "chip_family": "ESP32-C6",

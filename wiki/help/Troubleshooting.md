@@ -17,7 +17,7 @@ See also the [FAQ](FAQ).
 
 **The web page cannot reach my AP over WiFi.** That is on purpose in browsers: a page on https may not call a plain http address on your network. Open the dashboard on the AP itself (`http://openesl.local/dashboard`), connect over USB, or run the bridge (`esl_client.py serve`).
 
-**I flashed the AP and everything is gone.** It was flashed with "Erase device", or with the single `.bin` at 0x0. Restore from your backup (`esl_client.py restore ap.json`). See [Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything).
+**I flashed the AP and everything is gone.** It was flashed with **Erase and flash as new** on the Flash AP tab, or with the single `.bin` at 0x0. Restore from your backup (`esl_client.py restore ap.json`). See [Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything).
 
 ## The labels
 

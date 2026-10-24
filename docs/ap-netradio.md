@@ -75,8 +75,8 @@ tell anyone who picks this setup.
   logs a warning when it has more tags than its radio holds. How many tags one radio can serve well is
   not measured yet.
 - **Not secure yet.** Plain TCP, no password: see "Status" above.
-- **Two chips to update.** The S3 updates over the air as always; the radio is flashed separately until
-  the S3 can update it.
+- **Two chips to update.** The S3 updates over the air as always; the radio is flashed separately (from
+  the web page or with esptool) until the S3 can update it.
 
 ## How it works
 
@@ -116,6 +116,13 @@ The S3 runs the same AP firmware as with the cable, with the tag store, renderin
 Only the link to the radio differs.
 
 ## Setting it up
+
+The web page's Flash AP tab does all of this: pick "S3 + C6 over WiFi", and it flashes the C6 radio
+and the S3, gives the S3 its WiFi and token over USB, then sends the C6 `ssid`, `pass`, `host` (the
+S3's address if you type it, else empty so the C6 finds the S3 on mDNS) and `reboot` over the
+C6's USB console, and reads the C6's log until it says `connected to the AP at ...`, then `status`
+for the WiFi signal at the C6 (it warns below −75 dBm). It keeps the C6's WiFi when its partition
+table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 first. By hand:
 
 1. Build and flash the S3 as any AP board: `python ap/build.py s3-n16r8-netradio` (which also builds the
    radio), then flash the S3 as in [ap-firmware.md](ap-firmware.md). It waits for the radio on TCP port

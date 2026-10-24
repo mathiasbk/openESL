@@ -322,7 +322,7 @@ static void test_batch_and_list(void)
     esl_store_delete(&st, 0x105);
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"table_full\":false,\"poll_s\":0},\"tags\":["));
+    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"board\":\"host\",\"board_name\":\"host\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"table_full\":false,\"poll_s\":0},\"tags\":["));
     api.reset_reason = "task_wdt";
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"poll_s\":0,\"reset\":\"task_wdt\"},\"tags\":["));

@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
@@ -41,6 +41,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
   let last = null;        // { list, health, wifi, ota, tagfw, layouts, config }
+  let connectedTo = "";   // "Connected to <where>", before the AP's board
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
@@ -86,7 +87,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-src").disabled = !!c;
     $("dash-conn").classList.toggle("connected", !!c);
     $("dash-live").hidden = !c;
-    $("dash-where").textContent = c ? "Connected to " + where : "";
+    connectedTo = c ? "Connected to " + where : "";
+    $("dash-where").textContent = connectedTo;
     clearTimeout(timer);
     if (c) refresh();
     else {
@@ -292,9 +294,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-body").hidden = false;
 
     const ap = list.ap;
+    const who = apIdentity(ap, last.ota, wifi);
+    $("dash-where").textContent = connectedTo + (who ? " · " + who : "");
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");

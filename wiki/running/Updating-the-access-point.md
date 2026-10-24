@@ -24,4 +24,4 @@ To go back on purpose, send the older release's `-ota.bin` the same way. If the 
 
 ## Over USB instead
 
-The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab without "Erase device" also keeps everything ([Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything)). Some releases need this once, for example to get room for more label models.
+The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab also keeps everything on an AP that runs OpenESL ([Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything)). Some releases need this once, for example to get room for more label models.
