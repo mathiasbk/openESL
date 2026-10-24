@@ -117,10 +117,12 @@ def includes(native=False):
 
 def renderer_inputs():
     """Every file the renderer is built from: the sources, the headers they can include, the
-    model registry, the AP boards' limits (limit_caps) and this script (the flags). The AP build
+    model registry, the AP boards' limits (limit_caps), this script (the flags) and the tag's
+    build script (its include dirs and fonts). The AP build
     checks the renderer it packs against these (ap/main/webui.py)."""
     files = sources() + [os.path.join(HERE, "wasm", "web_api.c"), os.path.abspath(__file__),
-                         os.path.join(ROOT, "shared", "models.json")]
+                         os.path.join(ROOT, "shared", "models.json"), os.path.join(ROOT, "shared", "models.py"),
+                         os.path.join(tag_build.TAG, "tools", "build.py")]     # INCLUDES, FONTS
     for d in [i[2:] for i in includes()]:
         files += glob.glob(os.path.join(d, "*.h"))
     files += glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))
