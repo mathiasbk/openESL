@@ -1,7 +1,7 @@
-// main.js - tabs, and the two flasher pages around js/tagflash.js and js/apwizard.js.
+// main.js - tabs, the tag backups, and the two flasher wizards (js/tagwizard.js, js/apwizard.js).
 import { initEditor } from "./editor.js";
-import * as zp from "./zbs.js";
-import { flashTag, checkFirmware, BackupStore, modelOfMac, macFromEntry, MODELS as TAG_MODELS } from "./tagflash.js";
+import { BackupStore, modelOfMac, MODELS as TAG_MODELS } from "./tagflash.js";
+import { initTagWizard } from "./tagwizard.js";
 import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initApWizard } from "./apwizard.js";
@@ -76,208 +76,13 @@ firmwareInfo().then((info) => {
   $("home-fw").textContent = info ? "Firmware on this page: " + built + parts : "";
   $("ap-fw-info").textContent = info?.ap_boards?.length || info?.ap ? built + (info.ap_version ? ` AP firmware ${info.ap_version}.` : "") : "";
   initApWizard(info, store);
-  $("tag-fw-info").textContent = info?.tag ? built + (tagText ? ` ${tagText[0].toUpperCase()}${tagText.slice(1)}.` : "") : "No tag firmware is published with this page; choose a file.";
-  if (!info?.tag) $("tag-fw-src").value = "file";
+  $("tag-fw-info").textContent = info?.tag ? built + (tagText ? ` ${tagText[0].toUpperCase()}${tagText.slice(1)}.` : "") : "";
+  initTagWizard(info, store, { onBackup: refreshBackups, exportBackups: exportZip });
 });
 
-// ---------- tag flasher ----------
+// ---------- tag backups (the Flash tag tab's wizard is js/tagwizard.js) ----------
 
-let flasher = null;
-let transport = null;
 let backups = null;
-let busy = false;
-let lastMacSeen = false;
-let tagModel = Object.keys(MODELS)[0];
-
-// ---------- model picker: a photo of each tag, one button per model in the registry
-// (shared/models.json -> js/models.js); a model without a photo gets an empty box of its
-// screen's shape ----------
-
-for (const [name, m] of Object.entries(MODELS)) {
-  const b = document.createElement("button");
-  Object.assign(b, { type: "button", className: "model" });
-  b.setAttribute("role", "radio");
-  b.dataset.model = name;
-  b.setAttribute("aria-checked", name === tagModel);
-  const c = m.photo
-    ? Object.assign(document.createElement("img"), {
-        src: m.photo.file,
-        width: m.photo.width,
-        height: m.photo.height,
-        alt: `Photo of the ${name}" tag`,
-      })
-    : Object.assign(document.createElement("canvas"), { width: m.width, height: m.height });
-  const n = Object.assign(document.createElement("span"), { className: "name", textContent: name + '"' });
-  const d = Object.assign(document.createElement("span"), {
-    className: "muted",
-    textContent: `${m.width} × ${m.height}, ${m.product}`,
-  });
-  b.append(c, n, d);
-  $("tag-models").append(b);
-}
-
-function selectModel(model) {
-  if (busy) return;
-  tagModel = model;
-  document.querySelectorAll("#tag-models .model").forEach((b) => b.setAttribute("aria-checked", b.dataset.model === model));
-}
-
-document.querySelectorAll("#tag-models .model").forEach((b) => b.addEventListener("click", () => selectModel(b.dataset.model)));
-
-const log = (text, cls) => {
-  const el = $("tag-log");
-  const line = document.createElement("div");
-  line.textContent = text;
-  if (cls) line.className = cls;
-  el.append(line);
-  el.scrollTop = el.scrollHeight;
-};
-
-if (!("serial" in navigator)) {
-  $("serial-missing").hidden = false;
-  $("tag-connect").disabled = true;
-}
-
-$("tag-fw-src").addEventListener("change", (ev) => {
-  if (ev.target.value === "file") $("tag-fw-file").click();
-});
-
-async function loadTagFirmware() {
-  const model = tagModel;
-  if ($("tag-fw-src").value === "file") {
-    const f = $("tag-fw-file").files[0];
-    if (!f) throw new Error("choose a firmware file (.bin) first");
-    return checkFirmware(new Uint8Array(await f.arrayBuffer()));
-  }
-  const r = await fetch(TAG_MODELS[model].firmware, { cache: "no-cache" });
-  if (!r.ok) throw new Error(`the ${TAG_MODELS[model].name} firmware is not published with this page (${r.status}); choose a file`);
-  return checkFirmware(new Uint8Array(await r.arrayBuffer()));
-}
-
-$("tag-connect").addEventListener("click", async () => {
-  try {
-    if (transport) {
-      await transport.close();
-      transport = flasher = null;
-      $("tag-connect").textContent = "Connect flasher";
-      $("tag-flash").disabled = true;
-      log("Disconnected");
-      return;
-    }
-    const port = await navigator.serial.requestPort();
-    transport = await zp.WebSerialTransport.open(port);
-    flasher = new zp.ZbsFlasher(transport);
-    log("Port open, asking the flasher for its version ...");
-    const v = await zp.probe(flasher);
-    log(`ZBS_Flasher version ${v}`, "good");
-    $("tag-connect").textContent = "Disconnect";
-    $("tag-flash").disabled = false;
-  } catch (e) {
-    log("Connect failed: " + e.message, "err");
-    if (transport) await transport.close().catch(() => {});
-    transport = flasher = null;
-  }
-});
-
-async function waitForTag(stopped) {
-  log("Waiting for the next tag in the jig ...");
-  for (;;) {
-    if (stopped()) return false;
-    try {
-      await flasher.begin();
-      return true;
-    } catch (e) {
-      if (!(e instanceof zp.NoTagError)) throw e;
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-}
-
-$("tag-flash").addEventListener("click", () => {
-  if (busy) {
-    busy = false;           // the loop stops after the current tag
-    $("tag-flash").textContent = "Stopping after this tag ...";
-    return;
-  }
-  flashTags();
-});
-
-// Shown only after a tag turned out to have no MAC at all (an earlier build wiped it): the
-// barcode from its label or its MAC, then the same tag is flashed again with it.
-$("tag-mac-go").addEventListener("click", () => {
-  const text = $("tag-mac").value.trim();
-  try {
-    macFromEntry(text, tagModel);
-  } catch (e) {
-    log(e.message, "err");
-    return;
-  }
-  if (!busy && flasher) flashTags(text);
-});
-
-$("tag-mac").addEventListener("keydown", (ev) => {
-  if (ev.key === "Enter") $("tag-mac-go").click();
-});
-
-async function flashTags(manualMac = "") {
-  busy = true;
-  $("tag-mac-ask").hidden = true;
-  $("tag-flash").textContent = "Stop";
-  const bar = $("tag-progress");
-  try {
-    backups ||= await BackupStore.open();
-    const fw = await loadTagFirmware();
-    const model = tagModel;
-    document.getElementById("tag-models").classList.add("locked");
-    let lastMac = null;
-    lastMacSeen = false;
-    do {
-      if (lastMac) {
-        log("Take the tag out of the jig ...");
-        while (busy && (await tagStillThere())) await new Promise((r) => setTimeout(r, 1000));
-        if (!busy || !(await waitForTag(() => !busy))) break;
-      }
-      bar.hidden = false;
-      const res = await flashTag(flasher, model, fw, backups, {
-        log: (t) => log(t, t.startsWith("FAILED") ? "err" : t.startsWith("OK") ? "good" : ""),
-        progress: (label, d, t) => { bar.max = t; bar.value = d; },
-        manualMac,
-      });
-      manualMac = "";       // typed for this one tag only
-      bar.hidden = true;
-      lastMac = res.mac;
-      lastMacSeen = true;
-      refreshBackups();
-      if (res.step === "mac" && !res.mac) {
-        $("tag-mac").value = "";
-        $("tag-mac-ask").hidden = false;
-        $("tag-mac").focus();
-        break;              // leave the tag in the jig for the typed MAC
-      }
-      if (!res.ok && !lastMac) lastMac = "?";
-    } while (busy && $("tag-loop").checked);
-  } catch (e) {
-    log("Stopped: " + e.message, "err");
-  } finally {
-    // polling for the next tag leaves a tag in debug mode; let it run its firmware
-    if (flasher && lastMacSeen) await flasher.reset().catch(() => {});
-    busy = false;
-    document.getElementById("tag-models").classList.remove("locked");
-    bar.hidden = true;
-    $("tag-flash").textContent = "Flash tag in jig";
-  }
-}
-
-// After a job the flasher has reset the tag; a tag still in the jig answers ZBS_BEGIN.
-async function tagStillThere() {
-  try {
-    await flasher.begin();
-    return true;
-  } catch (e) {
-    if (e instanceof zp.NoTagError) return false;
-    throw e;
-  }
-}
 
 function backupModel(b) {
   if (b.model) return b.model;
@@ -364,14 +169,16 @@ $("backup-export-csv").addEventListener("click", async () => {
   saveFile(`openesl-backups-${today()}.csv`, backupCsv(await backups.list()), "text/csv");
 });
 
-$("backup-export-zip").addEventListener("click", async () => {
+async function exportZip() {
+  backups ||= await BackupStore.open();
   const all = await backups.list();
   const files = [{ name: "backups.csv", data: backupCsv(all) }];
   for (const b of all) {
     files.push({ name: b.mac + ".bin", data: b.flash }, { name: b.mac + ".info.bin", data: b.info });
   }
   saveFile(`openesl-backups-${today()}.zip`, makeZip(files), "application/zip");
-});
+}
+$("backup-export-zip").addEventListener("click", exportZip);
 
 // Ask the browser to keep the backups even when it runs low on space.
 (async () => {

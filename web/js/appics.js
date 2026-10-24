@@ -1,6 +1,6 @@
 // appics.js - the drawings of the AP setups on the Flash AP tab's cards (inline SVG): the
-// boards, the cable or the WiFi between them, and the radio waves to a tag. Shapes only, not
-// photos of a particular board.
+// boards, the cable or the WiFi between them, and the radio waves to a tag; and the tag flasher
+// on the Flash tag tab. Shapes only, not photos of a particular board.
 
 const PCB = "#23272e";
 const CHIP = "#cfd3d8";
@@ -58,4 +58,27 @@ export function setupPicture(kind, chip) {
   if (chip === "C6") return svg("60 18 120 66", small(83, 33, chip) + waves(130, 55) + tag(148, 42));
   // a bigger board: the C5, an S3 on its own, or a chip added later
   return svg("40 4 130 100", devkit(62, 10, chip) + waves(132, 60) + tag(140, 66));
+}
+
+// The tag flasher of the Flash tag tab: a D1 mini with the ZBS_Flasher on USB, wired to the
+// pogo pins of a jig with a tag in it
+export function flasherPicture() {
+  const pins = [...Array(8).keys()].map((i) => `<circle cx="74" cy="${30 + i * 7}" r="1.4" fill="${GOLD}"/>`).join("");
+  const wires = ["#e8a23a", "#4aa36c", "#c62828", "#333", "#1f5fbf"].map((c, i) =>
+    `<path d="M74 ${37 + i * 7} C100 ${37 + i * 7} 104 ${48 + i * 6} 128 ${48 + i * 6}" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round"/>`).join("");
+  const pogo = [...Array(5).keys()].map((i) => `<rect x="128" y="${46 + i * 6}" width="6" height="3" rx="1" fill="${GOLD}"/>`).join("");
+  return `<svg viewBox="0 0 250 120" role="img" aria-hidden="true">` +
+    // the D1 mini, its USB cable down to the computer
+    `<path d="M45 96 V118" stroke="#555" stroke-width="5"/>` +
+    `<rect x="16" y="20" width="62" height="78" rx="4" fill="#1d4f91"/>` +
+    `<rect x="24" y="26" width="38" height="36" rx="2" fill="${CHIP}"/>` + text(43, 47, 7, "#2b2f36", "ESP8266") +
+    pins + `<rect x="38" y="91" width="14" height="7" rx="2" fill="${USB}"/>` +
+    text(43, 80, 7, "#fff", "D1 mini") + text(43, 89, 5.5, "#cfe0ff", "ZBS_Flasher", 400) +
+    wires +
+    // the jig, the tag lying on its pins
+    `<rect x="126" y="28" width="112" height="72" rx="6" fill="#8a8f98"/>` + pogo +
+    `<rect x="138" y="36" width="92" height="56" rx="4" fill="#fff" stroke="#666"/>` +
+    `<rect x="146" y="44" width="50" height="6" fill="#333"/><rect x="146" y="56" width="34" height="5" fill="#333"/>` +
+    `<rect x="146" y="68" width="40" height="12" fill="#c62828"/><rect x="200" y="72" width="22" height="12" fill="#bbb"/>` +
+    `</svg>`;
 }

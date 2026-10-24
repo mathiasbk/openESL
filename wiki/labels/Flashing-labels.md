@@ -10,10 +10,14 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 
 ## From the web page
 
-1. Open the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab and pick the label model from the photos.
-2. Put the label in the jig and press **Flash**.
-3. The page reads the label's MAC, **backs up the whole original firmware** in the browser ([Label backups](Label-backups)), writes the MAC to the info page if needed, then writes OpenESL and reads it back to check it.
-4. Take the label out, put the battery back, and it shows its start screen with its MAC and firmware version.
+The [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab is a guide in steps, like the one for the AP:
+
+1. **Choose tag.** Pick the label model from the photos. The firmware is the page's own, or a `.bin` file.
+2. **Connect flasher.** Press **Connect flasher** and pick the D1 mini's port.
+3. **Flash.** Put the label in the jig and press **Flash tag**. The page reads the label's MAC, **backs up the whole original firmware** in the browser ([Label backups](Label-backups)), writes the MAC to the info page if needed, then writes OpenESL and reads it back to check it. Each label gets a row with its MAC, barcode and result.
+4. **Done.** How many were flashed, and a button to export the new backups. Keep them somewhere safe.
+
+Take the label out, put the battery back, and it shows its start screen with its MAC and firmware version.
 
 With **Keep going** on, the page waits for the next label after each one, so you can do a stack in a row.
 

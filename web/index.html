@@ -244,39 +244,15 @@
 
   <!-- ===================== Flash tag ===================== -->
   <main id="tab-tag" class="tab" role="tabpanel" hidden>
-    <section class="card">
-      <h2>Flash a tag with the ZBS_Flasher</h2>
-      <p>Needs a D1 mini running atc1441's ZBS_Flasher, connected by USB, and Chrome or Edge on a computer (Web Serial). Each tag goes through the same steps as <code>tools/flash-tui</code>: the MAC is read, the whole flash is backed up in this browser before anything is erased, the MAC is written to the info page if needed, then the firmware is written and verified. The info page is never erased.</p>
-      <p id="serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
-      <h3 class="sub">1. Choose the tag model</h3>
-      <div id="tag-models" class="models" role="radiogroup" aria-label="Tag model">
-        <!-- one button per model in js/models.js (main.js) -->
+    <section class="wz">
+      <ol class="wz-steps" id="tw-steps" aria-label="Steps"></ol>
+      <div id="tw-body"></div>
+      <div class="wz-foot">
+        <button id="tw-back" type="button">← Back</button>
+        <span class="wz-grow"></span>
+        <button id="tw-next" type="button" class="primary">Next →</button>
       </div>
-      <h3 class="sub">2. Firmware and flasher</h3>
-      <div class="form row">
-        <label>Firmware
-          <select id="tag-fw-src">
-            <option value="release">Built from this page's version</option>
-            <option value="file">From a file…</option>
-          </select>
-        </label>
-        <input id="tag-fw-file" type="file" accept=".bin" hidden>
-        <span id="tag-fw-info" class="muted"></span>
-      </div>
-      <div class="buttons">
-        <button id="tag-connect">Connect flasher</button>
-        <button id="tag-flash" disabled>Flash tag in jig</button>
-        <label><input type="checkbox" id="tag-loop"> Keep going: wait for the next tag after each one</label>
-      </div>
-      <div id="tag-mac-ask" class="mac-ask" hidden>
-        <p class="warn">This tag has no MAC left: not in its info page and not at 0xFC06, where the stock firmware kept it (an earlier build was written over it). Type the 12 digits under the barcode on its label, or its whole MAC (16 digits), and flash it again. The MAC is written to the info page, so this is needed only once.</p>
-        <div class="buttons">
-          <input id="tag-mac" class="mono" placeholder="020793500102 or 000002079350341C" autocomplete="off" spellcheck="false">
-          <button id="tag-mac-go">Flash with this MAC</button>
-        </div>
-      </div>
-      <progress id="tag-progress" max="1" value="0" hidden></progress>
-      <pre id="tag-log" class="log" aria-live="polite"></pre>
+      <p class="muted"><span id="tag-fw-info"></span> Each tag goes through the same steps as <code>tools/flash-tui</code>: MAC, a backup of the whole flash before anything is erased, the MAC to the info page if needed, then write and verify. The info page is never erased.</p>
     </section>
     <section class="card">
       <h2>After this: updates over the radio</h2>
