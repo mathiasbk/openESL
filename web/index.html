@@ -254,16 +254,22 @@
       </div>
       <p class="muted"><span id="tag-fw-info"></span> Each tag goes through the same steps as <code>tools/flash-tui</code>: MAC, a backup of the whole flash before anything is erased, the MAC to the info page if needed, then write and verify. The info page is never erased.</p>
     </section>
-    <section class="card">
-      <h2>Backups in this browser</h2>
-      <p class="muted">Stored per MAC before the first flash, and kept in this browser between visits (until you clear the site's data). Export them and keep them somewhere safe: they are the only copy of the stock firmware. The barcode on the tag's label is filled in from the stock firmware when the tag is backed up; you can also type or scan it.</p>
-      <div class="table-wrap">
-        <table class="backups"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
-      </div>
-      <div class="buttons">
-        <button id="backup-export-zip">Export all (ZIP)</button>
-        <button id="backup-export-csv">Export list (CSV)</button>
-        <span id="backup-persist" class="muted"></span>
+    <section class="wz tw-backups">
+      <div class="wz-panel">
+        <div class="tw-bhead">
+          <div class="wz-grow">
+            <h2>Backups in this browser <span class="wz-badge" id="backup-count"></span></h2>
+            <p class="muted">The tags' own firmware, stored before the first flash. It stays in this browser until you clear the site's data, so export it and keep it somewhere safe. The barcode comes from the tag; you can also type or scan it.</p>
+          </div>
+          <p class="buttons tight">
+            <button id="backup-export-zip" type="button" class="primary">Export all (ZIP)</button>
+            <button id="backup-export-csv" type="button">List (CSV)</button>
+          </p>
+        </div>
+        <div class="table-wrap">
+          <table class="backups tw-results"><thead><tr><th>MAC</th><th>Model</th><th>Stored</th><th>Barcode</th><th>Files</th></tr></thead><tbody id="backup-list"></tbody></table>
+        </div>
+        <p id="backup-persist" class="muted"></p>
       </div>
     </section>
   </main>

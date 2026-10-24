@@ -97,8 +97,9 @@ async function refreshBackups() {
     const all = await backups.list();
     body.replaceChildren();
     $("backup-export-zip").disabled = $("backup-export-csv").disabled = !all.length;
+    $("backup-count").textContent = all.length ? String(all.length) : "";
     if (!all.length) {
-      body.innerHTML = '<tr><td colspan="5" class="muted">None yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" class="muted">None yet: a tag is backed up when it is flashed.</td></tr>';
       return;
     }
     for (const b of all) {

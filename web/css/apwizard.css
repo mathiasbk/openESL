@@ -87,6 +87,18 @@ a.button.primary { color: var(--accent-text); }
 .tw-logbox .wz-log { max-height: 240px; overflow: auto; }
 .wz-log .good { color: var(--ok); }
 .wz-log .err { color: var(--error); }
+.tw-backups { margin-top: 28px; }
+.tw-backups .wz-panel { padding: 14px 18px; }
+.tw-backups h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.tw-bhead { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.tw-bhead .muted { margin: 0; max-width: 640px; }
+.tw-backups .tw-results { margin-top: 10px; }
+.tw-backups .tw-results td:first-child { width: auto; }
+.tw-backups td { vertical-align: middle; }
+.tw-backups td a { margin-right: 8px; }
+#backup-persist:empty { display: none; }
+.tw-bhead > .wz-grow { flex: 1 1 320px; }
+.wz-badge:empty { display: none; }
 @media (max-width: 700px) {
   .wz-label { display: none; }
   .wz-steps .on .wz-label { display: inline; overflow: visible; }
