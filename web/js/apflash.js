@@ -33,11 +33,13 @@ export async function loadParts(manifest, v = "") {
   }));
 }
 
-// Flashes parts to the board on port. chip is the chip family the step expects ("ESP32-S3");
-// erase wipes the whole flash first (a new board), otherwise the partition table on the board
-// must be the one in parts, so NVS (WiFi, token, tags, layout files) is kept.
-// on(state, fraction): state "connect", "erase", "write" (fraction 0..1), "reset".
-// Returns the chip found. The port is closed again afterwards.
+// Flashes parts to the board on port. chip is the chip family the step expects ("ESP32-S3").
+// erase wipes the whole flash first. Otherwise the partition table on the board decides: the
+// same NVS as in parts keeps it (WiFi, token, tags, layout files), a blank board is erased (there
+// is nothing to keep), and another table is refused with FlashError "different", so the page
+// can ask before it erases.
+// on(state, fraction): state "connect", "keep" or "erase", "write" (fraction 0..1), "reset".
+// Returns { chip, kept }. The port is closed again afterwards.
 export async function flashBoard(port, { chip, parts, erase, on = () => {} }) {
   const { Transport, ESPLoader } = await loadEsptool();
   const transport = new Transport(port, false);
@@ -53,19 +55,18 @@ export async function flashBoard(port, { chip, parts, erase, on = () => {} }) {
     const found = loader.chip.CHIP_NAME;
     if (found !== chip)
       throw new FlashError("chip", `this is an ${found}, and this step is for the ${chip}. Plug in the ${chip}.`);
-    if (erase) {
+    let kept = false;
+    if (!erase) {
+      const pt = parts.find((p) => p.address === 0x8000);
+      const same = pt ? compareTables(await loader.readFlash(0x8000, 0x400), pt.data) : "blank";
+      if (same === "different")
+        throw new FlashError(same, "this board has another partition table (OpenESL from before 0.3.0, or other firmware), so what it has stored cannot be kept.");
+      kept = same === "same";
+    }
+    if (kept) on("keep", 0);
+    else {
       on("erase", 0);
       await loader.eraseFlash();
-    } else {
-      const pt = parts.find((p) => p.address === 0x8000);
-      if (pt) {
-        const onBoard = await loader.readFlash(0x8000, 0x400);
-        const same = compareTables(onBoard, pt.data);
-        if (same !== "same")
-          throw new FlashError(same, same === "blank"
-            ? "this board has no OpenESL on it, so there is nothing to keep."
-            : "this board has another partition table (OpenESL from before 0.3.0, or other firmware), so its data cannot be kept.");
-      }
     }
     const total = parts.reduce((n, p) => n + p.data.length, 0);
     let before = 0;
@@ -87,9 +88,10 @@ export async function flashBoard(port, { chip, parts, erase, on = () => {} }) {
     // chip's own USB (USB Serial/JTAG) alike
     await transport.setDTR(false);
     await transport.setRTS(true);
-    await sleep(100);
+    await sleep(200);
     await transport.setRTS(false);
-    return found;
+    await sleep(200);
+    return { chip: found, kept };
   } finally {
     await transport.disconnect().catch(() => {});
   }
@@ -97,7 +99,8 @@ export async function flashBoard(port, { chip, parts, erase, on = () => {} }) {
 
 // The same port again after a reset: the chip's own USB goes away and comes back as a new
 // port object, a UART bridge stays. Found by its USB ids among the ports the page may use;
-// null when it does not come back within ms.
+// null when it does not come back within ms. A port the page has open (another board on the same
+// kind of USB, such as the S3 next to the C6 radio) is never the one.
 export async function portAgain(port, ms = 8000) {
   const info = port.getInfo?.() || {};
   const end = Date.now() + ms;
@@ -106,6 +109,7 @@ export async function portAgain(port, ms = 8000) {
     const ports = await navigator.serial.getPorts();
     if (ports.includes(port)) return port;
     const same = ports.filter((p) => {
+      if (p.readable) return false;
       const i = p.getInfo?.() || {};
       return i.usbVendorId === info.usbVendorId && i.usbProductId === info.usbProductId;
     });

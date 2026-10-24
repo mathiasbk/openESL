@@ -183,9 +183,9 @@ def copy_static():
 # whole also wipes the NVS partition (WiFi, API token, tags, layout files). The manifest instead
 # lists the parts of the image that hold something: bootloader, partition table, otadata (blank,
 # so the board starts the new app in ota_0) and the app. NVS, phy_init, ota_1 and tagfw are left
-# alone, so flashing without "Erase device" in esp-web-tools keeps everything the AP has stored.
-# This relies on the board already having the same partition table; an AP with an older layout
-# must be flashed with "Erase device" (the page says so).
+# alone, so flashing them over a board that runs OpenESL keeps everything the AP has stored.
+# This relies on the board already having the same partition table: the Flash AP tab reads the
+# table on the board first and erases a blank board, and asks before it erases one with another.
 PT_OFFSET = 0x8000
 PT_SIZE = 0x1000
 
@@ -232,9 +232,7 @@ def ap_manifest(out, name, version, path, parts, chip_family, manifest_name=None
         "name": name,
         "version": version,
         # The Flash AP tab writes only the parts below for an AP that already runs OpenESL, so it
-        # keeps its settings and tags, and erases the flash first for a new board. The field is
-        # for esp-web-tools, which asks "Erase device?" before installing
-        "new_install_prompt_erase": True,
+        # keeps its settings and tags, and erases the flash first for a new board
         # the version in the address keeps a browser from flashing an image cached from an older release
         "builds": [{"chipFamily": chip_family,
                     "parts": [{"path": f + "?v=" + version, "offset": off} for f, off in parts]}],
@@ -451,8 +449,9 @@ def add_firmware(*files):
         title = "OpenESL AP, %s%s" % (b["chip_family"], " with status screen" if b["display"] else "")
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
-        # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "") + (" + C6 radio over WiFi" if b.get("radio") == "net" else "")
+        # name is the board's name in board.json, as the AP's API and dashboard give it; label
+        # (board.json) goes under it
+        short = b.get("name") or b["chip_family"] + (" with status screen" if b["display"] else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
                                   "chip_family": b["chip_family"], "display": b["display"], "file": name[:-4],
                                   "manifest": manifest, "radio": b.get("radio", "native"),

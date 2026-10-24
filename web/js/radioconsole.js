@@ -35,7 +35,8 @@ async function readLines(t, ms, done, onLine) {
 }
 
 // Sends the radio its network and the AP's address, restarts it and watches it join.
-// Returns { state: "joined", ip?, rssi? }, or { state: "no-ap" | "no-wifi" | "timeout" }.
+// Returns { state: "joined", ip?, rssi? }, or { state: "no-ap" | "no-wifi" | "bad-pass" |
+// "timeout" }; no network set ends the wait at once, a refused password the second time.
 // port is closed again afterwards (it is the one returned in .port, after the restart).
 export async function setUpRadio(port, cfg, { onLine = () => {}, waitMs = 90000 } = {}) {
   let t = await WebSerialTransport.open(port, { lowSignals: false });
@@ -53,12 +54,14 @@ export async function setUpRadio(port, cfg, { onLine = () => {}, waitMs = 90000 
   t = await WebSerialTransport.open(again, { lowSignals: false });
   try {
     let last = null;
+    let refused = 0;
     let r = await readLines(t, waitMs, (line) => {
       const s = radioLine(line);
       if (s) last = s;
-      return s?.state === "joined" ? s : null;
+      if (s?.state === "bad-pass" && ++refused < 2) return null;
+      return s?.state === "joined" || s?.state === "no-wifi" || s?.state === "bad-pass" ? s : null;
     }, onLine);
-    if (r) {
+    if (r?.state === "joined") {
       // the signal at the radio, from its status line
       await t.write(enc.encode("status\n"));
       const st = await readLines(t, 3000, (line) => radioLine(line)?.rssi != null ? radioLine(line) : null, onLine);

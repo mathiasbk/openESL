@@ -119,10 +119,10 @@ Only the link to the radio differs.
 
 The web page's Flash AP tab does all of this: pick "S3 + C6 over WiFi", and it flashes the C6 radio
 and the S3, gives the S3 its WiFi and token over USB, then sends the C6 `ssid`, `pass`, `host` (the
-S3's address, which it just learned) and `reboot` over the C6's USB console, and reads the C6's log
-until it says `connected to the AP at ...`, then `status` for the WiFi signal at the C6 (it warns
-below −75 dBm). With "New" it erases the C6 first; with "Already OpenESL" it stops when the C6's
-partition table is not the radio's (a C6 that was an AP, say) and offers to erase it. By hand:
+S3's address if you type it, else empty so the C6 finds the S3 on mDNS) and `reboot` over the
+C6's USB console, and reads the C6's log until it says `connected to the AP at ...`, then `status`
+for the WiFi signal at the C6 (it warns below −75 dBm). It erases the C6 before it flashes it: the
+radio keeps nothing it does not get again here. By hand:
 
 1. Build and flash the S3 as any AP board: `python ap/build.py s3-n16r8-netradio` (which also builds the
    radio), then flash the S3 as in [ap-firmware.md](ap-firmware.md). It waits for the radio on TCP port

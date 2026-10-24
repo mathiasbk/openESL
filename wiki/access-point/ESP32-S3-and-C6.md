@@ -36,7 +36,7 @@ Then it shows the wiring. The S3's log says `radio 1.0 up` when it reaches the C
 
 With esptool instead: `esptool --chip esp32c6 write_flash 0 openesl-ap-radio-esp32c6-<version>.bin`.
 
-The S3 is updated over the air like any AP. The C6 radio is not updated by the S3 yet, so it is flashed again from the web page (Already OpenESL, then skip the S3) when it changes.
+The S3 is updated over the air like any AP. The C6 radio is not updated by the S3 yet, so it is flashed again from the web page (flash the C6, then skip the S3) when it changes.
 
 The link between the chips: [docs/ap-radio-link.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-radio-link.md).
 

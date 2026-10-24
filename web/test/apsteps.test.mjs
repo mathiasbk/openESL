@@ -105,5 +105,7 @@ test("the radio over WiFi: its commands and what its log says", () => {
   assert.equal(radioLine("W (9) radio: AP 192.168.3.9:4553 does not answer").state, "no-ap");
   assert.deepEqual(radioLine("I (9) radio: link: up, WiFi rssi -78, connects 1 syncs 2"), { state: "joined", rssi: -78 });
   assert.equal(radioLine("W (9) radio: no WiFi set: type ssid <name>, then pass <password>").state, "no-wifi");
+  assert.equal(radioLine("W (9) radio: WiFi lost (reason 15), joining again").state, "bad-pass");
+  assert.equal(radioLine("W (9) radio: WiFi lost (reason 8), joining again"), null);
   assert.equal(radioLine("I (9) radio: heap: free 1000"), null);
 });

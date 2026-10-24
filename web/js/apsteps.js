@@ -120,7 +120,8 @@ export function radioCommands({ ssid, pass, host }) {
 // What a line of the radio's log says about joining the AP: { state, ip?, rssi? } with state
 // "joined" (also from the "link: up" line of status, with the WiFi signal at the radio),
 // "link-down", "wifi" (on the network), "no-ap" (not found on mDNS, or the address does not
-// answer), "no-wifi" (no network set), or null for anything else
+// answer), "no-wifi" (no network set), "bad-pass" (the network refused the password: reasons
+// 15, 202 and 204 of esp_wifi_types.h), or null for anything else
 export function radioLine(line) {
   let m = line.match(/connected to the AP at ([0-9.]+)(?::\d+)?(, but HELLO failed)?/);
   if (m) return m[2] ? { state: "no-ap", ip: m[1] } : { state: "joined", ip: m[1] };
@@ -129,5 +130,6 @@ export function radioLine(line) {
   if ((m = line.match(/WiFi up: ([0-9.]+)/))) return { state: "wifi", ip: m[1] };
   if (/no AP found on mDNS|AP \S+ does not answer/.test(line)) return { state: "no-ap" };
   if (/no WiFi set/.test(line)) return { state: "no-wifi" };
+  if ((m = line.match(/WiFi lost \(reason (\d+)\)/)) && [15, 202, 204].includes(Number(m[1]))) return { state: "bad-pass" };
   return null;
 }
