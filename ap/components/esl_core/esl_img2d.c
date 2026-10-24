@@ -21,8 +21,10 @@ static void put(bits_t *b, uint32_t v, unsigned n)
         if (++b->nacc == 8) {
             if (b->o >= b->max || b->o >= b->limit)
                 b->full = true;
-            else
+            else if (b->out)
                 b->out[b->o++] = b->acc;
+            else
+                b->o++;
             b->acc = 0;
             b->nacc = 0;
         }
@@ -54,12 +56,11 @@ static int change_to(const uint8_t *c, int a, int col, int h)
     return h;
 }
 
-size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t max)
+/* ahead: how far ahead of the output the input starts (coding in place) */
+static size_t code(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t ahead, size_t max)
 {
     uint8_t ref[COL_MAX], cur[COL_MAX];
     size_t cb = ((size_t)h + 7) / 8;
-    /* coding in place: how far ahead of the output the input starts */
-    size_t ahead = (uintptr_t)out <= (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
     bits_t b = {out, max, 0, 0, 0, 0, false};
 
     if (!h || h > ESL_IMG_2D_MAX_H || n % cb)
@@ -69,7 +70,7 @@ size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, 
         memcpy(cur, in + x * cb, cb);
         b.limit = ahead + (x + 1) * cb;
         int a0 = -1, col = 0;
-        while (a0 < h) {
+        while (a0 < h && !b.full) {
             int a1 = change_to(cur, a0, !col, h);
             int b1 = change_to(ref, a0, !col, h);
             int b2 = change_to(ref, b1, col, h);
@@ -102,4 +103,15 @@ size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, 
     if (b.nacc)
         put(&b, 0, 8 - b.nacc);
     return b.full ? 0 : b.o;
+}
+
+size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t max)
+{
+    size_t ahead = out && (uintptr_t)out <= (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
+    return code(in, n, h, out, ahead, max);
+}
+
+size_t esl_img_2d_count(const uint8_t *in, size_t n, uint16_t h, size_t margin, size_t max)
+{
+    return code(in, n, h, NULL, margin, max);
 }

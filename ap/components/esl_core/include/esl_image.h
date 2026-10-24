@@ -32,7 +32,8 @@
 
 /* ESL_IMG_FMT_RLE: n bytes coded into out, at most max bytes; 0 when it does not fit.
  * out may be in - ESL_IMG_RLE_MARGIN(n) (coding in place: the output never overtakes
- * the input by more than that, and gives 0 rather than write over input it has not read). */
+ * the input by more than that, and gives 0 rather than write over input it has not read).
+ * out NULL only counts: the length the code would have. */
 #define ESL_IMG_RLE_MARGIN(n) ((n) / 128 + 2)
 size_t esl_img_rle_encode(const uint8_t *in, size_t n, uint8_t *out, size_t max);
 
