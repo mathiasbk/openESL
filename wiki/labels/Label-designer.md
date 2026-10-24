@@ -13,7 +13,7 @@ Open the [Design](https://mathiasbk.github.io/openESL/#design) tab. It works in 
 - **Left:** the layouts in the file, and the elements of the one you picked. "+ New" adds an empty layout or a copy of an example, such as the product labels `vare`, `vare-mva` and `vare-priser`.
 - **Middle:** the label, with the tools over it (text, fixed text, box, line, icon, barcode, QR code). Drag and resize boxes; they snap to the edges, the centre and each other (hold Alt to turn it off). The bar next to the selected element sets font, alignment and colour, and more under "More".
 - **Right:** the layout's name, its fields with the sample text the preview shows, and where the selected element is.
-- **Under the label:** how much of the AP's limits the layout uses, and whether the AP will accept it.
+- **Under the label:** how much of the AP's limits the layout uses, and whether the AP will accept it. The limits are those of the AP you are connected to under Send to tag, or of an ESP32-C6 AP (the smallest) until you connect; click the ring to see which, and each limit. See [Layout elements and limits](Layout-elements-and-limits).
 
 Undo and redo with Ctrl+Z and Ctrl+Shift+Z. Arrows, Tab, Delete and Ctrl+D (duplicate) work on the selected box.
 

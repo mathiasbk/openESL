@@ -232,6 +232,7 @@ async function loadModel(model) {
     state.history[model].reset(JSON.stringify(state.docs[model]));
   }
   state.renderer = await loadRenderer(model, rendererBase);
+  applyLimits();
   document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
@@ -321,8 +322,32 @@ function refreshMeters(res) {
   l.classList.toggle("over", worst > 1);
   l.classList.toggle("near", worst >= 0.8 && worst <= 1);
   $("limits-ring").style.setProperty("--p", Math.min(100, pct) + "%");
-  $("limits-text").textContent = worst > 1 ? "Over the AP's limits" : `${pct} % of limits`;
+  $("limits-text").textContent = worst > 1 ? "Over the AP's limits" : `${pct} % of the AP's limits`;
+  $("limits").title = "What this layout uses of what the AP can draw and store. The AP draws the image; the tag only shows it";
+  $("limits-src").textContent = limitsSource();
   if (worst > 1) l.open = true;
+}
+
+// Whose limits the meters show: the connected AP's, or the default board's (the smallest)
+function limitsSource() {
+  const dflt = `Those of an ESP32-C6 AP (${DEFAULT_BOARD}, the smallest)`;
+  if (!ap.connected) return dflt + ". Connect to your AP under Send to tag to see its own.";
+  if (!ap.limits) return dflt + `: the AP does not report its own (firmware older than this page).`;
+  if (!state.renderer.canSetLimits) return dflt + ": this page's renderer is too old to take the AP's.";
+  const cut = Object.keys(ap.limits).some((k) => typeof state.renderer.limits[k] === "number" && state.renderer.limits[k] < ap.limits[k]);
+  return `Those of the connected AP (${ap.board || "board not named"})` +
+    (cut ? ", some lowered to what this page can check" : "") + ".";
+}
+
+// The renderer checks against the connected AP's limits, or the default board's without one
+function applyLimits() {
+  state.renderer?.setLimits(ap.connected ? ap.limits : null);
+}
+
+// After connecting or disconnecting: check and draw again with the limits that now apply
+function limitsChanged() {
+  applyLimits();
+  if (state.renderer && doc()) refreshAll();
 }
 
 function setStatus(text, cls) {
@@ -1470,11 +1495,16 @@ function initActions() {
 // ---------- send to the AP ----------
 
 // files: on the AP's own page, model -> the layout file the AP has (null: none), once read
-const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {} };
+// board and limits: what GET /api/layouts says about the AP (null limits from an older AP)
+const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null };
+const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
-// The version of the model's layout file on the AP (GET /api/layouts), null when it has none
+// The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
+// and the AP's board and limits
 async function apFileVersion() {
   const r = await apClient().layouts();
+  ap.board = r.board || "";
+  ap.limits = r.limits || null;
   return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
 }
 
@@ -1500,6 +1530,9 @@ function apShow() {
 function apDisconnected() {
   ap.connected = false;
   ap.tags = [];
+  ap.limits = null;
+  ap.board = "";
+  limitsChanged();
   apShow();
   apStatus("");
 }
@@ -1592,6 +1625,7 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
+  limitsChanged();
   const where = onAp ? location.host || "this AP" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
   if (onAp) {

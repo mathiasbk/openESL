@@ -9,5 +9,6 @@
   "radio": "native",
   "artifact": "openesl-ap-c5-n16r8",
   "release": "openesl-ap-esp32c5-n16r8",
-  "status": "experimental"
+  "status": "experimental",
+  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16 }
 }

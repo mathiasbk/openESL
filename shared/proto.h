@@ -244,7 +244,18 @@
 #define ESL_ICON_MAX_W       128    /* største ikon i piksler */
 #define ESL_ICON_MAX_H       128
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         4096   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
+/* Største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først). Denne og ESL_DRAW_MAX_RUNS,
+ * _RECTS, _LINES og _ICONS er AP-kortets grenser: et kort kan sette andre i "limits" i
+ * ap/boards/<kort>/board.json (ap/CMakeLists.txt), og verdiene her er standarden (ESP32-C6).
+ * ESL_*_CAP er plassen koden setter av; den er grensen, unntatt i nettsidens renderer, som
+ * bygges med plass til det største kortet og tar grensene til AP-en den snakker med
+ * (esl_limits i esl_layout.h). */
+#ifndef ESL_LBIN_MAX
+#define ESL_LBIN_MAX         4096
+#endif
+#ifndef ESL_LBIN_CAP
+#define ESL_LBIN_CAP         ESL_LBIN_MAX
+#endif
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
@@ -364,10 +375,31 @@
 #define ESL_FONT_TEXT20_H    20
 #define ESL_FONT_PRICE44_H   44
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_LINES   16     /* linjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_ICONS   8      /* ikoner per skjerm (esl_render.c) */
+/* Per skjerm (esl_render.c); per AP-kort, som ESL_LBIN_MAX */
+#ifndef ESL_DRAW_MAX_RUNS
+#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer */
+#endif
+#ifndef ESL_DRAW_MAX_RECTS
+#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt */
+#endif
+#ifndef ESL_DRAW_MAX_LINES
+#define ESL_DRAW_MAX_LINES   16     /* linjer */
+#endif
+#ifndef ESL_DRAW_MAX_ICONS
+#define ESL_DRAW_MAX_ICONS   8      /* ikoner */
+#endif
+#ifndef ESL_DRAW_CAP_RUNS
+#define ESL_DRAW_CAP_RUNS    ESL_DRAW_MAX_RUNS
+#endif
+#ifndef ESL_DRAW_CAP_RECTS
+#define ESL_DRAW_CAP_RECTS   ESL_DRAW_MAX_RECTS
+#endif
+#ifndef ESL_DRAW_CAP_LINES
+#define ESL_DRAW_CAP_LINES   ESL_DRAW_MAX_LINES
+#endif
+#ifndef ESL_DRAW_CAP_ICONS
+#define ESL_DRAW_CAP_ICONS   ESL_DRAW_MAX_ICONS
+#endif
 #define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 

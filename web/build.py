@@ -37,6 +37,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -59,7 +60,44 @@ STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "malloc", "free"]
+           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "malloc", "free"]
+
+
+# The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and
+# the room the renderer sets aside for each (ESL_*_CAP in shared/proto.h; jsonBytes needs none)
+# (the limit's own macro there gives its default)
+LIMIT_CAPS = {"runs": ("ESL_DRAW_MAX_RUNS", "ESL_DRAW_CAP_RUNS"), "rects": ("ESL_DRAW_MAX_RECTS", "ESL_DRAW_CAP_RECTS"),
+              "lines": ("ESL_DRAW_MAX_LINES", "ESL_DRAW_CAP_LINES"), "icons": ("ESL_DRAW_MAX_ICONS", "ESL_DRAW_CAP_ICONS"),
+              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None)}
+DEFAULT_BOARD = "c6-supermini"     # ap/CMakeLists.txt
+
+
+def limit_caps():
+    """-D flags that give the renderer room for the largest limits any AP board has, so it can
+    take those of the AP it talks to (web_set_limit). It starts with the defaults in
+    shared/proto.h, which are the default board's: that board sets no limits of its own."""
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        proto = f.read()
+    caps = {}
+    for limit, cap in LIMIT_CAPS.values():
+        if cap:
+            m = re.search(r"#define\s+%s\s+(\d+)" % limit, proto)
+            if not m:
+                sys.exit("shared/proto.h has no default for %s" % limit)
+            caps[cap] = int(m.group(1))
+    for path in sorted(glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))):
+        with open(path, encoding="utf-8") as f:
+            b = json.load(f)
+        limits = b.get("limits", {})
+        if limits and b["id"] == DEFAULT_BOARD:
+            sys.exit("%s: the default board keeps the limits in shared/proto.h; change them there" % path)
+        for k, v in limits.items():
+            if k not in LIMIT_CAPS or not isinstance(v, int) or v < 1:
+                sys.exit("%s: limits.%s = %r is not a known limit with a whole number" % (path, k, v))
+            cap = LIMIT_CAPS[k][1]
+            if cap:
+                caps[cap] = max(caps[cap], v)
+    return ["-D%s=%d" % kv for kv in sorted(caps.items())]
 
 
 def sources():
@@ -82,7 +120,7 @@ def build_wasm(model):
     out = os.path.join(DIST, "wasm")
     os.makedirs(out, exist_ok=True)
     js = os.path.join(out, "render-%s.js" % model)
-    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + includes() + sources() + [
+    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + limit_caps() + includes() + sources() + [
         "-o", js,
         "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=web,node",
         "-sEXPORT_NAME=createRenderer", "-sALLOW_MEMORY_GROWTH=1", "-sFILESYSTEM=0",
@@ -97,7 +135,7 @@ def build_native(model):
     out = os.path.join(tag_build.BUILD, "web-%s" % model)
     os.makedirs(out, exist_ok=True)
     exe = os.path.join(out, "web_render" + (".exe" if os.name == "nt" else ""))
-    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + includes(True) +
+    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + limit_caps() + includes(True) +
                   sources() + [os.path.join(HERE, "wasm", "native", "main.c"), "-o", exe])
     return exe
 
