@@ -4,6 +4,7 @@ int tt_checks, tt_failures;
 
 void test_crc32(void);
 void test_text(void);
+void test_number(void);
 void test_content(void);
 void test_proto(void);
 void test_frame(void);
@@ -20,13 +21,16 @@ void test_barcode(void);
 void test_sched(void);
 void test_tagfw(void);
 void test_coproc(void);
+void test_png(void);
 
 static const struct {
     const char *name;
     void (*fn)(void);
 } tests[] = {
     {"crc32", test_crc32},
+    {"png", test_png},
     {"text", test_text},
+    {"number", test_number},
     {"content", test_content},
     {"proto", test_proto},
     {"frame", test_frame},

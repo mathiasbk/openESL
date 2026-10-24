@@ -127,6 +127,37 @@ actions:
         {%- endif -%}
 ```
 
+## A picture instead of text
+
+For what four lines cannot show (a chart, a camera snapshot, a dashboard drawn elsewhere), the AP takes a PNG with `PUT /api/tags/{mac}/image` ([openapi.yaml](openapi.yaml)) and sends it to the tag as it is. The PNG must be exactly the tag's screen size: 296 x 128 for the 2.9", 200 x 200 for the 1.54". The AP turns each pixel into black or white (the nearest), or with `?dither=true` mixes them for shades of grey, which suits photos. The tag must have polled the AP once.
+
+`rest_command` sends text only, so the file goes with `curl` from a `shell_command`. Put the whole command in `secrets.yaml`, since the token is in it:
+
+```yaml
+# secrets.yaml
+esl_picture: >-
+  curl -s -f -X PUT -H "Authorization: Bearer YOUR_API_TOKEN" --data-binary @{{ file }}
+  http://openesl.local/api/tags/{{ mac }}/image{{ '?dither=true' if dither | default(false) else '' }}
+```
+
+```yaml
+# configuration.yaml
+shell_command:
+  esl_picture: !secret esl_picture
+```
+
+Then in an automation or script, with a PNG that something else has written (a camera snapshot resized to the screen, an image from another integration):
+
+```yaml
+action: shell_command.esl_picture
+data:
+  mac: "00000123456789A8"
+  file: /config/www/tag.png
+  dither: true
+```
+
+A picture costs about 5 KB of the AP's NVS per tag (less for one with large areas of one colour), and a new one a full download and redraw on the tag, so it is for a few tags and changes now and then, not for prices. Sending text again (`rest_command.esl_tag_text`) replaces the picture.
+
 ## Limits and timing
 
 - **Text:** 4 fields (lines), 92 characters in all after conversion to Latin-1 (96 bytes with the length bytes, [protokoll.md](protokoll.md) part 1). æøå work. Over the limit the AP answers `422` and the tag keeps what it shows.

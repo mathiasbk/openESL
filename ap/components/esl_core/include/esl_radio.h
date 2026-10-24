@@ -56,7 +56,7 @@ void esl_radio_set_image(esl_image_t *im);
  * its version, as after the restart, unless fw_bad (it then "rolls back" and
  * reports ESL_POLL_F_FWFAIL, as the bootloader would).
  * With images (the default, as a tag with SPI flash) it reports ESL_POLL_F_IMAGE
- * and ESL_POLL_F_IMG_RLE and takes the image the AP offers (IMG / IMG_REQ,
+ * ESL_POLL_F_IMG_RLE and ESL_POLL_F_IMG_2D and takes the image the AP offers (IMG / IMG_REQ,
  * keeping a CRC as the tag checks it); a whole image with the right id is what it
  * "shows" (the next POLL reports the id), unless img_bad (it then reports
  * ESL_POLL_F_DRAWFAIL and keeps what it showed). images = false is a tag without
@@ -92,6 +92,7 @@ typedef struct {
     /* images drawn by the AP */
     bool images;               /* reports ESL_POLL_F_IMAGE: content_id in POLL is the image shown */
     bool img_rle;              /* reports ESL_POLL_F_IMG_RLE: takes coded images too */
+    bool img_2d;               /* reports ESL_POLL_F_IMG_2D: takes 2D coded images too */
     bool img_bad;              /* every image it gets "fails to draw" */
     uint32_t img_dl_id, img_dl_sum;
     uint16_t img_dl_size, img_dl_got;

@@ -6,7 +6,7 @@ The dashboard shows the AP's state and every label, refreshed every 10 seconds.
 
 ## Opening it
 
-- **Over WiFi:** `http://openesl.local/dashboard` (or the AP's IP address). The AP serves it itself. It asks for the API token once.
+- **Over WiFi:** `http://openesl.local/dashboard` (or the AP's IP address). The AP serves it itself. It asks for the API token once. An AP with room for it also has the Design tab there, with the [label designer](Label-designer#getting-it-onto-the-ap) working on the layouts stored on that AP.
 - **Over USB:** the [Dashboard](https://mathiasbk.github.io/openESL/#dashboard) tab on the web page, with the AP plugged into the computer.
 - **Through the bridge:** `python3 tools/esl-client/esl_client.py --url http://openesl.local --token <token> serve`, then connect the web page to `http://localhost:8080`.
 

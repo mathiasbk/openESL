@@ -2,9 +2,13 @@
 #include "esl_api.h"
 #include "esl_persist.h"
 #include "esl_image.h"
+#include "esl_img2d.h"
 #include "esl_link.h"
 #include "esl_radio.h"
+#include "esl_crc32.h"
 #include "esl_render.h"
+#include "esl_png.h"
+#include "png_fixtures.h"
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
@@ -24,6 +28,9 @@ typedef struct {
     uint8_t cfg[CAP][ESL_PERSIST_CFG_LEN];
     bool has_next_poll;
     uint16_t next_poll_s;
+    uint8_t img[CAP][ESL_IMAGE_STORED_MAX(5000)]; /* pictures (ops.persist_image) */
+    size_t img_len[CAP];
+    int img_writes;
 } nvs_t;
 
 static bool nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
@@ -63,6 +70,27 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     n->next_poll_s = next_poll_s ? *next_poll_s : 0;
 }
 
+static bool nvs_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    nvs_t *n = ctx;
+    if (len > sizeof(n->img[slot]))
+        return false;
+    if (data)
+        memcpy(n->img[slot], data, len);
+    n->img_len[slot] = data ? len : 0;
+    n->img_writes++;
+    return true;
+}
+
+static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
+{
+    nvs_t *n = ctx;
+    if (!n->img_len[slot] || n->img_len[slot] > cap)
+        return 0;
+    memcpy(buf, n->img[slot], n->img_len[slot]);
+    return n->img_len[slot];
+}
+
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
@@ -88,7 +116,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -479,7 +507,7 @@ static void test_image_send(void)
     esl_faketag_t a, b;
     esl_faketag_init(&a, 0x29A, 1, 3000, ESL_MODEL_29);
     a.ota = true;
-    a.img_rle = false; /* raw images: the block count below */
+    a.img_rle = a.img_2d = false; /* raw images: the block count below */
     esl_faketag_init(&b, 0x29B, 1, 3000, ESL_MODEL_29);
     b.images = false; /* no SPI flash */
 
@@ -527,7 +555,8 @@ static void test_image_send(void)
     CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)id); /* the same content */
     CHECK_INT(images.drawn, 1);                                  /* not through the buffers */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000999/image", AUTH, NULL, 0, 0, &out), 404);
-    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags/000000000000029A/image", AUTH, "{}", 2, 0, &out), 405);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags/000000000000029A/image", AUTH, "{}", 2, 0, &out), 415);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/tags/000000000000029A/image", AUTH, NULL, 0, 0, &out), 405);
 
     /* the same content again gives the same image: nothing to send */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
@@ -656,6 +685,7 @@ static void test_image_send(void)
     esl_faketag_init(&c, 0x29C, 1, 3000, ESL_MODEL_29);
     esl_faketag_init(&d, 0x29D, 1, 3000, ESL_MODEL_29);
     c.images = d.images = true;
+    c.img_2d = d.img_2d = false; /* RLE: more than one block, so the buffers stay busy */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"A\",\"1\"]}"), 200);
     CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"C\",\"3\"]}"), 200);
     CHECK_INT(put("000000000000029D", "{\"layout\":\"price\",\"fields\":[\"D\",\"4\"]}"), 200);
@@ -728,6 +758,7 @@ static void test_image_rle(void)
             raw[i] = pass == 3 ? 0 : pass == 4 ? (uint8_t)(i * 7 + (i >> 3)) : (uint8_t)((i / 37) & 1 ? 0xFF : i % 3);
         size_t m = ESL_IMG_RLE_MARGIN(n);
         memcpy(buf + m, raw, n);
+        CHECK_INT((int)esl_img_rle_encode(raw, n, NULL, n + m), (int)esl_img_rle_encode(raw, n, back, n + m));   /* counted */
         size_t c = esl_img_rle_encode(buf + m, n, buf, n + m);   /* in place */
         CHECK(c > 0);
         CHECK_INT((int)rle_decode(buf, c, back, sizeof(back)), (int)n);
@@ -778,6 +809,7 @@ static void test_image_rle(void)
     esl_faketag_t a;
     esl_faketag_init(&a, 0x29E, 1, 3000, ESL_MODEL_29);
     a.ota = a.images = a.img_rle = true;
+    a.img_2d = false;
     CHECK_INT(put("000000000000029E", SHELF), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
     CHECK_INT(a.img_shown, 1);
@@ -795,6 +827,591 @@ static void test_image_rle(void)
     CHECK_INT((int)esl_layouts_render(&layouts, ESL_MODEL_29, &c, raw, sizeof(raw)), (int)raw29);
     CHECK(memcmp(back, raw, raw29) == 0);
     printf("  RLE: 2.9\" shelf screen %zu -> %u bytes, %u blocks\n", raw29, (unsigned)images.buf[0].size,
+           (unsigned)a.img_blocks);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IDLE);
+    esl_radio_set_image(NULL);
+    free(f29);
+}
+
+/* ---- pictures from clients (PUT /api/tags/{mac}/image) ---- */
+
+static size_t decode_2d(const uint8_t *in, size_t n, int h, uint8_t *out, size_t cols);
+
+/* The screen in an image buffer, whatever its format, into out */
+static size_t screen_of(const esl_image_buf_t *b, uint8_t *out, size_t cap)
+{
+    uint16_t w, h;
+    bool red;
+    if (b->fmt == ESL_IMG_FMT_RLE)
+        return rle_decode(b->data, b->size, out, cap);
+    if (b->fmt == ESL_IMG_FMT_2D) {
+        if (!esl_render_model(b->model, &w, &h, &red))
+            return 0;
+        return decode_2d(b->data, b->size, h, out, esl_render_size(b->model) / ((h + 7u) / 8));
+    }
+    if (b->size > cap)
+        return 0;
+    memcpy(out, b->data, b->size);
+    return b->size;
+}
+
+static void be32_put(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+static size_t png_chunk(uint8_t *out, const char *type, const uint8_t *data, size_t len)
+{
+    be32_put(out, (uint32_t)len);
+    memcpy(out + 4, type, 4);
+    if (len)
+        memcpy(out + 8, data, len);
+    be32_put(out + 8 + len, esl_crc32(out + 4, 4 + len));
+    return 12 + len;
+}
+
+/* An 8-bit grey PNG of w x h with grey(x, y), in stored deflate blocks */
+static size_t make_png(uint8_t *out, uint32_t w, uint32_t h, uint8_t (*grey)(uint32_t x, uint32_t y))
+{
+    static uint8_t rows[200 * 301], z[200 * 301 + 1024];
+    size_t n = 0, o = 0;
+    for (uint32_t y = 0; y < h; y++) {
+        rows[n++] = 0;
+        for (uint32_t x = 0; x < w; x++)
+            rows[n++] = grey(x, y);
+    }
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < n; i++) {
+        a = (a + rows[i]) % 65521;
+        b = (b + a) % 65521;
+    }
+    z[o++] = 0x78;
+    z[o++] = 0x01;
+    for (size_t i = 0; i < n; i += 65535) {
+        size_t l = n - i < 65535 ? n - i : 65535;
+        z[o++] = i + l == n;
+        z[o++] = (uint8_t)l;
+        z[o++] = (uint8_t)(l >> 8);
+        z[o++] = (uint8_t)~l;
+        z[o++] = (uint8_t)(~l >> 8);
+        memcpy(z + o, rows + i, l);
+        o += l;
+    }
+    be32_put(z + o, b << 16 | a);
+    o += 4;
+    uint8_t hdr[13] = {0};
+    be32_put(hdr, w);
+    be32_put(hdr + 4, h);
+    hdr[8] = 8;
+    size_t m = 8;
+    memcpy(out, esl_png_signature, 8);
+    m += png_chunk(out + m, "IHDR", hdr, 13);
+    m += png_chunk(out + m, "IDAT", z, o);
+    m += png_chunk(out + m, "IEND", NULL, 0);
+    return m;
+}
+
+/* esl_api_image_put's hold: counts, and deletes hold_delete while the lock is let go */
+static unsigned hold_calls;
+static uint64_t hold_delete;
+
+static void test_hold(bool take)
+{
+    hold_calls++;
+    if (!take && hold_delete)
+        esl_store_delete(&st, hold_delete);
+}
+
+static uint8_t grey_half(uint32_t x, uint32_t y)
+{
+    (void)x;
+    (void)y;
+    return 128;
+}
+
+static uint8_t grey_box(uint32_t x, uint32_t y)
+{
+    return x >= 10 && x < 50 && y >= 20 && y < 30 ? 0 : 255;
+}
+
+static int put_picture(const char *mac, const char *query, const uint8_t *body, size_t len)
+{
+    char uri[96];
+    snprintf(uri, sizeof(uri), "/api/tags/%s/image%s", mac, query);
+    return esl_api_handle(&api, "PUT", uri, AUTH, (const char *)body, len, 0, &out);
+}
+
+/* The tag image of a PNG as the API should make it without dither: ink where the
+   pixel is nearer black than white */
+static uint8_t *want_img;
+static size_t want_cb;
+
+static bool want_header(void *ctx, uint32_t w, uint32_t h)
+{
+    (void)ctx;
+    (void)w;
+    want_cb = ESL_RENDER_COL_BYTES(h);
+    return true;
+}
+
+static bool want_row(void *ctx, uint32_t y, const uint8_t *rgb)
+{
+    uint32_t w = *(uint32_t *)ctx;
+    for (uint32_t x = 0; x < w; x++)
+        if (3 * rgb[3 * x] + 4 * rgb[3 * x + 1] + 2 * rgb[3 * x + 2] < 9 * 128)
+            want_img[x * want_cb + y / 8] |= (uint8_t)(0x80 >> (y % 8));
+    return true;
+}
+
+static const uint8_t *src_p;
+static size_t src_left;
+
+static bool src_read(void *ctx, uint8_t *buf, size_t n)
+{
+    (void)ctx;
+    if (n > src_left)
+        return false;
+    memcpy(buf, src_p, n);
+    src_p += n;
+    src_left -= n;
+    return true;
+}
+
+static size_t count_ink(const uint8_t *img, size_t n)
+{
+    size_t k = 0;
+    for (size_t i = 0; i < n; i++)
+        for (uint8_t b = img[i]; b; b &= (uint8_t)(b - 1))
+            k++;
+    return k;
+}
+
+/* The image buffer a tag's image went out of */
+static const esl_image_buf_t *buf_of(uint64_t mac)
+{
+    static const esl_image_buf_t none;
+    for (unsigned i = 0; i < ESL_IMAGE_BUFS; i++)
+        if (images.buf[i].mac == mac)
+            return &images.buf[i];
+    return &none;
+}
+
+static void test_picture(void)
+{
+    static uint8_t want[5000], back[5000], png[200 * 301 + 2048];
+    const size_t raw29 = esl_render_size(ESL_MODEL_29), raw154 = esl_render_size(ESL_MODEL_154);
+    memset(&nvs, 0, sizeof(nvs));
+    esl_layouts_init(&layouts, NULL);
+    ap_boot();
+
+    /* screen29 in png_fixtures.h: 296 x 128, 1-bit grey */
+    const uint8_t *p29 = png_good[sizeof(png_good) / sizeof(png_good[0]) - 1].data;
+    size_t l29 = png_good[sizeof(png_good) / sizeof(png_good[0]) - 1].len;
+    CHECK_INT(png_good[sizeof(png_good) / sizeof(png_good[0]) - 1].w, 296);
+    uint32_t w29 = 296;
+    want_img = want;
+    memset(want, 0, sizeof(want));
+    src_p = p29;
+    src_left = l29;
+    esl_png_io_t io = {&w29, src_read, want_header, want_row};
+    CHECK_INT(esl_png_decode(&io), ESL_PNG_OK);
+
+    /* a tag must have polled: its model gives the size */
+    CHECK_INT(put_picture("00000000000002A1", "", p29, l29), 404);
+    CHECK(HAS(resp, "unknown tag"));
+    CHECK_INT(put("00000000000002A1", "{\"layout\":\"text\",\"fields\":[\"x\"]}"), 200);
+    CHECK_INT(put_picture("00000000000002A1", "", p29, l29), 409);
+
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0x2A1, 1, 3000, ESL_MODEL_29);
+    a.images = a.img_rle = true;
+    esl_faketag_init(&b, 0x2A2, 1, 3000, ESL_MODEL_29);
+    b.images = true;
+    b.img_rle = b.img_2d = false; /* takes raw images only */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
+
+    /* errors: the size, the format, a broken file, the query */
+    CHECK_INT(put_picture("00000000000002A1", "", png_good[0].data, png_good[0].len), 422);
+    CHECK(HAS(resp, "296x128"));
+    CHECK_INT(put_picture("00000000000002A1", "", (const uint8_t *)"hello", 5), 415);
+    CHECK_INT(put_picture("00000000000002A1", "", NULL, 0), 400);
+    CHECK_INT(put_picture("00000000000002A1", "", p29, l29 - 20), 400);
+    CHECK_INT(put_picture("00000000000002A1", "?dither=maybe", p29, l29), 400);
+    CHECK_INT(nvs.img_writes, 0);
+
+    /* the picture becomes the content, and the tag gets it */
+    int writes = nvs.writes;
+    CHECK_INT(put_picture("00000000000002A1", "", p29, l29), 200);
+    CHECK(HAS(resp, "\"changed\":true,\"pending\":true"));
+    CHECK_INT(nvs.img_writes, 1);
+    CHECK_INT(nvs.writes, writes + 1);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002A1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout\":\"image\",\"fields\":[],"));
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 2);
+    CHECK(a.shown == image_id_of("00000000000002A1"));
+    CHECK_INT(buf_of(0x2A1)->fmt, ESL_IMG_FMT_RLE); /* as stored: 2D is no shorter for this photo */
+    CHECK_INT((int)rle_decode(buf_of(0x2A1)->data, buf_of(0x2A1)->size, back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, want, raw29) == 0);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 121000), ESL_MSG_IDLE);
+
+    /* GET .../image gives the same screen */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002A1/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"width\":296,\"height\":128"));
+
+    /* the same picture again: nothing changes, nothing is written */
+    CHECK_INT(put_picture("00000000000002A1", "?dither=false", p29, l29), 200);
+    CHECK(HAS(resp, "\"changed\":false,\"pending\":false"));
+    CHECK_INT(nvs.img_writes, 1);
+
+    /* after a restart the picture is still there and the tag is not sent it again */
+    ap_boot();
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
+    CHECK_INT(a.img_shown, 2);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 1000), ESL_MSG_IDLE);
+
+    /* a tag that takes only raw images: decoded in place from the stored form; the
+       raw bytes as a body give the same */
+    CHECK_INT(put_picture("00000000000002A2", "", p29, l29), 200);
+    CHECK_INT(esl_faketag_round(&b, &st, &layouts, PAN, -60, 2000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2A2)->fmt, ESL_IMG_FMT_RAW);
+    CHECK_INT(buf_of(0x2A2)->size, raw29);
+    CHECK(memcmp(buf_of(0x2A2)->data, want, raw29) == 0);
+    CHECK_INT(put_picture("00000000000002A2", "", want, raw29), 200);
+    CHECK(HAS(resp, "\"changed\":false"));
+
+    /* other content drops the picture */
+    unsigned slot_a = 0;
+    for (unsigned s = 0; s < CAP; s++)
+        if (nvs.img_len[s] && nvs.img[s][0] == 0xA1)
+            slot_a = s;
+    CHECK(nvs.img_len[slot_a] > 0);
+    CHECK_INT(put("00000000000002A1", "{\"layout\":\"text\",\"fields\":[\"back to text\"]}"), 200);
+    CHECK_INT(nvs.img_len[slot_a], 0);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/tags/00000000000002A2", AUTH, NULL, 0, 0, &out), 200);
+    for (unsigned s = 0; s < CAP; s++)
+        CHECK_INT(nvs.img_len[s], 0);
+
+    /* 1.54": grey 128 without dither is all white, with dither about half black */
+    esl_faketag_t c;
+    esl_faketag_init(&c, 0x2A3, 1, 3000, ESL_MODEL_154);
+    c.images = c.img_rle = true;
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 3000), ESL_MSG_IDLE);
+    size_t n = make_png(png, 200, 200, grey_half);
+    CHECK_INT(put_picture("00000000000002A3", "", png, n), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002A3/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 4000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2A3)->fmt, ESL_IMG_FMT_2D);   /* all white: a few bytes */
+    CHECK(buf_of(0x2A3)->size < 50);
+    CHECK_INT((int)screen_of(buf_of(0x2A3), back, sizeof(back)), (int)raw154);
+    CHECK_INT(count_ink(back, raw154), 0);
+    CHECK_INT(put_picture("00000000000002A3", "?dither=true", png, n), 200);
+    CHECK(HAS(resp, "\"changed\":true"));
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 64000), ESL_MSG_IMG);
+    CHECK(buf_of(0x2A3)->fmt != ESL_IMG_FMT_2D);       /* dithered: 2D is no shorter */
+    CHECK_INT(screen_of(buf_of(0x2A3), back, sizeof(back)), raw154);
+    size_t ink = count_ink(back, raw154);
+    CHECK(ink > 200 * 200 * 45 / 100 && ink < 200 * 200 * 55 / 100);
+    /* a box: exactly its pixels */
+    n = make_png(png, 200, 200, grey_box);
+    CHECK_INT(put_picture("00000000000002A3", "?dither=1", png, n), 200);
+    CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 124000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2A3)->fmt, ESL_IMG_FMT_2D);
+    CHECK_INT((int)screen_of(buf_of(0x2A3), back, sizeof(back)), (int)raw154);
+    CHECK_INT(count_ink(back, raw154), 40 * 10);
+    CHECK(back[10 * 25 + 20 / 8] & (0x80 >> (20 % 8)));
+    CHECK(!(back[10 * 25 + 19 / 8] & (0x80 >> (19 % 8))));
+
+    /* streamed: the same as with the body in RAM */
+    src_p = png;
+    src_left = n;
+    CHECK(esl_api_image_put_uri("PUT", "/api/tags/00000000000002A3/image?dither=1"));
+    CHECK(esl_api_image_put_uri("PUT", "/api/tags/00000000000002A3/image/"));
+    CHECK(!esl_api_image_put_uri("GET", "/api/tags/00000000000002A3/image"));
+    CHECK(!esl_api_image_put_uri("PUT", "/api/tags/00000000000002A3"));
+    CHECK(!esl_api_image_put_uri("PUT", "/api/tags/2A3/image"));
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", "Bearer nope", n, src_read, NULL, NULL, 0, &out), 401);
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", AUTH, n, src_read, NULL, NULL, 0, &out), 200);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(src_left, 0);
+
+    /* the lock is let go while the body comes in; a tag deleted meanwhile is not
+       given the picture */
+    src_p = png;
+    src_left = n;
+    hold_calls = 0;
+    hold_delete = 0x2A3;
+    CHECK_INT(esl_api_image_put(&api, "/api/tags/00000000000002A3/image", AUTH, n, src_read, NULL, test_hold, 0, &out),
+              409);
+    CHECK_INT(hold_calls, 2);
+    esl_tag_t gone;
+    CHECK(!esl_store_get(&st, 0x2A3, &gone));
+    for (unsigned s = 0; s < CAP; s++)
+        CHECK_INT(nvs.img_len[s], 0);
+    esl_radio_set_image(NULL);
+}
+
+/* The shorter code is sent: 2D on text, RLE on a half dithered picture; and a tag that
+   goes back to firmware without 2D gets its image drawn again, not the 2D one it can
+   no longer take */
+static void test_image_choice(void)
+{
+    static uint8_t img[4736], back[5000];
+    const size_t raw29 = esl_render_size(ESL_MODEL_29);
+    memset(&nvs, 0, sizeof(nvs));
+    esl_layouts_init(&layouts, NULL);
+    ap_boot();
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x2B1, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"x\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_2D);
+
+    /* 100 dithered columns, the rest white */
+    uint32_t seed = 3;
+    memset(img, 0, sizeof(img));
+    for (size_t i = 0; i < 100 * 16; i++) {
+        seed = seed * 1103515245u + 12345u;
+        img[i] = (uint8_t)(seed >> 16);
+    }
+    size_t lr = esl_img_rle_encode(img, raw29, NULL, raw29 - 1), l2 = esl_img_2d_encode(img, raw29, 128, NULL, raw29 - 1);
+    CHECK(lr > 0 && l2 > lr);
+    CHECK_INT(put_picture("00000000000002B1", "", img, raw29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 2);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK_INT(buf_of(0x2B1)->size, lr);
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, img, raw29) == 0);
+
+    /* 12 dithered columns at the left, bars in the rest: 2D is the shorter code, but
+       coded in place its first columns would overtake the image, so RLE is sent */
+    memset(img, 0, sizeof(img));
+    for (size_t i = 0; i < 12 * 16; i++) {
+        seed = seed * 1103515245u + 12345u;
+        img[i] = (uint8_t)(seed >> 16);
+    }
+    for (size_t x = 12; x < raw29 / 16; x++)
+        for (size_t y = 20 + x % 40; y < 70 + x % 40; y++)
+            img[x * 16 + y / 8] |= (uint8_t)(0x80 >> (y % 8));
+    size_t mg = ESL_IMG_RLE_MARGIN(raw29);
+    lr = esl_img_rle_encode(img, raw29, NULL, raw29 - 1);
+    l2 = esl_img_2d_encode(img, raw29, 128, NULL, raw29 - 1);
+    CHECK(lr > 0 && l2 > 0 && l2 < lr);
+    CHECK_INT((int)esl_img_2d_count(img, raw29, 128, mg, raw29 - 1), 0);
+    CHECK_INT(put_picture("00000000000002B1", "", img, raw29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 91000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK_INT(buf_of(0x2B1)->size, lr);
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, img, raw29) == 0);
+
+    /* only 2D shorter than raw (no RLE): 2D within raw - 1 */
+    a.img_rle = false;
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"y\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 121000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_2D);
+    uint32_t shown = a.shown;
+
+    /* back to older firmware (RLE, no 2D) and a fresh start: the cached 2D image is not
+       sent, it is drawn again as RLE and shown */
+    a.img_rle = true;
+    a.img_2d = false;
+    a.shown = 0;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 122000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK(a.shown != 0 && a.shown != shown);
+    CHECK_INT(a.img_failed, 0);
+    esl_radio_set_image(NULL);
+}
+
+/* ESL_IMG_FMT_2D: a decoder written from the description in shared/proto.h, apart
+   from the tag's (tag/src/image.c, tested in tag/test/test_image.c) */
+typedef struct {
+    const uint8_t *in;
+    size_t n, bit;
+} rd2d_t;
+
+static int rd2d_bit(rd2d_t *r)
+{
+    if (r->bit >= r->n * 8)
+        return -1;
+    int b = (r->in[r->bit >> 3] >> (7 - (r->bit & 7))) & 1;
+    r->bit++;
+    return b;
+}
+
+static int rd2d_run(rd2d_t *r)
+{
+    int z = 0, b;
+    while ((b = rd2d_bit(r)) == 0)
+        z++;
+    if (b < 0 || z > 16)
+        return -1;
+    int v = 1;
+    for (int i = 0; i < z + 2; i++) {
+        if ((b = rd2d_bit(r)) < 0)
+            return -1;
+        v = v * 2 + b;
+    }
+    return v - 4;
+}
+
+static int px2d(const uint8_t *c, int y)
+{
+    return y < 0 ? 0 : (c[y / 8] >> (7 - y % 8)) & 1;
+}
+
+/* the change after a to colour col (a pixel col whose row above is not), h if none */
+static int next2d(const uint8_t *c, int a, int col, int h)
+{
+    for (int y = a + 1; y < h; y++)
+        if (px2d(c, y) == col && px2d(c, y - 1) != col)
+            return y;
+    return h;
+}
+
+static size_t decode_2d(const uint8_t *in, size_t n, int h, uint8_t *out, size_t cols)
+{
+    static const uint8_t empty[ESL_IMG_2D_MAX_H / 8];
+    size_t cb = ((size_t)h + 7) / 8;
+    rd2d_t r = {in, n, 0};
+    memset(out, 0, cols * cb);
+    for (size_t x = 0; x < cols; x++) {
+        const uint8_t *ref = x ? out + (x - 1) * cb : empty;
+        uint8_t *cur = out + x * cb;
+        int a0 = -1, col = 0;
+        while (a0 < h) {
+            int s = a0 < 0 ? 0 : a0, b1 = next2d(ref, a0, !col, h), zeros = 0, b, a1, end;
+            while ((b = rd2d_bit(&r)) == 0 && zeros < 6)
+                zeros++;
+            if (b != 1)
+                return 0;
+            if (zeros == 2) {
+                int r1 = rd2d_run(&r), r2 = rd2d_run(&r);
+                if (r1 < 0 || r2 < 0 || s + r1 + r2 > h || s + r1 + r2 <= a0)
+                    return 0;
+                a1 = s + r1;
+                end = a1 + r2;
+            } else if (zeros == 3) {
+                a1 = next2d(ref, b1, col, h);
+                if (a1 >= h)
+                    return 0;
+                end = -1;
+            } else {
+                int d = zeros == 0 ? 0 : zeros == 1 ? 1 : zeros == 4 ? 2 : zeros == 5 ? 3 : -1;
+                if (d < 0)
+                    return 0;
+                if (d && (b = rd2d_bit(&r)) < 0)
+                    return 0;
+                a1 = d && !b ? b1 - d : b1 + d;
+                if (a1 <= a0 || a1 > h)
+                    return 0;
+                end = -2;
+            }
+            for (int y = s; y < (end >= 0 ? end : a1); y++)
+                if ((y < a1 ? col : !col))
+                    cur[y / 8] |= (uint8_t)(0x80 >> (y % 8));
+            if (end == -2)
+                col = !col;
+            a0 = end >= 0 ? end : a1;
+        }
+    }
+    /* only the zeros that fill the last byte after the code */
+    if ((r.bit + 7) / 8 != n)
+        return 0;
+    while (r.bit < n * 8)
+        if (rd2d_bit(&r) != 0)
+            return 0;
+    return cols * cb;
+}
+
+/* ESL_IMG_FMT_2D: decodes back to the image, in place too; a tag that takes it gets it */
+static void test_image_2d(void)
+{
+    static uint8_t raw[8192], buf[16384 + 128], back[8192];
+    uint32_t seed = 7;
+    /* edge cases at several heights, one not a multiple of 8 */
+    static const int hs[] = {128, 200, 13, 1, 8};
+    for (unsigned hi = 0; hi < sizeof(hs) / sizeof(hs[0]); hi++) {
+        int h = hs[hi];
+        size_t cb = ((size_t)h + 7) / 8, cols = 296, n = cols * cb;
+        for (int pass = 0; pass < 9; pass++) {
+            memset(raw, 0, n);
+            for (size_t x = 0; x < cols; x++)
+                for (int y = 0; y < h; y++) {
+                    int v;
+                    seed = seed * 1103515245u + 12345u;
+                    switch (pass) {
+                    case 0: v = 0; break;                                 /* white */
+                    case 1: v = 1; break;                                 /* all ink */
+                    case 2: v = y & 1; break;                             /* stripes across */
+                    case 3: v = x & 1; break;                             /* columns flip */
+                    case 4: v = y == 0 || y == h - 1; break;              /* first and last row */
+                    case 5: v = (x / 9 + y / 5) & 1; break;               /* checkers */
+                    case 6: v = y > (int)(x % (size_t)h); break;          /* a slope: V codes */
+                    case 7: v = (seed >> 16) % 23 == 0; break;            /* specks */
+                    default: v = (seed >> 16) & 1; break;                 /* noise */
+                    }
+                    if (v)
+                        raw[x * cb + (size_t)y / 8] |= (uint8_t)(0x80 >> (y % 8));
+                }
+            /* into a buffer of its own, with room: decodes to the image */
+            static uint8_t sep[16384];
+            size_t c = esl_img_2d_encode(raw, n, (uint16_t)h, sep, sizeof(sep));
+            CHECK(c > 0);
+            CHECK_INT((int)esl_img_2d_encode(raw, n, (uint16_t)h, NULL, sizeof(sep)), (int)c);   /* counted */
+            CHECK_INT((int)esl_img_2d_encode(raw, n, (uint16_t)h, NULL, c - 1), 0);
+            CHECK_INT((int)decode_2d(sep, c, h, back, cols), (int)n);
+            CHECK(memcmp(back, raw, n) == 0);
+            if (c > 1)
+                CHECK_INT((int)esl_img_2d_encode(raw, n, (uint16_t)h, buf, c - 1), 0);   /* does not fit */
+            /* in place, shorter than the image as the AP codes it: the same code, or 0 */
+            size_t m = ESL_IMG_RLE_MARGIN(n);
+            memcpy(buf + m, raw, n);
+            size_t ci = esl_img_2d_encode(buf + m, n, (uint16_t)h, buf, n - 1);
+            CHECK(ci == 0 || (ci == c && memcmp(buf, sep, c) == 0));
+            if (h >= 128 && (pass < 2 || pass == 4 || pass == 6))
+                CHECK(ci > 0 && ci < n / 4 + 8);   /* few changes: a fraction */
+            if (pass == 8 && h >= 8)
+                CHECK_INT((int)ci, 0);   /* noise: no shorter, so not coded */
+        }
+    }
+    CHECK_INT((int)esl_img_2d_encode(raw, 100, 128, buf, sizeof(buf)), 0);           /* not whole columns */
+    CHECK_INT((int)esl_img_2d_encode(raw, 1000, ESL_IMG_2D_MAX_H + 8, buf, sizeof(buf)), 0);
+
+    size_t l29;
+    char *f29 = read_example_layout("2.9.json", &l29);
+    CHECK(f29 != NULL);
+    if (!f29)
+        return;
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    CHECK_INT(put_layout("2.9", f29, l29), 200);
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x29F, 1, 3000, ESL_MODEL_29);
+    a.ota = true;
+    CHECK_INT(put("000000000000029F", SHELF), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 1);
+    CHECK_INT(images.buf[0].fmt, ESL_IMG_FMT_2D);
+    size_t raw29 = esl_render_size(ESL_MODEL_29);
+    /* a fraction of RLE's: 4736 -> about 530 bytes, 6 blocks instead of 35 */
+    CHECK(images.buf[0].size < raw29 / 6);
+    CHECK(a.img_blocks <= 8);
+    CHECK(a.shown == image_id_of("000000000000029F"));
+    CHECK_INT((int)decode_2d(images.buf[0].data, images.buf[0].size, 128, back, 296), (int)raw29);
+    esl_content_t c;
+    CHECK(esl_store_get_content(&st, 0x29F, &c));
+    CHECK_INT((int)esl_layouts_render(&layouts, ESL_MODEL_29, &c, raw, sizeof(raw)), (int)raw29);
+    CHECK(memcmp(back, raw, raw29) == 0);
+    printf("  2D: 2.9\" shelf screen %zu -> %u bytes, %u blocks\n", raw29, (unsigned)images.buf[0].size,
            (unsigned)a.img_blocks);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IDLE);
     esl_radio_set_image(NULL);
@@ -907,5 +1524,8 @@ void test_radio(void)
     test_many_tags();
     test_image_send();
     test_image_rle();
+    test_picture();
+    test_image_choice();
+    test_image_2d();
     test_link();
 }

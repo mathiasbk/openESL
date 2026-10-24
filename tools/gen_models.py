@@ -47,7 +47,7 @@ RADIOS = ("802.15.4",)
 PROTOCOLS = ("openesl",)
 # How the AP sends a screen image to the tag. "openesl-raw" is ESL_IMG_FMT_RAW in
 # shared/proto.h (1 bit per pixel in screen coordinates, column by column, the black plane and
-# then the red one), which the AP may RLE code (ESL_IMG_FMT_RLE) for a tag that says it takes
+# then the red one), which the AP may code (ESL_IMG_FMT_2D or ESL_IMG_FMT_RLE) for a tag that says it takes
 # that. A tag that needs another layout gets a new name here and in the AP renderer.
 IMAGE_FORMATS = ("openesl-raw",)
 COLORS = ("black", "white", "red", "yellow")

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esl_crc32.h"
+#include "esl_render.h"
 #include "proto.h"
 #include "sim.h"
 
@@ -602,6 +603,63 @@ int e2e_run(const char *out, const char *root)
         run_for(601);
         CHECK(sim_tag_restarts() == restarts, "no more updates");
         CHECK(sim_tag_last_sleep_s() == 300, "polls every 300 s again, got %u", sim_tag_last_sleep_s());
+    }
+
+    /* ------------------------------------------------------------------ */
+    step("13. A picture from a client (PUT /api/tags/{mac}/image)");
+    {
+        uint16_t w, h;
+        bool red;
+        uint8_t *pix, *file;
+        size_t len = 0, n;
+        char path[512];
+        esl_render_model(sim_tag_model_code(), &w, &h, &red);
+        /* a ring and a bar code-like stripe, black on white, as a client would draw them */
+        pix = malloc((size_t)w * h);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int dx = x - w / 3, dy = y - h / 2, r2 = dx * dx + dy * dy, r = h / 3;
+                bool ink = (r2 < r * r && r2 > (r - 8) * (r - 8)) || (x > w * 2 / 3 && (x / 3) % 2 && y > 10 && y < h - 10);
+                pix[y * w + x] = ink ? 0 : 255;
+            }
+        snprintf(path, sizeof(path), "%s/13-picture-sent.png", outdir);
+        CHECK(png_write_gray(path, pix, w, h), "write %s", path);
+        file = (uint8_t *)read_file(path, &len);
+        CHECK(file != NULL, "read %s", path);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        CHECK(api("PUT", "/image", "x") == 415, "not a PNG: 415");
+        char uri[96];
+        snprintf(uri, sizeof(uri), "/api/tags/%s/image", mac);
+        CHECK(sim_api_bin("PUT", uri, file, len, &resp) == 200 && sim_json_bool("changed") == 1, "PUT the PNG: %.100s", resp);
+        cid = (uint32_t)sim_json_num("content_id");
+        get_tag();
+        CHECK(strstr(resp, "\"layout\":\"image\",\"fields\":[]") != NULL, "the API shows it as a picture");
+        CHECK(sim_tag_run_until_draw(t0 + 320000), "the tag draws it at its next poll");
+        CHECK(shows_image(), "the tag shows the picture");
+        note("drawn %.1f s after the PUT, %u IMG_REQ", (sim_tag_last_draw_ms() - t0) / 1000.0,
+             sim_stats.img_reqs - s0.img_reqs);
+        png("13-picture");
+        /* pixel for pixel what was sent */
+        n = sim_tag_screen(img_tag, sizeof(img_tag));
+        size_t cb = ESL_RENDER_COL_BYTES(h), wrong = 0;
+        for (int y = 0; y < h && n; y++)
+            for (int x = 0; x < w; x++)
+                wrong += !(img_tag[x * cb + y / 8] & (0x80 >> (y % 8))) != (pix[y * w + x] != 0);
+        CHECK(n && wrong == 0, "the tag's screen is the picture (%zu pixels differ)", wrong);
+        /* a restart of the AP keeps it, and the tag is not sent it again */
+        draws = sim_tag_draws();
+        sim_ap_boot();
+        run_for(601);
+        CHECK(sim_tag_draws() == draws && shows_image(), "kept over an AP restart, not sent again");
+        get_tag();
+        CHECK(sim_json_num("content_id") == (long)cid && sim_json_bool("pending") == 0, "confirmed");
+        /* text again replaces it */
+        t0 = sim_now_ms;
+        put_content(PRICE_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "a price replaces the picture");
+        free(file);
+        free(pix);
     }
 
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);

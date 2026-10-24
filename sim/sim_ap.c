@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esl_api.h"
+#include "esl_image.h"
 #include "esl_persist.h"
 #include "esl_radio.h"
 #include "esl_render.h"
@@ -40,6 +41,8 @@ static struct {
     size_t layout_len[ESL_MODEL_COUNT];
     uint8_t sched[CAP][ESL_SCHED_BLOB_MAX];
     size_t sched_len[CAP];
+    uint8_t image[CAP][16384];   /* pictures from PUT /api/tags/{mac}/image */
+    size_t image_len[CAP];
 } nvs;
 
 static bool nvs_save(void *ctx, unsigned slot, uint64_t mac, const esl_content_t *c)
@@ -61,6 +64,26 @@ static void nvs_erase(void *ctx, unsigned slot)
 {
     (void)ctx;
     nvs.content_len[slot] = 0;
+}
+
+static bool nvs_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    if (len > sizeof(nvs.image[slot]))
+        return false;
+    if (data)
+        memcpy(nvs.image[slot], data, len);
+    nvs.image_len[slot] = data ? len : 0;
+    return true;
+}
+
+static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
+{
+    (void)ctx;
+    if (!nvs.image_len[slot] || nvs.image_len[slot] > cap)
+        return 0;
+    memcpy(buf, nvs.image[slot], nvs.image_len[slot]);
+    return nvs.image_len[slot];
 }
 
 static void nvs_cfg(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
@@ -143,7 +166,8 @@ void sim_ap_boot(void)
 {
     static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
-    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL};
+    static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL,
+                                        nvs_image, nvs_load_image};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL};
     static bool first = true;
 
@@ -229,6 +253,8 @@ size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
     if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT ||
         !esl_store_get_content(&st, mac, &c))
         return 0;
+    if (c.layout == ESL_LAYOUT_IMAGE) /* a picture: as the AP keeps it */
+        return esl_image_screen(&st, &layouts, mac, t.model, &c, out, cap);
     f = layouts.models[t.model - 1];
     return esl_render(t.model, f ? &f->bin : NULL, &c, out, cap);
 }

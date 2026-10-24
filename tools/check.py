@@ -20,7 +20,8 @@ Steps:
   tools     esl-client and power-budget tests
   openapi   docs/openapi.yaml against the AP code
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
-            on PATH, otherwise the espressif/idf:v5.5.5 Docker image)
+            on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
+            Design tab packs (web/build.py --wasm, Emscripten 3.1.74)
   web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
@@ -158,6 +159,9 @@ AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
 def step_ap_fw():
+    # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py)
+    need("emcc", "Emscripten %s, for the renderer the Design tab packs" % EMSCRIPTEN_VERSION)
+    run([PY, "web/build.py", "--wasm"])
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()
@@ -196,7 +200,7 @@ STEPS = {
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
-    "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker"),
+    "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
 }
 

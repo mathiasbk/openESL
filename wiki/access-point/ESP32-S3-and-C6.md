@@ -1,8 +1,10 @@
 # ESP32-S3 + ESP32-C6
 
-**Status:** experimental (built, not tried on hardware). **Labels:** 1000.
+**Status:** experimental. The S3 has run on its own (WiFi, dashboard, designer, with simulated labels); not yet tried with the C6 radio. **Labels:** 1000.
 
-Two boards: an ESP32-S3 with 8 MB PSRAM runs the AP (WiFi, API, dashboard, drawing), and an ESP32-C6 next to it is nothing but the label radio. WiFi never takes the radio from the labels, and each chip can have its own antenna.
+Two boards: an ESP32-S3 with 8 MB PSRAM runs the AP (WiFi, API, dashboard, drawing), and an ESP32-C6 next to it is nothing but the label radio. WiFi never takes the radio from the labels, and each chip can have its own antenna. The S3 cannot talk to the labels without the C6: its radio does WiFi and Bluetooth, not 802.15.4.
+
+With room to spare, the S3 also serves the [label designer](Label-designer#getting-it-onto-the-ap) next to the [dashboard](Dashboard), working on the layouts stored on the AP. Its layouts may also hold more: twice the lines of text, boxes, lines and icons of a C6 ([Layout elements and limits](Layout-elements-and-limits)).
 
 | Chip | Release file |
 |---|---|

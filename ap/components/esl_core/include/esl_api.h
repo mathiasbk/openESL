@@ -85,6 +85,22 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
 #define ESL_API_PIECE_URI_MAX 96
 bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char *buf, size_t cap);
 
+/* PUT /api/tags/{mac}/image, for a transport that streams the body: a PNG can be larger
+ * than ESL_API_MAX_BODY (up to ESL_API_MAX_IMAGE_BODY) and is decoded as it arrives
+ * (esl_png.h), so it never has to be in RAM whole. esl_api_image_put_uri() tells such a
+ * request; esl_api_image_put() handles it like esl_api_handle() (the token too), pulling
+ * the len bytes of the body through read (exactly n bytes, or false). It may stop
+ * before the end of the body (an error, or bytes after the PNG's end): the rest is the
+ * caller's to drop. esl_api_handle() takes the same request with the body in RAM.
+ * The caller holds the lock it keeps around esl_api_handle(); hold (may be NULL) lets
+ * it go (false) while the body comes in and is decoded, so a slow client does not hold
+ * up other requests, and takes it again (true) to store the picture. */
+#define ESL_API_MAX_IMAGE_BODY (512 * 1024)
+bool esl_api_image_put_uri(const char *method, const char *uri);
+int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, size_t len,
+                      bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, void (*hold)(bool take),
+                      uint64_t now_ms, esl_sb_t *out);
+
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
  * counts per problem. prev (the store's max bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and

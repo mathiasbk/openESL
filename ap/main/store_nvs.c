@@ -19,7 +19,10 @@
  * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex.
  *
  * The content is not kept in RAM: the store reads the blob back when it draws a
- * tag's image or the API shows it (load_content).
+ * tag's image or the API shows it (load_content). A picture a client sent (PUT
+ * /api/tags/{mac}/image) is a third blob, "i<slot>", the size of the tag's image (5 KB
+ * on a 1.54", more on a bigger or red model; less when it run-length codes well), read
+ * back when a tag needs it. Pictures leave IMAGE_RESERVE_ENTRIES free for the rest.
  *
  * One layout file of up to 8 KB per tag model plus a few small blobs per tag
  * needs more than the default 24 KB NVS partition; see boards/<board>/partitions.csv. */
@@ -154,6 +157,60 @@ static void persist_erase(void *ctx, unsigned slot)
     char key[8];
     slot_key(slot, key);
     blob_write(NS_TAGS, key, NULL, 0);
+}
+
+static void image_key(unsigned slot, char key[8])
+{
+    snprintf(key, 8, "i%u", slot);
+}
+
+/* Pictures may not take the last of NVS: tags' content, settings and layout files
+   need room too. A new picture is refused while less than this would be left (in
+   32-byte entries, counting those of the picture it replaces as free). */
+#define IMAGE_RESERVE_ENTRIES (32 * 1024 / 32)
+
+static bool image_room(const char *key, size_t len)
+{
+    nvs_stats_t stats;
+    if (nvs_get_stats(NULL, &stats) != ESP_OK)
+        return false;
+    size_t avail = stats.free_entries, old = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS_TAGS, NVS_READONLY, &h) == ESP_OK) {
+        if (nvs_get_blob(h, key, NULL, &old) == ESP_OK)
+            avail += (old + 31) / 32 + 2; /* its data and its index entries */
+        nvs_close(h);
+    }
+    size_t need = (len + 31) / 32 + 2;
+    return avail >= need + IMAGE_RESERVE_ENTRIES;
+}
+
+static bool persist_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    char key[8];
+    image_key(slot, key);
+    if (data && !image_room(key, len)) {
+        ESP_LOGW(TAG, "no room for a picture of %u bytes: NVS keeps %u KB for other content", (unsigned)len,
+                 (unsigned)(IMAGE_RESERVE_ENTRIES * 32 / 1024));
+        return false;
+    }
+    return blob_write(NS_TAGS, key, data, len);
+}
+
+static size_t load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
+{
+    (void)ctx;
+    char key[8];
+    nvs_handle_t h;
+    size_t len = 0;
+    image_key(slot, key);
+    if (nvs_open(NS_TAGS, NVS_READONLY, &h) != ESP_OK)
+        return 0;
+    if (nvs_get_blob(h, key, NULL, &len) != ESP_OK || len > cap || nvs_get_blob(h, key, buf, &len) != ESP_OK)
+        len = 0;
+    nvs_close(h);
+    return len;
 }
 
 static void persist_cfg(void *ctx, unsigned slot, uint64_t mac, const esl_tag_cfg_t *cfg)
@@ -322,7 +379,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
                                         persist_next_poll, persist_seen, unix_now, load_content, table_alloc,
-                                        save_lock, save_unlock};
+                                        save_lock, save_unlock, persist_image, load_image};
     mutex = xSemaphoreCreateMutex();
     save_mutex = xSemaphoreCreateMutex();
     if (!mutex || !save_mutex)

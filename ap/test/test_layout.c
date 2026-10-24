@@ -175,6 +175,20 @@ static void test_binary(void)
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_COLOR], ESL_LE_BLACK);
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_FONT + 1], ESL_FONT_NONE);
 
+    /* number format in the high bits of opts */
+    CHECK(compile_el(TEXT_A ",\"align\":\"right\",\"decimals\":2,\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_RIGHT | ESL_LE_NUM_2 | ESL_LE_NUM_THOUSANDS);
+    CHECK(compile_el(TEXT_A ",\"decimals\":0}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_0);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"auto\",\"thousands\":false}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_AUTO);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"dash\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_DASH);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"keep\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP);
+    CHECK(compile_el(TEXT_A ",\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP | ESL_LE_NUM_THOUSANDS);
+
     /* a barcode element: symbology in the first font byte, module width in lines */
     CHECK(compile_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"ean13\",\"module\":2,"
                      "\"x\":10,\"y\":70,\"w\":226,\"h\":40,\"align\":\"center\"}"));
@@ -222,6 +236,24 @@ static void bad_file(const char *js, uint8_t model, const char *want)
 
 static void test_errors(void)
 {
+    /* number format */
+    bad_el(TEXT_A ",\"decimals\":1}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"decimals\":\"two\"}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"thousands\":1}", "thousands must be true or false");
+    {
+        static char els[2048];
+        size_t n = 0;
+        for (int i = 0; i <= ESL_DRAW_MAX_NUMS; i++)
+            n += (size_t)snprintf(els + n, sizeof(els) - n, "%s" TEXT_A ",\"decimals\":2}", i ? "," : "");
+        bad_el(els, "at most 8 numbers");
+        els[strrchr(els, '{') - els - 1] = '\0'; /* one fewer */
+        CHECK(compile_el(els));
+    }
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"decimals\":2}",
+           "decimals is only for text elements");
+    bad_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"code128\",\"x\":0,\"y\":0,"
+           "\"w\":296,\"h\":10,\"thousands\":true}", "thousands is only for text elements");
+
     /* the whole file */
     bad_file("{\"format\":", ESL_MODEL_29, "invalid JSON");
     bad_file("[]", ESL_MODEL_29, "must be a JSON object");
@@ -441,20 +473,32 @@ static void test_shapes(void)
     for (int i = 0; i < ESL_DRAW_MAX_LINES + 1; i++)
         strcat(many, i ? "," LINE "}" : LINE "}");
     bad_el(many, "at most 16 lines per screen");
+    /* the compiler checks the limits in esl_limits (the web renderer sets them to its AP's) */
+    {
+        esl_limits_t keep = esl_limits;
+        char two[200] = LINE "}," LINE "}";
+        CHECK(compile_el(two));
+        esl_limits.lines = 1;
+        bad_el(two, "at most 1 lines per screen");
+        esl_limits.lines = keep.lines;
+        esl_limits.runs = 1;
+        bad_el(TEXT_A "}," TEXT_A "}", "needs up to 2 lines of text, the AP draws at most 1 per screen");
+        esl_limits = keep;
+    }
 #undef LINE
     /* a QR code: level in the first font byte, module size in lines, alignment in opts */
-    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"b\",\"x\":10,\"y\":20,\"w\":60,\"h\":60,\"ecc\":\"H\",\"module\":2,"
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"b\",\"x\":10,\"y\":20,\"w\":66,\"h\":66,\"ecc\":\"H\",\"module\":2,"
                      "\"align\":\"right\",\"valign\":\"bottom\"}"));
     {
         static const uint8_t expect_qr[] = {ESL_LE_QR, 1, ESL_QR_LEVEL_H, 0xFF, 0xFF, ESL_LE_RIGHT | ESL_LE_BOTTOM, 2,
-                                            ESL_LE_BLACK, 10, 0, 20, 60, 0, 60};
+                                            ESL_LE_BLACK, 10, 0, 20, 66, 0, 66};
         CHECK_MEM(e, expect_qr, sizeof(expect_qr));
         CHECK_INT(bin.qr_field[0], 1);
         CHECK_INT(bin.qr_ecc[0], ESL_QR_LEVEL_H);
-        CHECK_INT(bin.qr_cap[0], 24); /* 30 modules of 2 px: version 3 (29 modules), 24 bytes at H */
+        CHECK_INT(bin.qr_cap[0], 24); /* 33 modules of 2 px: version 3 (29 and the quiet zone), 24 bytes at H */
         CHECK_INT(bin.bc_field[0], -1);
     }
-    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":21,\"h\":21}"));
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":25,\"h\":25}"));
     CHECK_INT(e[ESL_LE_OFF_ECC], ESL_QR_LEVEL_M);
     CHECK_INT(bin.qr_cap[0], 14);
 #define QR "{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":60"
@@ -466,8 +510,8 @@ static void test_shapes(void)
     bad_el(QR "}," QR "}", "at most 1 QR code per screen");
     bad_el("{\"type\":\"qr\",\"text\":\"x\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR code takes a field, not a fixed text");
     bad_el("{\"type\":\"qr\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR element needs a field");
-    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":20}", "at least 21 px wide and high");
-    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":40,\"module\":2}", "at least 42 px");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":20}", "at least 25 px wide and high");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":40,\"module\":2}", "at least 50 px");
     bad_el("{\"type\":\"barcode\",\"field\":0,\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":200,\"h\":20,\"ecc\":\"L\"}",
            "ecc is only for QR elements");
 #undef QR
@@ -494,6 +538,11 @@ static void test_shapes(void)
     CHECK(HAS(err, "icons.dot: data must be base64 of 2 bytes (2 rows of 1)"));
     CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"g!A=\"}", TEXT_A "}"));
     CHECK(HAS(err, "icons.dot: data must be base64"));
+    /* "\/" for "/" (PHP's json_encode writes that): 3 rows of 8 drawn pixels, 8 columns of 0xE0 */
+    CHECK(compile_icons("\"bar\":{\"w\":8,\"h\":3,\"data\":\"\\/\\/\\/\\/\"}",
+                        "{\"type\":\"icon\",\"icon\":\"bar\",\"x\":0,\"y\":0}"));
+    for (int i = 1; i <= 8; i++)
+        CHECK_INT(bin.bin[bin.size - i], 0xE0);
     CHECK(!compile_icons("\"dot\":{\"w\":0,\"h\":2,\"data\":\"\"}", TEXT_A "}"));
     CHECK(HAS(err, "icons.dot: w and h must be 1 to 128 pixels"));
     CHECK(!compile_icons("\"Dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}", TEXT_A "}"));

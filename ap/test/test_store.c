@@ -131,7 +131,7 @@ static void test_store_seen(void)
     enum { CAP = 4 };
     esl_store_t st = {0};
     seenfake_t g = {0};
-    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL};
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_tag_t t;
     esl_store_free(&st);
@@ -285,7 +285,7 @@ static void test_store_grow(void)
 
     /* without memory the table stops growing: a new tag is then not added */
     nvsfake_t *n = calloc(1, sizeof(*n));
-    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL};
+    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL, NULL, NULL};
     n->chunks_left = 1;
     esl_store_init(&st, GROW_MAX, &ops, 0);
     for (unsigned i = 0; i < ESL_STORE_CHUNK; i++)
@@ -328,7 +328,7 @@ void test_store(void)
     enum { CAP = 4 };
     esl_store_t st = {0};
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
@@ -481,7 +481,7 @@ void test_store(void)
 
     /* ---- per-tag settings and the default interval ---- */
     fake_t g = {0};
-    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL};
     esl_cfg_result_t cr;
     esl_store_free(&st);
     esl_store_init(&st, CAP, &cops, 0);

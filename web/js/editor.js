@@ -23,6 +23,7 @@ const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
 const RECT_COLORS_RED = [...RECT_COLORS, "red"];
 const LINE_COLORS_RED = [...LINE_COLORS, "red"];
 const ICON_MAX = 128;                         // ESL_ICON_MAX_W / _H in shared/proto.h
+const ICON_FILE_MAX = 16;                     // ESL_LBIN_ICON_MAX: icons in one layout file
 const COLOR_NAMES = {
   black: "Black", white: "White", invert: "Inverted", highlight: "Highlight",
   frame: "Frame", red: "Red", red_invert: "Red inverted",
@@ -42,12 +43,17 @@ const BUILTIN = {
 };
 const STORE = "openesl.editor.";
 const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to tag
+const DASH_TOKEN = "openesl.dash.token"; // and its token, which the AP's own page shares
 
 const $ = (id) => document.getElementById(id);
 const store = {
   get(k) { try { return localStorage.getItem(STORE + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(STORE + k, v); } catch { /* private mode */ } },
 };
+
+// On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
+// origin, and the layout files stored on the AP are what the editor opens and saves
+let onAp = false;
 
 const state = {
   model: "2.9",
@@ -113,7 +119,8 @@ function save() {
 }
 
 // The file as it was last saved to a file, opened, or stored on the AP, so the head can say
-// when the editor has changes that are only in this browser.
+// when the editor has changes that are only in this browser. On the AP's own page it is the
+// file the AP has, so the head says what is not saved to the AP.
 function markClean() {
   store.set("clean." + state.model, JSON.stringify(doc()));
   refreshFileState();
@@ -126,8 +133,10 @@ function refreshFileState() {
   if (clean !== JSON.stringify(doc())) {
     const d = document.createElement("span");
     d.className = "dirty";
-    d.textContent = " · ● changes only in this browser";
-    d.title = "Kept in this browser. Save the layout file or send it to the AP to keep it elsewhere.";
+    d.textContent = onAp ? " · ● not saved to the AP" : " · ● changes only in this browser";
+    d.title = onAp
+      ? "Kept in this browser. Save to AP stores it on the AP, which then draws its tags with it."
+      : "Kept in this browser. Save the layout file or send it to the AP to keep it elsewhere.";
     fs.append(d);
   }
 }
@@ -222,6 +231,7 @@ async function loadModel(model) {
     state.history[model].reset(JSON.stringify(state.docs[model]));
   }
   state.renderer = await loadRenderer(model);
+  applyLimits();
   document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
@@ -230,6 +240,7 @@ async function loadModel(model) {
   ap.mac = "";
   refreshAll();
   refreshTemplates(model);
+  if (onAp && ap.connected && !(model in ap.files)) await apRun("Reading the AP's layout file", () => apOpen(model));
 }
 
 // ---------- drawing ----------
@@ -256,7 +267,9 @@ function compileAndDraw() {
   }
   paint(out.pixels, r.width, r.height);
   refreshMeters(res);
-  if (res.ok) {
+  if (out.refused) {
+    setStatus("The AP would refuse this sample text: " + out.refused, "error");
+  } else if (res.ok) {
     setStatus("✓ The AP accepts this layout", "ok");
     $("status").title = `Layout file version ${res.version.toString(16).toUpperCase().padStart(8, "0")}, ${res.size} bytes compiled`;
   } else setStatus("Built-in layout (the layout file has an error: " + res.error + ")", "error");
@@ -308,8 +321,32 @@ function refreshMeters(res) {
   l.classList.toggle("over", worst > 1);
   l.classList.toggle("near", worst >= 0.8 && worst <= 1);
   $("limits-ring").style.setProperty("--p", Math.min(100, pct) + "%");
-  $("limits-text").textContent = worst > 1 ? "Over the AP's limits" : `${pct} % of limits`;
+  $("limits-text").textContent = worst > 1 ? "Over the AP's limits" : `${pct} % of the AP's limits`;
+  $("limits").title = "What this layout uses of what the AP can draw and store. The AP draws the image; the tag only shows it";
+  $("limits-src").textContent = limitsSource();
   if (worst > 1) l.open = true;
+}
+
+// Whose limits the meters show: the connected AP's, or the default board's (the smallest)
+function limitsSource() {
+  const dflt = `Those of an ESP32-C6 AP (${DEFAULT_BOARD}, the smallest)`;
+  if (!ap.connected) return dflt + ". Connect to your AP under Send to tag to see its own.";
+  if (!ap.limits) return dflt + `: the AP does not report its own (firmware older than this page).`;
+  if (!state.renderer.canSetLimits) return dflt + ": this page's renderer is too old to take the AP's.";
+  const cut = Object.keys(ap.limits).some((k) => typeof state.renderer.limits[k] === "number" && state.renderer.limits[k] < ap.limits[k]);
+  return `Those of the connected AP (${ap.board || "board not named"})` +
+    (cut ? ", some lowered to what this page can check" : "") + ".";
+}
+
+// The renderer checks against the connected AP's limits, or the default board's without one
+function applyLimits() {
+  state.renderer?.setLimits(ap.connected ? ap.limits : null);
+}
+
+// After connecting or disconnecting: check and draw again with the limits that now apply
+function limitsChanged() {
+  applyLimits();
+  if (state.renderer && doc()) refreshAll();
 }
 
 function setStatus(text, cls) {
@@ -557,7 +594,8 @@ function onKey(ev) {
   if (mod && key === "z") undoRedo(ev.shiftKey);
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
-  else if (mod && key === "c" && e && !window.getSelection()?.toString()) state.clip = structuredClone(e);
+  else if (mod && key === "c" && e && !window.getSelection()?.toString())
+    state.clip = { ...structuredClone(e), _icon: e.type === "icon" ? structuredClone(doc().icons?.[e.icon]) : undefined };
   else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
@@ -957,6 +995,19 @@ function moreMenu(e, btn, select, open) {
     p.className = "hint";
     p.textContent = "The tag uses the first font the text fits in, otherwise the last one with “…”.";
     list.append(p);
+    // A price or other number: decimals and thousands separator (the AP formats it)
+    const nr = row("Number");
+    select(nr, "Decimals", [["", "as sent"], ["2", "199,90"], ["0", "199"], ["auto", "199 or 199,90"],
+      ["dash", "199,- or 199,90"], ["keep", "as sent, comma"]], String(e.decimals ?? ""), (val) => {
+      if (val === "") delete e.decimals;
+      else e.decimals = /^\d$/.test(val) ? +val : val;
+    });
+    btn(nr, "1 000", "Thousands separator: 1 299,90", () => (e.thousands ? delete e.thousands : (e.thousands = true)), !!e.thousands)
+      .setAttribute("role", "switch");
+    const pn = document.createElement("p");
+    pn.className = "hint";
+    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
+    list.append(pn);
   }
   if (e.type === "barcode") {
     const lim = state.renderer.limits;
@@ -986,8 +1037,8 @@ function moreMenu(e, btn, select, open) {
       });
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). Leave a white border of " +
-      "2 to 4 modules around the box for phones to read it; on the 2.9\", 2 px modules scan well.";
+    p.textContent = "The code grows with the text (up to about 90 characters fit in a field). The box includes a white " +
+      "border of 2 modules for phones to read it; on the 2.9\", 2 px modules scan well.";
     list.append(p);
   }
   if (e.type === "rect" || e.type === "line") {
@@ -1017,7 +1068,7 @@ function moreMenu(e, btn, select, open) {
       const d = row("Direction");
       for (const [val, icon, name] of [["down", "╲", "Down: top-left to bottom-right"], ["up", "╱", "Up: bottom-left to top-right"]])
         btn(d, icon, name, () => (val === "down" ? delete e.direction : (e.direction = val)), (e.direction || "down") === val);
-      num(row("Width"), "Line width in pixels", "width", 1, state.renderer.limits.lineWidthMax, 1, "Line width; a wide line reaches half its width past the box, with round ends");
+      num(row("Width"), "Line width in pixels", "width", 1, state.renderer.limits.lineWidthMax, 1, "Line width; a straight line is exactly this thick, a slanted one reaches half its width past the box, with round ends");
       const p = document.createElement("p");
       p.className = "hint";
       p.textContent = "The line runs corner to corner in its box: 1 px high is a straight line across, 1 px wide a straight line down.";
@@ -1033,9 +1084,10 @@ function moreMenu(e, btn, select, open) {
     ["↕", "Centre up and down", () => (e.y = Math.floor((height - e.h) / 2))],
     ["⤓", "Against the bottom", () => (e.y = height - e.h)],
   ]) btn(place, label, title, act);
-  const fill = row("Fill");
-  btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
-  btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
+  // an icon is the size of its picture
+  const fill = e.type === "icon" ? null : row("Fill");
+  if (fill) btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
+  if (fill) btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
   if (e.type === "rect" || e.type === "line") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
     [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
     e.x = clamp(e.x, 0, width - e.w);
@@ -1097,6 +1149,7 @@ function refreshAll() {
 
 // Something in the document changed. form: only the numbers moved (drag/keys).
 function changed({ form = false, keepForm = false } = {}) {
+  fitCorners(element());
   if (form) {
     drawOverlay();
     updatePositionInputs();
@@ -1108,6 +1161,14 @@ function changed({ form = false, keepForm = false } = {}) {
   refreshJson();
   compileAndDraw();
   save();
+}
+
+// A box made smaller keeps its corner radius and border within half its shorter side, as
+// the compiler wants
+function fitCorners(e) {
+  if (e?.type !== "rect") return;
+  const half = Math.floor(Math.min(e.w, e.h) / 2);
+  for (const k of ["radius", "border"]) if (e[k] > half) e[k] = half;
 }
 
 // ---------- actions ----------
@@ -1133,6 +1194,10 @@ function addElement(kind) {
 async function addIcon(file) {
   const lay = layout();
   if (!lay || !file) return;
+  if (Object.keys(doc().icons ?? {}).length >= ICON_FILE_MAX) {
+    setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+    return;
+  }
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
@@ -1205,8 +1270,22 @@ function duplicateElement() {
 function pasteElement() {
   const lay = layout();
   const { width, height } = MODELS[state.model];
-  const c = structuredClone(state.clip);
+  const { _icon: pic, ...c } = structuredClone(state.clip);
   if (usesField(c) && !lay.fields.includes(c.field)) c.field = lay.fields[0];
+  if (c.type === "icon") {
+    // the picture comes along; under another name if this file has a different one by that name
+    if (!pic || pic.w > width || pic.h > height) return;
+    const d = doc();
+    d.icons ??= {};
+    let name = c.icon;
+    for (let n = 2; d.icons[name] && JSON.stringify(d.icons[name]) !== JSON.stringify(pic); n++) name = c.icon.slice(0, 16 - String(n).length) + n;
+    if (!d.icons[name] && Object.keys(d.icons).length >= ICON_FILE_MAX) {
+      setStatus(`A layout file holds at most ${ICON_FILE_MAX} icons`, "error");
+      return;
+    }
+    d.icons[name] = pic;
+    c.icon = name;
+  }
   c.w = Math.min(c.w, width);
   c.h = Math.min(c.h, height);
   const same = lay.elements.some((o) => o.x === c.x && o.y === c.y && o.w === c.w && o.h === c.h);
@@ -1304,6 +1383,7 @@ function initActions() {
     } else if (act === "delete") {
       if (doc().layouts.length <= 1 || !confirm(`Delete the layout "${layout().name}"?`)) return;
       doc().layouts.splice(+state.sel.slice(5), 1);
+      pruneIcons();
       state.sel = "file:0";
       state.el = -1;
       refreshAll();
@@ -1326,7 +1406,7 @@ function initActions() {
       state.sel = "file:0";
       refreshAll();
       save();
-      markClean();
+      if (!onAp) markClean();
     } catch (e) {
       setStatus(e.message, "error");
     }
@@ -1341,14 +1421,14 @@ function initActions() {
       state.sel = "file:0";
       refreshAll();
       save();
-      markClean();
+      if (!onAp) markClean();
     } catch (e) {
       setStatus("Could not read " + f.name + ": " + e.message, "error");
     }
   });
   $("file-save").addEventListener("click", () => {
     download(state.model + ".json", JSON.stringify(doc(), null, 2) + "\n");
-    markClean();
+    if (!onAp) markClean();
   });
   $("design-save").addEventListener("click", () => {
     const name = layoutName();
@@ -1413,11 +1493,17 @@ function initActions() {
 
 // ---------- send to the AP ----------
 
-const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "" };
+// files: on the AP's own page, model -> the layout file the AP has (null: none), once read
+// board and limits: what GET /api/layouts says about the AP (null limits from an older AP)
+const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null };
+const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
-// The version of the model's layout file on the AP (GET /api/layouts), null when it has none
+// The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
+// and the AP's board and limits
 async function apFileVersion() {
   const r = await apClient().layouts();
+  ap.board = r.board || "";
+  ap.limits = r.limits || null;
   return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
 }
 
@@ -1425,6 +1511,7 @@ async function apFileVersion() {
 function apButtons(busy = false) {
   $("ap-connect").disabled = busy;
   $("ap-upload").disabled = busy || !ap.connected || isBuiltin();
+  if (onAp) $("ap-save").disabled = $("ap-reload").disabled = busy || !ap.connected;
   for (const id of ["ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected || !ap.mac;
 }
 
@@ -1442,11 +1529,15 @@ function apShow() {
 function apDisconnected() {
   ap.connected = false;
   ap.tags = [];
+  ap.limits = null;
+  ap.board = "";
+  limitsChanged();
   apShow();
   apStatus("");
 }
 
 function apClient() {
+  if (onAp) return new ApClient("", $("ap-token").value.trim());
   const { base, error } = apBase($("ap-url").value);
   if (error) throw new Error(error);
   return new ApClient(base, $("ap-token").value.trim());
@@ -1533,9 +1624,48 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
-  const where = apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  limitsChanged();
+  const where = onAp ? location.host || "this AP" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
+  if (onAp) {
+    try { localStorage.setItem(DASH_TOKEN, $("ap-token").value.trim()); } catch { /* private mode */ }
+    if (!(state.model in ap.files)) return apOpen(state.model);
+  }
   return ["", ""];
+}
+
+// On the AP's own page: open the layout file the AP has for this model. Changes made here
+// and not saved to the AP yet stay (the head says so); otherwise the AP's file replaces
+// what the editor had, and a model without a file on the AP keeps the editor's.
+async function apOpen(model, discard = false) {
+  let file = null;
+  try {
+    file = await apClient().call("GET", "/api/layouts/" + encodeURIComponent(model));
+  } catch (e) {
+    if (!/^404\b/.test(e.message)) throw e;
+  }
+  ap.files[model] = file;
+  if (model !== state.model) return ["", ""];
+  const wasClean = store.get("clean." + model) === JSON.stringify(doc());
+  if (!file) {
+    // nothing on the AP: whatever the editor has is not saved there
+    store.set("clean." + model, "");
+    refreshFileState();
+    return [`The AP has no ${model}" layout file yet. Save to AP stores this one.`, ""];
+  }
+  if (!discard && !wasClean && JSON.stringify(file) !== JSON.stringify(doc())) {
+    store.set("clean." + model, JSON.stringify(file));
+    refreshFileState();
+    return ["Your changes from before are kept. Reload from the AP drops them.", ""];
+  }
+  setDoc(file);
+  state.history[model].reset(JSON.stringify(file));
+  if (!state.sel.startsWith("builtin:") && !layout()) state.sel = file.layouts?.length ? "file:0" : "builtin:price";
+  refreshAll();
+  save();
+  markClean();
+  refreshUndo();
+  return [`Opened the ${model}" layout file stored on the AP.`, "ok"];
 }
 
 async function apUpload() {
@@ -1543,6 +1673,7 @@ async function apUpload() {
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
   ap.fileVersion = res.version;
+  ap.files[state.model] = structuredClone(doc());
   markClean();
   return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
@@ -1587,7 +1718,57 @@ async function apCheck() {
   return [`The tag shows it (seen ${ago(t.seen_s_ago)}).`, "ok"];
 }
 
-function initAp() {
+// On the AP's own page the token is all it needs; the Dashboard tab keeps it under the same
+// key, so one entry serves both. Save to AP and Reload from the AP stand for the file menu's
+// file on disk there: the AP's own file is the one the editor opens.
+function initOnAp() {
+  $("ap-url").closest("label").hidden = true;
+  document.querySelector("#ap-setup .how").hidden = true;
+  document.querySelector("#ap-setup > p.hint").textContent =
+    "Enter the AP's API token once; this browser keeps it for this address, and the Dashboard tab uses it too.";
+  try { $("ap-token").value = localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
+  $("ap-token").placeholder = "the AP's API token";
+  $("ap-token").addEventListener("change", apDisconnected);
+  $("ap-save").hidden = $("ap-reload").hidden = false;
+  new MutationObserver(() => { if (!$("tab-design").hidden) apStart(); })
+    .observe($("tab-design"), { attributes: true, attributeFilter: ["hidden"] });
+  // the outcome of Save and Reload goes in the status bar too, since the dialog is closed
+  const toStatus = () => setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  $("ap-save").addEventListener("click", async () => {
+    await apRun("Saving", apUpload);
+    toStatus();
+  });
+  $("ap-reload").addEventListener("click", async () => {
+    closeMenus();
+    if (store.get("clean." + state.model) !== JSON.stringify(doc()) &&
+      !confirm(`Drop the changes to the ${state.model}" layout file and open the one stored on the AP?`)) return;
+    await apRun("Reading the AP's layout file", () => apOpen(state.model, true));
+    toStatus();
+  });
+  return () => $("ap-token").value;
+}
+
+// On the AP's own page, once the first model is loaded and whenever the tab is shown while not
+// connected: connect with the kept token (the Dashboard may have stored it meanwhile) and open
+// the AP's file, or ask for the token where Send to tag does. Not while the tab is hidden: its
+// dialog is modal, and would leave the Dashboard tab unclickable behind it.
+let apStarting = false;
+let apReady = false;      // the first model is loaded (initEditor)
+async function apStart() {
+  if (!apReady || $("tab-design").hidden || ap.connected || apStarting || $("send-dlg").open) return;
+  apStarting = true;
+  try {
+    try { $("ap-token").value ||= localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
+    if ($("ap-token").value) await apRun("Connecting", apConnect);
+    if (!ap.connected) return $("send-open").click();
+    if ($("ap-status").textContent) setStatus($("ap-status").textContent, $("ap-status").classList.contains("error") ? "error" : "ok");
+  } finally {
+    apStarting = false;
+  }
+}
+
+// The web page's Send to tag: the bridge's address (the Dashboard's) and a token for this session
+function initOnWeb() {
   const sess = {
     get(k) { try { return sessionStorage.getItem(STORE + k) || ""; } catch { return ""; } },
     set(k, v) { try { sessionStorage.setItem(STORE + k, v); } catch { /* private mode */ } },
@@ -1601,6 +1782,19 @@ function initAp() {
     apDisconnected();
   });
   $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
+  return () => {
+    // The Dashboard's address may have changed since
+    try {
+      const u = localStorage.getItem(DASH_URL);
+      if (u && u !== $("ap-url").value && !ap.connected) $("ap-url").value = u;
+    } catch { /* private mode */ }
+    return $("ap-url").value;
+  };
+}
+
+function initAp() {
+  // what Connect needs (the token on the AP, the address on the web), "" before it is entered
+  const canConnect = onAp ? initOnAp() : initOnWeb();
   $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
   $("ap-change").addEventListener("click", apDisconnected);
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
@@ -1610,12 +1804,7 @@ function initAp() {
     apStatus("");
     apShow();
     $("send-dlg").showModal();
-    // The Dashboard's address may have changed since
-    try {
-      const u = localStorage.getItem(DASH_URL);
-      if (u && u !== $("ap-url").value && !ap.connected) $("ap-url").value = u;
-    } catch { /* private mode */ }
-    if ($("ap-url").value && !ap.connected) apRun("Connecting", apConnect);
+    if (canConnect() && !ap.connected) apRun("Connecting", apConnect);
     else if (ap.connected) apRun("Reading the tags", async () => {
       ap.tags = (await apClient().tags()).tags || [];
       return ["", ""];
@@ -1624,7 +1813,9 @@ function initAp() {
   apDisconnected();
 }
 
-export async function initEditor() {
+// sameOrigin: on the AP's own page (js/apdesign.js)
+export async function initEditor({ sameOrigin = false } = {}) {
+  onAp = sameOrigin;
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
   } catch {
@@ -1638,4 +1829,8 @@ export async function initEditor() {
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
   fitHeight();
+  if (onAp) {
+    apReady = true;
+    await apStart();
+  }
 }

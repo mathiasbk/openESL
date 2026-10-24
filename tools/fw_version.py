@@ -44,14 +44,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOT_DOCS = ":(exclude,glob)**/*.md"
 
 
-def webui_js():
-    """The web page's scripts the AP packs into its own dashboard (JS in ap/main/webui.py)"""
+def webui_files():
+    """The web page's scripts and stylesheets the AP packs into its own page, for any board
+    (MODULES in ap/main/webui.py, and js/aptabs.js and css/style.css, which every page has)"""
     with open(os.path.join(ROOT, "ap", "main", "webui.py"), encoding="utf-8") as f:
         tree = ast.parse(f.read())
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "JS" for t in node.targets):
-            return ast.literal_eval(node.value)
-    sys.exit("fw_version.py: no JS list in ap/main/webui.py")
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "MODULES" for t in node.targets):
+            mods = ast.literal_eval(node.value).values()
+            js = ["aptabs.js"] + [j for m in mods for j in m["js"]]
+            css = ["style.css"] + [c for m in mods for c in m["css"]]
+            return sorted({"web/js/" + j for j in js} | {"web/css/" + c for c in css})
+    sys.exit("fw_version.py: no MODULES in ap/main/webui.py")
 
 
 def models():
@@ -65,11 +69,12 @@ def parts():
         # tag/tools/build.py holds the SDCC version and the build flags; tag/fonts/src is only
         # the source of the generated tag/fonts/font_*.c
         "tag": ["shared", "tag/src", "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", "tools/gen_models.py", NOT_DOCS],
-        # ap/dependencies.lock holds the ESP-IDF version; the AP serves the dashboard of the web
-        # page (index.html, style.css and the scripts in ap/main/webui.py) and draws its status
+        # ap/dependencies.lock holds the ESP-IDF version; the AP serves tabs of the web page
+        # (index.html, the scripts and stylesheets in ap/main/webui.py, and the example layout
+        # files and the renderer, web/wasm/web_api.c, for the Design tab) and draws its status
         # screen with the tag's small font and headers (ap/components/esl_core/CMakeLists.txt)
-        "ap": ["shared", "ap", ":(exclude)ap/test", "tag/src", "tag/fonts/*.c", "web/index.html", "web/css/style.css",
-               "tools/gen_models.py", NOT_DOCS] + ["web/js/" + js for js in webui_js()],
+        "ap": ["shared", "ap", ":(exclude)ap/test", "tag/src", "tag/fonts/*.c", "web/index.html",
+               "tag/designs/layouts", "web/wasm/web_api.c", "web/build.py", "tools/gen_models.py", NOT_DOCS] + webui_files(),
     }
     for m in models():
         # one model: the tag sources without the other models' panel headers and without the
