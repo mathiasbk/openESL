@@ -15,7 +15,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [ap-firmware.md](ap-firmware.md) | The AP on ESP32-C6 with ESP-IDF |
 | [access-points.md](access-points.md) | The boards the AP runs on (C6, C5, S3 + C6), with limits, pros and cons, and the S3 + C6 wiring |
 | [ap-radio-link.md](ap-radio-link.md) | The AP on an ESP32-S3 with an ESP32-C6 as its 802.15.4 radio over UART: wiring and link protocol (experimental) |
-| [ap-netradio.md](ap-netradio.md) | The AP on an ESP32-S3 with a wireless ESP32-C6 radio on the same WiFi network: how it works, its limits and the measurements behind them (planned) |
+| [ap-netradio.md](ap-netradio.md) | The AP on an ESP32-S3 with a wireless ESP32-C6 radio on the same WiFi network: how it works, its limits, setting it up, and the measurements behind them (experimental, not secure yet) |
 | [fremdriftsplan.md](fremdriftsplan.md) | Phases, milestones, estimates and checkpoints |
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
 | [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |

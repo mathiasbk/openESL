@@ -4,10 +4,11 @@ A separate AP setup, not a variant of [the S3 with a C6 on a cable](ap-radio-lin
 runs the AP, and the ESP32-C6 that talks to the tags sits somewhere else on the same WiFi network,
 each on its own power supply, with no wire between them. Short name in code and file names: `netradio`.
 
-**Status: planned.** Only the radio's reply cache and the S3's side of a sync are written and tested on the PC
-(`ap/components/esl_core/esl_rcache.c` and `esl_rhost.c`, tested in `ap/test/test_rcache.c` and
-`test_rhost.c`). There is no firmware for it yet, and
-nothing in a release. The steps left are at the end.
+**Status: experimental, not secure yet.** Both ends have firmware: the S3 board `s3-n16r8-netradio` and the
+radio in `ap/netradio/`. It has run on one S3 and one C6 with two tags (below, "On hardware"), and new
+prices reached both screens. It is not in a release. **The link is plain TCP without a password**: any
+device on the network can connect to the S3 as its radio, or answer the radio as its AP. Use it only on a
+network you trust until pairing and TLS are done (step 3d, at the end).
 
 **Read the limits first.** The setup works only because the radio answers the tags on its own and uses
 WiFi as little as it can. That has costs the cabled S3 + C6 does not have. If the radio can sit next to
@@ -28,10 +29,11 @@ tell anyone who picks this setup.
   fetches what it lacks in one go at a sync. An image is a few KB (about 5 KB for a 2.9" screen),
   firmware for a tag model about 53 KB. That is many WiFi packets in a row, and while they go the radio
   hears almost no tags: with steady traffic about 40 % of frames were lost in the measurements.
-  **How long the radio is deaf during a sync** is not measured yet. An estimate from the measurements:
-  a sync with nothing new is a few packets, about 0.1–0.3 s; each image adds a handful of packets,
-  about 0.3–0.5 s, so a sync with 4 images about 1.5–2 s; tag firmware takes seconds. New tag firmware
-  therefore rolls out more slowly than with a cabled radio.
+  **How long a sync takes** (measured on one radio, "On hardware" below): 100–160 ms with nothing new
+  (up to about 0.3 s), and up to 4.6 s while images went over. Of 66 tag replies, the 5 that failed all
+  failed while images were on the way (WiFi had the radio, "coexist" errors); with only polls, none did.
+  Tag firmware takes longer still and is not measured yet, so it rolls out more slowly than with a
+  cabled radio.
 - **A change to every tag at once takes minutes.** A sync sends at most 4 images, and syncs come 1 s
   apart while more is waiting, so 1000 tags with new prices take about 250 syncs: roughly 4 minutes of
   image traffic or more (an estimate), during which many first replies are lost and tags retry. The
@@ -66,6 +68,7 @@ tell anyone who picks this setup.
   and "last seen" times.
 - **Memory on the C6.** The radio holds the state of every tag it serves, a few images, its log, and the
   tag firmware per model in its flash. How many tags one radio can serve this way is not decided yet.
+- **Not secure yet.** Plain TCP, no password: see "Status" above.
 - **Two chips to update.** The S3 updates over the air as always; the radio is flashed separately until
   the S3 can update it.
 
@@ -106,6 +109,40 @@ takes 22–110 ms, so that cannot work. Instead:
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.
 Only the link to the radio differs.
 
+## Setting it up
+
+1. Build and flash the S3 as any AP board: `python ap/build.py s3-n16r8-netradio` (which also builds the
+   radio), then flash the S3 as in [ap-firmware.md](ap-firmware.md). It waits for the radio on TCP port
+   4553 and announces itself on mDNS as `_openesl-ap._tcp`.
+2. Flash the C6 with `out/openesl-ap-netradio-c6.bin` at 0, or from `ap/netradio/build/` with
+   `esptool.py --chip esp32c6 write_flash @flash_args`. Its NVS sits where the AP's does, so a C6 that
+   was an AP keeps its WiFi network and gets it back when it is flashed as an AP again. A C6 whose old
+   app lay where this NVS is (anything that is not the AP) needs that area erased first:
+   `esptool.py erase_region 0x9000 0x75000`.
+3. Open the C6's USB port in a serial terminal and type, one line each: `ssid <network>`,
+   `pass <password>`, `reboot`. It joins the network, finds the S3 on mDNS and connects. If it does not
+   find it, give the S3's address: `host 192.168.1.50` (`host` alone goes back to mDNS). `status` shows
+   the radio, the cache and the link; it is also logged every minute.
+
+The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.
+
+## On hardware
+
+One ESP32-S3 N16R8 and one ESP32-C6 on the same WiFi network (RSSI −72 to −79 dBm at the C6),
+two tags (1.54" and 2.9"), 14 minutes, 2026-10-24:
+
+| | |
+|---|---|
+| Syncs | 78, none broken off, one connection all along |
+| Sync with nothing new | 100–160 ms, up to 323 ms |
+| Longest sync | 1.4 s before the images, 4.6 s while they went over |
+| Tag replies | 66, 5 not sent (all during the image transfer, WiFi had the radio), 30 resends |
+| New price on the 2.9" | drawn on the S3 after 2 s, on the screen after 90 s (mostly waiting for the tag's next poll) |
+| Free heap on the C6 | about 164 KB, steady |
+
+Found on the way: the S3 ran out of sockets for the web server while a browser kept five connections
+open (fixed: 16 sockets on this board).
+
 ## Measurements
 
 C6 on WiFi with 802.15.4 sending one frame every 50 ms, retried within 12 ms like the AP, on channel 20,
@@ -131,7 +168,9 @@ WiFi RSSI −74 to −77 dBm, coex at the default, power save MIN (MAX made no d
 | 1 | Measure WiFi against 802.15.4 on the C6 | done (above) |
 | 2a | The radio's reply cache and log, tested against fake tags on the PC | done |
 | 2b | The S3 side: build each tag's state from the store, replay the log (`esl_rhost`), tested end to end with the cache and fake tags | done |
-| 3 | One radio over WiFi: TCP with TLS-PSK, the S3 announces `_openesl-ap._tcp` on mDNS, the radio connects; set-up and pairing on the radio's own set-up page with a code from the dashboard; a "Radios" tab | |
+| 3a | The link protocol (`esl_nlink`), tested on the PC end to end through a byte stream | done |
+| 3b–c | Firmware for both ends: the S3 a TCP server announced on mDNS (`_openesl-ap._tcp`), the C6 joins WiFi, connects and syncs; set-up on the radio's USB console | done, tried on one S3 + C6 with two tags |
+| 3d | Security: pairing with a code from the dashboard, TLS-PSK, a "Radios" tab | |
 | 4 | Tag firmware kept in the radio's flash, so the S3 does not send it for every tag | |
 | 5 | Several radios per S3: each tag owned by the radio that hears it best, never switched mid-image | |
 
