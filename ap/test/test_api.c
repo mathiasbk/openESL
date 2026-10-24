@@ -331,6 +331,11 @@ static void test_batch_and_list(void)
     link.up = false;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false}},\"tags\":["));
+    /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
+    link.up = true;
+    link.seen_ms = 86400001;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
     api.link = NULL;
     api.reset_reason = "task_wdt";
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);

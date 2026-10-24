@@ -94,7 +94,7 @@ void app_main(void)
     api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
 #if CONFIG_ESL_RADIO_DRIVER_NET
-    api.link = radio_link();
+    api.link = radio_net_link();
 #endif
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
