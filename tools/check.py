@@ -158,23 +158,43 @@ def step_openapi():
 AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
+def designer_boards():
+    """The boards in ap/boards/ with the Design tab (CONFIG_ESL_WEB_DESIGNER=y in their
+    sdkconfig.defaults or their base's), which pack the renderer"""
+    out = []
+    for path in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json")):
+        b = json.load(open(path))
+        for d in [b["id"], b.get("base")]:
+            cfg = os.path.join(ROOT, "ap", "boards", d or "", "sdkconfig.defaults")
+            if d and os.path.isfile(cfg) and "CONFIG_ESL_WEB_DESIGNER=y" in open(cfg).read():
+                out.append(b["id"])
+                break
+    return out
+
+
 def step_ap_fw():
     # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py);
-    # without Emscripten the others still build, and those stop and say so
+    # without Emscripten only the others are built
+    build = AP_BUILD
     if shutil.which("emcc"):
         run([PY, "web/build.py", "--wasm"])
     else:
-        print("note: no emcc (Emscripten %s), so the boards with the Design tab cannot be built" % EMSCRIPTEN_VERSION)
+        skip = designer_boards()
+        ids = [json.load(open(p))["id"] for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
+        rest = [i for i in ids if i not in skip]
+        print("note: no emcc (Emscripten %s), so %s (with the Design tab) are not built"
+              % (EMSCRIPTEN_VERSION, ", ".join(sorted(skip))))
+        build = " ".join([AP_BUILD] + sorted(rest))
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()
         if "v5.5.5" not in idf:
             print("note: CI builds with ESP-IDF v5.5.5, this is %s" % idf)
-        run(["bash", "-c", AP_BUILD], cwd=os.path.join(ROOT, "ap"))
+        run(["bash", "-c", build], cwd=os.path.join(ROOT, "ap"))
     else:
         if not docker_ok():
             raise Skip("neither idf.py (ESP-IDF v5.5.5) nor a running Docker")
-        run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", AP_BUILD])
+        run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", build])
     for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
 
