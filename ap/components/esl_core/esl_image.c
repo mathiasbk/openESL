@@ -353,8 +353,10 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     /* Coded for a tag that takes it: drawn (or a picture read back and unpacked)
        ESL_IMG_RLE_MARGIN in, both codes counted, and the shorter coded down to the start
        (2D is a fraction of RLE on text and bars, but RLE wins on dithered pictures);
-       raw when neither is shorter. Coding in place can still give 0 (the code would
-       overtake the image): the image is then read again and sent raw. */
+       raw when neither is shorter. 2D is counted as coded in place, m ahead, so it is
+       only picked when it does not overtake the image (it can on dense columns at the
+       left; RLE never does). Should coding still give 0, the image is read again and
+       sent raw. */
     bool picture = c.layout == ESL_LAYOUT_IMAGE;
     size_t raw = esl_render_size(t->model), m = ESL_IMG_RLE_MARGIN(raw), n = 0;
     uint8_t fmt = ESL_IMG_FMT_RAW;
@@ -371,7 +373,7 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     if (got) {
         uint8_t *in = b->data + m;
         size_t lr = t->image_rle ? esl_img_rle_encode(in, raw, NULL, raw - 1) : 0;
-        size_t l2 = t->image_2d && has_h ? esl_img_2d_encode(in, raw, h, NULL, (lr ? lr : raw) - 1) : 0;
+        size_t l2 = t->image_2d && has_h ? esl_img_2d_count(in, raw, h, m, (lr ? lr : raw) - 1) : 0;
         if (l2) {
             n = esl_img_2d_encode(in, raw, h, b->data, l2);
             fmt = ESL_IMG_FMT_2D;

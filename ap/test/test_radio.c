@@ -1188,6 +1188,28 @@ static void test_image_choice(void)
     CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
     CHECK(memcmp(back, img, raw29) == 0);
 
+    /* 12 dithered columns at the left, bars in the rest: 2D is the shorter code, but
+       coded in place its first columns would overtake the image, so RLE is sent */
+    memset(img, 0, sizeof(img));
+    for (size_t i = 0; i < 12 * 16; i++) {
+        seed = seed * 1103515245u + 12345u;
+        img[i] = (uint8_t)(seed >> 16);
+    }
+    for (size_t x = 12; x < raw29 / 16; x++)
+        for (size_t y = 20 + x % 40; y < 70 + x % 40; y++)
+            img[x * 16 + y / 8] |= (uint8_t)(0x80 >> (y % 8));
+    size_t mg = ESL_IMG_RLE_MARGIN(raw29);
+    lr = esl_img_rle_encode(img, raw29, NULL, raw29 - 1);
+    l2 = esl_img_2d_encode(img, raw29, 128, NULL, raw29 - 1);
+    CHECK(lr > 0 && l2 > 0 && l2 < lr);
+    CHECK_INT((int)esl_img_2d_count(img, raw29, 128, mg, raw29 - 1), 0);
+    CHECK_INT(put_picture("00000000000002B1", "", img, raw29), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 91000), ESL_MSG_IMG);
+    CHECK_INT(buf_of(0x2B1)->fmt, ESL_IMG_FMT_RLE);
+    CHECK_INT(buf_of(0x2B1)->size, lr);
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, img, raw29) == 0);
+
     /* only 2D shorter than raw (no RLE): 2D within raw - 1 */
     a.img_rle = false;
     CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"y\"]}"), 200);

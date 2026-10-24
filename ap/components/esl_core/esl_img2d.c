@@ -56,12 +56,11 @@ static int change_to(const uint8_t *c, int a, int col, int h)
     return h;
 }
 
-size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t max)
+/* ahead: how far ahead of the output the input starts (coding in place) */
+static size_t code(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t ahead, size_t max)
 {
     uint8_t ref[COL_MAX], cur[COL_MAX];
     size_t cb = ((size_t)h + 7) / 8;
-    /* coding in place: how far ahead of the output the input starts */
-    size_t ahead = (uintptr_t)out <= (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
     bits_t b = {out, max, 0, 0, 0, 0, false};
 
     if (!h || h > ESL_IMG_2D_MAX_H || n % cb)
@@ -104,4 +103,15 @@ size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, 
     if (b.nacc)
         put(&b, 0, 8 - b.nacc);
     return b.full ? 0 : b.o;
+}
+
+size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t max)
+{
+    size_t ahead = out && (uintptr_t)out <= (uintptr_t)in ? (size_t)((uintptr_t)in - (uintptr_t)out) : SIZE_MAX / 2;
+    return code(in, n, h, out, ahead, max);
+}
+
+size_t esl_img_2d_count(const uint8_t *in, size_t n, uint16_t h, size_t margin, size_t max)
+{
+    return code(in, n, h, NULL, margin, max);
 }

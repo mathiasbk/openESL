@@ -15,3 +15,6 @@
  * esl_core, so the tag's host tests code with it too. */
 #define ESL_IMG_2D_MAX_H 512
 size_t esl_img_2d_encode(const uint8_t *in, size_t n, uint16_t h, uint8_t *out, size_t max);
+/* The length esl_img_2d_encode(in, n, h, in - margin, max) would give, without writing:
+ * 0 also when coding in place margin bytes ahead would overtake the image */
+size_t esl_img_2d_count(const uint8_t *in, size_t n, uint16_t h, size_t margin, size_t max);
