@@ -19,7 +19,7 @@ A step whose tools are missing is skipped and says what it needs.
 | Part | Build | Tool versions |
 |---|---|---|
 | Label firmware | `python tag/tools/build.py fw` (2.9"), `MODEL=154 python tag/tools/build.py fw` (1.54") | SDCC **4.5.0** exactly |
-| AP firmware | `cd ap && python build.py <board>` | ESP-IDF v5.5.5 |
+| AP firmware | `cd ap && python build.py <board>`; for a board with the Design tab (S3, C5) run `python web/build.py --wasm` first | ESP-IDF v5.5.5, Emscripten 3.1.74 for the Design tab |
 | Web page | `python web/build.py`, then `node --test web/test/*.test.mjs` | Emscripten 3.1.74 |
 | Simulator | see [sim/README.md](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) | a C compiler |
 

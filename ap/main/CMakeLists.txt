@@ -42,15 +42,27 @@ if(CONFIG_ESL_WEB_DASHBOARD)
     set(webui_c ${CMAKE_CURRENT_BINARY_DIR}/webui_files.c)
     set(web_dir ${CMAKE_CURRENT_LIST_DIR}/../../web)
     set(webui_modules dashboard)
+    set(webui_wasm)
     if(CONFIG_ESL_WEB_DESIGNER)
+        # The Design tab packs the renderer too: python web/build.py --wasm (Emscripten) builds it
+        # into web/dist/wasm/, or OPENESL_WASM names another directory
+        set(wasm_dir ${web_dir}/dist/wasm)
+        if(DEFINED ENV{OPENESL_WASM})
+            set(wasm_dir $ENV{OPENESL_WASM})
+        endif()
+        set(webui_wasm --wasm ${wasm_dir})
         list(APPEND webui_modules design)
     endif()
     file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js
          ${CMAKE_CURRENT_LIST_DIR}/../../tag/designs/layouts/*.json ${CMAKE_CURRENT_LIST_DIR}/../../shared/models.json)
+    if(CONFIG_ESL_WEB_DESIGNER)
+        file(GLOB wasm_deps ${wasm_dir}/render-*)
+        list(APPEND webui_deps ${wasm_deps})
+    endif()
     idf_build_get_property(python PYTHON)
     add_custom_command(
         OUTPUT ${webui_c}
-        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/webui.py ${web_dir} ${webui_c} ${webui_modules}
+        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/webui.py ${web_dir} ${webui_c} ${webui_wasm} ${webui_modules}
         DEPENDS ${CMAKE_CURRENT_LIST_DIR}/webui.py ${webui_deps}
         VERBATIM)
     list(APPEND srcs ${webui_c})

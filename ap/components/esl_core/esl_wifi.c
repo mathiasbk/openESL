@@ -201,8 +201,11 @@ void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, c
             html_esc(out, st->scan[i]);
             esl_sb_puts(out, "</option>");
         }
+        /* The option's text, not its value: without a value attribute that is the text
+           with spaces trimmed and collapsed, and a network name may have them */
         esl_sb_puts(out, "</select><script>var n=document.querySelector(\".nets\");n.onchange=function(){"
-                         "if(n.value){n.form.ssid.value=n.value;n.form.pass.focus()}}</script>");
+                         "if(n.selectedIndex>0){n.form.ssid.value=n.options[n.selectedIndex].textContent;"
+                         "n.form.pass.focus()}}</script>");
     }
     esl_sb_puts(out, ""
                      "<label>Password <small>(empty for an open network)</small>"

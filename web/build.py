@@ -3,6 +3,8 @@
 Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static web server.
 
   python web/build.py              renderer (WebAssembly) + page into web/dist/
+  python web/build.py --wasm [DIR] only the renderers, into DIR (default web/dist/wasm/): the
+                                   AP build packs them for its Design tab (ap/main/webui.py)
   python web/build.py --native     only the native test build of web_api.c (no Emscripten),
                                    used by web/test/render.test.mjs
   python web/build.py --firmware <file>...
@@ -113,11 +115,10 @@ def includes(native=False):
     return ["-I" + i for i in dirs]
 
 
-def build_wasm(model):
+def build_wasm(model, out=os.path.join(DIST, "wasm")):
     emcc = os.environ.get("EMCC", "emcc")
     if not shutil.which(emcc):
         sys.exit("emcc not found. Install Emscripten (https://emscripten.org) and source emsdk_env.sh.")
-    out = os.path.join(DIST, "wasm")
     os.makedirs(out, exist_ok=True)
     js = os.path.join(out, "render-%s.js" % model)
     tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + limit_caps() + includes() + sources() + [
@@ -425,6 +426,10 @@ def add_firmware(*files):
 def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--firmware":
         add_firmware(*sys.argv[2:])
+        return
+    if sys.argv[1:2] == ["--wasm"] and len(sys.argv) <= 3:
+        for m in MODELS:
+            build_wasm(m, os.path.abspath(sys.argv[2]) if len(sys.argv) == 3 else os.path.join(DIST, "wasm"))
         return
     if sys.argv[1:] == ["--native"]:
         for m in MODELS:

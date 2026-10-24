@@ -71,10 +71,10 @@ def parts():
         "tag": ["shared", "tag/src", "tag/boot", "tag/fonts/*.c", "tag/tools/build.py", "tools/gen_models.py", NOT_DOCS],
         # ap/dependencies.lock holds the ESP-IDF version; the AP serves tabs of the web page
         # (index.html, the scripts and stylesheets in ap/main/webui.py, and the example layout
-        # files for the Design tab) and draws its status screen with the tag's small font and
-        # headers (ap/components/esl_core/CMakeLists.txt)
+        # files and the renderer, web/wasm/web_api.c, for the Design tab) and draws its status
+        # screen with the tag's small font and headers (ap/components/esl_core/CMakeLists.txt)
         "ap": ["shared", "ap", ":(exclude)ap/test", "tag/src", "tag/fonts/*.c", "web/index.html",
-               "tag/designs/layouts", "tools/gen_models.py", NOT_DOCS] + webui_files(),
+               "tag/designs/layouts", "web/wasm/web_api.c", "web/build.py", "tools/gen_models.py", NOT_DOCS] + webui_files(),
     }
     for m in models():
         # one model: the tag sources without the other models' panel headers and without the

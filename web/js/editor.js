@@ -54,7 +54,6 @@ const store = {
 // On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
 // origin, and the layout files stored on the AP are what the editor opens and saves
 let onAp = false;
-let rendererBase;       // where the renderer is loaded from (renderer.js), when not next to it
 
 const state = {
   model: "2.9",
@@ -231,7 +230,7 @@ async function loadModel(model) {
     state.history[model] = new History();
     state.history[model].reset(JSON.stringify(state.docs[model]));
   }
-  state.renderer = await loadRenderer(model, rendererBase);
+  state.renderer = await loadRenderer(model);
   applyLimits();
   document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
@@ -1814,11 +1813,9 @@ function initAp() {
   apDisconnected();
 }
 
-// sameOrigin: on the AP's own page (js/apdesign.js); rendererBase: where render-<model>.js
-// and .wasm are, when not in ../wasm/ next to this file
-export async function initEditor({ sameOrigin = false, rendererBase: base } = {}) {
+// sameOrigin: on the AP's own page (js/apdesign.js)
+export async function initEditor({ sameOrigin = false } = {}) {
   onAp = sameOrigin;
-  rendererBase = base;
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
   } catch {
