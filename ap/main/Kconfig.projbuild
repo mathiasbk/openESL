@@ -55,7 +55,7 @@ menu "OpenESL AP"
             Used when NVS namespace "cfg" has no "hostname" key. At the first
             start a new AP adds the suffix of its setup network (openesl-77c9,
             so two APs on one network get their own names); an AP that already
-            has a network saved keeps this name as it is. Either is saved to
+            has a network saved, or set in menuconfig, keeps this name as it is. Either is saved to
             cfg/hostname, so it does not change later.
 
     config ESL_WEB_DASHBOARD

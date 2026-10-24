@@ -3,7 +3,7 @@
 Example client for the AP's HTTP API ([docs/openapi.yaml](../../docs/openapi.yaml)). Python 3, standard library only.
 
 ```sh
-export OPENESL_URL=http://openesl.local OPENESL_TOKEN=...
+export OPENESL_URL=http://openesl-xxxx.local OPENESL_TOKEN=...   # your AP: the digits of its setup network, or openesl.local on one set up with 0.6.0 or older
 python3 esl_client.py status
 python3 esl_client.py price 00000123456789A8 "Milk 1 L" 24.90 "NOK 24.90/L" --highlight --wait
 python3 esl_client.py text 00000123456789A8 "Opening hours" "Mon-Fri 9-21" "Sat 9-18" --frame

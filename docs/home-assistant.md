@@ -3,7 +3,7 @@
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
 Replace these before you paste:
-- `openesl.local`: the name of your AP on the network, `openesl-xxxx.local` on an AP set up from 0.6.1 on (or its IP)
+- `openesl.local`: the name of your AP on the network, `openesl-xxxx.local` on an AP set up after 0.6.0 (or its IP)
 - `00000123456789A8`: the full MAC of the tag (16 hex digits), from `GET /api/tags` or the dashboard
 - `sensor.printer_*`: your own entities for status, progress (%), time remaining (minutes) and file name
 
