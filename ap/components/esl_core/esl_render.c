@@ -131,6 +131,8 @@ typedef struct {
     /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
     uint8_t nnums;
     uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
+    /* place_text is placing a formatted number; one fitted in none of its fonts */
+    uint8_t num_now, num_cut;
     rd_qr_t qr;
 } rd_scene_t;
 
@@ -140,6 +142,8 @@ static void scene_clear(rd_scene_t *s)
     s->nrects = 0;
     s->nbars = 0;
     s->nnums = 0;
+    s->num_now = 0;
+    s->num_cut = 0;
     s->nlines = 0;
     s->nicons = 0;
     s->nqr = 0;
@@ -686,6 +690,12 @@ static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint
         }
     }
     f = font_get(font);
+    if (!found && s->num_now) {
+        /* a number cut short is a wrong price: it is not drawn at all, and the API
+           refuses such content (esl_render_number_cut) */
+        s->num_cut = 1;
+        return;
+    }
     if (!found)
         split(&ln, font, t, len, w, max_lines(e, f));
 
@@ -1024,8 +1034,11 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                         te = &one;
                     }
                 }
-                if (len && e->kind == ESL_LE_TEXT)
+                if (len && e->kind == ESL_LE_TEXT) {
+                    s->num_now = te == &one;
                     place_text(s, te, t, len, color);
+                    s->num_now = 0;
+                }
                 else if (len && e->kind == ESL_LE_BARCODE)
                     place_barcode(s, e, t, len);
                 else if (len && e->kind == ESL_LE_QR)
@@ -1039,25 +1052,22 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
     }
 }
 
-size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
+static rd_scene_t scene; /* about 2 KB; not reentrant, see esl_render.h */
+
+/* Lays out content c in scene; false for an unknown model or a missing named layout */
+static bool build(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c)
 {
-    static rd_scene_t scene; /* about 2 KB; not reentrant, see esl_render.h */
     static rd_builtin_t bi;
     rd_model_t m;
     rd_file_t fl;
     const uint8_t *text[ESL_MAX_FIELDS];
     uint8_t lens[ESL_MAX_FIELDS];
     const uint8_t *p = c->text;
-    uint8_t black[32], red[32];
-    size_t size, plane, i;
-    uint16_t x;
+    size_t i;
     int index = -1;
 
-    if (!model_get(model, &m) || m.col_bytes > sizeof(black))
-        return 0;
-    size = esl_render_size(model);
-    if (cap < size)
-        return 0;
+    if (!model_get(model, &m) || m.col_bytes > 32)
+        return false;
 
     for (i = 0; i < ESL_MAX_FIELDS; i++) {
         text[i] = p;
@@ -1072,7 +1082,7 @@ size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content
         if (file)
             index = esl_layout_bin_find(file, c->name, strlen(c->name));
         if (index < 0)
-            return 0;
+            return false;
     } else if (c->layout >= ESL_LAYOUT_FILE) {
         index = c->layout - ESL_LAYOUT_FILE;
     }
@@ -1090,14 +1100,31 @@ size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content
         builtin(&m, c->layout == ESL_LAYOUT_PRICE ? ESL_LAYOUT_PRICE : ESL_LAYOUT_TEXT, &bi);
         apply_list(&scene, &fl, bi.e, 0, 0, text, lens, ESL_MAX_FIELDS, c->flags);
     }
+    return true;
+}
 
-    plane = (size_t)m.w * m.col_bytes;
+bool esl_render_number_cut(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c)
+{
+    return build(model, file, c) && scene.num_cut;
+}
+
+size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
+{
+    uint8_t black[32], red[32];
+    size_t size, plane;
+    uint16_t x;
+
+    size = esl_render_size(model);
+    if (!size || cap < size || !build(model, file, c))
+        return 0;
+
+    plane = (size_t)scene.m.w * scene.m.col_bytes;
     draw_begin(&scene);
-    for (x = 0; x < m.w; x++) {
+    for (x = 0; x < scene.m.w; x++) {
         draw_column(&scene, x, black, red);
-        memcpy(out + (size_t)x * m.col_bytes, black, m.col_bytes);
-        if (m.has_red)
-            memcpy(out + plane + (size_t)x * m.col_bytes, red, m.col_bytes);
+        memcpy(out + (size_t)x * scene.m.col_bytes, black, scene.m.col_bytes);
+        if (scene.m.has_red)
+            memcpy(out + plane + (size_t)x * scene.m.col_bytes, red, scene.m.col_bytes);
     }
     return size;
 }

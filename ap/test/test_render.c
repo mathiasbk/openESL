@@ -23,7 +23,10 @@ static const char FILE_PRICE[] =
     "{\"name\":\"tall1\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
     "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"],\"lines\":1}]},"
     "{\"name\":\"tall0\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
-    "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"]}]}]}";
+    "\"x\":0,\"y\":0,\"w\":250,\"h\":120,\"fonts\":[\"large\",\"mid\"]}]},"
+    /* room for "9,90" but not "1 299,90" in either font */
+    "{\"name\":\"narrow\",\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\","
+    "\"x\":0,\"y\":0,\"w\":110,\"h\":60,\"fonts\":[\"large\",\"mid\"],\"decimals\":2,\"thousands\":true}]}]}";
 
 static size_t ink(const uint8_t *img, size_t n)
 {
@@ -209,6 +212,18 @@ void test_render(void)
     CHECK(n && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
     named(&c, "tall0", "12 345,50"); /* as text it wraps after "12" */
     CHECK(esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) != 0);
+    /* a number that fits in none of its fonts is not cut short (a wrong price): it is left
+       out, and esl_render_number_cut says so for the API */
+    named(&c, "narrow", "9.9");
+    n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
+    CHECK(n && ink(img, n) > 0 && !esl_render_number_cut(ESL_MODEL_29, &bin, &c));
+    named(&c, "narrow", "1299.9");
+    n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
+    CHECK(n && ink(img, n) == 0 && esl_render_number_cut(ESL_MODEL_29, &bin, &c));
+    named(&c, "fmt", "1299.9");
+    CHECK(!esl_render_number_cut(ESL_MODEL_29, &bin, &c));
+    content(&c, ESL_LAYOUT_TEXT, "a long text that does not fit on the screen at all, cut with an ellipsis");
+    CHECK(!esl_render_number_cut(ESL_MODEL_29, NULL, &c));
     named(&c, "fmt", "12:30");
     n = esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img));
     named(&c, "raw", "12:30");
