@@ -52,6 +52,9 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw);
 /* The image buffers for tags that show what the AP draws (NULL = none, the
  * default: such tags get IDLE). Set once at start-up. */
 void esl_radio_set_image(esl_image_t *im);
+/* What was set (for a radio driver that answers the tags elsewhere: esl_rhost). */
+esl_tagfw_t *esl_radio_tagfw(void);
+esl_image_t *esl_radio_image(void);
 
 /* ---- fake tag ------------------------------------------------------------
  * Behaves like the tag firmware on the air (tag/src/app.c): sends POLL with the

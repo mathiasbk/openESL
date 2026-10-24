@@ -1,0 +1,14 @@
+{
+  "id": "s3-n16r8-netradio",
+  "label": "ESP32-S3 with 16 MB flash and 8 MB PSRAM (e.g. ESP32-S3-DevKitC-1 N16R8) plus an ESP32-C6 as the 802.15.4 radio over WiFi, with no cable between them (read the limits in docs/ap-netradio.md first)",
+  "target": "esp32s3",
+  "chip_family": "ESP32-S3",
+  "flash_mb": 16,
+  "psram_mb": 8,
+  "antenna": "on the module or external (u.FL), per module; the C6 radio has its own",
+  "radio": "net",
+  "radio_fw": ["c6"],
+  "artifact": "openesl-ap-s3-n16r8-netradio",
+  "release": "openesl-ap-esp32s3-n16r8-netradio",
+  "status": "experimental"
+}

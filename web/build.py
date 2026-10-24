@@ -376,7 +376,7 @@ def add_firmware(*files):
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
         # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "")
+        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "") + (" + C6 radio over WiFi" if b.get("radio") == "net" else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
                                   "display": b["display"], "file": name[:-4], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:

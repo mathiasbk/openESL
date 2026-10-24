@@ -1,0 +1,10 @@
+# The radio over WiFi on a 4 MB ESP32-C6. NVS is where the AP's is (boards/c6-supermini), so a
+# C6 that was an AP keeps its settings (the radio takes the WiFi network from cfg/ssid and
+# cfg/pass, as the AP stores them) and gets them back when it is flashed as an AP again.
+# One app (flashed over USB; nothing updates the radio over the air yet), and tagfw for the
+# tag firmware it gets from the AP (64 KB per tag model, as the AP's ESL_TAGFW_SLOT).
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x75000
+phy_init, data, phy,     0x80000,  0x1000
+factory,  app,  factory, 0x90000,  0x200000
+tagfw,    data, 0x40,    0x290000, 0x100000

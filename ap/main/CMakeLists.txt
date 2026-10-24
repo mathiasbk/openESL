@@ -1,10 +1,13 @@
 set(srcs app_main.c http_api.c sched.c store_nvs.c tagfw.c wifi.c)
 
 # The radio task (radio.c) and the driver of the link it talks through (esl_link.h): 802.15.4
-# on this chip, or a radio coprocessor on UART (boards/s3-n16r8-c6). REQUIRES below lists the
-# components of every driver: it is read before sdkconfig is.
+# on this chip, or a radio coprocessor on UART (boards/s3-n16r8-c6). A radio over WiFi
+# (boards/s3-n16r8-netradio) answers the tags itself and has radio_net.c instead. REQUIRES
+# below lists the components of every driver: it is read before sdkconfig is.
 if(CONFIG_ESL_RADIO_STUB)
     list(APPEND srcs radio_stub.c)
+elseif(CONFIG_ESL_RADIO_DRIVER_NET)
+    list(APPEND srcs radio_net.c)
 else()
     list(APPEND srcs radio.c)
     if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)

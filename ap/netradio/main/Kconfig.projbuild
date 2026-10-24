@@ -1,0 +1,41 @@
+menu "OpenESL radio over WiFi"
+
+    config ESL_TX_POWER_DBM
+        int "802.15.4 TX power (dBm)"
+        range -24 20
+        default 10
+
+    config ESL_CHANNEL
+        int "802.15.4 channel until the AP says"
+        range 11 26
+        default 25
+        help
+            The AP sends its channel and PAN when the radio connects; the radio keeps
+            the last ones in NVS and starts on them.
+
+    config ESL_PAN_ID
+        hex "802.15.4 PAN ID until the AP says"
+        range 0x0000 0xFFFE
+        default 0x4553
+
+    config ESL_NETRADIO_PORT
+        int "The AP's TCP port, when it is set by address (host in the console)"
+        range 1 65535
+        default 4553
+
+    config ESL_NETRADIO_TAGS
+        int "Tags the radio holds state for"
+        range 16 2000
+        default 500
+
+    config ESL_NETRADIO_IMAGES
+        int "Images the radio holds"
+        range 1 32
+        default 8
+
+    config ESL_NETRADIO_LOG
+        int "Frames the log holds between syncs"
+        range 16 1024
+        default 128
+
+endmenu

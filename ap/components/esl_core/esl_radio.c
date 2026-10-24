@@ -16,6 +16,16 @@ void esl_radio_set_image(esl_image_t *im)
     images = im;
 }
 
+esl_tagfw_t *esl_radio_tagfw(void)
+{
+    return tagfw;
+}
+
+esl_image_t *esl_radio_image(void)
+{
+    return images;
+}
+
 /* How far a tag has the image, from the FW block it gets (for the dashboard). offer:
    the block at 0 that comes with every POLL while there is an image for the tag; a tag
    part way through ignores it and asks for the next block, so it only counts for a
