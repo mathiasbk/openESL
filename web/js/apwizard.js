@@ -135,8 +135,9 @@ export function initApWizard(info, store) {
           ` : `
           <p class="buttons tight"><button type="button" class="primary" data-flash="${i}" ${hasSerial() ? "" : "disabled"}>Connect and flash</button>
           <button type="button" class="ghost" data-skip="${i}">Skip</button></p>
-          <p class="wz-erase"><label><input type="checkbox" data-erase-opt="${i}" ${s.erase ? "checked" : ""}> Erase first: a new board, nothing it stored is kept</label></p>
-          <p class="muted">${p.role === "radio" && radio()?.kind === "uart" ? "The radio is erased first: it keeps nothing." : p.role === "radio" ? "A C6 that was an AP or a radio keeps its WiFi. Leave the box empty to keep it." : "Leave the box empty to keep WiFi, token, tags and layouts of an AP that runs OpenESL."}</p>`}
+          ${p.role === "radio" && radio()?.kind === "uart" ? `<p class="muted">The radio is erased first: it keeps nothing.</p>` : `
+          <p class="wz-erase"><label><input type="checkbox" data-erase-opt="${i}" ${s.erase ? "checked" : ""}> Erase first (WiFi, token, tags and layouts are lost)</label></p>
+          <p class="muted">${p.role === "radio" ? "A C6 that was an AP or a radio keeps its WiFi unless erased." : "An AP that runs OpenESL keeps its data unless erased first."}</p>`}`}
         ${err}
       </div></div></div></div>`;
   }
@@ -299,16 +300,17 @@ export function initApWizard(info, store) {
     }
     // a port open on the dashboard, the Set up tab or step 3 of an AP before this one
     if (serialPort() === port) await disconnectSerial().catch(() => {});
-    // the radio on a cable has nothing to keep, and its partition table is not the AP's; the
-    // radio over WiFi has NVS where the AP has it, so a C6 that was an AP keeps its WiFi
+    // the radio on a cable is always erased (its partition table is not the AP's); the radio over
+    // WiFi has NVS where the AP has it, so a C6 that was an AP keeps its WiFi unless asked to erase
     if (erase) s.erase = true;
-    Object.assign(s, { status: "busy", msg: "Loading firmware ...", frac: 0, code: "", note: "", erase: !!s.erase || (p.role === "radio" && radio()?.kind === "uart") });
+    const wipe = !!s.erase || (p.role === "radio" && radio()?.kind === "uart");
+    Object.assign(s, { status: "busy", msg: "Loading firmware ...", frac: 0, code: "", note: "" });
     render();
     const phase = { connect: "Connecting ...", keep: "Keeping WiFi, token, tags and layouts ...", erase: "Erasing ...", write: "Writing ...", reset: "Starting ..." };
     try {
       const parts = await loadParts(p.manifest, info?.version);
       const r = await flashBoard(port, {
-        chip: p.chip, parts, erase: s.erase,
+        chip: p.chip, parts, erase: wipe,
         on: (state, frac) => {
           s.msg = phase[state];
           s.frac = frac;
