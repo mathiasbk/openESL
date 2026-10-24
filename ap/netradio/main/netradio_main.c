@@ -278,8 +278,11 @@ static bool find_ap(struct sockaddr_in *a)
         }
         return inet_aton(h, &a->sin_addr) != 0;
     }
+    /* asking for a unicast answer (QU): a multicast one goes out at the lowest rate and
+       reaches a station in power save only at a DTIM beacon, and was missed on the C6 */
     mdns_result_t *res = NULL;
-    if (mdns_query_ptr("_openesl-ap", "_tcp", 3000, 4, &res) != ESP_OK || !res) {
+    if (mdns_query_generic(NULL, "_openesl-ap", "_tcp", MDNS_TYPE_PTR, MDNS_QUERY_UNICAST, 3000, 4, &res) != ESP_OK ||
+        !res) {
         ESP_LOGW(TAG, "no AP found on mDNS (_openesl-ap._tcp); set one with: host <address>");
         return false;
     }
@@ -292,6 +295,8 @@ static bool find_ap(struct sockaddr_in *a)
                 found = true;
                 ESP_LOGI(TAG, "AP %s on mDNS", r->hostname ? r->hostname : "?");
             }
+    if (!found)
+        ESP_LOGW(TAG, "AP found on mDNS, but without an IPv4 address");
     mdns_query_results_free(res);
     return found;
 }
