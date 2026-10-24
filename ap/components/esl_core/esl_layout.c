@@ -234,6 +234,11 @@ bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_conte
     int i = l ? esl_layout_bin_find(&l->bin, c->name, nl) : -1;
     if (i >= 0)
         ok = esl_layout_check_fields(&l->bin, i, model, c, msg, msglen);
+    if (ok && i >= 0 && esl_render_number_cut(model, &l->bin, c)) {
+        snprintf(msg, msglen, "a number in layout %s does not fit in its box on model %s, not even in its smallest font",
+                 l->bin.names[i], esl_model_name(model));
+        ok = false;
+    }
     unlock(ls);
     return ok;
 }

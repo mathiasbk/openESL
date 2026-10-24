@@ -99,6 +99,19 @@ for (const model of Object.keys(MODELS)) {
     assert.match(long.refused, /too long for its QR code on model .* \(15 of 14 bytes\)/);
   });
 
+  test(`a formatted number too wide for its box is left out, with the AP's reason, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const file = { format: "esl-layouts", version: 1, model, layouts: [{ name: "pr", fields: ["price"],
+      elements: [{ type: "text", field: "price", x: 0, y: 0, w: 110, h: 60, fonts: ["large", "mid"],
+                   decimals: 2, thousands: true }] }] };
+    assert.ok(r.loadLayouts(JSON.stringify(file)).ok);
+    const fits = r.render(0x10, 0, ["9.9"]);
+    assert.ok(fits.ok && !fits.refused);
+    const wide = r.render(0x10, 0, ["1299.9"]);
+    assert.ok(wide.ok);
+    assert.match(wide.refused, /a number in layout pr does not fit in its box, not even in its smallest font/);
+  });
+
   test(`lines, round and open boxes and icons, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width, height } = MODELS[model];
