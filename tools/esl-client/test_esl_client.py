@@ -523,11 +523,13 @@ class ClientTest(unittest.TestCase):
         # urllib's timeout also bounds the whole sendall: a 1.3 MB image must get far more than 10 s
         cli = esl_client.Client("http://ap", TOKEN)
         seen = []
-        cli.send = lambda *a, **kw: (seen.append(kw.get("timeout")), (200, b'{"version": "0.2.0"}'))[1]
+        cli.send = lambda *a, **kw: (seen.append((kw.get("timeout"), kw.get("retries"))),
+                                     (200, b'{"version": "0.2.0"}'))[1]
         cli.ota(bytes(1300000))
-        self.assertGreaterEqual(seen[0], 300)
+        self.assertGreaterEqual(seen[0][0], 300)
+        self.assertEqual(seen[0][1], 1)  # a stalled upload is not sent twice more at that timeout
         cli.ota(bytes(100))
-        self.assertEqual(seen[1], 10.0)
+        self.assertEqual(seen[1][0], 10.0)
 
     def test_same_content_is_unchanged(self):
         self.run_cli("text", "00000123456789A8", "Hello", "--frame")

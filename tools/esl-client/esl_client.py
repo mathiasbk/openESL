@@ -73,14 +73,15 @@ class Client:
         self.timeout = timeout
         self.retries = retries
 
-    def send(self, method, path, data=None, auth=None, content_type="application/json", timeout=None):
+    def send(self, method, path, data=None, auth=None, content_type="application/json", timeout=None,
+             retries=None):
         """One request as it is: returns (status, body bytes). auth replaces the token.
-        timeout (seconds) replaces the client's for this request."""
+        timeout (seconds) and retries replace the client's for this request."""
         headers = {"Authorization": auth or f"Bearer {self.token}"}
         if data is not None:
             headers["Content-Type"] = content_type
         last = None
-        for attempt in range(self.retries):
+        for attempt in range(retries or self.retries):
             req = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
@@ -182,7 +183,7 @@ class Client:
         # The socket timeout also bounds the whole upload (socket.sendall, Python 3.5 on), so
         # 10 s failed every image on a link slower than about 130 KB/s: allow 4 KB/s
         status, payload = self.send("POST", "/api/ota", image, content_type="application/octet-stream",
-                                    timeout=max(self.timeout, len(image) / 4096))
+                                    timeout=max(self.timeout, len(image) / 4096), retries=1)
         if status >= 400:
             raise ApiError(status, payload.decode("utf-8", "replace"))
         if progress:
@@ -300,9 +301,10 @@ class SerialClient(Client):
             line += self._read(1, end)
         return line
 
-    def send(self, method, path, data=None, auth=None, content_type=None):
+    def send(self, method, path, data=None, auth=None, content_type=None, timeout=None, retries=None):
         """As Client.send; no token is needed on the USB port, so auth is ignored, and
-        there are no headers, so content_type is too."""
+        there are no headers, so content_type is too. The image goes in acknowledged parts
+        (ota below), so timeout and retries are the port's own for every request."""
         data = data or b""
         try:
             if self.fd is None:
