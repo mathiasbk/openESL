@@ -7,7 +7,7 @@ Most releases are just [update the AP](Updating-the-access-point), then [update 
 Update the AP first, then the labels, as usual. Either order works here: old and new labels and APs still understand each other.
 
 - Layouts get lines, rounded and open boxes, icons and QR codes. After the update the AP sends every label that uses a layout file its screen once more. QR codes now keep a blank border inside their box, so a QR box holds a little less than before.
-- Images go to 0.6.0 labels with a new, shorter code, so they arrive faster.
+- Images can go to 0.6.0 labels with a new code that is often shorter, so they arrive faster.
 
 **Going back** to 0.5.x: a 0.5.x AP refuses at start a layout file that uses icons, lines, QR codes or the new box options, and that model has no layouts until a file without them is uploaded. Take a backup (`esl_client.py backup ap.json`) before updating.
 
