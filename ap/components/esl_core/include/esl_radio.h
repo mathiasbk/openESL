@@ -39,6 +39,13 @@ typedef struct {
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev);
 
+/* A frame a network radio answered itself (esl_rcache), at now_ms on the AP's clock:
+ * the store learns from it what esl_radio_handle() would note (status, what the tag
+ * shows, took and refused), but nothing is drawn: an image the tag shows or is offered
+ * is the one the store knows for its content (esl_rhost has drawn it). */
+void esl_radio_replay(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
+                      int8_t rssi, uint64_t now_ms);
+
 /* The tag firmware images the radio path offers (one per AP; NULL = none,
  * the default). Set once at start-up, before the radio runs. */
 void esl_radio_set_tagfw(esl_tagfw_t *fw);
