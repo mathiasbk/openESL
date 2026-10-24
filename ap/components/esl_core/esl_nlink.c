@@ -106,8 +106,10 @@ bool esl_nlink_feed(esl_nlink_rx_t *rx, const uint8_t *data, size_t n,
         if (rx->got < 2)
             continue;
         size_t flen = rx->buf[0] | (size_t)rx->buf[1] << 8;
-        if (flen == 0 || 2 + flen > rx->cap)
+        if (flen == 0 || 2 + flen > rx->cap) {
+            rx->got = 0;
             return false;
+        }
         if (rx->got == 2 + flen) {
             size_t len = rx->got - ESL_NLINK_HDR;
             rx->got = 0;
@@ -143,6 +145,7 @@ bool esl_nlink_radio_hello(esl_nlink_radio_t *r, const esl_nlink_hello_t *h)
     put16(&w, h->max_tags);
     put16(&w, h->n_images);
     put32(&w, h->image_cap);
+    put8(&w, h->fw_models);
     return send_buf(r->write, r->wctx, ESL_NLINK_HELLO, &w);
 }
 
@@ -213,7 +216,8 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
     case ESL_NLINK_CONFIG: {
         uint8_t ch = get8(&g);
         uint16_t pan = get16(&g);
-        if (g.bad)
+        /* a channel 802.15.4 does not have would stop the radio (the driver asserts) */
+        if (g.bad || ch < 11 || ch > 26)
             return false;
         rc->pan = pan;
         if (r->ops.config)
@@ -495,10 +499,12 @@ bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size
         n->radio.max_tags = get16(&g);
         n->radio.n_images = get16(&g);
         n->radio.image_cap = get32(&g);
+        n->radio.fw_models = get8(&g);
         if (g.bad || ver != ESL_NLINK_VERSION)
             return false;
         n->hello = true;
         n->in_sync = false;
+        n->h->fw_models = n->radio.fw_models;
         return send_config(n);
     }
     case ESL_NLINK_SYNC:

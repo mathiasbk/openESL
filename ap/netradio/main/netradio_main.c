@@ -25,6 +25,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
+#include <fcntl.h>
 #include "mdns.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -108,6 +109,19 @@ static void cfg_get_radio(void)
     nvs_get_u8(h, "channel", &channel);
     nvs_get_u16(h, "pan", &pan);
     nvs_close(h);
+    if (channel < 11 || channel > 26)
+        channel = CONFIG_ESL_CHANNEL; /* the driver asserts on a channel it does not have */
+}
+
+static void cfg_save_radio(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("cfg", NVS_READWRITE, &h) != ESP_OK)
+        return;
+    nvs_set_u8(h, "channel", channel);
+    nvs_set_u16(h, "pan", pan);
+    nvs_commit(h);
+    nvs_close(h);
 }
 
 /* ---- the radio ---- */
@@ -132,6 +146,10 @@ static uint64_t now_ms(void)
     return (uint64_t)esp_timer_get_time() / 1000;
 }
 
+/* A new channel or PAN from the AP: set by the net task, applied by the radio task between
+   replies (retuning restarts reception, which would cut off a reply on its way) */
+static volatile bool retune, save_radio;
+
 static void radio_task(void *arg)
 {
     (void)arg;
@@ -140,7 +158,13 @@ static void radio_task(void *arg)
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
-        if (xQueueReceive(rx_queue, &f, pdMS_TO_TICKS(1000)) != pdTRUE)
+        if (retune) {
+            retune = false;
+            esp_ieee802154_set_panid(pan);
+            radio_link.set_channel(&radio_link, channel);
+            ESP_LOGI(TAG, "802.15.4 now channel %u, PAN 0x%04X", channel, pan);
+        }
+        if (xQueueReceive(rx_queue, &f, pdMS_TO_TICKS(100)) != pdTRUE)
             continue;
         radio_link.stats.rx++;
         radio_link.stats.last_us = -1;
@@ -160,28 +184,17 @@ static void radio_task(void *arg)
     }
 }
 
-/* The AP's channel and PAN (CONFIG), kept for the next start */
+/* The AP's channel and PAN (CONFIG, checked by esl_nlink), kept for the next start: the
+   radio task retunes, the net task saves them once the cache's lock is free */
 static void on_config(void *ctx, uint8_t ch, uint16_t p)
 {
     (void)ctx;
-    if (ch != channel) {
-        esp_ieee802154_set_channel(ch);
-        esp_ieee802154_receive();
-    }
-    if (p != pan)
-        esp_ieee802154_set_panid(p);
-    if (ch != channel || p != pan) {
-        nvs_handle_t h;
-        if (nvs_open("cfg", NVS_READWRITE, &h) == ESP_OK) {
-            nvs_set_u8(h, "channel", ch);
-            nvs_set_u16(h, "pan", p);
-            nvs_commit(h);
-            nvs_close(h);
-        }
-        ESP_LOGI(TAG, "802.15.4 now channel %u, PAN 0x%04X", ch, p);
-    }
+    if (ch == channel && p == pan)
+        return;
     channel = ch;
     pan = p;
+    retune = true;
+    save_radio = true;
 }
 
 /* Tag firmware in the tagfw partition, one ESL_TAGFW_SLOT per model: its bytes only (the
@@ -195,17 +208,23 @@ static bool fw_slot(uint8_t model, size_t off, size_t n, size_t *at)
     return true;
 }
 
+/* Called by the net task with the cache's lock held (esl_nlink_feed): the lock is let go
+   while the flash is written, so the radio task can answer tags in between. The slot is not
+   read meanwhile: the cache offers this model's firmware only once all of it is in. */
 static bool write_fw(void *ctx, uint8_t model, uint32_t off, const uint8_t *d, size_t n)
 {
     (void)ctx;
     size_t at;
     if (!fw_slot(model, off, n, &at))
         return false;
+    xSemaphoreGive(lock);
+    bool ok = true;
     size_t sec = fwpart->erase_size;
-    for (size_t s = (at + sec - 1) / sec * sec; s < at + n; s += sec)
-        if (esp_partition_erase_range(fwpart, s, sec) != ESP_OK)
-            return false;
-    return esp_partition_write(fwpart, at, d, n) == ESP_OK;
+    for (size_t s = (at + sec - 1) / sec * sec; ok && s < at + n; s += sec)
+        ok = esp_partition_erase_range(fwpart, s, sec) == ESP_OK;
+    ok = ok && esp_partition_write(fwpart, at, d, n) == ESP_OK;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    return ok;
 }
 
 static bool read_fw(void *ctx, uint8_t model, size_t off, uint8_t *buf, size_t n)
@@ -270,7 +289,9 @@ static bool find_ap(struct sockaddr_in *a, bool by_host)
     a->sin_port = htons(CONFIG_ESL_NETRADIO_PORT);
     if (by_host) {
         char h[64];
+        xSemaphoreTake(lock, portMAX_DELAY); /* the console may change it */
         strlcpy(h, host, sizeof(h));
+        xSemaphoreGive(lock);
         char *colon = strchr(h, ':');
         if (colon) {
             *colon = '\0';
@@ -321,11 +342,29 @@ static int open_ap(bool by_host, struct sockaddr_in *a, char *ip)
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     int one = 1;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-    if (connect(s, (struct sockaddr *)a, sizeof(*a))) {
+    /* at most SYNC_TIMEOUT_S, not lwIP's SYN retries (half a minute and more): an address
+       that does not answer gives way to mDNS soon */
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    int err = 0;
+    int rc_conn = connect(s, (struct sockaddr *)a, sizeof(*a));
+    if (rc_conn && errno == EINPROGRESS) {
+        fd_set w;
+        FD_ZERO(&w);
+        FD_SET(s, &w);
+        struct timeval ctv = {SYNC_TIMEOUT_S, 0};
+        socklen_t el = sizeof(err);
+        if (select(s + 1, NULL, &w, NULL, &ctv) != 1 || getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &el) || err)
+            err = err ? err : ETIMEDOUT;
+    } else if (rc_conn) {
+        err = errno;
+    }
+    if (err) {
         ESP_LOGW(TAG, "AP %s:%u does not answer", ip, ntohs(a->sin_port));
         close(s);
         return -1;
     }
+    fcntl(s, F_SETFL, flags);
     return s;
 }
 
@@ -335,7 +374,10 @@ static bool connect_ap(void)
     char ip[16];
     /* the address set by hand first; when it does not answer (the AP got another one from
        the router, say), mDNS */
-    int s = host[0] ? open_ap(true, &a, ip) : -1;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool by_host = host[0] != 0;
+    xSemaphoreGive(lock);
+    int s = by_host ? open_ap(true, &a, ip) : -1;
     if (s < 0)
         s = open_ap(false, &a, ip);
     if (s < 0)
@@ -348,7 +390,9 @@ static bool connect_ap(void)
     uint64_t id = 0;
     for (int i = 0; i < 6; i++)
         id = id << 8 | mac[i];
-    esl_nlink_hello_t h = {rc.boot, version_number(), id, TAGS, IMAGES, (uint32_t)rc.image_cap};
+    unsigned slots = fwpart ? fwpart->size / ESL_TAGFW_SLOT : 0;
+    esl_nlink_hello_t h = {rc.boot, version_number(), id, TAGS, IMAGES, (uint32_t)rc.image_cap,
+                           (uint8_t)(slots < ESL_RCACHE_MODELS ? slots : ESL_RCACHE_MODELS)};
     xSemaphoreTake(lock, portMAX_DELAY);
     txn = 0;
     bool ok = esl_nlink_radio_hello(&nl, &h);
@@ -416,6 +460,10 @@ static void net_task(void *arg)
         xSemaphoreTake(lock, portMAX_DELAY);
         bool ok = esl_nlink_feed(&nrx, buf, (size_t)n, on_frame, NULL);
         xSemaphoreGive(lock);
+        if (save_radio) {
+            save_radio = false;
+            cfg_save_radio();
+        }
         if (!ok) {
             disconnect("bad frame from the AP");
             continue;
@@ -515,7 +563,9 @@ static void command(char *line)
         ESP_LOGI(TAG, "password set; reboot to join");
     } else if (!strcmp(line, "host")) {
         cfg_set("host", arg);
+        xSemaphoreTake(lock, portMAX_DELAY);
         strlcpy(host, arg, sizeof(host));
+        xSemaphoreGive(lock);
         if (arg[0])
             ESP_LOGI(TAG, "AP address set to %s", arg);
         else

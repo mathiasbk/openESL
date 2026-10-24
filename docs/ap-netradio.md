@@ -35,7 +35,8 @@ tell anyone who picks this setup.
   (up to about 0.3 s), and up to 4.6 s while images went over. Of 66 tag replies, the 5 that failed all
   failed while images were on the way (WiFi had the radio, "coexist" errors); with only polls, none did.
   Tag firmware takes longer still and is not measured yet, so it rolls out more slowly than with a
-  cabled radio.
+  cabled radio; the radio also writes it to its flash, and the C6 stands still for each 4 KB erase
+  (about 14 for one model).
 - **A change to every tag at once takes minutes.** A sync sends at most 4 images, and syncs come 1 s
   apart while more is waiting, so 1000 tags with new prices take about 250 syncs: roughly 4 minutes of
   image traffic or more (an estimate), during which many first replies are lost and tags retry. The
@@ -69,7 +70,10 @@ tell anyone who picks this setup.
   outage is long, the oldest log entries are dropped (counted), so the S3 misses some battery readings
   and "last seen" times.
 - **Memory on the C6.** The radio holds the state of every tag it serves, a few images, its log, and the
-  tag firmware per model in its flash. How many tags one radio can serve this way is not decided yet.
+  tag firmware per model in its flash (16 models). It holds 500 tags by default
+  (`CONFIG_ESL_NETRADIO_TAGS`); tags beyond that get the default interval and no content, and the S3
+  logs a warning when it has more tags than its radio holds. How many tags one radio can serve well is
+  not measured yet.
 - **Not secure yet.** Plain TCP, no password: see "Status" above.
 - **Two chips to update.** The S3 updates over the air as always; the radio is flashed separately until
   the S3 can update it.

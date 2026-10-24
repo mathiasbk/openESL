@@ -73,6 +73,7 @@ typedef struct {
     uint64_t id;             /* its own MAC */
     uint16_t max_tags, n_images;
     uint32_t image_cap;
+    uint8_t fw_models;       /* tag firmware it can hold: models 1..fw_models */
 } esl_nlink_hello_t;
 
 typedef struct {

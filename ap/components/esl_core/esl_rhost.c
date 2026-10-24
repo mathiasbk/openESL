@@ -249,6 +249,8 @@ void esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, const esl_rhost_ou
        where the host has none */
     for (uint8_t m = 1; m <= ESL_RCACHE_MODELS; m++) {
         esl_tagfw_img_t img;
+        if (h->fw_models && m > h->fw_models)
+            break; /* it has nowhere to keep it, and would ask for it at every sync */
         const esl_rfw_t *r = &req->fw[m - 1];
         bool has = h->fw && esl_tagfw_get(h->fw, m, &img);
         if (!has) {

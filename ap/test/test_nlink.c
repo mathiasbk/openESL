@@ -132,7 +132,8 @@ static void connect(void)
     esl_nlink_rx_init(&hrx, hrx_buf, sizeof(hrx_buf));
     esl_nlink_rx_init(&rrx, rrx_buf, sizeof(rrx_buf));
     esl_nlink_host_init(&hl, &host, &fw, 20, PAN, pipe_write, &to_radio, host_now);
-    esl_nlink_hello_t h = {rc.boot, 10000, 0xC6C6C6C6C6ull, TAGS, IMAGES, (uint32_t)rc.image_cap};
+    esl_nlink_hello_t h = {rc.boot, 10000, 0xC6C6C6C6C6ull, TAGS, IMAGES, (uint32_t)rc.image_cap,
+                           ESL_MODEL_COUNT - 1};
     CHECK(esl_nlink_radio_hello(&rl, &h));
 }
 
@@ -229,6 +230,7 @@ static void test_nlink_flow(void)
 
     /* HELLO is answered with the channel and PAN */
     CHECK(hl.hello && hl.radio.max_tags == TAGS && hl.radio.id == 0xC6C6C6C6C6ull);
+    CHECK_INT(host.fw_models, ESL_MODEL_COUNT - 1);
     CHECK_INT(radio_channel, 20);
     CHECK_INT(rc.pan, PAN);
 
@@ -326,8 +328,17 @@ static void test_nlink_broken(void)
     uint8_t big[3] = {0xFF, 0xFF, ESL_NLINK_LOG}, empty[2] = {0, 0};
     esl_nlink_rx_init(&hrx, hrx_buf, sizeof(hrx_buf));
     CHECK(!esl_nlink_feed(&hrx, big, sizeof(big), host_on, &hl));
+    CHECK_INT(hrx.got, 0);
     esl_nlink_rx_init(&hrx, hrx_buf, sizeof(hrx_buf));
     CHECK(!esl_nlink_feed(&hrx, empty, sizeof(empty), host_on, &hl));
+
+    /* a channel 802.15.4 does not have: refused, the radio keeps the one it has */
+    uint8_t badcfg[3] = {27, PAN & 0xFF, PAN >> 8};
+    uint8_t before = radio_channel;
+    CHECK(!esl_nlink_radio_on(&rl, ESL_NLINK_CONFIG, badcfg, sizeof(badcfg)));
+    badcfg[0] = 10;
+    CHECK(!esl_nlink_radio_on(&rl, ESL_NLINK_CONFIG, badcfg, sizeof(badcfg)));
+    CHECK_INT(radio_channel, before);
 
     /* a SYNC before HELLO, a LOG with no SYNC: the connection is closed */
     esl_nlink_host_t fresh;

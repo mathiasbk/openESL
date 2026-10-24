@@ -35,6 +35,7 @@ static esl_nlink_host_t hl;
 static esl_nlink_rx_t rx;
 static uint8_t rx_buf[RX_BUF];
 static int conn = -1;
+static bool full_warned;
 static uint8_t channel;
 static uint16_t pan;
 
@@ -87,7 +88,12 @@ static void take(int s, const struct sockaddr_in *from)
     int one = 1, zero = 0;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, &zero, sizeof(zero));
+    /* a radio that stops reading mid-answer (it lost WiFi during an image) must not hold
+       this task, which also takes the radio's next connection */
+    struct timeval tv = {5, 0};
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     conn = s;
+    full_warned = false;
     esl_nlink_rx_init(&rx, rx_buf, sizeof(rx_buf));
     esl_nlink_host_init(&hl, &host, esl_radio_tagfw(), channel, pan, net_write, NULL, now_ms);
     char ip[16];
@@ -127,9 +133,16 @@ static void net_task(void *arg)
                 int64_t t0 = esp_timer_get_time();
                 if (!esl_nlink_feed(&rx, buf, (size_t)n, on_frame, NULL))
                     close_conn(hl.broken ? "write failed" : "bad frame");
-                if (host.stats.syncs != syncs)
+                if (host.stats.syncs != syncs) {
                     ESP_LOGI(TAG, "sync %lu answered in %lld ms (log %u)", (unsigned long)host.stats.syncs,
                              (long long)(esp_timer_get_time() - t0) / 1000, hl.req.log_n);
+                    unsigned n_tags = esl_store_count(host.st);
+                    if (!full_warned && hl.hello && n_tags > hl.radio.max_tags) {
+                        full_warned = true;
+                        ESP_LOGW(TAG, "%u tags, but the radio holds %u: the rest get no content from it", n_tags,
+                                 hl.radio.max_tags);
+                    }
+                }
             }
         }
         if (conn >= 0 && esp_timer_get_time() - last_rx > IDLE_S * 1000000LL)
