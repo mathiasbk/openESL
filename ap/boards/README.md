@@ -52,7 +52,8 @@ Each folder has:
 1. Copy the folder closest to it, rename it, and change `board.json` and `sdkconfig.defaults`.
 2. `python build.py <board>` (ESP-IDF v5.5.5, with the chip's compiler: `./install.sh esp32s3`
    for the S3, which is Xtensa where the C6 and C5 are RISC-V). For a new chip the component manager writes
-   `dependencies.lock.<chip>` next to `dependencies.lock`; commit it.
+   `dependencies.lock.<chip>` next to `dependencies.lock`; commit it. A board with the Design tab
+   (`CONFIG_ESL_WEB_DESIGNER=y`) also needs the renderer: `python web/build.py --wasm` (Emscripten 3.1.74) first.
 3. Flash `out/<artifact>.bin` at 0 with esptool, try it with a tag, and set `status` to
    `supported` when it works. A host without its tag radio yet can be tried with
    `CONFIG_ESL_RADIO_STUB=y` added to its `sdkconfig.defaults` in a local copy: simulated tags

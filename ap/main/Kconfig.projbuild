@@ -68,10 +68,11 @@ menu "OpenESL AP"
         default n
         help
             The web page's Design tab on the same page, packed the same way
-            (about 32 KB more gzipped): it opens the layout files stored on
+            (about 125 KB more gzipped): it opens the layout files stored on
             this AP and saves them back to it (GET and PUT /api/layouts/...),
-            and sends to a tag. The renderer it previews with comes from the
-            published web page, so the browser needs the internet. On for the
+            and sends to a tag. Its renderer (WebAssembly) is packed too, built
+            from the same sources as the firmware, so it needs no internet; build
+            it first with python web/build.py --wasm (Emscripten). On for the
             boards with flash and PSRAM to spare.
 
     config ESL_STATUS_PAGE

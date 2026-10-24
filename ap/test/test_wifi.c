@@ -117,6 +117,8 @@ static void test_setup_page(void)
     CHECK(!out.overflow);
     CHECK(HAS(buf, "no network saved"));
     CHECK(HAS(buf, "<option>Home&lt;1&gt;</option>"));
+    /* the name is read from the option's text, which keeps leading, trailing and double spaces */
+    CHECK(HAS(buf, "textContent"));
     CHECK(HAS(buf, "Cafe &quot;free&quot;"));
     CHECK(HAS(buf, "no token is set"));
     CHECK(!HAS(buf, "Current API token"));

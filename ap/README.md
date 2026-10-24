@@ -186,7 +186,7 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 45 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 
-Each tab is a module (`MODULES` in `main/webui.py`), and the board's Kconfig picks the ones its firmware has room for. A board with flash and PSRAM to spare (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) also turns on `ESL_WEB_DESIGNER`: the page then has the Design tab next to the Dashboard (`js/aptabs.js` switches them, `#design` in the address opens it). There the designer opens the layout file stored on this AP for each model (`GET /api/layouts/{model}`), *Save to AP* writes it back, *Reload from the AP* drops changes made in the browser, and *Send to tag* works as on the web page; the token is the Dashboard's. Its preview renderer (WebAssembly) is not in the firmware but comes from the published web page, so the browser needs the internet for it. The USB flashers stay on the web page, since a browser only allows Web Serial on https.
+Each tab is a module (`MODULES` in `main/webui.py`), and the board's Kconfig picks the ones its firmware has room for. A board with flash and PSRAM to spare (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) also turns on `ESL_WEB_DESIGNER`: the page then has the Design tab next to the Dashboard (`js/aptabs.js` switches them, `#design` in the address opens it). There the designer opens the layout file stored on this AP for each model (`GET /api/layouts/{model}`), *Save to AP* writes it back, *Reload from the AP* drops changes made in the browser, and *Send to tag* works as on the web page; the token is the Dashboard's. Its renderer (WebAssembly, `render-<build>.js/.wasm` per tag model, about 45 KB gzipped each) is packed too, at `/ui/wasm/`, built from the same sources as the firmware: the preview and the checks match what this AP draws, and the tab works without the internet. Building such a board therefore needs Emscripten 3.1.74 and `python web/build.py --wasm` first (see Build and flash). The USB flashers stay on the web page, since a browser only allows Web Serial on https.
 
 ## Tag model in POLL
 
@@ -213,11 +213,12 @@ cd ap
 idf.py menuconfig                  # the ESP32-C6 Super Mini (boards/c6-supermini), as before
 idf.py build flash monitor
 python build.py --list             # the boards
+python web/build.py --wasm         # the renderer for the Design tab (the S3 and C5 boards; Emscripten)
 python build.py c5-wroom-1u-n16r8  # one board: build-<board>/, and out/<artifact>.bin + -ota.bin
 idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
 ```
 
-The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed.
+The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed. A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than its sources (`web/wasm/web_api.c`, the AP core, the tag's drawing code), so run `python web/build.py --wasm` again after changing those.
 
 **Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:
 
