@@ -511,6 +511,15 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/1234567\"]}", 0), 422);
     CHECK_STR(resp, "{\"error\":\"field 0 of layout qr is too long for its QR code on model 2.9 (25 of 24 bytes)\"}");
 
+    /* a formatted number must fit in one of its fonts: a cut price would be a wrong one */
+    const char *num29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"pr\","
+                        "\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\",\"x\":0,\"y\":0,"
+                        "\"w\":110,\"h\":60,\"fonts\":[\"large\",\"mid\"],\"decimals\":2,\"thousands\":true}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, num29, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"pr\",\"fields\":[\"9.9\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"pr\",\"fields\":[\"1299.9\"]}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"a number in layout pr does not fit in its box on model 2.9, not even in its smallest font\"}");
+
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
 
     /* named content the tag cannot get yet says why */

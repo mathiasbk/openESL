@@ -1223,6 +1223,8 @@ components:
             are dropped, so `["a",""]` and `["a"]` are the same content. The AP sends the text
             as it is and works nothing out: for the price with and without VAT, use a layout
             with a field for each (e.g. `vare-priser`) and send both.
+            A number formatted by the layout (`decimals`, `thousands`) that fits in none of
+            its element's fonts gives `422`, since a price cut short would be a wrong one.
         price_highlight:
           type: [boolean, "null"]
           default: false

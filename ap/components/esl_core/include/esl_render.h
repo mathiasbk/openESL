@@ -40,3 +40,9 @@ size_t esl_render_size(uint8_t model);
  * send such content (content_err). Returns the image size, or 0 for an unknown model,
  * a missing named layout, or when cap is too small. */
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap);
+
+/* True when content c has a formatted number (decimals, thousands) that fits in its box
+ * in none of the element's fonts. esl_render leaves such a number out rather than
+ * cutting it short, since a cut price is a wrong price; the API refuses the content
+ * (esl_layouts_check_content). Same rules for file and the lock as esl_render. */
+bool esl_render_number_cut(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c);
