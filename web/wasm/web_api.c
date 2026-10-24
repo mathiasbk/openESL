@@ -184,9 +184,16 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
             size_t at = (size_t)x * cb + (size_t)(y >> 3);
             fb[y][x] = (img[at] & m) ? 1 : (red && (img[DRAW_W * cb + at] & m)) ? 2 : 0;
         }
-    /* drawn, but PUT /api/tags would refuse it: a barcode or QR field that does not fit its box */
-    if (bin_ver && layout >= 16 && layout - 16 < bin.count &&
-        !esl_layout_check_fields(&bin, layout - 16, MODEL_CODE, &c, err, sizeof(err)))
-        return 2;
+    /* drawn, but PUT /api/tags would refuse it: a barcode or QR field that does not fit its box,
+       or a formatted number that fits in none of its fonts (left out of the drawing) */
+    if (bin_ver && layout >= 16 && layout - 16 < bin.count) {
+        if (!esl_layout_check_fields(&bin, layout - 16, MODEL_CODE, &c, err, sizeof(err)))
+            return 2;
+        if (esl_render_number_cut(MODEL_CODE, &bin, &c)) {
+            snprintf(err, sizeof(err), "a number in layout %s does not fit in its box, not even in its smallest font",
+                     bin.names[layout - 16]);
+            return 2;
+        }
+    }
     return 1;
 }
