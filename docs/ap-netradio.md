@@ -4,6 +4,8 @@ A separate AP setup, not a variant of [the S3 with a C6 on a cable](ap-radio-lin
 runs the AP, and the ESP32-C6 that talks to the tags sits somewhere else on the same WiFi network,
 each on its own power supply, with no wire between them. Short name in code and file names: `netradio`.
 
+![The ESP32-S3 AP and the wireless ESP32-C6 radio on the same WiFi network](images/ap-s3-netradio.svg)
+
 **Status: experimental, not secure yet.** Both ends have firmware: the S3 board `s3-n16r8-netradio` and the
 radio in `ap/netradio/`. It has run on one S3 and one C6 with two tags (below, "On hardware"), and new
 prices reached both screens. It is not in a release. **The link is plain TCP without a password**: any

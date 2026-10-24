@@ -4,6 +4,8 @@
 
 A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32-S3 runs the AP, and the ESP32-C6 that talks to the labels sits somewhere else on the same WiFi network, each on its own USB charger, with no wire between them. Useful when the labels are in a room the S3 cannot be in.
 
+![The ESP32-S3 AP and the wireless ESP32-C6 radio on the same WiFi network](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/ap-s3-netradio.svg)
+
 **If the C6 can sit next to the S3, use the cable instead.** It has none of the limits below.
 
 ## Limits
