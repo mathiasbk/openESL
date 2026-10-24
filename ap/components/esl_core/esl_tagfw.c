@@ -208,6 +208,14 @@ int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *
     return 200;
 }
 
+bool esl_tagfw_read(esl_tagfw_t *fw, uint8_t model, uint32_t off, uint8_t *buf, size_t n)
+{
+    esl_tagfw_img_t img;
+    if (!esl_tagfw_get(fw, model, &img) || off > img.size || n > img.size - off)
+        return false;
+    return fw->ops.read(fw->ops.ctx, model, ESL_FWF_HDR_LEN + off, buf, n);
+}
+
 bool esl_tagfw_get(esl_tagfw_t *fw, uint8_t model, esl_tagfw_img_t *img)
 {
     esl_tagfw_img_t v = {0};

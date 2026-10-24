@@ -10,7 +10,9 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
 A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
 also builds the radio coprocessor firmware for each radio board its "radio_fw" names
 (radio/boards/<id>/radio.json: c6, c6-lcd), each once, into out/ and the release as
-<artifact>.bin only: nothing updates the radio over the air yet.
+<artifact>.bin only: nothing updates the radio over the air yet. A board with "radio": "net" (the
+radio over WiFi, docs/ap-netradio.md) builds netradio/ the same way, for each of its
+"radio_fw" (netradio/boards/<id>/radio.json: c6).
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -30,7 +32,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOARDS = os.path.join(HERE, "boards")
-RADIO_BOARDS = os.path.join(HERE, "radio", "boards")
+# the radio firmware per "radio" in board.json: its project and its boards
+RADIO_PROJECTS = {"uart": "radio", "net": "netradio"}
 OUT = os.path.join(HERE, "out")
 
 
@@ -57,8 +60,8 @@ def run(cmd, cwd=HERE):
 
 
 def radio_fws(b):
-    """The radio coprocessor boards (radio/boards/<id>/) a board with "radio": "uart" works
-    with: "radio_fw" is one id or a list of them"""
+    """The radio boards (radio/boards/<id>/ or netradio/boards/<id>/) a board with "radio":
+    "uart" or "net" works with: "radio_fw" is one id or a list of them"""
     fw = b.get("radio_fw") or []
     return [fw] if isinstance(fw, str) else list(fw)
 
@@ -67,20 +70,23 @@ def load_radios(boards):
     """The radio coprocessor firmware the boards use, each once, in board order."""
     radios = []
     for b in boards:
-        if b.get("radio", "native") not in ("native", "uart"):
-            sys.exit("board %s: radio must be \"native\" or \"uart\"" % b["id"])
-        if b.get("radio") == "uart" and not radio_fws(b):
-            sys.exit("board %s: radio \"uart\" needs radio_fw, the coprocessor firmware" % b["id"])
+        kind = b.get("radio", "native")
+        if kind not in ("native", "uart", "net"):
+            sys.exit("board %s: radio must be \"native\", \"uart\" or \"net\"" % b["id"])
+        if kind != "native" and not radio_fws(b):
+            sys.exit("board %s: radio \"%s\" needs radio_fw, the radio's firmware" % (b["id"], kind))
         for name in radio_fws(b):
-            if any(r["id"] == name for r in radios):
+            project = RADIO_PROJECTS[kind]
+            if any(r["id"] == name and r["project"] == project for r in radios):
                 continue
-            path = os.path.join(RADIO_BOARDS, name, "radio.json")
+            path = os.path.join(HERE, project, "boards", name, "radio.json")
             if not os.path.isfile(path):
                 sys.exit("board %s: radio_fw %s has no %s" % (b["id"], name, path))
             with open(path, encoding="utf-8") as f:
                 r = json.load(f)
             if r.get("id") != name:
                 sys.exit("%s: id must be the folder name (%s)" % (path, name))
+            r["project"] = project
             radios.append(r)
     return radios
 
@@ -102,7 +108,7 @@ def build(b):
 
 
 def build_radio(r):
-    cwd = os.path.join(HERE, "radio")
+    cwd = os.path.join(HERE, r["project"])
     bdir = "build-" + r["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
     # No -ota.bin: nothing updates the radio over the air yet, and its app image would

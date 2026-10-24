@@ -172,6 +172,7 @@ typedef struct {
     uint8_t want_fw_model;
     uint64_t wants[ESL_RCACHE_WANTS];      /* tags it lacked something for (state or image), 0 = none */
     unsigned n_tags;                       /* tags it has state for */
+    unsigned max_tags;                     /* ... and room for */
     unsigned n_images;
     uint32_t images[ESL_RSYNC_IMAGES];     /* the ids it holds (the first ESL_RSYNC_IMAGES) */
     unsigned free_images;                  /* slots free, or holding an image no tag's state names */

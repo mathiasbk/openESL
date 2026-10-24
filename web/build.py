@@ -311,10 +311,11 @@ def ap_boards():
 
 
 def ap_radio_names():
-    """artifact and release names of the radio coprocessor firmware (ap/radio/boards/*/radio.json,
-    for boards with "radio": "uart"): the flasher does not offer it yet (docs/ap-radio-link.md)"""
+    """artifact and release names of the radio firmware (ap/radio/boards/*/radio.json for boards
+    with "radio": "uart", ap/netradio/boards/*/radio.json for "net"): the flasher does not offer
+    it yet (docs/ap-radio-link.md, docs/ap-netradio.md)"""
     names = []
-    for path in glob.glob(os.path.join(ROOT, "ap", "radio", "boards", "*", "radio.json")):
+    for path in glob.glob(os.path.join(ROOT, "ap", "*", "boards", "*", "radio.json")):
         with open(path) as f:
             r = json.load(f)
         names += [r["artifact"], r["release"]]
@@ -427,7 +428,7 @@ def add_firmware(*files):
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
         # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "")
+        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "") + (" + C6 radio over WiFi" if b.get("radio") == "net" else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
                                   "display": b["display"], "file": name[:-4], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:

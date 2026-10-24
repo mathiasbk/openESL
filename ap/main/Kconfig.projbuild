@@ -208,7 +208,21 @@ menu "OpenESL AP"
                 For a chip without 802.15.4 (the ESP32-S3 in boards/s3-n16r8-c6): a
                 C6 running the firmware in ap/radio/ does the radio, and this chip
                 answers the tags through it (docs/ap-radio-link.md).
+        config ESL_RADIO_DRIVER_NET
+            bool "802.15.4 radio over WiFi (an ESP32-C6 running ap/netradio/)"
+            depends on ESL_RADIO_AP
+            help
+                The radio is a C6 elsewhere on the same WiFi network, which answers
+                the tags from its own cache and syncs with this AP over TCP
+                (docs/ap-netradio.md: read its limits first). Not secure yet: any
+                device on the network can connect as the radio.
     endchoice
+
+    config ESL_NETRADIO_PORT
+        int "Radio over WiFi: TCP port"
+        depends on ESL_RADIO_DRIVER_NET
+        range 1 65535
+        default 4553
 
     config ESL_COPROC_UART_NUM
         int "Radio coprocessor: UART"

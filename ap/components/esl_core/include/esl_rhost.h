@@ -86,6 +86,7 @@ typedef struct {
     uint16_t img_size;
     uint16_t default_sent;    /* 0 = not sent */
     unsigned max_draws, max_images;
+    uint8_t fw_models;        /* the radio holds tag firmware for models 1..fw_models only (0: any) */
 
     bool have_radio;          /* radio_boot is the radio's */
     uint32_t radio_boot;
