@@ -59,7 +59,9 @@ In 0.5.0 the AP draws every screen and sends it to the tag as an image. The tag 
 
 Going back from 0.5.0 means the AP and the tags together, to the previous release's AP and tag images. A 0.4.x AP holds at most 256 tags (tags in slots above that are not loaded), and it refuses a layout file at boot that uses the larger limits of 0.5.0 (more than 16 text lines or 10 boxes per layout, or more than 768 bytes compiled). Put such a file back from the backup after making it fit.
 
-### Upgrading from 0.5.x to the next release
+### Upgrading from 0.5.x to 0.6.0
+
+Images to the tags get a second code, format 2 ([protokoll.md](protokoll.md), "The 2D image code"). Either order works: a 0.6.0 AP sends format 2 only to tags whose POLL has bit7, so 0.5.x tags keep getting format 1, and 0.6.0 tags still take format 1 from a 0.5.x AP. Update the AP first as usual, then the tags.
 
 Layout files compile to format 2 (lines, round and open boxes, icons, QR codes). The AP sends every tag with a file layout its screen again once after the update, because the file's version changes, and QR codes now keep a quiet zone inside their box, so a QR box holds a smaller version than before. Going back to 0.5.x: a 0.5.x AP refuses at boot a stored file that uses `icons` or the `line` and `qr` types, or `radius`, `border`, `direction` or `width`, and the layouts of that model are gone until a file without them is uploaded.
 
