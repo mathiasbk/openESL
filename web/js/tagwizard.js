@@ -11,6 +11,7 @@ import { flasherPicture } from "./appics.js";
 const STEPS = ["Choose tag", "Connect flasher", "Flash", "Done"];
 const STAGES = [["mac", "MAC"], ["backup", "Backup"], ["write", "Write"], ["verify", "Verify"]];
 const FLASHER = "https://github.com/atc1441/ZBS_Flasher";
+const TAG_OTA = "https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -45,6 +46,8 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
 
   // the version of the firmware for a model (tag_versions is keyed by build: "29" is the 2.9")
   const fwVersion = (name) => info?.tag_versions?.[MODELS[name].build] || info?.tag_version || "";
+  // whether the page has firmware for a model: an older info.json has no tag_versions
+  const hasFw = (name) => !!info?.tag && (!info.tag_versions || MODELS[name].build in info.tag_versions);
   const fwText = () => (st.fwSrc === "file" ? st.fwFile?.name || "a file" : `OpenESL ${fwVersion(st.model)}`.trim());
 
   // ---------- rendering ----------
@@ -76,7 +79,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     wire();
   }
 
-  const ready = () => hasSerial() && (st.fwSrc === "release" ? !!info?.tag : !!st.fwFile);
+  const ready = () => hasSerial() && (st.fwSrc === "release" ? hasFw(st.model) : !!st.fwFile);
 
   function seg(name, options, value) {
     return `<div class="wz-seg" role="radiogroup">${options.map(([v, l, off]) =>
@@ -92,21 +95,21 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         const pic = m.photo
           ? `<img src="${esc(m.photo.file)}" width="${m.photo.width}" height="${m.photo.height}" alt="Photo of the ${esc(n)}&quot; tag">`
           : `<canvas width="${m.width}" height="${m.height}"></canvas>`;
-        const v = fwVersion(n);
+        const v = hasFw(n) ? fwVersion(n) : "";
         return `
         <button type="button" class="wz-card" data-model="${esc(n)}" aria-pressed="${n === st.model}" ${st.busy ? "disabled" : ""}>
           <span class="wz-pic wz-photo">${pic}</span>
           <b>${esc(n)}" ${esc(m.label.replace(/^\S+ [\d.]+" ?/, ""))}</b>
           <span class="wz-chips"><span class="wz-chip">${esc(m.product)}</span><span class="wz-chip">${m.width} × ${m.height}</span></span>
-          ${info?.tag ? `<span class="wz-badge ok">OpenESL${v ? " " + esc(v) : ""}</span>` : ""}
+          ${hasFw(n) ? `<span class="wz-badge ok">OpenESL${v ? " " + esc(v) : ""}</span>` : info?.tag ? `<span class="wz-badge">no firmware on this page</span>` : ""}
         </button>`;
       }).join("")}
       </div>
       <div class="wz-opts">
-        <span class="wz-opt"><span class="muted">Firmware</span>${seg("fw", [["release", info?.tag ? `This page's${fwVersion(st.model) ? " " + fwVersion(st.model) : ""}` : "This page's", !info?.tag], ["file", st.fwFile ? st.fwFile.name : "From a file …"]], st.fwSrc)}</span>
+        <span class="wz-opt"><span class="muted">Firmware</span>${seg("fw", [["release", hasFw(st.model) ? `This page's${fwVersion(st.model) ? " " + fwVersion(st.model) : ""}` : "This page's", !hasFw(st.model)], ["file", st.fwFile ? st.fwFile.name : "From a file …"]], st.fwSrc)}</span>
         <input id="tw-file" type="file" accept=".bin" hidden>
       </div>
-      ${info?.tag ? "" : `<p class="muted">No tag firmware is published with this page: pick a <code>.bin</code> file.</p>`}`;
+      ${hasFw(st.model) ? "" : `<p class="muted">No firmware for this tag is published with this page: pick a <code>.bin</code> file.</p>`}`;
   }
 
   function connectPage() {
@@ -141,7 +144,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         <progress id="tw-prog" max="1" ${st.job?.frac != null ? `value="${st.job.frac}"` : ""}></progress>
         <p class="buttons tight"><button type="button" id="tw-stop" ${st.loop ? "" : "hidden"}>${st.stopping ? "Stopping after this tag ..." : "Stop after this tag"}</button></p>`;
     } else {
-      inner = `<p class="buttons tight"><button type="button" class="primary" id="tw-flash">${st.results.length ? "Flash next tag" : "Flash tag"}</button>
+      inner = `<p class="buttons tight"><button type="button" class="primary" id="tw-flash">${st.results[0]?.ok ? "Flash next tag" : st.results.length ? "Try again" : "Flash tag"}</button>
         <label class="tw-loop"><input type="checkbox" id="tw-loop" ${st.loop ? "checked" : ""}> Keep going: flash each next tag I put in</label></p>
         ${st.error ? `<p class="error">${esc(st.error)}</p>` : ""}
         <p class="muted">The tag's own firmware is backed up in this browser before anything is erased.</p>`;
@@ -176,7 +179,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     return `<div class="wz-panel wz-done">
       <div class="wz-big ${ok ? "ok" : "error"}">${ok ? "✓" : "✗"}</div>
       <h2>${ok} ${ok === 1 ? "tag" : "tags"} flashed${bad ? `, ${bad} not` : ""}</h2>
-      <p class="muted">${esc(st.model)}" · ${esc(fwText())}${saved ? ` · ${saved} new ${saved === 1 ? "backup" : "backups"} in this browser` : ""}</p>
+      <p class="muted">${esc([...new Set(st.results.map((r) => `${r.model}" · ${r.fw}`))].join(", "))}${saved ? ` · ${saved} new ${saved === 1 ? "backup" : "backups"} in this browser` : ""}</p>
       ${saved ? `<p>Export the backups and keep them somewhere safe: they are the only copy of the tags' own firmware.</p>` : ""}
       <p class="buttons wz-center">
         ${saved ? `<button type="button" class="primary" id="tw-export">Export backups (ZIP)</button>` : ""}
@@ -184,7 +187,8 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         <a class="button" href="#ap">Flash an AP</a>
       </p>
       <p><button type="button" class="ghost" id="tw-more">Flash more tags</button></p>
-    </div>`;
+    </div>
+    <p class="wz-hint">ⓘ These tags do not need the jig again: later firmware reaches them over the radio, from the Firmware card on the <a href="#dashboard">Dashboard</a>. <a href="${TAG_OTA}" target="_blank" rel="noopener">How it works</a></p>`;
   }
 
   // ---------- actions ----------
@@ -319,7 +323,9 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     try {
       backups ||= await BackupStore.open();
       const fw = await loadFirmware();
-      let first = true;
+      // after a tag flashed fine, the next one is a new tag: wait for it (a failed tag or one
+      // with its MAC typed in is flashed again as it is)
+      let first = !st.results[0]?.ok || !!manualMac;
       do {
         if (!first) {
           st.job = { waiting: "Take the tag out of the jig ..." };
@@ -346,6 +352,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         // the same tag again with its MAC typed in: its row without one goes
         if (manualMac && st.results[0]?.step === "mac" && !st.results[0].mac) st.results.shift();
         manualMac = "";       // typed for this one tag only
+        res.fw = fwText();
         st.results.unshift(res);
         onBackup();
         if (res.step === "mac" && !res.mac) {

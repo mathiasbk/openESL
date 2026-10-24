@@ -135,7 +135,7 @@ export function initApWizard(info, store) {
           ` : `
           <p class="buttons tight"><button type="button" class="primary" data-flash="${i}" ${hasSerial() ? "" : "disabled"}>Connect and flash</button>
           <button type="button" class="ghost" data-skip="${i}">Skip</button></p>
-          <p class="muted">${p.role === "radio" ? "The radio is erased first: it keeps nothing." : "An AP that runs OpenESL keeps its WiFi, token, tags and layouts. A new board is erased first."}</p>`}
+          <p class="muted">${p.role === "radio" && radio()?.kind === "uart" ? "The radio is erased first: it keeps nothing." : p.role === "radio" ? "A C6 that was an AP or a radio keeps its WiFi. A new one is erased first." : "An AP that runs OpenESL keeps its WiFi, token, tags and layouts. A new board is erased first."}</p>`}
         ${err}
       </div></div></div></div>`;
   }
@@ -295,8 +295,9 @@ export function initApWizard(info, store) {
     }
     // a port open on the dashboard, the Set up tab or step 3 of an AP before this one
     if (serialPort() === port) await disconnectSerial().catch(() => {});
-    // the radio has nothing to keep (the radio over WiFi gets its network again in step 3)
-    Object.assign(s, { status: "busy", msg: "Loading firmware ...", frac: 0, code: "", note: "", erase: erase || p.role === "radio" });
+    // the radio on a cable has nothing to keep, and its partition table is not the AP's; the
+    // radio over WiFi has NVS where the AP has it, so a C6 that was an AP keeps its WiFi
+    Object.assign(s, { status: "busy", msg: "Loading firmware ...", frac: 0, code: "", note: "", erase: erase || (p.role === "radio" && radio()?.kind === "uart") });
     render();
     const phase = { connect: "Connecting ...", keep: "Keeping WiFi, token, tags and layouts ...", erase: "Erasing ...", write: "Writing ...", reset: "Starting ..." };
     try {
@@ -384,6 +385,10 @@ export function initApWizard(info, store) {
       const same = st.onWifi && ssid === st.onWifi.ssid && !pass;
       const err = (same ? null : checkWifi(ssid, pass)) || (token ? checkToken(token) : null) || (hostname ? checkHostname(hostname) : null);
       if (err) return msg(err, "error");
+      if (same && !token && !hostname) {   // nothing changed
+        st.connect[active(st.connect)].status = "done";
+        return render();
+      }
       $("wz-save").disabled = true;
       msg(same ? "Saving ..." : `Joining "${ssid}" ...`);
       try {
