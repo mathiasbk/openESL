@@ -3,7 +3,10 @@
 //
 //   const r = await loadRenderer("2.9");        // or "1.54"
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
-//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red) }
+//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red),
+//                                       refused (why the AP would refuse these fields, if it would) }
+//   r.setLimits(apLimits)    the limits of the AP the page talks to ("limits" from GET /api/layouts),
+//                            or null for the default board's; r.limits then has them
 
 import { MODELS as REGISTRY } from "./models.js";
 
@@ -19,6 +22,9 @@ export const FLAG_PRICE_HIGHLIGHT = 0x01;
 export const FLAG_FRAME = 0x02;
 
 const cache = {};
+
+// The limits an AP board sets (esl_limits in esl_layout.h), by their web_limit number
+const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, jsonBytes: 14, lines: 17, icons: 18 };
 
 export function loadRenderer(model, base = new URL("../wasm/", import.meta.url)) {
   if (!MODELS[model]) throw new Error("unknown model " + model);
@@ -38,6 +44,28 @@ async function create(model, base) {
   const width = call("web_width", "number", [], []);
   const height = call("web_height", "number", [], []);
   const error = () => M.UTF8ToString(call("web_error", "number", [], []));
+  const limit = (what) => call("web_limit", "number", ["number"], [what]);
+  const readLimits = (l) => Object.assign(l, {
+    runs: limit(0),
+    rects: limit(1),
+    fileBytes: limit(2),
+    invertPad: limit(3),
+    linesPerText: limit(4),
+    fontHeight: { small: limit(5), medium: limit(6), mid: limit(7), large: limit(8), text20: limit(15), price44: limit(16) },
+    barcodes: limit(9),
+    barcodeMinH: limit(10),
+    barcodeModuleMax: limit(11),
+    fixedTextBytes: limit(12),
+    fields: limit(13),
+    jsonBytes: limit(14),
+    lines: limit(17),
+    icons: limit(18),
+    lineWidthMax: limit(19),
+    qrs: limit(20),
+    qrModuleMax: limit(21),
+  });
+  // the default board's, for setLimits(null)
+  const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));
 
   return {
     model,
@@ -45,25 +73,17 @@ async function create(model, base) {
     height,
     // Text and one length byte per field sent share this many bytes in an update.
     fieldSpace: call("web_max_text", "number", [], []),
-    // The compiler's limits (web_limit in web_api.c).
-    limits: {
-      runs: call("web_limit", "number", ["number"], [0]),
-      rects: call("web_limit", "number", ["number"], [1]),
-      fileBytes: call("web_limit", "number", ["number"], [2]),
-      invertPad: call("web_limit", "number", ["number"], [3]),
-      linesPerText: call("web_limit", "number", ["number"], [4]),
-      fontHeight: {
-        small: call("web_limit", "number", ["number"], [5]),
-        medium: call("web_limit", "number", ["number"], [6]),
-        mid: call("web_limit", "number", ["number"], [7]),
-        large: call("web_limit", "number", ["number"], [8]),
-      },
-      barcodes: call("web_limit", "number", ["number"], [9]),
-      barcodeMinH: call("web_limit", "number", ["number"], [10]),
-      barcodeModuleMax: call("web_limit", "number", ["number"], [11]),
-      fixedTextBytes: call("web_limit", "number", ["number"], [12]),
-      fields: call("web_limit", "number", ["number"], [13]),
-      jsonBytes: call("web_limit", "number", ["number"], [14]),
+    // The compiler's limits (web_limit in web_api.c): the default AP board's until setLimits.
+    // The same object throughout, so a reference to it sees the AP's limits once they are set.
+    limits: readLimits({}),
+    // An older renderer (the published one on an AP's own page) cannot take an AP's limits
+    canSetLimits: typeof M._web_set_limit === "function",
+
+    setLimits(apLimits) {
+      if (!this.canSetLimits) return;
+      for (const [key, what] of Object.entries(SETTABLE))
+        call("web_set_limit", "number", ["number", "number"], [what, apLimits?.[key] ?? defaults[key]]);
+      readLimits(this.limits);
     },
 
     loadLayouts(text) {
@@ -95,12 +115,14 @@ async function create(model, base) {
       const f = fields.slice(0, 6).map((s) => String(s ?? ""));
       const n = f.length;
       while (f.length < 6) f.push("");
-      const ok = call("web_render", "number",
+      const res = call("web_render", "number",
         ["number", "number", "number", "string", "string", "string", "string", "string", "string"],
-        [layout, flags, n, ...f]) === 1;
-      if (!ok) return { ok, error: error() };
+        [layout, flags, n, ...f]);
+      if (!res) return { ok: false, error: error() };
       const at = call("web_fb", "number", [], []);
-      return { ok, pixels: M.HEAPU8.slice(at, at + width * height) };
+      const out = { ok: true, pixels: M.HEAPU8.slice(at, at + width * height) };
+      if (res === 2) out.refused = error();   // drawn, but PUT /api/tags would refuse these fields
+      return out;
     },
   };
 }

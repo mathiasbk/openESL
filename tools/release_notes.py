@@ -38,7 +38,7 @@ def pull_requests(since, until):
     """[(number, title, commit)] merged between since and until, newest first, without the
     release merges themselves (development -> master)"""
     fields = git("log", "--format=%H%x00%P%x00%s%x00%b%x00", "%s..%s" % (since, until)).split("\x00")
-    prs = {}
+    prs, inside = {}, set()
     for i in range(0, len(fields) - 1, 4):
         sha, parents, subject, body = fields[i].strip(), fields[i + 1], fields[i + 2], fields[i + 3]
         m = re.match(r"Merge pull request #(\d+) from (\S+)", subject)
@@ -46,10 +46,13 @@ def pull_requests(since, until):
             number, branch = int(m.group(1)), m.group(2)
             if branch.endswith("/development") or branch.endswith("/master"):
                 continue  # the release merge
+            # the commits of the merged branch: a "(#N)" among them names an issue, not a merge
+            first, second = parents.split()[:2]
+            inside.update(git("rev-list", "%s..%s" % (first, second)).split())
             title = body.strip().splitlines()[0] if body.strip() else branch
         else:
             m = re.search(r"\(#(\d+)\)$", subject)
-            if not m or len(parents.split()) > 1:
+            if not m or len(parents.split()) > 1 or sha in inside:
                 continue
             number, title = int(m.group(1)), subject[: m.start()].strip()
         prs.setdefault(number, (number, title, sha))
@@ -59,7 +62,7 @@ def pull_requests(since, until):
 def changed(sha, paths=()):
     """The files the pull request changed (the merge against its first parent), those the
     pathspecs select when given: git handles the excludes of fw_version.py and deleted files"""
-    return git("diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent", sha, "--", *paths).split()
+    return git("diff-tree", "--no-commit-id", "--name-only", "-r", "--diff-merges=first-parent", sha, "--", *paths).split()
 
 
 def sort(prs, parts):

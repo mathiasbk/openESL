@@ -159,7 +159,7 @@ static void test_binary(void)
                      "\"lines\":2,\"color\":\"highlight\",\"_note\":\"ignored\"},"
                      "{\"type\":\"rect\",\"x\":0,\"y\":125,\"w\":296,\"h\":3,\"color\":\"frame\"}"));
     static const uint8_t expect[] = {
-        ESL_LBIN_FORMAT, ESL_MODEL_29, 1, 0, 2,
+        ESL_LBIN_FORMAT, ESL_MODEL_29, 1, 0, 0, 2,
         ESL_LE_TEXT, 1, ESL_FONT_LARGE, ESL_FONT_MID, ESL_FONT_SMALL, ESL_LE_RIGHT | ESL_LE_BOTTOM, 2,
         ESL_LE_PRICE_HL, 4, 1, 5, 36, 0, 120,
         ESL_LE_RECT, 0, 0xFF, 0xFF, 0xFF, 0, 0, ESL_LE_FRAME, 0, 0, 125, 0x28, 1, 3};
@@ -170,16 +170,30 @@ static void test_binary(void)
 
     /* defaults: left, top, lines 0, black */
     CHECK(compile_el(TEXT_A "}"));
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_OPTS], 0);
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_LINES], 0);
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_COLOR], ESL_LE_BLACK);
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_FONT + 1], ESL_FONT_NONE);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], 0);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_LINES], 0);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_COLOR], ESL_LE_BLACK);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_FONT + 1], ESL_FONT_NONE);
+
+    /* number format in the high bits of opts */
+    CHECK(compile_el(TEXT_A ",\"align\":\"right\",\"decimals\":2,\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_RIGHT | ESL_LE_NUM_2 | ESL_LE_NUM_THOUSANDS);
+    CHECK(compile_el(TEXT_A ",\"decimals\":0}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_0);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"auto\",\"thousands\":false}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_AUTO);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"dash\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_DASH);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"keep\"}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP);
+    CHECK(compile_el(TEXT_A ",\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP | ESL_LE_NUM_THOUSANDS);
 
     /* a barcode element: symbology in the first font byte, module width in lines */
     CHECK(compile_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"ean13\",\"module\":2,"
                      "\"x\":10,\"y\":70,\"w\":226,\"h\":40,\"align\":\"center\"}"));
     static const uint8_t expect_bc[] = {
-        ESL_LBIN_FORMAT, ESL_MODEL_29, 1, 0, 1,
+        ESL_LBIN_FORMAT, ESL_MODEL_29, 1, 0, 0, 1,
         ESL_LE_BARCODE, 1, ESL_BC_EAN13, 0xFF, 0xFF, ESL_LE_CENTER, 2, ESL_LE_BLACK, 10, 0, 70, 226, 0, 40};
     CHECK_INT(bin.size, sizeof(expect_bc));
     CHECK_MEM(bin.bin, expect_bc, sizeof(expect_bc));
@@ -187,8 +201,8 @@ static void test_binary(void)
     CHECK_INT(bin.bc_sym[0], ESL_BC_EAN13);
     CHECK_INT(bin.bc_max[0], 113);
     CHECK(compile_el("{\"type\":\"barcode\",\"field\":0,\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":296,\"h\":10}"));
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_SYM], ESL_BC_CODE128);
-    CHECK_INT(bin.bin[5 + ESL_LE_OFF_MODULE], 0);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_SYM], ESL_BC_CODE128);
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_MODULE], 0);
     CHECK_INT(bin.bc_max[0], 296);
     CHECK(compile_el(TEXT_A "}"));
     CHECK_INT(bin.bc_field[0], -1);
@@ -222,6 +236,24 @@ static void bad_file(const char *js, uint8_t model, const char *want)
 
 static void test_errors(void)
 {
+    /* number format */
+    bad_el(TEXT_A ",\"decimals\":1}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"decimals\":\"two\"}", "decimals must be 0, 2");
+    bad_el(TEXT_A ",\"thousands\":1}", "thousands must be true or false");
+    {
+        static char els[2048];
+        size_t n = 0;
+        for (int i = 0; i <= ESL_DRAW_MAX_NUMS; i++)
+            n += (size_t)snprintf(els + n, sizeof(els) - n, "%s" TEXT_A ",\"decimals\":2}", i ? "," : "");
+        bad_el(els, "at most 8 numbers");
+        els[strrchr(els, '{') - els - 1] = '\0'; /* one fewer */
+        CHECK(compile_el(els));
+    }
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"decimals\":2}",
+           "decimals is only for text elements");
+    bad_el("{\"type\":\"barcode\",\"field\":\"b\",\"symbology\":\"code128\",\"x\":0,\"y\":0,"
+           "\"w\":296,\"h\":10,\"thousands\":true}", "thousands is only for text elements");
+
     /* the whole file */
     bad_file("{\"format\":", ESL_MODEL_29, "invalid JSON");
     bad_file("[]", ESL_MODEL_29, "must be a JSON object");
@@ -306,6 +338,12 @@ static void test_errors(void)
 #undef T5
 #undef TALL
 
+    /* the two extra sizes: text20 needs 20 px, price44 44 px */
+    CHECK(compile_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"text20\",\"medium\"]}"));
+    CHECK(compile_el(TEXT_XYW ",\"h\":44,\"field\":\"a\",\"fonts\":[\"price44\",\"mid\"]}"));
+    bad_el(TEXT_XYW ",\"h\":30,\"field\":\"a\",\"fonts\":[\"price44\"]}", "too small for its smallest font (44 px");
+    bad_el(TEXT_XYW ",\"h\":16,\"field\":\"a\",\"fonts\":[\"text20\"]}", "too small for its smallest font (20 px");
+
     /* fixed texts: stored once at the end of the file, the element points at them */
     CHECK(compile_el(TEXT_XYW ",\"h\":30,\"text\":\"inkl. mva\",\"fonts\":[\"small\"]},"
                      TEXT_XYW ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]},"
@@ -315,10 +353,10 @@ static void test_errors(void)
         const uint8_t *b = bin.bin;
         size_t els = ESL_LBIN_HDR_LEN + 1 + 4 * ESL_LE_SIZE;
         CHECK_INT(b[ESL_LBIN_OFF_NTEXT], 2);
-        CHECK_INT(b[5 + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
-        CHECK_INT(b[5 + ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 1);
-        CHECK_INT(b[5 + 2 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
-        CHECK_INT(b[5 + 3 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], 0);
+        CHECK_INT(b[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
+        CHECK_INT(b[ESL_LBIN_HDR_LEN + 1 + ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 1);
+        CHECK_INT(b[ESL_LBIN_HDR_LEN + 1 + 2 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_FIELD_FIXED | 0);
+        CHECK_INT(b[ESL_LBIN_HDR_LEN + 1 + 3 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], 0);
         CHECK_INT(bin.size, els + 1 + 9 + 1 + 2);
         CHECK_INT(b[els], 9);
         CHECK_MEM(&b[els + 1], "inkl. mva", 9);
@@ -355,21 +393,165 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"module\":1}", "module is only for barcode");
 #undef BC
 
-    /* too big: 16 layouts of 10 rects = 4 + 16 * 141 bytes */
-    static char js[8192];
-    esl_sb_t sb;
-    esl_sb_init(&sb, js, sizeof(js));
-    esl_sb_puts(&sb, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[");
-    for (int i = 0; i < 16; i++) {
-        esl_sb_printf(&sb, "%s{\"name\":\"l%d\",\"fields\":[\"a\"],\"elements\":[", i ? "," : "", i);
-        for (int k = 0; k < 10; k++)
-            esl_sb_printf(&sb, "%s{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}", k ? "," : "");
-        esl_sb_puts(&sb, "]}");
-    }
-    esl_sb_puts(&sb, "]}");
-    CHECK(!sb.overflow);
+    /* too big: two 128x128 icons are 2 x 2051 bytes compiled */
+    static char js[ESL_LAYOUT_MAX_SIZE + 1];
+    char data[2800];
+    size_t k = 0;
+    for (; k < 2048 / 3 * 4; k++)
+        data[k] = 'A';
+    memcpy(&data[k], "AAA=", 5);
+    snprintf(js, sizeof(js),
+             "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"icons\":{"
+             "\"a\":{\"w\":128,\"h\":128,\"data\":\"%s\"},\"b\":{\"w\":128,\"h\":128,\"data\":\"%s\"}},"
+             "\"layouts\":[{\"name\":\"l\",\"fields\":[\"a\"],\"elements\":[" TEXT_A "}]}]}",
+             data, data);
     CHECK(!compile(js, ESL_MODEL_29));
-    CHECK(HAS(err, "layouts[14]: the file is too big: at most 2048 bytes compiled"));
+    CHECK(HAS(err, "the icons are too big: at most 4096 bytes compiled"));
+}
+
+/* A 2.9" file with the given icons and one layout "l" (fields a, b) with the given elements. */
+static bool compile_icons(const char *icons, const char *elements)
+{
+    static char js[4096];
+    snprintf(js, sizeof(js),
+             "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"icons\":{%s},\"layouts\":[{\"name\":\"l\","
+             "\"fields\":[\"a\",\"b\"],\"elements\":[%s]}]}",
+             icons, elements);
+    return compile(js, ESL_MODEL_29);
+}
+
+/* Format 2: lines, icons, rects with round corners or only a border */
+static void test_shapes(void)
+{
+    const uint8_t *e = &bin.bin[ESL_LBIN_HDR_LEN + 1];
+
+    /* a line runs corner to corner in its box */
+    CHECK(compile_el("{\"type\":\"line\",\"x\":20,\"y\":10,\"w\":31,\"h\":31,\"direction\":\"up\",\"width\":3}"));
+    static const uint8_t expect_line[] = {ESL_LE_LINE, 0, 0xFF, 0xFF, 0xFF, ESL_LE_RISING, 3, ESL_LE_BLACK, 20, 0, 10, 31, 0, 31};
+    CHECK_MEM(e, expect_line, sizeof(expect_line));
+    CHECK(compile_el("{\"type\":\"line\",\"x\":20,\"y\":10,\"w\":31,\"h\":31}"));
+    CHECK_INT(e[ESL_LE_OFF_OPTS], 0);
+    CHECK_INT(e[ESL_LE_OFF_WIDTH], 1);
+    CHECK(compile_el("{\"type\":\"line\",\"x\":0,\"y\":5,\"w\":296,\"h\":1,\"direction\":\"up\",\"color\":\"white\"}"));
+    CHECK_INT(e[ESL_LE_OFF_OPTS], 0); /* straight: no direction */
+    CHECK_INT(ESL_GET_U16(e + ESL_LE_OFF_W), 296);
+    CHECK_INT(e[ESL_LE_OFF_H], 1);
+
+    /* a plain rect compiles as in format 1; radius and border in lines and opts */
+    CHECK(compile_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":40,\"h\":20,\"radius\":6,\"border\":2}"));
+    CHECK_INT(e[ESL_LE_OFF_RADIUS], 6);
+    CHECK_INT(e[ESL_LE_OFF_BORDER], 2);
+
+    /* an icon: stored column by column after the fixed texts, the element points at it */
+    CHECK(compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"},\"bar\":{\"w\":9,\"h\":1,\"data\":\"/4A=\"}",
+                        "{\"type\":\"icon\",\"icon\":\"bar\",\"x\":3,\"y\":4,\"color\":\"white\"}," TEXT_XYW
+                        ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]}"));
+    {
+        static const uint8_t expect_icon[] = {ESL_LE_ICON, 1, 0xFF, 0xFF, 0xFF, 0, 0, ESL_LE_WHITE, 3, 0, 4, 9, 0, 1};
+        const uint8_t *b = bin.bin;
+        size_t icons = ESL_LBIN_HDR_LEN + 1 + 2 * ESL_LE_SIZE + 1 + 2;
+        CHECK_MEM(e, expect_icon, sizeof(expect_icon));
+        CHECK_INT(b[ESL_LBIN_OFF_NICON], 2);
+        static const uint8_t expect_data[] = {2, 0, 2, 0x80, 0x40, 9, 0, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
+        CHECK_INT(bin.size, icons + sizeof(expect_data));
+        CHECK_MEM(&b[icons], expect_data, sizeof(expect_data));
+    }
+    /* w and h of an icon element may be given, and must then be the icon's */
+    CHECK(compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA\"}",
+                        "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}"));
+
+#define LINE "{\"type\":\"line\",\"x\":0,\"y\":0,\"w\":10,\"h\":10"
+    bad_el(LINE ",\"width\":0}", "width must be a whole number from 1 to 16");
+    bad_el(LINE ",\"width\":17}", "width must be a whole number from 1 to 16");
+    bad_el(LINE ",\"color\":\"invert\"}", "a line can be black, white or red");
+    bad_el(LINE ",\"color\":\"red\"}", "red and red_invert need a model with red");
+    bad_el(LINE ",\"direction\":\"left\"}", "direction must be down");
+    bad_el(LINE ",\"radius\":5}", "radius is only for rect elements");
+    bad_el("{\"type\":\"line\",\"x\":0,\"y\":0,\"w\":297,\"h\":10}", "past the right edge");
+    bad_el(TEXT_A ",\"direction\":\"up\"}", "direction is only for line elements");
+    char many[1200] = "";
+    for (int i = 0; i < ESL_DRAW_MAX_LINES + 1; i++)
+        strcat(many, i ? "," LINE "}" : LINE "}");
+    bad_el(many, "at most 16 lines per screen");
+    /* the compiler checks the limits in esl_limits (the web renderer sets them to its AP's) */
+    {
+        esl_limits_t keep = esl_limits;
+        char two[200] = LINE "}," LINE "}";
+        CHECK(compile_el(two));
+        esl_limits.lines = 1;
+        bad_el(two, "at most 1 lines per screen");
+        esl_limits.lines = keep.lines;
+        esl_limits.runs = 1;
+        bad_el(TEXT_A "}," TEXT_A "}", "needs up to 2 lines of text, the AP draws at most 1 per screen");
+        esl_limits = keep;
+    }
+#undef LINE
+    /* a QR code: level in the first font byte, module size in lines, alignment in opts */
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"b\",\"x\":10,\"y\":20,\"w\":66,\"h\":66,\"ecc\":\"H\",\"module\":2,"
+                     "\"align\":\"right\",\"valign\":\"bottom\"}"));
+    {
+        static const uint8_t expect_qr[] = {ESL_LE_QR, 1, ESL_QR_LEVEL_H, 0xFF, 0xFF, ESL_LE_RIGHT | ESL_LE_BOTTOM, 2,
+                                            ESL_LE_BLACK, 10, 0, 20, 66, 0, 66};
+        CHECK_MEM(e, expect_qr, sizeof(expect_qr));
+        CHECK_INT(bin.qr_field[0], 1);
+        CHECK_INT(bin.qr_ecc[0], ESL_QR_LEVEL_H);
+        CHECK_INT(bin.qr_cap[0], 24); /* 33 modules of 2 px: version 3 (29 and the quiet zone), 24 bytes at H */
+        CHECK_INT(bin.bc_field[0], -1);
+    }
+    CHECK(compile_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":25,\"h\":25}"));
+    CHECK_INT(e[ESL_LE_OFF_ECC], ESL_QR_LEVEL_M);
+    CHECK_INT(bin.qr_cap[0], 14);
+#define QR "{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":60"
+    bad_el(QR ",\"ecc\":\"X\"}", "ecc must be L, M, Q or H");
+    bad_el(QR ",\"module\":9}", "module must be a whole number from 0 to 8");
+    bad_el(QR ",\"color\":\"white\"}", "a QR code is black");
+    bad_el(QR ",\"symbology\":\"ean13\"}", "symbology is only for barcode elements");
+    bad_el(QR ",\"fonts\":[\"small\"]}", "fonts is only for text elements");
+    bad_el(QR "}," QR "}", "at most 1 QR code per screen");
+    bad_el("{\"type\":\"qr\",\"text\":\"x\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR code takes a field, not a fixed text");
+    bad_el("{\"type\":\"qr\",\"x\":0,\"y\":0,\"w\":60,\"h\":60}", "a QR element needs a field");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":20}", "at least 25 px wide and high");
+    bad_el("{\"type\":\"qr\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":60,\"h\":40,\"module\":2}", "at least 50 px");
+    bad_el("{\"type\":\"barcode\",\"field\":0,\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":200,\"h\":20,\"ecc\":\"L\"}",
+           "ecc is only for QR elements");
+#undef QR
+#define RECT "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":40,\"h\":20"
+    bad_el(RECT ",\"radius\":11}", "radius must be a whole number from 0 to 10");
+    bad_el(RECT ",\"border\":11}", "border must be a whole number from 0 to 10");
+    bad_el(RECT ",\"width\":2}", "width is only for line elements");
+#undef RECT
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
+                         "{\"type\":\"icon\",\"icon\":\"none\",\"x\":0,\"y\":0}"));
+    CHECK(HAS(err, "icon \"none\" is not in the file's icons"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
+                         "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"w\":3}"));
+    CHECK(HAS(err, "w must be the icon's width (2), or left out"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
+                         "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":295,\"y\":0}"));
+    CHECK(HAS(err, "past the right edge"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
+                         "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"color\":\"frame\"}"));
+    CHECK(HAS(err, "an icon can be black, white or red"));
+    CHECK(!compile_el("{\"type\":\"icon\",\"x\":0,\"y\":0}"));
+    CHECK(HAS(err, "an icon element needs icon"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=gEA=\"}", TEXT_A "}"));
+    CHECK(HAS(err, "icons.dot: data must be base64 of 2 bytes (2 rows of 1)"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"g!A=\"}", TEXT_A "}"));
+    CHECK(HAS(err, "icons.dot: data must be base64"));
+    /* "\/" for "/" (PHP's json_encode writes that): 3 rows of 8 drawn pixels, 8 columns of 0xE0 */
+    CHECK(compile_icons("\"bar\":{\"w\":8,\"h\":3,\"data\":\"\\/\\/\\/\\/\"}",
+                        "{\"type\":\"icon\",\"icon\":\"bar\",\"x\":0,\"y\":0}"));
+    for (int i = 1; i <= 8; i++)
+        CHECK_INT(bin.bin[bin.size - i], 0xE0);
+    CHECK(!compile_icons("\"dot\":{\"w\":0,\"h\":2,\"data\":\"\"}", TEXT_A "}"));
+    CHECK(HAS(err, "icons.dot: w and h must be 1 to 128 pixels"));
+    CHECK(!compile_icons("\"Dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}", TEXT_A "}"));
+    CHECK(HAS(err, "icon names must be"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"},\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
+                         TEXT_A "}"));
+    CHECK(HAS(err, "the icon \"dot\" appears twice"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\",\"x\":1}", TEXT_A "}"));
+    CHECK(HAS(err, "unknown key \"x\""));
 }
 
 static void *no_memory(size_t n)
@@ -514,5 +696,6 @@ void test_layout(void)
     test_examples();
     test_binary();
     test_errors();
+    test_shapes();
     test_storage();
 }

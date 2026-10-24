@@ -445,6 +445,93 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [Content]
+      operationId: setTagImage
+      summary: Show a picture on a tag
+      description: |
+        A picture the client drew becomes the tag's content, for what a layout cannot show
+        (a chart, a logo, a dashboard drawn in Home Assistant). Layouts stay the way for
+        price labels: a picture costs about 5 KB of NVS per tag (less when it has large
+        areas of one colour), a layout entry about 300 bytes.
+
+        The body is a PNG of exactly the tag's screen size (`width` x `height` in
+        `GET /api/tags/{mac}/image`, 296 x 128 for the 2.9"), any colour type and bit depth,
+        not interlaced; transparency is laid over white. Each pixel becomes the nearest
+        colour the tag has (white, black, and red on a model with red), or with
+        `dither=true` the colours are mixed by error diffusion (Floyd–Steinberg), for
+        photos and shades of grey. A 1-bit black and white PNG is shown as it is. The body
+        may also be the raw image in the format `GET` gives (`data`, decoded from base64),
+        of exactly that many bytes. Content-Type is not checked.
+
+        The tag must have polled once, so its model is known. The picture is kept in NVS and
+        shown like other content: `content_id` changes with the picture, the same picture
+        again gives `changed: false`, and the tag gets it at its next poll. `GET
+        /api/tags/{mac}` then has `layout: "image"` and no fields. Content set later (a
+        layout, `PUT /api/tags`) replaces it, and the picture is erased. Pictures cannot be
+        scheduled (`at`). Pictures leave 32 KB of NVS free for content, settings and layout
+        files: past that a new picture gets 507.
+
+        Over WiFi the PNG is decoded as it arrives, so it may be up to 512 KB; over the USB
+        port a request body is at most 24,576 bytes.
+      parameters:
+        - name: dither
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Mix the colours by error diffusion instead of taking the nearest one
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, format: binary }
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Stored; the tag fetches it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetResult" }
+        "400":
+          description: A bad MAC or `dither`, no body, a broken PNG (also one with data past its last row), a body that ended early, or a raw image with a pixel in both the black and the red plane
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409":
+          description: The tag's model is not known yet (it has not polled), or the tag was deleted or changed while the picture came in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415":
+          description: Not a PNG (nor a raw image of the right size), an interlaced PNG, or one with a colour type, bit depth or critical chunk PNG does not have
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The picture is not the size of the tag's screen; the message gives the size
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This AP keeps no pictures
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No memory to decode the picture (up to about 56 KB, 32 KB of it in one block)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: No room in NVS for the picture (32 KB is kept free for other content), or the tag table is full
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/tags/{mac}/config:
     parameters:
       - $ref: "#/components/parameters/mac"
@@ -1136,6 +1223,8 @@ components:
             are dropped, so `["a",""]` and `["a"]` are the same content. The AP sends the text
             as it is and works nothing out: for the price with and without VAT, use a layout
             with a field for each (e.g. `vare-priser`) and send both.
+            A number formatted by the layout (`decimals`, `thousands`) that fits in none of
+            its element's fonts gives `422`, since a price cut short would be a wrong one.
         price_highlight:
           type: [boolean, "null"]
           default: false
@@ -1340,7 +1429,7 @@ components:
         - $ref: "#/components/schemas/TagFields"
         - type: object
           properties:
-            layout: { type: string, description: The layout of the content }
+            layout: { type: string, description: "The layout of the content, `image` for a picture (`PUT /api/tags/{mac}/image`)" }
             fields:
               type: array
               items: { type: string }
@@ -1603,7 +1692,7 @@ components:
         model: { $ref: "#/components/schemas/ModelName" }
         version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version of the file the AP draws with (CRC-32 of the compiled file); null: no file" }
         size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
-        binary_size: { type: integer, minimum: 0, maximum: 2048, description: Bytes of the compiled file }
+        binary_size: { type: integer, minimum: 0, maximum: 4096, description: Bytes of the compiled file }
         layouts: { type: array, items: { type: string }, description: The layout names in the file }
 
     LayoutInfo:
@@ -1613,11 +1702,37 @@ components:
     LayoutList:
       type: object
       additionalProperties: false
-      required: [max_size, max_binary_size, layouts]
+      required: [max_size, max_binary_size, board, limits, layouts]
       properties:
-        max_size: { type: integer, const: 8192 }
-        max_binary_size: { type: integer, const: 2048 }
+        max_size: { type: integer, minimum: 1, description: "Bytes of JSON a layout file may have (limits.jsonBytes); 8192 on every board so far" }
+        max_binary_size: { type: integer, minimum: 1, description: "Bytes a compiled layout file may have (limits.fileBytes)" }
+        board:
+          type: string
+          description: The AP board the firmware is built for (ap/boards/), e.g. c6-supermini or s3-n16r8-c6
+          examples: [c6-supermini]
+        limits: { $ref: "#/components/schemas/LayoutLimits" }
         layouts: { type: array, items: { $ref: "#/components/schemas/LayoutInfo" } }
+
+    LayoutLimits:
+      type: object
+      description: >-
+        What one layout file may hold on this AP, named as in the web page's renderer.limits. The
+        board sets runs, rects, lines, icons, fileBytes and jsonBytes ("limits" in
+        ap/boards/<board>/board.json; boards with PSRAM allow more), so a file one AP accepts can be
+        too big for another. The designer shows these for the AP it is connected to.
+      additionalProperties: false
+      required: [runs, rects, lines, icons, barcodes, qrs, fileBytes, jsonBytes, fields, fixedTextBytes]
+      properties:
+        runs: { type: integer, minimum: 1, description: "Lines of text per screen (each text element counts the most lines it can use); 32 on the ESP32-C6" }
+        rects: { type: integer, minimum: 1, description: "rect elements plus invert/highlight/red_invert text per screen; 20 on the ESP32-C6" }
+        lines: { type: integer, minimum: 1, description: "line elements per screen; 16 on the ESP32-C6" }
+        icons: { type: integer, minimum: 1, description: "icon elements per screen; 8 on the ESP32-C6" }
+        barcodes: { type: integer, const: 1, description: barcode elements per layout }
+        qrs: { type: integer, const: 1, description: QR elements per layout }
+        fileBytes: { type: integer, minimum: 1, description: "Bytes of the compiled file; 4096 on the ESP32-C6" }
+        jsonBytes: { type: integer, minimum: 1, description: "Bytes of the JSON file; 8192 on the ESP32-C6" }
+        fields: { type: integer, const: 6, description: Fields per layout }
+        fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
 
     LayoutStored:
       allOf:
@@ -1701,7 +1816,8 @@ components:
         Keys starting with `_` and `description` are comments. Besides this structure the AP
         checks that every box is inside the screen (296×128 or 200×200), that a text box is
         at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`), at
-        most 32 text lines and 20 rectangles per layout, and at most 2048 bytes compiled.
+        most 32 text lines, 20 rectangles, 16 lines and 8 icons per layout, and at most 4096
+        bytes compiled.
       additionalProperties: false
       patternProperties: { "^_": true }
       required: [format, version, model, layouts]
@@ -1710,6 +1826,12 @@ components:
         version: { const: 1 }
         model: { $ref: "#/components/schemas/ModelName", description: The same as the model in the URL }
         description: { type: string }
+        icons:
+          type: object
+          maxProperties: 16
+          description: Small pictures that `icon` elements draw, by name
+          propertyNames: { pattern: "^[a-z][a-z0-9_]{0,15}$" }
+          additionalProperties: { $ref: "#/components/schemas/Icon" }
         layouts:
           type: array
           minItems: 1
@@ -1739,19 +1861,47 @@ components:
           type: array
           minItems: 1
           items: { $ref: "#/components/schemas/Element" }
-          description: Drawn in order (all rectangles, then the barcode, then all text)
+          description: Drawn in order (all rectangles, lines, icons, then the barcode and QR code, then all text)
+
+    Icon:
+      type: object
+      additionalProperties: false
+      required: [w, h, data]
+      properties:
+        w: { type: integer, minimum: 1, maximum: 128 }
+        h: { type: integer, minimum: 1, maximum: 128 }
+        data:
+          type: string
+          description: |
+            Base64 of the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a
+            row's first byte its leftmost pixel; a 1 bit is drawn in the element's colour, a 0 bit
+            leaves what is under it
 
     Element:
       type: object
       additionalProperties: false
       patternProperties: { "^_": true }
-      required: [type, x, y, w, h]
+      required: [type, x, y]
+      description: |
+        Every element needs `x` and `y`, and all but `icon` (whose size is the icon's) `w` and `h`.
       properties:
         type:
           type: string
-          enum: [text, rect, barcode]
-          description: "`text`: one field in a box; `rect`: a filled box; `barcode`: one field as a barcode"
-        field: { type: [string, integer], description: "text and barcode: a name from `fields`, or its index" }
+          enum: [text, rect, barcode, line, icon, qr]
+          description: |
+            `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
+            field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`; `qr`: one
+            field as a QR code (black, with a white quiet zone of 2 modules inside the box)
+        radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
+        border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
+        direction:
+          type: string
+          enum: [down, up]
+          default: down
+          description: "line only: the line runs from the top-left to the bottom-right corner of its box (`down`) or from the bottom-left to the top-right (`up`); a box 1 px high or wide is a straight line"
+        width: { type: integer, minimum: 1, maximum: 16, default: 1, description: "line only: in pixels. A straight line is exactly this thick, (width - 1) / 2 of it above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round" }
+        icon: { type: string, description: "icon only, required: a name from the file's `icons`" }
+        field: { type: [string, integer], description: "text, barcode and qr: a name from `fields`, or its index" }
         text:
           type: string
           minLength: 1
@@ -1767,9 +1917,16 @@ components:
         module:
           type: integer
           minimum: 0
-          maximum: 4
+          maximum: 8
           default: 0
-          description: "barcode only: module width in pixels, 0 = the widest that fits the box"
+          description: "barcode: module width in pixels, at most 4; qr: module size in pixels, at most 8; 0 = the largest that fits the box"
+        ecc:
+          type: string
+          enum: [L, M, Q, H]
+          default: M
+          description: |
+            qr only: error correction level (about 7, 15, 25 or 30 % of the code can be lost). Content
+            whose QR field is longer than the largest version the box holds takes is refused with 422.
         x: { type: integer, minimum: 0 }
         y: { type: integer, minimum: 0 }
         w: { type: integer, minimum: 1 }
@@ -1785,6 +1942,21 @@ components:
         align: { type: string, enum: [left, center, right], default: left }
         valign: { type: string, enum: [top, middle, bottom], default: top }
         lines: { type: integer, minimum: 0, maximum: 3, default: 0, description: "0: as many as the box holds" }
+        decimals:
+          oneOf:
+            - { type: integer, enum: [0, 2] }
+            - { type: string, enum: [auto, dash, keep] }
+          description: |
+            text only: draws a number such as a price the same way whatever the client sends
+            (`1299.9`, `1299,90`, `1 299,90`, `199,-`). `2`: `1299,90`; `0`: `1300` (rounded);
+            `auto`: `199` or `199,90`; `dash`: `199,-` or `199,90`; `keep`: the decimals as sent,
+            with a decimal comma. One dot and no comma is the decimal sign (`1.299` is 1,299).
+            Text that is not a number is drawn as sent. A formatted number is drawn on one line.
+            At most 8 elements per layout with a number format. Left out: no format.
+        thousands:
+          type: boolean
+          default: false
+          description: "text only: a space between every three digits, `1 299,90`"
         color:
           type: string
           enum: [black, white, frame, invert, highlight]

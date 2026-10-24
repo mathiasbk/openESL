@@ -13,7 +13,7 @@ How a release goes from `development` to the tags: the pull requests, the checks
 
 3. Do the checklist below, then merge with a merge commit (not squash), so `master` keeps the history of `development`.
 
-The usual way [release.yml](../.github/workflows/release.yml) starts is a merge to `master` that changes `VERSION`, so step 1 must be merged before step 3. It can also be started by hand or by pushing a tag `v<VERSION>` (README, "Releases"). It builds the firmware, publishes the GitHub release with the files and `SHA256SUMS.txt`, and publishes the web page again.
+The usual way [release.yml](../.github/workflows/release.yml) starts is a merge to `master` that changes `VERSION`, so step 1 must be merged before step 3. It can also be started by hand or by pushing a tag `v<VERSION>` (README, "Releases"). It builds the firmware, publishes the GitHub release with the files and `SHA256SUMS.txt`, and publishes the web page again. The same push to `master` publishes `wiki/` to the GitHub wiki ([wiki.yml](../.github/workflows/wiki.yml)).
 
 ## 2. Checklist before merging to master
 
@@ -24,6 +24,7 @@ Copy this into the release pull request and tick it off.
 - [ ] python tools/check.py passes on the development HEAD, ap-fw included
 - [ ] The notes from tools/release_notes.py read right, and say which parts changed
 - [ ] One-way changes in this release are listed, and each was tested on hardware
+- [ ] The wiki (wiki/) describes this release: new features, changed steps, upgrade notes
 AP (if the AP firmware changed):
 - [ ] OTA to a real AP (esl-client ota ... --wait); GET /api/ota says confirmed
 - [ ] The dashboard loads, tags check in, sending text to a tag works
@@ -57,6 +58,12 @@ In 0.5.0 the AP draws every screen and sends it to the tag as an image. The tag 
 4. Optional, C6 boards only: the `tagfw` partition grew from 2 to 7 tag models in 0.5.0. An AP updated over the air keeps 2, which is enough for the 2.9" and the 1.54". The Flash AP tab without "Erase device" gives it 7 and keeps what it has stored.
 
 Going back from 0.5.0 means the AP and the tags together, to the previous release's AP and tag images. A 0.4.x AP holds at most 256 tags (tags in slots above that are not loaded), and it refuses a layout file at boot that uses the larger limits of 0.5.0 (more than 16 text lines or 10 boxes per layout, or more than 768 bytes compiled). Put such a file back from the backup after making it fit.
+
+### Upgrading from 0.5.x to 0.6.0
+
+Images to the tags get a second code, image format 2 ([protokoll.md](protokoll.md), "The 2D image code"). Either order works: a 0.6.0 AP sends image format 2 only to tags whose POLL has bit7, and then only when it is shorter than image format 1, so 0.5.x tags keep getting image format 1, and 0.6.0 tags still take image format 1 from a 0.5.x AP. Update the AP first as usual, then the tags.
+
+Layout files compile to layout format 2 (lines, round and open boxes, icons, QR codes). The AP sends every tag with a file layout its screen again once after the update, because the file's version changes, and QR codes now keep a quiet zone inside their box, so a QR box holds a smaller version than before. Going back to 0.5.x: a 0.5.x AP refuses at boot a stored file that uses `icons` or the `line` and `qr` types, or `radius`, `border`, `direction` or `width`, and the layouts of that model are gone until a file without them is uploaded. It also drops a picture put on a tag with `PUT /api/tags/{mac}/image` ("ignoring stored entry" in its log). Neither is erased while the AP runs 0.5.x, and the tags keep showing what they had: updating the AP to 0.6.0 again brings back the layout files and pictures that were not replaced in the meantime (tried on hardware). A layout file uploaded, or content sent to a tag, under 0.5.x wins, and a picture can then be lost. `esl-client backup` keeps the pictures too.
 
 ## 4. A bad release
 

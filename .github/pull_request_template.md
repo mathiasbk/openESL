@@ -9,6 +9,7 @@
 <!-- Before and after: screenshots or rendered tag images for visual changes, test or serial output for firmware. -->
 
 - [ ] `python tools/check.py` passes locally (steps run: )
+- [ ] Docs and the wiki pages in `wiki/` describe the change (or it changes nothing users see)
 - Hardware tested on: <!-- e.g. 2.9" tag, 1.54" tag, ESP32-C6 AP, or "not tested on hardware" -->
 
 ## Merge danger

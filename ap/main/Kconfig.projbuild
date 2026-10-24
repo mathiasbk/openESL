@@ -62,6 +62,19 @@ menu "OpenESL AP"
             call the AP's plain http API, a page from the AP itself may.
             Its API calls need the token as usual.
 
+    config ESL_WEB_DESIGNER
+        bool "Design tab next to the dashboard (the web page's label designer)"
+        depends on ESL_WEB_DASHBOARD
+        default n
+        help
+            The web page's Design tab on the same page, packed the same way
+            (about 125 KB more gzipped): it opens the layout files stored on
+            this AP and saves them back to it (GET and PUT /api/layouts/...),
+            and sends to a tag. Its renderer (WebAssembly) is packed too, built
+            from the same sources as the firmware, so it needs no internet; build
+            it first with python web/build.py --wasm (Emscripten). On for the
+            boards with flash and PSRAM to spare.
+
     config ESL_STATUS_PAGE
         bool "Status page at / (no token)"
         default y
@@ -195,7 +208,21 @@ menu "OpenESL AP"
                 For a chip without 802.15.4 (the ESP32-S3 in boards/s3-n16r8-c6): a
                 C6 running the firmware in ap/radio/ does the radio, and this chip
                 answers the tags through it (docs/ap-radio-link.md).
+        config ESL_RADIO_DRIVER_NET
+            bool "802.15.4 radio over WiFi (an ESP32-C6 running ap/netradio/)"
+            depends on ESL_RADIO_AP
+            help
+                The radio is a C6 elsewhere on the same WiFi network, which answers
+                the tags from its own cache and syncs with this AP over TCP
+                (docs/ap-netradio.md: read its limits first). Not secure yet: any
+                device on the network can connect as the radio.
     endchoice
+
+    config ESL_NETRADIO_PORT
+        int "Radio over WiFi: TCP port"
+        depends on ESL_RADIO_DRIVER_NET
+        range 1 65535
+        default 4553
 
     config ESL_COPROC_UART_NUM
         int "Radio coprocessor: UART"

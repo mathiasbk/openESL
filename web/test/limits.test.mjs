@@ -21,6 +21,11 @@ for (const model of Object.keys(MODELS)) {
     }
   });
 
+  test(`${model}: the designer knows the height of every font`, async () => {
+    const r = await loadRenderer(model, WASM);
+    assert.deepEqual(r.limits.fontHeight, { small: 17, text20: 20, medium: 24, mid: 36, price44: 44, large: 52 });
+  });
+
   test(`${model}: over the limits, the compiler names the same counts`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width } = MODELS[model];
@@ -65,3 +70,33 @@ for (const model of Object.keys(MODELS)) {
     }
   });
 }
+
+// An AP board with more room (limits in ap/boards/<board>/board.json, GET /api/layouts): the
+// renderer takes its limits, checks against them, and goes back to the default board's.
+test("the renderer takes the connected AP's limits", async () => {
+  const model = Object.keys(MODELS)[0];
+  const r = await loadRenderer(model, WASM);
+  const { width } = MODELS[model];
+  const dflt = { ...r.limits };
+  assert.equal(dflt.runs, 32);
+  const rects = (n) => JSON.stringify({
+    format: "esl-layouts", version: 1, model,
+    layouts: [{ name: "a", fields: ["a"], elements: [
+      { type: "text", field: "a", x: 0, y: 0, w: width, h: 30, fonts: ["medium"] },
+      ...Array.from({ length: n }, (_, i) => ({ type: "rect", x: i, y: 50, w: 4, h: 4 })),
+    ] }],
+  });
+  assert.equal(r.loadLayouts(rects(dflt.rects + 1)).ok, false);
+  r.setLimits({ runs: 64, rects: 40, lines: 32, icons: 16, fileBytes: 4096, jsonBytes: 8192, fields: 6 });
+  assert.deepEqual([r.limits.runs, r.limits.rects, r.limits.lines, r.limits.icons], [64, 40, 32, 16]);
+  assert.equal(r.loadLayouts(rects(dflt.rects + 1)).ok, true);
+  assert.match(r.loadLayouts(rects(41)).error, /the AP draws at most 40/);
+  // more than any board in ap/boards/ is cut to the room the renderer has
+  r.setLimits({ rects: 1000 });
+  assert.equal(r.limits.rects, 40);
+  r.setLimits({ rects: 3 });
+  assert.equal(r.loadLayouts(rects(3)).ok, true);
+  assert.match(r.loadLayouts(rects(4)).error, /the AP draws at most 3$/);
+  r.setLimits(null);
+  assert.deepEqual(r.limits, dflt);
+});

@@ -39,12 +39,22 @@ typedef struct {
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev);
 
+/* A frame a network radio answered itself (esl_rcache), at now_ms on the AP's clock:
+ * the store learns from it what esl_radio_handle() would note (status, what the tag
+ * shows, took and refused), but nothing is drawn: an image the tag shows or is offered
+ * is the one the store knows for its content (esl_rhost has drawn it). */
+void esl_radio_replay(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
+                      int8_t rssi, uint64_t now_ms);
+
 /* The tag firmware images the radio path offers (one per AP; NULL = none,
  * the default). Set once at start-up, before the radio runs. */
 void esl_radio_set_tagfw(esl_tagfw_t *fw);
 /* The image buffers for tags that show what the AP draws (NULL = none, the
  * default: such tags get IDLE). Set once at start-up. */
 void esl_radio_set_image(esl_image_t *im);
+/* What was set (for a radio driver that answers the tags elsewhere: esl_rhost). */
+esl_tagfw_t *esl_radio_tagfw(void);
+esl_image_t *esl_radio_image(void);
 
 /* ---- fake tag ------------------------------------------------------------
  * Behaves like the tag firmware on the air (tag/src/app.c): sends POLL with the
@@ -56,7 +66,7 @@ void esl_radio_set_image(esl_image_t *im);
  * its version, as after the restart, unless fw_bad (it then "rolls back" and
  * reports ESL_POLL_F_FWFAIL, as the bootloader would).
  * With images (the default, as a tag with SPI flash) it reports ESL_POLL_F_IMAGE
- * and ESL_POLL_F_IMG_RLE and takes the image the AP offers (IMG / IMG_REQ,
+ * ESL_POLL_F_IMG_RLE and ESL_POLL_F_IMG_2D and takes the image the AP offers (IMG / IMG_REQ,
  * keeping a CRC as the tag checks it); a whole image with the right id is what it
  * "shows" (the next POLL reports the id), unless img_bad (it then reports
  * ESL_POLL_F_DRAWFAIL and keeps what it showed). images = false is a tag without
@@ -92,6 +102,7 @@ typedef struct {
     /* images drawn by the AP */
     bool images;               /* reports ESL_POLL_F_IMAGE: content_id in POLL is the image shown */
     bool img_rle;              /* reports ESL_POLL_F_IMG_RLE: takes coded images too */
+    bool img_2d;               /* reports ESL_POLL_F_IMG_2D: takes 2D coded images too */
     bool img_bad;              /* every image it gets "fails to draw" */
     uint32_t img_dl_id, img_dl_sum;
     uint16_t img_dl_size, img_dl_got;

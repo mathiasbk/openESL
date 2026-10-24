@@ -229,6 +229,98 @@ static esp_err_t tagfw_put(httpd_req_t *req)
     return ret;
 }
 
+/* PUT /api/tags/{mac}/image: the picture is decoded as it arrives (esl_api_image_put),
+ * so a PNG larger than a JSON body (up to ESL_API_MAX_IMAGE_BODY) needs no block of RAM
+ * its size. It is read through a small buffer; what the API does not read (after an
+ * error) is dropped, within reason, so the reply gets through. */
+#define IMAGE_IN   1024
+#define IMAGE_RESP 512
+
+typedef struct {
+    httpd_req_t *req;
+    size_t left;      /* body bytes not received yet */
+    size_t pos, len;
+    unsigned reads;   /* buffers received */
+    char buf[IMAGE_IN];
+} image_body_t;
+
+static bool image_read(void *ctx, uint8_t *out, size_t n)
+{
+    image_body_t *b = ctx;
+    while (n) {
+        if (b->pos == b->len) {
+            /* Inflating can keep the CPU busy without waiting on the network (the
+               bytes are in the socket buffer already): a tick off every 16 KB lets
+               the idle task feed the task watchdog */
+            if (++b->reads % 16 == 0)
+                vTaskDelay(1);
+            size_t want = b->left < IMAGE_IN ? b->left : IMAGE_IN;
+            int r = want ? recv_some(b->req, b->buf, want) : 0;
+            if (r <= 0)
+                return false;
+            b->left -= (size_t)r;
+            b->pos = 0;
+            b->len = (size_t)r;
+        }
+        size_t k = b->len - b->pos < n ? b->len - b->pos : n;
+        memcpy(out, b->buf + b->pos, k);
+        b->pos += k;
+        out += k;
+        n -= k;
+    }
+    return true;
+}
+
+static void image_hold(bool take)
+{
+    if (take)
+        xSemaphoreTake(api_mutex, portMAX_DELAY);
+    else
+        xSemaphoreGive(api_mutex);
+}
+
+static esp_err_t image_put(httpd_req_t *req)
+{
+    const esl_api_t *api = req->user_ctx;
+    image_body_t *body = malloc(sizeof(image_body_t) + IMAGE_RESP);
+    if (!body) {
+        log_oom(req->uri, sizeof(image_body_t) + IMAGE_RESP);
+        static const char msg[] = "{\"error\":\"out of memory\"}";
+        return send_json(req, 500, msg, sizeof(msg) - 1);
+    }
+    char *resp = (char *)(body + 1);
+    body->req = req;
+    body->left = req->content_len;
+    body->pos = body->len = 0;
+    body->reads = 0;
+    char *auth = get_auth(req);
+    esl_sb_t out;
+    esl_sb_init(&out, resp, IMAGE_RESP);
+    xSemaphoreTake(api_mutex, portMAX_DELAY);
+    int status = esl_api_image_put(api, req->uri, auth, req->content_len, image_read, body, image_hold,
+                                   (uint64_t)esp_timer_get_time() / 1000, &out);
+    xSemaphoreGive(api_mutex);
+    free(auth);
+#if CONFIG_ESL_OTA
+    if (status != 401 && status != 429)
+        ota_confirm_running();
+#endif
+    ESP_LOGI(TAG, "PUT %s -> %d (%u bytes)", req->uri, status, (unsigned)req->content_len);
+    /* Drain the rest so the reply gets through, within reason; past that the
+       connection is closed after the reply */
+    while (body->left && body->left <= 16 * IMAGE_IN) {
+        int r = recv_some(req, body->buf, body->left < IMAGE_IN ? body->left : IMAGE_IN);
+        if (r <= 0)
+            break;
+        body->left -= (size_t)r;
+    }
+    esp_err_t ret = send_json(req, status, out.buf, out.len);
+    if (body->left)
+        ret = ESP_FAIL;
+    free(body);
+    return ret;
+}
+
 static esp_err_t api_handler(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
@@ -240,6 +332,8 @@ static esp_err_t api_handler(httpd_req_t *req)
     char puri[ESL_API_PIECE_URI_MAX];
     if (req->method == HTTP_PUT && len && esl_api_tagfw_piece_uri(req->uri, len, 0, puri, sizeof(puri)))
         return tagfw_put(req);
+    if (esl_api_image_put_uri(method, req->uri))
+        return image_put(req);
 
     if (len > ESL_API_MAX_BODY) {
         static const char msg[] = "{\"error\":\"body too large\"}";

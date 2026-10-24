@@ -43,6 +43,9 @@
                                      * in its POLL is then the image_id it shows. A tag without it (no SPI
                                      * flash) cannot show content. */
 #define ESL_POLL_F_IMG_RLE   0x40   /* the tag also takes ESL_IMG_FMT_RLE images */
+#define ESL_POLL_F_IMG_2D    0x80   /* ... and ESL_IMG_FMT_2D images */
+/* The flags byte is full: every bit is taken, 0x04 included (retired, and kept unused
+ * since older firmware set it). A new capability needs a field of its own after cfg_ver. */
 
 /* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
  * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
@@ -167,9 +170,30 @@
  * ESL_IMG_FMT_RLE is the raw image run-length coded, sent only to a tag whose POLL has
  * ESL_POLL_F_IMG_RLE: a control byte c, then for c < 0x80 the next c + 1 bytes as they
  * are, for c >= 0x80 the next byte c - 0x80 + 2 times (2 to 129). It ends exactly at
- * the raw size; image_id is the CRC-32 of the coded bytes. */
+ * the raw size; image_id is the CRC-32 of the coded bytes.
+ *
+ * ESL_IMG_FMT_2D is the raw image coded column against column, modelled on CCITT T.6
+ * (G4) with its own run codes, sent only to a tag whose POLL has ESL_POLL_F_IMG_2D. It
+ * is a bit string, most significant bit first, and columns follow each other with no
+ * padding: every column of the raw image (the red plane's after the black plane's),
+ * height pixels each, coded against the column before it (the first against an empty
+ * one). Ink is colour 1. In a column, a change is a row y whose pixel differs from row
+ * y - 1 (row -1 has no ink). Coding goes down the column from a0 = -1 with colour 0: b1
+ * is the first change in the reference column below a0 to the other colour than the
+ * current one, b2 the change after b1 (height if none), and from s = max(a0, 0):
+ *   1, 011, 010, 000011, 000010, 0000011, 0000010  vertical: the next change a1 is at b1,
+ *       b1 + 1, b1 - 1, b1 + 2, b1 - 2, b1 + 3, b1 - 3; rows s..a1 - 1 get the colour,
+ *       the colour flips and a0 = a1
+ *   0001  pass: rows s..b2 - 1 get the colour, a0 = b2
+ *   001 r1 r2  horizontal: r1 rows of the colour from s, then r2 of the other, a0 = s + r1
+ *       + r2; r1 and r2 are Exp-Golomb codes of order 2 (r + 4 in binary, b bits, after
+ *       b - 3 zeros)
+ * until a0 is the height. After the last column the last byte is filled with zeros, and
+ * nothing follows. Decoded it is exactly the raw image; image_id is the CRC-32 of the
+ * coded bytes. */
 #define ESL_IMG_FMT_RAW      0
 #define ESL_IMG_FMT_RLE      1
+#define ESL_IMG_FMT_2D       2
 
 /* IMG_REQ, 10 byte */
 #define ESL_IREQ_LEN         10
@@ -199,20 +223,39 @@
 /*
  * Layoutfila kompilert (binær, laget av AP-en fra JSON-fila; esl_render.c tegner med den):
  *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)
- *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)
+ *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)   4 antall ikoner i (0..ESL_LBIN_ICON_MAX)
  *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver,
- *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst.
+ *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst,
+ *   så i ikoner: bredde (u16), høyde (u8), så bildet som et skjermbilde (ESL_IMG_FMT_RAW):
+ *   bredde kolonner fra venstre, (høyde + 7) / 8 byte hver, bit 7 i byte 0 = øverste rad,
+ *   1 = blekk.
  * Et tekst- eller strekkodeelement med felt ESL_LE_FIELD_FIXED | i tegner fast tekst i i stedet
  * for et tekstfelt.
  * Versjonen er CRC32 (IEEE, som esl_crc32 på AP-en) av hele fila, 0 regnes som 1.
  */
-#define ESL_LBIN_FORMAT      1
-#define ESL_LBIN_HDR_LEN     4
+#define ESL_LBIN_FORMAT      2      /* 2: ikoner, linjer og runde/åpne rektangler */
+#define ESL_LBIN_HDR_LEN     5
 #define ESL_LBIN_OFF_NTEXT   3
+#define ESL_LBIN_OFF_NICON   4
 #define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
 #define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
+#define ESL_LBIN_ICON_MAX    16     /* ikoner per fil */
+#define ESL_LBIN_ICON_HDR    3      /* u16 bredde, u8 høyde */
+#define ESL_ICON_MAX_W       128    /* største ikon i piksler */
+#define ESL_ICON_MAX_H       128
 #define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-#define ESL_LBIN_MAX         2048   /* største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først) */
+/* Største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først). Denne og ESL_DRAW_MAX_RUNS,
+ * _RECTS, _LINES og _ICONS er AP-kortets grenser: et kort kan sette andre i "limits" i
+ * ap/boards/<kort>/board.json (ap/CMakeLists.txt), og verdiene her er standarden (ESP32-C6).
+ * ESL_*_CAP er plassen koden setter av; den er grensen, unntatt i nettsidens renderer, som
+ * bygges med plass til det største kortet og tar grensene til AP-en den snakker med
+ * (esl_limits i esl_layout.h). */
+#ifndef ESL_LBIN_MAX
+#define ESL_LBIN_MAX         4096
+#endif
+#ifndef ESL_LBIN_CAP
+#define ESL_LBIN_CAP         ESL_LBIN_MAX
+#endif
 
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
@@ -227,9 +270,63 @@
 #define ESL_LE_OFF_W         11     /* u16 */
 #define ESL_LE_OFF_H         13     /* u8 */
 
+/* Tallformat for et tekstelement, i bit 4-7 av ESL_LE_OFF_OPTS (0 = teksten som sendt).
+ * Bit 4-6 er hvor mange desimaler, bit 7 tusenskille (mellomrom). Teksten må være et tall
+ * ("1299.9", "1299,90", "1 299,90", "199,-"); annen tekst tegnes uendret. Desimaltegnet er komma.
+ * Et formatert tall tegnes alltid på én linje. */
+#define ESL_LE_NUM_MASK      0x70
+#define ESL_LE_NUM_KEEP      0x10   /* desimalene som sendt */
+#define ESL_LE_NUM_0         0x20   /* ingen desimaler, avrundet */
+#define ESL_LE_NUM_2         0x30   /* alltid to desimaler */
+#define ESL_LE_NUM_AUTO      0x40   /* to desimaler, ingen når de er ,00 */
+#define ESL_LE_NUM_DASH      0x50   /* to desimaler, ",-" når de er ,00 */
+#define ESL_LE_NUM_THOUSANDS 0x80   /* mellomrom mellom hver tredje siffer: 1 299,90 */
+#define ESL_LE_NUM_MAX_LEN   24     /* lengste formaterte tall: -, 12 siffer, 3 mellomrom, komma, 6 desimaler */
+#define ESL_DRAW_MAX_NUMS    8      /* tekstelementer med tallformat per layout (esl_render.c) */
+
 #define ESL_LE_TEXT          1
 #define ESL_LE_RECT          2
 #define ESL_LE_BARCODE       3      /* text field drawn as a barcode, bars the full height of the box */
+#define ESL_LE_LINE          4      /* a straight line between two corners of the box */
+#define ESL_LE_ICON          5      /* an icon from the file, its size is the box */
+#define ESL_LE_QR            6      /* text field drawn as a QR code (ISO/IEC 18004, byte mode) */
+
+/* A rect element also uses (0 in a plain filled rect, so older files compile the same):
+ *   ESL_LE_OFF_RADIUS  corner radius in pixels, at most half the shorter side
+ *   ESL_LE_OFF_BORDER  0 = filled, else only a border this many pixels wide
+ * A line element:
+ *   ESL_LE_OFF_OPTS    ESL_LE_RISING: from the bottom-left to the top-right corner of the box,
+ *                      else from the top-left to the bottom-right
+ *   ESL_LE_OFF_WIDTH   line width in pixels, 1..ESL_LINE_W_MAX
+ *   a box 1 pixel high or wide is a straight line: exactly width pixels thick, (width - 1) / 2
+ *   of them above or left of the box, with square ends. A slanted line is every pixel whose
+ *   centre is at most width / 2 from it, so it reaches width / 2 past the box, with round ends
+ * An icon element:
+ *   ESL_LE_OFF_FIELD   the icon's number in the file
+ *   ESL_LE_OFF_COLOR   black, white or red: the icon's 1 bits are drawn, 0 bits left as they are */
+#define ESL_LE_OFF_RADIUS    ESL_LE_OFF_LINES
+#define ESL_LE_OFF_BORDER    ESL_LE_OFF_OPTS
+#define ESL_LE_OFF_WIDTH     ESL_LE_OFF_LINES
+#define ESL_LE_RISING        0x01
+#define ESL_LINE_W_MAX       16
+
+/* A QR element uses the text element's bytes like this (the rest as for text):
+ *   ESL_LE_OFF_ECC     error correction level ESL_QR_LEVEL_L..H
+ *   ESL_LE_OFF_OPTS    alignment in the box, as for text
+ *   ESL_LE_OFF_MODULE  module size in pixels, 1..ESL_QR_MODULE_MAX, 0 = the largest that fits
+ *   ESL_LE_OFF_COLOR   ESL_LE_BLACK
+ * The code takes the smallest version (1..10) that holds the field. The box holds the code
+ * and a white quiet zone of ESL_QR_QUIET modules on every side, which is drawn white, so
+ * phones read it on any background. A field that does not fit the box with 1-pixel modules
+ * draws nothing (the AP rejects such content). */
+#define ESL_LE_OFF_ECC       ESL_LE_OFF_FONT
+#define ESL_QR_LEVEL_L       0
+#define ESL_QR_LEVEL_M       1
+#define ESL_QR_LEVEL_Q       2
+#define ESL_QR_LEVEL_H       3
+#define ESL_QR_MODULE_MAX    8
+#define ESL_QR_QUIET         2u     /* modules of white round the code, inside the box */
+#define ESL_QR_MIN_SIDE      (21 + 2 * ESL_QR_QUIET) /* version 1 with 1-pixel modules */
 
 /* A barcode element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_FONT    symbology (ESL_BC_*), the two other font bytes ESL_FONT_NONE
@@ -266,16 +363,44 @@
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */
 #define ESL_FONT_LARGE       2      /* 52 px, bare siffer og " ,-.:" */
 #define ESL_FONT_MID         3      /* 36 px, samme tegn som LARGE */
-#define ESL_FONT_COUNT       4
+#define ESL_FONT_TEXT20      4      /* 20 px, Latin-1 (AP-en; tagen tegner den ikke) */
+#define ESL_FONT_PRICE44     5      /* 44 px, samme tegn som LARGE (AP-en; tagen tegner den ikke) */
+#define ESL_FONT_COUNT       6
 #define ESL_FONT_NONE        0xFF
 /* Fonthøyder i piksler (= height i tag/fonts/font_*.c), brukt av AP-en når den sjekker layouter */
 #define ESL_FONT_SMALL_H     17
 #define ESL_FONT_MEDIUM_H    24
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
+#define ESL_FONT_TEXT20_H    20
+#define ESL_FONT_PRICE44_H   44
 #define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer per skjerm (esl_render.c) */
-#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt per skjerm (esl_render.c) */
+/* Per skjerm (esl_render.c); per AP-kort, som ESL_LBIN_MAX */
+#ifndef ESL_DRAW_MAX_RUNS
+#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer */
+#endif
+#ifndef ESL_DRAW_MAX_RECTS
+#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt */
+#endif
+#ifndef ESL_DRAW_MAX_LINES
+#define ESL_DRAW_MAX_LINES   16     /* linjer */
+#endif
+#ifndef ESL_DRAW_MAX_ICONS
+#define ESL_DRAW_MAX_ICONS   8      /* ikoner */
+#endif
+#ifndef ESL_DRAW_CAP_RUNS
+#define ESL_DRAW_CAP_RUNS    ESL_DRAW_MAX_RUNS
+#endif
+#ifndef ESL_DRAW_CAP_RECTS
+#define ESL_DRAW_CAP_RECTS   ESL_DRAW_MAX_RECTS
+#endif
+#ifndef ESL_DRAW_CAP_LINES
+#define ESL_DRAW_CAP_LINES   ESL_DRAW_MAX_LINES
+#endif
+#ifndef ESL_DRAW_CAP_ICONS
+#define ESL_DRAW_CAP_ICONS   ESL_DRAW_MAX_ICONS
+#endif
+#define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */

@@ -25,7 +25,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | fw_ver | 2 | firmware version, major × 10000 + minor × 100 + patch (0.1.0 = 100, 1.2.3 = 10203; firmware before 0.1.0 sent 1) |
 | battery_mv | 2 | battery voltage in mV, 0 = unknown (the 1.54" cannot measure it: its panel cannot be read and the ZBS243 ADC has no supply input, see kildelogg.md) |
 | content_id | 4 | the `image_id` of the picture the tag shows now (0 = nothing, or one of its status screens) |
-| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bit4 stays on until the tag starts downloading another version, so the AP counts it against the version it offered only once the tag has asked for a block of it: before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP (see "Image transfer"); the tag sets it when it has its SPI flash. bit6 = it also takes run-length coded images (IMG `fmt` 1). bit2 is not used (firmware that drew content itself set it for a rejected layout file) |
+| flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bit4 stays on until the tag starts downloading another version, so the AP counts it against the version it offered only once the tag has asked for a block of it: before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP (see "Image transfer"); the tag sets it when it has its SPI flash. bit6 = it also takes run-length coded images (IMG `fmt` 1), bit7 = it also takes images coded column against column (IMG `fmt` 2). bit2 is not used (firmware that drew content itself set it for a rejected layout file) |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
 
@@ -91,7 +91,7 @@ Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 
 | size | 2 | size of the image in bytes, as sent (a compressed image is shorter than the screen) |
 | pos | 2 | where in the image the data starts |
 | model | 1 | the tag model the image is drawn for |
-| fmt | 1 | 0 = raw: 1 bit per pixel in screen coordinates, column by column as the tag's `draw_column()` gives it ((height + 7) / 8 bytes per column, byte 0 bit 7 = row 0 at the top, column 0 at the left first), the black plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a pixel is never set in both. The tag's display code rotates, transposes and inverts it for its panel (the 1.54" panel takes rows, rotated 180°). `size` is then exactly planes × width × ((height + 7) / 8): 4736 bytes on the 2.9", 5000 on the 1.54". 1 = run-length coded raw image, sent only to tags whose POLL has bit6: a control byte c, then for c < 0x80 the next c + 1 bytes as they are, and for c ≥ 0x80 the next byte repeated c − 0x80 + 2 times (2 to 129). Decoded it is exactly the raw image above; `size` is the coded length and `image_id` the CRC-32 of the coded bytes. The AP sends format 1 only when it is shorter than the raw image. Other values are reserved; a tag refuses a format it does not know |
+| fmt | 1 | 0 = raw: 1 bit per pixel in screen coordinates, column by column as the tag's `draw_column()` gives it ((height + 7) / 8 bytes per column, byte 0 bit 7 = row 0 at the top, column 0 at the left first), the black plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a pixel is never set in both. The tag's display code rotates, transposes and inverts it for its panel (the 1.54" panel takes rows, rotated 180°). `size` is then exactly planes × width × ((height + 7) / 8): 4736 bytes on the 2.9", 5000 on the 1.54". 1 = run-length coded raw image, sent only to tags whose POLL has bit6: a control byte c, then for c < 0x80 the next c + 1 bytes as they are, and for c ≥ 0x80 the next byte repeated c − 0x80 + 2 times (2 to 129). Decoded it is exactly the raw image above; `size` is the coded length and `image_id` the CRC-32 of the coded bytes. 2 = the raw image coded column against column, sent only to tags whose POLL has bit7; see "The 2D image code" below. The AP sends a coded format only when it is shorter than the raw image, and of the two the shorter. Other values are reserved; a tag refuses a format it does not know |
 | data | rest | bytes `pos .. pos + n` of the image, n ≤ 92 (`ESL_IMG_CHUNK_MAX` = 110 − 14 − 4 for the MIC) |
 
 **IMG_REQ** (tag → AP), `type = 0x0A`, 10 bytes
@@ -108,37 +108,45 @@ The AP compiles the JSON layout file (part 3) into this format and draws each ta
 
 | Bytes | Content |
 |---|---|
-| 0 | format = 1 |
+| 0 | format = 2 (1 had no icons, lines or open and rounded rectangles) |
 | 1 | model (as in POLL) |
 | 2 | number of layouts n, 1..16 |
 | 3 | number of fixed texts t, 0..32 |
+| 4 | number of icons i, 0..16 |
 | then n times | number of elements (1 byte), then the elements, 14 bytes each |
 | then t times | a fixed text: its length (1 byte, 1..64), then the Latin-1 text |
+| then i times | an icon: width (2 bytes, 1..128), height (1 byte, 1..128), then the picture as a raw screen image (format 0 under "IMG"): width columns of (height + 7) / 8 bytes, bit 7 of byte 0 the top row, 1 = drawn |
 
 Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 
 | Offset | Bytes | Field |
 |---|---|---|
-| 0 | 1 | kind: 1 = text, 2 = filled rectangle, 3 = barcode |
-| 1 | 1 | text field 0..5 (text and barcode), or 0x80 + i for fixed text i of the file |
-| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF |
-| 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom) |
-| 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits |
+| 0 | 1 | kind: 1 = text, 2 = rectangle, 3 = barcode, 4 = line, 5 = icon, 6 = QR code |
+| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file |
+| 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF. QR code: the first byte is the error correction level (0 = L, 1 = M, 2 = Q, 3 = H), the other two 0xFF |
+| 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom). Rectangle: border width, 0 = filled. Line: bit 0 set = from the bottom-left to the top-right corner of the box, else from the top-left to the bottom-right |
+| 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits. QR code: module size in pixels 1..8, 0 = the largest that fits. Rectangle: corner radius. Line: width 1..16 |
 | 7 | 1 | colour: 0 black, 1 white, 2 inverted (white text in a black box), 3 highlight (inverted if flag bit0, else black), 4 frame (black if flag bit1, else not drawn), 5 red (text or rectangle), 6 red inverted (white text in a red box). 5 and 6 only on a model with red (`colors` in `shared/models.json`) |
 | 8 | 2 | x (pixels from the left) |
 | 10 | 1 | y (pixels from the top) |
 | 11 | 2 | w |
 | 13 | 1 | h |
 
+A **line** runs corner to corner in its box (a box 1 pixel high or wide is a straight line). A straight line is its box along it and exactly width pixels across it, (width − 1) / 2 of them above or left of the box, with square ends. A slanted line is every pixel whose centre is at most width / 2 from the segment, worked out in whole numbers so every platform draws the same pixels; its ends are round. A **rectangle** with a radius leaves out the pixels whose centre is outside the quarter circle in each corner; with a border, the same shape shrunk by the border (radius minus border) is left as it is inside. An **icon** draws its 1 bits in the element's colour and leaves the rest. Lines, rectangles and icons can be black, white or red (rectangles also frame).
+
 How a text element is drawn (font fallback, wrapping, "…", inverted box) is in `ap/components/esl_core/esl_render.c`; the built-in layouts `price` and `text` are the same kind of element list. The content flags (bit0 highlighted price, bit1 frame) come from `price_highlight` and `frame` in `PUT /api/tags`.
 
 A **barcode** element draws its field as black bars the full height of the box, placed by the horizontal alignment, with the quiet zones (10 modules each side for Code 128, 11 left and 7 right for EAN-13) inside the box. Its colour is always black (0). Code 128 takes ASCII 32–127; a field of only digits (2 or more) is packed two digits per symbol (code set C, an odd last digit in code set B). EAN-13 takes 12 digits (the AP adds the check digit) or 13 with a correct check digit. The AP refuses content whose barcode field cannot be encoded, or does not fit the box even with 1-pixel modules, in `PUT /api/tags` (part 2). At most one barcode per layout.
+
+A **QR code** element (ISO/IEC 18004, byte mode, versions 1–10, the mask chosen by the standard's penalty rules; `esl_qr.c`, after Project Nayuki's QR Code generator library, MIT) draws its field as the smallest version that holds it at the element's error correction level, square in its box, placed by both alignments, with modules of the element's size or, at 0, the largest whole number of pixels that fits. The box also holds a quiet zone of 2 modules on every side (`ESL_QR_QUIET`), drawn white over whatever is under it, so phones read the code on a black band too. The code is black. The compiler works out the largest version the box holds with its quiet zone, and the AP refuses content whose QR field is longer than that version takes (`PUT /api/tags`, part 2). At most one QR code per layout.
 
 How wide a module should be: the 2.9" has 0.23 mm pixels and the 1.54" 0.14 mm. EAN-13 is specified from 0.264 mm per module (80 %), so a 2-pixel module (0.45 mm) on the 2.9" is a safe choice; 1-pixel modules are below the standard and need a good scanner.
 
 The **version** of a layout file is the CRC-32 (IEEE 802.3, the same as zlib) of the whole binary file; 0 is counted as 1. It changes exactly when what the tags show changes; a JSON file that only differs in whitespace, descriptions or layout names gives the same binary and keeps the version. A new version gives the tags with content from that file new images (their `image_id` changes).
 
-The largest compiled file is **2048 bytes** (`ESL_LBIN_MAX`). That is about 145 elements, for example 16 layouts of 9 elements; 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
+The largest compiled file is **4096 bytes** (`ESL_LBIN_MAX`). That is about 290 elements, or for example 16 layouts of 9 elements and 1.9 KB of icons (a 64×64 icon is 515 bytes); 8 KB of JSON usually fills before it does. The AP refuses bigger files when they are uploaded.
+
+These limits, and the per-layout ones below, belong to the AP, not the tag: the AP draws the image, and the tag only shows it. They are set per AP board (`"limits"` in `ap/boards/<board>/board.json`); the numbers here are the ESP32-C6's, the default and the smallest. Boards with PSRAM (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) allow 64 text lines, 40 rectangles, 32 lines and 16 icons per layout, so a file such an AP accepts can be refused by a C6. `GET /api/layouts` says which board an AP is and what it allows (`board`, `limits`), and the designer shows the limits of the AP it is connected to.
 
 ### Sequence
 ```
@@ -180,14 +188,34 @@ Tag                                          AP
  | POLL(content_id=A, flags bit5) ----------->|  the AP wants image B ≠ A shown, nothing else waits
  |<------------- IMG(B, size, pos 0, 92 B)    |
  | IMG_REQ(B, pos 92) ----------------------->|
- |<------------- IMG(B, size, pos 92, ...)    |  ... 52 blocks for a raw 2.9" screen, 55 for a 1.54"; coded (bit6) a shelf screen takes about a third fewer
+ |<------------- IMG(B, size, pos 92, ...)    |  ... 52 blocks for a raw 2.9" screen, 55 for a 1.54"; coded (bit7) a shelf screen takes 6
  | has `size` bytes: writes them to the panel
  | POLL(content_id=B) ----------------------->|  IDLE
 ```
-- **When the AP sends it.** To a tag whose POLL has bit5, when the `content_id` it reports differs from the `image_id` of the picture the AP wants shown, after CONFIG and before FW (see "Priority"). A tag without bit5 (firmware that drew content itself, or a tag whose SPI flash does not answer) gets no content: the AP answers IDLE, and the API says so in `content_error`. The AP draws the image at the POLL into one of two buffers (`ESL_IMAGE_BUFS`, `ap/components/esl_core/include/esl_image.h`) and keeps nothing else: a buffer is free again when its last block has gone out, when the tag reports the id, or 5 s after the last block the tag asked for (`ESL_IMAGE_HOLD_MS`). For a tag with bit6 the AP codes the image (format 1) when that makes it shorter. When both buffers are busy with other tags the AP answers IDLE with `next_poll_s` = 2 and sends block 0 at the next POLL; a tag that also waits for firmware gets the first FW block instead of that IDLE.
+- **When the AP sends it.** To a tag whose POLL has bit5, when the `content_id` it reports differs from the `image_id` of the picture the AP wants shown, after CONFIG and before FW (see "Priority"). A tag without bit5 (firmware that drew content itself, or a tag whose SPI flash does not answer) gets no content: the AP answers IDLE, and the API says so in `content_error`. The AP draws the image at the POLL into one of two buffers (`ESL_IMAGE_BUFS`, `ap/components/esl_core/include/esl_image.h`) and keeps nothing else: a buffer is free again when its last block has gone out, when the tag reports the id, or 5 s after the last block the tag asked for (`ESL_IMAGE_HOLD_MS`). The AP counts both codes the tag takes (bit7: format 2, bit6: format 1) and sends the shorter one: format 2 on text and bars, format 1 on a dithered picture; a raw image goes out when neither is shorter. When both buffers are busy with other tags the AP answers IDLE with `next_poll_s` = 2 and sends block 0 at the next POLL; a tag that also waits for firmware gets the first FW block instead of that IDLE.
 - **image_id.** The CRC-32 of the `size` image bytes as they are sent (for a compressed image, the compressed bytes), so the same layout and fields always give the same id, the tag can check the bytes straight from its SPI flash, and a picture the tag already shows is never sent again, also after an AP restart. The id is never 0 (0 in POLL means the tag shows nothing): a CRC of 0 is sent as 1, and the tag compares its CRC the same way.
 - **Blocks.** As for FW: the tag asks with IMG_REQ for the next missing byte, keeps what it has in its SPI flash between wake-ups and asks for at most 64 blocks per wake-up (`CFG_IMG_MAX_REQ`), so a whole screen goes in one wake-up. The AP answers an IMG_REQ for an id it no longer has with block 0 of the picture it wants shown now, and with IDLE when it has none, which ends the transfer.
 - **Check.** The tag refuses an image for another model, a format it does not know, a raw image whose `size` is not exactly its screen, a coded one that is not shorter than its screen or does not decode to exactly its screen, and an id it refused before. When it has `size` bytes it reads them back from the SPI flash and checks the CRC-32 against the id (a CRC of 0 counts as 1), decodes a coded image into a second area of the slot, writes the image to the panel, and reports the id in `content_id` from then on, also after a restart (the image stays in its flash slot, `tag/src/image.h`). The tag has one slot, and a new download overwrites it: a tag that restarts in the middle of a download shows "Waiting for content" until the download is done. A tag that refuses an image, or whose panel does not answer, reports bit1 (drawing failed) and keeps reporting the id it shows; the AP then stops offering that image until the content changes. An image the tag already holds (the same id again, for example after "No AP found") is drawn from the slot without a download.
+
+#### The 2D image code (fmt 2)
+Shelf labels are mostly white, with text, lines and bars, and a column of the image is nearly always like the column to its left. Format 2 codes each column against the one before, the way CCITT T.6 (fax "Group 4") codes a row against the row above: only where the edges of ink move is anything sent. The mode codes are T.6's; the run lengths use Exp-Golomb codes instead of T.6's tables, which keeps the decoder small. The coder is `ap/components/esl_core/esl_img2d.c`, the decoder `decode_2d()` in `tag/src/image.c`.
+
+- The code is a bit string, most significant bit of each byte first. It codes the columns of the raw image (format 0) in order, the red plane's after the black plane's, with nothing between them; each column of `height` pixels is coded against the column before it, the first against an empty one. After the last column the last byte is filled with zero bits, and nothing follows.
+- Ink is colour 1. A *change* in a column is a row y whose pixel differs from row y − 1; row −1 has no ink.
+- Coding a column starts at a0 = −1 with colour 0 and goes down until a0 is the height. At each step, s = max(a0, 0), b1 is the first change in the reference column (the one before) below a0 to the other colour than the current one, and b2 the change after b1 (the height when there is none):
+
+| Code | Mode | Decoded |
+|---|---|---|
+| `1` | vertical 0 | the next change a1 is at b1: rows s to a1 − 1 get the current colour, the colour flips, a0 = a1 |
+| `011`, `010` | vertical ±1 | as vertical 0 with a1 = b1 + 1, b1 − 1 |
+| `000011`, `000010` | vertical ±2 | a1 = b1 + 2, b1 − 2 |
+| `0000011`, `0000010` | vertical ±3 | a1 = b1 + 3, b1 − 3 |
+| `0001` | pass | rows s to b2 − 1 get the current colour, a0 = b2, the colour stays |
+| `001` r1 r2 | horizontal | r1 rows of the current colour from s, then r2 rows of the other colour; a0 = s + r1 + r2, the colour stays. r1 and r2 are Exp-Golomb codes of order 2: r + 4 in binary (b bits), after b − 3 zero bits (0 is `100`, 4 is `01000`) |
+
+- The tag refuses a code that goes past the height of a column (or has a1 at or above a0), ends in the middle of a column, has bytes or one bits after the last column, or does not give exactly the raw size.
+- What it gives, on the 405 different screens the simulator draws from the example layouts (`sim/`, scenario 0): on average 509 bytes (6 blocks) on the 2.9" and 490 (6 blocks) on the 1.54", against 2255 and 2156 bytes (25 and 24 blocks) run-length coded and 52 and 55 blocks raw; the largest takes 12 blocks. A screen that format 1 codes shorter (a dithered photo) goes out run-length coded, and one neither code makes shorter goes out raw.
+- Cost on the tag: about 1.6 KB of code, 280 bytes of external RAM on the 2.9" (430 on the 1.54": two columns as lists of changes) and 14 bytes of internal RAM for the decoder's state. The image is decoded once, from the download area of the slot to the second area, before its header is written. Decoding takes the 8051 longer than run-length decoding, but the tag also runs the CRC-32 over the coded bytes, and that is a third as many: in the 8051 simulator that comes with SDCC (ucsim), CRC and decoding together take about as long as for the same screen run-length coded (12.6 against 11.4 million clock ticks for a shelf screen of 537 bytes, 19.1 against 19.0 for the largest, 1006 bytes), and the tag receives a third of the blocks.
 
 ### Priority: settings, image, firmware
 The AP answers each POLL with one message. When several things are waiting for a tag, it sends them in this order:
@@ -223,6 +251,7 @@ In short:
 | `GET /api/tags`, `GET /api/tags/{mac}` | The AP and its tags: last seen, battery, signal, model, what each tag shows, settings, firmware updates |
 | `DELETE /api/tags/{mac}` | Forget a tag: its content, settings and scheduled content |
 | `GET /api/tags/{mac}/image` | The screen the AP draws for the tag's content (base64), for previews |
+| `PUT /api/tags/{mac}/image` | A picture as the tag's content, for what a layout cannot show: a PNG of the screen's size (296 x 128 on the 2.9"), which the AP turns into the tag's colours (nearest colour, or `?dither=true` for photos), keeps in NVS and sends like any other screen. The tag must have polled once |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
 | `GET`/`PUT /api/config` | The AP-wide default poll interval, and the webhook the AP posts the health report to |
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, content that cannot be shown), for monitoring |
@@ -262,28 +291,37 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG, JPEG or GIF |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
 | `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
-| `elements` | 1 or more, drawn in order (all rectangles, then the barcode, then all text, see `esl_render.c`) |
-| `type` | `"text"` (one field in a box), `"rect"` (filled box) or `"barcode"` (one field as a barcode) |
-| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen |
-| `field` | text and barcode: a name from `fields` (or its index) |
+| `elements` | 1 or more, drawn in order (all rectangles, then lines, then icons, then the barcode and QR code, then all text, see `esl_render.c`) |
+| `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
+| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon takes only `x` and `y` (or `w` and `h` equal to the icon's). A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
+| `direction` | line only: `down` (default, top-left to bottom-right corner) or `up` (bottom-left to top-right) |
+| `width` | line only: 1–16 px, default 1. A straight line is exactly `width` px thick, (width − 1) / 2 of them above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round |
+| `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
+| `icon` | icon only, required: a name from `icons` |
+| `field` | text, barcode and qr: a name from `fields` (or its index) |
 | `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
-| `module` | barcode only: module width 1–4 px, 0 (default) = the widest that fits the box |
-| `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `mid` (36 px), `large` (52 px); `mid` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
-| `align`, `valign` | text only (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
+| `module` | barcode: module width 1–4 px; qr: module size 1–8 px; 0 (default) = the largest that fits the box |
+| `ecc` | qr only: error correction `L`, `M` (default), `Q` or `H` (about 7, 15, 25 or 30 % of the code can be lost); higher takes more modules for the same text |
+| `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `text20` (20 px), `mid` (36 px), `price44` (44 px), `large` (52 px); `mid`, `price44` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
+| `align`, `valign` | text and qr (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
 | `lines` | text only: 0–3, 0 (default) = as many as the box holds |
-| `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text and rect) and `red_invert` (text: white text in a red box) |
+| `decimals` | text only: draws a number (e.g. a price) the same way whatever the client sends (`1299.9`, `1299,90`, `1 299,90`, `1.299,90`, `199,-`): `2` → `1299,90`, `0` → `1300` (rounded), `"auto"` → `199` or `199,90` (no decimals when they are `,00`), `"dash"` → `199,-` or `199,90`, `"keep"` → the decimals as sent, with a decimal comma. A dot is the decimal sign when there is no comma and only one dot, so `1.299` is 1,299; send `1299` or `1 299` for a thousand. Spaces and dots before the decimal sign must group three digits. Text that is not a number is drawn as sent. A formatted number is drawn on one line (a smaller font from `fonts` if it does not fit), and never cut short: content with a number that fits in none of the fonts is refused with `422`, and the AP leaves such a number out rather than draw part of it (when a newer layout file makes the box smaller). At most 8 elements per layout with `decimals` or `thousands`. Default: no format, the text as sent |
+| `thousands` | text only: `true` puts a space between every three digits, `1 299,90` (with no `decimals`, the decimals as sent). Default `false` |
+| `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`; not lines and icons); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text, rect, line and icon) and `red_invert` (text: white text in a red box) |
 | keys starting with `_`, `description` | ignored (comments) |
 
 The AP also checks what it can draw, so a file that is accepted always gives a screen (requirement A13):
 - a text box must be at least as high as its smallest font (plus 2 × 4 px for `invert`/`highlight`/`red_invert`);
 - a barcode is black, at least 10 px high, one per layout, and an EAN-13 box must hold its 113 modules (95 plus the quiet zones) at the chosen module width; content whose barcode field cannot be encoded or is too wide for the box is refused with `422` when it is sent;
-- per layout at most 32 text lines (each text element counts the most lines it can use) and 20 rectangles (`rect` elements plus `invert`/`highlight` text) (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`);
-- the binary file is at most 2048 bytes;
+- a QR code is black, one per layout, its box at least 25 modules wide and high (21 and the quiet zone); content whose QR field is longer than the largest version the box holds takes is refused with `422`;
+- per layout at most 32 text lines (each text element counts the most lines it can use), 20 rectangles (`rect` elements plus `invert`/`highlight` text), 16 lines and 8 icons (`ESL_DRAW_MAX_RUNS`, `ESL_DRAW_MAX_RECTS`, `ESL_DRAW_MAX_LINES`, `ESL_DRAW_MAX_ICONS`) on the ESP32-C6; other boards may allow more (above);
+- the binary file is at most 4096 bytes (on every board so far);
 - unknown keys, a key given twice and anything else above give `422` with the place in the file.
 
 `tag/tools/label_design.py` designs content for these layouts too: a label design with `"layout": "shelf"` takes its field names from the layout file (`render <design> <data> designs/layouts/2.9.json`).

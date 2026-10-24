@@ -9,9 +9,12 @@
  * host tests can render it.
  *
  *   OpenESL 0.4.0   ch 25
- *   12 tags, 2 pending
+ *   9 OK  2 busy  1 bad    the dashboard's tag states, in green, yellow and red
  *   192.168.1.40           or  Setup: openesl-1A2B / joining "Net" / WiFi off
- *   up 3 d 4 h, 9 seen     or  192.168.4.1/setup while the setup network is open */
+ *   up 3 d 4 h, 9 seen     or  192.168.4.1/setup while the setup network is open
+ *
+ * A byte from 1 to ESL_SCREEN_DIM in a line's text sets the colour of the
+ * rest of the line, so one line can have several colours. */
 
 #define ESL_SCREEN_LINES 4
 #define ESL_SCREEN_LINE_MAX 40
@@ -20,9 +23,9 @@ typedef enum {
     ESL_SCREEN_BG = 0,
     ESL_SCREEN_TEXT,  /* white */
     ESL_SCREEN_TITLE, /* first line */
-    ESL_SCREEN_OK,    /* WiFi joined */
-    ESL_SCREEN_WARN,  /* setup network, joining, pending content */
-    ESL_SCREEN_BAD,   /* WiFi off */
+    ESL_SCREEN_OK,    /* tags that are OK */
+    ESL_SCREEN_WARN,  /* setup network, joining, busy or late tags */
+    ESL_SCREEN_BAD,   /* WiFi off, tags that need attention */
     ESL_SCREEN_DIM,   /* last line */
 } esl_screen_color_t;
 
@@ -31,7 +34,8 @@ typedef struct {
     uint8_t channel;
     unsigned tags, tags_max;
     bool table_full;   /* a new tag found no room (esl_store_full) */
-    unsigned pending;  /* tags that have not fetched their content yet */
+    /* the tags by what the dashboard shows for them (esl_api_tag_level) */
+    unsigned ok, busy, bad;
     unsigned seen;     /* tags heard from in the last 10 minutes */
     uint64_t uptime_s;
     esl_wifi_status_t wifi;

@@ -20,8 +20,9 @@
  * MSB is row 0 (the top), then downwards; bit 1 = ink in that plane, and a pixel is
  * never set in both planes. Unused bits at the end of the last byte are 0.
  *
- * Not reentrant: the scene is static (about 0.8 KB), so calls must not overlap (the
- * AP's callers hold the layouts lock while drawing, which also keeps file valid).
+ * Not reentrant: the scene is static (about 2 KB, and esl_qr.c keeps 3.3 KB for one code),
+ * so calls must not overlap (the AP's callers hold the layouts lock while drawing, which
+ * also keeps file valid).
  * Screens up to 256 rows; a taller model gives 0. */
 
 #define ESL_RENDER_COL_BYTES(h) (((h) + 7) / 8)
@@ -39,3 +40,9 @@ size_t esl_render_size(uint8_t model);
  * send such content (content_err). Returns the image size, or 0 for an unknown model,
  * a missing named layout, or when cap is too small. */
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap);
+
+/* True when content c has a formatted number (decimals, thousands) that fits in its box
+ * in none of the element's fonts. esl_render leaves such a number out rather than
+ * cutting it short, since a cut price is a wrong price; the API refuses the content
+ * (esl_layouts_check_content). Same rules for file and the lock as esl_render. */
+bool esl_render_number_cut(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c);

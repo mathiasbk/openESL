@@ -85,6 +85,22 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
 #define ESL_API_PIECE_URI_MAX 96
 bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char *buf, size_t cap);
 
+/* PUT /api/tags/{mac}/image, for a transport that streams the body: a PNG can be larger
+ * than ESL_API_MAX_BODY (up to ESL_API_MAX_IMAGE_BODY) and is decoded as it arrives
+ * (esl_png.h), so it never has to be in RAM whole. esl_api_image_put_uri() tells such a
+ * request; esl_api_image_put() handles it like esl_api_handle() (the token too), pulling
+ * the len bytes of the body through read (exactly n bytes, or false). It may stop
+ * before the end of the body (an error, or bytes after the PNG's end): the rest is the
+ * caller's to drop. esl_api_handle() takes the same request with the body in RAM.
+ * The caller holds the lock it keeps around esl_api_handle(); hold (may be NULL) lets
+ * it go (false) while the body comes in and is decoded, so a slow client does not hold
+ * up other requests, and takes it again (true) to store the picture. */
+#define ESL_API_MAX_IMAGE_BODY (512 * 1024)
+bool esl_api_image_put_uri(const char *method, const char *uri);
+int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, size_t len,
+                      bool (*read)(void *ctx, uint8_t *buf, size_t n), void *ctx, void (*hold)(bool take),
+                      uint64_t now_ms, esl_sb_t *out);
+
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
  * counts per problem. prev (the store's max bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and
@@ -92,6 +108,14 @@ bool esl_api_tagfw_piece_uri(const char *uri, size_t body_len, size_t done, char
  * streams like GET /api/tags. */
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
                    esl_sb_t *out);
+
+/* What the dashboard shows for a tag (tagState in web/js/dashdata.js): BAD when
+ * GET /api/health lists a problem for it, BUSY when its poll is late or it is
+ * still getting firmware, content or settings, OK otherwise. The AP's status
+ * screen counts its tags by this. */
+typedef enum { ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BAD } esl_tag_level_t;
+#define ESL_TAG_CHECKIN_GRACE_S 15 /* CHECKIN_GRACE_S in dashdata.js: late after poll_s + this */
+esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms);
 
 /* The status page at / (krav A6): an HTML table with the same data as
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */

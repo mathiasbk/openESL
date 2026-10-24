@@ -12,6 +12,7 @@ machine, so a change can be checked before it is pushed.
 
 Steps:
   models    the generated model files match shared/models.json (tools/gen_models.py --check)
+  wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
   tag       tag host tests (tag/tools/build.py test)
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
@@ -19,7 +20,8 @@ Steps:
   tools     esl-client and power-budget tests
   openapi   docs/openapi.yaml against the AP code
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
-            on PATH, otherwise the espressif/idf:v5.5.5 Docker image)
+            on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
+            Design tab packs (web/build.py --wasm, Emscripten 3.1.74)
   web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
@@ -108,6 +110,10 @@ def step_models():
     run([PY, "tools/gen_models.py", "--check"])
 
 
+def step_wiki():
+    run([PY, "tools/check_wiki.py"])
+
+
 def step_tag():
     need_host_cc()
     run([PY, "tag/tools/build.py", "test"])
@@ -152,17 +158,43 @@ def step_openapi():
 AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
+def designer_boards():
+    """The boards in ap/boards/ with the Design tab (CONFIG_ESL_WEB_DESIGNER=y in their
+    sdkconfig.defaults or their base's), which pack the renderer"""
+    out = []
+    for path in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json")):
+        b = json.load(open(path))
+        for d in [b["id"], b.get("base")]:
+            cfg = os.path.join(ROOT, "ap", "boards", d or "", "sdkconfig.defaults")
+            if d and os.path.isfile(cfg) and "CONFIG_ESL_WEB_DESIGNER=y" in open(cfg).read():
+                out.append(b["id"])
+                break
+    return out
+
+
 def step_ap_fw():
+    # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py);
+    # without Emscripten only the others are built
+    build = AP_BUILD
+    if shutil.which("emcc"):
+        run([PY, "web/build.py", "--wasm"])
+    else:
+        skip = designer_boards()
+        ids = [json.load(open(p))["id"] for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
+        rest = [i for i in ids if i not in skip]
+        print("note: no emcc (Emscripten %s), so %s (with the Design tab) are not built"
+              % (EMSCRIPTEN_VERSION, ", ".join(sorted(skip))))
+        build = " ".join([AP_BUILD] + sorted(rest))
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()
         if "v5.5.5" not in idf:
             print("note: CI builds with ESP-IDF v5.5.5, this is %s" % idf)
-        run(["bash", "-c", AP_BUILD], cwd=os.path.join(ROOT, "ap"))
+        run(["bash", "-c", build], cwd=os.path.join(ROOT, "ap"))
     else:
         if not docker_ok():
             raise Skip("neither idf.py (ESP-IDF v5.5.5) nor a running Docker")
-        run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", AP_BUILD])
+        run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", build])
     for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
 
@@ -184,13 +216,14 @@ def step_web():
 
 STEPS = {
     "models": (step_models, "Python"),
+    "wiki": (step_wiki, "Python"),
     "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
-    "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker"),
+    "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
 }
 

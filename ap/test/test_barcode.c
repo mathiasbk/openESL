@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "barcode.h"
+#include "esl_qr.h"
 #include "esl_render.h"
 #include "tinytest.h"
 
@@ -79,6 +80,21 @@ static void barcode_layout(const char *sym, int module, const char *align, int x
              "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\",\"symbology\":\"%s\","
              "\"module\":%d,\"align\":\"%s\",\"x\":%d,\"y\":20,\"w\":%d,\"h\":60}]}]}",
              sym, module, align, x, w);
+    if (!esl_layout_compile(json, strlen(json), ESL_MODEL_29, &bin, err, sizeof(err))) {
+        printf("  %s\n", err);
+        CHECK(0);
+    }
+}
+
+/* The same with a QR element in the box x, y, w x h */
+static void qr_layout(const char *ecc, int module, const char *align, int x, int y, int w, int h)
+{
+    char json[512], err[ESL_LAYOUT_ERR_MAX];
+    snprintf(json, sizeof(json),
+             "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"qr\","
+             "\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\",\"ecc\":\"%s\","
+             "\"module\":%d,\"align\":\"%s\",\"valign\":\"middle\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}]}]}",
+             ecc, module, align, x, y, w, h);
     if (!esl_layout_compile(json, strlen(json), ESL_MODEL_29, &bin, err, sizeof(err))) {
         printf("  %s\n", err);
         CHECK(0);
@@ -196,14 +212,76 @@ static void test_element(void)
     barcode_layout("code128", 0, "left", 0, 60);
     CHECK_INT(draw("ABCDEFGH"), 0);
 
+    /* QR codes: every level, versions 1 to 10, module sizes; read back by the decoder */
+    qr_layout("M", 0, "center", 0, 0, W, H);
+    draw("https://openesl.example/p/123");
+    save("qr-url", "qr", "https://openesl.example/p/123");
+    span(64, &first, &last, &narrow);
+    CHECK(first > 0 && last < W - 1);
+    CHECK(abs((last + first + 1) / 2 - W / 2) <= 1);   /* centred, to the pixel */
+    CHECK_INT(bin.qr_field[0], 0);
+    CHECK_INT(bin.qr_ecc[0], ESL_QR_LEVEL_M);
+    CHECK_INT(bin.qr_cap[0], (int)esl_qr_capacity(10, ESL_QR_ECC_M)); /* 128 px holds version 10 (57) */
+    qr_layout("L", 1, "left", 4, 4, 120, 120);
+    draw("Ost 1 kg 129,90");
+    save("qr-l1", "qr", "Ost 1 kg 129,90");
+    span(4 + (120 - 25) / 2 + 2, &first, &last, &narrow); /* the top row, in the middle of the box */
+    CHECK_INT(first, 4 + ESL_QR_QUIET);         /* the quiet zone is inside the box */
+    CHECK_INT(last - first + 1, 21);            /* version 1, 1 px, the top row of two finders */
+    qr_layout("H", 2, "right", 0, 0, W, H);
+    draw("HELLO WORLD 0123456789 abcdefghijklmnopqrstuvwxyz");
+    save("qr-h2", "qr", "HELLO WORLD 0123456789 abcdefghijklmnopqrstuvwxyz");
+    {
+        /* 90 bytes at Q is version 8, with the version information */
+        char longer[91];
+        memset(longer, 'a', 90);
+        memcpy(longer, "https://x.example/", 18);
+        longer[90] = 0;
+        qr_layout("Q", 0, "center", 0, 0, W, H);
+        CHECK(draw(longer) > 0);
+        save("qr-v8", "qr", longer);
+    }
+    /* longer than the box can hold: nothing */
+    qr_layout("Q", 0, "left", 0, 0, 40, 40);
+    CHECK_INT(bin.qr_cap[0], (int)esl_qr_capacity(4, ESL_QR_ECC_Q));   /* 33 modules and the quiet zone fit 40 px */
+    CHECK_INT(draw("https://openesl.example/a/rather/long/address/for/a/small/box/x/y"), 0);
+
     if (list)
         fclose(list);
     list = NULL;
+}
+
+/* Capacities in bytes from the standard's tables (ISO/IEC 18004, byte mode) */
+static void test_qr_capacity(void)
+{
+    static const uint16_t cap[4][10] = {
+        {17, 32, 53, 78, 106, 134, 154, 192, 230, 271},
+        {14, 26, 42, 62, 84, 106, 122, 152, 180, 213},
+        {11, 20, 32, 46, 60, 74, 86, 108, 130, 151},
+        {7, 14, 24, 34, 44, 58, 64, 84, 98, 119},
+    };
+    static uint8_t bits[ESL_QR_BYTES];
+    int same = 1;
+    for (uint8_t l = 0; l < 4; l++)
+        for (uint8_t v = 1; v <= 10; v++)
+            if (esl_qr_capacity(v, l) != cap[l][v - 1])
+                same = 0;
+    CHECK(same);
+    CHECK_INT(esl_qr_version(17, ESL_QR_ECC_L, 10), 1);
+    CHECK_INT(esl_qr_version(18, ESL_QR_ECC_L, 10), 2);
+    CHECK_INT(esl_qr_version(272, ESL_QR_ECC_L, 10), 0);
+    CHECK_INT(esl_qr_version(100, ESL_QR_ECC_L, 4), 0);
+    CHECK_INT(esl_qr_encode((const uint8_t *)"x", 1, ESL_QR_ECC_H, 10, bits), 21);
+    CHECK_INT(esl_qr_encode((const uint8_t *)"x", 1, 4, 10, bits), 0);
+    /* the finder in the top-left corner: a dark ring, light, a dark 3 x 3 centre */
+    CHECK(esl_qr_module(bits, 21, 0, 0) && esl_qr_module(bits, 21, 6, 6) && !esl_qr_module(bits, 21, 1, 1) &&
+          esl_qr_module(bits, 21, 3, 3) && !esl_qr_module(bits, 21, 7, 7) && esl_qr_module(bits, 21, 8, 13));
 }
 
 void test_barcode(void)
 {
     test_ean13();
     test_code128();
+    test_qr_capacity();
     test_element();
 }

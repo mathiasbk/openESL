@@ -3,6 +3,8 @@
 Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static web server.
 
   python web/build.py              renderer (WebAssembly) + page into web/dist/
+  python web/build.py --wasm [DIR] only the renderers, into DIR (default web/dist/wasm/): the
+                                   AP build packs them for its Design tab (ap/main/webui.py)
   python web/build.py --native     only the native test build of web_api.c (no Emscripten),
                                    used by web/test/render.test.mjs
   python web/build.py --firmware <file>...
@@ -37,6 +39,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -52,14 +55,51 @@ _spec.loader.exec_module(tag_build)
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
-              "esl_render.c"]
+              "esl_render.c", "esl_qr.c", "esl_barcode.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
 MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "malloc", "free"]
+           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "malloc", "free"]
+
+
+# The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and
+# the room the renderer sets aside for each (ESL_*_CAP in shared/proto.h; jsonBytes needs none)
+# (the limit's own macro there gives its default)
+LIMIT_CAPS = {"runs": ("ESL_DRAW_MAX_RUNS", "ESL_DRAW_CAP_RUNS"), "rects": ("ESL_DRAW_MAX_RECTS", "ESL_DRAW_CAP_RECTS"),
+              "lines": ("ESL_DRAW_MAX_LINES", "ESL_DRAW_CAP_LINES"), "icons": ("ESL_DRAW_MAX_ICONS", "ESL_DRAW_CAP_ICONS"),
+              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None)}
+DEFAULT_BOARD = "c6-supermini"     # ap/CMakeLists.txt
+
+
+def limit_caps():
+    """-D flags that give the renderer room for the largest limits any AP board has, so it can
+    take those of the AP it talks to (web_set_limit). It starts with the defaults in
+    shared/proto.h, which are the default board's: that board sets no limits of its own."""
+    with open(os.path.join(ROOT, "shared", "proto.h"), encoding="utf-8") as f:
+        proto = f.read()
+    caps = {}
+    for limit, cap in LIMIT_CAPS.values():
+        if cap:
+            m = re.search(r"#define\s+%s\s+(\d+)" % limit, proto)
+            if not m:
+                sys.exit("shared/proto.h has no default for %s" % limit)
+            caps[cap] = int(m.group(1))
+    for path in sorted(glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))):
+        with open(path, encoding="utf-8") as f:
+            b = json.load(f)
+        limits = b.get("limits", {})
+        if limits and b["id"] == DEFAULT_BOARD:
+            sys.exit("%s: the default board keeps the limits in shared/proto.h; change them there" % path)
+        for k, v in limits.items():
+            if k not in LIMIT_CAPS or not isinstance(v, int) or v < 1:
+                sys.exit("%s: limits.%s = %r is not a known limit with a whole number" % (path, k, v))
+            cap = LIMIT_CAPS[k][1]
+            if cap:
+                caps[cap] = max(caps[cap], v)
+    return ["-D%s=%d" % kv for kv in sorted(caps.items())]
 
 
 def sources():
@@ -75,14 +115,27 @@ def includes(native=False):
     return ["-I" + i for i in dirs]
 
 
-def build_wasm(model):
+def renderer_inputs():
+    """Every file the renderer is built from: the sources, the headers they can include, the
+    model registry, the AP boards' limits (limit_caps), this script (the flags) and the tag's
+    build script (its include dirs and fonts). The AP build
+    checks the renderer it packs against these (ap/main/webui.py)."""
+    files = sources() + [os.path.join(HERE, "wasm", "web_api.c"), os.path.abspath(__file__),
+                         os.path.join(ROOT, "shared", "models.json"), os.path.join(ROOT, "shared", "models.py"),
+                         os.path.join(tag_build.TAG, "tools", "build.py")]     # INCLUDES, FONTS
+    for d in [i[2:] for i in includes()]:
+        files += glob.glob(os.path.join(d, "*.h"))
+    files += glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))
+    return sorted(set(os.path.normpath(f) for f in files))
+
+
+def build_wasm(model, out=os.path.join(DIST, "wasm")):
     emcc = os.environ.get("EMCC", "emcc")
     if not shutil.which(emcc):
         sys.exit("emcc not found. Install Emscripten (https://emscripten.org) and source emsdk_env.sh.")
-    out = os.path.join(DIST, "wasm")
     os.makedirs(out, exist_ok=True)
     js = os.path.join(out, "render-%s.js" % model)
-    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + includes() + sources() + [
+    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + limit_caps() + includes() + sources() + [
         "-o", js,
         "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=web,node",
         "-sEXPORT_NAME=createRenderer", "-sALLOW_MEMORY_GROWTH=1", "-sFILESYSTEM=0",
@@ -97,7 +150,7 @@ def build_native(model):
     out = os.path.join(tag_build.BUILD, "web-%s" % model)
     os.makedirs(out, exist_ok=True)
     exe = os.path.join(out, "web_render" + (".exe" if os.name == "nt" else ""))
-    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + includes(True) +
+    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + limit_caps() + includes(True) +
                   sources() + [os.path.join(HERE, "wasm", "native", "main.c"), "-o", exe])
     return exe
 
@@ -260,10 +313,11 @@ def ap_boards():
 
 
 def ap_radio_names():
-    """artifact and release names of the radio coprocessor firmware (ap/radio/boards/*/radio.json,
-    for boards with "radio": "uart"): the flasher does not offer it yet (docs/ap-radio-link.md)"""
+    """artifact and release names of the radio firmware (ap/radio/boards/*/radio.json for boards
+    with "radio": "uart", ap/netradio/boards/*/radio.json for "net"): the flasher does not offer
+    it yet (docs/ap-radio-link.md, docs/ap-netradio.md)"""
     names = []
-    for path in glob.glob(os.path.join(ROOT, "ap", "radio", "boards", "*", "radio.json")):
+    for path in glob.glob(os.path.join(ROOT, "ap", "*", "boards", "*", "radio.json")):
         with open(path) as f:
             r = json.load(f)
         names += [r["artifact"], r["release"]]
@@ -376,7 +430,7 @@ def add_firmware(*files):
         ap_manifest(out, title, info["version"], name, split_ap_image(aps[b["id"]], out, name),
                     b["chip_family"])
         # name is what the page's list shows; label (board.json) goes under it
-        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "")
+        short = b["chip_family"] + (" with status screen" if b["display"] else "") + (" with PSRAM" if b.get("psram_mb") else "") + (" + C6 radio" if b.get("radio") == "uart" else "") + (" + C6 radio over WiFi" if b.get("radio") == "net" else "")
         info["ap_boards"].append({"id": b["id"], "name": short, "label": b["label"], "status": b["status"], "target": b["target"],
                                   "display": b["display"], "file": name[:-4], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:
@@ -387,6 +441,10 @@ def add_firmware(*files):
 def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--firmware":
         add_firmware(*sys.argv[2:])
+        return
+    if sys.argv[1:2] == ["--wasm"] and len(sys.argv) <= 3:
+        for m in MODELS:
+            build_wasm(m, os.path.abspath(sys.argv[2]) if len(sys.argv) == 3 else os.path.join(DIST, "wasm"))
         return
     if sys.argv[1:] == ["--native"]:
         for m in MODELS:

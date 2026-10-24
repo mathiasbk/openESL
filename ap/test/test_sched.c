@@ -320,6 +320,10 @@ static void test_api_restored_tag(void)
     CHECK_INT(req("PUT", "/api/time", "{\"time\":1792065600}", 1000), 200);
     CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
     CHECK(strstr(resp, "\"seen_s_ago\":7200,") != NULL);
+    /* the dashboard shows it late from that, and so does the status screen */
+    esl_tag_t t;
+    CHECK(esl_store_get(&st, 0x2, &t));
+    CHECK_INT(esl_api_tag_level(&api, &t, 1000), ESL_TAG_BUSY);
     /* a clock behind the stored time: unknown rather than negative */
     reset();
     rec.unix_s = T0 + 100;
@@ -327,6 +331,8 @@ static void test_api_restored_tag(void)
     CHECK_INT(req("PUT", "/api/time", "{\"time\":1792065600}", 1000), 200);
     CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
     CHECK(strstr(resp, "\"seen_s_ago\":null,") != NULL);
+    CHECK(esl_store_get(&st, 0x2, &t));
+    CHECK_INT(esl_api_tag_level(&api, &t, 1000), ESL_TAG_OK);
 }
 
 void test_sched(void)

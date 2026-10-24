@@ -22,16 +22,34 @@
  * persist hooks are called after it is released. Only the JSON is persisted;
  * the binary is compiled again at boot. */
 
-#define ESL_LAYOUT_MAX_SIZE 8192 /* JSON file */
+#ifndef ESL_LAYOUT_MAX_SIZE
+#define ESL_LAYOUT_MAX_SIZE 8192 /* JSON file; per AP board, as ESL_LBIN_MAX in shared/proto.h */
+#endif
 #define ESL_LAYOUT_FIELD_NAME_MAX 16
 #define ESL_LAYOUT_ERR_MAX 160
 
 /* ---- compiler ------------------------------------------------------------ */
 
+/* The limits the compiler checks a file against: the AP board's (ESL_DRAW_MAX_*, ESL_LBIN_MAX
+ * and ESL_LAYOUT_MAX_SIZE, set per board in ap/boards/<board>/board.json). GET /api/layouts
+ * reports them. The web page's renderer (web/wasm/web_api.c) is built with room for the
+ * largest board (ESL_*_CAP) and sets them to those of the AP it talks to; nothing else
+ * changes them. Each is at most its ESL_*_CAP. */
+typedef struct {
+    uint16_t runs;       /* lines of text per screen */
+    uint16_t rects;      /* rectangles and inverted fields per screen */
+    uint16_t lines;      /* line elements per screen */
+    uint16_t icons;      /* icons per screen */
+    uint16_t file_bytes; /* compiled file */
+    uint16_t json_bytes; /* JSON file */
+} esl_limits_t;
+
+extern esl_limits_t esl_limits;
+
 typedef struct {
     uint32_t version; /* CRC32 of bin, never 0 */
     uint16_t size;    /* bytes used in bin */
-    uint8_t bin[ESL_LBIN_MAX];
+    uint8_t bin[ESL_LBIN_CAP];
     uint8_t count;    /* layouts in the file */
     uint8_t nfields[ESL_LAYOUT_FILE_MAX];
     char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
@@ -40,6 +58,11 @@ typedef struct {
     int8_t bc_field[ESL_LAYOUT_FILE_MAX];
     uint8_t bc_sym[ESL_LAYOUT_FILE_MAX];
     uint16_t bc_max[ESL_LAYOUT_FILE_MAX];
+    /* The QR element of each layout, if any: its field (-1 = none), level and the most bytes
+     * it holds in its box. */
+    int8_t qr_field[ESL_LAYOUT_FILE_MAX];
+    uint8_t qr_ecc[ESL_LAYOUT_FILE_MAX];
+    uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
 } esl_layout_bin_t;
 
 /* Compiles a layout file for model. Returns false with a message in err (at
@@ -50,6 +73,12 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
 
 /* Index of name in a compiled file, or -1. */
 int esl_layout_bin_find(const esl_layout_bin_t *b, const char *name, size_t len);
+
+/* Checks the barcode and QR fields of content c against layout i of a compiled file for
+ * model: they must be ones the AP can encode and fit in the element's box. Returns true if
+ * they are fine, else false with a message in msg. */
+bool esl_layout_check_fields(const esl_layout_bin_t *b, int i, uint8_t model, const esl_content_t *c, char *msg,
+                             size_t msglen);
 
 /* ---- storage --------------------------------------------------------------- */
 
@@ -69,7 +98,7 @@ typedef struct {
 } esl_layout_t;
 
 /* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
- * the AP has about 60 KB free and a file costs 2.6 KB plus its JSON, so holding
+ * the AP has about 60 KB free and a file costs 4.6 KB plus its JSON, so holding
  * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
 typedef struct {
     esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
@@ -119,11 +148,9 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
 
-/* Checks the barcode field of content c (a named layout) against the layout of that name
- * in model's file: it must be one the tag can encode and fit in the element's box.
- * Returns true if it is fine, or if the file has no such layout; else false with a
- * message in msg. */
-bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
+/* esl_layout_check_fields for content c (a named layout) and the layout of that name in
+ * model's file, under the lock. True if the file has no such layout. */
+bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen);
 
 /* Draws content c for a tag of model with the model's file (esl_render), under the
  * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when

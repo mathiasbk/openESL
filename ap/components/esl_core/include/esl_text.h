@@ -14,3 +14,9 @@
  * Writes at most out_max bytes. Returns the number of bytes written; sets
  * *overflow (if non-NULL) when the input did not fit. */
 size_t esl_utf8_to_latin1(const char *in, size_t in_len, uint8_t *out, size_t out_max, bool *overflow);
+
+/* Writes the number in in (Latin-1, e.g. "1299.9", "1299,90", "1 299,90", "199,-") as
+ * ESL_LE_NUM_* in opts asks (shared/proto.h): decimals, a decimal comma and a space as
+ * the thousands separator. Returns the length written to out (cap bytes, at least
+ * ESL_LE_NUM_MAX_LEN), or 0 when opts asks for no format or in is not a number. */
+size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *out, size_t cap);

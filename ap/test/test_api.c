@@ -375,7 +375,9 @@ static void test_layouts(void)
 
     CHECK_INT(req("GET", "/api/layouts", NULL, NULL, 0), 401);
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":2048,\"layouts\":["
+    CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
+                    "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
+                    "\"jsonBytes\":8192,\"fields\":6,\"fixedTextBytes\":64},\"layouts\":["
                     "{\"model\":\"2.9\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);
@@ -396,7 +398,7 @@ static void test_layouts(void)
     uint32_t v = json_u32(resp, "\"version\":");
     CHECK(v != 0);
     CHECK_INT(json_u32(resp, "\"size\":"), len29);
-    CHECK_INT(json_u32(resp, "\"binary_size\":"), 174);
+    CHECK_INT(json_u32(resp, "\"binary_size\":"), 175);
     CHECK_INT(req("PUT", "/api/layouts/2.9/", AUTH, f29, 0), 200);
     CHECK(HAS(resp, "\"changed\":false"));
     CHECK_INT(json_u32(resp, "\"version\":"), v);
@@ -405,7 +407,7 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     char expect[256];
     snprintf(expect, sizeof(expect),
-             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":174,\"layouts\":[\"shelf\",\"sign\"]}",
+             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
              (unsigned)v, (unsigned)len29);
     CHECK(HAS(resp, expect));
     CHECK(HAS(resp, "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}"));
@@ -498,6 +500,25 @@ static void test_layouts(void)
     CHECK(HAS(resp, "ASCII characters only"));
     /* the model not known yet: checked against every file with the layout */
     CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
+
+    /* a QR field must fit its box: 34 px at H holds version 3 (29 modules and 2 x 2 of quiet zone), 24 bytes */
+    const char *qr29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"qr\","
+                       "\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\",\"ecc\":\"H\","
+                       "\"x\":0,\"y\":0,\"w\":34,\"h\":34}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, qr29, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/12345\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/123456\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"qr\",\"fields\":[\"https://a.example/1234567\"]}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"field 0 of layout qr is too long for its QR code on model 2.9 (25 of 24 bytes)\"}");
+
+    /* a formatted number must fit in one of its fonts: a cut price would be a wrong one */
+    const char *num29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"pr\","
+                        "\"fields\":[\"price\"],\"elements\":[{\"type\":\"text\",\"field\":\"price\",\"x\":0,\"y\":0,"
+                        "\"w\":110,\"h\":60,\"fonts\":[\"large\",\"mid\"],\"decimals\":2,\"thousands\":true}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, num29, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"pr\",\"fields\":[\"9.9\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"pr\",\"fields\":[\"1299.9\"]}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"a number in layout pr does not fit in its box on model 2.9, not even in its smallest font\"}");
 
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
 
@@ -954,6 +975,37 @@ static void test_health(void)
     CHECK_MEM(streamed, resp, out.len);
 }
 
+/* What the dashboard and the status screen show for a tag */
+static void test_tag_level(void)
+{
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    esl_layouts_init(&layouts, NULL);
+    const uint64_t poll_ms = (uint64_t)ESL_TAG_BUILTIN_POLL_S * 1000, now = UINT64_C(1000) * 1000;
+    for (int m = 1; m <= 4; m++) {
+        char uri[40];
+        snprintf(uri, sizeof(uri), "/api/tags/%016X", m);
+        CHECK_INT(req("PUT", uri, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    }
+    uint32_t id = json_u32(resp, "\"content_id\":");
+    poll_flags(1, id, 2950, 0, true, now - poll_ms / 2);                          /* shows it */
+    poll_flags(2, id, 2950, 0, true, now - poll_ms / 2);                          /* gets new content below */
+    poll_flags(3, id, 2950, 0, true, now - poll_ms - (ESL_TAG_CHECKIN_GRACE_S + 5) * 1000); /* late */
+    poll_flags(4, id, 2950, 0, true, now - 4 * poll_ms);                          /* silent */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"b\"]}", 0), 200);
+    esl_tag_level_t want[] = {ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BUSY, ESL_TAG_BAD};
+    for (int m = 1; m <= 4; m++) {
+        esl_tag_t t;
+        CHECK(esl_store_get(&st, (uint64_t)m, &t));
+        CHECK_INT(esl_api_tag_level(&api, &t, now), want[m - 1]);
+    }
+    /* within the grace it is not late yet */
+    esl_tag_t t;
+    poll_flags(3, id, 2950, 0, true, now - poll_ms - (ESL_TAG_CHECKIN_GRACE_S - 5) * 1000);
+    CHECK(esl_store_get(&st, 3, &t));
+    CHECK_INT(esl_api_tag_level(&api, &t, now), ESL_TAG_OK);
+}
+
 void test_api(void)
 {
     esl_store_free(&st);
@@ -971,4 +1023,5 @@ void test_api(void)
     test_streaming();
     test_webhook_config();
     test_health();
+    test_tag_level();
 }

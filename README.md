@@ -16,7 +16,8 @@
   <a href="https://mathiasbk.github.io/openESL/#ap">Flash the AP</a> ·
   <a href="https://mathiasbk.github.io/openESL/#tag">Flash a tag</a> ·
   <a href="https://mathiasbk.github.io/openESL/#design">Label designer</a> ·
-  <a href="https://mathiasbk.github.io/openESL/#api">API docs</a>
+  <a href="https://mathiasbk.github.io/openESL/#api">API docs</a> ·
+  <a href="https://github.com/mathiasbk/openESL/wiki">Wiki</a>
 </p>
 
 <p align="center">
@@ -72,7 +73,7 @@ The list is made from [shared/models.json](shared/models.json), the one place a 
 
 ## Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
+The step-by-step guide is in the [wiki](https://github.com/mathiasbk/openESL/wiki). Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release.
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, then give it your WiFi and an API token over the same USB cable.
 2. **Flash the labels** one at a time in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware, then starts polling the AP.
@@ -138,6 +139,7 @@ Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's 
 |---|---|
 | [web/](web/README.md) | Web page: label designer, and flashing of tags and the AP from the browser |
 | [docs/](docs/README.md) | Requirements, architecture, protocol, work plan, risks and hardware notes |
+| [wiki/](wiki/) | The user guide, published to the [GitHub wiki](https://github.com/mathiasbk/openESL/wiki) from master |
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [ap/](ap/) | AP firmware (ESP-IDF) with the HTTP API, for the boards in [ap/boards](ap/boards/README.md), and the C6 radio coprocessor in [ap/radio](ap/radio/README.md) |
 | [shared/](shared/) | `proto.h`, shared packet definitions for tag and AP |
@@ -166,7 +168,7 @@ Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml
 
 ## A clean implementation
 
-OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
+OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Hardware facts the code relies on, and where they come from, are listed in [docs/kildelogg.md](docs/kildelogg.md).
 
 ## Contributing
 
@@ -186,8 +188,9 @@ This project would be much harder without the people who opened up these tags fi
 
 - **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for the reverse engineering of the ZBS243 and the SoluM tags.
 - **atc1441** for [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), the flasher used to read and write the tags, and for a lot of public research and videos on these tags.
+- **Project Nayuki** for the [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT) that our QR encoder follows.
 - The **[OpenEPaperLink](https://github.com/OpenEPaperLink)** project and its contributors for documenting the tags, pinouts and flashing.
 
 ## Licence
 
-OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), and ESP-IDF and its components keep theirs (Apache-2.0).
+OpenESL is released under the [MIT License](LICENSE). The Inter font in `tag/fonts/` keeps its own licence, the SIL Open Font License 1.1 ([tag/fonts/OFL.txt](tag/fonts/OFL.txt)), ESP-IDF and its components keep theirs (Apache-2.0), and the QR encoder in `ap/components/esl_core/esl_qr.c` follows Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT, its notice is in the file).

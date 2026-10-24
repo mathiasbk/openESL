@@ -8,6 +8,7 @@ int esl_content_max_fields(uint8_t layout)
     case ESL_LAYOUT_PRICE: return 3;
     case ESL_LAYOUT_TEXT:  return 4;
     case ESL_LAYOUT_NAMED: return ESL_MAX_FIELDS;
+    case ESL_LAYOUT_IMAGE: return 1;
     default:
         return layout >= ESL_LAYOUT_FILE && layout < ESL_LAYOUT_FILE + ESL_LAYOUT_FILE_MAX ? ESL_MAX_FIELDS : 0;
     }
@@ -27,7 +28,8 @@ bool esl_layout_name_valid(const char *s, size_t len)
 {
     if (len == 0 || len > ESL_LAYOUT_NAME_MAX)
         return false;
-    if ((len == 5 && memcmp(s, "price", 5) == 0) || (len == 4 && memcmp(s, "text", 4) == 0))
+    if ((len == 5 && memcmp(s, "price", 5) == 0) || (len == 4 && memcmp(s, "text", 4) == 0) ||
+        (len == 5 && memcmp(s, "image", 5) == 0))
         return false;
     for (size_t i = 0; i < len; i++) {
         char ch = s[i];
@@ -47,6 +49,23 @@ esl_content_err_t esl_content_init_named(esl_content_t *c, const char *name, siz
     c->flags = flags;
     memcpy(c->name, name, len);
     return ESL_CONTENT_OK;
+}
+
+void esl_content_init_image(esl_content_t *c, uint8_t model, uint32_t crc)
+{
+    uint8_t f[5] = {model, (uint8_t)crc, (uint8_t)(crc >> 8), (uint8_t)(crc >> 16), (uint8_t)(crc >> 24)};
+    esl_content_init(c, ESL_LAYOUT_IMAGE, 0);
+    esl_content_add_field(c, f, sizeof(f));
+}
+
+bool esl_content_image(const esl_content_t *c, uint8_t *model, uint32_t *crc)
+{
+    if (c->layout != ESL_LAYOUT_IMAGE || c->nfields != 1 || c->len[0] != 5)
+        return false;
+    const uint8_t *f = c->text;
+    *model = f[0];
+    *crc = f[1] | (uint32_t)f[2] << 8 | (uint32_t)f[3] << 16 | (uint32_t)f[4] << 24;
+    return true;
 }
 
 size_t esl_content_text_len(const esl_content_t *c)

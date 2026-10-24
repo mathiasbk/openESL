@@ -1,5 +1,6 @@
 """Tests for esl_client.py against a small fake AP (python3 -m unittest)."""
 
+import base64
 import datetime
 import csv
 import io
@@ -29,6 +30,7 @@ class FakeAp(BaseHTTPRequestHandler):
     ota = {}
     ota_rollback = False
     tagfw = {}
+    images = {}
 
     def log_message(self, *a):
         pass
@@ -123,6 +125,13 @@ class FakeAp(BaseHTTPRequestHandler):
         elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
+        elif self.path.startswith("/api/tags/") and self.path.endswith("/image"):
+            mac = self.path.split("/")[3]
+            if mac not in FakeAp.images:
+                return self._send(404, {"error": "the tag has no content"})
+            self._send(200, {"mac": mac, "model": "2.9", "width": 296, "height": 128, "red": False,
+                             "content_id": self.tags[mac]["content_id"], "image_id": 7,
+                             "data": base64.b64encode(FakeAp.images[mac]).decode()})
         elif self.path.startswith("/api/tags/"):
             t = self.tags.get(self.path.rsplit("/", 1)[1])
             self._send(200 if t else 404, t or {"error": "not found"})
@@ -142,6 +151,18 @@ class FakeAp(BaseHTTPRequestHandler):
                 return self._send(200, {"received": len(FakeAp.tagfw["data"]), "total": int(q["total"])})
             return self._send(200, {"model": "1.54", "version": "0.3.0", "size": n, "crc": "00000000",
                                     "received": int(q["total"]), "total": int(q["total"])})
+        if self.path.startswith("/api/tags/") and "/image" in self.path:
+            n = int(self.headers.get("Content-Length", 0))
+            data = self.rfile.read(n)
+            mac = self.path.split("/")[3]
+            self.calls.append((self.path, self.headers.get("Content-Type"), data))
+            if mac not in self.tags:
+                return self._send(409, {"error": "the tag's model is not known yet: it has not polled"})
+            if data[:8] != esl_client.PNG_SIGNATURE and len(data) != 4736:
+                return self._send(415, {"error": "not a PNG file (or the 4736 bytes of a raw image)"})
+            r = self._set(mac, {"layout": "image", "fields": [], "picture": len(data)})
+            FakeAp.images[mac] = data
+            return self._send(200, r)
         body = self._body()
         self.calls.append((self.path, body))
         if self.path == "/api/time":
@@ -237,6 +258,7 @@ class ClientTest(unittest.TestCase):
         FakeAp.ota = {"slot": "ota_0", "version": "0.1.0", "slot_size": 1572864, "other_slot": "ota_1",
                       "other_version": None, "uploading": False}
         FakeAp.ota_rollback = False
+        FakeAp.images = {}
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -319,6 +341,25 @@ class ClientTest(unittest.TestCase):
         b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
         self.assertIn("     3 ", b9)         # 3 rounds, no problems
 
+    def test_image(self):
+        self.run_cli("text", "00000123456789A8", "x")
+        png = esl_client.PNG_SIGNATURE + b"rest of the file"
+        with tempfile.NamedTemporaryFile(suffix=".png") as f:
+            f.write(png)
+            f.flush()
+            rc, out = self.run_cli("image", "00000123456789A8", f.name, "--dither")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("changed", out)
+            self.assertEqual(FakeAp.calls[-1], ("/api/tags/00000123456789A8/image?dither=true", "image/png", png))
+            rc, out = self.run_cli("image", "00000123456789A9", f.name)
+            self.assertEqual(rc, 2)
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(bytes(4736))
+            f.flush()
+            rc, out = self.run_cli("image", "00000123456789A8", f.name)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(FakeAp.calls[-1][:2], ("/api/tags/00000123456789A8/image", "application/octet-stream"))
+
     def test_backup_and_restore(self):
         layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
                   "layouts": [{"name": "shelf", "fields": ["a"], "elements": [{"type": "text", "field": "a",
@@ -332,13 +373,16 @@ class ClientTest(unittest.TestCase):
         FakeAp.tags["00000123456789B0"] = {"mac": "00000123456789B0", "content_id": 0, "shown_content_id": 0,
                                            "pending": False, "model": "2.9", "seen_s_ago": 3, "battery_mv": 2950,
                                            "rssi": -60, "config": FakeAp._cfg("00000123456789B0")}
+        raw = bytes(range(256)) * 18 + bytes(128)
+        FakeAp.tags["00000123456789B1"] = dict(FakeAp.tags["00000123456789B0"], mac="00000123456789B1")
+        self.assertEqual(esl_client.Client(self.url, TOKEN).set_image("00000123456789B1", raw)["changed"], True)
         future = int(time.time()) + 3600
         FakeAp.sched = [{"mac": "00000123456789A8", "at": future, "layout": "price", "fields": ["Milk", "19.90"]},
                         {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]}]
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "ap.json")
             rc, out = self.run_cli("backup", path)
-            self.assertEqual((rc, out), (0, f"{path}: 2 tags, 1 layout files, 2 scheduled\n"))
+            self.assertEqual((rc, out), (0, f"{path}: 3 tags, 1 layout files, 2 scheduled\n"))
             with open(path, encoding="utf-8") as f:
                 b = json.load(f)
             self.assertEqual(b["format"], "openesl-backup")
@@ -348,25 +392,34 @@ class ClientTest(unittest.TestCase):
                 {"mac": "00000123456789A8", "layout": "price", "fields": ["Milk", "24.90"], "price_highlight": True,
                  "frame": False},
                 {"mac": "00000123456789A9", "layout": "text", "fields": ["Open", "9-21"], "price_highlight": False,
-                 "frame": True, "config": {"poll_s": 300}}])
+                 "frame": True, "config": {"poll_s": 300}},
+                {"mac": "00000123456789B1", "image": base64.b64encode(raw).decode()}])
             self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
 
             # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed
             self.setUp()
             rc, out = self.run_cli("restore", path, "--dry-run")
             self.assertEqual(rc, 0)
-            self.assertIn("tags: 2 with content, 1 with their own settings", out)
+            self.assertIn("tags: 2 with content, 1 with a picture, 1 with their own settings", out)
             self.assertIn("scheduled: 1 (1 skipped, their time has passed)", out)
             self.assertIn("nothing sent", out)
             self.assertEqual(FakeAp.calls, [])
+            # the tag with the picture has not polled the fresh AP yet: it gets it the next time
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("warning: 1 pictures wait until their tags have polled this AP", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 1 scheduled", out)
+            FakeAp.tags["00000123456789B1"] = dict(FakeAp.tags["00000123456789A8"], mac="00000123456789B1")
+            FakeAp.sched = []  # the fake keeps each entry sent, the AP the last per time
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 0, out)
-            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 1 scheduled", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 3 tags, 1 scheduled", out)
+            self.assertEqual(FakeAp.images["00000123456789B1"], raw)
             self.assertEqual(FakeAp.config["poll_s"], 120)
             self.assertEqual(FakeAp.config["webhook"], "http://10.0.0.5:8080/esl")
             self.assertEqual(FakeAp.layouts, {"2.9": layout})
             self.assertEqual(FakeAp.tag_cfg, {"00000123456789A9": {"poll_s": 300}})
-            self.assertEqual(sorted(FakeAp.tags), ["00000123456789A8", "00000123456789A9"])
+            self.assertEqual(sorted(FakeAp.tags), ["00000123456789A8", "00000123456789A9", "00000123456789B1"])
             self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk", "24.90"])
             self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
             self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A8", "at": future, "layout": "price",
@@ -384,6 +437,24 @@ class ClientTest(unittest.TestCase):
                 f.write("{\"format\": \"something\"}")
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1)
+
+    def test_backup_and_restore_picture_errors(self):
+        self.run_cli("text", "00000123456789A8", "x")
+        cli = esl_client.Client(self.url, TOKEN)
+        cli.set_image("00000123456789A8", bytes(4736))
+        # the AP cannot give the picture back: the tag is left out, with a warning
+        del FakeAp.images["00000123456789A8"]
+        warnings = []
+        b = esl_client.backup(cli, warn=warnings.append)
+        self.assertEqual(b["tags"], [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("00000123456789A8: its picture was left out (HTTP 404", warnings[0])
+        # a picture the AP refuses stops the restore, saying how far it got
+        b["tags"] = [{"mac": "00000123456789A8", "image": base64.b64encode(bytes(100)).decode()}]
+        lines, ok = esl_client.restore(cli, b, False)
+        self.assertFalse(ok)
+        self.assertIn("error: 00000123456789A8: HTTP 415", lines[-1])
+        self.assertIn("0 tags were restored before it", lines[-1])
 
     def test_tag_ota(self):
         rc, out = self.run_cli("tag-ota")
@@ -447,6 +518,18 @@ class ClientTest(unittest.TestCase):
             rc = esl_client.wait_back(dead, "ota_1", "0.2.0", timeout_s=0.5, poll_s=0.1)
         self.assertEqual(rc, 1)
         self.assertIn("no answer from the AP after 0.5 s", err.getvalue())
+
+    def test_ota_timeout_covers_the_upload(self):
+        # urllib's timeout also bounds the whole sendall: a 1.3 MB image must get far more than 10 s
+        cli = esl_client.Client("http://ap", TOKEN)
+        seen = []
+        cli.send = lambda *a, **kw: (seen.append((kw.get("timeout"), kw.get("retries"))),
+                                     (200, b'{"version": "0.2.0"}'))[1]
+        cli.ota(bytes(1300000))
+        self.assertGreaterEqual(seen[0][0], 300)
+        self.assertEqual(seen[0][1], 1)  # a stalled upload is not sent twice more at that timeout
+        cli.ota(bytes(100))
+        self.assertEqual(seen[1][0], 10.0)
 
     def test_same_content_is_unchanged(self):
         self.run_cli("text", "00000123456789A8", "Hello", "--frame")

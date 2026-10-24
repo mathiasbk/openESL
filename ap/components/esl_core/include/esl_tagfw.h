@@ -77,6 +77,9 @@ void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops);
 int esl_tagfw_part(esl_tagfw_t *fw, size_t offset, size_t total, const uint8_t *data, size_t len, uint64_t only,
                    esl_sb_t *out);
 
+/* n bytes at off of the model's image (its application, after the header); false when
+   there is none or they are past its end. For a network radio's copy (esl_nlink). */
+bool esl_tagfw_read(esl_tagfw_t *fw, uint8_t model, uint32_t off, uint8_t *buf, size_t n);
 /* The image for a model; false (and *img zeroed) if none. img may be NULL. */
 bool esl_tagfw_get(esl_tagfw_t *fw, uint8_t model, esl_tagfw_img_t *img);
 bool esl_tagfw_delete(esl_tagfw_t *fw, uint8_t model);

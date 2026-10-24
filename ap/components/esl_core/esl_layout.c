@@ -1,5 +1,4 @@
 #include "esl_layout.h"
-#include "esl_barcode.h"
 #include "esl_render.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -222,7 +221,7 @@ void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env)
     unlock(ls);
 }
 
-bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen)
+bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, char *msg, size_t msglen)
 {
     bool ok = true;
     if (!ls || c->layout != ESL_LAYOUT_NAMED)
@@ -233,22 +232,12 @@ bool esl_layouts_check_barcode(esl_layouts_t *ls, uint8_t model, const esl_conte
     lock(ls);
     esl_layout_t *l = slot(ls, model);
     int i = l ? esl_layout_bin_find(&l->bin, c->name, nl) : -1;
-    if (i >= 0 && l->bin.bc_field[i] >= 0) {
-        uint8_t len;
-        const uint8_t *t = esl_content_field(c, (unsigned)l->bin.bc_field[i], &len);
-        uint8_t sym = l->bin.bc_sym[i];
-        int m = len ? esl_barcode_modules(sym, t, len) : 0;
-        if (m < 0) {
-            ok = false;
-            snprintf(msg, msglen, "field %d of layout %s is a %s barcode: %s", l->bin.bc_field[i], c->name,
-                     esl_barcode_name(sym),
-                     sym == ESL_BC_EAN13 ? "it takes 12 digits, or 13 with a correct check digit"
-                                         : "it takes ASCII characters only");
-        } else if (m > l->bin.bc_max[i]) {
-            ok = false;
-            snprintf(msg, msglen, "field %d of layout %s is too long for its barcode on model %s (%d of %u modules)",
-                     l->bin.bc_field[i], c->name, esl_model_name(model), m, (unsigned)l->bin.bc_max[i]);
-        }
+    if (i >= 0)
+        ok = esl_layout_check_fields(&l->bin, i, model, c, msg, msglen);
+    if (ok && i >= 0 && esl_render_number_cut(model, &l->bin, c)) {
+        snprintf(msg, msglen, "a number in layout %s does not fit in its box on model %s, not even in its smallest font",
+                 l->bin.names[i], esl_model_name(model));
+        ok = false;
     }
     unlock(ls);
     return ok;

@@ -16,6 +16,16 @@ void esl_radio_set_image(esl_image_t *im)
     images = im;
 }
 
+esl_tagfw_t *esl_radio_tagfw(void)
+{
+    return tagfw;
+}
+
+esl_image_t *esl_radio_image(void)
+{
+    return images;
+}
+
 /* How far a tag has the image, from the FW block it gets (for the dashboard). offer:
    the block at 0 that comes with every POLL while there is an image for the tag; a tag
    part way through ignores it and asks for the next block, so it only counts for a
@@ -29,8 +39,23 @@ static void note_fw_sent(esl_store_t *st, uint64_t mac, const uint8_t *reply, si
     esl_store_fw_sent(st, mac, ver, (uint16_t)(pos + (n - ESL_FW_HDR_LEN)), offer);
 }
 
-size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
-                        int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev)
+/* The id of the image the store knows for the tag's content and layout file, 0 when
+   it has not been drawn (esl_radio_replay: nothing is drawn) */
+static uint32_t known_image(esl_store_t *st, esl_layouts_t *ls, uint64_t mac)
+{
+    esl_tag_t t;
+    uint32_t ver = 0;
+    if (!esl_store_get(st, mac, &t) || !t.has_content || t.content_err || !t.image_id)
+        return 0;
+    if (!esl_layouts_info(ls, t.model, &ver, NULL, NULL))
+        ver = 0;
+    return t.image_layout_ver == ver ? t.image_id : 0;
+}
+
+/* esl_radio_handle(), or with replay esl_radio_replay(): the store learns the same,
+   but no image is drawn or sent (the reply goes nowhere). */
+static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
+                     int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev, bool replay)
 {
     esl_rx_frame_t f;
     esl_poll_t poll;
@@ -56,7 +81,7 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
     } else if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_image_taken(st, f.src_mac, ireq.id);
-        if (images)
+        if (images && !replay)
             n = esl_image_block(images, st, ls, f.src_mac, ireq.id, ireq.pos, ireq.max, next, now_ms, reply);
         else
             n = esl_idle_build(reply, next);
@@ -68,7 +93,10 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
         /* A tag that shows what the AP draws: its content's image, when it shows
          * another one (id 0 still notes a refusal, ESL_POLL_F_DRAWFAIL) */
-        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images) {
+        bool offered = false;
+        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images && replay) {
+            offered = esl_store_image_offer(st, f.src_mac, &poll, known_image(st, ls, f.src_mac));
+        } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images) {
             bool busy;
             uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
             uint32_t id = esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
@@ -80,7 +108,7 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
         /* Nothing else for the tag: new firmware, if there is some for it (ver 0
          * still notes a rejection, ESL_POLL_F_FWFAIL) */
         esl_tagfw_img_t img;
-        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE) {
+        if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && !offered) {
             bool has = esl_tagfw_get(tagfw, poll.model, &img) && esl_tagfw_for(tagfw, poll.model, f.src_mac);
             if (esl_store_fw_offer(st, f.src_mac, &poll, has ? img.ver : 0)) {
                 size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX,
@@ -105,6 +133,19 @@ size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const 
     return esl_frame_build_to_tag(tx, f.seq, pan, ESL_AP_SHORT_ADDR, f.src_mac, reply, n);
 }
 
+size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
+                        int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev)
+{
+    return handle(st, ls, pan, psdu, psdu_len, rssi, now_ms, tx, ev, false);
+}
+
+void esl_radio_replay(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
+                      int8_t rssi, uint64_t now_ms)
+{
+    uint8_t tx[ESL_PSDU_MAX];
+    handle(st, ls, pan, psdu, psdu_len, rssi, now_ms, tx, NULL, true);
+}
+
 /* ---- fake tag ---------------------------------------------------------------- */
 
 void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t battery_mv, uint8_t model)
@@ -117,6 +158,7 @@ void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t batt
     t->flags = ESL_POLL_F_BOOTED;
     t->images = true;
     t->img_rle = true;
+    t->img_2d = true;
     t->interval_s = ESL_FAKETAG_POLL_S;
 }
 
@@ -132,6 +174,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_IMAGE;
     if (t->images && t->img_rle)
         flags |= ESL_POLL_F_IMG_RLE;
+    if (t->images && t->img_2d)
+        flags |= ESL_POLL_F_IMG_2D;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
     esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver};
@@ -211,7 +255,8 @@ static void on_img(esl_faketag_t *t, const esl_reply_t *r)
     if (r->img_id != t->img_dl_id || r->size != t->img_dl_size) {
         bool raw = r->img_fmt == ESL_IMG_FMT_RAW && r->size == esl_render_size(t->model);
         bool rle = t->img_rle && r->img_fmt == ESL_IMG_FMT_RLE && r->size < esl_render_size(t->model);
-        if (r->fw_model != t->model || !(raw || rle)) {
+        bool c2d = t->img_2d && r->img_fmt == ESL_IMG_FMT_2D && r->size < esl_render_size(t->model);
+        if (r->fw_model != t->model || !(raw || rle || c2d)) {
             t->img_failed = r->img_id;
             t->img_dl_id = 0;
             return;

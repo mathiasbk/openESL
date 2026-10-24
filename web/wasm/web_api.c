@@ -14,7 +14,8 @@
  *   web_render(layout, flags, n, f0, ..., f5)
  *                                draws content with fields in UTF-8 (converted to Latin-1 as
  *                                the AP does) into the frame buffer. layout 1 = price,
- *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error
+ *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error,
+ *                                2 = drawn, but the AP would refuse the content (web_error)
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
  *                                1 = black, 2 = red
  */
@@ -46,14 +47,45 @@ EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_CONTENT_FIELD_SPACE; }
  * 0 lines of text per screen, 1 rectangles per screen, 2 bytes in the file, 3 border of an
  * inverted field, 4 lines per text element, 5..8 height of the fonts small, medium, mid, large,
  * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text,
- * 13 fields per layout, 14 bytes of JSON in the file. */
+ * 13 fields per layout, 14 bytes of JSON in the file, 15 height of text20, 16 height of price44,
+ * 17 lines per screen, 18 icons per screen, 19 widest line, 20 QR codes per screen, 21 largest
+ * QR module. 0, 1, 2, 14, 17 and 18 are the AP board's (esl_limits): the default board's until
+ * web_set_limit() sets those of the AP the page talks to. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
 {
-    static const int v[] = { ESL_DRAW_MAX_RUNS, ESL_DRAW_MAX_RECTS, ESL_LBIN_MAX, ESL_INVERT_PAD,
-                             ESL_LE_MAX_LINES, ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_MID_H,
-                             ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
-                             ESL_LBIN_TEXT_LEN_MAX, ESL_MAX_FIELDS, ESL_LAYOUT_MAX_SIZE };
+    const int v[] = { esl_limits.runs, esl_limits.rects, esl_limits.file_bytes, ESL_INVERT_PAD,
+                      ESL_LE_MAX_LINES, ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_MID_H,
+                      ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
+                      ESL_LBIN_TEXT_LEN_MAX, ESL_MAX_FIELDS, esl_limits.json_bytes,
+                      ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H, esl_limits.lines, esl_limits.icons,
+                      ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
+}
+
+/* Sets one of the AP board's limits (what as in web_limit: 0, 1, 2, 14, 17 or 18) to an AP's,
+ * as GET /api/layouts reports them. A value larger than this renderer has room for (built for
+ * the boards in ap/boards/) is cut to that room, so the page is then stricter than the AP.
+ * Returns the limit now set, 0 for a what it cannot set. */
+EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
+{
+    static const esl_limits_t room = { ESL_DRAW_CAP_RUNS, ESL_DRAW_CAP_RECTS, ESL_DRAW_CAP_LINES,
+                                       ESL_DRAW_CAP_ICONS, ESL_LBIN_CAP, 65535 };
+    uint16_t *l;
+    int max;
+    switch (what) {
+    case 0: l = &esl_limits.runs; max = room.runs; break;
+    case 1: l = &esl_limits.rects; max = room.rects; break;
+    case 2: l = &esl_limits.file_bytes; max = room.file_bytes; break;
+    case 14: l = &esl_limits.json_bytes; max = room.json_bytes; break;
+    case 17: l = &esl_limits.lines; max = room.lines; break;
+    case 18: l = &esl_limits.icons; max = room.icons; break;
+    default: return 0;
+    }
+    if (value < 1)
+        return 0;
+    *l = (uint16_t)(value < max ? value : max);
+    bin_ver = 0;    /* compile again against the new limits */
+    return *l;
 }
 
 /* The compiled file, as the AP stores it. Valid after web_load_layouts() returned 1. */
@@ -65,8 +97,8 @@ EMSCRIPTEN_KEEPALIVE int web_load_layouts(const char *json, int len)
 {
     err[0] = 0;
     bin_ver = 0;
-    if (len < 0 || len > ESL_LAYOUT_MAX_SIZE) {
-        snprintf(err, sizeof(err), "the file is %d bytes, the AP takes at most %d", len, ESL_LAYOUT_MAX_SIZE);
+    if (len < 0 || len > esl_limits.json_bytes) {
+        snprintf(err, sizeof(err), "the file is %d bytes, the AP takes at most %d", len, esl_limits.json_bytes);
         return 0;
     }
     if (!esl_layout_compile(json, (size_t)len, MODEL_CODE, &bin, err, sizeof(err)))
@@ -152,5 +184,16 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
             size_t at = (size_t)x * cb + (size_t)(y >> 3);
             fb[y][x] = (img[at] & m) ? 1 : (red && (img[DRAW_W * cb + at] & m)) ? 2 : 0;
         }
+    /* drawn, but PUT /api/tags would refuse it: a barcode or QR field that does not fit its box,
+       or a formatted number that fits in none of its fonts (left out of the drawing) */
+    if (bin_ver && layout >= 16 && layout - 16 < bin.count) {
+        if (!esl_layout_check_fields(&bin, layout - 16, MODEL_CODE, &c, err, sizeof(err)))
+            return 2;
+        if (esl_render_number_cut(MODEL_CODE, &bin, &c)) {
+            snprintf(err, sizeof(err), "a number in layout %s does not fit in its box, not even in its smallest font",
+                     bin.names[layout - 16]);
+            return 2;
+        }
+    }
     return 1;
 }

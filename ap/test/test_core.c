@@ -82,6 +82,87 @@ void test_text(void)
     CHECK(!ovf);
 }
 
+/* esl_format_number(in, opts) is want, or not a number (want NULL: 0, drawn as sent) */
+static void num(const char *in, uint8_t opts, const char *want)
+{
+    uint8_t out[ESL_LE_NUM_MAX_LEN];
+    size_t n = esl_format_number((const uint8_t *)in, strlen(in), opts, out, sizeof(out));
+    if (!want) {
+        CHECK_INT(n, 0);
+        return;
+    }
+    if (n != strlen(want) || memcmp(out, want, n) != 0)
+        printf("  \"%s\" -> \"%.*s\", want \"%s\"\n", in, (int)n, (const char *)out, want);
+    CHECK_INT(n, strlen(want));
+    CHECK_MEM(out, want, strlen(want));
+}
+
+void test_number(void)
+{
+    const uint8_t T = ESL_LE_NUM_THOUSANDS;
+
+    /* the ways a price comes in */
+    num("1299.9", ESL_LE_NUM_2, "1299,90");
+    num("1299,9", ESL_LE_NUM_2, "1299,90");
+    num(" 1 299,90 ", ESL_LE_NUM_2, "1299,90");
+    num("1.299,90", ESL_LE_NUM_2, "1299,90");
+    num("1.299.000", ESL_LE_NUM_2, "1299000,00");
+    num("199,-", ESL_LE_NUM_2, "199,00");
+    num("1.299,-", ESL_LE_NUM_2, "1299,00");
+    num(",5", ESL_LE_NUM_2, "0,50");
+    num("199", ESL_LE_NUM_2, "199,00");
+    num("-12.5", ESL_LE_NUM_2, "-12,50");
+    num("+5", ESL_LE_NUM_2, "5,00");
+    num("\xA0" "1\xA0" "299,90\xA0", ESL_LE_NUM_2, "1299,90");
+    num(".5", ESL_LE_NUM_2, "0,50");
+    num("1.299", ESL_LE_NUM_2, "1,30"); /* one dot and no comma: the decimal sign */
+
+    /* decimals */
+    num("199.9", ESL_LE_NUM_0, "200");
+    num("199.49", ESL_LE_NUM_0, "199");
+    num("999.5", ESL_LE_NUM_0 | T, "1 000");
+    num("19.995", ESL_LE_NUM_2, "20,00");
+    num("19.994", ESL_LE_NUM_2, "19,99");
+    num("-0.4", ESL_LE_NUM_0, "0");
+    num("199", ESL_LE_NUM_AUTO, "199");
+    num("199.00", ESL_LE_NUM_AUTO, "199");
+    num("199.9", ESL_LE_NUM_AUTO, "199,90");
+    num("199", ESL_LE_NUM_DASH, "199,-");
+    num("199.001", ESL_LE_NUM_DASH, "199,-");
+    num("199.5", ESL_LE_NUM_DASH, "199,50");
+    num("199.5", ESL_LE_NUM_KEEP, "199,5");
+    num("199", ESL_LE_NUM_KEEP, "199");
+    num("199,-", ESL_LE_NUM_KEEP, "199,-");
+
+    /* thousands */
+    num("1299.9", ESL_LE_NUM_KEEP | T, "1 299,9");
+    num("999", ESL_LE_NUM_2 | T, "999,00");
+    num("1234567.891", ESL_LE_NUM_2 | T, "1 234 567,89");
+    num("-1234", ESL_LE_NUM_DASH | T, "-1 234,-");
+    num("123456789012.999999", ESL_LE_NUM_2 | T, "123 456 789 013,00");
+
+    /* not a number, or no format: drawn as sent */
+    num("Tilbud", ESL_LE_NUM_2, NULL);
+    num("kr 199", ESL_LE_NUM_2, NULL);
+    num("1,2,3", ESL_LE_NUM_2, NULL);
+    num("1,5.5", ESL_LE_NUM_2, NULL);
+    num("12.5 0", ESL_LE_NUM_2, NULL);
+    num("1.000.5", ESL_LE_NUM_2, NULL);
+    num("12 34", ESL_LE_NUM_2, NULL);
+    num("1  299", ESL_LE_NUM_2, NULL);
+    num(".299,90", ESL_LE_NUM_2, NULL);
+    num("1 2990,5", ESL_LE_NUM_2, NULL);
+    num("1,5,-", ESL_LE_NUM_2, NULL);
+    num("", ESL_LE_NUM_2, NULL);
+    num(" - ", ESL_LE_NUM_2, NULL);
+    num(",", ESL_LE_NUM_2, NULL);
+    num("1234567890123", ESL_LE_NUM_2, NULL);
+    num("1.1234567", ESL_LE_NUM_2, NULL);
+    num("199", 0, NULL);
+    num("199", T, NULL);
+    num("199", 0x60, NULL);
+}
+
 void test_content(void)
 {
     esl_content_t a, b;
@@ -172,6 +253,25 @@ void test_content(void)
     CHECK(!esl_layout_name_valid("a b", 3));
     CHECK(!esl_layout_name_valid("text", 4));
     CHECK(esl_layout_name_valid("texts", 5));
+    CHECK(!esl_layout_name_valid("image", 5)); /* a picture (ESL_LAYOUT_IMAGE) */
+    {
+        /* a picture: model and CRC in its one field, so each picture has its own id,
+           and it survives the NVS format */
+        esl_content_t p1, p2, back;
+        uint8_t model, blob[ESL_PERSIST_BLOB_MAX];
+        uint32_t crc;
+        uint64_t mac;
+        esl_content_init_image(&p1, ESL_MODEL_29, 0x12345678u);
+        esl_content_init_image(&p2, ESL_MODEL_29, 0x12345679u);
+        CHECK(esl_content_image(&p1, &model, &crc));
+        CHECK_INT(model, ESL_MODEL_29);
+        CHECK_INT(crc, 0x12345678u);
+        CHECK(esl_content_id(&p1) != esl_content_id(&p2));
+        CHECK_INT(esl_content_layout_hash(&p1), 0);
+        CHECK(esl_persist_decode(blob, esl_persist_encode(0xA1, &p1, blob), &mac, &back));
+        CHECK(esl_content_equal(&p1, &back));
+        CHECK(!esl_content_image(&n1, &model, &crc));
+    }
     CHECK(esl_layout_name_valid("0123456789012345678901234567890", 31));
     CHECK(!esl_layout_name_valid("01234567890123456789012345678901", 32));
     esl_content_add_field(&n1, S("Kaffe"));
