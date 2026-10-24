@@ -141,3 +141,13 @@ test("tag screen: fetched again when what it depends on changes, failures that p
   assert.equal(screenErrorFinal(new Error("no answer from http://ap")), false);
   assert.equal(screenErrorFinal({ status: 0, message: "no answer from the AP on the USB port" }), false);
 });
+
+test("which AP: its board name, or the chip of an older AP", async () => {
+  const { apBoard, apIdentity } = await import("../js/dashdata.js");
+  const ap = { fw: "0.6.1", board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable" };
+  assert.equal(apBoard(ap, { chip: "esp32s3" }), "ESP32-S3 + C6 on cable");
+  assert.equal(apBoard({ fw: "0.5.0" }, { chip: "esp32s3" }), "ESP32-S3");
+  assert.equal(apBoard({ fw: "0.5.0" }, null), "");
+  assert.equal(apIdentity(ap, null, { hostname: "openesl-3f2a" }), "ESP32-S3 + C6 on cable · openesl-3f2a.local · 0.6.1");
+  assert.equal(apIdentity({ fw: "0.5.0" }, null, null), "0.5.0");
+});

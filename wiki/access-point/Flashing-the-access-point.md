@@ -2,12 +2,13 @@
 
 ## From the web page (recommended)
 
-1. Open the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab in Chrome or Edge on a computer.
-2. Pick your board from the list ([Choosing a board](Access-point-boards)).
-3. Plug the board in by USB and press the flash button. If the board is not found, hold **BOOT** while you plug it in.
-4. When it is done, close the flashing window and press **Connect AP** to give it WiFi and an API token ([WiFi and API token](WiFi-and-API-token)).
+The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab is a guide in three steps. It needs Chrome or Edge on a computer.
 
-The page always flashes the latest release.
+1. **Choose AP.** Pick the card for your setup ([Choosing a board](Access-point-boards)), and say whether the board is **New** or **Already OpenESL** (keeps its data).
+2. **Flash.** Plug in each board when the page asks and press **Connect and flash**. With a C6 radio, the C6 comes first, then the S3 on its port marked **USB**. If a board is not found, hold **BOOT** while you plug it in. The page checks that the chip is the one the step is for.
+3. **WiFi and token.** Over the same USB cable, give the AP your WiFi, a name and an API token ([WiFi and API token](WiFi-and-API-token)). **Keep a copy of the token.** With the radio over WiFi, the page then gives the C6 the same network and the S3's address.
+
+The last step shows the AP's address and opens its dashboard. The page always flashes the latest release.
 
 ## Flashing again without losing anything
 
@@ -15,17 +16,19 @@ The AP stores its labels, layouts, WiFi and token in flash (NVS). How you flash 
 
 | Way | Labels, layouts, WiFi, token |
 |---|---|
-| Flash AP tab **without** "Erase device" | **kept** |
+| Flash AP tab, **Already OpenESL** | **kept** |
 | Over the air (Dashboard, or `esl-client ota ...-ota.bin`) | **kept** |
 | `idf.py flash` | **kept** |
 | A release's single `openesl-ap-...-v<version>.bin` (without `-ota`) written at 0x0 | **erased** |
-| Flash AP tab **with** "Erase device" | **erased** |
+| Flash AP tab, **New** | **erased** |
 
 So the single `.bin` file is only for a new board or one you erase anyway. Take a backup before anything that erases ([Backup and restore](Backup-and-restore)).
 
+With **Already OpenESL**, the page first reads the partition table on the board. If it is not the one the new firmware uses (OpenESL from before 0.3.0, or other firmware), it stops and offers to erase and flash it as new instead.
+
 ## ESP32-S3 + ESP32-C6
 
-The S3 is flashed from the web page like the others. The C6 that serves as its radio is flashed separately with esptool for now. See [ESP32-S3 + C6](ESP32-S3-and-C6).
+Both boards are flashed from the web page: the C6 radio first (plain or with screen), then the S3. See [ESP32-S3 + C6](ESP32-S3-and-C6) and [ESP32-S3 with a wireless C6 radio](ESP32-S3-with-wireless-C6).
 
 ## Building it yourself
 

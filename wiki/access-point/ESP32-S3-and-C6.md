@@ -27,12 +27,16 @@ The C6 with screen is wired the same way.
 
 ## Flashing
 
-1. **The C6**, with esptool for now (the web page does not offer it yet):
-   `esptool --chip esp32c6 write_flash 0 openesl-ap-radio-esp32c6-<version>.bin`
-   Its log says `OpenESL 802.15.4 radio`.
-2. **The S3**, from the [web page](https://mathiasbk.github.io/openESL/#ap), the ESP32-S3 + ESP32-C6 board. Its log says `radio 1.0 up` when it reaches the C6, or `no answer from the radio` every two seconds when it does not: check that TX and RX are crossed and that GND is connected.
+On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick **S3 + C6 on cable** and the C6 radio you have (plain or with screen). The page flashes:
 
-The S3 is updated over the air like any AP. The C6 radio is not updated by the S3 yet, so it is flashed with esptool when it changes.
+1. **The C6** radio. Its log says `OpenESL 802.15.4 radio`.
+2. **The S3**, plugged in on its port marked **USB**. That port also gives the S3 its WiFi in the next step: the S3's WiFi setup and serial API answer only there, not on the COM port.
+
+Then it shows the wiring. The S3's log says `radio 1.0 up` when it reaches the C6, or `no answer from the radio` every two seconds when it does not: check that TX and RX are crossed and that GND is connected.
+
+With esptool instead: `esptool --chip esp32c6 write_flash 0 openesl-ap-radio-esp32c6-<version>.bin`.
+
+The S3 is updated over the air like any AP. The C6 radio is not updated by the S3 yet, so it is flashed again from the web page (Already OpenESL, then skip the S3) when it changes.
 
 The link between the chips: [docs/ap-radio-link.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-radio-link.md).
 

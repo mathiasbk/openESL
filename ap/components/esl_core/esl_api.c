@@ -12,6 +12,9 @@
 #ifndef ESL_BOARD
 #define ESL_BOARD "host"
 #endif
+#ifndef ESL_BOARD_NAME
+#define ESL_BOARD_NAME "host"
+#endif
 
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
@@ -782,6 +785,8 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_stream(out, 200);
     esl_sb_puts(out, "{\"ap\":{\"fw\":");
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
+    /* which board this is (ap/boards/<board>/board.json), so a dashboard can tell two APs apart */
+    esl_sb_puts(out, ",\"board\":\"" ESL_BOARD "\",\"board_name\":\"" ESL_BOARD_NAME "\"");
     uint16_t def_poll = esl_store_get_next_poll(api->store);
     esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"table_full\":%s,\"poll_s\":%u",
                   now_ms / 1000, (unsigned)api->channel, api->store->max,

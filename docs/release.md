@@ -55,7 +55,7 @@ In 0.5.0 the AP draws every screen and sends it to the tag as an image. The tag 
 1. Take `esl-client backup ap.json`, then update the AP first. The new AP still answers the POLL of 0.4.x tag firmware and still sends it firmware (FW).
 2. A tag on 0.4.x gets no new screens from a 0.5.0 AP: it keeps the screen it shows, and `GET /api/tags` says in its `content_error` that it cannot show images. Update the tags to 0.5.0, one of each model first (above).
 3. A 0.4.x AP does not draw images, so 0.5.0 tags get no new screens from it. Do not update tags before their AP.
-4. Optional, C6 boards only: the `tagfw` partition grew from 2 to 7 tag models in 0.5.0. An AP updated over the air keeps 2, which is enough for the 2.9" and the 1.54". The Flash AP tab without "Erase device" gives it 7 and keeps what it has stored.
+4. Optional, C6 boards only: the `tagfw` partition grew from 2 to 7 tag models in 0.5.0. An AP updated over the air keeps 2, which is enough for the 2.9" and the 1.54". The Flash AP tab (as "Already OpenESL") gives it 7 and keeps what it has stored.
 
 Going back from 0.5.0 means the AP and the tags together, to the previous release's AP and tag images. A 0.4.x AP holds at most 256 tags (tags in slots above that are not loaded), and it refuses a layout file at boot that uses the larger limits of 0.5.0 (more than 16 text lines or 10 boxes per layout, or more than 768 bytes compiled). Put such a file back from the backup after making it fit.
 

@@ -134,9 +134,10 @@ export function healthLine(h) {
 }
 
 // The AP's own figures as [label, value] pairs
-export function apFacts(ap) {
+export function apFacts(ap, ota) {
   if (!ap) return [];
   const facts = [
+    ["Board", apBoard(ap, ota) || "–"],
     ["Firmware", ap.fw],
     ["Running for", fmtAgo(ap.uptime_s)],
     ["Last start", RESET_TEXT[ap.reset] || ap.reset || "–"],
@@ -146,6 +147,19 @@ export function apFacts(ap) {
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
   return facts;
+}
+
+// Which AP board this is: its name from GET /api/tags (board_name, in firmware after 0.6.0), or for an
+// older AP the chip from GET /api/ota ("esp32s3" -> "ESP32-S3"), or ""
+export function apBoard(ap, ota) {
+  if (ap?.board_name) return ap.board_name;
+  if (ap?.board) return ap.board;
+  return ota?.chip ? ota.chip.toUpperCase().replace(/^ESP32-?/, "ESP32-") : "";
+}
+
+// The line that says which AP the dashboard talks to: board, name on the network, firmware
+export function apIdentity(ap, ota, wifi) {
+  return [apBoard(ap, ota), wifi?.hostname ? wifi.hostname + ".local" : "", ap?.fw].filter(Boolean).join(" · ");
 }
 
 // 30 -> "30 s", 120 -> "2 min", 90 -> "90 s", 3600 -> "1 h"
