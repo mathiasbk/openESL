@@ -430,6 +430,7 @@ void esl_rcache_sync_req(esl_rcache_t *rc, uint64_t now_ms, esl_rsync_t *req)
     req->want_image = rc->want_image;
     req->want_fw_model = rc->want_fw_model;
     req->n_tags = rc->n_tags;
+    req->max_tags = rc->max_tags;
     for (unsigned i = 0; i < rc->n_images && req->n_images < ESL_RSYNC_IMAGES; i++)
         if (rc->images[i].id)
             req->images[req->n_images++] = rc->images[i].id;

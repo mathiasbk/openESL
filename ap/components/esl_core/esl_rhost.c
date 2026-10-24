@@ -23,9 +23,16 @@ void esl_rhost_init(esl_rhost_t *h, esl_store_t *st, esl_layouts_t *ls, esl_imag
 void esl_rhost_begin(esl_rhost_t *h, const esl_rsync_t *req)
 {
     bool restarted = !h->have_radio || req->boot != h->radio_boot;
-    if (restarted || req->ack != h->seq) {
-        /* a radio that restarted (or one the host does not know: it restarted), or one
-           that missed the last answer: it forgets its tags and is told everything */
+    /* a radio that has room now but fewer tags than it was told: it had no room for some
+       (it does not say which), so it gets them all again */
+    unsigned told = 0;
+    for (unsigned i = 0; i < h->max_sent; i++)
+        told += h->sent[i].mac != 0;
+    bool missing = req->n_tags < told && req->n_tags < req->max_tags;
+    if (restarted || req->ack != h->seq || missing) {
+        /* a radio that restarted (or one the host does not know: it restarted), one that
+           missed the last answer, or one missing tags: it forgets its tags and is told
+           everything */
         memset(h->sent, 0, h->max_sent * sizeof(h->sent[0]));
         h->default_sent = 0;
         h->clear = true;
