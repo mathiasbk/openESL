@@ -1,8 +1,10 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -63,7 +65,18 @@ void app_main(void)
     cfg_get_str("ssid", CONFIG_ESL_WIFI_SSID, ssid, sizeof(ssid));
     cfg_get_str("pass", CONFIG_ESL_WIFI_PASSWORD, password, sizeof(password));
     cfg_get_str("token", CONFIG_ESL_API_TOKEN, token, sizeof(token));
-    cfg_get_str("hostname", CONFIG_ESL_MDNS_HOSTNAME, hostname, sizeof(hostname));
+    cfg_get_str("hostname", "", hostname, sizeof(hostname));
+    if (!hostname[0]) {
+        /* A new AP gets the suffix of its setup network, so two APs on one network don't share
+           a name; one that already has a network keeps the old name its users know. Saved, so
+           the name stays when the network is set later. */
+        uint8_t mac[6];
+        if (!ssid[0] && esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP) == ESP_OK)
+            snprintf(hostname, sizeof(hostname), "%.27s-%02x%02x", CONFIG_ESL_MDNS_HOSTNAME, mac[4], mac[5]);
+        else
+            snprintf(hostname, sizeof(hostname), "%s", CONFIG_ESL_MDNS_HOSTNAME);
+        cfg_set_str("hostname", hostname);
+    }
     if (!token[0])
         ESP_LOGE(TAG, "No API token set (setup page, menuconfig or NVS cfg/token): every HTTP API request gets 401");
 

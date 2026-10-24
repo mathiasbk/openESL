@@ -22,6 +22,6 @@ If the saved network stops working (a new WiFi password, say), the setup network
 
 ## Finding the AP on the network
 
-The AP is `openesl.local` (mDNS), or look up its IP address in your router. To change the name: `esl_client.py wifi --hostname NAME`.
+The AP is `openesl-xxxx.local` (mDNS), with the same four digits as its setup network `openesl-XXXX`, so two APs on one network get their own names. An AP that already had its WiFi set up before 0.6.1 keeps `openesl.local`. Or look up its IP address in your router. The examples in this wiki use `openesl.local`: put your AP's name in. To change the name: `esl_client.py wifi --hostname NAME`.
 
 Next: [Flashing labels](Flashing-labels), or [AP settings](Access-point-settings).
