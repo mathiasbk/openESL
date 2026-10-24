@@ -2,6 +2,8 @@
 """Packs tabs of the web page into the AP firmware, served at /dashboard.
 
     webui.py WEB_DIR OUT.c [--wasm DIR] [MODULE ...]          (default: dashboard)
+    webui.py --renderer-deps DIR      the files a packed renderer in DIR depends on, one per
+                                      line, for ap/main/CMakeLists.txt
 
 One page, one source: each module is a tab of WEB_DIR/index.html (MODULES below), and the
 board's Kconfig picks which ones its firmware has room for (ESL_WEB_DASHBOARD,
@@ -15,6 +17,7 @@ is gzipped (fixed mtime, so the build is reproducible) into a C table that http_
 with Content-Encoding: gzip from flash. Run by ap/main/CMakeLists.txt.
 """
 import gzip
+import importlib.util
 import os
 import re
 import sys
@@ -101,36 +104,39 @@ def example_layouts():
         yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
 
 
-# What the renderer is built from (web/build.py sources() and includes()), to tell a stale build
-RENDERER_SOURCES = ["web/wasm/web_api.c", "web/build.py", "ap/components/esl_core", "tag/src", "tag/fonts",
-                    "shared"]
+def web_build():
+    """web/build.py, which knows what the renderer is built from (renderer_inputs)"""
+    spec = importlib.util.spec_from_file_location("web_build", os.path.join(ROOT, "web", "build.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def renderer_paths(wasm):
+    """[(served path, MIME type, file)] of the renderer for each tag model"""
+    sys.path.insert(0, os.path.join(ROOT, "shared"))
+    import models
+    return [(f"/ui/wasm/render-{m['build']}{ext}", mime, os.path.join(wasm, "render-" + m["build"] + ext))
+            for m in models.load() for ext, mime in ((".js", "text/javascript"), (".wasm", "application/wasm"))]
 
 
 def renderer_files(wasm):
     """[(path, MIME type, bytes)] of the renderer for each tag model, from the directory
     web/build.py --wasm wrote; it must be built from the sources as they are now"""
-    sys.path.insert(0, os.path.join(ROOT, "shared"))
-    import models
     newest, src = 0, None
-    for top in RENDERER_SOURCES:
-        top = os.path.join(ROOT, top)
-        for d, _, names in os.walk(top) if os.path.isdir(top) else [(os.path.dirname(top), [], [os.path.basename(top)])]:
-            for n in names:
-                if n.endswith((".c", ".h", ".py", ".json")):
-                    t = os.path.getmtime(os.path.join(d, n))
-                    if t > newest:
-                        newest, src = t, os.path.relpath(os.path.join(d, n), ROOT)
+    for f in web_build().renderer_inputs():
+        t = os.path.getmtime(f)
+        if t > newest:
+            newest, src = t, os.path.relpath(f, ROOT)
     files = []
-    for m in models.load():
-        for ext, mime in ((".js", "text/javascript"), (".wasm", "application/wasm")):
-            path = os.path.join(wasm, "render-" + m["build"] + ext)
-            if not os.path.isfile(path):
-                sys.exit(f"webui.py: no {path}: the Design tab needs the renderer, "
-                         "build it with Emscripten first: python web/build.py --wasm")
-            if os.path.getmtime(path) < newest:
-                sys.exit(f"webui.py: {path} is older than {src}: build it again with python web/build.py --wasm")
-            with open(path, "rb") as f:
-                files.append((f"/ui/wasm/render-{m['build']}{ext}", mime, f.read()))
+    for served, mime, path in renderer_paths(wasm):
+        if not os.path.isfile(path):
+            sys.exit(f"webui.py: no {path}: the Design tab needs the renderer, "
+                     "build it with Emscripten first: python web/build.py --wasm")
+        if os.path.getmtime(path) < newest:
+            sys.exit(f"webui.py: {path} is older than {src}: build it again with python web/build.py --wasm")
+        with open(path, "rb") as f:
+            files.append((served, mime, f.read()))
     return files
 
 
@@ -168,6 +174,13 @@ def page_files(web, modules, wasm=None):
 
 
 def main():
+    if sys.argv[1:2] == ["--renderer-deps"]:
+        # the renderer files themselves and what they are built from, so that a change to
+        # either runs this script again and its check sees a stale renderer (only the renderer
+        # files there now: a missing one would stop ninja before this script can say why)
+        built = [p for _, _, p in renderer_paths(sys.argv[2]) if os.path.isfile(p)]
+        print("\n".join(built + web_build().renderer_inputs()))
+        return
     web, out, args = sys.argv[1], sys.argv[2], sys.argv[3:]
     wasm = None
     if args[:1] == ["--wasm"]:

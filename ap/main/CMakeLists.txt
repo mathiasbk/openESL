@@ -53,13 +53,17 @@ if(CONFIG_ESL_WEB_DASHBOARD)
         set(webui_wasm --wasm ${wasm_dir})
         list(APPEND webui_modules design)
     endif()
+    idf_build_get_property(python PYTHON)
     file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js
          ${CMAKE_CURRENT_LIST_DIR}/../../tag/designs/layouts/*.json ${CMAKE_CURRENT_LIST_DIR}/../../shared/models.json)
     if(CONFIG_ESL_WEB_DESIGNER)
-        file(GLOB wasm_deps ${wasm_dir}/render-*)
+        # the renderer files and what they are built from: a change to either runs webui.py again,
+        # which stops the build when the renderer is older than its sources
+        execute_process(COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/webui.py --renderer-deps ${wasm_dir}
+                        OUTPUT_VARIABLE wasm_deps OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+        string(REPLACE "\n" ";" wasm_deps "${wasm_deps}")
         list(APPEND webui_deps ${wasm_deps})
     endif()
-    idf_build_get_property(python PYTHON)
     add_custom_command(
         OUTPUT ${webui_c}
         COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/webui.py ${web_dir} ${webui_c} ${webui_wasm} ${webui_modules}

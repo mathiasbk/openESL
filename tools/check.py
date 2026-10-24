@@ -159,9 +159,12 @@ AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 
 def step_ap_fw():
-    # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py)
-    need("emcc", "Emscripten %s, for the renderer the Design tab packs" % EMSCRIPTEN_VERSION)
-    run([PY, "web/build.py", "--wasm"])
+    # the boards with the Design tab pack the renderer from web/dist/wasm/ (ap/main/webui.py);
+    # without Emscripten the others still build, and those stop and say so
+    if shutil.which("emcc"):
+        run([PY, "web/build.py", "--wasm"])
+    else:
+        print("note: no emcc (Emscripten %s), so the boards with the Design tab cannot be built" % EMSCRIPTEN_VERSION)
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()

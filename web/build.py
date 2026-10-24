@@ -115,6 +115,18 @@ def includes(native=False):
     return ["-I" + i for i in dirs]
 
 
+def renderer_inputs():
+    """Every file the renderer is built from: the sources, the headers they can include, the
+    model registry, the AP boards' limits (limit_caps) and this script (the flags). The AP build
+    checks the renderer it packs against these (ap/main/webui.py)."""
+    files = sources() + [os.path.join(HERE, "wasm", "web_api.c"), os.path.abspath(__file__),
+                         os.path.join(ROOT, "shared", "models.json")]
+    for d in [i[2:] for i in includes()]:
+        files += glob.glob(os.path.join(d, "*.h"))
+    files += glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))
+    return sorted(set(os.path.normpath(f) for f in files))
+
+
 def build_wasm(model, out=os.path.join(DIST, "wasm")):
     emcc = os.environ.get("EMCC", "emcc")
     if not shutil.which(emcc):

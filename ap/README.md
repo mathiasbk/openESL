@@ -218,7 +218,7 @@ python build.py c5-wroom-1u-n16r8  # one board: build-<board>/, and out/<artifac
 idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
 ```
 
-The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed. A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than its sources (`web/wasm/web_api.c`, the AP core, the tag's drawing code), so run `python web/build.py --wasm` again after changing those.
+The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed. A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than what it is built from (`renderer_inputs()` in `web/build.py`: `web/wasm/web_api.c`, the AP's layout and drawing code, the tag's fonts and headers, the boards' `limits`), also on an incremental `idf.py build`, so run `python web/build.py --wasm` again after changing those.
 
 **Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:
 
