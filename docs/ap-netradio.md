@@ -121,7 +121,8 @@ Only the link to the radio differs.
    `esptool.py erase_region 0x9000 0x75000`.
 3. Open the C6's USB port in a serial terminal and type, one line each: `ssid <network>`,
    `pass <password>`, `reboot`. It joins the network, finds the S3 on mDNS and connects. If it does not
-   find it, give the S3's address: `host 192.168.1.50` (`host` alone goes back to mDNS). `status` shows
+   find it, give the S3's address: `host 192.168.1.50`. It then tries that address first and mDNS when
+   it does not answer (the S3 got another address from the router, say); `host` alone clears it. `status` shows
    the radio, the cache and the link; it is also logged every minute.
 
 The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.

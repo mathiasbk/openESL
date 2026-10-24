@@ -262,13 +262,13 @@ static void disconnect(const char *why)
     sock = -1;
 }
 
-/* The AP's address: the one set in the console (host[:port]), else mDNS */
-static bool find_ap(struct sockaddr_in *a)
+/* The AP's address: the one set in the console (host[:port]) with by_host, else mDNS */
+static bool find_ap(struct sockaddr_in *a, bool by_host)
 {
     memset(a, 0, sizeof(*a));
     a->sin_family = AF_INET;
     a->sin_port = htons(CONFIG_ESL_NETRADIO_PORT);
-    if (host[0]) {
+    if (by_host) {
         char h[64];
         strlcpy(h, host, sizeof(h));
         char *colon = strchr(h, ':');
@@ -283,7 +283,7 @@ static bool find_ap(struct sockaddr_in *a)
     mdns_result_t *res = NULL;
     if (mdns_query_generic(NULL, "_openesl-ap", "_tcp", MDNS_TYPE_PTR, MDNS_QUERY_UNICAST, 3000, 4, &res) != ESP_OK ||
         !res) {
-        ESP_LOGW(TAG, "no AP found on mDNS (_openesl-ap._tcp); set one with: host <address>");
+        ESP_LOGW(TAG, "no AP found on mDNS (_openesl-ap._tcp)%s", host[0] ? "" : "; set one with: host <address>");
         return false;
     }
     bool found = false;
@@ -308,25 +308,38 @@ static uint16_t version_number(void)
     return (uint16_t)(major * 10000 + minor * 100 + patch);
 }
 
-static bool connect_ap(void)
+/* A connection to the AP found by_host or on mDNS, -1 when there is none */
+static int open_ap(bool by_host, struct sockaddr_in *a, char *ip)
 {
-    struct sockaddr_in a;
-    if (!find_ap(&a))
-        return false;
-    char ip[16];
-    inet_ntoa_r(a.sin_addr, ip, sizeof(ip));
+    if (!find_ap(a, by_host))
+        return -1;
+    inet_ntoa_r(a->sin_addr, ip, 16);
     int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s < 0)
-        return false;
+        return -1;
     struct timeval tv = {SYNC_TIMEOUT_S, 0};
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     int one = 1;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-    if (connect(s, (struct sockaddr *)&a, sizeof(a))) {
-        ESP_LOGW(TAG, "AP %s:%u does not answer", ip, ntohs(a.sin_port));
+    if (connect(s, (struct sockaddr *)a, sizeof(*a))) {
+        ESP_LOGW(TAG, "AP %s:%u does not answer", ip, ntohs(a->sin_port));
         close(s);
-        return false;
+        return -1;
     }
+    return s;
+}
+
+static bool connect_ap(void)
+{
+    struct sockaddr_in a;
+    char ip[16];
+    /* the address set by hand first; when it does not answer (the AP got another one from
+       the router, say), mDNS */
+    int s = host[0] ? open_ap(true, &a, ip) : -1;
+    if (s < 0)
+        s = open_ap(false, &a, ip);
+    if (s < 0)
+        return false;
     sock = s;
     connects++;
     esl_nlink_rx_init(&nrx, nrx_buf, rc.image_cap + 64);
