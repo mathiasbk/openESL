@@ -113,7 +113,10 @@ takes 22–110 ms, so that cannot work. Instead:
    the images the radio lacks as tags ask for them.
 
 The S3 runs the same AP firmware as with the cable, with the tag store, rendering, dashboard and API.
-Only the link to the radio differs.
+Only the link to the radio differs. The dashboard shows the radio's address and when it was last heard
+(`radio` in `GET /api/tags`). The AP learns the address from the connection itself, so the radio needs no
+setting for it. The AP cannot change the radio's settings yet: the radio's network name, password and
+the AP's address are set on the radio's console.
 
 ## Setting it up
 

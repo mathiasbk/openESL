@@ -1353,6 +1353,15 @@ components:
         board: { type: string, description: "The AP board the firmware was built for (`ap/boards/<board>/`), as `board` in `GET /api/layouts`; not sent by firmware 0.6.0 and older", example: s3-n16r8-c6 }
         board_name: { type: string, description: "The board's short name for people (`name` in its board.json); not sent by firmware 0.6.0 and older", example: ESP32-S3 + C6 on cable }
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
+        radio:
+          type: object
+          description: "The network radio (ESP32-C6 over WiFi, docs/ap-netradio.md); not sent by an AP that has none"
+          required: [connected]
+          properties:
+            connected: { type: boolean, description: "A radio is connected now" }
+            ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
+            seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
+            fw: { type: integer, minimum: 0, description: "Its firmware version as a number, as in its HELLO (0 before HELLO; only while connected)" }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
         max_tags: { type: integer, minimum: 1, description: "The most tags the AP keeps (menuconfig, default 1000); the C6 may run out of RAM before" }
         table_full: { type: boolean, description: "A new tag found no room since a tag last got a slot (none free, and no RAM for more or max_tags reached): it is not listed until a slot frees" }

@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -323,6 +323,15 @@ static void test_batch_and_list(void)
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"board\":\"host\",\"board_name\":\"host\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"table_full\":false,\"poll_s\":0},\"tags\":["));
+    /* the network radio: its address and when it was last heard; no "radio" without a link */
+    esl_radio_link_t link = {.up = true, .ip = 0xC0A803F9, .seen_ms = 86395000, .ver = 3};
+    api.link = &link;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":5,\"fw\":3}},\"tags\":["));
+    link.up = false;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false}},\"tags\":["));
+    api.link = NULL;
     api.reset_reason = "task_wdt";
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"poll_s\":0,\"reset\":\"task_wdt\"},\"tags\":["));

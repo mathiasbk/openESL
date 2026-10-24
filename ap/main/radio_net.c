@@ -35,6 +35,7 @@ static esl_nlink_host_t hl;
 static esl_nlink_rx_t rx;
 static uint8_t rx_buf[RX_BUF];
 static int conn = -1;
+static esl_radio_link_t link;
 static bool full_warned;
 static uint8_t channel;
 static uint16_t pan;
@@ -80,6 +81,7 @@ static void close_conn(const char *why)
     ESP_LOGW(TAG, "radio connection closed: %s", why);
     close(conn);
     conn = -1;
+    link.up = false;
 }
 
 static void take(int s, const struct sockaddr_in *from)
@@ -93,6 +95,7 @@ static void take(int s, const struct sockaddr_in *from)
     struct timeval tv = {5, 0};
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     conn = s;
+    link = (esl_radio_link_t){.up = true, .ip = ntohl(from->sin_addr.s_addr), .seen_ms = now_ms()};
     full_warned = false;
     esl_nlink_rx_init(&rx, rx_buf, sizeof(rx_buf));
     esl_nlink_host_init(&hl, &host, esl_radio_tagfw(), channel, pan, net_write, NULL, now_ms);
@@ -129,10 +132,13 @@ static void net_task(void *arg)
                 close_conn(n == 0 ? "closed by the radio" : strerror(errno));
             } else {
                 last_rx = esp_timer_get_time();
+                link.seen_ms = now_ms();
                 uint32_t syncs = host.stats.syncs;
                 int64_t t0 = esp_timer_get_time();
                 if (!esl_nlink_feed(&rx, buf, (size_t)n, on_frame, NULL))
                     close_conn(hl.broken ? "write failed" : "bad frame");
+                else
+                    link.ver = hl.hello ? hl.radio.radio_ver : 0;
                 if (host.stats.syncs != syncs) {
                     ESP_LOGI(TAG, "sync %lu answered in %lld ms (log %u)", (unsigned long)host.stats.syncs,
                              (long long)(esp_timer_get_time() - t0) / 1000, hl.req.log_n);
@@ -152,6 +158,11 @@ static void net_task(void *arg)
             log_stats();
         }
     }
+}
+
+const esl_radio_link_t *radio_link(void)
+{
+    return &link;
 }
 
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t ch, uint16_t pan_id)

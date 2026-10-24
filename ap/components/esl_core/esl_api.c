@@ -804,6 +804,16 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         esl_sb_printf(out, ",\"scheduled\":%u,\"max_scheduled\":%u", esl_sched_count(api->sched),
                       api->sched->cap);
     }
+    if (api->link) {
+        const esl_radio_link_t *l = api->link;
+        esl_sb_printf(out, ",\"radio\":{\"connected\":%s", l->up ? "true" : "false");
+        if (l->up)
+            esl_sb_printf(out, ",\"ip\":\"%u.%u.%u.%u\",\"seen_s\":%" PRIu64 ",\"fw\":%u",
+                          (unsigned)(l->ip >> 24), (unsigned)((l->ip >> 16) & 0xff),
+                          (unsigned)((l->ip >> 8) & 0xff), (unsigned)(l->ip & 0xff),
+                          (now_ms - l->seen_ms) / 1000, (unsigned)l->ver);
+        esl_sb_puts(out, "}");
+    }
     esl_sb_puts(out, "},\"tags\":[");
     bool first = true;
     for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {

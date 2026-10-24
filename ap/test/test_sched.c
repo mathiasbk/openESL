@@ -11,7 +11,7 @@
 static esl_store_t st;
 static esl_sched_entry_t entries[CAP];
 static esl_sched_t sched;
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, NULL, NULL, NULL, &sched, NULL, NULL, NULL, false};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, NULL, NULL, NULL, &sched, NULL, NULL, NULL, false, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
