@@ -25,16 +25,16 @@ function small(x, y, label, screen) {
   return s + usbc(x + 10.5, y + h - 6);
 }
 
-// A DevKitC-style board: the module at the top, two USB ports (USB and COM) at the bottom;
-// usb: the port marked USB drawn as the one to use
+// A DevKitC-style board: the module at the top, two USB ports at the bottom, COM on the left and
+// USB on the right; usb: the port marked USB drawn as the one to use
 export function devkit(x, y, label, usb) {
   const pins = [...Array(10).keys()].map((i) =>
     `<circle cx="${x + 3.5}" cy="${y + 18 + i * 6}" r="1.2" fill="${GOLD}"/><circle cx="${x + 46.5}" cy="${y + 18 + i * 6}" r="1.2" fill="${GOLD}"/>`).join("");
   return `<rect x="${x}" y="${y}" width="50" height="86" rx="3" fill="${PCB}"/>` +
     `<rect x="${x + 8}" y="${y + 5}" width="34" height="38" rx="2" fill="${CHIP}"/><rect x="${x + 8}" y="${y + 5}" width="34" height="9" fill="#a9aeb5"/>` +
     text(x + 25, y + 31, 7, "#2b2f36", label) + pins +
-    usbc(x + 9, y + 80, usb) + usbc(x + 28, y + 80, false) +
-    text(x + 15.5, y + 77, 5, "#fff", "USB", 400) + text(x + 34.5, y + 77, 5, "#fff", "COM", 400);
+    usbc(x + 9, y + 80, false) + usbc(x + 28, y + 80, usb) +
+    text(x + 15.5, y + 77, 5, "#fff", "COM", 400) + text(x + 34.5, y + 77, 5, "#fff", "USB", 400);
 }
 
 const waves = (x, y, c = "#1d6b4f") =>
