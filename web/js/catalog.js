@@ -49,7 +49,7 @@ export function addTemplate(doc, t, model) {
   out.layouts ||= [];
   const layout = structuredClone(v.layout);
   layout.name = freeName(layout.name, new Set(out.layouts.map((l) => l.name)));
-  layout._template = t.id;
+  if (!t.example) layout._template = t.id;      // t.example: an example layout, not from the library
   const rename = {};
   for (const [name, icon] of Object.entries(v.icons || {})) {
     out.icons ||= {};

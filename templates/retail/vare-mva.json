@@ -18,7 +18,7 @@
         "name": "vare-mva",
         "description": "Product label with two prices: brand band, name, a small note (e.g. the price inc. VAT) and the highlighted price",
         "fields": ["brand", "name", "note", "price"],
-        "_sample": ["Kärcher", "Lakkstål 16 ltr", "inkl. mva 3910,36", "3128,29"],
+        "_sample": ["Brand", "Product name", "inkl. mva 3910,36", "3128,29"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
@@ -34,7 +34,7 @@
         "name": "vare-mva",
         "description": "Product label with two prices: brand band, name, a small note (e.g. the price inc. VAT) and the highlighted price",
         "fields": ["brand", "name", "note", "price"],
-        "_sample": ["Kramp", "Nedre kuleledd, kat. 3/2", "inkl. mva 192,25", "153,80"],
+        "_sample": ["Brand", "Product name", "inkl. mva 3910,36", "3128,29"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },

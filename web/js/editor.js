@@ -12,6 +12,7 @@ import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
 import { ApClient, apBase } from "./apclient.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
+import { freeName } from "./catalog.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -240,11 +241,14 @@ async function offerVariant(id) {
   const found = await templateById(id);
   const model = state.model;
   if (!found || model !== state.model || !found.t.variants?.[model]) return;
+  // a layout of the same name without "_template" (from the example file, or added by hand) is
+  // most likely the same one
+  if (doc().layouts?.some((l) => l.name === found.entry.layout && !l._template)) return;
   $("tpl-offer-text").textContent = `The ${model}" file has no “${found.t.title}” yet.`;
   $("tpl-offer-add").textContent = `Add its ${model}" version`;
   $("tpl-offer-add").onclick = () => {
     bar.hidden = true;
-    openTemplatePicker().then(() => document.querySelector(`#tpl-grid .tpl-card[data-id="${CSS.escape(id)}"]`)?.click());
+    openTemplatePicker(id);
   };
   bar.hidden = false;
 }
@@ -1311,11 +1315,7 @@ function moveElement(d) {
 }
 
 function uniqueName(base) {
-  const names = new Set(doc().layouts.map((l) => l.name));
-  let n = 2;
-  let name = base;
-  while (names.has(name)) name = `${base}-${n++}`.slice(0, 31);
-  return name;
+  return freeName(base, new Set(doc().layouts.map((l) => l.name)));
 }
 
 function addLayout(l) {

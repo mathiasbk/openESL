@@ -18,7 +18,7 @@
         "name": "vare",
         "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
         "fields": ["brand", "name", "info", "price"],
-        "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+        "_sample": ["Brand", "Product name", "1234-5678 7038010009457", "17,25"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
@@ -34,7 +34,7 @@
         "name": "vare",
         "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
         "fields": ["brand", "name", "info", "price"],
-        "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+        "_sample": ["Brand", "Product name", "1234-5678 7038010009457", "17,25"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },

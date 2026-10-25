@@ -112,6 +112,9 @@ test("adding a template: unique name, its id, its icons, and the file stays as i
   const res = r.loadLayouts(JSON.stringify(b.doc));
   assert.ok(res.ok, res.error);
   assert.equal(addTemplate(doc, { id: "y", variants: {} }, "2.9"), null);
+  // an example layout offered when there is no catalog is not marked as a template
+  const ex = addTemplate(doc, { id: "example-x", example: true, variants: { "2.9": { layout: { name: "x", fields: ["a"], elements: [] } } } }, "2.9");
+  assert.equal(ex.doc.layouts[1]._template, undefined);
 });
 
 test("names and search", () => {

@@ -50,7 +50,10 @@ async function offlineCatalog() {
   const templates = (d.layouts || []).map((l) => {
     const t = { id: "example-" + l.name, title: l.name, description: l.description || "", fields: {}, variants: { [model]: { layout: l } } };
     for (const f of l.fields || []) t.fields[f] = "";
-    if (d.icons) t.variants[model].icons = d.icons;
+    // only the pictures this layout uses: each one costs room in the file
+    const used = (l.elements || []).filter((e) => e.type === "icon" && d.icons?.[e.icon]).map((e) => e.icon);
+    if (used.length) t.variants[model].icons = Object.fromEntries(used.map((n) => [n, d.icons[n]]));
+    t.example = true;      // not a template of the library: no "_template" on the layout
     files[t.id] = t;
     return { id: t.id, category: "examples", title: l.name, description: t.description, tags: [], fields: l.fields || [], layout: l.name, models: { [model]: {} } };
   });
@@ -96,6 +99,7 @@ export async function templateById(id) {
 // sample text into a canvas. Uses the renderer's layout slot: the editor compiles its file again
 // when the dialog closes.
 async function drawPreview(canvas, t, model) {
+  if (!$("tpl-dlg").open) return;      // the editor has the renderer again once the dialog is closed
   const m = variantFor(t, model) ? model : Object.keys(t.variants).find((k) => MODELS[k] && variantFor(t, k));
   if (!m) return;
   const r = await loadRenderer(m);
@@ -121,25 +125,34 @@ function sampleOf(l) {
   return l._sample || (l.fields || []).map((f) => f.charAt(0).toUpperCase() + f.slice(1).replace(/_/g, " "));
 }
 
-// Whether the current file can take the template: { ok } or { ok: false, why }
+// The names of the example file's layouts, by model (filled when the dialog opens), so a full
+// file can be told which of its layouts are only the examples
+const examples = {};
+
+// What to delete to make room: the example layouts the file still has, by name
+function makeRoom(doc, model) {
+  const ex = (doc.layouts || []).map((l) => l.name).filter((n) => examples[model]?.has(n));
+  return ex.length
+    ? `Delete layouts you do not use first, such as the example layouts ${ex.slice(0, 4).join(", ")}${ex.length > 4 ? " …" : ""}.`
+    : "Delete a layout you do not use first.";
+}
+
+// Whether the current file can take the template: { ok, added, size, json } or { ok: false, why }
 export function fitCheck(t, model) {
   if (!variantFor(t, model)) return { ok: false, why: `There is no ${modelName(model)} version of this template yet.` };
   const r = opts.renderer();
   const doc = opts.doc();
   const now = r.loadLayouts(JSON.stringify(doc));
   if (!now.ok) return { ok: false, why: "Your layout file has an error already: " + now.error };
+  if ((doc.layouts || []).length >= 16) return { ok: false, why: "The layout file has 16 layouts, the most it can hold. " + makeRoom(doc, model) };
   const added = addTemplate(doc, t, model);
-  const res = r.loadLayouts(JSON.stringify(added.doc));
-  if (!res.ok) {
-    const why = /layouts/.test(res.error) && (doc.layouts || []).length >= 16
-      ? "The layout file has 16 layouts, the most it can hold. Delete one first."
-      : "The layout file would be too big for the AP with it: " + res.error;
-    return { ok: false, why };
-  }
+  // the JSON limit usually fills first, and the compiler's message for it says nothing about what to do
   const json = new TextEncoder().encode(JSON.stringify(added.doc)).length;
   if (json > r.limits.jsonBytes)
-    return { ok: false, why: `The layout file would be ${json} bytes of JSON with it, more than the AP takes (${r.limits.jsonBytes}). Delete a layout you do not use first.` };
-  return { ok: true, added, size: res.size };
+    return { ok: false, why: `With it the layout file would be ${json} bytes of JSON, more than the AP takes (${r.limits.jsonBytes}). ` + makeRoom(doc, model) };
+  const res = r.loadLayouts(JSON.stringify(added.doc));
+  if (!res.ok) return { ok: false, why: `The AP would refuse the layout file with it: ${res.error}. ` + makeRoom(doc, model) };
+  return { ok: true, added, size: res.size, json };
 }
 
 // ---------- the dialog ----------
@@ -313,8 +326,12 @@ async function openDetail(entry) {
     add.disabled = true;
     return;
   }
+  // the limit that comes closest to full
+  const lim = opts.renderer().limits;
+  const [n, max, what] = fit.json / lim.jsonBytes > fit.size / lim.fileBytes
+    ? [fit.json, lim.jsonBytes, "bytes of JSON"] : [fit.size, lim.fileBytes, "bytes compiled"];
   status.className = "tpl-fit ok";
-  status.textContent = `Fits: the file becomes ${fit.size} bytes compiled of ${opts.renderer().limits.fileBytes}.`;
+  status.textContent = `Fits: the file becomes ${n} of the ${max} ${what} the AP takes (${Math.round((100 * n) / max)} %).`;
   add.addEventListener("click", () => {
     const again = fitCheck(t, model);     // the file may have changed since
     if (!again.ok) {
@@ -342,8 +359,15 @@ function closeDetail() {
   opts.redraw();
 }
 
-export async function openTemplatePicker() {
+// show: the id of a template to open the details of (the offer after a change of model), with
+// the search and category cleared
+export async function openTemplatePicker(show) {
   const dlg = $("tpl-dlg");
+  if (show) {
+    ui.query = "";
+    ui.cat = "all";
+    $("tpl-search").value = "";
+  }
   ui.open = null;
   $("tpl-detail").hidden = true;
   $("tpl-list").hidden = false;
@@ -361,6 +385,16 @@ export async function openTemplatePicker() {
     : "";
   refreshCats();
   refreshGrid();
+  const model = opts.model();
+  if (!examples[model]) {
+    try {
+      examples[model] = new Set(((await opts.exampleDoc(model)).layouts || []).map((l) => l.name));
+    } catch {
+      examples[model] = new Set();
+    }
+  }
+  const entry = show && catalog.index.templates.find((t) => t.id === show);
+  if (entry) openDetail(entry);
 }
 
 export function initTemplatePicker(o) {
