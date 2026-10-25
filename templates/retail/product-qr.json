@@ -1,0 +1,47 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "product-qr",
+  "category": "retail",
+  "title": "Product with QR code",
+  "description": "Brand band, product name, price, and a QR code that links to a product page.",
+  "tags": ["price", "product", "qr", "link"],
+  "fields": {
+    "brand": "Brand or maker, shown in the band",
+    "name": "Product name",
+    "price": "Price",
+    "url": "Link for the QR code, e.g. the product page (short links give a larger code)"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "product-qr",
+        "description": "Brand band, name and price on the left, the QR code on the right",
+        "fields": ["brand", "name", "price", "url"],
+        "_sample": ["Brand", "Product name", "199,-", "https://example.com/p/1234"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 192, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 180, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 6, "y": 28, "w": 180, "h": 50, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "price", "x": 6, "y": 78, "w": 180, "h": 48, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" },
+          { "type": "qr", "field": "url", "x": 192, "y": 0, "w": 104, "h": 128, "align": "center", "valign": "middle" }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "product-qr",
+        "description": "Brand band and name at the top, the QR code at the bottom left and the price next to it",
+        "fields": ["brand", "name", "price", "url"],
+        "_sample": ["Brand", "Product name", "199,-", "https://example.com/p/1234"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 6, "y": 28, "w": 188, "h": 74, "fonts": ["medium", "small"], "lines": 3 },
+          { "type": "qr", "field": "url", "x": 0, "y": 104, "w": 90, "h": 96, "align": "left", "valign": "bottom" },
+          { "type": "text", "field": "price", "x": 90, "y": 104, "w": 106, "h": 92, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    }
+  }
+}

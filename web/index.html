@@ -104,9 +104,7 @@
             <summary title="Add a layout to this layout file">+ New</summary>
             <div class="menu-list" role="menu" id="layout-new-list">
               <button id="layout-add" class="item" role="menuitem">Empty layout</button>
-              <hr>
-              <span class="menu-note">From the example file</span>
-              <!-- one item per template (editor.js) -->
+              <button id="layout-from-tpl" class="item" role="menuitem" title="Ready-made layouts by category: 3D printer, retail, signs, home">From template…</button>
             </div>
           </details>
         </div>
@@ -128,6 +126,11 @@
           <input type="file" id="icon-file" accept="image/*" hidden>
           <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
           <button id="el-add-qr" class="tool" title="A field as a QR code, e.g. a link (one per layout)"><b>▦</b>QR</button>
+        </div>
+        <div id="tpl-offer" class="tpl-offer" role="status" hidden>
+          <span id="tpl-offer-text"></span>
+          <button id="tpl-offer-add" class="small primary"></button>
+          <button id="tpl-offer-no" class="small" aria-label="Not now">Not now</button>
         </div>
         <div class="dz-canvas" id="dz-canvas">
           <div class="stage-scroll">
@@ -230,6 +233,21 @@
         <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
         <button id="ap-send" class="primary" title="PUT /api/tags/{mac} with this layout and the sample text">Send</button>
       </div>
+    </dialog>
+
+    <dialog id="tpl-dlg" class="dlg tpl-dlg" aria-labelledby="tpl-h">
+      <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+      <h3 id="tpl-h">New from template <span class="muted">for the <span id="tpl-model">2.9"</span></span></h3>
+      <div id="tpl-list">
+        <div class="tpl-bar">
+          <input id="tpl-search" type="search" placeholder="Search: wifi, price, printer…" aria-label="Search the templates" spellcheck="false">
+          <label class="tpl-all" title="Also list templates that have no version for this model yet"><input type="checkbox" id="tpl-all"> All models</label>
+        </div>
+        <div id="tpl-cats" class="chips tpl-cats" role="tablist" aria-label="Categories"></div>
+        <p id="tpl-note" class="hint" hidden></p>
+        <div id="tpl-grid" class="tpl-grid"></div>
+      </div>
+      <div id="tpl-detail" class="tpl-detail" hidden></div>
     </dialog>
 
     <dialog id="json-dlg" class="dlg wide" aria-labelledby="json-h">

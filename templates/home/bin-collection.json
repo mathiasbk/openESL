@@ -1,0 +1,55 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "bin-collection",
+  "category": "home",
+  "title": "Bin collection",
+  "description": "The next pickup day and what is collected, with what comes after, e.g. from a waste collection calendar.",
+  "tags": ["home", "home-assistant", "calendar", "icon"],
+  "fields": {
+    "title": "Heading, e.g. Next pickup",
+    "day": "Day of the next pickup, as text",
+    "type": "What is collected, e.g. Paper",
+    "later": "What comes after, as text"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "bin": {"w": 48, "h": 60, "data": "AAA/+AAAAAA/+AAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAA////////////////////////////////////////////////////////AAAAAAAAAAAAAAAAP//////4P//////4P//////4P//////4P//////4H/x+Pj/4H/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/AB/x+Pj/AB/x+Pj/AB/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/////+AAf////+AAf////+AAf////+AAf////+AAf////+A"}
+      },
+      "layout": {
+        "name": "bin-collection",
+        "description": "Bin icon on the left, the heading, day and type next to it, what comes later at the bottom",
+        "fields": ["title", "day", "type", "later"],
+        "_sample": ["Next pickup", "Tuesday 28 Oct", "Paper and cardboard", "Then: Fri 7 Nov, food waste"],
+        "elements": [
+          { "type": "icon", "icon": "bin", "x": 8, "y": 10 },
+          { "type": "text", "field": "title", "x": 66, "y": 4, "w": 224, "h": 20, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "day", "x": 66, "y": 24, "w": 224, "h": 30, "fonts": ["medium", "small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "type", "x": 66, "y": 52, "w": 224, "h": 32, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "invert" },
+          { "type": "rect", "x": 6, "y": 86, "w": 284, "h": 2 },
+          { "type": "text", "field": "later", "x": 6, "y": 92, "w": 284, "h": 34, "fonts": ["small"], "valign": "middle", "lines": 2 }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "bin": {"w": 48, "h": 60, "data": "AAA/+AAAAAA/+AAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAA////////////////////////////////////////////////////////AAAAAAAAAAAAAAAAP//////4P//////4P//////4P//////4P//////4H/x+Pj/4H/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/AB/x+Pj/AB/x+Pj/AB/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/////+AAf////+AAf////+AAf////+AAf////+AAf////+A"}
+      },
+      "layout": {
+        "name": "bin-collection",
+        "description": "Bin icon and heading at the top, the day and type large under it, what comes later at the bottom",
+        "fields": ["title", "day", "type", "later"],
+        "_sample": ["Next pickup", "Tuesday 28 Oct", "Paper and cardboard", "Then: Fri 7 Nov, food waste"],
+        "elements": [
+          { "type": "icon", "icon": "bin", "x": 8, "y": 8 },
+          { "type": "text", "field": "title", "x": 64, "y": 8, "w": 130, "h": 60, "fonts": ["medium", "small"], "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "day", "x": 6, "y": 74, "w": 188, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "type", "x": 6, "y": 106, "w": 188, "h": 40, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "invert" },
+          { "type": "rect", "x": 20, "y": 154, "w": 160, "h": 2 },
+          { "type": "text", "field": "later", "x": 6, "y": 160, "w": 188, "h": 36, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 2 }
+        ]
+      }
+    }
+  }
+}

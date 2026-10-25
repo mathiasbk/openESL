@@ -1,0 +1,49 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "vare",
+  "category": "retail",
+  "title": "Product with brand",
+  "description": "Brand in a black band, product name, article number and price.",
+  "tags": ["price", "product"],
+  "fields": {
+    "brand": "Brand or maker, shown in the band",
+    "name": "Product name",
+    "info": "Article number, EAN or another note",
+    "price": "Price"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "vare",
+        "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
+        "fields": ["brand", "name", "info", "price"],
+        "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 52, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "info", "x": 5, "y": 86, "w": 150, "h": 38, "fonts": ["small"], "lines": 2 },
+          { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+          { "type": "text", "field": "price", "x": 166, "y": 28, "w": 126, "h": 96, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "vare",
+        "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
+        "fields": ["brand", "name", "info", "price"],
+        "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 28, "w": 190, "h": 52, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "info", "x": 5, "y": 84, "w": 190, "h": 38, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 2 },
+          { "type": "rect", "x": 0, "y": 126, "w": 200, "h": 2 },
+          { "type": "text", "field": "price", "x": 5, "y": 132, "w": 190, "h": 64, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    }
+  }
+}

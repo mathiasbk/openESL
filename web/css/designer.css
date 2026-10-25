@@ -230,3 +230,71 @@
   .tab.designer:has(.el-bar:not([hidden])) { padding-bottom: 56px; }
 }
 .el-bar .swatch { flex: none; }
+
+/* ===================== New from template (js/tplpicker.js) ===================== */
+.tpl-dlg { width: min(980px, calc(100vw - 32px)); max-height: min(860px, calc(100vh - 32px)); display: flex; flex-direction: column; }
+.tpl-dlg:not([open]) { display: none; }
+.tpl-dlg h3 .muted { font-size: 14px; font-weight: 400; }
+#tpl-list { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.tpl-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.tpl-bar input[type="search"] { flex: 1; min-width: 180px; }
+.tpl-all { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.tpl-cats { margin-bottom: 12px; }
+.tpl-bar, .tpl-cats, #tpl-note { flex: none; }
+.tpl-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; align-content: start;
+  overflow: auto; min-height: 200px; padding: 2px; margin: 0 -2px;
+}
+.tpl-card {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 10px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+}
+.tpl-card:hover { border-color: var(--accent); }
+.tpl-card.off { opacity: .55; }
+.tpl-shot {
+  display: grid; place-items: center; height: 120px; margin-bottom: 6px; border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.tpl-shot canvas { max-width: 100%; max-height: 120px; width: auto; height: auto; image-rendering: pixelated; background: var(--paper); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); visibility: hidden; }
+.tpl-shot canvas.drawn { visibility: visible; }
+.tpl-shot.failed::after { content: "No preview"; font-size: 12px; color: var(--muted); }
+.tpl-title { font-size: 14px; }
+.tpl-desc { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tpl-foot { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+.tpl-models { display: inline-flex; gap: 4px; }
+.tpl-badge { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.tpl-badge.cur:not(.off) { border-color: var(--accent); color: var(--accent); }
+.tpl-badge.off { text-decoration: line-through; opacity: .7; }
+.tpl-na { font-size: 11px; color: var(--warn); }
+.tpl-empty { grid-column: 1 / -1; }
+.tpl-detail { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px 20px; overflow: auto; align-items: start; }
+.tpl-detail[hidden] { display: none; }
+.tpl-big { width: 100%; background: color-mix(in srgb, var(--text) 5%, transparent); border-radius: 8px; padding: 12px; box-sizing: border-box; }
+.tpl-big canvas { width: 100%; height: auto; image-rendering: pixelated; background: var(--paper); box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+.tpl-info { min-width: 0; }
+.tpl-h { font-size: 16px; margin: 0 0 4px; }
+.tpl-text { margin: 0 0 8px; font-size: 14px; }
+.tpl-info .sub-h { margin-top: 14px; }
+.tpl-fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 13px; }
+.tpl-fields dt { margin: 0; }
+.tpl-fields dd { margin: 0; }
+.tpl-fields code { font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.tpl-fit { grid-column: 1 / -1; margin: 4px 0 0; font-size: 14px; }
+.tpl-fit.ok { color: var(--ok); }
+.tpl-fit.error { color: var(--error); }
+.tpl-detail .dlg-buttons { grid-column: 1 / -1; margin-top: 4px; }
+.tpl-detail .dlg-buttons .sep { flex: 1; }
+.tpl-offer {
+  align-self: center; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 12px 0; padding: 6px 8px 6px 12px;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; z-index: 5;
+}
+@media (max-width: 700px) {
+  .tpl-dlg { width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 14px 12px; }
+  .tpl-cats { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .tpl-cats .chip { flex: none; }
+  .tpl-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .tpl-shot { height: 90px; }
+  .tpl-shot canvas { max-height: 90px; }
+  .tpl-detail { grid-template-columns: minmax(0, 1fr); }
+}
+.tpl-info a { color: var(--accent); }

@@ -1,0 +1,56 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "vare-priser",
+  "category": "retail",
+  "title": "Product with two prices",
+  "description": "Brand band, product name, a note, the price without VAT and the highlighted price with VAT, both sent as fields.",
+  "tags": ["price", "product", "vat"],
+  "fields": {
+    "brand": "Brand or maker, shown in the band",
+    "name": "Product name",
+    "info": "Article number or another note",
+    "price": "Price with VAT",
+    "price_ex": "Price without VAT"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "vare-priser",
+        "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
+        "fields": ["brand", "name", "info", "price", "price_ex"],
+        "_sample": ["Kärcher", "Lakkstål 16 ltr", "1.512-404.0", "3910,36", "3128,29"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 72, "fonts": ["medium", "small"], "valign": "middle", "lines": 3 },
+          { "type": "text", "field": "info", "x": 5, "y": 104, "w": 150, "h": 20, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+          { "type": "text", "text": "eks. mva", "x": 166, "y": 26, "w": 126, "h": 17, "fonts": ["small"], "align": "right", "lines": 1 },
+          { "type": "text", "field": "price_ex", "x": 166, "y": 42, "w": 126, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "inkl. mva", "x": 166, "y": 68, "w": 126, "h": 17, "fonts": ["small"], "align": "right", "lines": 1 },
+          { "type": "text", "field": "price", "x": 166, "y": 84, "w": 126, "h": 44, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "vare-priser",
+        "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
+        "fields": ["brand", "name", "info", "price", "price_ex"],
+        "_sample": ["Kramp", "Nedre kuleledd, kat. 3/2", "1626-160602/439", "192,25", "153,80"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 28, "w": 190, "h": 50, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "info", "x": 5, "y": 80, "w": 190, "h": 18, "fonts": ["small"], "align": "center", "lines": 1 },
+          { "type": "rect", "x": 0, "y": 100, "w": 200, "h": 2 },
+          { "type": "text", "text": "eks. mva", "x": 6, "y": 106, "w": 70, "h": 26, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "price_ex", "x": 76, "y": 106, "w": 118, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "inkl. mva", "x": 6, "y": 136, "w": 60, "h": 60, "fonts": ["small"], "valign": "bottom", "lines": 1 },
+          { "type": "text", "field": "price", "x": 66, "y": 136, "w": 128, "h": 60, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    }
+  }
+}
