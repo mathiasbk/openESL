@@ -57,6 +57,7 @@ static const char *TAG = "netradio";
 #define LOG      CONFIG_ESL_NETRADIO_LOG
 #define ANSWER_TIMEOUT_MS 10000   /* a sync whose answer has not ended by then: the link is gone */
 #define SYNC_TIMEOUT_S    5       /* send and connect */
+#define WEB_REQUEST_US    3000000 /* a browser's request on port 80, whole */
 
 static esl_rcache_t rc;
 static esl_rtag_t *tags;
@@ -490,14 +491,19 @@ static void net_task(void *arg)
    (without its port: that is the link's, the dashboard is on 80); empty when neither */
 static void dashboard_ip(char *out, size_t cap)
 {
+    char h[64];
     xSemaphoreTake(lock, portMAX_DELAY);
-    strlcpy(out, ap_ip[0] ? ap_ip : host, cap);
+    strlcpy(h, ap_ip[0] ? ap_ip : host, sizeof(h));
     xSemaphoreGive(lock);
-    char *colon = strchr(out, ':');
+    char *colon = strchr(h, ':');
     if (colon)
         *colon = '\0';
+    /* written back from the parsed address, not as typed: inet_aton takes trailing blanks
+       and forms such as 0xc0a80301 */
     struct in_addr a;
-    if (!inet_aton(out, &a))
+    if (inet_aton(h, &a))
+        inet_ntoa_r(a, out, cap);
+    else
         out[0] = '\0';
 }
 
@@ -520,8 +526,8 @@ static void web_task(void *arg)
     static const char page[] =
         "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">"
         "<title>openESL radio</title><h1>openESL radio</h1>"
-        "<p>This is a radio for an openESL access point. It has no page of its own: it sends you to the "
-        "access point's dashboard once it has found the access point on the network, and it has not yet."
+        "<p>This is a radio for an openESL access point. It has no page of its own: once it has found the "
+        "access point on the network, it sends you to its dashboard. It has not found it yet."
         "<p>It looks for the access point on mDNS. To give it the address, use the Flash AP tab on "
         "<a href=\"https://mathiasbk.github.io/openESL/#ap\">mathiasbk.github.io/openESL</a>, or type "
         "<code>host &lt;address&gt;</code> on the radio's USB console.";
@@ -542,22 +548,43 @@ static void web_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        struct timeval tv = {2, 0};
+        struct timeval tv = {1, 0};
         setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        /* the request itself does not matter, only that it came: read its head, up to a size */
-        char req[512];
+        /* The request matters only for its path: read the whole head (data that comes after
+           close() makes lwIP answer with a reset, which a browser may see before the answer),
+           keeping its start, within WEB_REQUEST_US from the connection: a client that
+           trickles bytes does not hold the port */
+        char start[16] = {0}, buf[128];
         size_t n = 0;
-        for (int k; n < sizeof(req) - 1 && (k = recv(c, req + n, sizeof(req) - 1 - n, 0)) > 0;) {
-            n += (size_t)k;
-            req[n] = '\0';
-            if (strstr(req, "\r\n\r\n"))
+        uint32_t last4 = 0;
+        bool end = false;
+        int64_t until = esp_timer_get_time() + WEB_REQUEST_US;
+        while (!end && esp_timer_get_time() < until) {
+            int k = recv(c, buf, sizeof(buf), 0);
+            if (k <= 0)
                 break;
+            for (int i = 0; i < k && !end; i++, n++) {
+                if (n < sizeof(start) - 1)
+                    start[n] = buf[i];
+                last4 = last4 << 8 | (uint8_t)buf[i];
+                end = last4 == 0x0D0A0D0A; /* \r\n\r\n */
+            }
+        }
+        if (!end) {
+            close(c);
+            continue;
         }
         char ip[16], head[192];
         dashboard_ip(ip, sizeof(ip));
+        const char *sp = strchr(start, ' ');
+        bool root = sp && sp[1] == '/' && (sp[2] == ' ' || sp[2] == '?');
         int hn;
-        if (ip[0]) {
+        if (!ip[0] && !root) {
+            /* the favicon and the like: no second page */
+            static const char nf[] = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            web_send(c, nf, sizeof(nf) - 1);
+        } else if (ip[0]) {
             hn = snprintf(head, sizeof(head),
                           "HTTP/1.1 302 Found\r\nLocation: http://%s/\r\nContent-Length: 0\r\n"
                           "Cache-Control: no-store\r\nConnection: close\r\n\r\n", ip);
