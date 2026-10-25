@@ -409,6 +409,10 @@ paths:
         `data` is base64 of the raw image: the black plane, then the red plane when `red`
         is true. A plane is `width` columns from left to right, each `ceil(height / 8)`
         bytes, byte 0 bit 7 the top row; a set bit is ink.
+
+        Content held back because a barcode, QR code or number does not fit its box
+        (`content_error`) is drawn all the same, so the preview shows what is wrong; the tag
+        does not get it.
       responses:
         "200":
           description: The image
@@ -436,7 +440,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: The content is held back (`content_error`) or cannot be drawn
+          description: The content names a layout that is not in the file (`content_error`), or cannot be drawn
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -999,7 +1003,9 @@ paths:
         `PUT /api/tags` checks new content. A tag whose barcode, QR code or number no longer
         fits its box is listed in `content_errors`, and its content is held back (it keeps
         what it shows, with `content_error` in `GET /api/tags`) until it gets content that
-        fits or a file that fits it is uploaded. The AP does the same check at boot.
+        fits or a file that fits it is uploaded. The AP does the same check at boot, and at a
+        tag's next poll (or before its image is drawn) for content it did not check against this file yet (scheduled content
+        that takes effect later, or content set before the tag's model was known).
       requestBody:
         required: true
         content:

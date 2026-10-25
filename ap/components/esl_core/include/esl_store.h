@@ -76,6 +76,7 @@ typedef struct {
     bool has_image : 1;       /* its content is a picture (ESL_LAYOUT_IMAGE), kept with ops.persist_image */
     bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
                                  RAM only): ESL_CERR_UNFIT */
+    bool content_check : 1;   /* its content or model changed since that was last checked (esl_store_check_tag) */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
@@ -233,6 +234,12 @@ size_t esl_store_get_image(esl_store_t *st, uint64_t mac, uint8_t *buf, size_t c
  * how many do not fit. Takes the store's and the layouts' locks in turn, never both. */
 unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t model,
                                 void (*fn)(void *ctx, uint64_t mac, const char *msg), void *ctx);
+
+/* The same for one tag, when its content or model changed since its last check: content
+ * from the schedule (esl_sched_tick, checked when it was queued, maybe against an older
+ * file), or set while its model was not known. esl_radio_handle calls it after each POLL,
+ * and esl_image before it draws (with a radio coprocessor, esl_rhost draws before the POLL). True if the content fits (or nothing was to be checked). */
+bool esl_store_check_tag(esl_store_t *st, esl_layouts_t *ls, uint64_t mac);
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac);
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out);

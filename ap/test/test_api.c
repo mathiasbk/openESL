@@ -549,13 +549,43 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\"]}", 0), 200);
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_error\":null"));
+    /* content set without PUT /api/tags (as the schedule does) or before the tag's model was
+       known is checked when the tag polls (esl_store_check_tag, from esl_radio_handle) */
+    {
+        esl_content_t c;
+        esl_set_result_t r;
+        CHECK(esl_content_init_named(&c, "c128", 4, 0) == ESL_CONTENT_OK);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)"WXYZ", 4) == ESL_CONTENT_OK);
+        CHECK(esl_store_set(&st, 0x29, &c, &r) == ESL_STORE_OK);
+        CHECK(!esl_store_check_tag(&st, &layouts, 0x29));
+        CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+        CHECK(HAS(resp, "does not fit its box"));
+        CHECK(esl_store_check_tag(&st, &layouts, 0x29)); /* checked once: nothing to do */
+        /* a tag whose model is not known yet when the file comes */
+        CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
+        CHECK_INT(req("PUT", "/api/tags/00000000000000BB", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCD\"]}", 0), 200);
+        CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+        CHECK(!HAS(resp, "00000000000000BB"));
+        poll_model(0xBB, ESL_MODEL_29, true);
+        CHECK(!esl_store_check_tag(&st, &layouts, 0xBB));
+        CHECK_INT(req("GET", "/api/tags/00000000000000BB", AUTH, NULL, 0), 200);
+        CHECK(HAS(resp, "does not fit its box"));
+        /* another reason it has is not hidden by this one */
+        poll_model(0xBB, ESL_MODEL_29, false);
+        CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+        CHECK_INT(req("GET", "/api/tags/00000000000000BB", AUTH, NULL, 0), 200);
+        CHECK(HAS(resp, "\"content_error\":\"the tag cannot show images"));
+        CHECK_INT(req("DELETE", "/api/tags/00000000000000BB", AUTH, NULL, 0), 200);
+    }
     /* deleting the file: not in the file any more, and not unfit; back to a file that fits */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCD\"]}", 0), 200);
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
     CHECK_INT(json_u32(resp, "\"content_errors_total\":"), 1);
     CHECK_INT(req("DELETE", "/api/layouts/2.9", AUTH, NULL, 0), 200);
-    poll_model(0x29, ESL_MODEL_29, true); /* without the file: not in the file, no longer unfit */
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":null")); /* the file is gone: nothing is unfit */
+    poll_model(0x29, ESL_MODEL_29, true); /* and at the POLL: not in the file */
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);

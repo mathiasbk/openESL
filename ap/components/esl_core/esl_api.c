@@ -1342,6 +1342,7 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
     if (strcmp(method, "DELETE") == 0) {
         if (!esl_layouts_delete(ls, model))
             return api_error(out, 404, "no layout for this model");
+        esl_store_check_layout(api->store, ls, model, NULL, NULL); /* no file: nothing is unfit */
         esl_sb_printf(out, "{\"model\":\"%s\",\"deleted\":true}", esl_model_name(model));
         return 200;
     }

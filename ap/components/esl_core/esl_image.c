@@ -345,6 +345,11 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     b->mac = 0;
     if (!t->has_content || t->content_err || !t->model)
         return false;
+    /* Content not checked against the file yet (from the schedule, or set before the model
+       was known) is checked first: with a radio coprocessor (esl_rhost) the image is drawn
+       before the tag's POLL gets here (esl_store_check_tag in esl_radio_handle) */
+    if (t->content_check && !esl_store_check_tag(st, ls, t->mac))
+        return false;
     /* From NVS on the device, in the tag's reply window (well under a millisecond,
        unless NVS is busy with a write elsewhere; then the next POLL offers it again).
        Another content_id than t's: it changed meanwhile, and is drawn on the next POLL */
