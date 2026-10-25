@@ -90,7 +90,7 @@ Layout files have no bar element, so the bar is an inverted text field of spaces
 
 Copy the layout into the AP's file for the tag's model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so drop example layouts no tag uses if it does not fit.
 
-Both automations below run every 10 minutes while printing and round down to 10 % and 10 minutes, so the tag redraws at most 6 times an hour. Progress is rounded down, not to the nearest, so the tag never shows 100 % before the print is done. For a 1.54" tag, change `31` to `20` in the bar.
+Both automations below run every 10 minutes while printing, so the tag redraws at most 6 times an hour; that, not rounding, is what saves the battery, so the numbers are exact. Progress is rounded down, so the tag never shows 100 % before the print is done. The time left is counted from the printer's own finish time. For a 1.54" tag, change `31` to `20` in the bar.
 
 ### PrusaLink
 
@@ -122,11 +122,11 @@ actions:
   - variables:
       printer: Core One
       status: "{{ states('sensor.prusa_core_one') }}"
-      # Rounded down so the text only changes in steps: 10 %, 10 min
-      pct: "{{ ((states('sensor.prusa_core_one_progress') | float(0) / 10) | round(0, 'floor') * 10) | int }}"
-      fin: "{{ ((as_timestamp(states('sensor.prusa_core_one_print_finish'), 0) / 600) | round(0) * 600) | int }}"
-      left: >-
-        {{ (((([fin - as_timestamp(now()), 0] | max) / 600) | round(0, 'ceil')) | int * 10) if fin else 0 }}
+      # Rounded down: never 100 % before the print is done
+      pct: "{{ states('sensor.prusa_core_one_progress') | float(0) | round(0, 'floor') | int }}"
+      fin: "{{ as_timestamp(states('sensor.prusa_core_one_print_finish'), 0) | int }}"
+      # Minutes left, from the printer's own finish time
+      left: "{{ ((([fin - as_timestamp(now()), 0] | max) / 60) | round(0) | int) if fin else 0 }}"
   - action: rest_command.esl_tag_text
     data:
       mac: "00000123456789A8"
@@ -170,11 +170,11 @@ actions:
   - variables:
       printer: Snapmaker
       status: "{{ states('sensor.snapmaker_current_print_state') }}"
-      # Rounded down so the text only changes in steps: 10 %, 10 min
-      pct: "{{ ((states('sensor.snapmaker_progress') | float(0) / 10) | round(0, 'floor') * 10) | int }}"
-      fin: "{{ ((as_timestamp(states('sensor.snapmaker_print_eta'), 0) / 600) | round(0) * 600) | int }}"
-      left: >-
-        {{ (((([fin - as_timestamp(now()), 0] | max) / 600) | round(0, 'ceil')) | int * 10) if fin else 0 }}
+      # Rounded down: never 100 % before the print is done
+      pct: "{{ states('sensor.snapmaker_progress') | float(0) | round(0, 'floor') | int }}"
+      fin: "{{ as_timestamp(states('sensor.snapmaker_print_eta'), 0) | int }}"
+      # Minutes left, from the printer's own finish time
+      left: "{{ ((([fin - as_timestamp(now()), 0] | max) / 60) | round(0) | int) if fin else 0 }}"
   - action: rest_command.esl_tag_text
     data:
       mac: "00000123456789A8"
