@@ -73,13 +73,28 @@ Change `printing` to the state your integration uses (for example `running` for 
 
 ## With a progress bar
 
-![The prusa layout on a 2.9" tag: PRUSA in a black band, 40 % in large digits, time left, finish time and a progress bar](images/ha-3d-printer.png)
+![The 3d-printer layout on a 2.9" tag: the printer name in a black band, 40 % in large digits, time left, finish time and a progress bar](images/ha-3d-printer.png)
 
-The layout `prusa` in [tag/designs/layouts/3d-printer-2.9.json](../tag/designs/layouts/3d-printer-2.9.json) (2.9" only) has five fields: `name`, `pct`, `left`, `done` and `bar`. Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text, and 31 spaces fill the frame. `pct` uses the `mid` font, which has digits only; the `%` is fixed text. Change the fixed text `PRUSA` to the name of your printer.
+The layout `3d-printer` comes for the 2.9" in [tag/designs/layouts/3d-printer-2.9.json](../tag/designs/layouts/3d-printer-2.9.json) and the 1.54" in [tag/designs/layouts/3d-printer-1.54.json](../tag/designs/layouts/3d-printer-1.54.json), with the same six fields in this order:
 
-Copy the layout into the AP's 2.9" file (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). The compiled file holds at most 2048 bytes and the layout takes 181, so drop example layouts no tag uses if it does not fit.
+| Field | Shows | Example |
+|---|---|---|
+| `printer` | the printer's name, in the black band | `Core One` |
+| `name` | file name or material, right in the band; may be empty | `Benchy.gcode` |
+| `pct` | progress, digits only (the `%` is fixed text) | `70` |
+| `left` | time left | `Left 0 h 40 min` |
+| `done` | finish time | `Done at 09:40` |
+| `bar` | the progress bar: spaces, 31 fill it on the 2.9", 20 on the 1.54" | `' ' * 22` |
 
-Then the automation sends `layout: prusa` and the five fields (entities from the PrusaLink integration). It leaves the file name out, and shows the status and material when the printer is idle. It runs every 10 minutes while printing and rounds to 10 % and 10 minutes, so the tag redraws at most 6 times an hour:
+Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text. Nothing in the layout is tied to one printer, so one layout serves every printer and each printer has its own automation and tag.
+
+Copy the layout into the AP's file for the tag's model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so drop example layouts no tag uses if it does not fit.
+
+Both automations below run every 10 minutes while printing and round down to 10 % and 10 minutes, so the tag redraws at most 6 times an hour. Progress is rounded down, not to the nearest, so the tag never shows 100 % before the print is done. For a 1.54" tag, change `31` to `20` in the bar.
+
+### PrusaLink
+
+With the PrusaLink integration (here a printer named `Core One`, entities `sensor.prusa_core_one*`). It leaves the file name out, and shows the status and material when the printer is idle:
 
 ```yaml
 alias: 3D printer to ESL tag
@@ -105,27 +120,78 @@ conditions:
         state: printing
 actions:
   - variables:
+      printer: Core One
       status: "{{ states('sensor.prusa_core_one') }}"
-      # Rounded so the text only changes in steps: 10 %, 10 min
-      pct: "{{ ((states('sensor.prusa_core_one_progress') | float(0) / 10) | round(0) * 10) | int }}"
+      # Rounded down so the text only changes in steps: 10 %, 10 min
+      pct: "{{ ((states('sensor.prusa_core_one_progress') | float(0) / 10) | round(0, 'floor') * 10) | int }}"
       fin: "{{ ((as_timestamp(states('sensor.prusa_core_one_print_finish'), 0) / 600) | round(0) * 600) | int }}"
       left: >-
         {{ (((([fin - as_timestamp(now()), 0] | max) / 600) | round(0, 'ceil')) | int * 10) if fin else 0 }}
   - action: rest_command.esl_tag_text
     data:
       mac: "00000123456789A8"
-      layout: prusa
-      # name, pct, left, done, bar (31 spaces = full bar)
+      layout: 3d-printer
+      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54")
       fields: >-
         {%- if status in ['printing', 'paused'] -%}
-        {{ ['', pct | string,
+        {{ [printer, '', pct | string,
             'Left ' ~ (left // 60) ~ ' h ' ~ (left % 60) ~ ' min',
             'Done at ' ~ (fin | timestamp_custom('%H:%M') if fin else '?'),
             ' ' * ((pct | int * 31 / 100) | round(0) | int)] }}
         {%- else -%}
-        {{ ['', '-', status | capitalize, 'Material: ' ~ states('sensor.prusa_core_one_material')] }}
+        {{ [printer, '', '-', status | capitalize, 'Material: ' ~ states('sensor.prusa_core_one_material')] }}
         {%- endif -%}
 ```
+
+### Moonraker (Klipper)
+
+With the [Moonraker integration](https://github.com/marcolivierarsenault/moonraker-home-assistant) from HACS (here a Snapmaker, entities `sensor.snapmaker_*`; replace `snapmaker` with your printer's name). Its `printer_state` stays `ready` while printing, so the print status comes from `current_print_state` (`printing`, `paused`, `complete`, `standby`, `error`). `print_eta` is a timestamp:
+
+```yaml
+alias: Snapmaker to ESL tag
+mode: queued
+max: 2
+triggers:
+  - trigger: state
+    entity_id: sensor.snapmaker_current_print_state
+    to: null
+  # Every 10 minutes while printing: at most 6 redraws an hour
+  - trigger: time_pattern
+    minutes: /10
+conditions:
+  - condition: or
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.platform == 'state' }}"
+      - condition: state
+        entity_id: sensor.snapmaker_current_print_state
+        state: printing
+actions:
+  - variables:
+      printer: Snapmaker
+      status: "{{ states('sensor.snapmaker_current_print_state') }}"
+      # Rounded down so the text only changes in steps: 10 %, 10 min
+      pct: "{{ ((states('sensor.snapmaker_progress') | float(0) / 10) | round(0, 'floor') * 10) | int }}"
+      fin: "{{ ((as_timestamp(states('sensor.snapmaker_print_eta'), 0) / 600) | round(0) * 600) | int }}"
+      left: >-
+        {{ (((([fin - as_timestamp(now()), 0] | max) / 600) | round(0, 'ceil')) | int * 10) if fin else 0 }}
+  - action: rest_command.esl_tag_text
+    data:
+      mac: "00000123456789A8"
+      layout: 3d-printer
+      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54")
+      fields: >-
+        {%- if status in ['printing', 'paused'] -%}
+        {{ [printer, '', pct | string,
+            'Left ' ~ (left // 60) ~ ' h ' ~ (left % 60) ~ ' min',
+            'Done at ' ~ (fin | timestamp_custom('%H:%M') if fin else '?'),
+            ' ' * ((pct | int * 31 / 100) | round(0) | int)] }}
+        {%- else -%}
+        {{ [printer, '', '-', status | capitalize, ''] }}
+        {%- endif -%}
+```
+
+To show the file name in the band, put `states('sensor.snapmaker_filename')` in place of the `''` after `printer`.
 
 ## A picture instead of text
 
