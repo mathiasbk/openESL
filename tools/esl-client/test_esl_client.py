@@ -111,10 +111,10 @@ class FakeAp(BaseHTTPRequestHandler):
         elif self.path == "/api/ota":
             self._send(200, FakeAp.ota)
         elif self.path == "/api/tag-firmware":
-            self._send(200, {"max_size": 61456, "part_max": 24576, "images": [
+            self._send(200, {"max_size": 61456, "part_max": 24576, "images": FakeAp.tagfw.get("images", [
                 {"model": "2.9", "version": None},
-                {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD",
-                 "tags": {"updated": 2, "pending": 1, "failed": 0, "no_ota": 1}}]})
+                {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD", "to": "all",
+                 "tags": {"updated": 2, "pending": 1, "failed": 0, "no_ota": 1}}])})
         elif self.path.startswith("/api/health"):
             self.calls.append((self.path, None))
             problems = [{"mac": m, "problems": ["low_battery"], "seen_s_ago": t["seen_s_ago"],
@@ -259,6 +259,8 @@ class ClientTest(unittest.TestCase):
                       "other_version": None, "uploading": False}
         FakeAp.ota_rollback = False
         FakeAp.images = {}
+        FakeAp.wifi = {}
+        FakeAp.tagfw = {}
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -376,6 +378,7 @@ class ClientTest(unittest.TestCase):
         raw = bytes(range(256)) * 18 + bytes(128)
         FakeAp.tags["00000123456789B1"] = dict(FakeAp.tags["00000123456789B0"], mac="00000123456789B1")
         self.assertEqual(esl_client.Client(self.url, TOKEN).set_image("00000123456789B1", raw)["changed"], True)
+        FakeAp.wifi = {"mode": "sta", "ssid": "Butikken", "connected": True, "hostname": "butikk"}
         future = int(time.time()) + 3600
         FakeAp.sched = [{"mac": "00000123456789A8", "at": future, "layout": "price", "fields": ["Milk", "19.90"]},
                         {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]}]
@@ -395,11 +398,20 @@ class ClientTest(unittest.TestCase):
                  "frame": True, "config": {"poll_s": 300}},
                 {"mac": "00000123456789B1", "image": base64.b64encode(raw).decode()}])
             self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
+            self.assertEqual(b["ap"]["hostname"], "butikk")
+            self.assertEqual(b["tag_firmware"], [{"model": "1.54", "version": "0.3.0", "crc": "1234ABCD", "to": "all"}])
 
-            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed
+            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed.
+            # Its name and the tag firmware are not set; restore says how.
             self.setUp()
+            FakeAp.wifi = {"mode": "setup", "ssid": None, "connected": False, "hostname": "openesl-77c8"}
+            FakeAp.tagfw = {"images": [{"model": "1.54", "version": None}]}
             rc, out = self.run_cli("restore", path, "--dry-run")
             self.assertEqual(rc, 0)
+            self.assertIn("note: the old AP offered 1.54 tag firmware 0.3.0 to all its tags; if they were not all "
+                          "updated, send openesl-tag-1.54-0.3.0-ota.bin again with tag-ota", out)
+            self.assertIn("note: the old AP was called butikk (butikk.local), this one openesl-77c8; to keep the "
+                          "old name: wifi --hostname butikk", out)
             self.assertIn("tags: 2 with content, 1 with a picture, 1 with their own settings", out)
             self.assertIn("scheduled: 1 (1 skipped, their time has passed)", out)
             self.assertIn("nothing sent", out)
@@ -429,9 +441,22 @@ class ClientTest(unittest.TestCase):
             self.assertLess(paths.index("/api/layouts/2.9"), paths.index("/api/tags"))
             self.assertLess(paths.index("/api/config"), paths.index("/api/layouts/2.9"))
 
-            # The same backup again changes nothing
+            self.assertEqual(out.count("note: "), 2)
+
+            # The same backup again changes nothing; with the name and firmware set there is nothing to note
+            FakeAp.wifi["hostname"] = "butikk"
+            del FakeAp.tagfw["images"]
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 0)
+            self.assertNotIn("note: ", out)
+
+            # An older backup, without the name and tag firmware, restores as before
+            with open(path, encoding="utf-8") as f:
+                b = json.load(f)
+            del b["tag_firmware"], b["ap"]["hostname"]
+            lines, ok = esl_client.restore(esl_client.Client(self.url, TOKEN), b, True)
+            self.assertTrue(ok)
+            self.assertFalse([x for x in lines if x.startswith("note: ")])
 
             with open(path, "w") as f:
                 f.write("{\"format\": \"something\"}")

@@ -22,4 +22,6 @@ The AP firmware runs on several ESP32 boards. All of them do the same job: the H
 
 For more labels than one AP takes, use several APs on different radio channels.
 
+Changing board later is a backup and a restore: the labels follow without being paired again ([Moving to a new AP, or another board](Backup-and-restore#moving-to-a-new-ap-or-another-board)).
+
 The full comparison with antennas: [docs/access-points.md](https://github.com/mathiasbk/openESL/blob/master/docs/access-points.md). Each board's files: [ap/boards](https://github.com/mathiasbk/openESL/blob/master/ap/boards/README.md).
