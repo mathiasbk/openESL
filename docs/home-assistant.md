@@ -88,9 +88,13 @@ The layout `3d-printer` comes for the 2.9" in [tag/designs/layouts/3d-printer-2.
 
 Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text. Nothing in the layout is tied to one printer, so one layout serves every printer and each printer has its own automation and tag.
 
+The AP takes at most 90 bytes of text in all for the six fields, and a full bar uses 31 of them (20 on the 1.54"). The rest is enough for `left`, `done` and a short `printer` and `name`; a longer text makes the AP refuse the update, and the tag keeps its old screen. So cut a file name short, as in the Moonraker example below.
+
+Already use the layout `prusa` from an earlier version of this page? It keeps working as it is. To change to `3d-printer`, upload it, then change the automation: `layout: 3d-printer`, and the printer's name as the first field.
+
 Copy the layout into the AP's file for the tag's model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so drop example layouts no tag uses if it does not fit.
 
-Both automations below run every 10 minutes while printing, so the tag redraws at most 6 times an hour; that, not rounding, is what saves the battery, so the numbers are exact. Progress is rounded down, so the tag never shows 100 % before the print is done. The time left is counted from the printer's own finish time. For a 1.54" tag, change `31` to `20` in the bar.
+Both automations below run every 10 minutes while printing, so the tag redraws at most 6 times an hour; that, not rounding, is what saves the battery, so the numbers are exact. Progress and the bar are rounded down, so the tag never shows 100 % or a full bar before the print is done. The time left is counted from the printer's own finish time, and is `?` while the printer has none. For a 1.54" tag, change `31` to `20` in the bar.
 
 ### PrusaLink
 
@@ -131,13 +135,14 @@ actions:
     data:
       mac: "00000123456789A8"
       layout: 3d-printer
-      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54")
+      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54";
+      # rounded down like pct, so the bar is full only at 100 %)
       fields: >-
         {%- if status in ['printing', 'paused'] -%}
         {{ [printer, '', pct | string,
-            'Left ' ~ (left // 60) ~ ' h ' ~ (left % 60) ~ ' min',
+            'Left ' ~ ((left // 60) ~ ' h ' ~ (left % 60) ~ ' min' if fin else '?'),
             'Done at ' ~ (fin | timestamp_custom('%H:%M') if fin else '?'),
-            ' ' * ((pct | int * 31 / 100) | round(0) | int)] }}
+            ' ' * (pct | int * 31 // 100)] }}
         {%- else -%}
         {{ [printer, '', '-', status | capitalize, 'Material: ' ~ states('sensor.prusa_core_one_material')] }}
         {%- endif -%}
@@ -145,7 +150,7 @@ actions:
 
 ### Moonraker (Klipper)
 
-With the [Moonraker integration](https://github.com/marcolivierarsenault/moonraker-home-assistant) from HACS (here a Snapmaker, entities `sensor.snapmaker_*`; replace `snapmaker` with your printer's name). Its `printer_state` stays `ready` while printing, so the print status comes from `current_print_state` (`printing`, `paused`, `complete`, `standby`, `error`). `print_eta` is a timestamp:
+With the [Moonraker integration](https://github.com/marcolivierarsenault/moonraker-home-assistant) from HACS (here a Snapmaker, entities `sensor.snapmaker_*`; replace `snapmaker` with your printer's name). Its `printer_state` stays `ready` while printing, so the print status comes from `current_print_state` (`printing`, `paused`, `complete`, `cancelled`, `standby`, `error`). `print_eta` is a timestamp:
 
 ```yaml
 alias: Snapmaker to ESL tag
@@ -179,19 +184,20 @@ actions:
     data:
       mac: "00000123456789A8"
       layout: 3d-printer
-      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54")
+      # printer, name, pct, left, done, bar (31 spaces = full bar on 2.9", 20 on 1.54";
+      # rounded down like pct, so the bar is full only at 100 %)
       fields: >-
         {%- if status in ['printing', 'paused'] -%}
         {{ [printer, '', pct | string,
-            'Left ' ~ (left // 60) ~ ' h ' ~ (left % 60) ~ ' min',
+            'Left ' ~ ((left // 60) ~ ' h ' ~ (left % 60) ~ ' min' if fin else '?'),
             'Done at ' ~ (fin | timestamp_custom('%H:%M') if fin else '?'),
-            ' ' * ((pct | int * 31 / 100) | round(0) | int)] }}
+            ' ' * (pct | int * 31 // 100)] }}
         {%- else -%}
         {{ [printer, '', '-', status | capitalize, ''] }}
         {%- endif -%}
 ```
 
-To show the file name in the band, put `states('sensor.snapmaker_filename')` in place of the `''` after `printer`.
+To show the file name in the band, put `states('sensor.snapmaker_filename')[:15]` in place of the `''` after `printer`. Keep the `[:15]`: a whole file name such as `Benchy_0.2mm_PLA_MK4.gcode` goes over the AP's 90 bytes near the end of the print, and the tag then stops updating. With a printer name longer than `Snapmaker`, cut the file name shorter.
 
 ## A picture instead of text
 
