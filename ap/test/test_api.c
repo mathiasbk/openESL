@@ -408,7 +408,7 @@ static void test_layouts(void)
     /* upload, read back, same file again is not a change */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
     CHECK(HAS(resp, "{\"model\":\"2.9\",\"version\":"));
-    CHECK(HAS(resp, "\"layouts\":[\"shelf\",\"sign\"],\"changed\":true}"));
+    CHECK(HAS(resp, "\"layouts\":[\"shelf\",\"sign\"],\"changed\":true,\"content_errors\":[],\"content_errors_total\":0}"));
     uint32_t v = json_u32(resp, "\"version\":");
     CHECK(v != 0);
     CHECK_INT(json_u32(resp, "\"size\":"), len29);
@@ -514,6 +514,55 @@ static void test_layouts(void)
     CHECK(HAS(resp, "ASCII characters only"));
     /* the model not known yet: checked against every file with the layout */
     CHECK_INT(req("PUT", "/api/tags/00000000000000AA", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCDE\"]}", 0), 422);
+
+    /* a new file is checked against the content the tags have (#186): accepted, but the tags
+       it no longer fits are listed and their content is held back until it fits again */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCD\"]}", 0), 200);
+    char small29[600];
+    snprintf(small29, sizeof(small29), "%.*s60%s", (int)(strstr(bc29, "\"w\":100") + 4 - bc29), bc29,
+             strstr(bc29, "\"w\":100") + 7);
+    CHECK(HAS(small29, "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":60,"));
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+    CHECK(HAS(resp, "\"changed\":true,\"content_errors\":[{\"mac\":\"0000000000000029\",\"error\":"
+                    "\"field 0 of layout c128 is too long for its barcode on model 2.9 (99 of 60 modules)\"}],"
+                    "\"content_errors_total\":1}"));
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":\"a barcode, QR code or number does not fit its box in the layout file for "
+                    "this tag's model\""));
+    poll_model(0x29, ESL_MODEL_29, true); /* a POLL keeps it */
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "does not fit its box"));
+    {
+        esl_tag_t t;
+        CHECK(esl_store_get(&st, 0x29, &t) && t.content_err == ESL_CERR_UNFIT);
+    }
+    /* the same file again lists it again; the old box fits it, and the mark is gone */
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+    CHECK(HAS(resp, "\"changed\":false,\"content_errors\":[{\"mac\":\"0000000000000029\""));
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
+    CHECK(HAS(resp, "\"content_errors\":[],\"content_errors_total\":0}"));
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":null"));
+    /* new content clears it too (PUT /api/tags checks it against the file) */
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_errors_total\":"), 1);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"bc\",\"fields\":[\"x\"]}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":null"));
+    /* deleting the file: not in the file any more, and not unfit; back to a file that fits */
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"c128\",\"fields\":[\"ABCD\"]}", 0), 200);
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, small29, 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_errors_total\":"), 1);
+    CHECK_INT(req("DELETE", "/api/layouts/2.9", AUTH, NULL, 0), 200);
+    poll_model(0x29, ESL_MODEL_29, true); /* without the file: not in the file, no longer unfit */
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, bc29, 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_errors_total\":"), 0);
+    poll_model(0x29, ESL_MODEL_29, true);
+    CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"content_error\":null"));
 
     /* a QR field must fit its box: 34 px at H holds version 3 (29 modules and 2 x 2 of quiet zone), 24 bytes */
     const char *qr29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"qr\","

@@ -74,6 +74,8 @@ typedef struct {
     bool image_taken : 1;     /* it asked for a block of image_offered */
     bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
     bool has_image : 1;       /* its content is a picture (ESL_LAYOUT_IMAGE), kept with ops.persist_image */
+    bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
+                                 RAM only): ESL_CERR_UNFIT */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
@@ -113,6 +115,7 @@ typedef struct {
 #define ESL_CERR_NONE         0
 #define ESL_CERR_NO_IMAGE     1 /* the tag does not take images (old firmware, or no SPI flash) */
 #define ESL_CERR_NOT_IN_FILE  2 /* the layout file for its model has no layout by that name */
+#define ESL_CERR_UNFIT        3 /* a barcode, QR code or number of it does not fit its box in that layout */
 /* Text for the API, NULL for ESL_CERR_NONE */
 const char *esl_content_err_text(uint8_t err);
 
@@ -186,7 +189,8 @@ esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t
  * room. Returns the reply length.
  *
  * env describes the layout file for the tag's model (esl_layouts_env; NULL =
- * none); content naming a layout it does not have gets ESL_CERR_NOT_IN_FILE.
+ * none); content naming a layout it does not have gets ESL_CERR_NOT_IN_FILE, content
+ * marked by esl_store_check_layout ESL_CERR_UNFIT.
  * After IDLE the caller offers the content's image (esl_image), then firmware. */
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply);
@@ -219,6 +223,16 @@ esl_store_err_t esl_store_set_image(esl_store_t *st, uint64_t mac, const uint8_t
 /* The stored picture of the tag into buf (cap bytes, outside the lock): its length, 0
  * when it has none. Content that is not a picture leaves no picture behind (erased). */
 size_t esl_store_get_image(esl_store_t *st, uint64_t mac, uint8_t *buf, size_t cap);
+
+/* After a layout file for model was stored (PUT /api/layouts) or loaded at boot: checks
+ * the content of every tag of that model that names one of the file's layouts against
+ * it (esl_layouts_check_content), as PUT /api/tags checks new content. A tag whose
+ * content does not fit gets ESL_CERR_UNFIT and its content is held back (it keeps what
+ * it shows) until it gets new content or another file fits it; the mark is cleared on
+ * the rest. fn (may be NULL) gets each tag that does not fit, with the reason. Returns
+ * how many do not fit. Takes the store's and the layouts' locks in turn, never both. */
+unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t model,
+                                void (*fn)(void *ctx, uint64_t mac, const char *msg), void *ctx);
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac);
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out);

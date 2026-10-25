@@ -1223,6 +1223,26 @@ static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
     esl_sb_putc(out, '}');
 }
 
+/* The tags esl_store_check_layout finds, as {"mac","error"} objects: the first
+   UNFIT_LIST_MAX of them (the total is given too). */
+#define UNFIT_LIST_MAX 16
+typedef struct {
+    esl_sb_t *out;
+    unsigned n;
+} unfit_list_t;
+
+static void unfit_tag(void *ctx, uint64_t mac, const char *msg)
+{
+    unfit_list_t *ul = ctx;
+    char m[17];
+    if (ul->n++ >= UNFIT_LIST_MAX)
+        return;
+    esl_mac_format(mac, m);
+    esl_sb_printf(ul->out, "%s{\"mac\":\"%s\",\"error\":", ul->n > 1 ? "," : "", m);
+    esl_sb_json_str(ul->out, msg);
+    esl_sb_putc(ul->out, '}');
+}
+
 static int put_layout(const esl_api_t *api, uint8_t model, const char *body, size_t len, esl_sb_t *out)
 {
     if (!body || len == 0)
@@ -1265,7 +1285,11 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     esl_layouts_info(api->layouts, model, NULL, NULL, &bsize);
     esl_sb_printf(out, "\"binary_size\":%u,\"layouts\":", (unsigned)bsize);
     esl_layouts_write_names(api->layouts, model, out);
-    esl_sb_printf(out, ",\"changed\":%s}", changed ? "true" : "false");
+    esl_sb_printf(out, ",\"changed\":%s,\"content_errors\":[", changed ? "true" : "false");
+    /* Tags whose content no longer fits (#186): held back, as content_error in GET /api/tags */
+    unfit_list_t ul = {out, 0};
+    unsigned bad = esl_store_check_layout(api->store, api->layouts, model, unfit_tag, &ul);
+    esl_sb_printf(out, "],\"content_errors_total\":%u}", bad);
     return 200;
 }
 
