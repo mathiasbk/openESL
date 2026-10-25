@@ -49,7 +49,6 @@ extern esl_limits_t esl_limits;
 typedef struct {
     uint32_t version; /* CRC32 of bin, never 0 */
     uint16_t size;    /* bytes used in bin */
-    uint8_t bin[ESL_LBIN_CAP];
     uint8_t count;    /* layouts in the file */
     uint8_t nfields[ESL_LAYOUT_FILE_MAX];
     char names[ESL_LAYOUT_FILE_MAX][ESL_LAYOUT_NAME_MAX + 1];
@@ -63,7 +62,13 @@ typedef struct {
     int8_t qr_field[ESL_LAYOUT_FILE_MAX];
     uint8_t qr_ecc[ESL_LAYOUT_FILE_MAX];
     uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
+    /* Last, so a stored file (esl_layout_t) is allocated only up to bin[size]: the
+     * compiler writes into a whole one, the store keeps ESL_LAYOUT_BIN_BYTES(size). */
+    uint8_t bin[ESL_LBIN_CAP];
 } esl_layout_bin_t;
+
+/* Bytes of an esl_layout_bin_t up to and including bin[size - 1] */
+#define ESL_LAYOUT_BIN_BYTES(size) (offsetof(esl_layout_bin_t, bin) + (size))
 
 /* Compiles a layout file for model. Returns false with a message in err (at
  * least ESL_LAYOUT_ERR_MAX bytes) that names the place in the file, e.g.
@@ -94,12 +99,17 @@ typedef struct {
 typedef struct {
     uint16_t len;            /* bytes in data, never 0 */
     char *data;              /* the JSON, len bytes (not terminated) */
-    esl_layout_bin_t bin;
+    esl_layout_bin_t bin;    /* last: allocated only up to bin.bin[bin.size] (ESL_LAYOUT_BYTES), so
+                                never copy it whole */
 } esl_layout_t;
 
-/* One esl_layout_t on the heap for each model that has a file, NULL for the rest:
- * the AP has about 60 KB free and a file costs 4.6 KB plus its JSON, so holding
- * ESL_LAYOUT_MAX_SIZE for every model in the registry would not fit. */
+/* Bytes of a stored file whose compiled bytes are size long */
+#define ESL_LAYOUT_BYTES(size) (offsetof(esl_layout_t, bin) + ESL_LAYOUT_BIN_BYTES(size))
+
+/* One esl_layout_t on the heap for each model that has a file, NULL for the rest,
+ * each as big as its compiled file (#187): the metadata is about 0.7 KB, the compiled
+ * bytes up to ESL_LBIN_MAX, plus the JSON. Holding ESL_LAYOUT_MAX_SIZE and
+ * ESL_LBIN_MAX for every model in the registry would not fit in the C6's heap. */
 typedef struct {
     esl_layout_t *models[ESL_MODEL_COUNT - 1]; /* index model - 1 */
     esl_layout_ops_t ops;

@@ -409,6 +409,10 @@ paths:
         `data` is base64 of the raw image: the black plane, then the red plane when `red`
         is true. A plane is `width` columns from left to right, each `ceil(height / 8)`
         bytes, byte 0 bit 7 the top row; a set bit is ink.
+
+        Content held back because a barcode, QR code or number does not fit its box
+        (`content_error`) is drawn all the same, so the preview shows what is wrong; the tag
+        does not get it.
       responses:
         "200":
           description: The image
@@ -436,7 +440,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: The content is held back (`content_error`) or cannot be drawn
+          description: The content names a layout that is not in the file (`content_error`), or cannot be drawn
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -994,6 +998,14 @@ paths:
         at boot. The AP draws the screens of that model's tags with it, and each tag gets its
         new image at its next poll. The same file again
         gives `changed: false` and no NVS write.
+
+        The content the tags of that model already have is checked against the new file, as
+        `PUT /api/tags` checks new content. A tag whose barcode, QR code or number no longer
+        fits its box is listed in `content_errors`, and its content is held back (it keeps
+        what it shows, with `content_error` in `GET /api/tags`) until it gets content that
+        fits or a file that fits it is uploaded. The AP does the same check at boot, and at a
+        tag's next poll (or before its image is drawn) for content it did not check against this file yet (scheduled content
+        that takes effect later, or content set before the tag's model was known).
       requestBody:
         required: true
         content:
@@ -1413,6 +1425,7 @@ components:
           enum:
             - the tag cannot show images drawn by the AP (old firmware, or no SPI flash)
             - the layout is not in the layout file for this tag's model
+            - a barcode, QR code or number does not fit its box in the layout file for this tag's model
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
         image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so; a tag without SPI flash cannot): `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
@@ -1749,10 +1762,22 @@ components:
       allOf:
         - $ref: "#/components/schemas/LayoutInfoFields"
         - type: object
-          required: [changed]
+          required: [changed, content_errors, content_errors_total]
           properties:
             version: { type: integer }
             changed: { type: boolean, description: "false: the same file as before; nothing was written" }
+            content_errors:
+              type: array
+              maxItems: 16
+              description: "Tags of this model whose content no longer fits the file (the first 16): a barcode, QR code or number too big for its box. The file is stored all the same; their content is held back (`content_error` in `GET /api/tags`) until they get new content or a file it fits"
+              items:
+                type: object
+                additionalProperties: false
+                required: [mac, error]
+                properties:
+                  mac: { type: string, pattern: "^[0-9A-F]{16}$" }
+                  error: { type: string, description: What does not fit, as `PUT /api/tags` would say }
+            content_errors_total: { type: integer, minimum: 0, description: "How many tags `content_errors` would list without its limit" }
       unevaluatedProperties: false
 
     TagFirmware:

@@ -617,6 +617,29 @@ static void test_image_send(void)
     CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     CHECK(HAS(resp, "\"pending\":true"));
 
+    /* content that reaches the tag without PUT /api/tags (the schedule sets it with
+       esl_store_set) is checked against the file at the POLL: held back when it does not fit */
+    {
+        const char *c128 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c128\","
+                           "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
+                           "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":60,\"h\":40}]}]}";
+        CHECK_INT(put_layout("2.9", c128, strlen(c128)), 200);
+        esl_content_t c;
+        esl_set_result_t r;
+        CHECK(esl_content_init_named(&c, "c128", 4, 0) == ESL_CONTENT_OK);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)"WXYZ", 4) == ESL_CONTENT_OK);
+        CHECK(esl_store_set(&st, 0x29A, &c, &r) == ESL_STORE_OK);
+        uint32_t d = images.drawn;
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 341000), ESL_MSG_IDLE);
+        CHECK_INT(images.drawn, d);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+        CHECK(HAS(resp, "does not fit its box"));
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 351000), ESL_MSG_IDLE); /* and stays so */
+        CHECK_INT(images.drawn, d);
+        CHECK_INT(put_layout("2.9", f29, l29), 200);
+        CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 200);
+    }
+
     /* the file is back, with the answer to the POLL lost: the retry gets block 0 again */
     CHECK_INT(put_layout("2.9", f29, l29), 200);
     uint32_t drawn = images.drawn;

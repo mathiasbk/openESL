@@ -99,11 +99,17 @@ void app_main(void)
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
 #endif
-    /* About 19 KB (JSON and compiled binary per model), so from the heap rather than .bss of every build. */
+    /* A pointer per model; each stored file takes its JSON and its compiled size from the heap. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
+    /* Content that does not fit the stored files is held back, as after an upload (#186) */
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+        unsigned bad = esl_store_check_layout(&store, api.layouts, m, NULL, NULL);
+        if (bad)
+            ESP_LOGW(TAG, "%u tags of model %s have content that does not fit its layout file", bad, esl_model_name(m));
+    }
     api.tagfw = tagfw_start();
     esl_radio_set_tagfw(api.tagfw);
     /* Images for tags that show what the AP draws: two buffers of the largest screen

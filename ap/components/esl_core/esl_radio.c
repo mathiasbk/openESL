@@ -91,6 +91,9 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         esl_layout_env_t env;
         esl_layouts_env(ls, poll.model, &env);
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
+        /* Content not checked against this model's file yet (from the schedule, or set
+           before the model was known) is, before its image is drawn */
+        esl_store_check_tag(st, ls, f.src_mac);
         /* A tag that shows what the AP draws: its content's image, when it shows
          * another one (id 0 still notes a refusal, ESL_POLL_F_DRAWFAIL) */
         bool offered = false;

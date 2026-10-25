@@ -1668,14 +1668,27 @@ async function apOpen(model, discard = false) {
   return [`Opened the ${model}" layout file stored on the AP.`, "ok"];
 }
 
-async function apUpload() {
+async function apUpload(skip) {
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
   ap.fileVersion = res.version;
   ap.files[state.model] = structuredClone(doc());
   markClean();
+  const unfit = unfitNote(r, skip);
+  if (unfit) return [`Stored on the AP, but ${unfit}`, "error"];
   return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
+}
+
+// The tags whose content no longer fits the uploaded file (their content is held back), "" for none.
+// skip: a tag that gets new content right after, so it is not listed.
+function unfitNote(r, skip) {
+  const errs = (r?.content_errors || []).filter((e) => e.mac !== skip);
+  const n = (r?.content_errors_total || 0) - ((r?.content_errors || []).length - errs.length);
+  if (n <= 0) return "";
+  const list = errs.map((e) => `${e.mac}: ${e.error}`).join("; ");
+  const more = n > errs.length ? ` and ${n - errs.length} more` : "";
+  return `${n === 1 ? "1 tag has" : n + " tags have"} content that does not fit it, and keep${n === 1 ? "s" : ""} what ${n === 1 ? "it shows" : "they show"} until it gets content that fits: ${list}${more}.`;
 }
 
 async function apSend() {
@@ -1688,8 +1701,10 @@ async function apSend() {
   let r, uploaded = false;
   // An AP without this version of the file gets it first, so the tag shows what you see
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
+  let unfit = "";
   if (!isBuiltin() && res.ok && ap.fileVersion !== res.version) {
-    await apUpload();
+    const [msg, kind] = await apUpload(mac);
+    if (kind === "error") unfit = " " + msg;
     uploaded = true;
   }
   try {
@@ -1698,12 +1713,14 @@ async function apSend() {
     // The AP does not have this layout (no layout file for the model yet, or an older one
     // without it): upload the editor's file, then send again
     if (isBuiltin() || uploaded || !/^422: layout .* is not in (the|any) layout file/.test(e.message)) throw e;
-    await apUpload();
+    const [msg, kind] = await apUpload(mac);
+    if (kind === "error") unfit = " " + msg;
     r = await apClient().putContent(mac, content);
     uploaded = true;
   }
   const note = uploaded ? " The layout file was uploaded first." : "";
-  return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note, "ok"];
+  return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note + unfit,
+          unfit ? "error" : "ok"];
 }
 
 async function apCheck() {

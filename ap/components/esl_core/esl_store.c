@@ -138,6 +138,9 @@ static void set_content(esl_store_t *st, unsigned slot, const esl_content_t *c)
     t->has_content = true;
     t->has_image = c->layout == ESL_LAYOUT_IMAGE;
     t->content_err = ESL_CERR_NONE;
+    t->content_unfit = false;
+    t->content_check = true;  /* against the file at its next POLL (esl_store_check_tag): it may come
+                                 from the schedule, or be for a model not known yet */
     t->image_id = 0;          /* drawn again when a tag needs it */
     t->image_failed = 0;      /* a refusal was of the old content's image */
 }
@@ -147,6 +150,7 @@ const char *esl_content_err_text(uint8_t err)
     switch (err) {
     case ESL_CERR_NO_IMAGE:    return "the tag cannot show images drawn by the AP (old firmware, or no SPI flash)";
     case ESL_CERR_NOT_IN_FILE: return "the layout is not in the layout file for this tag's model";
+    case ESL_CERR_UNFIT:       return "a barcode, QR code or number does not fit its box in the layout file for this tag's model";
     default:                   return NULL;
     }
 }
@@ -192,6 +196,8 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
         t->content_err = ESL_CERR_NO_IMAGE;
     else if (t->has_content && t->layout_hash && !env_has(env, t->layout_hash))
         t->content_err = ESL_CERR_NOT_IN_FILE;
+    else if (t->has_content && t->content_unfit && env && env->version)
+        t->content_err = ESL_CERR_UNFIT;
     /* Only tags that send cfg_ver get CONFIG; older firmware would drop it. */
     if (esl_tag_cfg_pending(t, st->next_poll_s))
         return esl_config_msg_build(reply, next, &eff);
@@ -400,6 +406,8 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
         t->image_id = old.image_id;
         t->image_failed = old.image_failed;
         t->content_err = old.content_err;
+        t->content_unfit = old.content_unfit;
+        t->content_check = old.content_check;
         if (ram)
             ram[(unsigned)idx % ESL_STORE_CHUNK] = old_content;
     }
@@ -510,6 +518,8 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         esl_tag_t *t = at(st, (unsigned)idx);
         if (t->model != poll->model || t->fw != poll->fw_ver)
             save = true;
+        if (t->model != poll->model)
+            t->content_check = true; /* checked against the file of the model it turns out to be */
         if (unix_s)
             t->seen_unix = unix_s;
         t->seen = true;
@@ -694,6 +704,65 @@ bool esl_store_get_content(esl_store_t *st, uint64_t mac, esl_content_t *out)
         return true;
     return st->ops.load_content && st->ops.load_content(st->ops.ctx, (unsigned)idx, mac, out) &&
            esl_content_id(out) == id;
+}
+
+/* Notes the outcome of checking content content_id of a tag of model against the file:
+   unfit or not, and checked. Nothing when the content or the model changed meanwhile. */
+static void mark_checked(esl_store_t *st, uint64_t mac, uint32_t content_id, uint8_t model, bool unfit)
+{
+    lock(st);
+    int idx = find(st, mac);
+    esl_tag_t *t = idx >= 0 ? at(st, (unsigned)idx) : NULL;
+    if (t && t->has_content && t->content_id == content_id && t->model == model) {
+        t->content_unfit = unfit;
+        t->content_check = false;
+        /* also before its next POLL: in the API, and held back; another reason it has stays */
+        if (unfit && t->content_err == ESL_CERR_NONE)
+            t->content_err = ESL_CERR_UNFIT;
+        else if (!unfit && t->content_err == ESL_CERR_UNFIT)
+            t->content_err = ESL_CERR_NONE;
+    }
+    unlock(st);
+}
+
+/* Checks the content of tag t (a copy) against its model's file and notes it. True if it
+   fits (or names no layout in the file); else false with the reason in msg. Only content
+   naming a layout is read (from NVS on the device). */
+static bool check_one(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, char *msg, size_t msglen)
+{
+    esl_content_t c;
+    bool unfit = false;
+    if (t->layout_hash && esl_store_get_content(st, t->mac, &c) && esl_content_id(&c) == t->content_id)
+        unfit = !esl_layouts_check_content(ls, t->model, &c, msg, msglen);
+    mark_checked(st, t->mac, t->content_id, t->model, unfit);
+    return !unfit;
+}
+
+unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t model,
+                                void (*fn)(void *ctx, uint64_t mac, const char *msg), void *ctx)
+{
+    unsigned bad = 0, slots = esl_store_slots(st);
+    for (unsigned slot = 0; slot < slots; slot++) {
+        esl_tag_t t;
+        char msg[ESL_LAYOUT_ERR_MAX];
+        if (!esl_store_get_slot(st, slot, &t) || t.model != model || !t.has_content)
+            continue;
+        if (!check_one(st, ls, &t, msg, sizeof(msg))) {
+            bad++;
+            if (fn)
+                fn(ctx, t.mac, msg);
+        }
+    }
+    return bad;
+}
+
+bool esl_store_check_tag(esl_store_t *st, esl_layouts_t *ls, uint64_t mac)
+{
+    esl_tag_t t;
+    char msg[80]; /* not shown: cut short is fine */
+    if (!esl_store_get(st, mac, &t) || !t.has_content || !t.content_check || !esl_model_name(t.model))
+        return true;
+    return check_one(st, ls, &t, msg, sizeof(msg));
 }
 
 bool esl_store_get_slot(esl_store_t *st, unsigned slot, esl_tag_t *out)

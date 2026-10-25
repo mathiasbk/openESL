@@ -198,6 +198,8 @@ void sim_ap_boot(void)
     for (uint8_t model = 1; model < ESL_MODEL_COUNT; model++)
         if (nvs.layout_len[model])
             esl_layouts_restore(&layouts, model, nvs.layout[model], nvs.layout_len[model]);
+    for (uint8_t model = 1; model < ESL_MODEL_COUNT; model++) /* as app_main */
+        esl_store_check_layout(&st, &layouts, model, NULL, NULL);
     esl_tagfw_init(&tagfw, &fops);
     esl_radio_set_tagfw(&tagfw);
     /* as app_main: the image buffers from the heap, empty after a restart */

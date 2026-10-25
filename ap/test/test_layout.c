@@ -1,6 +1,7 @@
 #include "tinytest.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
+#include "esl_render.h"
 #include <stdlib.h>
 
 /* Layout files: the compiler (JSON -> the binary the AP draws with, krav A13) and
@@ -560,6 +561,17 @@ static void *no_memory(size_t n)
     return NULL;
 }
 
+/* The sizes the store asks for (#187: a file is kept at its compiled size) */
+static size_t alloc_sizes[4];
+static unsigned alloc_count;
+static void *counting_alloc(size_t n)
+{
+    if (alloc_count < sizeof(alloc_sizes) / sizeof(alloc_sizes[0]))
+        alloc_sizes[alloc_count] = n;
+    alloc_count++;
+    return malloc(n);
+}
+
 static void test_storage(void)
 {
     static esl_layouts_t ls;
@@ -627,6 +639,36 @@ static void test_storage(void)
         CHECK(ls.models[ESL_MODEL_154 - 1] == NULL);
         ls.ops.alloc = NULL;
         free(js154);
+        free(spaced);
+    }
+
+    /* a stored file takes its compiled size, not ESL_LBIN_MAX, and draws as the whole one */
+    {
+        char *spaced = malloc(jl + 1);
+        memcpy(spaced, js, jl);
+        spaced[jl] = ' ';
+        alloc_count = 0;
+        ls.ops.alloc = counting_alloc;
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, spaced, jl + 1, &bin, &changed), v);
+        CHECK(changed);
+        ls.ops.alloc = NULL;
+        CHECK_INT(alloc_count, 2);
+        CHECK_INT(alloc_sizes[0], jl + 1);
+        CHECK_INT(alloc_sizes[1], ESL_LAYOUT_BYTES(bin.size));
+        CHECK(ESL_LAYOUT_BYTES(bin.size) + ESL_LBIN_MAX / 2 < sizeof(esl_layout_t));
+        CHECK_INT(ls.models[ESL_MODEL_29 - 1]->bin.size, bin.size);
+        CHECK(memcmp(ls.models[ESL_MODEL_29 - 1]->bin.bin, bin.bin, bin.size) == 0);
+        CHECK_STR(ls.models[ESL_MODEL_29 - 1]->bin.names[1], "sign");
+        static uint8_t a[ESL_LBIN_MAX * 2], b[ESL_LBIN_MAX * 2];
+        esl_content_t c;
+        CHECK(esl_content_init_named(&c, "shelf", 5, 0) == ESL_CONTENT_OK);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)"Milk", 4) == ESL_CONTENT_OK);
+        size_t na = esl_layouts_render(&ls, ESL_MODEL_29, &c, a, sizeof(a));
+        size_t nb = esl_render(ESL_MODEL_29, &bin, &c, b, sizeof(b));
+        CHECK(na > 0 && na == nb && memcmp(a, b, na) == 0);
+        /* back to the file it had, in a new block of its size (the old one is freed) */
+        CHECK_INT(esl_layouts_set(&ls, ESL_MODEL_29, js, jl, &bin, &changed), v);
+        CHECK(changed);
         free(spaced);
     }
 
