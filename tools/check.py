@@ -17,7 +17,7 @@ Steps:
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
-  tools     esl-client and power-budget tests
+  tools     esl-client, power-budget and release notes tests (the upgrade instructions for VERSION)
   openapi   docs/openapi.yaml against the AP code
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
             on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
@@ -146,6 +146,7 @@ def step_ap_test():
 def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget"], cwd=os.path.join(ROOT, "tools", "power-budget"))
+    run([PY, "-m", "unittest", "test_release_notes"], cwd=os.path.join(ROOT, "tools"))
 
 
 def step_openapi():
