@@ -37,6 +37,8 @@ jobs:
       release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v7
+      - name: Upgrade instructions for VERSION in docs/release.md
+        run: python3 tools/release_notes.py --check
       - name: Which release (and does the tag match VERSION)
         id: version
         env:

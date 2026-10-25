@@ -74,10 +74,11 @@ jobs:
           # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
           python3 -m pip install --user zxing-cpp==3.1.1 pillow
           make -C ap/test SAN=1
-      - name: Tool tests (esl-client against a fake AP, power budget)
+      - name: Tool tests (esl-client against a fake AP, power budget, release notes)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget)
+          (cd tools && python3 -m unittest -v test_release_notes)   # docs/release.md has upgrade instructions for VERSION
 
   # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:
   # one after another they took 13 minutes, about 1.5 minutes each
