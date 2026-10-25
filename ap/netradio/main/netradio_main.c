@@ -42,6 +42,8 @@
  *               says HELLO, and syncs when esl_rcache_sync_due() says so: the SYNC and
  *               the log go out, the answer is applied to the cache
  *   console     on the USB port: ssid, pass, host, status, reboot
+ *   web         port 80 has no page of its own: a browser that opens the radio is sent to
+ *               the AP's dashboard, or gets a short page while the radio has not found the AP
  *
  * The cache is the two tasks' only shared state, under one mutex that is held only to
  * answer a frame or to apply what came from the AP: the radio task never waits for the
@@ -71,6 +73,7 @@ static EventGroupHandle_t net_events;
 #define GOT_IP BIT0
 
 static char ssid[33], pass[65], host[64];
+static char ap_ip[16];   /* the AP last connected to, for the web redirect; under the lock */
 
 /* ---- settings in NVS ("cfg", as on the AP) ---- */
 
@@ -384,6 +387,9 @@ static bool connect_ap(void)
         return false;
     sock = s;
     connects++;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    strlcpy(ap_ip, ip, sizeof(ap_ip));
+    xSemaphoreGive(lock);
     esl_nlink_rx_init(&nrx, nrx_buf, rc.image_cap + 64);
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
@@ -475,6 +481,96 @@ static void net_task(void *arg)
                 sync_us_worst = sync_us_last;
             ESP_LOGD(TAG, "sync %lu in %lld ms", (unsigned long)nl.syncs, (long long)sync_us_last / 1000);
         }
+    }
+}
+
+/* ---- web: to the AP's dashboard ---- */
+
+/* The AP's address for a browser: the AP last connected to, else the one set by hand
+   (without its port: that is the link's, the dashboard is on 80); empty when neither */
+static void dashboard_ip(char *out, size_t cap)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    strlcpy(out, ap_ip[0] ? ap_ip : host, cap);
+    xSemaphoreGive(lock);
+    char *colon = strchr(out, ':');
+    if (colon)
+        *colon = '\0';
+    struct in_addr a;
+    if (!inet_aton(out, &a))
+        out[0] = '\0';
+}
+
+static void web_send(int c, const char *s, size_t n)
+{
+    for (size_t at = 0; at < n;) {
+        int k = send(c, s + at, n - at, 0);
+        if (k <= 0)
+            return;
+        at += (size_t)k;
+    }
+}
+
+/* The radio runs no web page of its own: the S3 is the AP, with the dashboard and the API. A
+   request on port 80 gets a redirect there. Each request is WiFi airtime the tags lose
+   (docs/ap-netradio.md, "Limits"), so it is one small answer and the connection closes. */
+static void web_task(void *arg)
+{
+    (void)arg;
+    static const char page[] =
+        "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">"
+        "<title>openESL radio</title><h1>openESL radio</h1>"
+        "<p>This is a radio for an openESL access point. It has no page of its own: it sends you to the "
+        "access point's dashboard once it has found the access point on the network, and it has not yet."
+        "<p>It looks for the access point on mDNS. To give it the address, use the Flash AP tab on "
+        "<a href=\"https://mathiasbk.github.io/openESL/#ap\">mathiasbk.github.io/openESL</a>, or type "
+        "<code>host &lt;address&gt;</code> on the radio's USB console.";
+    xEventGroupWaitBits(net_events, GOT_IP, pdFALSE, pdTRUE, portMAX_DELAY);
+    int ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons(80), .sin_addr.s_addr = htonl(INADDR_ANY)};
+    int one = 1;
+    if (ls < 0 || setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) ||
+        bind(ls, (struct sockaddr *)&a, sizeof(a)) || listen(ls, 2)) {
+        ESP_LOGW(TAG, "no web redirect: port 80 not open");
+        if (ls >= 0)
+            close(ls);
+        vTaskDelete(NULL);
+    }
+    for (;;) {
+        int c = accept(ls, NULL, NULL);
+        if (c < 0) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        struct timeval tv = {2, 0};
+        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        /* the request itself does not matter, only that it came: read its head, up to a size */
+        char req[512];
+        size_t n = 0;
+        for (int k; n < sizeof(req) - 1 && (k = recv(c, req + n, sizeof(req) - 1 - n, 0)) > 0;) {
+            n += (size_t)k;
+            req[n] = '\0';
+            if (strstr(req, "\r\n\r\n"))
+                break;
+        }
+        char ip[16], head[192];
+        dashboard_ip(ip, sizeof(ip));
+        int hn;
+        if (ip[0]) {
+            hn = snprintf(head, sizeof(head),
+                          "HTTP/1.1 302 Found\r\nLocation: http://%s/\r\nContent-Length: 0\r\n"
+                          "Cache-Control: no-store\r\nConnection: close\r\n\r\n", ip);
+            web_send(c, head, (size_t)hn);
+        } else {
+            hn = snprintf(head, sizeof(head),
+                          "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %u\r\n"
+                          "Cache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)(sizeof(page) - 1));
+            web_send(c, head, (size_t)hn);
+            web_send(c, page, sizeof(page) - 1);
+        }
+        shutdown(c, SHUT_WR);
+        close(c);
     }
 }
 
@@ -658,4 +754,5 @@ void app_main(void)
     ESP_LOGI(TAG, "802.15.4 on channel %u, PAN 0x%04X: %s", channel, pan, esp_err_to_name(err));
     xTaskCreate(net_task, "net", 6144, NULL, 5, NULL);
     xTaskCreate(console_task, "console", 4096, NULL, 2, NULL);
+    xTaskCreate(web_task, "web", 3072, NULL, 2, NULL);
 }

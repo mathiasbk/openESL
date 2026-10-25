@@ -51,7 +51,9 @@ tell anyone who picks this setup.
   very few wake-ups fail entirely); with several packets a second, about 40 % are lost and the setup is
   useless. So the radio decides when WiFi is used: the S3 never sends on its own, it only answers
   (no pings or keepalives from the S3, TCP keepalive off), and nothing else may talk to the radio over
-  WiFi: no dashboard, no API. Broadcasts on the network (ARP, other devices' mDNS) reach it anyway;
+  WiFi: no dashboard, no API. A browser that opens the radio's address anyway gets one redirect to the
+  S3's dashboard (`302` to the address the radio last connected to, else the one set with `host`), or a
+  short page saying the radio has not found the S3 yet; the connection then closes. Broadcasts on the network (ARP, other devices' mDNS) reach it anyway;
   they are part of the 0.6–1.4 % lost with no traffic at all.
 - **Coex must stay at the driver's default.** Giving 802.15.4 a higher priority kills WiFi (measured),
   because the radio listening between frames counts as busy. There is nothing to tune here.
