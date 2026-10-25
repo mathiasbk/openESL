@@ -399,7 +399,8 @@ class ClientTest(unittest.TestCase):
                 {"mac": "00000123456789B1", "image": base64.b64encode(raw).decode()}])
             self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
             self.assertEqual(b["ap"]["hostname"], "butikk")
-            self.assertEqual(b["tag_firmware"], [{"model": "1.54", "version": "0.3.0", "crc": "1234ABCD", "to": "all"}])
+            self.assertEqual(b["tag_firmware"], [{"model": "1.54", "version": "0.3.0", "crc": "1234ABCD", "to": "all",
+                                                  "waiting": 1}])
 
             # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed.
             # Its name and the tag firmware are not set; restore says how.
@@ -408,8 +409,9 @@ class ClientTest(unittest.TestCase):
             FakeAp.tagfw = {"images": [{"model": "1.54", "version": None}]}
             rc, out = self.run_cli("restore", path, "--dry-run")
             self.assertEqual(rc, 0)
-            self.assertIn("note: the old AP offered 1.54 tag firmware 0.3.0 to all its tags; if they were not all "
-                          "updated, send openesl-tag-1.54-0.3.0-ota.bin again with tag-ota", out)
+            self.assertIn("note: the old AP offered 1.54 tag firmware 0.3.0 to all its tags (1 not updated yet); send "
+                          "it again with tag-ota and the release's openesl-tag-1.54-v<release>-ota.bin whose firmware "
+                          "is 0.3.0", out)
             self.assertIn("note: the old AP was called butikk (butikk.local), this one openesl-77c8; to keep the "
                           "old name: wifi --hostname butikk", out)
             self.assertIn("tags: 2 with content, 1 with a picture, 1 with their own settings", out)
@@ -449,6 +451,29 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 0)
             self.assertNotIn("note: ", out)
+
+            # The tag firmware note: none when this AP offers the model already (a newer version must not be
+            # taken back) or no tag was waiting; for chosen tags it points to the dashboard, not tag-ota
+            cli = esl_client.Client(self.url, TOKEN)
+            FakeAp.tagfw = {"images": [{"model": "1.54", "version": "0.4.0", "crc": "0000FFFF", "to": "all"}]}
+            self.assertEqual(esl_client.restore_notes(cli, b), [])
+            FakeAp.tagfw = {"images": []}
+            self.assertEqual(esl_client.restore_notes(cli, dict(b, tag_firmware=[dict(b["tag_firmware"][0],
+                                                                                       waiting=0)])), [])
+            notes = esl_client.restore_notes(cli, dict(b, tag_firmware=[dict(b["tag_firmware"][0],
+                                                                             to=["00000123456789A8"])]))
+            self.assertEqual(len(notes), 1)
+            self.assertIn("to 1 chosen tag (1 not updated yet); upload it on the dashboard and tick the same tags, "
+                          "or PUT /api/tag-firmware?to=<MAC>", notes[0])
+
+            # A broken "ap" or "tag_firmware" is refused before anything is sent
+            for key, bad in (("ap", "x"), ("tag_firmware", {})):
+                with open(path, "w") as f:
+                    json.dump(dict(b, **{key: bad}), f)
+                with self.assertRaises(esl_client.BackupError):
+                    esl_client.read_backup(path)
+            with open(path, "w") as f:
+                json.dump(b, f)
 
             # An older backup, without the name and tag firmware, restores as before
             with open(path, encoding="utf-8") as f:

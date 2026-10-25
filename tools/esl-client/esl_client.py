@@ -1030,40 +1030,67 @@ def backup(cli, now=None, warn=None):
 
 
 def tag_firmware_offered(cli):
-    """The tag firmware the AP offers: model, version, crc and who it is for, not the
-    bytes (the AP cannot give them back, and the file is in the release)."""
+    """The tag firmware the AP offers: model, version, crc, who it is for and how many
+    tags still wait for it. Not the bytes: the AP cannot give them back, and the file
+    is in the release."""
     try:
         images = cli.tag_firmware().get("images", [])
     except ApiError as e:
         if e.status != 404:  # an AP built without tag OTA
             raise
         return []
-    return [{k: i[k] for k in ("model", "version", "crc", "to") if i.get(k) is not None}
-            for i in images if i.get("version")]
+    out = []
+    for i in images:
+        if not i.get("version"):
+            continue
+        row = {k: i[k] for k in ("model", "version", "crc", "to") if i.get(k) is not None}
+        n = i.get("tags") or {}
+        row["waiting"] = n.get("pending", 0) + n.get("failed", 0)
+        out.append(row)
+    return out
+
+
+def tag_firmware_note(old, new):
+    """The line for a tag firmware the old AP offered, or None: when this AP offers
+    firmware for the model already (another version may be newer: a tag takes any
+    version that is not its own, so sending the old one could take tags back), or
+    when no tag was waiting for it."""
+    if not isinstance(old, dict) or old.get("model") in new or old.get("waiting") == 0:
+        return None
+    model, ver, to = old.get("model"), old.get("version"), old.get("to", "all")
+    waiting = old.get("waiting")
+    left = f" ({waiting} not updated yet)" if waiting else ""
+    send = (f"send it again with tag-ota and the release's openesl-tag-{model}-v<release>-ota.bin "
+            f"whose firmware is {ver} (tag-ota shows the version before sending)")
+    if isinstance(to, list):
+        n = len(to)
+        return (f"note: the old AP offered {model} tag firmware {ver} to {n} chosen tag{'s' if n != 1 else ''}{left}; "
+                f"upload it on the dashboard and tick the same tags, or PUT /api/tag-firmware?to=<MAC>: "
+                f"tag-ota sends it to every {model} tag")
+    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; {send}"
 
 
 def restore_notes(cli, b):
     """What restore cannot put back itself: the tag firmware the old AP offered, and
-    its name on the network. One line for each."""
+    its name on the network. One line for each. Only advice, so an AP that cannot
+    answer gets a line, not a failed restore."""
     lines = []
-    have = {(i["model"], i["version"], i.get("crc")) for i in tag_firmware_offered(cli)}
-    for i in b.get("tag_firmware") or []:
-        if not isinstance(i, dict) or (i.get("model"), i.get("version"), i.get("crc")) in have:
-            continue
-        to = i.get("to", "all")
-        to = "all its tags" if to == "all" else f"{len(to)} tags" if isinstance(to, list) else "its tags"
-        lines.append(f"note: the old AP offered {i.get('model')} tag firmware {i.get('version')} to {to}; "
-                     f"if they were not all updated, send openesl-tag-{i.get('model')}-{i.get('version')}-ota.bin "
-                     f"again with tag-ota")
+    fw = b.get("tag_firmware") or []
+    if fw:
+        try:
+            new = {i["model"] for i in tag_firmware_offered(cli)}
+        except ApiError as e:
+            lines.append(f"note: could not read this AP's tag firmware (HTTP {e.status}); the old AP offered "
+                         + ", ".join(f"{i.get('model')} {i.get('version')}" for i in fw if isinstance(i, dict)))
+        else:
+            lines.extend(x for x in (tag_firmware_note(i, new) for i in fw) if x)
     name = (b.get("ap") or {}).get("hostname")
     if name:
         try:
             now = cli.wifi().get("hostname")
         except ApiError as e:
-            if e.status != 404:
-                raise
-            now = name
-        if now != name:
+            now = None if e.status == 404 else f"? (HTTP {e.status})"
+        if now and now != name:
             lines.append(f"note: the old AP was called {name} ({name}.local), this one {now}; to keep the old "
                          f"name: wifi --hostname {name}")
     return lines
@@ -1084,6 +1111,9 @@ def read_backup(path):
     for key, kind in (("config", dict), ("layouts", dict), ("tags", list), ("scheduled", list)):
         if not isinstance(b.get(key), kind):
             raise BackupError(f"{path}: \"{key}\" is missing or not a {kind.__name__}")
+    for key, kind in (("ap", dict), ("tag_firmware", list)):  # not in older backups
+        if key in b and not isinstance(b[key], kind):
+            raise BackupError(f"{path}: \"{key}\" is not a {kind.__name__}")
     for i, t in enumerate(b["tags"] + b["scheduled"]):
         if not isinstance(t, dict) or not MAC_RE.match(str(t.get("mac", ""))):
             raise BackupError(f"{path}: entry {i} has no valid mac")
