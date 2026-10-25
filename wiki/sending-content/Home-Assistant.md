@@ -14,6 +14,6 @@ The full example, with YAML ready to copy, a layout with a progress bar, and how
 
 ## Things to keep in mind
 
-- **Battery:** every new screen costs power. Round the numbers (5 % or 5 minutes) so the label is not redrawn for every small change. Sending the same text again is free.
+- **Battery:** every new screen costs power. Send at most every few minutes (the 3D printer example sends every 10 minutes while printing), or round the numbers (5 % or 5 minutes) when the automation runs on every change of a sensor, so the label is not redrawn for every small change. Sending the same text again is free.
 - **Timing:** the label shows the change at its next poll, about a minute with the default interval. Do not lower the poll interval to make it faster; that costs battery all the time.
 - **Monitoring:** point the AP's [webhook](Health-and-webhook) at a Home Assistant webhook to get told when a label goes silent or its battery runs low.
