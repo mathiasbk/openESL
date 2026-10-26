@@ -365,6 +365,7 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 want(rc, f.src_mac, t ? t->s.image_id : 0, 0);
             n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
         }
+        esl_blocks_poll_soon(reply, n); /* as esl_radio_handle() */
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         rc->stats.blocks++;
         const esl_rfw_t *fw = fw_for(rc, freq.model);
@@ -381,6 +382,7 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 want(rc, f.src_mac, 0, freq.model);
             n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
         }
+        esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         rc->stats.polls++;
         n = on_poll(rc, t, f.src_mac, &poll, reply);

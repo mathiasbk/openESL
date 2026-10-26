@@ -25,6 +25,7 @@ python3 esl_client.py tag-ota openesl-tag-1.54-<version>-ota.bin
 
 - A release that does not change a model's firmware keeps the same version for it, so nothing is sent.
 - An update costs some battery: the label downloads about 40 KB.
+- A label fetches about 11 KB per wake-up, and between the parts it comes back after a few seconds instead of after its poll interval, so an update takes a few minutes whatever the interval is. Many labels at once keep the radio busy for longer, and the dashboard can feel slower meanwhile on an ESP32-C6 AP.
 - To go back, upload the older release's label firmware the same way. A label takes any version that is not its own.
 - A label that does not start after an update has to go back in the jig ([Flashing labels](Flashing-labels)).
 - Labels flashed before 0.3.0 have no bootloader and need one pass in the jig first.
