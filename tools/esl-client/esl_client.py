@@ -69,7 +69,8 @@ class ApiError(Exception):
 
 class Client:
     def __init__(self, url, token, timeout=10.0, retries=3):
-        self.url = url.rstrip("/")
+        url = url.rstrip("/")
+        self.url = url if "://" in url else "http://" + url   # --url 192.168.0.188 works too
         self.token = token
         self.timeout = timeout
         self.retries = retries
