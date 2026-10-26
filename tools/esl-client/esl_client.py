@@ -69,7 +69,8 @@ class ApiError(Exception):
 
 class Client:
     def __init__(self, url, token, timeout=10.0, retries=3):
-        self.url = url.rstrip("/")
+        url = url.rstrip("/")
+        self.url = url if "://" in url else "http://" + url   # --url 192.168.0.188 works too
         self.token = token
         self.timeout = timeout
         self.retries = retries
@@ -252,6 +253,7 @@ class SerialClient(Client):
 
     def __init__(self, port, timeout=10.0):
         super().__init__("serial:" + port, "", timeout, retries=1)
+        self.url = "serial:" + port   # not a URL: no http:// in front
         self.port = port
         self.seq = 0
         self.fd = None

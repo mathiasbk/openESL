@@ -7,6 +7,8 @@ export OPENESL_URL=http://openesl.local OPENESL_TOKEN=...
 python3 esl_client.py status
 ```
 
+`--url` (or `OPENESL_URL`) takes a name or an IP address with or without `http://`: `--url 192.168.0.188` works too.
+
 ## Content
 
 ```sh
