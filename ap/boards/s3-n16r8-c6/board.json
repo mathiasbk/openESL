@@ -11,6 +11,6 @@
   "radio_fw": ["c6", "c6-lcd"],
   "artifact": "openesl-ap-s3-n16r8",
   "release": "openesl-ap-esp32s3-n16r8",
-  "status": "experimental",
+  "status": "supported",
   "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16 }
 }

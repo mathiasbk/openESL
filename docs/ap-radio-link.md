@@ -11,9 +11,10 @@ ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
 | ESP32-C6 (radio) | `ap/radio/` (`openesl-ap-radio-esp32c6-<version>.bin`) | 802.15.4 only, no WiFi: forwards every frame to the host and sends the replies |
 | ESP32-C6 with 0.96" screen (radio) | `ap/radio/`, radio board `c6-lcd` (`openesl-ap-radio-esp32c6-lcd-<version>.bin`) | the same, and shows the status the host sends (SCREEN) on its screen |
 
-Status: experimental. All three images build. Tried on 2026-10-26 with an ESP32-S3 N16R8 and a plain
-ESP32-C6 Super Mini, both 0.8.1: three tags online, polls answered in about 2.3 ms
-(`replies.worst_us` 2302). The C6 with screen as the radio is not tried yet.
+Status: supported with a plain ESP32-C6 Super Mini as the radio. Tried on 2026-10-26 with an
+ESP32-S3 N16R8: four tags online, polls answered in about 2.3 ms (`replies.worst_us` 2302), the S3
+updated over WiFi and the radio over the cable (twice, about 8 s each). The C6 with screen as the
+radio is experimental: its image builds, but it is not tried yet.
 
 For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md).
 

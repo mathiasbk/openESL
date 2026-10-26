@@ -9,7 +9,7 @@ CI and releases build every board here, so a new board needs no workflow change.
 | `c6-supermini` | ESP32-C6 | 4 MB / none | supported | `openesl-ap-esp32c6-<version>.bin` |
 | `c6-supermini-lcd` | ESP32-C6 | 4 MB / none, 0.96" screen | supported | `openesl-ap-esp32c6-lcd-<version>.bin` |
 | `c5-wroom-1u-n16r8` | ESP32-C5 | 16 MB / 8 MB | experimental: built, not tried on a board | `openesl-ap-esp32c5-n16r8-<version>.bin` |
-| `s3-n16r8-c6` | ESP32-S3 + ESP32-C6 as radio on UART | 16 MB / 8 MB | experimental: tried with a plain C6 Super Mini and three tags on 2026-10-26 (0.8.1), not yet with the C6 with screen | `openesl-ap-esp32s3-n16r8-<version>.bin` and `openesl-ap-radio-esp32c6-<version>.bin` (or `-esp32c6-lcd-` for a C6 with screen) ([docs/ap-radio-link.md](../../docs/ap-radio-link.md)) |
+| `s3-n16r8-c6` | ESP32-S3 + ESP32-C6 as radio on UART | 16 MB / 8 MB | supported: tried with a plain C6 Super Mini and four tags on 2026-10-26, radio updates over the cable included; the C6 with screen as the radio is experimental (not tried yet) | `openesl-ap-esp32s3-n16r8-<version>.bin` and `openesl-ap-radio-esp32c6-<version>.bin` (or `-esp32c6-lcd-` for a C6 with screen) ([docs/ap-radio-link.md](../../docs/ap-radio-link.md)) |
 | `s3-n16r8-netradio` | ESP32-S3 + ESP32-C6 as radio over WiFi | 16 MB / 8 MB | experimental: tried with one C6 and two tags; not secure yet | `openesl-ap-esp32s3-n16r8-netradio-<version>.bin` and `openesl-ap-netradio-esp32c6-<version>.bin` ([docs/ap-netradio.md](../../docs/ap-netradio.md)) |
 
 Each folder has:

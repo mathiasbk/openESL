@@ -1,6 +1,6 @@
 # ESP32-S3 + ESP32-C6
 
-**Status:** experimental. Tried on 2026-10-26 with an ESP32-S3 N16R8 and a plain ESP32-C6 Super Mini (0.8.1): three labels online, replies to their polls in about 2.3 ms. The C6 with screen as the radio is not tried yet. **Labels:** 1000.
+**Status:** supported with a plain ESP32-C6 Super Mini as the radio. Tried on 2026-10-26 with an ESP32-S3 N16R8: four labels online, replies to their polls in about 2.3 ms, and the radio updated over the cable. The C6 with screen as the radio is experimental: not tried yet. **Labels:** 1000.
 
 Two boards: an ESP32-S3 with 8 MB PSRAM runs the AP (WiFi, API, dashboard, drawing), and an ESP32-C6 next to it is nothing but the label radio. WiFi never takes the radio from the labels, and each chip can have its own antenna. The S3 cannot talk to the labels without the C6: its radio does WiFi and Bluetooth, not 802.15.4.
 
