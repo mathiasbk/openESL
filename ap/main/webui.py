@@ -37,7 +37,7 @@ MODULES = {
     "design": {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
-               "models.js"],
+               "models.js", "tplpicker.js", "catalog.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,

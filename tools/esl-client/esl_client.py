@@ -979,6 +979,8 @@ def backup(cli, now=None, warn=None):
     """Everything the AP keeps in NVS that the API can read back: the default poll
     interval and the webhook, the layout files, each tag's content and settings, and
     the scheduled content. Not the WiFi (its password cannot be read) or the token.
+    Also the AP's name on the network and which tag firmware it offers, so restore can
+    say what to set again on a new AP.
     A picture the AP cannot give back is left out, with a line to warn()."""
     st = cli.tags()
     tags = []
@@ -1010,12 +1012,88 @@ def backup(cli, now=None, warn=None):
             raise
         sched = []
     sched.sort(key=lambda e: (e["at"], e["mac"]))
+    ap = {"fw": st.get("ap", {}).get("fw"), "channel": st.get("ap", {}).get("channel")}
+    if st.get("ap", {}).get("board"):
+        ap["board"] = st["ap"]["board"]
+    try:
+        if (name := cli.wifi().get("hostname")):
+            ap["hostname"] = name
+    except ApiError as e:
+        if e.status != 404:  # an AP without WiFi
+            raise
     return {"format": BACKUP_FORMAT, "version": 1,
             "taken": datetime.datetime.fromtimestamp(now or time.time(), datetime.timezone.utc)
             .isoformat(timespec="seconds"),
-            "ap": {"fw": st.get("ap", {}).get("fw"), "channel": st.get("ap", {}).get("channel")},
+            "ap": ap,
             "config": {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")},
-            "layouts": layouts, "tags": tags, "scheduled": sched}
+            "layouts": layouts, "tags": tags, "scheduled": sched, "tag_firmware": tag_firmware_offered(cli)}
+
+
+def tag_firmware_offered(cli):
+    """The tag firmware the AP offers: model, version, crc, who it is for and how many
+    tags still wait for it. Not the bytes: the AP cannot give them back, and the file
+    is in the release."""
+    try:
+        images = cli.tag_firmware().get("images", [])
+    except ApiError as e:
+        if e.status != 404:  # an AP built without tag OTA
+            raise
+        return []
+    out = []
+    for i in images:
+        if not i.get("version"):
+            continue
+        row = {k: i[k] for k in ("model", "version", "crc", "to") if i.get(k) is not None}
+        n = i.get("tags") or {}
+        row["waiting"] = n.get("pending", 0) + n.get("failed", 0)
+        out.append(row)
+    return out
+
+
+def tag_firmware_note(old, new):
+    """The line for a tag firmware the old AP offered, or None: when this AP offers
+    firmware for the model already (another version may be newer: a tag takes any
+    version that is not its own, so sending the old one could take tags back), or
+    when no tag was waiting for it."""
+    if not isinstance(old, dict) or old.get("model") in new or old.get("waiting") == 0:
+        return None
+    model, ver, to = old.get("model"), old.get("version"), old.get("to", "all")
+    waiting = old.get("waiting")
+    left = f" ({waiting} not updated yet)" if waiting else ""
+    send = (f"send it again with tag-ota and the release's openesl-tag-{model}-v<release>-ota.bin "
+            f"whose firmware is {ver} (tag-ota shows the version before sending)")
+    if isinstance(to, list):
+        n = len(to)
+        return (f"note: the old AP offered {model} tag firmware {ver} to {n} chosen tag{'s' if n != 1 else ''}{left}; "
+                f"upload it on the dashboard and tick the same tags, or PUT /api/tag-firmware?to=<MAC>: "
+                f"tag-ota sends it to every {model} tag")
+    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; {send}"
+
+
+def restore_notes(cli, b):
+    """What restore cannot put back itself: the tag firmware the old AP offered, and
+    its name on the network. One line for each. Only advice, so an AP that cannot
+    answer gets a line, not a failed restore."""
+    lines = []
+    fw = b.get("tag_firmware") or []
+    if fw:
+        try:
+            new = {i["model"] for i in tag_firmware_offered(cli)}
+        except ApiError as e:
+            lines.append(f"note: could not read this AP's tag firmware (HTTP {e.status}); the old AP offered "
+                         + ", ".join(f"{i.get('model')} {i.get('version')}" for i in fw if isinstance(i, dict)))
+        else:
+            lines.extend(x for x in (tag_firmware_note(i, new) for i in fw) if x)
+    name = (b.get("ap") or {}).get("hostname")
+    if name:
+        try:
+            now = cli.wifi().get("hostname")
+        except ApiError as e:
+            now = None if e.status == 404 else f"? (HTTP {e.status})"
+        if now and now != name:
+            lines.append(f"note: the old AP was called {name} ({name}.local), this one {now}; to keep the old "
+                         f"name: wifi --hostname {name}")
+    return lines
 
 
 class BackupError(Exception):
@@ -1033,6 +1111,9 @@ def read_backup(path):
     for key, kind in (("config", dict), ("layouts", dict), ("tags", list), ("scheduled", list)):
         if not isinstance(b.get(key), kind):
             raise BackupError(f"{path}: \"{key}\" is missing or not a {kind.__name__}")
+    for key, kind in (("ap", dict), ("tag_firmware", list)):  # not in older backups
+        if key in b and not isinstance(b[key], kind):
+            raise BackupError(f"{path}: \"{key}\" is not a {kind.__name__}")
     for i, t in enumerate(b["tags"] + b["scheduled"]):
         if not isinstance(t, dict) or not MAC_RE.match(str(t.get("mac", ""))):
             raise BackupError(f"{path}: entry {i} has no valid mac")
@@ -1069,7 +1150,9 @@ def restore(cli, b, dry_run=False, now=None):
     lines.append(f"tags: {len(content)} with content, {len(pictures)} with a picture, "
                  f"{len(settings)} with their own settings")
     lines.append(f"scheduled: {len(due)}" + (f" ({passed} skipped, their time has passed)" if passed else ""))
+    notes = restore_notes(cli, b)
     if dry_run:
+        lines.extend(notes)
         lines.append("nothing sent (dry run)")
         return lines, True
 
@@ -1128,6 +1211,7 @@ def restore(cli, b, dry_run=False, now=None):
             due = []
             ok = False
     lines.append(f"restored: {len(layouts)} layout files, {len(settings)} tag settings, {sent} tags, {len(due)} scheduled")
+    lines.extend(notes)
     return lines, ok
 
 

@@ -1,0 +1,51 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "opening-hours",
+  "category": "signs",
+  "title": "Opening hours",
+  "description": "A heading and three rows of days and hours, with a note at the bottom.",
+  "tags": ["sign", "hours", "shop"],
+  "fields": {
+    "title": "Heading, e.g. Opening hours",
+    "row1": "First row: days, then hours",
+    "row2": "Second row: days, then hours",
+    "row3": "Third row: days, then hours",
+    "note": "A note at the bottom, e.g. holiday hours"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "opening-hours",
+        "description": "Heading in a black band, three rows and a note",
+        "fields": ["title", "row1", "row2", "row3", "note"],
+        "_sample": ["Opening hours", "Mon-Fri  9-21", "Saturday  9-18", "Sunday  closed", "Holidays: see our website"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 28, "color": "black" },
+          { "type": "text", "field": "title", "x": 6, "y": 2, "w": 284, "h": 24, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "row1", "x": 10, "y": 32, "w": 276, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "text", "field": "row2", "x": 10, "y": 56, "w": 276, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "text", "field": "row3", "x": 10, "y": 80, "w": 276, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "text", "field": "note", "x": 6, "y": 108, "w": 284, "h": 17, "fonts": ["small"], "align": "center", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "opening-hours",
+        "description": "Heading in a black band, three rows and a note",
+        "fields": ["title", "row1", "row2", "row3", "note"],
+        "_sample": ["Opening hours", "Mon-Fri  9-21", "Saturday  9-18", "Sunday  closed", "Holidays: see our website"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 34, "color": "black" },
+          { "type": "text", "field": "title", "x": 6, "y": 5, "w": 188, "h": 24, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "row1", "x": 4, "y": 44, "w": 192, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "row2", "x": 4, "y": 78, "w": 192, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "row3", "x": 4, "y": 112, "w": 192, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 20, "y": 152, "w": 160, "h": 2 },
+          { "type": "text", "field": "note", "x": 6, "y": 160, "w": 188, "h": 34, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 2 }
+        ]
+      }
+    }
+  }
+}

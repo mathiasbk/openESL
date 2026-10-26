@@ -33,3 +33,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 supported tags in the top `README.md`. The generated
 files are checked in; `tools/check.py models` and CI fail when they are out of date. The
 Python tools in the repository read the JSON through `models.py`.
+
+A new model also wants a variant of each layout template for its screen (`templates/`, see
+[wiki/labels/Label-templates.md](../wiki/labels/Label-templates.md)): `python web/build.py` lists
+the templates that have no variant for it yet, as a to-do for the model's pull request.

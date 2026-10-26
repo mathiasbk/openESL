@@ -1,0 +1,62 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "room-climate",
+  "category": "home",
+  "title": "Room climate",
+  "description": "Room name, temperature in large digits, humidity and when it was updated, e.g. from Home Assistant sensors.",
+  "tags": ["home", "home-assistant", "temperature", "sensor"],
+  "docs": "docs/home-assistant.md",
+  "fields": {
+    "room": "Room name",
+    "temp": "Temperature, digits only (e.g. 21,5)",
+    "humidity": "Relative humidity in percent, digits only",
+    "updated": "When the values were read, as text"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "drop": {"w": 16, "h": 22, "data": "AIABwAHAA+AD4AfwD/AP+D/8P/x//v///////////////3/+P/w//A/wB+A="}
+      },
+      "layout": {
+        "name": "room-climate",
+        "description": "Room name in the band, the temperature large, humidity to the right and the time at the bottom",
+        "fields": ["room", "temp", "humidity", "updated"],
+        "_sample": ["Living room", "21,5", "45", "Updated 14:05"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 28, "color": "black" },
+          { "type": "text", "field": "room", "x": 6, "y": 2, "w": 284, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "temp", "x": 4, "y": 34, "w": 150, "h": 56, "fonts": ["large", "mid"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "°C", "x": 158, "y": 40, "w": 40, "h": 24, "fonts": ["medium"], "lines": 1 },
+          { "type": "rect", "x": 204, "y": 36, "w": 2, "h": 64 },
+          { "type": "icon", "icon": "drop", "x": 210, "y": 44 },
+          { "type": "text", "field": "humidity", "x": 228, "y": 52, "w": 52, "h": 38, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "%", "x": 280, "y": 66, "w": 16, "h": 24, "fonts": ["medium"], "lines": 1 },
+          { "type": "text", "field": "updated", "x": 6, "y": 106, "w": 284, "h": 20, "fonts": ["small"], "align": "right", "valign": "bottom", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "drop": {"w": 16, "h": 22, "data": "AIABwAHAA+AD4AfwD/AP+D/8P/x//v///////////////3/+P/w//A/wB+A="}
+      },
+      "layout": {
+        "name": "room-climate",
+        "description": "Room name in the band, the temperature large, humidity under it and the time at the bottom",
+        "fields": ["room", "temp", "humidity", "updated"],
+        "_sample": ["Living room", "21,5", "45", "Updated 14:05"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 32, "color": "black" },
+          { "type": "text", "field": "room", "x": 6, "y": 4, "w": 188, "h": 24, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "temp", "x": 4, "y": 44, "w": 144, "h": 56, "fonts": ["large", "mid"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "°C", "x": 152, "y": 50, "w": 44, "h": 24, "fonts": ["medium"], "lines": 1 },
+          { "type": "rect", "x": 20, "y": 112, "w": 160, "h": 2 },
+          { "type": "icon", "icon": "drop", "x": 52, "y": 128 },
+          { "type": "text", "field": "humidity", "x": 72, "y": 118, "w": 70, "h": 40, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "%", "x": 146, "y": 132, "w": 30, "h": 24, "fonts": ["medium"], "lines": 1 },
+          { "type": "text", "field": "updated", "x": 6, "y": 176, "w": 188, "h": 20, "fonts": ["small"], "align": "center", "valign": "bottom", "lines": 1 }
+        ]
+      }
+    }
+  }
+}

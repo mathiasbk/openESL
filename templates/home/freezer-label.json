@@ -1,0 +1,59 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "freezer-label",
+  "category": "home",
+  "title": "Freezer or pantry label",
+  "description": "What is in the box, how much, when it was frozen or made, and when it is best before.",
+  "tags": ["home", "kitchen", "freezer", "storage"],
+  "fields": {
+    "content": "What is in it",
+    "amount": "How much, e.g. 4 portions",
+    "frozen": "When it was frozen or made, as text",
+    "best": "Best before, as text"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "snow": {"w": 36, "h": 36, "data": "AAAAAAAAAAAAAAAnDkAAAHcO4AAA/gfwAAJ+B+QAA/4H/AAD/gf8AAD+B/AAAD4HwAAADw8AAAAPDwAAEAeeAIA4B54BwHwD/APgPgP8B8AfAfgPgH/////wf/////B/////8D8D/A/AfAP8A+A4B54BwBAHngCAAA8PAAAADw8AAAA+B8AAAP4H8AAD/gf8AAP+B/wAAn4H5AAA/gfwAAB3DuAAACcOQAAAAAAAAAAAAAAA"}
+      },
+      "layout": {
+        "name": "freezer-label",
+        "description": "The content large with the amount under it, frozen and best-before dates at the bottom",
+        "fields": ["content", "amount", "frozen", "best"],
+        "_sample": ["Chicken soup", "4 portions", "2026-10-25", "2027-04-25"],
+        "elements": [
+          { "type": "icon", "icon": "snow", "x": 6, "y": 8 },
+          { "type": "text", "field": "content", "x": 50, "y": 2, "w": 240, "h": 50, "fonts": ["medium", "small"], "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "amount", "x": 50, "y": 54, "w": 240, "h": 22, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 6, "y": 80, "w": 284, "h": 2 },
+          { "type": "text", "text": "Frozen", "x": 6, "y": 86, "w": 140, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "frozen", "x": 6, "y": 102, "w": 140, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "text": "Best before", "x": 150, "y": 86, "w": 140, "h": 17, "fonts": ["small"], "align": "right", "lines": 1 },
+          { "type": "text", "field": "best", "x": 150, "y": 102, "w": 140, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "snow": {"w": 36, "h": 36, "data": "AAAAAAAAAAAAAAAnDkAAAHcO4AAA/gfwAAJ+B+QAA/4H/AAD/gf8AAD+B/AAAD4HwAAADw8AAAAPDwAAEAeeAIA4B54BwHwD/APgPgP8B8AfAfgPgH/////wf/////B/////8D8D/A/AfAP8A+A4B54BwBAHngCAAA8PAAAADw8AAAA+B8AAAP4H8AAD/gf8AAP+B/wAAn4H5AAA/gfwAAB3DuAAACcOQAAAAAAAAAAAAAAA"}
+      },
+      "layout": {
+        "name": "freezer-label",
+        "description": "The content large with the amount under it, frozen and best-before dates at the bottom",
+        "fields": ["content", "amount", "frozen", "best"],
+        "_sample": ["Chicken soup", "4 portions", "2026-10-25", "2027-04-25"],
+        "elements": [
+          { "type": "icon", "icon": "snow", "x": 6, "y": 10 },
+          { "type": "text", "field": "content", "x": 50, "y": 4, "w": 144, "h": 52, "fonts": ["medium", "small"], "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "amount", "x": 50, "y": 58, "w": 144, "h": 20, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 6, "y": 86, "w": 188, "h": 2 },
+          { "type": "text", "text": "Frozen", "x": 6, "y": 96, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "frozen", "x": 6, "y": 112, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "text": "Best before", "x": 6, "y": 146, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "best", "x": 6, "y": 162, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 }
+        ]
+      }
+    }
+  }
+}

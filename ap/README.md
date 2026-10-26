@@ -99,6 +99,8 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 -H "Authorization: Be
 
 - `PUT /api/layouts/{model}` compiles the file for that model (`esl_layout_compile`) and answers `422` with the place and reason if it cannot be drawn (outside the screen, unknown font, box lower than its font, more than 32 text lines or 20 rectangles per layout, more than 2048 bytes compiled, ...). The JSON is stored in NVS (namespace `esl_layouts`) and compiled again at boot.
 - The version is the CRC-32 of the compiled binary. The file stays on the AP: a new version draws each tag's screen again, and a tag gets the new image at its next poll.
+- The content the model's tags already have is checked against the new file, as `PUT /api/tags` checks new content (`esl_store_check_layout`), again at boot, and for one tag at its next POLL (or before its image is drawn, whichever is first) when its content or model changed since (content from the schedule, or set before the model was known; `esl_store_check_tag`). A tag whose barcode, QR code or number no longer fits its box is listed in the answer (`content_errors`, the first 16, and `content_errors_total`); the file is stored all the same, and that tag's content is held back (`content_error` in `GET /api/tags`) until it gets content that fits or a file it fits.
+- A stored file takes its JSON and its compiled size from the heap (plus about 0.7 KB for the names and limits), not `ESL_LBIN_MAX` per model.
 - `layout` in `PUT /api/tags` may name a layout in the file (A14). It must be in the file for the tag's model once the model is known, or in either file before that; otherwise `422`.
 
 ## Tag settings (poll interval and CONFIG)

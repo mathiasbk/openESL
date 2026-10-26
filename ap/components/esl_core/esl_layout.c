@@ -74,31 +74,29 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
 {
     *changed = false;
     if (!ls || !esl_model_name(model) || len == 0 || len > ESL_LAYOUT_MAX_SIZE || !bin->version ||
-        bin->bin[1] != model)
+        bin->size < ESL_LBIN_HDR_LEN || bin->size > ESL_LBIN_CAP || bin->bin[1] != model)
         return 0;
 
     lock(ls);
-    esl_layout_t *l = ls->models[model - 1];
+    esl_layout_t *l = ls->models[model - 1], *old = NULL;
     uint32_t v = 0;
     *changed = !l || l->len != len || memcmp(l->data, data, len) != 0;
     if (*changed) {
-        /* The new JSON first, so the old file stays if there is no memory */
+        /* A new one as big as this file (the compiled size changes with it), and the old one
+           freed after: it stays if there is no memory */
         char *copy = alloc(ls, len);
-        esl_layout_t *nl = l ? l : alloc(ls, sizeof(*nl));
+        esl_layout_t *nl = alloc(ls, ESL_LAYOUT_BYTES(bin->size));
         if (copy && nl) {
             memcpy(copy, data, len);
-            if (nl != l)
-                memset(nl, 0, sizeof(*nl));
-            free(nl->data);
             nl->data = copy;
             nl->len = (uint16_t)len;
-            nl->bin = *bin;
+            memcpy(&nl->bin, bin, ESL_LAYOUT_BIN_BYTES(bin->size));
+            old = l;
             ls->models[model - 1] = l = nl;
         } else {
             /* 0 to the caller: the old file (if any) is unchanged, but the new one is not stored */
             free(copy);
-            if (nl != l)
-                free(nl);
+            free(nl);
             *changed = false;
             l = NULL;
         }
@@ -106,6 +104,7 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
     if (l)
         v = l->bin.version;
     unlock(ls);
+    drop(old);
 
     if (*changed && ls->ops.persist_save)
         ls->ops.persist_save(ls->ops.ctx, model, data, len);

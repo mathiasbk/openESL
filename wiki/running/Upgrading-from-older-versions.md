@@ -1,14 +1,40 @@
 # Upgrading from older versions
 
-Most releases are just [update the AP](Updating-the-access-point), then [update the labels](Updating-labels). This page lists the releases where the order or an extra step matters.
+Most releases are just [update the AP](Updating-the-access-point), then [update the labels](Updating-labels). Every release lists its upgrade instructions at the top of its [release notes](https://github.com/mathiasbk/openESL/releases), and this page has them too.
+
+The usual order:
+
+1. Take a backup (`esl_client.py backup ap.json`).
+2. Update the **AP** over the air. Do not flash it with "Erase" ticked: that wipes the labels, layouts, token and WiFi.
+3. If your AP is an ESP32-S3 with a C6 as its radio: flash the C6 only when the release says its radio changed.
+4. Update the **labels** last, one of each model first, then a few more, then all. They keep working on the old firmware meanwhile, so with many labels this can take days.
+
+## Skipping releases
+
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.0, for example:
+
+1. Backup, then the AP to 0.8.0 over the air. It keeps `openesl.local`.
+2. The C6 radio of an S3 on a cable has not changed since 0.5.0; flash it only if it is the one with the 0.96" screen and its colours are wrong.
+3. The labels to the label firmware of the 0.8.0 release (it is version 0.6.0), one of each model first.
+4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files.
+
+## From 0.7.x to 0.8.0
+
+Update the AP. The labels' firmware has not changed, and neither has the C6 radio of an S3 on a cable. Going back to 0.7.0 keeps everything.
+
+- The AP now checks every label's content against its layout file, at start and when you upload a file. A label whose barcode, QR code or number does not fit its box keeps what it shows and gets nothing new until it gets content that fits, or a layout file it fits: look for a content error in the dashboard (or `content_error` in `GET /api/tags`) after the update. Before 0.8.0 such a label showed the code blank.
+- S3 with a C6 over WiFi: the C6 can now send a browser that opens its address to the S3's dashboard. Optional: in the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase". It keeps its WiFi.
+- The designer has a [template library](Label-templates). On the AP it fetches the templates from the internet.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-07x-to-080).
 
 ## From 0.6.x to 0.7.0
 
-Update the AP as usual. The labels' firmware has not changed.
+Update the AP only. The labels' firmware has not changed, and neither has the C6 radio of an S3 (on a cable or over WiFi). Going back to 0.6.0 keeps everything.
 
 - A new AP is called `openesl-xxxx.local` on the network, where xxxx is the four digits of its setup network. That way two new APs on one network each get their own name.
 - An AP that already has its WiFi saved keeps `openesl.local`, so bookmarks and Home Assistant keep working. If you have two of those on one network, they still share the name: rename one with "Name" in the WiFi card, or with `esl_client.py --serial <port> wifi --hostname openesl-s3`.
-- The [Flash AP](https://mathiasbk.github.io/openESL/#ap) and [Flash tag](https://mathiasbk.github.io/openESL/#tag) tabs are now step-by-step guides. Flashing an AP that runs OpenESL keeps its data.
+- The [Flash AP](https://mathiasbk.github.io/openESL/#ap) and [Flash tag](https://mathiasbk.github.io/openESL/#tag) tabs are now step-by-step guides. Flashing an AP that runs OpenESL keeps its data, unless you tick "Erase": then it is a new AP, called `openesl-xxxx.local`, so change the address in Home Assistant or give it its old name back.
 
 Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-06x-to-070).
 

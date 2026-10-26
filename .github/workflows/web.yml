@@ -43,19 +43,20 @@ jobs:
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             rel=$(latest)
           else
-            # a pull request that changes only documentation (docs/, wiki/, *.md) builds no
+            # a pull request that changes only documentation (docs/, wiki/, *.md) or layout
+            # templates (templates/, which the page publishes and no firmware holds) builds no
             # firmware: its page takes the latest release's, as on master
             files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
             fw=no
             for f in $files; do
               case "$f" in
-                docs/*|wiki/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
+                docs/*|wiki/*|templates/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
                 *) fw=yes; echo "Firmware is built: $f"; break ;;
               esac
             done
             if [ "$fw" = no ] && [ -n "$files" ]; then
               rel=$(latest)
-              echo "Only documentation changed: no firmware build, the page takes release $rel's"
+              echo "Only documentation or templates changed: no firmware build, the page takes release $rel's"
             fi
           fi
           echo "release=$rel" >> "$GITHUB_OUTPUT"

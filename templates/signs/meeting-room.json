@@ -1,0 +1,47 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "meeting-room",
+  "category": "signs",
+  "title": "Meeting room",
+  "description": "Room name, its status in large inverted text (Free, Busy), what is on now and what is next, e.g. from a calendar.",
+  "tags": ["sign", "office", "calendar", "home-assistant"],
+  "fields": {
+    "room": "Room name",
+    "status": "Status, e.g. Free or Busy",
+    "now": "What is on now, as text",
+    "next": "What is next, as text"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "meeting-room",
+        "description": "Room name on top, the status inverted under it, now and next at the bottom",
+        "fields": ["room", "status", "now", "next"],
+        "_sample": ["Room name", "BUSY", "Now: Team meeting until 11:00", "Next: 13:00 Planning"],
+        "elements": [
+          { "type": "text", "field": "room", "x": 6, "y": 4, "w": 180, "h": 30, "fonts": ["medium", "small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "status", "x": 190, "y": 4, "w": 100, "h": 32, "fonts": ["medium", "small"], "align": "right", "lines": 1, "color": "invert" },
+          { "type": "rect", "x": 6, "y": 40, "w": 284, "h": 2 },
+          { "type": "text", "field": "now", "x": 6, "y": 48, "w": 284, "h": 48, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "next", "x": 6, "y": 102, "w": 284, "h": 22, "fonts": ["small"], "valign": "bottom", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "meeting-room",
+        "description": "Room name on top, the status inverted under it, now and next at the bottom",
+        "fields": ["room", "status", "now", "next"],
+        "_sample": ["Room name", "BUSY", "Now: Team meeting until 11:00", "Next: 13:00 Planning"],
+        "elements": [
+          { "type": "text", "field": "room", "x": 6, "y": 4, "w": 188, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "status", "x": 6, "y": 40, "w": 188, "h": 40, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "invert" },
+          { "type": "text", "field": "now", "x": 6, "y": 90, "w": 188, "h": 72, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+          { "type": "rect", "x": 20, "y": 166, "w": 160, "h": 2 },
+          { "type": "text", "field": "next", "x": 6, "y": 172, "w": 188, "h": 24, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 1 }
+        ]
+      }
+    }
+  }
+}

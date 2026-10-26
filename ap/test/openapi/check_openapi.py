@@ -294,14 +294,17 @@ def main():
     def op(path, method):
         return next((p, m, o, ps) for p, m, o, ps in ops if p == path and m == method)
 
-    # the example layout files fit the schema and the code takes them
+    # the example layout files fit the schema and the code takes them. Each PUT replaces the
+    # model's file, so any extra example (<name>-2.9.json) goes first and each model's own file
+    # (2.9.json) last: the content examples below use the layouts in that one
     layout_schema = spec["components"]["schemas"]["LayoutFile"]
+    files = []
     for name in sorted(os.listdir(LAYOUTS)):
-        if not name.endswith(".json"):
-            continue
-        with open(os.path.join(LAYOUTS, name), "rb") as f:
-            raw = f.read()
-        doc = json.loads(raw)
+        if name.endswith(".json"):
+            with open(os.path.join(LAYOUTS, name), "rb") as f:
+                raw = f.read()
+            files.append((name, raw, json.loads(raw)))
+    for name, raw, doc in sorted(files, key=lambda f: f[0] == f[2].get("model") + ".json"):
         for e in v.check(doc, layout_schema, f"tag/designs/layouts/{name}"):
             fail(f"example layout file does not fit LayoutFile: {e}")
         call(*op("/api/layouts/{model}", "put"), body=raw, values={"model": doc["model"]}, expect=200, what=name)

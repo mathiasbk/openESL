@@ -226,6 +226,54 @@ static void test_rhost_content(void)
     CHECK(esl_store_get(&st, 0xA1, &t) && !t.has_content);
 }
 
+/* Content that reaches the store without PUT /api/tags (the schedule sets it with
+   esl_store_set) and does not fit the layout file: the host checks it before it draws,
+   so the radio never gets its image (#186) */
+static void test_rhost_unfit(void)
+{
+    static esl_layouts_t ls;
+    static esl_layout_bin_t bin;
+    const char *f = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c128\","
+                    "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
+                    "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":80,\"h\":40}]}]}";
+    char err[ESL_LAYOUT_ERR_MAX];
+    bool changed;
+    esl_faketag_t a;
+    esl_tag_t t;
+    boot();
+    memset(&ls, 0, sizeof(ls));
+    CHECK(esl_layout_compile(f, strlen(f), ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK(esl_layouts_set(&ls, ESL_MODEL_29, f, strlen(f), &bin, &changed) != 0);
+    host.ls = &ls;
+    esl_faketag_init(&a, 0xA2, 1, 2900, ESL_MODEL_29);
+    CHECK_INT(wake(&a, 1000), ESL_MSG_IDLE);
+    sync_at(2000);
+
+    esl_content_t c;
+    esl_set_result_t r;
+    CHECK(esl_content_init_named(&c, "c128", 4, 0) == ESL_CONTENT_OK);
+    CHECK(esl_content_add_field(&c, (const uint8_t *)"WXYZ", 4) == ESL_CONTENT_OK);
+    CHECK_INT(esl_store_set(&st, 0xA2, &c, &r), ESL_STORE_OK);
+    unsigned imgs = host.stats.images;
+    sync_at(8000);
+    CHECK_INT(host.stats.images, imgs);
+    CHECK(esl_store_get(&st, 0xA2, &t) && t.content_err == ESL_CERR_UNFIT && !t.content_check);
+    CHECK_INT(wake(&a, 66000), ESL_MSG_IDLE);
+    sync_at(67000);
+    CHECK(esl_store_get(&st, 0xA2, &t) && t.content_err == ESL_CERR_UNFIT);
+    CHECK_INT(host.stats.images, imgs);
+
+    /* content that fits is drawn and sent */
+    CHECK(esl_content_init_named(&c, "c128", 4, 0) == ESL_CONTENT_OK);
+    CHECK(esl_content_add_field(&c, (const uint8_t *)"A", 1) == ESL_CONTENT_OK);
+    CHECK_INT(esl_store_set(&st, 0xA2, &c, &r), ESL_STORE_OK);
+    sync_at(70000);
+    CHECK_INT(host.stats.images, imgs + 1);
+    CHECK(esl_store_get(&st, 0xA2, &t) && t.content_err == ESL_CERR_NONE);
+    host.ls = NULL;
+    esl_layouts_free(&ls);
+}
+
 static void test_rhost_many(void)
 {
     esl_faketag_t t[12];
@@ -436,6 +484,7 @@ static void test_rhost_link(void)
 void test_rhost(void)
 {
     test_rhost_content();
+    test_rhost_unfit();
     test_rhost_many();
     test_rhost_refused_fw();
     test_rhost_slots();

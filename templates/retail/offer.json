@@ -1,0 +1,49 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "offer",
+  "category": "retail",
+  "title": "Offer price",
+  "description": "An offer badge, product name, a large offer price and the price before. The badge text is a field, so it can say Offer, Sale or Tilbud.",
+  "tags": ["price", "offer", "sale"],
+  "fields": {
+    "badge": "Badge text, e.g. Offer or Sale",
+    "name": "Product name",
+    "price": "Offer price",
+    "before": "The price before, as text (e.g. Before 49,90)",
+    "note": "A short note, e.g. how long the offer lasts"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "offer",
+        "description": "Inverted badge, name and note on the left, the offer price large on the right with the price before under it",
+        "fields": ["badge", "name", "price", "before", "note"],
+        "_sample": ["OFFER", "Product name", "29,90", "Before 49,90", "Until Sunday"],
+        "elements": [
+          { "type": "text", "field": "badge", "x": 4, "y": 4, "w": 140, "h": 32, "fonts": ["medium", "small"], "lines": 1, "color": "invert" },
+          { "type": "text", "field": "name", "x": 6, "y": 42, "w": 140, "h": 52, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "note", "x": 6, "y": 98, "w": 140, "h": 26, "fonts": ["small"], "valign": "bottom", "lines": 1 },
+          { "type": "rect", "x": 150, "y": 4, "w": 2, "h": 120 },
+          { "type": "text", "field": "price", "x": 156, "y": 6, "w": 136, "h": 80, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "decimals": "keep" },
+          { "type": "text", "field": "before", "x": 156, "y": 94, "w": 136, "h": 30, "fonts": ["medium", "small"], "align": "right", "valign": "bottom", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "offer",
+        "description": "Inverted badge, name, the offer price large with the price before and a note under it",
+        "fields": ["badge", "name", "price", "before", "note"],
+        "_sample": ["OFFER", "Product name", "29,90", "Before 49,90", "Until Sunday"],
+        "elements": [
+          { "type": "text", "field": "badge", "x": 4, "y": 4, "w": 192, "h": 32, "fonts": ["medium", "small"], "align": "center", "lines": 1, "color": "invert" },
+          { "type": "text", "field": "name", "x": 6, "y": 42, "w": 188, "h": 50, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 2 },
+          { "type": "text", "field": "price", "x": 6, "y": 94, "w": 188, "h": 60, "fonts": ["large", "mid", "medium"], "align": "center", "valign": "bottom", "lines": 1, "decimals": "keep" },
+          { "type": "text", "field": "before", "x": 6, "y": 156, "w": 188, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "text", "field": "note", "x": 6, "y": 181, "w": 188, "h": 17, "fonts": ["small"], "align": "center", "lines": 1 }
+        ]
+      }
+    }
+  }
+}

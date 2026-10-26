@@ -1,0 +1,10 @@
+{
+  "format": "esl-template-categories",
+  "version": 1,
+  "categories": [
+    { "id": "3d-printer", "title": "3D printer", "description": "Printer status and labels for filament", "order": 1 },
+    { "id": "retail", "title": "Retail and price", "description": "Shelf labels, product labels and offers", "order": 2 },
+    { "id": "signs", "title": "Signs", "description": "Welcome signs, opening hours, rooms and notices", "order": 3 },
+    { "id": "home", "title": "Home", "description": "WiFi, sensors, calendars and storage at home", "order": 4 }
+  ]
+}

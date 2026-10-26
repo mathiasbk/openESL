@@ -1,0 +1,51 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "vare-ean",
+  "category": "retail",
+  "title": "Product with EAN barcode",
+  "description": "Brand band with \"inkl. mva\", product name, price, and the EAN-13 barcode with its digits.",
+  "tags": ["price", "product", "barcode", "ean"],
+  "fields": {
+    "brand": "Brand or maker, shown in the band",
+    "name": "Product name",
+    "ean": "EAN-13 number (13 digits), drawn as a barcode and as text",
+    "price": "Price"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "vare-ean",
+        "description": "Product label with an EAN-13 barcode: brand band with the fixed text \"inkl. mva\", name, price, the code with its digits under it",
+        "fields": ["brand", "name", "ean", "price"],
+        "_sample": ["Brand", "Product name", "7038010009457", "17,25"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 20, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 190, "h": 20, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "text": "inkl. mva", "x": 200, "y": 0, "w": 90, "h": 20, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 23, "w": 168, "h": 48, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "price", "x": 176, "y": 23, "w": 115, "h": 48, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" },
+          { "type": "barcode", "field": "ean", "symbology": "ean13", "module": 2, "x": 35, "y": 76, "w": 226, "h": 34, "align": "center" },
+          { "type": "text", "field": "ean", "x": 5, "y": 110, "w": 286, "h": 17, "fonts": ["small"], "align": "center", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "vare-ean",
+        "description": "Product label with an EAN-13 barcode: brand band, name, price, the code with its digits under it (1-pixel modules, 0.14 mm: check that your scanner reads it)",
+        "fields": ["brand", "name", "ean", "price"],
+        "_sample": ["Brand", "Product name", "7038010009457", "17,25"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 110, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "text": "inkl. mva", "x": 118, "y": 0, "w": 76, "h": 24, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 6, "y": 28, "w": 188, "h": 48, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "text", "field": "price", "x": 6, "y": 76, "w": 188, "h": 56, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" },
+          { "type": "barcode", "field": "ean", "symbology": "ean13", "x": 6, "y": 138, "w": 188, "h": 42, "align": "center" },
+          { "type": "text", "field": "ean", "x": 6, "y": 181, "w": 188, "h": 17, "fonts": ["small"], "align": "center", "lines": 1 }
+        ]
+      }
+    }
+  }
+}

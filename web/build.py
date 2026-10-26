@@ -2,7 +2,9 @@
 """
 Builds the web page (web/) into web/dist/, ready for GitHub Pages or any static web server.
 
-  python web/build.py              renderer (WebAssembly) + page into web/dist/
+  python web/build.py              renderer (WebAssembly) + page into web/dist/, with the
+                                   template catalog (templates/, checked and indexed by
+                                   web/templates.mjs with Node) in web/dist/templates/
   python web/build.py --wasm [DIR] only the renderers, into DIR (default web/dist/wasm/): the
                                    AP build packs them for its Design tab (ap/main/webui.py)
   python web/build.py --native     only the native test build of web_api.c (no Emscripten),
@@ -177,6 +179,15 @@ def copy_static():
     for m in (m["name"] for m in tag_build.models.load()):
         shutil.copy2(os.path.join(tag_build.TAG, "designs", "layouts", m + ".json"), lay)
     os.makedirs(os.path.join(DIST, "firmware"), exist_ok=True)
+
+
+def build_templates():
+    """The template catalog (templates/) into dist/templates/ with its index.json, checked with
+    the renderer just built (web/templates.mjs, Node)"""
+    node = os.environ.get("NODE", "node")
+    if not shutil.which(node):
+        sys.exit("node not found: the template catalog is checked and published with web/templates.mjs (Node 22)")
+    tag_build.run([node, os.path.join(HERE, "templates.mjs"), os.path.join(DIST, "templates")])
 
 
 # The merged AP image is written at offset 0 and is 0xFF everywhere in between, so writing it
@@ -494,6 +505,7 @@ def main():
     for m in MODELS:
         build_wasm(m)
     copy_static()
+    build_templates()
     print("Page in", DIST)
 
 
