@@ -190,7 +190,8 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     esl_tag_cfg_t eff;
 
     esl_tag_effective_cfg(t, st->next_poll_s, &eff);
-    uint16_t next = next_poll(t, eff.poll_s, now_ms);
+    /* tag_poll_s, not eff.poll_s: 0 would leave an image tag at ESL_IMAGE_BUSY_S */
+    uint16_t next = next_poll(t, tag_poll_s(st, t), now_ms);
     t->content_err = ESL_CERR_NONE;
     if (t->has_content && !(poll->flags & ESL_POLL_F_IMAGE))
         t->content_err = ESL_CERR_NO_IMAGE;
