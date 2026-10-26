@@ -11,7 +11,9 @@ ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
 | ESP32-C6 (radio) | `ap/radio/` (`openesl-ap-radio-esp32c6-<version>.bin`) | 802.15.4 only, no WiFi: forwards every frame to the host and sends the replies |
 | ESP32-C6 with 0.96" screen (radio) | `ap/radio/`, radio board `c6-lcd` (`openesl-ap-radio-esp32c6-lcd-<version>.bin`) | the same, and shows the status the host sends (SCREEN) on its screen |
 
-Status: experimental. All three images build; it has not been tried on hardware yet.
+Status: experimental. All three images build. Tried on 2026-10-26 with an ESP32-S3 N16R8 and a plain
+ESP32-C6 Super Mini, both 0.8.1: three tags online, polls answered in about 2.3 ms
+(`replies.worst_us` 2302). The C6 with screen as the radio is not tried yet.
 
 For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md).
 
@@ -36,7 +38,24 @@ Both chips keep their USB port for flashing and the log. The C6 with screen is w
    Its log says `OpenESL 802.15.4 radio`, and once the host runs, `channel .., PAN ..`.
 2. The S3: `openesl-ap-esp32s3-n16r8-<version>.bin` at 0. Its log says `radio 1.0 up: 802.15.4 AP on
    channel ..` when it reaches the C6, and `no answer from the radio` every two seconds when it
-   does not (check TX/RX crossed and GND).
+   does not (check TX/RX crossed and GND). The log goes to the S3's USB-Serial/JTAG port
+   (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`); its UART0 (the COM port) shows only the ROM's boot text.
+
+### Checking the link from the C6
+
+The C6's log on its own USB port tells which direction fails. The host sends CONFIG every 2 s
+while the link is down (`CONFIG_EVERY_US` in `ap/main/radio_uart.c`), the radio logs `channel ..,
+PAN ..` for each CONFIG and answers with HELLO, and the host stops once it hears the HELLO.
+
+| The C6's log | Means |
+|---|---|
+| `channel .., PAN ..` once, then the stats line every 60 s | both directions work |
+| no `channel` line, and `rx 0 ... link errors 0` | not a byte from the host reaches the C6's RX (GPIO17): open wire, no GND, or TX/RX swapped. `link errors` counts bad CRCs too, so 0 means a silent line, not a noisy one |
+| `channel ..` every 2–3 s | host → radio works, radio → host does not: the C6's GPIO16 does not reach the S3's GPIO18 |
+
+All three were seen on the first setup: TX and RX swapped, a loose GND, and the C6's TX in the
+S3's GPIO16. `GET /api/tags` has no radio field; `ap.replies.polls` going up when a tag wakes
+shows the whole chain works.
 
 The web page's Flash AP tab flashes both ("S3 + C6 on cable", with a plain C6 or one with the
 screen): the C6 radio image first, then the S3 on its port marked USB, then it shows the wiring.
