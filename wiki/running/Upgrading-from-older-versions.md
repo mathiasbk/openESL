@@ -11,12 +11,24 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.0, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.1, for example:
 
-1. Backup, then the AP to 0.8.0 over the air. It keeps `openesl.local`.
+1. Backup, then the AP to 0.8.1 over the air. It keeps `openesl.local`.
 2. The C6 radio of an S3 on a cable has not changed since 0.5.0; flash it only if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.8.0 release (it is version 0.6.0), one of each model first.
+3. The labels to the label firmware of the 0.8.1 release (it is version 0.6.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files.
+
+## From 0.8.0 to 0.8.1
+
+Update the AP. The labels' firmware has not changed, and neither has the C6 radio of an S3 on a cable. Going back to 0.8.0 keeps everything.
+
+- Labels no longer keep polling every 2 s after an AP restart when the global poll interval is 0.
+- A label in the middle of a firmware or picture download comes back after 5 s for the rest, so a firmware update takes minutes instead of four poll intervals.
+- Labels that stayed "new content waiting", often many at once after a new AP, new labels or a new layout file, now get their screen. The AP answered them too late while it drew the screen; now it tells them to come back in 2 s and draws it in the meantime. Nothing to do on the labels.
+- S3 with a C6 over WiFi: flash the C6 too for the faster downloads. In the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase". It keeps its WiFi.
+- `esl_client.py --url` works without `http://`, and there is a page on [moving to a new AP](Moving-to-a-new-AP).
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-080-to-081).
 
 ## From 0.7.x to 0.8.0
 
