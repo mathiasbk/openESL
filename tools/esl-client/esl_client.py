@@ -700,6 +700,14 @@ def print_ota(o):
     other = f"{o.get('other_slot')} holds {o.get('other_version') or 'nothing'}" if o.get("other_slot") else "no second slot"
     print(f"running {o.get('version')} from {o.get('slot')}, slot size {o.get('slot_size')} bytes, {other}"
           + (", upload in progress" if o.get("uploading") else ""))
+    r = o.get("radio")  # an AP with a C6 radio on UART
+    if r is not None:
+        if r.get("link") is None:
+            print("radio: not heard from yet (check the wiring)")
+        else:
+            print(f"radio: {r.get('version') or 'older than 0.8.2'}" + (", with screen" if r.get("display") else "")
+                  + (", answering" if r.get("up") else ", not answering")
+                  + ("" if r.get("ota") else "; it takes new firmware only over USB"))
 
 
 def print_tag_firmware(f):
@@ -740,6 +748,32 @@ def wait_back(cli, slot, version, timeout_s=120, poll_s=2, sleep=time.sleep):
             return 1
         if time.monotonic() >= end:
             print(f"no answer from the AP after {timeout_s} s; check its log on the USB port", file=sys.stderr)
+            return 1
+        sleep(poll_s)
+
+
+def wait_radio_back(cli, version, timeout_s=90, poll_s=2, grace_s=10, sleep=time.sleep):
+    """After radio firmware went to the AP's C6 radio: asks GET /api/ota until the AP hears the
+    radio again, and says whether it runs the new image or went back to the old one (it does
+    when the new one does not reach the AP). Right after the upload the AP may still report the
+    old radio for a moment, so an old version counts only after grace_s. Returns 0 when the new
+    one runs, 1 otherwise."""
+    start = time.monotonic()
+    while True:
+        try:
+            r = (cli.ota_info() or {}).get("radio") or {}
+        except ConnectionError:
+            r = {}
+        if r.get("up") and r.get("version") == version:
+            print(f"the radio is back: version {version}")
+            return 0
+        if r.get("up") and r.get("version") and time.monotonic() - start >= grace_s:
+            print(f"the radio is back with version {r.get('version')}: the new image did not reach the AP, "
+                  f"so the radio went back to the old one")
+            return 1
+        if time.monotonic() - start >= timeout_s:
+            print(f"the AP has not heard from its radio for {timeout_s} s; check the radio's log on its USB port",
+                  file=sys.stderr)
             return 1
         sleep(poll_s)
 
@@ -1288,9 +1322,12 @@ def main(argv=None):
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
 
-    s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or show the app slots")
-    s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release")
-    s.add_argument("--wait", action="store_true", help="wait until the AP answers again and check that the new image runs")
+    s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
+                                   "it on over the cable), or show the app slots and the radio")
+    s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release; "
+                                            "openesl-ap-radio-*-ota.bin for the radio")
+    s.add_argument("--wait", action="store_true", help="wait until the AP (or the radio) answers again and check that "
+                                                       "the new image runs")
     s.add_argument("--wait-s", type=int, default=120)
 
     s = sub.add_parser("tag-ota", help="send new tag firmware to the AP, which updates the tags over the radio; "
@@ -1408,6 +1445,12 @@ def main(argv=None):
                     return 2
                 print(f"sending {len(image)} bytes ...", flush=True)
                 r = cli.ota(image, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True))
+                if r.get("radio"):  # the radio coprocessor's image: the AP passed it on to its C6
+                    print(f"sent to the radio: version {r.get('version')}, the radio is restarting")
+                    if args.wait:
+                        print("waiting for the radio to come back ...", flush=True)
+                        return wait_radio_back(cli, r.get("version"), args.wait_s)
+                    return 0
                 print(f"written to {r.get('slot')}: version {r.get('version')}, the AP is restarting")
                 if args.wait:
                     print("waiting for the AP to come back ...", flush=True)

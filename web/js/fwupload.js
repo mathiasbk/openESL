@@ -21,7 +21,9 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 export const fmtVer = (v) => `${Math.floor(v / 10000)}.${Math.floor(v / 100) % 100}.${v % 100}`;
 
 // What a firmware file is: { kind: "tag", model, version, size } for openesl-tag-*-ota.bin,
-// { kind: "ap", size, version, chip } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin), or
+// { kind: "ap", size, version, chip } for an ESP32 app image (esl_ap.bin, openesl-ap-*-ota.bin),
+// { kind: "radio", size, version, chip } for the radio coprocessor's (esl_radio.bin,
+// openesl-ap-radio-*-ota.bin: the AP passes it on to its C6 over the cable), or
 // { kind: null, error } for anything else, such as the flasher's openesl.bin or the
 // AP's merged image.
 export function firmwareKind(data) {
@@ -33,9 +35,11 @@ export function firmwareKind(data) {
   // The AP checks the rest (chip, app description) and refuses what it cannot boot
   if (data.length >= 32 && data[0] === 0xe9) {
     const project = appString(data, 80);
+    const chip = CHIPS[u16(data, 12)] ?? null;
+    if (project === "esl_radio") return { kind: "radio", size: data.length, version: appVersion(data), chip };
     if (project && project !== "esl_ap")
-      return { kind: null, error: `an app for the chip, but not AP firmware (${project}${project === "esl_radio" ? ": the radio coprocessor, flashed on its C6 with esptool" : ""})` };
-    return { kind: "ap", size: data.length, version: appVersion(data), chip: CHIPS[u16(data, 12)] ?? null };
+      return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
+    return { kind: "ap", size: data.length, version: appVersion(data), chip };
   }
   return {
     kind: null,
@@ -113,6 +117,41 @@ export function apSendQuestion(kind, ota, lcd = null) {
   return lines.join("\n\n");
 }
 
+// The radio image on this page that fits the AP's C6 radio on UART ("radio" in GET /api/ota, an
+// AP with a radio coprocessor), from info.json's radios: the one with the screen when the radio
+// has one. { file, version, newer, display } or null when the AP has no such radio, its radio
+// cannot take firmware over the cable, or the page has no image for it.
+export function radioImageFor(ota, info) {
+  const radio = ota?.radio;
+  if (!radio?.ota) return null;
+  const r = (info?.radios || []).find((x) => x.kind === "uart" && x.ota && !!x.display === (radio.display === true));
+  if (!r) return null;
+  const version = String(r.version || info.version).replace(/^v/, "");
+  const c = cmpVersion(version, radio.version);
+  return { file: r.ota, version, newer: info.release === true && c !== null && c > 0, display: !!r.display };
+}
+
+// What to ask before new radio firmware goes out: kind is firmwareKind() of the image, ota
+// GET /api/ota, lcd whether the image is the one with the screen (null: not known).
+export function radioSendQuestion(kind, ota, lcd = null) {
+  const radio = ota?.radio;
+  const lines = [];
+  lines.push(kind.version && radio?.version
+    ? `Send radio firmware ${kind.version} to the AP's C6 radio? It runs ${radio.version} now.`
+    : "Send new firmware to the AP's C6 radio?");
+  if (!radio) lines.push("This AP has no radio on a cable to pass it on to: it will refuse it.");
+  else if (!radio.ota) lines.push("The radio's firmware is too old to take new firmware over the cable: flash it once over USB (Flash AP).");
+  else if (!radio.up) lines.push("The radio does not answer the AP right now: the AP cannot pass it on.");
+  if (kind.chip && kind.chip !== "esp32c6") lines.push(`This image is for the ${chipName(kind.chip)}, and the radio is an ESP32-C6: it will refuse it.`);
+  const c = cmpVersion(kind.version, radio?.version);
+  if (c === 0) lines.push("That is the version it already runs.");
+  else if (c < 0) lines.push("That is older than what it runs.");
+  if (lcd !== null && typeof radio?.display === "boolean" && lcd !== radio.display)
+    lines.push(radio.display ? "This image has no screen, and this radio has one: the screen goes dark." : "This image is for a radio with a screen, and this radio has none.");
+  lines.push("The AP passes it on to the radio over the cable, and the radio restarts into it. It goes back to the old one by itself if the new one cannot reach the AP.");
+  return lines.join("\n\n");
+}
+
 // One request with a binary body through anything with send(method, path, bytes) that
 // answers { status, body } (SerialAp in js/apserial.js, ApClient in js/apclient.js)
 async function sendPart(ap, method, path, part) {
@@ -172,6 +211,12 @@ export function fwProgress(received, size) {
 // New AP firmware: written to the other app slot; the AP restarts into it a second after
 // the last part. Returns { slot, version, ... }.
 export function sendApFirmware(ap, data, progress) {
+  return uploadParts(ap, "POST", "/api/ota", data, progress);
+}
+
+// New radio firmware, for the AP's C6 radio on UART: the AP passes it on as it arrives, and the
+// radio restarts into it after the last part. Returns { radio: true, version, ... }.
+export function sendRadioFirmware(ap, data, progress) {
   return uploadParts(ap, "POST", "/api/ota", data, progress);
 }
 
@@ -264,6 +309,33 @@ export async function waitApBack(ap, slot, version, { timeoutMs = 90000, everyMs
     }
     if (!alive()) return { ok: false, text: "The connection to the AP closed while it restarted. Connect again to check its version." };
     if (Date.now() >= end) return { ok: false, text: "The AP has not answered since the restart. Connect again to check its version." };
+    await sleep(everyMs);
+  }
+}
+
+// After a radio update: asks GET /api/ota until the AP hears its radio again, and says whether
+// it runs the new image. A radio that comes back with its old version went back to it (the new
+// one did not reach the AP); one that keeps quiet past the radio's own minute to go back has
+// to be looked at over USB. Right after the upload the AP may still report the old radio for a
+// moment (it learns of the restart from the radio's HELLO), so an old version counts only after
+// graceMs.
+export async function waitRadioBack(ap, version, { timeoutMs = 90000, everyMs = 2000, graceMs = 10000, sleep, alive = () => true } = {}) {
+  sleep ||= (ms) => new Promise((r) => setTimeout(r, ms));
+  const start = Date.now(), end = start + timeoutMs;
+  await sleep(2000); // the radio restarts and the AP configures it again
+  for (;;) {
+    let o = null;
+    try {
+      o = await ap.call("GET", "/api/ota");
+    } catch {
+      /* a blip on the way: ask again */
+    }
+    const r = o?.radio;
+    if (r?.up && r.version === version) return { ok: true, text: `The radio is back and runs ${version}.` };
+    if (r?.up && r.version && Date.now() - start >= graceMs)
+      return { ok: false, text: `The radio is back with ${r.version}: the new firmware did not reach the AP, so the radio went back to the old one.` };
+    if (!alive()) return { ok: false, text: "The connection to the AP closed while the radio restarted. Connect again to check its version." };
+    if (Date.now() >= end) return { ok: false, text: "The AP has not heard from its radio since the update. Check the radio's log on its USB port." };
     await sleep(everyMs);
   }
 }

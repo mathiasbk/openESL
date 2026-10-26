@@ -56,6 +56,9 @@ class FakeAp(BaseHTTPRequestHandler):
             self.calls.append((self.path, self.headers.get("Content-Type"), image))
             if image[:1] != b"\xe9":
                 return self._send(422, {"error": "the image is not valid for this chip"})
+            if b"esl_radio" in image:  # passed on to the radio coprocessor
+                FakeAp.ota["radio"] = dict(FakeAp.ota.get("radio") or {}, version="0.2.0")
+                return self._send(200, {"received": n, "total": n, "radio": True, "version": "0.2.0", "restarting": False})
             if not FakeAp.ota_rollback:  # "restarted" into the new slot at once
                 FakeAp.ota.update({"slot": "ota_1", "version": "0.2.0", "other_slot": "ota_0", "other_version": "0.1.0"})
             self._send(200, {"received": n, "total": n, "slot": "ota_1", "version": "0.2.0", "restarting": True})
@@ -568,6 +571,42 @@ class ClientTest(unittest.TestCase):
             rc = esl_client.wait_back(dead, "ota_1", "0.2.0", timeout_s=0.5, poll_s=0.1)
         self.assertEqual(rc, 1)
         self.assertIn("no answer from the AP after 0.5 s", err.getvalue())
+
+    def test_ota_radio(self):
+        radio = {"up": True, "version": "0.1.0", "fw": "1.1", "link": 2, "ota": True, "display": False}
+        FakeAp.ota["radio"] = dict(radio)
+        rc, out = self.run_cli("ota")
+        self.assertIn("radio: 0.1.0, answering\n", out)
+        image = b"\xe9" + bytes(79) + b"esl_radio" + bytes(1000)
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(image)
+            f.flush()
+            rc, out = self.run_cli("ota", f.name, "--wait")
+        self.assertEqual(rc, 0)
+        self.assertIn("sent to the radio: version 0.2.0, the radio is restarting", out)
+        self.assertIn("the radio is back: version 0.2.0", out)
+        # an old radio, and one not heard from at all
+        FakeAp.ota["radio"] = {"up": True, "version": None, "fw": "1.0", "link": 1, "ota": False, "display": None}
+        rc, out = self.run_cli("ota")
+        self.assertIn("radio: older than 0.8.2, answering; it takes new firmware only over USB", out)
+        FakeAp.ota["radio"] = {"up": False, "version": None, "fw": None, "link": None, "ota": False, "display": None}
+        rc, out = self.run_cli("ota")
+        self.assertIn("radio: not heard from yet", out)
+
+        # back with the old version after the grace: it went back to it
+        cli = esl_client.Client(self.url, TOKEN)
+        FakeAp.ota["radio"] = dict(radio)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = esl_client.wait_radio_back(cli, "0.2.0", timeout_s=5, grace_s=0, sleep=lambda s: None)
+        self.assertEqual(rc, 1)
+        self.assertIn("went back to the old one", out.getvalue())
+        FakeAp.ota["radio"] = dict(radio, up=False)
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = esl_client.wait_radio_back(cli, "0.2.0", timeout_s=0, sleep=lambda s: None)
+        self.assertEqual(rc, 1)
+        self.assertIn("radio's log", err.getvalue())
 
     def test_url_without_scheme_gets_http(self):
         self.assertEqual(esl_client.Client("192.168.0.188", TOKEN).url, "http://192.168.0.188")

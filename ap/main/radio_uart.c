@@ -1,4 +1,5 @@
 #include <stdatomic.h>
+#include <stdio.h>
 #include <string.h>
 #include "app.h"
 #include "driver/uart.h"
@@ -8,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "radio.h"
 #include "sdkconfig.h"
@@ -31,6 +33,13 @@
  * display.c sends the status screen through radio_screen(), for a radio with
  * an LCD (the C6 with a 0.96" screen as the radio).
  *
+ * ota.c sends new radio firmware through radio_ota_*() (link v2): OTA_BEGIN,
+ * the image in OTA_DATA parts, each after the radio's OTA_ACK for the one
+ * before, and OTA_END, after which the radio restarts into it and says HELLO
+ * unconfigured, so it gets its CONFIG like any radio that restarted. A part
+ * whose OTA_ACK does not come is sent again; the radio answers a part it has
+ * already written without writing it twice.
+ *
  * The UART task is registered with the task watchdog and wakes at least once
  * a second, like the radio task. */
 
@@ -46,6 +55,8 @@ static QueueHandle_t uart_events;
 
 static struct {
     bool up;              /* HELLO with our CONFIG seen */
+    bool heard;           /* a HELLO since boot: hello holds it */
+    esl_coproc_hello_t hello; /* the last one, for radio_info() */
     int64_t last_heard_us; /* any good frame from the radio */
     int64_t last_ping_us;  /* CONFIG while down, PING while up */
 } link;
@@ -54,6 +65,13 @@ static struct {
 static atomic_uint lost, resent;
 static uint32_t late;      /* TX_DONE LATE, for the log */
 static uint32_t worst_us;  /* the radio's: from its RX to the first transmit */
+
+/* The OTA_ACK the HTTP task waits for in radio_ota_*(), from the UART task */
+static SemaphoreHandle_t ota_ack;
+static uint8_t ota_ack_status;
+static uint32_t ota_ack_offset;
+static uint32_t ota_next; /* the image's next byte to send */
+static portMUX_TYPE hello_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void uart_send(const uint8_t *f, size_t n)
 {
@@ -85,12 +103,19 @@ void radio_screen(const esl_screen_t *s)
 
 static void on_hello(const esl_coproc_hello_t *h)
 {
+    taskENTER_CRITICAL(&hello_mux);
+    link.hello = *h;
+    link.heard = true;
+    taskEXIT_CRITICAL(&hello_mux);
     bool ours = h->configured && h->cfg.channel == cfg.channel && h->cfg.pan == cfg.pan &&
                 h->cfg.short_addr == cfg.short_addr && h->cfg.tx_power == cfg.tx_power && h->cfg.flags == cfg.flags;
     if (!ours) {
-        if (h->version != ESL_COPROC_VERSION)
+        if (h->version < ESL_COPROC_VERSION_OTA)
+            ESP_LOGW(TAG, "radio speaks link v%u, this AP v%u: it works, but takes new firmware only over USB",
+                     h->version, ESL_COPROC_VERSION);
+        else if (h->version != ESL_COPROC_VERSION)
             ESP_LOGW(TAG, "radio speaks link v%u, this AP v%u", h->version, ESL_COPROC_VERSION);
-        ESP_LOGI(TAG, "radio %u.%u (%016llX) %s: sending CONFIG", h->fw >> 8, h->fw & 0xFF,
+        ESP_LOGI(TAG, "radio %u.%u %s(%016llX) %s: sending CONFIG", h->fw >> 8, h->fw & 0xFF, h->app_version,
                  (unsigned long long)h->ieee_addr, h->configured ? "has other settings" : "started");
         link.up = false;
         send_config();
@@ -170,6 +195,16 @@ static void handle(const esl_coproc_parser_t *p)
             on_tx_done(&d);
         break;
     }
+    case ESL_COPROC_OTA_ACK: {
+        uint8_t st;
+        uint32_t off;
+        if (esl_coproc_decode_ota_ack(p->payload, p->len, &st, &off)) {
+            ota_ack_status = st;
+            ota_ack_offset = off;
+            xSemaphoreGive(ota_ack);
+        }
+        break;
+    }
     case ESL_COPROC_STATS: {
         esl_coproc_stats_t s;
         if (esl_coproc_decode_stats(p->payload, p->len, &s))
@@ -245,6 +280,128 @@ static void uart_task(void *arg)
     }
 }
 
+/* ---- new radio firmware ---- */
+
+#define OTA_ACK_MS 500     /* a part; the radio erases a 4 KB sector now and then (~50 ms) */
+#define OTA_END_ACK_MS 3000 /* the end: the radio checks the whole image's hash */
+#define OTA_TRIES 4
+
+/* Sends a frame and waits for the OTA_ACK, sending it again when none comes:
+ * the status, or -1 when the radio did not answer */
+static int ota_send(const uint8_t *f, size_t n, uint32_t wait_ms, uint32_t *offset)
+{
+    for (int i = 0; i < OTA_TRIES; i++) {
+        xSemaphoreTake(ota_ack, 0); /* a late one for the frame before */
+        uart_send(f, n);
+        if (xSemaphoreTake(ota_ack, pdMS_TO_TICKS(wait_ms)) == pdTRUE) {
+            *offset = ota_ack_offset;
+            return ota_ack_status;
+        }
+        ESP_LOGW(TAG, "radio firmware: no answer from the radio, sending again");
+    }
+    return -1;
+}
+
+/* An OTA_ACK status as the HTTP status and message of the reply */
+static int ota_error(int st, char *err, size_t errlen)
+{
+    static const struct {
+        int st, http;
+        const char *msg;
+    } map[] = {
+        {-1, 504, "the radio stopped answering"},
+        {ESL_COPROC_OTA_NO_SLOT, 501, "the radio has no second app slot: flash it once over USB with this release's radio image"},
+        {ESL_COPROC_OTA_TOO_BIG, 413, "the image does not fit the radio's app slot"},
+        {ESL_COPROC_OTA_OFFSET, 409, "the radio lost the upload: send it again"},
+        {ESL_COPROC_OTA_FLASH, 500, "writing the radio's flash failed"},
+        {ESL_COPROC_OTA_INVALID, 422, "not a valid radio image for the radio's chip"},
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+        if (map[i].st == st) {
+            snprintf(err, errlen, "%s", map[i].msg);
+            return map[i].http;
+        }
+    snprintf(err, errlen, "the radio answered %d", st);
+    return 500;
+}
+
+int radio_ota_begin(uint32_t size, char *err, size_t errlen)
+{
+    uint8_t f[ESL_COPROC_FRAME_MAX];
+    uint32_t off;
+    taskENTER_CRITICAL(&hello_mux);
+    bool heard = link.heard;
+    uint8_t version = link.hello.version;
+    taskEXIT_CRITICAL(&hello_mux);
+    if (!link.up || !ota_ack) {
+        snprintf(err, errlen, "the radio is not answering on UART%d: check the wiring (TX GPIO%d, RX GPIO%d)", PORT,
+                 CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO);
+        return 503;
+    }
+    if (!heard || version < ESL_COPROC_VERSION_OTA) {
+        snprintf(err, errlen, "the radio's firmware is too old to be updated over the link: flash it once over USB");
+        return 501;
+    }
+    int st = ota_send(f, esl_coproc_encode_ota_begin(f, size), OTA_ACK_MS, &off);
+    if (st != ESL_COPROC_OTA_OK)
+        return ota_error(st, err, errlen);
+    ota_next = 0;
+    ESP_LOGI(TAG, "radio firmware: sending %lu bytes", (unsigned long)size);
+    return 0;
+}
+
+int radio_ota_write(const void *data, size_t len, char *err, size_t errlen)
+{
+    const uint8_t *d = data;
+    uint8_t f[ESL_COPROC_FRAME_MAX];
+    while (len) {
+        size_t n = len < ESL_COPROC_OTA_CHUNK ? len : ESL_COPROC_OTA_CHUNK;
+        uint32_t off;
+        int st = ota_send(f, esl_coproc_encode_ota_data(f, ota_next, d, n), OTA_ACK_MS, &off);
+        if (st != ESL_COPROC_OTA_OK)
+            return ota_error(st, err, errlen);
+        if (off != ota_next + n)
+            return ota_error(ESL_COPROC_OTA_OFFSET, err, errlen);
+        ota_next = off;
+        d += n;
+        len -= n;
+    }
+    return 0;
+}
+
+int radio_ota_end(char *err, size_t errlen)
+{
+    uint8_t f[ESL_COPROC_FRAME_MAX];
+    uint32_t off;
+    int st = ota_send(f, esl_coproc_frame(f, ESL_COPROC_OTA_END, NULL, 0), OTA_END_ACK_MS, &off);
+    if (st != ESL_COPROC_OTA_OK)
+        return ota_error(st, err, errlen);
+    ESP_LOGI(TAG, "radio firmware: %lu bytes written, the radio restarts into it", (unsigned long)off);
+    return 0;
+}
+
+void radio_info(esl_sb_t *out)
+{
+    taskENTER_CRITICAL(&hello_mux);
+    bool heard = link.heard;
+    esl_coproc_hello_t h = link.hello;
+    taskEXIT_CRITICAL(&hello_mux);
+    esl_sb_printf(out, "{\"up\":%s", link.up ? "true" : "false");
+    if (!heard) {
+        esl_sb_puts(out, ",\"version\":null,\"fw\":null,\"link\":null,\"ota\":false,\"display\":null}");
+        return;
+    }
+    esl_sb_puts(out, ",\"version\":");
+    if (h.app_version[0])
+        esl_sb_json_str(out, h.app_version);
+    else
+        esl_sb_puts(out, "null");
+    bool v2 = h.version >= ESL_COPROC_VERSION_OTA;
+    esl_sb_printf(out, ",\"fw\":\"%u.%u\",\"link\":%u,\"ota\":%s,\"display\":", h.fw >> 8, h.fw & 0xFF, h.version,
+                  v2 ? "true" : "false");
+    esl_sb_puts(out, !v2 ? "null}" : h.features & ESL_COPROC_FEAT_DISPLAY ? "true}" : "false}");
+}
+
 /* ---- the link ---- */
 
 static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_link_rx_t *req)
@@ -294,6 +451,9 @@ static int link_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t sho
                            UART_PIN_NO_CHANGE);
     if (err != ESP_OK)
         return err;
+    ota_ack = xSemaphoreCreateBinary();
+    if (!ota_ack)
+        return ESP_ERR_NO_MEM;
     /* above the radio task, which waits for the frames this one reads */
     if (xTaskCreate(uart_task, "radio_uart", 4096, NULL, configMAX_PRIORITIES - 1, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;

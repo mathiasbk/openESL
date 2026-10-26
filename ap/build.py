@@ -14,9 +14,11 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
 A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
 also builds the radio coprocessor firmware for each radio board its "radio_fw" names
 (radio/boards/<id>/radio.json: c6, c6-lcd), each once, into out/ and the release as
-<artifact>.bin only: nothing updates the radio over the air yet. A board with "radio": "net" (the
-radio over WiFi, docs/ap-netradio.md) builds netradio/ the same way, for each of its
-"radio_fw" (netradio/boards/<id>/radio.json: c6).
+<artifact>.bin and <artifact>-ota.bin: the AP passes the latter on to its radio over the UART
+link (POST /api/ota, docs/ap-radio-link.md). A board with "radio": "net" (the radio over WiFi,
+docs/ap-netradio.md) builds netradio/ the same way, for each of its "radio_fw"
+(netradio/boards/<id>/radio.json: c6), as <artifact>.bin only: nothing updates it over the
+air yet.
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -115,10 +117,11 @@ def build_radio(r):
     cwd = os.path.join(HERE, r["project"])
     bdir = "build-" + r["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
-    # No -ota.bin: nothing updates the radio over the air yet, and its app image would
-    # otherwise sit next to the AP's as something to send to an AP (main/ota.c refuses it)
-    merge(r["target"], bdir, None, r["artifact"], cwd=cwd)
-    print("%s: out/%s.bin" % (r["id"], r["artifact"]))
+    # The radio on UART takes its -ota.bin through the AP (main/ota.c passes an esl_radio image
+    # on); the one on the network has no way to take it yet
+    app = "esl_radio.bin" if r["project"] == "radio" else None
+    merge(r["target"], bdir, app, r["artifact"], cwd=cwd)
+    print("%s: out/%s.bin%s" % (r["id"], r["artifact"], " and out/%s-ota.bin" % r["artifact"] if app else ""))
 
 
 def main():
