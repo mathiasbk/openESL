@@ -121,6 +121,8 @@ Two fixes to the poll interval the AP tells the tags:
 
 The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for downloads only once it runs 0.8.1: in the Flash AP tab, pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase" (it keeps its WiFi and the S3's address). Without it, downloads through it work as in 0.8.0. The fix for the 2 s polling (#234) is on the S3 and needs nothing on the C6.
 
+A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
+
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
 ## 5. A bad release

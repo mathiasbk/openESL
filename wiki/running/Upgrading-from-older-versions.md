@@ -24,6 +24,7 @@ Update the AP. The labels' firmware has not changed, and neither has the C6 radi
 
 - Labels no longer keep polling every 2 s after an AP restart when the global poll interval is 0.
 - A label in the middle of a firmware or picture download comes back after 5 s for the rest, so a firmware update takes minutes instead of four poll intervals.
+- Labels that stayed "new content waiting", often many at once after a new AP, new labels or a new layout file, now get their screen. The AP answered them too late while it drew the screen; now it tells them to come back in 2 s and draws it in the meantime. Nothing to do on the labels.
 - S3 with a C6 over WiFi: flash the C6 too for the faster downloads. In the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase". It keeps its WiFi.
 - `esl_client.py --url` works without `http://`, and there is a page on [moving to a new AP](Moving-to-a-new-AP).
 
