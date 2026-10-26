@@ -347,7 +347,8 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
         return false;
     /* Content not checked against the file yet (from the schedule, or set before the model
        was known) is checked first: with a radio coprocessor (esl_rhost) the image is drawn
-       before the tag's POLL gets here (esl_store_check_tag in esl_radio_handle) */
+       before the tag's POLL gets here (esl_store_check_tag in esl_radio_handle, or in
+       esl_radio_after with esl_radio_set_draw_later) */
     if (t->content_check && !esl_store_check_tag(st, ls, t->mac))
         return false;
     /* From NVS on the device, in the tag's reply window (well under a millisecond,
@@ -517,13 +518,30 @@ bool esl_image_draw_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, u
     return drew;
 }
 
-size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
-                       uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out)
+/* esl_image_block(), or with later esl_image_block_later() */
+static size_t block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id, uint16_t pos,
+                    uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out, bool later)
 {
-    bool busy;
+    bool busy = false;
     size_t n = 0;
     lock(im);
-    esl_image_buf_t *b = ready(im, st, ls, mac, now_ms, &busy);
+    esl_image_buf_t *b;
+    if (later) {
+        /* no drawing here: an image not in a buffer is noted, and the tag comes back for it */
+        esl_tag_t t;
+        b = NULL;
+        if (esl_store_get(st, mac, &t) && t.has_content && !t.content_err) {
+            b = find(im, mac);
+            if (!b || !fresh(b, &t, layout_ver(ls, t.model))) {
+                b = NULL;
+                if (!im->later)
+                    im->later = mac;
+                busy = true;
+            }
+        }
+    } else {
+        b = ready(im, st, ls, mac, now_ms, &busy);
+    }
     if (b) {
         if (id != b->id || pos >= b->size)
             pos = 0;
@@ -541,6 +559,18 @@ size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint
     if (!n)
         n = esl_idle_build(out, busy ? ESL_IMAGE_BUSY_S : next_poll_s);
     return n;
+}
+
+size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
+                       uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out)
+{
+    return block(im, st, ls, mac, id, pos, max, next_poll_s, now_ms, out, false);
+}
+
+size_t esl_image_block_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
+                             uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out)
+{
+    return block(im, st, ls, mac, id, pos, max, next_poll_s, now_ms, out, true);
 }
 
 size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint8_t *out, size_t cap,

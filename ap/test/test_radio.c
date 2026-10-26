@@ -1577,6 +1577,36 @@ static void test_draw_later(void)
     CHECK_INT(images.drawn, N);
     CHECK(images.later == 0);
 
+    /* new content while the tag is part way through its image: the IMG_REQ is not
+       answered with a newly drawn image either, but with IDLE in ESL_IMAGE_BUSY_S; the
+       image is drawn after that reply and the next POLL starts it over */
+    CHECK_INT(put("00000000000002A0", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"89,00\"]}"), 200);
+    n = esl_faketag_poll(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now, tx, &ev);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IDLE);
+    esl_radio_after(&st, &layouts, &ev, now);
+    CHECK_INT(images.drawn, N + 1);
+    now += ESL_IMAGE_BUSY_S * 1000;
+    n = esl_faketag_poll(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now, tx, &ev);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IMG);
+    esl_radio_after(&st, &layouts, &ev, now);
+    uint32_t first = t[0].img_dl_id;
+    CHECK(first != 0 && t[0].img_dl_got == ESL_IMG_CHUNK_MAX);
+    CHECK_INT(put("00000000000002A0", "{\"layout\":\"price\",\"fields\":[\"Kaffe\",\"59,00\"]}"), 200);
+    n = esl_faketag_img_request(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now + 100, tx, &ev);
+    CHECK_INT(images.drawn, N + 1);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IDLE);
+    CHECK_INT(t[0].next_poll_s, ESL_IMAGE_BUSY_S);
+    esl_radio_after(&st, &layouts, &ev, now + 100);
+    CHECK_INT(images.drawn, N + 2);
+    CHECK(images.later == 0);
+    now += ESL_IMAGE_BUSY_S * 1000;
+    CHECK_INT(esl_faketag_round(&t[0], &st, &layouts, PAN, -60, now), ESL_MSG_IMG);
+    CHECK_INT(images.drawn, N + 2);
+    CHECK(t[0].shown != first && t[0].shown == image_id_of("00000000000002A0"));
+
     esl_radio_set_draw_later(false);
     esl_radio_set_image(NULL);
 }

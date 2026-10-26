@@ -54,12 +54,13 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw);
 void esl_radio_set_image(esl_image_t *im);
 /* With on, esl_radio_handle() draws no image while the tag waits for its reply: a tag
  * whose image is not in a buffer is told to come back in ESL_IMAGE_BUSY_S
- * (esl_image_prepare_later), and esl_radio_after() draws it once the reply has gone
- * out, together with the check of new content against the layout file. Off (the
- * default) draws at the POLL. Set once at start-up. */
+ * (esl_image_prepare_later, and esl_image_block_later for an IMG_REQ), and
+ * esl_radio_after() draws it once the reply has gone out, together with the check of
+ * new content against the layout file. Off (the default) draws at the POLL. Set once
+ * at start-up. */
 void esl_radio_set_draw_later(bool on);
 /* After the reply to ev (from esl_radio_handle) has gone out: the work set aside by
- * esl_radio_set_draw_later(). Nothing when that is off or ev is not a POLL. */
+ * esl_radio_set_draw_later(). Nothing when that is off or ev is not a POLL or IMG_REQ. */
 void esl_radio_after(esl_store_t *st, esl_layouts_t *ls, const esl_radio_event_t *ev, uint64_t now_ms);
 /* What was set (for a radio driver that answers the tags elsewhere: esl_rhost). */
 esl_tagfw_t *esl_radio_tagfw(void);
