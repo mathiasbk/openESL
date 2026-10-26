@@ -397,6 +397,34 @@ void test_proto(void)
     CHECK(esl_model_size(ESL_MODEL_154, &w, &h));
     CHECK_INT(w, 200);
     CHECK(!esl_model_size(ESL_MODEL_UNKNOWN, &w, &h));
+
+    /* a block that is not the image's last says ESL_BLOCKS_POLL_S, when that is sooner;
+       the last one, IDLE and a sooner interval stay as they are */
+    {
+        uint8_t d[ESL_IMG_CHUNK_MAX > ESL_FW_CHUNK_MAX ? ESL_IMG_CHUNK_MAX : ESL_FW_CHUNK_MAX] = {0};
+        esl_reply_t r;
+        size_t n = esl_fw_msg_build(buf, 600, 101, 1024, 0, 1, ESL_MODEL_29, d, ESL_FW_CHUNK_MAX);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == ESL_BLOCKS_POLL_S);
+        n = esl_fw_msg_build(buf, 0, 101, 1024, 0, 1, ESL_MODEL_29, d, ESL_FW_CHUNK_MAX);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == ESL_BLOCKS_POLL_S);
+        n = esl_fw_msg_build(buf, 2, 101, 1024, 0, 1, ESL_MODEL_29, d, ESL_FW_CHUNK_MAX);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == 2);
+        n = esl_fw_msg_build(buf, 600, 101, 1024, 1024 - 10, 1, ESL_MODEL_29, d, 10);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == 600);
+        n = esl_img_msg_build(buf, 600, 7, 500, 92, ESL_MODEL_29, ESL_IMG_FMT_RLE, d, ESL_IMG_CHUNK_MAX);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == ESL_BLOCKS_POLL_S);
+        n = esl_img_msg_build(buf, 600, 7, 500, 500 - 40, ESL_MODEL_29, ESL_IMG_FMT_RLE, d, 40);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == 600);
+        n = esl_idle_build(buf, 600);
+        esl_blocks_poll_soon(buf, n);
+        CHECK(esl_reply_parse(buf, n, &r) && r.next_poll_s == 600);
+    }
 }
 
 void test_frame(void)

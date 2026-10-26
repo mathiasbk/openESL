@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "esl_json.h"
 #include "esl_layout.h"
+#include "esl_link.h"
 #include "esl_sched.h"
 #include "esl_store.h"
 #include "esl_wifi.h"
@@ -41,6 +42,7 @@ typedef struct {
     esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
     bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
+    const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

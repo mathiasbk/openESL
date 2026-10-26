@@ -5,6 +5,7 @@
 
 static esl_tagfw_t *tagfw;
 static esl_image_t *images;
+static bool draw_later;
 
 void esl_radio_set_tagfw(esl_tagfw_t *fw)
 {
@@ -14,6 +15,21 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw)
 void esl_radio_set_image(esl_image_t *im)
 {
     images = im;
+}
+
+void esl_radio_set_draw_later(bool on)
+{
+    draw_later = on;
+}
+
+void esl_radio_after(esl_store_t *st, esl_layouts_t *ls, const esl_radio_event_t *ev, uint64_t now_ms)
+{
+    if (!draw_later || !ev || (ev->msg_type != ESL_MSG_POLL && ev->msg_type != ESL_MSG_IMG_REQ))
+        return;
+    if (ev->msg_type == ESL_MSG_POLL)
+        esl_store_check_tag(st, ls, ev->mac);
+    if (images)
+        esl_image_draw_later(images, st, ls, now_ms);
 }
 
 esl_tagfw_t *esl_radio_tagfw(void)
@@ -78,13 +94,17 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             n = esl_idle_build(reply, next); /* the image is gone, or not for it: the tag stops */
         else
             note_fw_sent(st, f.src_mac, reply, n, false);
+        esl_blocks_poll_soon(reply, n); /* back soon for the rest when it stops part way */
     } else if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_image_taken(st, f.src_mac, ireq.id);
-        if (images && !replay)
+        if (images && !replay && draw_later)
+            n = esl_image_block_later(images, st, ls, f.src_mac, ireq.id, ireq.pos, ireq.max, next, now_ms, reply);
+        else if (images && !replay)
             n = esl_image_block(images, st, ls, f.src_mac, ireq.id, ireq.pos, ireq.max, next, now_ms, reply);
         else
             n = esl_idle_build(reply, next);
+        esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
@@ -93,7 +113,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
         /* Content not checked against this model's file yet (from the schedule, or set
            before the model was known) is, before its image is drawn */
-        esl_store_check_tag(st, ls, f.src_mac);
+        if (!draw_later || replay)
+            esl_store_check_tag(st, ls, f.src_mac); /* else after the reply (esl_radio_after) */
         /* A tag that shows what the AP draws: its content's image, when it shows
          * another one (id 0 still notes a refusal, ESL_POLL_F_DRAWFAIL) */
         bool offered = false;
@@ -102,7 +123,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images) {
             bool busy;
             uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
-            uint32_t id = esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
+            uint32_t id = draw_later ? esl_image_prepare_later(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy)
+                                     : esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
             if (esl_store_image_offer(st, f.src_mac, &poll, id))
                 n = esl_image_block(images, st, ls, f.src_mac, id, 0, ESL_IMG_CHUNK_MAX, next, now_ms, reply);
             else if (busy)
@@ -322,9 +344,12 @@ uint8_t esl_faketag_round(esl_faketag_t *t, esl_store_t *st, esl_layouts_t *ls, 
                           uint64_t now_ms)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    esl_radio_event_t ev;
     size_t n = esl_faketag_poll(t, pan, rx);
-    size_t m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
+    size_t m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, &ev);
     uint8_t type = m ? esl_faketag_receive(t, tx, m) : 0;
+    if (m)
+        esl_radio_after(st, ls, &ev, now_ms); /* as esl_link_handle() once the reply is out */
     if (type == ESL_MSG_FW) {
         for (int req = 0; req < ESL_FAKETAG_FW_REQS && (n = esl_faketag_fw_request(t, pan, rx)) != 0; req++) {
             m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
@@ -335,8 +360,11 @@ uint8_t esl_faketag_round(esl_faketag_t *t, esl_store_t *st, esl_layouts_t *ls, 
     }
     if (type == ESL_MSG_IMG) {
         for (int req = 0; req < ESL_FAKETAG_IMG_REQS && (n = esl_faketag_img_request(t, pan, rx)) != 0; req++) {
-            m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
-            if (!m || esl_faketag_receive(t, tx, m) != ESL_MSG_IMG)
+            m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, &ev);
+            uint8_t got = m ? esl_faketag_receive(t, tx, m) : 0;
+            if (m)
+                esl_radio_after(st, ls, &ev, now_ms);
+            if (got != ESL_MSG_IMG)
                 break;
         }
     }

@@ -69,7 +69,7 @@ static const esl_tagfw_ops_t ops = {NULL, NULL, NULL, st_erase, st_write, st_rea
 static esl_tagfw_t fw;
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, &fw, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -446,6 +446,30 @@ static void test_offer(void)
     free(imem);
 }
 
+/* An image larger than a tag fetches in one wake-up (ESL_FAKETAG_FW_REQS blocks): the
+   block it stops at tells it to come back in ESL_BLOCKS_POLL_S, not after its interval,
+   and the last block gives it its interval back */
+static void test_offer_long(void)
+{
+    esl_faketag_t t;
+    reset();
+    esl_faketag_init(&t, MAC, 100, 3000, ESL_MODEL_29);
+    t.ota = true;
+    t.images = false;
+    CHECK_INT(upload(make_file(ESL_MODEL_29, 101, 14 * 1024, 6)), 200);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
+    CHECK_INT(t.fw, 100);
+    CHECK_INT(t.fw_dl_got, (ESL_FAKETAG_FW_REQS + 1) * ESL_FW_CHUNK_MAX);
+    CHECK_INT(t.interval_s, ESL_BLOCKS_POLL_S);
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 5000), ESL_MSG_FW);
+    CHECK_INT(t.fw, 101);
+    CHECK(t.interval_s != ESL_BLOCKS_POLL_S);
+
+    /* the next poll offers nothing more: the IDLE has its interval too */
+    CHECK_INT(esl_faketag_round(&t, &st, &layouts, PAN, -50, 10000), ESL_MSG_IDLE);
+    CHECK(t.interval_s != ESL_BLOCKS_POLL_S);
+}
+
 /* One POLL, and the FW block the AP answers it with */
 static uint8_t poll_once(esl_faketag_t *t)
 {
@@ -567,6 +591,7 @@ void test_tagfw(void)
     test_upload();
     test_pieces();
     test_offer();
+    test_offer_long();
     test_choose();
     esl_radio_set_tagfw(NULL);
 }

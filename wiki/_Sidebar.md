@@ -40,6 +40,7 @@
 - [Updating labels](Updating-labels)
 - [Upgrading from older versions](Upgrading-from-older-versions)
 - [Backup and restore](Backup-and-restore)
+- [Moving to a new AP](Moving-to-a-new-AP)
 
 **Help**
 - [Troubleshooting](Troubleshooting)

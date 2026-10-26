@@ -67,12 +67,12 @@ The usual order, unless a section says otherwise:
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.8.0, for example, with many tags:
+From 0.5.x to 0.8.1, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.8.0 esl-client.
-2. The AP: `openesl-ap-<board>-v0.8.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
+1. `esl-client backup ap.json` with the 0.8.1 esl-client.
+2. The AP: `openesl-ap-<board>-v0.8.1-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
 3. ESP32-S3 with a C6 on a cable: the C6 radio has not changed since 0.5.0, apart from the screen of the C6 with a 0.96" LCD (colours and lines, #168). Flash it from the Flash AP tab only for that. The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.8.0 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+4. The tags: the tag image of the 0.8.1 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
 5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below).
 
 ### Upgrading from 0.4.x to 0.5.0
@@ -109,6 +109,21 @@ The AP checks the content of every tag against its model's layout file, at boot 
 The C6 radio over WiFi now sends a browser that opens its address to the S3's dashboard (#229). It is optional and changes nothing else: in the Flash AP tab, pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase" (it keeps its WiFi and the S3's address).
 
 `esl-client backup` notes the AP's name and the tag firmware, and the user guide describes moving to another AP board (#222). The designer has a template library (#230); on the AP it reads the templates from the GitHub Pages site, so the browser needs internet for them, else it offers the AP's example layouts as before.
+
+### Upgrading from 0.8.0 to 0.8.1
+
+Order: the AP, then, only with an S3 and a C6 over WiFi (netradio), the C6. A patch release: update the AP over the air as usual. The tag firmware has not changed (the tag image of this release is 0.6.0), and neither has the C6 radio on a cable. Nothing is one-way: an AP that goes back to 0.8.0 keeps its data, its layout files and its name. Do not go back while tags are part way through a firmware download with the global poll interval at 0: such a tag keeps the 5 s it was told, since a 0.8.0 AP answers its polls with 0 (#234) until it gets a new image. Set a global poll interval for a while if it happens.
+
+Two fixes to the poll interval the AP tells the tags:
+
+- With the global poll interval at 0 (the default: tags use their own), an image tag that had been told to come back in 2 s while its image was being drawn, and then had nothing to fetch (as after an AP restart), kept polling every 2 s. It now gets the built-in 60 s back (#234).
+- A tag part way through a firmware or image download is told to come back in 5 s for the next blocks, instead of after its normal interval, so a firmware update no longer takes three or four poll intervals per tag (30 to 40 minutes at 600 s). The last block brings the normal interval back (#236).
+
+The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for downloads only once it runs 0.8.1: in the Flash AP tab, pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase" (it keeps its WiFi and the S3's address). Without it, downloads through it work as in 0.8.0. The fix for the 2 s polling (#234) is on the S3 and needs nothing on the C6.
+
+A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
+
+`esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
 ## 5. A bad release
 

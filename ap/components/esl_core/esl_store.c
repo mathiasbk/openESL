@@ -108,8 +108,9 @@ static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
     uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
     /* A tag keeps the last next_poll_s it got when a reply has 0, and an image tag may
-       last have got ESL_IMAGE_BUSY_S: it is told its interval outright */
-    if (!v && t->image_capable)
+       last have got ESL_IMAGE_BUSY_S, a tag fetching blocks ESL_BLOCKS_POLL_S: it is
+       told its interval outright */
+    if (!v && (t->image_capable || (t->poll_flags & ESL_POLL_F_OTA)))
         v = ESL_TAG_BUILTIN_POLL_S;
     return v;
 }
@@ -190,7 +191,8 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     esl_tag_cfg_t eff;
 
     esl_tag_effective_cfg(t, st->next_poll_s, &eff);
-    uint16_t next = next_poll(t, eff.poll_s, now_ms);
+    /* tag_poll_s, not eff.poll_s: 0 would leave an image tag at ESL_IMAGE_BUSY_S */
+    uint16_t next = next_poll(t, tag_poll_s(st, t), now_ms);
     t->content_err = ESL_CERR_NONE;
     if (t->has_content && !(poll->flags & ESL_POLL_F_IMAGE))
         t->content_err = ESL_CERR_NO_IMAGE;
