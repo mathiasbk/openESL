@@ -112,6 +112,7 @@ typedef struct {
     size_t cap;           /* bytes per buffer: the largest esl_render_size() and its margin */
     esl_image_ops_t ops;
     uint32_t drawn;       /* images drawn (for the log and the tests) */
+    uint64_t later;       /* the tag whose image esl_image_draw_later() draws next (0 = none) */
 } esl_image_t;
 
 /* Bytes the buffers need: ESL_IMAGE_BUFS times the largest image of any model, plus the
@@ -129,6 +130,20 @@ void esl_image_init(esl_image_t *im, uint8_t *mem, const esl_image_ops_t *ops);
 uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t shown,
                            uint64_t now_ms, bool *busy);
 
+/* As esl_image_prepare(), but nothing is drawn here: when the tag's image is not in a
+ * buffer yet, the tag is noted for esl_image_draw_later() and 0 is returned with *busy
+ * set, so the tag is told to come back in ESL_IMAGE_BUSY_S and finds its image ready.
+ * For a radio that must answer within the tag's listening window (20 ms, krav A3):
+ * drawing a screen can take longer than that, and a reply that comes too late leaves
+ * the tag where it was. The tag is drawn after the reply to the frame that noted it
+ * (esl_radio_after), so at most one is noted at a time. */
+uint32_t esl_image_prepare_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t shown,
+                                 uint64_t now_ms, bool *busy);
+
+/* Draws the image of the tag esl_image_prepare_later() noted into a buffer, after the
+ * reply to it has gone out. True when it drew one. */
+bool esl_image_draw_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t now_ms);
+
 /* The IMG reply for a tag that asks for the block at pos of image id (IMG_REQ), or
  * pos 0 after a POLL. When the tag's buffer holds another image (its content changed
  * meanwhile), block 0 of that one goes out, so the tag starts over; when the tag has
@@ -136,6 +151,12 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
  * when it has no content or every buffer is busy. out holds ESL_MAX_PAYLOAD bytes. */
 size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
                        uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out);
+/* As esl_image_block(), but nothing is drawn here (esl_image_prepare_later): when the
+ * tag's buffer is gone (taken by another tag after ESL_IMAGE_HOLD_MS) or holds an older
+ * image, the tag is noted for esl_image_draw_later() and gets IDLE with
+ * ESL_IMAGE_BUSY_S; its next POLL finds the image ready. */
+size_t esl_image_block_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,
+                             uint16_t pos, uint8_t max, uint16_t next_poll_s, uint64_t now_ms, uint8_t *out);
 
 /* The tag's image drawn into out (cap bytes, at least esl_image_mem_size() /
  * ESL_IMAGE_BUFS) instead of a buffer, for a radio that keeps its own copy (esl_rhost):

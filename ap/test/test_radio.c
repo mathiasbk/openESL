@@ -94,7 +94,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -1513,6 +1513,104 @@ static int64_t fake_clock(void)
     return fake_now_us;
 }
 
+/* With esl_radio_set_draw_later() (the AP's own radio): nothing is drawn while the tag
+ * waits for its reply. A tag whose image is not in a buffer is told to come back in
+ * ESL_IMAGE_BUSY_S, the image is drawn once the reply is out (esl_radio_after), and
+ * the next POLL gets block 0 at once. Many tags waiting at once (a new AP, a new
+ * layout file) all get theirs, two buffers or not. */
+static void test_draw_later(void)
+{
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_radio_set_draw_later(true);
+
+    enum { N = 6 };
+    esl_faketag_t t[N];
+    for (unsigned i = 0; i < N; i++) {
+        char mac[17], body[96];
+        esl_faketag_init(&t[i], 0x2A0 + i, 1, 3000, ESL_MODEL_29);
+        snprintf(mac, sizeof(mac), "%016X", 0x2A0 + i);
+        snprintf(body, sizeof(body), "{\"layout\":\"price\",\"fields\":[\"Vare %u\",\"%u,90\"]}", i, 10 + i);
+        CHECK_INT(put(mac, body), 200);
+    }
+
+    /* the first POLL of each: answered without drawing, told to come back soon; only
+       the first one polling at a time is drawn after its reply */
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    esl_radio_event_t ev;
+    size_t n = esl_faketag_poll(&t[0], PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 1000, tx, &ev);
+    CHECK(m != 0);
+    CHECK_INT(images.drawn, 0);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IDLE);
+    CHECK_INT(t[0].next_poll_s, ESL_IMAGE_BUSY_S);
+    esl_radio_after(&st, &layouts, &ev, 1001);
+    CHECK_INT(images.drawn, 1);
+    /* back 2 s later: block 0 straight away, the whole image in that wake-up */
+    CHECK_INT(esl_faketag_round(&t[0], &st, &layouts, PAN, -60, 3000), ESL_MSG_IMG);
+    CHECK_INT(images.drawn, 1);
+    CHECK(t[0].shown != 0 && t[0].shown == image_id_of("00000000000002A0"));
+
+    /* the rest poll in turn, each every ESL_IMAGE_BUSY_S while it waits */
+    uint64_t now = 10000;
+    for (unsigned round = 0; round < 3 * N; round++) {
+        for (unsigned i = 1; i < N; i++) {
+            if (t[i].shown)
+                continue;
+            esl_faketag_round(&t[i], &st, &layouts, PAN, -60, now);
+            now += 100;
+        }
+        now += ESL_IMAGE_BUSY_S * 1000;
+    }
+    for (unsigned i = 0; i < N; i++) {
+        char mac[17];
+        snprintf(mac, sizeof(mac), "%016X", 0x2A0 + i);
+        CHECK(t[i].shown != 0 && t[i].shown == image_id_of(mac));
+        CHECK_INT(t[i].interval_s, ESL_TAG_BUILTIN_POLL_S);
+    }
+    CHECK_INT(images.drawn, N);
+
+    /* a tag that shows its image: plain IDLE, nothing noted or drawn */
+    CHECK_INT(esl_faketag_round(&t[0], &st, &layouts, PAN, -60, now), ESL_MSG_IDLE);
+    CHECK_INT(images.drawn, N);
+    CHECK(images.later == 0);
+
+    /* new content while the tag is part way through its image: the IMG_REQ is not
+       answered with a newly drawn image either, but with IDLE in ESL_IMAGE_BUSY_S; the
+       image is drawn after that reply and the next POLL starts it over */
+    CHECK_INT(put("00000000000002A0", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"89,00\"]}"), 200);
+    n = esl_faketag_poll(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now, tx, &ev);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IDLE);
+    esl_radio_after(&st, &layouts, &ev, now);
+    CHECK_INT(images.drawn, N + 1);
+    now += ESL_IMAGE_BUSY_S * 1000;
+    n = esl_faketag_poll(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now, tx, &ev);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IMG);
+    esl_radio_after(&st, &layouts, &ev, now);
+    uint32_t first = t[0].img_dl_id;
+    CHECK(first != 0 && t[0].img_dl_got == ESL_IMG_CHUNK_MAX);
+    CHECK_INT(put("00000000000002A0", "{\"layout\":\"price\",\"fields\":[\"Kaffe\",\"59,00\"]}"), 200);
+    n = esl_faketag_img_request(&t[0], PAN, rx);
+    m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, now + 100, tx, &ev);
+    CHECK_INT(images.drawn, N + 1);
+    CHECK_INT(esl_faketag_receive(&t[0], tx, m), ESL_MSG_IDLE);
+    CHECK_INT(t[0].next_poll_s, ESL_IMAGE_BUSY_S);
+    esl_radio_after(&st, &layouts, &ev, now + 100);
+    CHECK_INT(images.drawn, N + 2);
+    CHECK(images.later == 0);
+    now += ESL_IMAGE_BUSY_S * 1000;
+    CHECK_INT(esl_faketag_round(&t[0], &st, &layouts, PAN, -60, now), ESL_MSG_IMG);
+    CHECK_INT(images.drawn, N + 2);
+    CHECK(t[0].shown != first && t[0].shown == image_id_of("00000000000002A0"));
+
+    esl_radio_set_draw_later(false);
+    esl_radio_set_image(NULL);
+}
+
 static void test_link(void)
 {
     fake_link_t fl = {0};
@@ -1548,6 +1646,7 @@ static void test_link(void)
     CHECK_INT(l.stats.replies, 1);
     CHECK_INT(l.stats.last_us, 800);
     CHECK_INT(l.stats.worst_us, 800);
+    CHECK_INT(l.stats.slow, 0);
 
     /* a frame that needs no reply: counted as received, nothing sent */
     f.psdu[0] ^= 0xFF;
@@ -1572,9 +1671,21 @@ static void test_link(void)
     CHECK_INT(l.stats.last_us, 300);
     CHECK_INT(l.stats.worst_us, 800);
 
+    /* a reply on its way later than ESL_LINK_SLOW_US is counted as slow */
+    fl.fail = 0;
+    f.len = (uint8_t)esl_faketag_poll(&t, PAN, f.psdu);
+    f.rx_us = 1000;
+    fake_now_us = 1000;
+    fl.hand_at_us = 1000 + ESL_LINK_SLOW_US + 1;
+    CHECK(esl_link_handle(&l, &st, &layouts, PAN, &f, 7000, tx, NULL, fake_clock, &sent) > 0);
+    CHECK(sent);
+    CHECK_INT(l.stats.slow, 1);
+    CHECK_INT(l.stats.worst_us, ESL_LINK_SLOW_US + 1);
+    CHECK_INT(l.stats.replies, 2);
+
     /* a driver whose radio reports later loses a reply it had taken */
     esl_link_lost(&l);
-    CHECK_INT(l.stats.replies, 0);
+    CHECK_INT(l.stats.replies, 1);
     CHECK_INT(l.stats.tx_failed, 2);
 }
 
@@ -1591,5 +1702,6 @@ void test_radio(void)
     test_picture();
     test_image_choice();
     test_image_2d();
+    test_draw_later();
     test_link();
 }

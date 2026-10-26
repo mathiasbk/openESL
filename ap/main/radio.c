@@ -85,7 +85,7 @@ static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
     if (!esl_link_handle(&radio_link, store, layouts, pan, f, now_ms, tx, &ev, clock_us, NULL))
         return;
     int64_t us = radio_link.stats.last_us;
-    if (us > 5000)
+    if (us > ESL_LINK_SLOW_US)
         ESP_LOGW(TAG, "slow reply: %lld us", (long long)us);
 
     char m[17];
