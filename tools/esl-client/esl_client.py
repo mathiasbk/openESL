@@ -253,6 +253,7 @@ class SerialClient(Client):
 
     def __init__(self, port, timeout=10.0):
         super().__init__("serial:" + port, "", timeout, retries=1)
+        self.url = "serial:" + port   # not a URL: no http:// in front
         self.port = port
         self.seq = 0
         self.fd = None

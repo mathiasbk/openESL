@@ -573,6 +573,7 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(esl_client.Client("192.168.0.188", TOKEN).url, "http://192.168.0.188")
         self.assertEqual(esl_client.Client("openesl.local/", TOKEN).url, "http://openesl.local")
         self.assertEqual(esl_client.Client("https://ap", TOKEN).url, "https://ap")
+        self.assertEqual(esl_client.SerialClient("/dev/ttyACM0").url, "serial:/dev/ttyACM0")
 
     def test_ota_timeout_covers_the_upload(self):
         # urllib's timeout also bounds the whole sendall: a 1.3 MB image must get far more than 10 s
