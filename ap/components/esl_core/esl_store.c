@@ -213,9 +213,7 @@ bool esl_tag_pending(const esl_tag_t *t)
 
 uint8_t esl_tag_content_err(const esl_tag_t *t)
 {
-    if (!t->has_content || (!esl_tag_pending(t) && t->content_err != ESL_CERR_UNFIT))
-        return ESL_CERR_NONE;
-    return t->content_err;
+    return t->has_content ? t->content_err : ESL_CERR_NONE;
 }
 
 bool esl_tag_holds_data(const esl_tag_t *t)

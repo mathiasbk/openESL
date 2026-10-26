@@ -1421,7 +1421,7 @@ components:
         config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }
         content_error:
           type: [string, "null"]
-          description: "Why pending content cannot be shown; also, while the tag still shows its image from before, why its content does not fit a newer layout file (it gets no new image until it fits)"
+          description: "Why the content is held back: it gets no new image until this is gone. Also while the tag still shows an image of it drawn before, when a newer layout file does not fit it or lacks its layout"
           enum:
             - the tag cannot show images drawn by the AP (old firmware, or no SPI flash)
             - the layout is not in the layout file for this tag's model
@@ -1591,7 +1591,7 @@ components:
         unseen: { type: integer, minimum: 0, description: Tags from NVS that have not polled since the AP started }
         draw_failed: { type: integer, minimum: 0, description: Tags whose last drawing failed }
         low_battery: { type: integer, minimum: 0, description: Tags below `battery_mv` }
-        content_error: { type: integer, minimum: 0, description: Tags whose pending content cannot be shown (`content_error` in `GET /api/tags`) }
+        content_error: { type: integer, minimum: 0, description: Tags whose content is held back (`content_error` in `GET /api/tags`) }
         changed: { type: integer, minimum: 0, description: "Only in the webhook: tags whose problems differ from the last report" }
       example:
         problems:

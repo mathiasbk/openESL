@@ -599,12 +599,14 @@ static void test_image_send(void)
         free(f2);
     }
 
-    /* the file is deleted: the tag keeps the image it shows (it needs no file) */
+    /* the file is deleted: the tag keeps the image it shows (it needs no file), and the API
+       says its content could not be drawn again */
     CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 301000), ESL_MSG_IDLE);
     CHECK_INT(a.img_shown, 4);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
+    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     /* named content set while the file was there, which is gone when the tag polls: held back,
        like for a tag that draws itself */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 422);

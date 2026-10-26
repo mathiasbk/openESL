@@ -305,9 +305,9 @@ void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_co
 /* Content is set and the tag has not reported showing its image yet (or it has not
  * been drawn). */
 bool esl_tag_pending(const esl_tag_t *t);
-/* Why its content cannot be shown (ESL_CERR_*, for the API and health): while it is pending,
- * and also while it does not fit its model's file when the tag still shows its image of it
- * from before that file (ESL_CERR_UNFIT after PUT /api/layouts), NONE otherwise. */
+/* Why its content is held back (ESL_CERR_*, for the API and health), NONE when it is not:
+ * also while the tag still shows an image of it drawn before (a layout file it no longer fits,
+ * or that lacks its layout). content_err is worked out again at each POLL and upload. */
 uint8_t esl_tag_content_err(const esl_tag_t *t);
 /* The tag has content or its own settings (so it is kept when the table is full). */
 bool esl_tag_holds_data(const esl_tag_t *t);

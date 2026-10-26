@@ -13,7 +13,7 @@
 #define ESL_HEALTH_DRAW_FAILED   0x04 /* its last POLL said the last drawing failed */
 #define ESL_HEALTH_LOW_BATTERY   0x08 /* battery below battery_mv (a tag that reports 0 cannot measure it) */
 /* 0x10 was layout_failed (the tag rejected the layout file), before the AP drew images */
-#define ESL_HEALTH_CONTENT_ERROR 0x20 /* pending content cannot be shown (esl_store content_err) */
+#define ESL_HEALTH_CONTENT_ERROR 0x20 /* its content is held back (esl_tag_content_err) */
 
 #define ESL_HEALTH_BATTERY_MV_DEFAULT 2500 /* a CR2450 is nearly empty here */
 #define ESL_HEALTH_SILENT_X 3              /* default silent_s: this many poll intervals */
