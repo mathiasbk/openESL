@@ -112,7 +112,7 @@ The C6 radio over WiFi now sends a browser that opens its address to the S3's da
 
 ### Upgrading from 0.8.0 to 0.8.1
 
-Order: the AP, then, only with an S3 and a C6 over WiFi (netradio), the C6. A patch release: update the AP over the air as usual. The tag firmware has not changed (the tag image of this release is 0.6.0), and neither has the C6 radio on a cable. Nothing is one-way: an AP that goes back to 0.8.0 keeps its data, its layout files and its name. Do not go back while tags are part way through a firmware download with the global poll interval at 0: such a tag keeps the 5 s it was told, and a 0.8.0 AP never gives it another interval. Set a global poll interval for a while if it happens.
+Order: the AP, then, only with an S3 and a C6 over WiFi (netradio), the C6. A patch release: update the AP over the air as usual. The tag firmware has not changed (the tag image of this release is 0.6.0), and neither has the C6 radio on a cable. Nothing is one-way: an AP that goes back to 0.8.0 keeps its data, its layout files and its name. Do not go back while tags are part way through a firmware download with the global poll interval at 0: such a tag keeps the 5 s it was told, since a 0.8.0 AP answers its polls with 0 (#234) until it gets a new image. Set a global poll interval for a while if it happens.
 
 Two fixes to the poll interval the AP tells the tags:
 
