@@ -1374,6 +1374,18 @@ components:
             ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
             seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
             fw: { type: integer, minimum: 0, description: "Its firmware version as a number, as in its HELLO (0 before HELLO; only while connected)" }
+        replies:
+          type: object
+          additionalProperties: false
+          description: "How the AP's own radio has answered the tags since it started (`esl_link_stats_t`); not sent by an AP with a network radio, nor by firmware 0.8.0 and older. A reply should be on its way within 5 ms of the request (requirement A3): a tag listens for 20 ms, so `slow` replies may not have reached it"
+          required: [polls, blocks, tx_failed, dropped, slow, worst_us]
+          properties:
+            polls: { type: integer, minimum: 0, description: POLLs answered }
+            blocks: { type: integer, minimum: 0, description: "FW_REQ and IMG_REQ answered" }
+            tx_failed: { type: integer, minimum: 0, description: "Replies the radio could not send" }
+            dropped: { type: integer, minimum: 0, description: "Frames lost before the radio task saw them (its queue was full)" }
+            slow: { type: integer, minimum: 0, description: "Replies on their way more than 5 ms after the request" }
+            worst_us: { type: integer, minimum: 0, description: "The longest time from a request to its reply, in microseconds" }
         channel: { type: integer, minimum: 11, maximum: 26, description: 802.15.4 channel }
         max_tags: { type: integer, minimum: 1, description: "The most tags the AP keeps (menuconfig, default 1000); the C6 may run out of RAM before" }
         table_full: { type: boolean, description: "A new tag found no room since a tag last got a slot (none free, and no RAM for more or max_tags reached): it is not listed until a slot frees" }

@@ -411,6 +411,15 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
     return true;
 }
 
+/* b holds the image of t's content, drawn with layout file version ver, in a format the
+   tag (still) takes: a tag back on older firmware gets it drawn again */
+static bool fresh(const esl_image_buf_t *b, const esl_tag_t *t, uint32_t ver)
+{
+    return t->has_content && !t->content_err && b->content_id == t->content_id && b->layout_ver == ver &&
+           (b->fmt == ESL_IMG_FMT_RAW || (b->fmt == ESL_IMG_FMT_RLE && t->image_rle) ||
+            (b->fmt == ESL_IMG_FMT_2D && t->image_2d));
+}
+
 /* The tag's image in a buffer: the one it has if it is still of its content, else a
    newly drawn one. NULL and *busy when there is no buffer for it, NULL when it has no
    content. Under the lock. */
@@ -423,10 +432,7 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
         return NULL;
     uint32_t ver = layout_ver(ls, t.model);
     esl_image_buf_t *b = find(im, mac);
-    /* and in a format the tag (still) takes: a tag back on older firmware gets it drawn again */
-    if (b && t.has_content && !t.content_err && b->content_id == t.content_id && b->layout_ver == ver &&
-        (b->fmt == ESL_IMG_FMT_RAW || (b->fmt == ESL_IMG_FMT_RLE && t.image_rle) ||
-         (b->fmt == ESL_IMG_FMT_2D && t.image_2d)))
+    if (b && fresh(b, &t, ver))
         return b;
     if (!b) {
         if (!t.has_content || t.content_err)
@@ -468,6 +474,47 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
     }
     unlock(im);
     return id;
+}
+
+uint32_t esl_image_prepare_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t shown,
+                                 uint64_t now_ms, bool *busy)
+{
+    esl_tag_t t;
+    uint32_t id = 0;
+    *busy = false;
+    if (!esl_store_get(st, mac, &t) || !t.has_content || t.content_err) {
+        esl_image_release(im, mac);
+        return 0;
+    }
+    lock(im);
+    uint32_t ver = layout_ver(ls, t.model);
+    esl_image_buf_t *b = find(im, mac);
+    if (t.image_id && t.image_id == shown && t.image_layout_ver == ver) {
+        if (b)
+            b->mac = 0;
+        id = t.image_id;
+    } else if (b && fresh(b, &t, ver)) {
+        b->used_ms = now_ms; /* kept for the blocks that follow */
+        id = b->id;
+    } else {
+        if (!im->later)
+            im->later = mac;
+        *busy = true;
+    }
+    unlock(im);
+    return id;
+}
+
+bool esl_image_draw_later(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t now_ms)
+{
+    bool busy, drew = false;
+    lock(im);
+    uint64_t mac = im->later;
+    im->later = 0;
+    if (mac)
+        drew = ready(im, st, ls, mac, now_ms, &busy) != NULL;
+    unlock(im);
+    return drew;
 }
 
 size_t esl_image_block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_t mac, uint32_t id,

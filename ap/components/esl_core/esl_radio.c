@@ -5,6 +5,7 @@
 
 static esl_tagfw_t *tagfw;
 static esl_image_t *images;
+static bool draw_later;
 
 void esl_radio_set_tagfw(esl_tagfw_t *fw)
 {
@@ -14,6 +15,20 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw)
 void esl_radio_set_image(esl_image_t *im)
 {
     images = im;
+}
+
+void esl_radio_set_draw_later(bool on)
+{
+    draw_later = on;
+}
+
+void esl_radio_after(esl_store_t *st, esl_layouts_t *ls, const esl_radio_event_t *ev, uint64_t now_ms)
+{
+    if (!draw_later || !ev || ev->msg_type != ESL_MSG_POLL)
+        return;
+    esl_store_check_tag(st, ls, ev->mac);
+    if (images)
+        esl_image_draw_later(images, st, ls, now_ms);
 }
 
 esl_tagfw_t *esl_radio_tagfw(void)
@@ -95,7 +110,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
         /* Content not checked against this model's file yet (from the schedule, or set
            before the model was known) is, before its image is drawn */
-        esl_store_check_tag(st, ls, f.src_mac);
+        if (!draw_later || replay)
+            esl_store_check_tag(st, ls, f.src_mac); /* else after the reply (esl_radio_after) */
         /* A tag that shows what the AP draws: its content's image, when it shows
          * another one (id 0 still notes a refusal, ESL_POLL_F_DRAWFAIL) */
         bool offered = false;
@@ -104,7 +120,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images) {
             bool busy;
             uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
-            uint32_t id = esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
+            uint32_t id = draw_later ? esl_image_prepare_later(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy)
+                                     : esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
             if (esl_store_image_offer(st, f.src_mac, &poll, id))
                 n = esl_image_block(images, st, ls, f.src_mac, id, 0, ESL_IMG_CHUNK_MAX, next, now_ms, reply);
             else if (busy)
@@ -324,9 +341,12 @@ uint8_t esl_faketag_round(esl_faketag_t *t, esl_store_t *st, esl_layouts_t *ls, 
                           uint64_t now_ms)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    esl_radio_event_t ev;
     size_t n = esl_faketag_poll(t, pan, rx);
-    size_t m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);
+    size_t m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, &ev);
     uint8_t type = m ? esl_faketag_receive(t, tx, m) : 0;
+    if (m)
+        esl_radio_after(st, ls, &ev, now_ms); /* as esl_link_handle() once the reply is out */
     if (type == ESL_MSG_FW) {
         for (int req = 0; req < ESL_FAKETAG_FW_REQS && (n = esl_faketag_fw_request(t, pan, rx)) != 0; req++) {
             m = esl_radio_handle(st, ls, pan, rx, n, rssi, now_ms, tx, NULL);

@@ -44,7 +44,10 @@ typedef struct {
     int64_t last_us;    /* the last answered frame: from its arrival until its reply was on its way
                            (esl_link_sending(), or the return of send()) */
     int64_t worst_us;   /* the longest last_us */
+    uint32_t slow;      /* replies with last_us over ESL_LINK_SLOW_US */
 } esl_link_stats_t;
+
+#define ESL_LINK_SLOW_US 5000 /* krav A3: a reply should be on its way within 5 ms */
 
 struct esl_link {
     const char *name;   /* for the log: "802.15.4" */
