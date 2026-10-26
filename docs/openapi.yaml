@@ -1421,7 +1421,7 @@ components:
         config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }
         content_error:
           type: [string, "null"]
-          description: Why pending content cannot be shown
+          description: "Why pending content cannot be shown; also, while the tag still shows its image from before, why its content does not fit a newer layout file (it gets no new image until it fits)"
           enum:
             - the tag cannot show images drawn by the AP (old firmware, or no SPI flash)
             - the layout is not in the layout file for this tag's model

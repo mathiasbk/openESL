@@ -211,6 +211,13 @@ bool esl_tag_pending(const esl_tag_t *t)
     return !t->image_id || t->shown_content_id != t->image_id;
 }
 
+uint8_t esl_tag_content_err(const esl_tag_t *t)
+{
+    if (!t->has_content || (!esl_tag_pending(t) && t->content_err != ESL_CERR_UNFIT))
+        return ESL_CERR_NONE;
+    return t->content_err;
+}
+
 bool esl_tag_holds_data(const esl_tag_t *t)
 {
     return t->has_content || !esl_tag_cfg_is_default(&t->cfg);
