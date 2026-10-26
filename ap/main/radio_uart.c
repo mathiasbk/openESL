@@ -287,13 +287,20 @@ static void uart_task(void *arg)
 #define OTA_TRIES 4
 
 /* Sends a frame and waits for the OTA_ACK, sending it again when none comes:
- * the status, or -1 when the radio did not answer */
-static int ota_send(const uint8_t *f, size_t n, uint32_t wait_ms, uint32_t *offset)
+ * the status, or -1 when the radio did not answer. An OK for less than `expect`
+ * bytes answers a part sent twice before this frame, and is skipped */
+static int ota_send(const uint8_t *f, size_t n, uint32_t wait_ms, uint32_t expect, uint32_t *offset)
 {
     for (int i = 0; i < OTA_TRIES; i++) {
         xSemaphoreTake(ota_ack, 0); /* a late one for the frame before */
         uart_send(f, n);
-        if (xSemaphoreTake(ota_ack, pdMS_TO_TICKS(wait_ms)) == pdTRUE) {
+        int64_t until = esp_timer_get_time() + (int64_t)wait_ms * 1000;
+        for (;;) {
+            int64_t left_us = until - esp_timer_get_time();
+            if (left_us <= 0 || xSemaphoreTake(ota_ack, pdMS_TO_TICKS(left_us / 1000) + 1) != pdTRUE)
+                break;
+            if (ota_ack_status == ESL_COPROC_OTA_OK && ota_ack_offset < expect)
+                continue;
             *offset = ota_ack_offset;
             return ota_ack_status;
         }
@@ -342,7 +349,7 @@ int radio_ota_begin(uint32_t size, char *err, size_t errlen)
         snprintf(err, errlen, "the radio's firmware is too old to be updated over the link: flash it once over USB");
         return 501;
     }
-    int st = ota_send(f, esl_coproc_encode_ota_begin(f, size), OTA_ACK_MS, &off);
+    int st = ota_send(f, esl_coproc_encode_ota_begin(f, size), OTA_ACK_MS, 0, &off);
     if (st != ESL_COPROC_OTA_OK)
         return ota_error(st, err, errlen);
     ota_next = 0;
@@ -357,7 +364,7 @@ int radio_ota_write(const void *data, size_t len, char *err, size_t errlen)
     while (len) {
         size_t n = len < ESL_COPROC_OTA_CHUNK ? len : ESL_COPROC_OTA_CHUNK;
         uint32_t off;
-        int st = ota_send(f, esl_coproc_encode_ota_data(f, ota_next, d, n), OTA_ACK_MS, &off);
+        int st = ota_send(f, esl_coproc_encode_ota_data(f, ota_next, d, n), OTA_ACK_MS, ota_next + n, &off);
         if (st != ESL_COPROC_OTA_OK)
             return ota_error(st, err, errlen);
         if (off != ota_next + n)
@@ -373,9 +380,12 @@ int radio_ota_end(char *err, size_t errlen)
 {
     uint8_t f[ESL_COPROC_FRAME_MAX];
     uint32_t off;
-    int st = ota_send(f, esl_coproc_frame(f, ESL_COPROC_OTA_END, NULL, 0), OTA_END_ACK_MS, &off);
+    int st = ota_send(f, esl_coproc_frame(f, ESL_COPROC_OTA_END, NULL, 0), OTA_END_ACK_MS, ota_next, &off);
     if (st != ESL_COPROC_OTA_OK)
         return ota_error(st, err, errlen);
+    /* The radio restarts: GET /api/ota says up again only on the new firmware's HELLO,
+     * not the old one's for up to LINK_DEAD_US */
+    link.up = false;
     ESP_LOGI(TAG, "radio firmware: %lu bytes written, the radio restarts into it", (unsigned long)off);
     return 0;
 }

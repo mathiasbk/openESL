@@ -235,6 +235,7 @@ static void give_up_cb(void *arg)
         return;
     ESP_LOGE(TAG, "the new firmware had no CONFIG from the host for %d s: back to the old one", CONFIRM_S);
     esp_ota_mark_app_invalid_rollback_and_reboot();
+    esp_restart(); /* it failed: the bootloader takes the unconfirmed image as aborted */
 }
 
 /* A new image waits for the host's CONFIG (apply_config) to be kept */
