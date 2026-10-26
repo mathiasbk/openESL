@@ -295,8 +295,8 @@ def main():
         return next((p, m, o, ps) for p, m, o, ps in ops if p == path and m == method)
 
     # the example layout files fit the schema and the code takes them. Each PUT replaces the
-    # model's file, so the extra examples (3d-printer-2.9.json, ...) go first and each model's own
-    # file (2.9.json) last: the content examples below use the layouts in that one
+    # model's file, so any extra example (<name>-2.9.json) goes first and each model's own file
+    # (2.9.json) last: the content examples below use the layouts in that one
     layout_schema = spec["components"]["schemas"]["LayoutFile"]
     files = []
     for name in sorted(os.listdir(LAYOUTS)):

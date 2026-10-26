@@ -1,0 +1,64 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "filament-spool",
+  "category": "3d-printer",
+  "title": "Filament spool",
+  "description": "A label for a filament spool or dry box: material, colour, brand, print temperatures and the day it was opened.",
+  "tags": ["3d-printer", "filament", "storage"],
+  "fields": {
+    "material": "Material, e.g. PLA or PETG",
+    "colour": "Colour name",
+    "brand": "Brand or maker of the filament",
+    "temps": "Nozzle and bed temperature, as text (e.g. 215 / 60 °C)",
+    "opened": "When the spool was opened, as text"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "spool": {"w": 40, "h": 40, "data": "AAD/AAAAB//gAAA///wAAH///gAA////AAP/AP/AB/wAP+AH8AAP4A/gfgfwH8P/w/g/h//h/D8P//D8Ph//+Hx+P//8fnx///4+fH/D/j74f4H+H/j/AP8f+P4Afx/4/gB/H/j+AH8f+P4Afx/4/wD/H/h/gf4ffH/D/j58f//+Pn4///x+Ph//+Hw/D//w/D+H/+H8H8P/w/gP4H4H8AfwAA/gB/wAP+AD/wD/wAD///8AAH///gAAP//8AAAH/+AAAAD/AAA="}
+      },
+      "layout": {
+        "name": "filament-spool",
+        "description": "Material in the band, the brand to the right, the colour in large text, temperatures and the opened date at the bottom",
+        "fields": ["material", "colour", "brand", "temps", "opened"],
+        "_sample": ["PLA", "Galaxy Black", "Maker", "215 / 60 °C", "2026-10-20"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "black" },
+          { "type": "text", "field": "material", "x": 6, "y": 3, "w": 150, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "brand", "x": 160, "y": 3, "w": 130, "h": 24, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "icon", "icon": "spool", "x": 6, "y": 38 },
+          { "type": "text", "field": "colour", "x": 54, "y": 34, "w": 238, "h": 50, "fonts": ["medium", "small"], "valign": "middle", "lines": 2 },
+          { "type": "rect", "x": 6, "y": 88, "w": 284, "h": 2 },
+          { "type": "text", "text": "Nozzle / bed", "x": 6, "y": 92, "w": 140, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "temps", "x": 6, "y": 104, "w": 150, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "text": "Opened", "x": 160, "y": 92, "w": 130, "h": 17, "fonts": ["small"], "align": "right", "lines": 1 },
+          { "type": "text", "field": "opened", "x": 160, "y": 104, "w": 130, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "spool": {"w": 40, "h": 40, "data": "AAD/AAAAB//gAAA///wAAH///gAA////AAP/AP/AB/wAP+AH8AAP4A/gfgfwH8P/w/g/h//h/D8P//D8Ph//+Hx+P//8fnx///4+fH/D/j74f4H+H/j/AP8f+P4Afx/4/gB/H/j+AH8f+P4Afx/4/wD/H/h/gf4ffH/D/j58f//+Pn4///x+Ph//+Hw/D//w/D+H/+H8H8P/w/gP4H4H8AfwAA/gB/wAP+AD/wD/wAD///8AAH///gAAP//8AAAH/+AAAAD/AAA="}
+      },
+      "layout": {
+        "name": "filament-spool",
+        "description": "Material in the band, brand under it, the colour in large text, temperatures and the opened date at the bottom",
+        "fields": ["material", "colour", "brand", "temps", "opened"],
+        "_sample": ["PLA", "Galaxy Black", "Maker", "215 / 60 °C", "2026-10-20"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 32, "color": "black" },
+          { "type": "text", "field": "material", "x": 6, "y": 4, "w": 188, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "icon", "icon": "spool", "x": 6, "y": 40 },
+          { "type": "text", "field": "brand", "x": 54, "y": 38, "w": 140, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "colour", "x": 54, "y": 56, "w": 140, "h": 50, "fonts": ["medium", "small"], "lines": 2 },
+          { "type": "rect", "x": 6, "y": 110, "w": 188, "h": 2 },
+          { "type": "text", "text": "Nozzle / bed", "x": 6, "y": 116, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "temps", "x": 6, "y": 132, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "text": "Opened", "x": 6, "y": 158, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "opened", "x": 6, "y": 174, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 }
+        ]
+      }
+    }
+  }
+}

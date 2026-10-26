@@ -1,0 +1,56 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "guest-wifi",
+  "category": "home",
+  "title": "Guest WiFi",
+  "description": "Network name and password, with a QR code that phones scan to join.",
+  "tags": ["home", "wifi", "qr", "guests"],
+  "fields": {
+    "title": "Heading, e.g. Guest WiFi",
+    "ssid": "Network name (SSID)",
+    "password": "Password",
+    "qr": "The join code for the QR code: WIFI:T:WPA;S:<network>;P:<password>;;"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "wifi": {"w": 22, "h": 22, "data": "Af8AD//gP//4fwH8+AA84AAMwP4Eg/+AD//gHwPwHADwCABgAHgAAf4AA/8AAf4AAP4AAP4AAP4AAHwAADgAAAAA"}
+      },
+      "layout": {
+        "name": "guest-wifi",
+        "description": "Heading, network and password on the left, the QR code on the right",
+        "fields": ["title", "ssid", "password", "qr"],
+        "_sample": ["Guest WiFi", "HomeGuest", "sunny-day-42", "WIFI:T:WPA;S:HomeGuest;P:sunny-day-42;;"],
+        "elements": [
+          { "type": "icon", "icon": "wifi", "x": 6, "y": 4 },
+          { "type": "text", "field": "title", "x": 32, "y": 2, "w": 140, "h": 26, "fonts": ["medium", "small"], "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 6, "y": 30, "w": 162, "h": 2 },
+          { "type": "text", "text": "Network", "x": 6, "y": 36, "w": 162, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "ssid", "x": 6, "y": 52, "w": 162, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "text": "Password", "x": 6, "y": 80, "w": 162, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "password", "x": 6, "y": 96, "w": 162, "h": 28, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "qr", "field": "qr", "x": 170, "y": 0, "w": 126, "h": 128, "ecc": "L", "align": "center", "valign": "middle" }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "wifi": {"w": 22, "h": 22, "data": "Af8AD//gP//4fwH8+AA84AAMwP4Eg/+AD//gHwPwHADwCABgAHgAAf4AA/8AAf4AAP4AAP4AAP4AAHwAADgAAAAA"}
+      },
+      "layout": {
+        "name": "guest-wifi",
+        "description": "Heading, network and password at the top, the QR code under them",
+        "fields": ["title", "ssid", "password", "qr"],
+        "_sample": ["Guest WiFi", "HomeGuest", "sunny-day-42", "WIFI:T:WPA;S:HomeGuest;P:sunny-day-42;;"],
+        "elements": [
+          { "type": "icon", "icon": "wifi", "x": 6, "y": 4 },
+          { "type": "text", "field": "title", "x": 32, "y": 2, "w": 162, "h": 26, "fonts": ["medium", "small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "ssid", "x": 6, "y": 32, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "text", "field": "password", "x": 6, "y": 58, "w": 188, "h": 24, "fonts": ["medium", "small"], "lines": 1 },
+          { "type": "qr", "field": "qr", "x": 0, "y": 84, "w": 200, "h": 116, "ecc": "L", "align": "center", "valign": "middle" }
+        ]
+      }
+    }
+  }
+}

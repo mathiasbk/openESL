@@ -75,7 +75,7 @@ Change `printing` to the state your integration uses (for example `running` for 
 
 ![The 3d-printer layout on a 2.9" tag: the printer name in a black band, 40 % in large digits, time left, finish time and a progress bar](images/ha-3d-printer.png)
 
-The layout `3d-printer` comes for the 2.9" in [tag/designs/layouts/3d-printer-2.9.json](../tag/designs/layouts/3d-printer-2.9.json) and the 1.54" in [tag/designs/layouts/3d-printer-1.54.json](../tag/designs/layouts/3d-printer-1.54.json), with the same six fields in this order:
+The layout `3d-printer` is the template "3D printer status" in the designer's template library ([templates/3d-printer/3d-printer.json](../templates/3d-printer/3d-printer.json)), drawn for the 2.9" and the 1.54", with the same six fields in this order:
 
 | Field | Shows | Example |
 |---|---|---|
@@ -90,9 +90,9 @@ Layout files have no bar element, so the bar is an inverted text field of spaces
 
 The AP takes at most 90 bytes of text in all for the six fields, and a full bar uses 31 of them (20 on the 1.54"). The rest is enough for `left`, `done` and a short `printer` and `name`; a longer text makes the AP refuse the update, and the tag keeps its old screen. So cut a file name short, as in the Moonraker example below.
 
-Already use the layout `prusa` from an earlier version of this page? It keeps working as it is. To change to `3d-printer`, upload it, then change the automation: `layout: 3d-printer`, and the printer's name as the first field.
+To put it on the AP, open the [Design](https://mathiasbk.github.io/openESL/#design) tab, pick the tag's model, choose **+ New → From template…**, then **3D printer** and **3D printer status**, and add it. The designer checks that your layout file still fits the AP with it, and **Send to tag…** (or **Save to AP** on the AP's own designer) uploads the file. It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so delete example layouts no tag uses if it does not fit. Without the designer: copy the variant's `layout` from the template file into the AP's file for the model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`).
 
-Copy the layout into the AP's file for the tag's model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`). It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so drop example layouts no tag uses if it does not fit.
+Already use the layout `prusa` from an earlier version of this page? It keeps working as it is. To change to `3d-printer`, add it as above, then change the automation: `layout: 3d-printer`, and the printer's name as the first field.
 
 Both automations below run every 10 minutes while printing, so the tag redraws at most 6 times an hour; that, not rounding, is what saves the battery, so the numbers are exact. Progress and the bar are rounded down, so the tag never shows 100 % or a full bar before the print is done. The time left is counted from the printer's own finish time, and is `?` while the printer has none. For a 1.54" tag, change `31` to `20` in the bar.
 

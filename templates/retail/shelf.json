@@ -1,0 +1,47 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "shelf",
+  "category": "retail",
+  "title": "Shelf price",
+  "description": "Product name in a black band, a large price, a note and the unit price.",
+  "tags": ["price", "shelf"],
+  "fields": {
+    "name": "Product name",
+    "price": "Price",
+    "unit": "Unit price, as text (e.g. 9,98/kg)",
+    "info": "A short note, up to three lines"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "shelf",
+        "description": "Name in a black band, highlighted price, a note and the unit price",
+        "fields": ["name", "price", "unit", "info"],
+        "_sample": ["Product name", "49,90", "kr 99,80/kg", "Organic, 500 g"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "black" },
+          { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "info", "x": 5, "y": 34, "w": 112, "h": 51, "fonts": ["small"], "lines": 3 },
+          { "type": "text", "field": "price", "x": 120, "y": 32, "w": 171, "h": 74, "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" },
+          { "type": "text", "field": "unit", "x": 5, "y": 108, "w": 286, "h": 17, "fonts": ["small"], "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "shelf",
+        "description": "Name in a black band, highlighted price, a note and the unit price",
+        "fields": ["name", "price", "unit", "info"],
+        "_sample": ["Product name", "49,90", "kr 99,80/kg", "Organic, 500 g"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 36, "color": "black" },
+          { "type": "text", "field": "name", "x": 4, "y": 0, "w": 192, "h": 36, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "price", "x": 6, "y": 42, "w": 188, "h": 96, "fonts": ["large", "mid", "medium"], "align": "center", "valign": "middle", "lines": 1, "color": "highlight" },
+          { "type": "text", "field": "info", "x": 6, "y": 142, "w": 188, "h": 34, "fonts": ["small"], "align": "center", "lines": 2 },
+          { "type": "text", "field": "unit", "x": 6, "y": 180, "w": 188, "h": 17, "fonts": ["small"], "align": "center", "lines": 1 }
+        ]
+      }
+    }
+  }
+}

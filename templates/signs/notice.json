@@ -1,0 +1,56 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "notice",
+  "category": "signs",
+  "title": "Short notice",
+  "description": "A large message with a notice icon, such as Out of order or Back in 10 minutes, and a line of detail.",
+  "tags": ["sign", "notice", "icon"],
+  "fields": {
+    "message": "The message, up to two lines",
+    "detail": "A line of detail under it"
+  },
+  "variants": {
+    "2.9": {
+      "icons": {
+        "notice": {"w": 64, "h": 64, "data": "AAAAP/wAAAAAAAP//8AAAAAAD///8AAAAAA////8AAAAAP////8AAAAD/////8AAAAf/////4AAAD//////wAAA///////wAAH///////gAA////////AAD///////8AAf///////4AD///8P///wAf///gf///gB///8A///+AP///wD///8A////AP///wH///8A////gf///wD///+D////AP///8P///8A////x////wD////n////AP///+f///8A////5////wD////v////AP////////8A/////////wD/////////AP////////8A/////////wD/////////AP////////8A/////////wD/////////AP////////8A/////////4H////3////w////+f/////////5//////////n/////////+P/////////w////8P////B////gf///4H///8A////gP///gB///8A///+AH///wB///4Af//+AH///gB///4AP///AP///AAf//+B///4AA///8P///AAD///////8AAH///////gAAP//////8AAAP//////AAAAf/////4AAAA//////AAAAA/////wAAAAA////8AAAAAA////AAAAAAA///wAAAAAAAP/wAAAA="}
+      },
+      "layout": {
+        "name": "notice",
+        "description": "Notice icon on the left, the message large next to it, a detail line at the bottom; frame flag draws a frame",
+        "fields": ["message", "detail"],
+        "_sample": ["Out of order", "We are working on it"],
+        "elements": [
+          { "type": "icon", "icon": "notice", "x": 10, "y": 16 },
+          { "type": "text", "field": "message", "x": 84, "y": 8, "w": 204, "h": 84, "fonts": ["medium", "small"], "valign": "middle", "lines": 3 },
+          { "type": "rect", "x": 10, "y": 96, "w": 276, "h": 2 },
+          { "type": "text", "field": "detail", "x": 10, "y": 102, "w": 276, "h": 20, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 3, "color": "frame" },
+          { "type": "rect", "x": 0, "y": 125, "w": 296, "h": 3, "color": "frame" },
+          { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 128, "color": "frame" },
+          { "type": "rect", "x": 293, "y": 0, "w": 3, "h": 128, "color": "frame" }
+        ]
+      }
+    },
+    "1.54": {
+      "icons": {
+        "notice": {"w": 64, "h": 64, "data": "AAAAP/wAAAAAAAP//8AAAAAAD///8AAAAAA////8AAAAAP////8AAAAD/////8AAAAf/////4AAAD//////wAAA///////wAAH///////gAA////////AAD///////8AAf///////4AD///8P///wAf///gf///gB///8A///+AP///wD///8A////AP///wH///8A////gf///wD///+D////AP///8P///8A////x////wD////n////AP///+f///8A////5////wD////v////AP////////8A/////////wD/////////AP////////8A/////////wD/////////AP////////8A/////////wD/////////AP////////8A/////////4H////3////w////+f/////////5//////////n/////////+P/////////w////8P////B////gf///4H///8A////gP///gB///8A///+AH///wB///4Af//+AH///gB///4AP///AP///AAf//+B///4AA///8P///AAD///////8AAH///////gAAP//////8AAAP//////AAAAf/////4AAAA//////AAAAA/////wAAAAA////8AAAAAA////AAAAAAA///wAAAAAAAP/wAAAA="}
+      },
+      "layout": {
+        "name": "notice",
+        "description": "Notice icon at the top, the message large under it, a detail line at the bottom; frame flag draws a frame",
+        "fields": ["message", "detail"],
+        "_sample": ["Out of order", "We are working on it"],
+        "elements": [
+          { "type": "icon", "icon": "notice", "x": 68, "y": 12 },
+          { "type": "text", "field": "message", "x": 8, "y": 84, "w": 184, "h": 72, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+          { "type": "text", "field": "detail", "x": 8, "y": 162, "w": 184, "h": 30, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 3, "color": "frame" },
+          { "type": "rect", "x": 0, "y": 197, "w": 200, "h": 3, "color": "frame" },
+          { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 200, "color": "frame" },
+          { "type": "rect", "x": 197, "y": 0, "w": 3, "h": 200, "color": "frame" }
+        ]
+      }
+    }
+  }
+}

@@ -23,6 +23,7 @@
   - [Label backups](Label-backups)
 - [Label designer](Label-designer)
   - [Layout elements and limits](Layout-elements-and-limits)
+  - [Label templates](Label-templates)
 
 **Sending content**
 - [Overview](Sending-content)

@@ -1,0 +1,66 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "3d-printer",
+  "category": "3d-printer",
+  "title": "3D printer status",
+  "description": "Printer name, job, progress, time left and finish time, e.g. from Home Assistant. Works for any printer: its name is a field.",
+  "tags": ["home-assistant", "3d-printer", "progress"],
+  "docs": "docs/home-assistant.md",
+  "fields": {
+    "printer": "Printer name, shown in the band",
+    "name": "Job or material, e.g. the file name; may be empty",
+    "pct": "Progress in percent, digits only (e.g. 70)",
+    "left": "Time left, as text (e.g. Left 1 h 12 min)",
+    "done": "Finish time, as text (e.g. Done at 14:35)",
+    "bar": "Progress bar: as many spaces as the progress (31 fill it on the 2.9\", 20 on the 1.54\"); they are drawn inverted"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "3d-printer",
+        "description": "Printer name in the band, optional job name (empty, file name or material), progress in large digits, time left, finish time and a progress bar. The bar is an inverted field of spaces: 31 spaces fill it",
+        "fields": ["printer", "name", "pct", "left", "done", "bar"],
+        "_sample": ["Printer", "benchy.gcode", "70", "Left 1 h 12 min", "Done at 14:35", "                      "],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 26, "color": "black" },
+          { "type": "text", "field": "printer", "x": 4, "y": 1, "w": 140, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 148, "y": 1, "w": 144, "h": 24, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "pct", "x": 2, "y": 30, "w": 76, "h": 36, "fonts": ["mid"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "%", "x": 80, "y": 40, "w": 24, "h": 24, "fonts": ["medium"], "valign": "bottom", "lines": 1 },
+          { "type": "text", "field": "left", "x": 110, "y": 30, "w": 182, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 },
+          { "type": "text", "field": "done", "x": 110, "y": 54, "w": 182, "h": 24, "fonts": ["medium", "small"], "align": "right", "lines": 1 },
+          { "type": "rect", "x": 0, "y": 78, "w": 296, "h": 2, "color": "black" },
+          { "type": "rect", "x": 0, "y": 126, "w": 296, "h": 2, "color": "black" },
+          { "type": "rect", "x": 0, "y": 78, "w": 2, "h": 50, "color": "black" },
+          { "type": "rect", "x": 294, "y": 78, "w": 2, "h": 50, "color": "black" },
+          { "type": "text", "field": "bar", "x": 3, "y": 81, "w": 290, "h": 44, "fonts": ["mid"], "lines": 1, "color": "invert" }
+        ]
+      },
+      "note": "31 spaces in bar fill the frame"
+    },
+    "1.54": {
+      "layout": {
+        "name": "3d-printer",
+        "description": "Printer name in the band, optional job name (empty, file name or material), progress in large digits, time left, finish time and a progress bar. The bar is an inverted field of spaces: 20 spaces fill it",
+        "fields": ["printer", "name", "pct", "left", "done", "bar"],
+        "_sample": ["Printer", "benchy.gcode", "70", "Left 1 h 12 min", "Done at 14:35", "              "],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 28, "color": "black" },
+          { "type": "text", "field": "printer", "x": 4, "y": 2, "w": 96, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 102, "y": 2, "w": 94, "h": 24, "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "pct", "x": 4, "y": 32, "w": 140, "h": 56, "fonts": ["large", "mid"], "align": "right", "valign": "bottom", "lines": 1 },
+          { "type": "text", "text": "%", "x": 148, "y": 60, "w": 48, "h": 24, "fonts": ["medium"], "valign": "bottom", "lines": 1 },
+          { "type": "text", "field": "left", "x": 4, "y": 94, "w": 192, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "text", "field": "done", "x": 4, "y": 120, "w": 192, "h": 24, "fonts": ["medium", "small"], "align": "center", "lines": 1 },
+          { "type": "rect", "x": 0, "y": 150, "w": 200, "h": 2, "color": "black" },
+          { "type": "rect", "x": 0, "y": 198, "w": 200, "h": 2, "color": "black" },
+          { "type": "rect", "x": 0, "y": 150, "w": 2, "h": 50, "color": "black" },
+          { "type": "rect", "x": 198, "y": 150, "w": 2, "h": 50, "color": "black" },
+          { "type": "text", "field": "bar", "x": 3, "y": 153, "w": 194, "h": 44, "fonts": ["mid"], "lines": 1, "color": "invert" }
+        ]
+      },
+      "note": "20 spaces in bar fill the frame"
+    }
+  }
+}

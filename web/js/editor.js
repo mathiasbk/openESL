@@ -11,6 +11,8 @@ import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
 import { ApClient, apBase } from "./apclient.js";
+import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
+import { freeName } from "./catalog.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -186,36 +188,9 @@ async function exampleDoc(model) {
   return r.json();
 }
 
-// The layouts of the example file, offered as templates under "+ New". Their "_sample"
-// values (ignored by the AP) fill the preview.
-const templates = {};
-
-async function refreshTemplates(model) {
-  try {
-    templates[model] ||= (await exampleDoc(model)).layouts || [];
-  } catch {
-    templates[model] = [];
-  }
-  if (model !== state.model) return;
-  const list = $("layout-new-list");
-  list.querySelectorAll(".tpl").forEach((b) => b.remove());
-  templates[model].forEach((l, i) => {
-    const b = document.createElement("button");
-    b.className = "item tpl";
-    b.setAttribute("role", "menuitem");
-    b.textContent = l.name;
-    b.title = l.description || "";
-    b.addEventListener("click", () => {
-      closeMenus();
-      const c = structuredClone(templates[state.model][i]);
-      c.name = uniqueName(c.name);
-      addLayout(c);
-    });
-    list.append(b);
-  });
-}
-
 async function loadModel(model) {
+  const from = state.model;
+  const template = state.docs[from] && layout()?._template;
   state.model = model;
   if (!state.docs[model]) {
     const saved = store.get("doc." + model);
@@ -239,8 +214,43 @@ async function loadModel(model) {
   state.el = -1;
   ap.mac = "";
   refreshAll();
-  refreshTemplates(model);
+  $("tpl-offer").hidden = true;
+  if (template && from !== model) offerVariant(template);
   if (onAp && ap.connected && !(model in ap.files)) await apRun("Reading the AP's layout file", () => apOpen(model));
+}
+
+// ---------- templates (tplpicker.js) ----------
+
+// A template the picker added: the file with it (its icons too), selected, with its sample text
+function addFromTemplate(added, t) {
+  state.docs[state.model] = added.doc;
+  state.sel = "file:" + added.index;
+  state.el = -1;
+  state.samples[sampleKey()] = [...(layout()._sample || [])];
+  refreshAll();
+  save();
+  setStatus(`Added “${t.title}” as the layout ${added.name}`, "ok");
+}
+
+// After a change of model with a layout from a template selected: offer the template's version
+// for this model when the file has none (catalog.js; "_template" is the template's id)
+async function offerVariant(id) {
+  const bar = $("tpl-offer");
+  bar.hidden = true;
+  if (doc().layouts?.some((l) => l._template === id)) return;
+  const found = await templateById(id);
+  const model = state.model;
+  if (!found || model !== state.model || !found.t.variants?.[model]) return;
+  // a layout of the same name without "_template" (from the example file, or added by hand) is
+  // most likely the same one
+  if (doc().layouts?.some((l) => l.name === found.entry.layout && !l._template)) return;
+  $("tpl-offer-text").textContent = `The ${model}" file has no “${found.t.title}” yet.`;
+  $("tpl-offer-add").textContent = `Add its ${model}" version`;
+  $("tpl-offer-add").onclick = () => {
+    bar.hidden = true;
+    openTemplatePicker(id);
+  };
+  bar.hidden = false;
 }
 
 // ---------- drawing ----------
@@ -1305,11 +1315,7 @@ function moveElement(d) {
 }
 
 function uniqueName(base) {
-  const names = new Set(doc().layouts.map((l) => l.name));
-  let n = 2;
-  let name = base;
-  while (names.has(name)) name = `${base}-${n++}`.slice(0, 31);
-  return name;
+  return freeName(base, new Set(doc().layouts.map((l) => l.name)));
 }
 
 function addLayout(l) {
@@ -1393,6 +1399,20 @@ function initActions() {
       state.el = -1;
       refreshAll();
     }
+  });
+  $("layout-from-tpl").addEventListener("click", () => {
+    closeMenus();
+    openTemplatePicker();
+  });
+  $("tpl-offer-no").addEventListener("click", () => ($("tpl-offer").hidden = true));
+  initTemplatePicker({
+    model: () => state.model,
+    doc,
+    renderer: () => state.renderer,
+    onAp,
+    exampleDoc,
+    add: addFromTemplate,
+    redraw: () => { if (state.renderer && doc()) compileAndDraw(); },
   });
   $("layout-add").addEventListener("click", () => {
     const d = emptyDoc(state.model).layouts[0];

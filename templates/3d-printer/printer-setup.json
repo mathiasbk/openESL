@@ -1,0 +1,58 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "printer-setup",
+  "category": "3d-printer",
+  "title": "Printer setup",
+  "description": "A label on a printer with what it is set up for: nozzle, build plate, the material loaded and a note, such as when it was last serviced.",
+  "tags": ["3d-printer", "workshop"],
+  "fields": {
+    "printer": "Printer name, shown in the band",
+    "nozzle": "Nozzle size, as text (e.g. 0.4 mm)",
+    "plate": "Build plate or surface",
+    "material": "Material loaded now",
+    "note": "A note, e.g. last service"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "printer-setup",
+        "description": "Printer name in the band, nozzle, plate and material in three rows, a note at the bottom",
+        "fields": ["printer", "nozzle", "plate", "material", "note"],
+        "_sample": ["Printer", "0.4 mm", "Smooth PEI", "PETG", "Serviced 2026-10-01"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 28, "color": "black" },
+          { "type": "text", "field": "printer", "x": 6, "y": 2, "w": 284, "h": 24, "fonts": ["medium", "small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "text": "Nozzle", "x": 6, "y": 34, "w": 90, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "nozzle", "x": 96, "y": 32, "w": 194, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "Plate", "x": 6, "y": 58, "w": 90, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "plate", "x": 96, "y": 56, "w": 194, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "Material", "x": 6, "y": 82, "w": 90, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "material", "x": 96, "y": 80, "w": 194, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 6, "y": 108, "w": 284, "h": 1 },
+          { "type": "text", "field": "note", "x": 6, "y": 110, "w": 284, "h": 17, "fonts": ["small"], "lines": 1 }
+        ]
+      }
+    },
+    "1.54": {
+      "layout": {
+        "name": "printer-setup",
+        "description": "Printer name in the band, nozzle, plate and material each with a label, a note at the bottom",
+        "fields": ["printer", "nozzle", "plate", "material", "note"],
+        "_sample": ["Printer", "0.4 mm", "Smooth PEI", "PETG", "Serviced 2026-10-01"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 32, "color": "black" },
+          { "type": "text", "field": "printer", "x": 6, "y": 4, "w": 188, "h": 24, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "text": "Nozzle", "x": 6, "y": 36, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "nozzle", "x": 6, "y": 52, "w": 188, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "Plate", "x": 6, "y": 80, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "plate", "x": 6, "y": 96, "w": 188, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "text", "text": "Material", "x": 6, "y": 124, "w": 188, "h": 17, "fonts": ["small"], "lines": 1 },
+          { "type": "text", "field": "material", "x": 6, "y": 140, "w": 188, "h": 26, "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+          { "type": "rect", "x": 6, "y": 172, "w": 188, "h": 2 },
+          { "type": "text", "field": "note", "x": 6, "y": 178, "w": 188, "h": 20, "fonts": ["small"], "align": "center", "valign": "middle", "lines": 1 }
+        ]
+      }
+    }
+  }
+}
