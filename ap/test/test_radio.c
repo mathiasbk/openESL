@@ -767,6 +767,11 @@ static void test_image_send(void)
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 903000), ESL_MSG_IDLE);
     CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 903200), ESL_MSG_IDLE);
     CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
+    /* a tag told to wait that then has nothing to fetch (it showed its image already,
+       as after an AP restart) gets its interval back from the plain IDLE too */
+    d.interval_s = ESL_IMAGE_BUSY_S;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, 903400), ESL_MSG_IDLE);
+    CHECK_INT(d.interval_s, ESL_TAG_BUILTIN_POLL_S);
     /* c never came back: its buffer is free again after ESL_IMAGE_HOLD_MS */
     CHECK_INT(esl_faketag_round(&c, &st, &layouts, PAN, -60, 901100 + ESL_IMAGE_HOLD_MS + 1), ESL_MSG_IMG);
     CHECK_INT(c.img_shown, 1);

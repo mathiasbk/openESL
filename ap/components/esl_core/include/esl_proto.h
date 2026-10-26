@@ -79,6 +79,15 @@ size_t esl_img_msg_build(uint8_t *out, uint16_t next_poll_s, uint32_t id, uint16
                          uint8_t model, uint8_t fmt, const uint8_t *data, size_t n);
 
 size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s);
+
+/* A tag that stops part way through a download (it fetches at most so many blocks per
+ * wake-up: CFG_FW_MAX_REQ and CFG_IMG_MAX_REQ in tag/src/config.h) sleeps for the
+ * next_poll_s of the last block it got. So a FW or IMG reply (n bytes) whose block is not
+ * the image's last says ESL_BLOCKS_POLL_S instead, when that is sooner: a firmware image
+ * takes several wake-ups, and on a long interval each one would wait out the whole of it.
+ * The last block keeps the tag's own interval. */
+#define ESL_BLOCKS_POLL_S 5
+void esl_blocks_poll_soon(uint8_t *reply, size_t n);
 /* CONFIG with c and its version (ESL_CONFIG_LEN bytes). */
 size_t esl_config_msg_build(uint8_t *out, uint16_t next_poll_s, const esl_tag_cfg_t *c);
 

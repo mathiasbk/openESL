@@ -78,6 +78,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             n = esl_idle_build(reply, next); /* the image is gone, or not for it: the tag stops */
         else
             note_fw_sent(st, f.src_mac, reply, n, false);
+        esl_blocks_poll_soon(reply, n); /* back soon for the rest when it stops part way */
     } else if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_image_taken(st, f.src_mac, ireq.id);
@@ -85,6 +86,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             n = esl_image_block(images, st, ls, f.src_mac, ireq.id, ireq.pos, ireq.max, next, now_ms, reply);
         else
             n = esl_idle_build(reply, next);
+        esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */

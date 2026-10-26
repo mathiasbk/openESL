@@ -191,6 +191,27 @@ size_t esl_idle_build(uint8_t *out, uint16_t next_poll_s)
     return ESL_IDLE_LEN;
 }
 
+void esl_blocks_poll_soon(uint8_t *reply, size_t n)
+{
+    size_t hdr, off_size, off_pos;
+    if (n >= ESL_FW_HDR_LEN && reply[ESL_OFF_TYPE] == ESL_MSG_FW) {
+        hdr = ESL_FW_HDR_LEN;
+        off_size = ESL_FW_OFF_SIZE;
+        off_pos = ESL_FW_OFF_POS;
+    } else if (n >= ESL_IMG_HDR_LEN && reply[ESL_OFF_TYPE] == ESL_MSG_IMG) {
+        hdr = ESL_IMG_HDR_LEN;
+        off_size = ESL_IMG_OFF_SIZE;
+        off_pos = ESL_IMG_OFF_POS;
+    } else {
+        return;
+    }
+    uint16_t size = (uint16_t)(reply[off_size] | reply[off_size + 1] << 8);
+    uint16_t pos = (uint16_t)(reply[off_pos] | reply[off_pos + 1] << 8);
+    uint16_t next = (uint16_t)(reply[ESL_OFF_NEXT_POLL] | reply[ESL_OFF_NEXT_POLL + 1] << 8);
+    if ((size_t)pos + (n - hdr) < size && (next == 0 || next > ESL_BLOCKS_POLL_S))
+        put16(&reply[ESL_OFF_NEXT_POLL], ESL_BLOCKS_POLL_S);
+}
+
 bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
 {
     memset(out, 0, sizeof(*out));
