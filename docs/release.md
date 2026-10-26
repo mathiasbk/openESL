@@ -67,12 +67,12 @@ The usual order, unless a section says otherwise:
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.7.0, for example, with many tags:
+From 0.5.x to 0.8.0, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.7.0 esl-client.
-2. The AP: `openesl-ap-<board>-v0.7.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval.
+1. `esl-client backup ap.json` with the 0.8.0 esl-client.
+2. The AP: `openesl-ap-<board>-v0.8.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
 3. ESP32-S3 with a C6 on a cable: the C6 radio has not changed since 0.5.0, apart from the screen of the C6 with a 0.96" LCD (colours and lines, #168). Flash it from the Flash AP tab only for that. The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.7.0 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+4. The tags: the tag image of the 0.8.0 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
 5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below).
 
 ### Upgrading from 0.4.x to 0.5.0
@@ -99,6 +99,16 @@ Layout files compile to layout format 2 (lines, round and open boxes, icons, QR 
 Order: only the AP. The tag firmware has not changed (the tag image of this release is 0.6.0): tags on 0.6.0 need nothing, tags on 0.5.x take it as in "Upgrading over more than one release". Neither C6 radio has changed (on a cable or over WiFi), so neither needs flashing; the dashboard now shows the link to the C6 over WiFi. Nothing is one-way: an AP that goes back to 0.6.0 keeps its data and its name.
 
 A new AP is `openesl-xxxx.local` on the network, with the four digits of its setup network, so two APs on one network get their own names. An AP that already has its WiFi saved keeps `openesl.local`, so bookmarks and Home Assistant keep working. Two such APs on one network still share the name until one is renamed: `esl_client.py --serial <port> wifi --hostname openesl-s3`, or "Name" in the WiFi card. An AP flashed with "Erase" ticked in the Flash AP tab (new in 0.7.0; without it the tab keeps what the AP has stored) is a new AP too, and gets `openesl-xxxx.local`: change the address in Home Assistant's `rest_command` and in `OPENESL_URL`, or give it back its old name.
+
+### Upgrading from 0.7.x to 0.8.0
+
+Order: the AP, then, only with an S3 and a C6 over WiFi (netradio), the C6 if you want its new web page. The tag firmware has not changed (the tag image of this release is 0.6.0): tags on 0.6.0 need nothing, tags on 0.5.x take it as in "Upgrading over more than one release". The C6 radio on a cable has not changed. Nothing is one-way: an AP that goes back to 0.7.0 keeps its data, its layout files and its name, and the C6 radio over WiFi of 0.7.0 and of 0.8.0 each work with either S3.
+
+The AP checks the content of every tag against its model's layout file, at boot and when a file is uploaded (#221), as it already did for new content in `PUT /api/tags`. A tag whose barcode, QR code or number does not fit its box in the file keeps the screen it shows, and its content is held back until it gets content that fits or a file it fits: `content_error` in `GET /api/tags` says so, and `PUT /api/layouts/{model}` lists such tags in `content_errors`. So after the update, look for `content_error` in `GET /api/tags` (or the dashboard) and send those tags content that fits; under 0.7.0 such a tag got its screen with that code left blank, and nothing said so.
+
+The C6 radio over WiFi now sends a browser that opens its address to the S3's dashboard (#229). It is optional and changes nothing else: in the Flash AP tab, pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase" (it keeps its WiFi and the S3's address).
+
+`esl-client backup` notes the AP's name and the tag firmware, and the user guide describes moving to another AP board (#222). The designer has a template library (#230); on the AP it reads the templates from the GitHub Pages site, so the browser needs internet for them, else it offers the AP's example layouts as before.
 
 ## 5. A bad release
 
