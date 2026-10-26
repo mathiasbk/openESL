@@ -572,7 +572,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     write_tag_cfg(out, t, default_poll_s);
 
     esl_sb_puts(out, ",\"content_error\":");
-    const char *err = t->has_content && esl_tag_pending(t) ? esl_content_err_text(t->content_err) : NULL;
+    const char *err = esl_content_err_text(esl_tag_content_err(t));
     if (err)
         esl_sb_json_str(out, err);
     else
@@ -1836,7 +1836,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             esl_sb_puts(out, "</td><td>no content");
         if (t.seen && (t.poll_flags & ESL_POLL_FLAG_DRAW_FAILED))
             esl_sb_puts(out, ", draw failed");
-        const char *err = esl_tag_pending(&t) ? esl_content_err_text(t.content_err) : NULL;
+        const char *err = esl_content_err_text(esl_tag_content_err(&t));
         if (err)
             esl_sb_printf(out, " (%s)", err);
         /* the same flags as GET /api/health, with spaces for the page */

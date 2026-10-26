@@ -21,7 +21,7 @@ uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint64_t now_m
            before it counts as gone */
         if (now_ms >= silent_ms)
             f |= ESL_HEALTH_UNSEEN;
-        return f | ((t->has_content && esl_tag_pending(t) && t->content_err) ? ESL_HEALTH_CONTENT_ERROR : 0);
+        return f | (esl_tag_content_err(t) ? ESL_HEALTH_CONTENT_ERROR : 0);
     }
     if (now_ms - t->last_seen_ms >= silent_ms)
         f |= ESL_HEALTH_SILENT;
@@ -29,7 +29,7 @@ uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint64_t now_m
         f |= ESL_HEALTH_DRAW_FAILED;
     if (t->battery_mv && t->battery_mv < low)
         f |= ESL_HEALTH_LOW_BATTERY;
-    if (t->has_content && esl_tag_pending(t) && t->content_err)
+    if (esl_tag_content_err(t))
         f |= ESL_HEALTH_CONTENT_ERROR;
     return f;
 }

@@ -599,12 +599,14 @@ static void test_image_send(void)
         free(f2);
     }
 
-    /* the file is deleted: the tag keeps the image it shows (it needs no file) */
+    /* the file is deleted: the tag keeps the image it shows (it needs no file), and the API
+       says its content could not be drawn again */
     CHECK_INT(esl_api_handle(&api, "DELETE", "/api/layouts/2.9", AUTH, NULL, 0, 0, &out), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 301000), ESL_MSG_IDLE);
     CHECK_INT(a.img_shown, 4);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
+    CHECK(HAS(resp, "\"content_error\":\"the layout is not in the layout file for this tag's model\""));
     /* named content set while the file was there, which is gone when the tag polls: held back,
        like for a tag that draws itself */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 422);
@@ -640,13 +642,47 @@ static void test_image_send(void)
         CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 200);
     }
 
+    /* a tag that shows its image when a file comes that its content no longer fits: it keeps
+       that image, and the API and health say why it gets no new one */
+    {
+        const char *wide = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c128\","
+                           "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
+                           "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":290,\"h\":40}]}]}";
+        const char *narrow = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c128\","
+                             "\"fields\":[\"code\"],\"elements\":[{\"type\":\"barcode\",\"field\":\"code\","
+                             "\"symbology\":\"code128\",\"x\":0,\"y\":0,\"w\":60,\"h\":40}]}]}";
+        CHECK_INT(put_layout("2.9", wide, strlen(wide)), 200);
+        CHECK_INT(put("000000000000029A", "{\"layout\":\"c128\",\"fields\":[\"WXYZ\"]}"), 200);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 353000), ESL_MSG_IMG);
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 354000), ESL_MSG_IDLE); /* it shows it */
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+        CHECK(HAS(resp, "\"pending\":false"));
+        CHECK(HAS(resp, "\"content_error\":null"));
+        uint32_t d = images.drawn;
+        CHECK_INT(put_layout("2.9", narrow, strlen(narrow)), 200);
+        CHECK(HAS(resp, "\"content_errors_total\":1"));
+        CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 356000), ESL_MSG_IDLE);
+        CHECK_INT(images.drawn, d);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+        CHECK(HAS(resp, "does not fit its box"));
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 0, &out), 200);
+        const char *h = strstr(resp, "{\"mac\":\"000000000000029A\",\"problems\":[");
+        CHECK(h && strstr(h, "content_error") && strstr(h, "content_error") < strchr(h, ']'));
+        /* the wide file again: it fits, and the error is gone */
+        CHECK_INT(put_layout("2.9", wide, strlen(wide)), 200);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
+        CHECK(HAS(resp, "\"content_error\":null"));
+        CHECK_INT(put_layout("2.9", f29, l29), 200);
+        CHECK_INT(put("000000000000029A", "{\"layout\":\"sign\",\"fields\":[\"Velkommen\",\"Stengt\"]}"), 200);
+    }
+
     /* the file is back, with the answer to the POLL lost: the retry gets block 0 again */
     CHECK_INT(put_layout("2.9", f29, l29), 200);
     uint32_t drawn = images.drawn;
     CHECK_INT(air(&a, 361000, true), 0);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 361000), ESL_MSG_IMG);
     CHECK_INT(images.drawn, drawn + 1);
-    CHECK_INT(a.img_shown, 5);
+    CHECK_INT(a.img_shown, 6);
 
     /* the content changes while the tag downloads: the next block it asks for is block 0 of the new image */
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Ost\",\"99,00\"]}"), 200);
@@ -667,7 +703,7 @@ static void test_image_send(void)
             if (!m || esl_faketag_receive(&a, tx, m) != ESL_MSG_IMG)
                 break;
         }
-        CHECK_INT(a.img_shown, 6);
+        CHECK_INT(a.img_shown, 7);
         CHECK(a.shown == image_id_of("000000000000029A"));
     }
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 481000), ESL_MSG_IDLE);
@@ -676,7 +712,7 @@ static void test_image_send(void)
     a.img_bad = true;
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"49,90\"]}"), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 541000), ESL_MSG_IMG);
-    CHECK_INT(a.img_shown, 6);
+    CHECK_INT(a.img_shown, 7);
     CHECK(a.img_failed != 0);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 601000), ESL_MSG_IDLE);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
@@ -688,7 +724,7 @@ static void test_image_send(void)
     a.img_bad = false;
     CHECK_INT(put("000000000000029A", "{\"layout\":\"price\",\"fields\":[\"Smør\",\"39,90\"]}"), 200);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 721000), ESL_MSG_IMG);
-    CHECK_INT(a.img_shown, 7);
+    CHECK_INT(a.img_shown, 8);
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 781000), ESL_MSG_IDLE);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"draw_failed\":false"));
@@ -699,7 +735,7 @@ static void test_image_send(void)
     drawn = images.drawn;
     CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 841000), ESL_MSG_IDLE);
     CHECK_INT(images.drawn, drawn + 1);
-    CHECK_INT(a.img_shown, 7);
+    CHECK_INT(a.img_shown, 8);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029A", AUTH, NULL, 0, 0, &out), 200);
     CHECK(HAS(resp, "\"pending\":false"));
 
