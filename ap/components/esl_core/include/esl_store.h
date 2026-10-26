@@ -237,7 +237,8 @@ unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t mode
 
 /* The same for one tag, when its content or model changed since its last check: content
  * from the schedule (esl_sched_tick, checked when it was queued, maybe against an older
- * file), or set while its model was not known. esl_radio_handle calls it after each POLL,
+ * file), or set while its model was not known. esl_radio_handle calls it after each POLL
+ * (esl_radio_after once the reply is out, with esl_radio_set_draw_later),
  * and esl_image before it draws (with a radio coprocessor, esl_rhost draws before the POLL). True if the content fits (or nothing was to be checked). */
 bool esl_store_check_tag(esl_store_t *st, esl_layouts_t *ls, uint64_t mac);
 

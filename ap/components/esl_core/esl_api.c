@@ -818,6 +818,14 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         }
         esl_sb_puts(out, "}");
     }
+    if (api->radio_stats) {
+        /* written by the radio task without the API's lock: a counter may be one behind */
+        const esl_link_stats_t *r = api->radio_stats;
+        esl_sb_printf(out,
+                      ",\"replies\":{\"polls\":%" PRIu32 ",\"blocks\":%" PRIu32 ",\"tx_failed\":%" PRIu32
+                      ",\"dropped\":%" PRIu32 ",\"slow\":%" PRIu32 ",\"worst_us\":%" PRId64 "}",
+                      r->polls, r->blocks, r->tx_failed, r->dropped, r->slow, r->worst_us);
+    }
     esl_sb_puts(out, "},\"tags\":[");
     bool first = true;
     for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {

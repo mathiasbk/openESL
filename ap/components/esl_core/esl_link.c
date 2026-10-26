@@ -26,8 +26,11 @@ size_t esl_link_handle(esl_link_t *l, esl_store_t *st, esl_layouts_t *ls, uint16
         l->stats.last_us = clock_us ? clock_us() - f->rx_us : 0;
     if (l->stats.last_us > l->stats.worst_us)
         l->stats.worst_us = l->stats.last_us;
+    if (l->stats.last_us > ESL_LINK_SLOW_US)
+        l->stats.slow++;
     if (sent)
         *sent = ok;
+    esl_radio_after(st, ls, ev, now_ms); /* an image to draw, now that the reply is out */
     return len;
 }
 

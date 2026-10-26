@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "radio.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -95,6 +96,8 @@ void app_main(void)
     api.reset_reason = why;
 #if CONFIG_ESL_RADIO_DRIVER_NET
     api.link = radio_net_link();
+#elif !CONFIG_ESL_RADIO_STUB
+    api.radio_stats = &radio_link.stats;
 #endif
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
@@ -121,6 +124,8 @@ void app_main(void)
     if (image_mem) {
         esl_image_init(&images, image_mem, NULL);
         esl_radio_set_image(&images);
+        /* Drawn after the reply, not in the tag's 20 ms listening window (krav A3) */
+        esl_radio_set_draw_later(true);
     } else {
         ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());
     }
