@@ -61,6 +61,17 @@ esp_err_t display_start(const esl_api_t *api);
  * shows it if it has an LCD. Dropped while the radio is not up. */
 void radio_screen(const esl_screen_t *s);
 
+/* radio_uart.c: new firmware for the radio coprocessor over the link (link v2),
+ * for ota.c. radio_ota_begin() starts an upload of size bytes, radio_ota_write()
+ * sends the next len bytes and returns once the radio has written them, and
+ * radio_ota_end() has the radio check the image and restart into it. Each
+ * returns 0, or an HTTP status with the reason in err. radio_info() writes the
+ * radio's JSON object for GET /api/ota: up, version, fw, link, ota, display. */
+int radio_ota_begin(uint32_t size, char *err, size_t errlen);
+int radio_ota_write(const void *data, size_t len, char *err, size_t errlen);
+int radio_ota_end(char *err, size_t errlen);
+void radio_info(esl_sb_t *out);
+
 /* health.c (ESL_WEBHOOK): posts the health report (GET /api/health) to the
  * webhook URL whenever it changes. Returns the notify struct for api->notify,
  * NULL if the task could not start. Call once api->store is filled in. */

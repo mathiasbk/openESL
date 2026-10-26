@@ -7,7 +7,7 @@ The AP firmware runs on several ESP32 boards. All of them do the same job: the H
 | [ESP32-C6](ESP32-C6) (Super Mini) | about 700 | 5 $ | supported, the one tested most |
 | [ESP32-C6 with screen](ESP32-C6-with-screen) | about 700 | 10 $ | supported |
 | [ESP32-C5](ESP32-C5) N16R8 | 1000 | 10–15 $ | experimental |
-| [ESP32-S3 + C6](ESP32-S3-and-C6) (with or without screen on the C6) | 1000 | 10 $ + a C6 | experimental |
+| [ESP32-S3 + C6](ESP32-S3-and-C6) (with or without screen on the C6) | 1000 | 10 $ + a C6 | supported (with the screen on the C6: experimental) |
 | [ESP32-S3 + wireless C6](ESP32-S3-with-wireless-C6) (no wire between them) | not decided | 10 $ + a C6 | experimental, not secure yet, with real limits |
 
 "Experimental" means the firmware builds and is in every release, but it has not been tried on that board yet. Reports are welcome.

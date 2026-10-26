@@ -2,7 +2,7 @@
 # ap/radio/ as its 802.15.4 radio on UART1: S3 GPIO17 (TX) -> C6 GPIO17 (RX),
 # S3 GPIO18 (RX) <- C6 GPIO16 (TX), and GND (docs/ap-radio-link.md).
 # The S3 has no 802.15.4, so WiFi has its radio to itself, and the C6 has no WiFi.
-# Built by CI but not yet tried on a board: status "experimental" in board.json.
+# Tried on hardware with a C6 Super Mini (2026-10-26); still "experimental" in board.json.
 CONFIG_IDF_TARGET="esp32s3"
 
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y

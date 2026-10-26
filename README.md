@@ -56,7 +56,7 @@ The ESP32-C6 alone is the simple choice and the one tried most. For more tags, t
 |---|---|---|
 | ESP32-C6 Super Mini, with or without a 0.96" screen | about 700 | supported |
 | ESP32-C5 N16R8 | 1000 | experimental |
-| ESP32-S3 N16R8 + ESP32-C6 as its radio, with or without a screen on the C6 | 1000 | experimental |
+| ESP32-S3 N16R8 + ESP32-C6 as its radio, with or without a screen on the C6 | 1000 | supported (with the screen on the C6: experimental) |
 
 ## Supported tags
 

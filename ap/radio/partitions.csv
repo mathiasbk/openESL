@@ -1,0 +1,8 @@
+# The radio's flash (4 MB): two app slots, so the AP host can send it new firmware over the
+# UART link while it runs from the other one (docs/ap-radio-link.md). An image is about 260 KB.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x4000
+otadata,  data, ota,     0xd000,   0x2000
+phy_init, data, phy,     0xf000,   0x1000
+ota_0,    app,  ota_0,   0x10000,  0x1E0000
+ota_1,    app,  ota_1,   0x1F0000, 0x1E0000

@@ -87,19 +87,24 @@ bool esl_coproc_decode_config(const uint8_t *p, size_t len, esl_coproc_config_t 
     return c->channel >= 11 && c->channel <= 26;
 }
 
-/* ---- HELLO: version, configured, fw, ieee_addr, config (19 bytes) ---- */
+/* ---- HELLO: version, configured, fw, ieee_addr, config (19 bytes); since link v2
+ * the app version follows, 32 bytes padded with zeros, and a byte of features ---- */
 
 #define HELLO_LEN (4 + 8 + CONFIG_LEN)
+#define HELLO_V2_LEN (HELLO_LEN + ESL_COPROC_APP_VERSION_MAX + 1)
 
 size_t esl_coproc_encode_hello(uint8_t *out, const esl_coproc_hello_t *h)
 {
-    uint8_t p[HELLO_LEN];
+    uint8_t p[HELLO_V2_LEN] = {0};
     p[0] = h->version;
     p[1] = h->configured;
     put16(&p[2], h->fw);
     put32(&p[4], (uint32_t)h->ieee_addr);
     put32(&p[8], (uint32_t)(h->ieee_addr >> 32));
     put_config(&p[12], &h->cfg);
+    for (size_t i = 0; i < ESL_COPROC_APP_VERSION_MAX && h->app_version[i]; i++)
+        p[HELLO_LEN + i] = (uint8_t)h->app_version[i];
+    p[HELLO_LEN + ESL_COPROC_APP_VERSION_MAX] = h->features;
     return esl_coproc_frame(out, ESL_COPROC_HELLO, p, sizeof(p));
 }
 
@@ -113,6 +118,12 @@ bool esl_coproc_decode_hello(const uint8_t *p, size_t len, esl_coproc_hello_t *h
     h->fw = get16(&p[2]);
     h->ieee_addr = get32(&p[4]) | (uint64_t)get32(&p[8]) << 32;
     get_config(&p[12], &h->cfg);
+    memset(h->app_version, 0, sizeof(h->app_version));
+    h->features = 0;
+    if (len >= HELLO_V2_LEN) {
+        memcpy(h->app_version, &p[HELLO_LEN], ESL_COPROC_APP_VERSION_MAX);
+        h->features = p[HELLO_LEN + ESL_COPROC_APP_VERSION_MAX];
+    }
     return true;
 }
 
@@ -243,6 +254,124 @@ bool esl_coproc_decode_screen(const uint8_t *p, size_t len, esl_coproc_screen_t 
         n += l;
     }
     return true;
+}
+
+/* ---- OTA_BEGIN: size; OTA_DATA: offset, bytes; OTA_ACK: status, offset ---- */
+
+size_t esl_coproc_encode_ota_begin(uint8_t *out, uint32_t size)
+{
+    uint8_t p[4];
+    put32(p, size);
+    return esl_coproc_frame(out, ESL_COPROC_OTA_BEGIN, p, sizeof(p));
+}
+
+bool esl_coproc_decode_ota_begin(const uint8_t *p, size_t len, uint32_t *size)
+{
+    if (len < 4)
+        return false;
+    *size = get32(p);
+    return true;
+}
+
+size_t esl_coproc_encode_ota_data(uint8_t *out, uint32_t offset, const uint8_t *data, size_t len)
+{
+    uint8_t p[4 + ESL_COPROC_OTA_CHUNK];
+    if (len > ESL_COPROC_OTA_CHUNK)
+        return 0;
+    put32(p, offset);
+    if (len)
+        memcpy(&p[4], data, len);
+    return esl_coproc_frame(out, ESL_COPROC_OTA_DATA, p, 4 + len);
+}
+
+bool esl_coproc_decode_ota_data(const uint8_t *p, size_t len, uint32_t *offset, const uint8_t **data, size_t *data_len)
+{
+    if (len < 4 || len - 4 > ESL_COPROC_OTA_CHUNK)
+        return false;
+    *offset = get32(p);
+    *data = &p[4];
+    *data_len = len - 4;
+    return true;
+}
+
+size_t esl_coproc_encode_ota_ack(uint8_t *out, uint8_t status, uint32_t offset)
+{
+    uint8_t p[5];
+    p[0] = status;
+    put32(&p[1], offset);
+    return esl_coproc_frame(out, ESL_COPROC_OTA_ACK, p, sizeof(p));
+}
+
+bool esl_coproc_decode_ota_ack(const uint8_t *p, size_t len, uint8_t *status, uint32_t *offset)
+{
+    if (len < 5)
+        return false;
+    *status = p[0];
+    *offset = get32(&p[1]);
+    return true;
+}
+
+/* ---- the radio's side of an upload ---- */
+
+static void ota_close(esl_coproc_ota_rx_t *o)
+{
+    if (o->open && o->abort)
+        o->abort(o->ctx);
+    o->open = false;
+}
+
+size_t esl_coproc_ota_handle(esl_coproc_ota_rx_t *o, uint8_t type, const uint8_t *p, size_t len, uint8_t *out,
+                             bool *done)
+{
+    *done = false;
+    switch (type) {
+    case ESL_COPROC_OTA_BEGIN: {
+        uint32_t size;
+        if (!esl_coproc_decode_ota_begin(p, len, &size))
+            return 0;
+        ota_close(o);
+        o->size = size;
+        o->offset = 0;
+        int st = size ? o->begin(o->ctx, size) : ESL_COPROC_OTA_INVALID;
+        o->open = st == ESL_COPROC_OTA_OK;
+        return esl_coproc_encode_ota_ack(out, (uint8_t)st, 0);
+    }
+    case ESL_COPROC_OTA_DATA: {
+        uint32_t off;
+        const uint8_t *data;
+        size_t n;
+        if (!esl_coproc_decode_ota_data(p, len, &off, &data, &n))
+            return 0;
+        if (!o->open)
+            return esl_coproc_encode_ota_ack(out, ESL_COPROC_OTA_OFFSET, 0);
+        if (off != o->offset) {
+            /* the last part once more (its ACK was lost): it is in already */
+            bool again = n && off + n == o->offset;
+            return esl_coproc_encode_ota_ack(out, again ? ESL_COPROC_OTA_OK : ESL_COPROC_OTA_OFFSET, o->offset);
+        }
+        if (n > o->size - o->offset) {
+            ota_close(o);
+            return esl_coproc_encode_ota_ack(out, ESL_COPROC_OTA_TOO_BIG, off);
+        }
+        int st = n ? o->write(o->ctx, data, n) : ESL_COPROC_OTA_OK;
+        if (st != ESL_COPROC_OTA_OK) {
+            ota_close(o);
+            return esl_coproc_encode_ota_ack(out, (uint8_t)st, off);
+        }
+        o->offset += (uint32_t)n;
+        return esl_coproc_encode_ota_ack(out, ESL_COPROC_OTA_OK, o->offset);
+    }
+    case ESL_COPROC_OTA_END: {
+        if (!o->open || o->offset != o->size)
+            return esl_coproc_encode_ota_ack(out, ESL_COPROC_OTA_OFFSET, o->open ? o->offset : 0);
+        o->open = false; /* end() closes it either way */
+        int st = o->end(o->ctx);
+        *done = st == ESL_COPROC_OTA_OK;
+        return esl_coproc_encode_ota_ack(out, (uint8_t)st, o->offset);
+    }
+    default:
+        return 0;
+    }
 }
 
 /* ---- parser ---- */

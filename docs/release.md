@@ -60,7 +60,7 @@ The usual order, unless a section says otherwise:
 
 1. `esl-client backup ap.json`, with the esl-client of the new release (it also works with older APs).
 2. The AP first, over the air (`esl-client ota ... --wait`), then check that `GET /api/ota` says confirmed and that tags check in. Not with "Erase" in the Flash AP tab: that wipes the tags, layouts, token and WiFi.
-3. A C6 radio next to an S3 is flashed by hand (the S3 cannot update it yet), and only when the section says it changed.
+3. A C6 radio on a cable next to an S3, only when the section says it changed: since 0.8.2 over the air through the S3 (`esl-client ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`, or the dashboard). A radio flashed before 0.8.2 needs one more flash over USB first (Flash AP tab), which gives it the second app slot ([ap-radio-link.md](ap-radio-link.md#updating-the-radio-over-the-cable)).
 4. The tags last, one of each model first (Rollout, above). The tags may stay on the old firmware for days: an AP talks to the tags of the release before it.
 
 ### Upgrading over more than one release

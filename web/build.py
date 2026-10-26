@@ -479,9 +479,18 @@ def add_firmware(*files):
         manifest = name.replace(".bin", "-manifest.json")
         ap_manifest(out, "OpenESL radio, %s" % r["label"], info["version"], name,
                     split_ap_image(radios[r["key"]], out, name), r["chip_family"], manifest)
-        info["radios"].append({"key": r["key"], "kind": r["kind"], "id": r["id"], "label": r["label"],
-                               "status": r["status"], "chip_family": r["chip_family"],
-                               "display": r["id"].endswith("-lcd"), "manifest": manifest})
+        entry = {"key": r["key"], "kind": r["kind"], "id": r["id"], "label": r["label"],
+                 "status": r["status"], "chip_family": r["chip_family"],
+                 "display": r["id"].endswith("-lcd"), "manifest": manifest}
+        # A radio on UART is updated through its AP (POST /api/ota): the dashboard sends
+        # radio-<key>-ota.bin, and compares "version" (the image's) with what the radio runs
+        ota = radios[r["key"]][:-4] + "-ota.bin"
+        if os.path.exists(ota):
+            shutil.copy2(ota, os.path.join(out, name[:-4] + "-ota.bin"))
+            info["ota"][name[:-4]] = True
+            entry["ota"] = name[:-4] + "-ota"
+            entry["version"] = image_version(ota)
+        info["radios"].append(entry)
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)
