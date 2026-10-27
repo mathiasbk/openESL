@@ -18,7 +18,7 @@ Use the `-ota.bin` file from the [release](https://github.com/mathiasbk/openESL/
 
 ## The C6 radio of an ESP32-S3 + C6
 
-An [ESP32-S3 with a C6 on a cable](ESP32-S3-and-C6#updating) has a second chip to update: the C6 radio. Since 0.8.2 the S3 passes the radio's firmware on over the cable, from the dashboard (the **Radio** line under Firmware) or with `esl_client.py ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`. Update the S3 first, then the radio. A C6 flashed before 0.8.2 has to be flashed once more over USB first.
+An [ESP32-S3 with a C6 on a cable](ESP32-S3-and-C6#updating) has a second chip to update: the C6 radio. Since 0.8.2 the S3 passes the radio's firmware on over the cable, from the dashboard (the **Radio** line under Firmware) or with `esl_client.py ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`. Update the S3 first, then the radio. A C6 flashed before 0.8.2 has to be flashed once more over USB first. Going back to an older radio firmware also needs the Flash AP tab over USB: older releases have no radio `-ota.bin`.
 
 ## If something goes wrong
 
