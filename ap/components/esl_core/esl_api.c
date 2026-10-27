@@ -521,7 +521,7 @@ static fwu_t tag_fw_update(const esl_api_t *api, const esl_tag_t *t, const esl_t
 static bool seen_s_ago(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, uint64_t *s)
 {
     if (t->seen) {
-        *s = (now_ms - t->last_seen_ms) / 1000;
+        *s = esl_tag_seen_ms_ago(t, now_ms) / 1000;
         return true;
     }
     uint32_t unix_now = t->seen_unix && api->sched ? esl_sched_now(api->sched, now_ms, NULL) : 0;
@@ -1084,7 +1084,7 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
             first = false;
         }
         if (t.seen)
-            esl_sb_printf(out, "],\"seen_s_ago\":%" PRIu64 ",\"battery_mv\":%u}", (now_ms - t.last_seen_ms) / 1000,
+            esl_sb_printf(out, "],\"seen_s_ago\":%" PRIu64 ",\"battery_mv\":%u}", esl_tag_seen_ms_ago(&t, now_ms) / 1000,
                           (unsigned)t.battery_mv);
         else
             esl_sb_puts(out, "],\"seen_s_ago\":null,\"battery_mv\":null}");
@@ -1812,7 +1812,7 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         const char *model = t.seen ? esl_model_name(t.model) : NULL;
         esl_sb_printf(out, "<tr><td>%s</td><td>%s</td><td>", m, model ? model : "-");
         if (t.seen) {
-            html_ago(out, (now_ms - t.last_seen_ms) / 1000);
+            html_ago(out, esl_tag_seen_ms_ago(&t, now_ms) / 1000);
             if (t.battery_mv)
                 esl_sb_printf(out, " ago</td><td>%u mV</td>", (unsigned)t.battery_mv);
             else
