@@ -623,11 +623,12 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
             st->tried_at = now;
             st->http = (int16_t)status;
         }
-        if (status == 200 || status == 304) {
+        /* 203: data, from a deprecated version of the API (the caller passes a warning) */
+        if (status == 200 || status == 203 || status == 304) {
             st->fails = 0;
             st->fetched_at = now;
             st->expires_at = expires;
-            if (status == 200)
+            if (status != 304)
                 copy_str(st->last_modified, sizeof(st->last_modified), last_modified ? last_modified : "");
             st->next_at = now + every;
             if (expires > st->next_at)

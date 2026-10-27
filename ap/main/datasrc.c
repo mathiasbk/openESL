@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -35,7 +36,8 @@ static esl_store_t *store;
 static esl_layouts_t *layouts;
 static esl_sched_t *sched;
 
-/* The last answer per source (index as in sources), with the URL it came from */
+/* The last answers, by the URL they came from (not by the source's index, which changes when
+   a source before it is removed) */
 static struct {
     char url[URL_MAX];
     char *body;
@@ -145,7 +147,7 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
     esp_err_t e = esp_http_client_open(c, 0);
     if (e == ESP_OK && esp_http_client_fetch_headers(c) >= 0) {
         status = esp_http_client_get_status_code(c);
-        if (status == 200) {
+        if (status == 200 || status == 203) {
             char *b = heap_caps_malloc(ESL_SOURCE_BODY_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (!b)
                 b = malloc(ESL_SOURCE_BODY_MAX);
@@ -175,6 +177,39 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
     return status;
 }
 
+static int cache_find(const char *url)
+{
+    for (int k = 0; k < ESL_SOURCE_MAX; k++)
+        if (cache[k].body && !strcmp(cache[k].url, url))
+            return k;
+    return -1;
+}
+
+/* Whether a source of the configuration now has this URL */
+static bool url_in_use(const char *url)
+{
+    char u[URL_MAX];
+    bool used = false;
+    lock(NULL);
+    for (unsigned i = 0; i < sources->n && !used; i++)
+        used = esl_source_url(&sources->cfg[i], u, sizeof(u)) && !strcmp(u, url);
+    unlock(NULL);
+    return used;
+}
+
+/* The slot for a new answer from url: its own, an empty one, or one no source uses any more */
+static int cache_slot(const char *url)
+{
+    int k = cache_find(url);
+    for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
+        if (!cache[j].body)
+            k = j;
+    for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
+        if (!url_in_use(cache[j].url))
+            k = j;
+    return k < 0 ? 0 : k;
+}
+
 static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fetch, uint32_t now)
 {
     static esl_values_t values;
@@ -188,17 +223,27 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no URL");
         return;
     }
-    bool cached = cache[i].body && !strcmp(cache[i].url, url);
+    int k = cache_find(url);
+    bool cached = k >= 0;
     if (want_fetch || !cached) {
         char *body;
         size_t len;
         status = fetch(url, cached ? lm : NULL, &heads, &body, &len, err, sizeof(err));
         expires = esl_http_date(heads.expires);
-        if (status == 200) {
-            free(cache[i].body);
-            snprintf(cache[i].url, sizeof(cache[i].url), "%s", url);
-            cache[i].body = body;
-            cache[i].len = len;
+        /* MET's terms: spread the requests, not all at the Expires every AP for this place got */
+        if (expires)
+            expires += esp_random() % 300;
+        if (status == 200 || status == 203) {
+            /* 203: the data is good, but this version of the API is deprecated (it ends about a
+               month later): shown as the source's error until then */
+            if (status == 203)
+                snprintf(err, sizeof(err), "%.*s says this API version is deprecated (HTTP 203): update the AP",
+                         host_len(url), url + 8);
+            k = cache_slot(url);
+            free(cache[k].body);
+            snprintf(cache[k].url, sizeof(cache[k].url), "%s", url);
+            cache[k].body = body;
+            cache[k].len = len;
         } else if (status == 304 && cached) {
             /* not changed: the last answer again, for the time that has passed since */
         } else {
@@ -209,7 +254,7 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
             return;
         }
     }
-    if (!esl_source_values(cfg, cache[i].body, cache[i].len, now, utc_offset, &values, &data_at, err, sizeof(err))) {
+    if (!esl_source_values(cfg, cache[k].body, cache[k].len, now, utc_offset, &values, &data_at, err, sizeof(err))) {
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);
         esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, NULL, 0, NULL, err);
         return;
@@ -218,10 +263,12 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     if (result.error[0])
         ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
     ESP_LOGI(TAG, "%s: %s, %u tag(s), %u changed", cfg->id,
-             status == 200 ? "new data" : status == 304 ? "not changed" : "made again", (unsigned)result.tags_set,
-             (unsigned)result.tags_changed);
+             status == 200 || status == 203 ? "new data" : status == 304 ? "not changed" : "made again",
+             (unsigned)result.tags_set, (unsigned)result.tags_changed);
+    if (err[0])
+        ESP_LOGW(TAG, "%s: %s", cfg->id, err);
     esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, data_at, &result,
-                     NULL);
+                     err[0] ? err : NULL);
 }
 
 static void datasrc_task(void *arg)

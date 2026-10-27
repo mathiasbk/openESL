@@ -736,7 +736,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+    const where = sources.placeOf();
+    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -825,6 +827,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     stBusy = true;
     $("st-send").disabled = $("st-forget").disabled = true;
     try {
+      // a tag that shows the weather leaves its place first, or the next forecast overwrites this
+      const left = await sources.release(tags.map((t) => t.mac));
       const { replies, note } = await sendRows(client, rows);
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
@@ -832,7 +836,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const who = tags.length === 1 ? "The tag shows" : `${tags.length} tags show`;
       stMsg((waiting ? `Sent. ${who} it at the next poll.` : "Sent; the tags already show this.") +
         (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
-        (note ? " " + note : ""), "ok");
+        (note ? " " + note : "") +
+        (left.length ? ` No more weather for ${left.length === 1 && tags.length === 1 ? "it" : "them"} (${left.join(", ")}).` : ""), "ok");
     } catch (e) {
       stMsg("Not sent: " + e.message, "error");
     } finally {

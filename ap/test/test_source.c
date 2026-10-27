@@ -498,14 +498,20 @@ static void test_api(void)
     CHECK(sources.state[0].fails == 0);
     esl_sources_done(&sources, 0, "hjemme", T0 + 9500, 0, 0, NULL, NULL, 0, NULL, "connect failed");
     CHECK(sources.state[0].next_at == T0 + 9560);
+    /* 203 (a deprecated API version) is data, with the caller's warning as the error */
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9560, 203, T0 + 12000, "Mon, 26 Oct 2026 18:00:00 GMT", &v,
+                     T0 - 1000, &run, "deprecated");
+    CHECK(sources.state[0].fetched_at == T0 + 9560 && sources.state[0].next_at == T0 + 12000);
+    CHECK(!strcmp(sources.state[0].last_modified, "Mon, 26 Oct 2026 18:00:00 GMT"));
+    CHECK(!strcmp(sources.state[0].error, "deprecated") && sources.state[0].http == 203);
     /* another id at that index (the configuration changed meanwhile): ignored */
     esl_sources_done(&sources, 0, "other", T0 + 9000, 200, 0, NULL, NULL, 0, NULL, NULL);
-    CHECK(sources.state[0].fetched_at == T0 + 9400);
+    CHECK(sources.state[0].fetched_at == T0 + 9560);
 
     /* a new configuration keeps what is known of a source with the same id and place, and
        makes its content again from the last answer; another place starts over */
     CHECK_INT(req("PUT", "/api/sources", CFG), 200);
-    CHECK(sources.state[0].fetched_at == T0 + 9400 && sources.state[0].reapply);
+    CHECK(sources.state[0].fetched_at == T0 + 9560 && sources.state[0].reapply);
     CHECK_INT(esl_sources_due(&sources, T0 + 9100, &cfg, lm, sizeof(lm), &fetch), 0);
     CHECK(!fetch);
     const char *moved = "{\"sources\":[{\"id\":\"hjemme\",\"type\":\"met\",\"lat\":60,\"lon\":10.7522,"

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, leavePlan, missingModels, placeOf } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -51,6 +51,17 @@ test("ticked tags move to a place, and a place left without tags goes", () => {
   assert.match(weatherPlan([], many, { place: "X", lat: 1, lon: 1 }).error, /at most 32 tags/);
   const eight = Array.from({ length: 8 }, (_, i) => ({ ...oslo, id: "p" + i, tags: [String(i).padStart(16, "1")] }));
   assert.match(weatherPlan(eight, [C], { place: "X", lat: 1, lon: 1 }).error, /at most 8 places/);
+});
+
+test("tags sent other content leave their places", () => {
+  const bergen = { id: "bergen", type: "met", lat: 60.39, lon: 5.32, place: "Bergen", layout: "weather", tags: [C] };
+  assert.equal(leavePlan([oslo, bergen], ["x"]), null);
+  assert.equal(leavePlan(null, [A]), null);
+  // A leaves Oslo (B stays); C leaves Bergen, which goes; no status sent back
+  assert.deepEqual(leavePlan([oslo, bergen], [A, C]), {
+    sources: [{ id: "oslo", type: "met", lat: 59.9139, lon: 10.7522, place: "Oslo", lang: "nb", every_min: 30, layout: "weather", fields: [], tags: [B] }],
+    places: ["Oslo", "Bergen"],
+  });
 });
 
 test("the models whose layout file lacks the weather layout", () => {

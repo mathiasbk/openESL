@@ -147,6 +147,19 @@ export function weatherPlan(sources, macs, to) {
   return { sources: list, id };
 }
 
+// The sources without these tags (a place left without tags goes), and the places they
+// leave; null when none of them is in a place
+export function leavePlan(sources, macs) {
+  const leaving = new Set(macs);
+  const left = new Set();
+  const list = [];
+  for (const { status, ...s } of sources || []) {
+    const tags = (s.tags || []).filter((m) => !leaving.has(m) || (left.add(s.place || s.id), false));
+    if (tags.length) list.push({ ...s, tags });
+  }
+  return left.size ? { sources: list, places: [...left] } : null;
+}
+
 // The models of the tags whose layout file on the AP has no layout called "weather", from
 // GET /api/layouts
 export function missingModels(tags, layouts) {
@@ -248,7 +261,9 @@ export function initSources() {
   async function remove(s) {
     if (!confirm(`Stop the weather for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
-      data = await client.call("PUT", "/api/sources", { sources: data.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
+      // a fresh list: the shown one may be a minute old
+      const now = await client.call("GET", "/api/sources");
+      data = await client.call("PUT", "/api/sources", { sources: now.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
       msg("src-msg", `Stopped the weather for ${s.place || s.id}.`, "ok");
     } catch (e) {
@@ -296,10 +311,11 @@ export function initSources() {
 
   // The suggestions under the place field, as you type
   let hits = [], active = -1, seq = 0, typing = 0;
+  let picked = ""; // the coordinates a suggestion filled in: a new name clears only those
   const list = $("wx-hits");
   function pick(h) {
     $("wx-place").value = h.name;
-    $("wx-coords").value = `${h.lat}, ${h.lon}`;
+    $("wx-coords").value = picked = `${h.lat}, ${h.lon}`;
     close();
     msg("wx-msg", `${h.name}${h.detail ? ", " + h.detail : ""} (${h.lat}, ${h.lon})`, "ok");
   }
@@ -351,7 +367,8 @@ export function initSources() {
     });
   }
   function typed() {
-    $("wx-coords").value = "";
+    if ($("wx-coords").value === picked) $("wx-coords").value = "";
+    picked = "";
     msg("wx-msg", "");
     clearTimeout(typing);
     const q = $("wx-place").value.trim();
@@ -397,7 +414,7 @@ export function initSources() {
     seq++;
     close();
     $("wx-osm").hidden = true;
-    $("wx-place").value = $("wx-coords").value = "";
+    $("wx-place").value = $("wx-coords").value = picked = "";
     $("wx-coords-box").open = false;
     msg("wx-msg", "");
     dialogChanged();
@@ -511,5 +528,16 @@ export function initSources() {
     placeOf: () => placeOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
+    // Other content sent to these tags: they leave their places, or the next forecast would
+    // overwrite it. Resolves to the places they left ([] for none); throws when the AP
+    // could not be changed
+    async release(macs) {
+      if (!client || !data?.sources?.some((s) => s.tags.some((m) => macs.includes(m)))) return [];
+      const plan = leavePlan((await client.call("GET", "/api/sources")).sources, macs);
+      if (!plan) return [];
+      data = await client.call("PUT", "/api/sources", { sources: plan.sources });
+      render();
+      return plan.places;
+    },
   };
 }

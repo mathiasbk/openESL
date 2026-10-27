@@ -28,8 +28,9 @@ The C6 has no PSRAM and no RAM to spare next to its tags, so there `/api/sources
 (below): the weather template works on every AP.
 
 What the AP needs:
-- **The time.** It gets it from NTP. The local time zone (the AP's settings) decides what
-  "tomorrow" and `{updated}` mean.
+- **The time.** It gets it from NTP. The local time zone decides what "tomorrow", `{h3}`,
+  `{h6}` and `{updated}` mean. Until the AP has a time zone setting, that is UTC (the
+  template's own fields use none of these).
 - **The internet.** It fetches `https://api.met.no/` over TLS.
 - **A layout** for each tag's model with the name the source gives, for example the
   `weather` template from the Design tab, or the built-in `text` layout.
@@ -66,6 +67,8 @@ that answer.
 
 Every `every_min` minutes, 30 by default and at least 30. Never before the `Expires` of the
 last answer: MET says in each answer when it has a new forecast, usually within the hour.
+The AP adds a random 0 to 5 minutes to that, so the APs that ask for the same place do not
+all ask in the same second.
 The AP sends `If-Modified-Since`, so an unchanged forecast comes back as `304 Not Modified`
 with no data. When MET gives no answer at all (mostly a WiFi or DNS hiccup) it tries again
 after 1 minute, then 3, then every 10; after an answer with an error, in 10 minutes.
@@ -165,9 +168,13 @@ source may be sent back as it came; it is ignored).
 The AP follows MET's [terms of service](https://api.met.no/doc/TermsOfService):
 
 - It identifies itself with `User-Agent: openESL/<version> github.com/mathiasbk/openESL`.
-- It asks no more often than every 30 minutes, and never before an answer's `Expires`.
+- It asks no more often than every 30 minutes, and never before an answer's `Expires`, plus
+  a random few minutes to spread the requests.
 - It sends `If-Modified-Since` and keeps the last answer.
 - It sends the position with 4 decimals at most.
+- An answer `203` (this version of the API is deprecated, it ends about a month later) is
+  used as data, and the card shows it as the place's error: update the AP's firmware.
+- It does not ask for gzip or follow redirects yet; MET answers without them today.
 
 MET's data is free under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (and the
 Norwegian NLOD). **Credit "MET Norway" where the forecast is shown.** The weather template
