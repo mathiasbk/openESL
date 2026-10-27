@@ -217,6 +217,22 @@ export function pollNote(poll_s, tags = []) {
   return parts.join(" ");
 }
 
+// The radio's transmit power (PUT /api/config "tx_power"): the choices for the form, as
+// [dbm, label], highest first. The EU allows 20 dBm EIRP at 2.4 GHz, so an antenna of G dBi
+// takes at most 20 - G; the labels say which antenna each fits. The AP's value now and its
+// built-in one are always there.
+export const TX_PRESETS = [[20, "chip or PCB antenna"], [17, "3 dBi antenna"], [15, "5 dBi antenna"], [12, "8 dBi antenna"], [10, ""], [5, ""], [0, ""]];
+export function txOptions(dbm, builtin) {
+  const all = new Map(TX_PRESETS);
+  for (const v of [dbm, builtin]) if (Number.isInteger(v) && !all.has(v)) all.set(v, "");
+  return [...all].sort((a, b) => b[0] - a[0]).map(([v, fits]) => {
+    const notes = [fits, v === builtin ? "built-in" : ""].filter(Boolean);
+    return [v, `${v} dBm` + (notes.length ? ` (${notes.join(", ")})` : "")];
+  });
+}
+export const TX_NOTE = "The EU allows 20 dBm (100 mW) including the antenna's gain: with an antenna of G dBi, choose at most 20 − G. "
+  + "More power reaches tags further away, but their answers do not get stronger; for those, a better antenna on the AP helps.";
+
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
 // becomes known, new content, a new image id, or a new layout file for its model; the last
 // matters for a tag the AP has not drawn for, e.g. one without SPI flash). layouts is

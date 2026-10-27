@@ -39,6 +39,9 @@ static esl_radio_link_t net_link;
 static bool full_warned;
 static uint8_t channel;
 static uint16_t pan;
+/* The transmit power for the radio: set by the HTTP task, given to the link by net_task */
+static volatile int8_t tx_dbm;
+static volatile bool tx_due;
 
 static uint64_t now_ms(void)
 {
@@ -99,6 +102,7 @@ static void take(int s, const struct sockaddr_in *from)
     full_warned = false;
     esl_nlink_rx_init(&rx, rx_buf, sizeof(rx_buf));
     esl_nlink_host_init(&hl, &host, esl_radio_tagfw(), channel, pan, net_write, NULL, now_ms);
+    esl_nlink_host_set_tx_power(&hl, tx_dbm);
     char ip[16];
     inet_ntoa_r(from->sin_addr, ip, sizeof(ip));
     ESP_LOGI(TAG, "radio connected from %s", ip);
@@ -133,6 +137,10 @@ static void net_task(void *arg)
             } else {
                 last_rx = esp_timer_get_time();
                 net_link.seen_ms = now_ms();
+                if (tx_due) {
+                    tx_due = false;
+                    esl_nlink_host_set_tx_power(&hl, tx_dbm);
+                }
                 uint32_t syncs = host.stats.syncs;
                 int64_t t0 = esp_timer_get_time();
                 if (!esl_nlink_feed(&rx, buf, (size_t)n, on_frame, NULL))
@@ -165,10 +173,18 @@ const esl_radio_link_t *radio_net_link(void)
     return &net_link;
 }
 
+/* With the radio's next sync (it gets it in every CONFIG, and keeps its own until then) */
+void radio_set_tx_power(int8_t dbm)
+{
+    tx_dbm = dbm;
+    tx_due = true;
+}
+
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t ch, uint16_t pan_id)
 {
     channel = ch;
     pan = pan_id;
+    tx_dbm = radio_tx_power()->dbm;
     unsigned max = esl_store_slots(st);
     /* sent[] has to cover every slot the store can grow to */
     if (max < CONFIG_ESL_MAX_TAGS)
@@ -195,7 +211,7 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t ch, uint16_t p
     if (xTaskCreate(net_task, "netradio", 8192, (void *)(intptr_t)s, 5, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     esp_err_t err = mdns_service_add(NULL, "_openesl-ap", "_tcp", CONFIG_ESL_NETRADIO_PORT, NULL, 0);
-    ESP_LOGI(TAG, "waiting for the radio on TCP port %d (mDNS _openesl-ap._tcp: %s), channel %u, PAN 0x%04X",
-             CONFIG_ESL_NETRADIO_PORT, esp_err_to_name(err), ch, pan_id);
+    ESP_LOGI(TAG, "waiting for the radio on TCP port %d (mDNS _openesl-ap._tcp: %s), channel %u, PAN 0x%04X, %d dBm",
+             CONFIG_ESL_NETRADIO_PORT, esp_err_to_name(err), ch, pan_id, tx_dbm);
     return ESP_OK;
 }

@@ -1,9 +1,13 @@
 menu "OpenESL radio over WiFi"
 
     config ESL_TX_POWER_DBM
-        int "802.15.4 TX power (dBm)"
+        int "802.15.4 TX power (dBm) until the AP says"
         range -24 20
-        default 10
+        default 20
+        help
+            The AP sends its transmit power (PUT /api/config "tx_power") when the
+            radio connects. 20 dBm is the most the EU allows (100 mW EIRP at
+            2.4 GHz) with an antenna of up to 0 dBi; with G dBi, use at most 20 - G.
 
     config ESL_CHANNEL
         int "802.15.4 channel until the AP says"

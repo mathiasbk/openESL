@@ -182,7 +182,14 @@ menu "OpenESL AP"
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"
         range -24 20
-        default 10
+        default 20
+        help
+            The built-in value; PUT /api/config "tx_power" sets another, kept in
+            NVS. 20 dBm is the most the EU allows (100 mW EIRP at 2.4 GHz) with an
+            antenna of up to 0 dBi, such as a chip or PCB antenna; with an external
+            antenna of G dBi, use at most 20 - G. More power reaches tags further
+            away, but their answers do not get stronger: for those, a better
+            antenna on the AP helps.
 
     choice ESL_RADIO_MODE
         prompt "Radio mode"

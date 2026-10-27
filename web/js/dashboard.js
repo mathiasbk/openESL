@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
@@ -246,6 +246,53 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
+  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one. As
+  // with the poll interval, a choice stays until it is saved.
+  let txDirty = false;
+  let txSaving = false;
+  const txMsg = (text, cls = "") => {
+    $("dash-tx-msg").textContent = text;
+    $("dash-tx-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  function renderTx() {
+    const c = last.config;
+    const has = Number.isInteger(c?.tx_power);
+    $("dash-tx").hidden = $("dash-tx-note").hidden = !has;
+    if (!has) return;
+    const sel = $("dash-tx-sel");
+    if (!txDirty) {
+      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))));
+      sel.value = String(c.tx_power);
+    }
+    $("dash-tx-save").disabled = txSaving || !txDirty;
+  }
+  $("dash-tx-note").textContent = TX_NOTE;
+  $("dash-tx-sel").addEventListener("change", () => {
+    txDirty = true;
+    txMsg("");
+    if (last) renderTx();
+  });
+  $("dash-tx").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!client) return;
+    const dbm = Number($("dash-tx-sel").value);
+    // the built-in value is a reset, so a later firmware default applies
+    const body = { tx_power: dbm === last?.config?.builtin_tx_power ? null : dbm };
+    $("dash-tx-save").disabled = true;
+    txSaving = true;
+    try {
+      await client.call("PUT", "/api/config", body);
+      txDirty = false;
+      txMsg(`Saved. The radio sends at ${dbm} dBm from its next reply.`, "ok");
+      refresh();
+    } catch (e) {
+      txMsg("Not saved: " + e.message, "error");
+    } finally {
+      txSaving = false;
+      $("dash-tx-save").disabled = !txDirty;
+    }
+  });
+
   // The filter of the tag table: "all", "bad", "busy" or "model:<model>", kept in this browser
   let filter = store.get("dash.filter") || "all";
   const setFilter = (f) => {
@@ -309,6 +356,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
     renderPoll();
+    renderTx();
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]

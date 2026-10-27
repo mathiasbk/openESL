@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -156,4 +156,11 @@ test("which AP: its board name, or the chip of an older AP", async () => {
   assert.equal(apBoard({ fw: "0.5.0" }, null), "");
   assert.equal(apIdentity(ap, null, { hostname: "openesl-3f2a" }), "ESP32-S3 + C6 on cable · openesl-3f2a.local · 0.6.1");
   assert.equal(apIdentity({ fw: "0.5.0" }, null, null), "0.5.0");
+});
+
+test("txOptions: presets highest first, the AP's own value and the built-in one marked", () => {
+  assert.deepEqual(txOptions(20, 20).map((o) => o[1]), ["20 dBm (chip or PCB antenna, built-in)", "17 dBm (3 dBi antenna)", "15 dBm (5 dBi antenna)", "12 dBm (8 dBi antenna)", "10 dBm", "5 dBm", "0 dBm"]);
+  assert.deepEqual(txOptions(-7, 10).map((o) => o[0]), [20, 17, 15, 12, 10, 5, 0, -7]);
+  assert.equal(txOptions(-7, 10)[4][1], "10 dBm (built-in)");
+  assert.equal(txOptions(undefined, undefined).length, 7);
 });

@@ -86,11 +86,17 @@ static uint8_t radio_flash[ESL_MODEL_COUNT - 1][ESL_TAGFW_SLOT]; /* its own copy
 static uint8_t radio_channel;
 static uint16_t radio_pan;
 
+static int8_t radio_tx = 99; /* 99: not given */
 static void radio_config(void *ctx, uint8_t channel, uint16_t pan)
 {
     (void)ctx;
     radio_channel = channel;
     radio_pan = pan;
+}
+static void radio_tx_power(void *ctx, int8_t dbm)
+{
+    (void)ctx;
+    radio_tx = dbm;
 }
 static bool radio_write_fw(void *ctx, uint8_t model, uint32_t off, const uint8_t *d, size_t n)
 {
@@ -113,7 +119,7 @@ static void radio_start(uint32_t boot)
 {
     static uint8_t *idata;
     static const esl_rcache_ops_t ops = {NULL, radio_read_fw};
-    static const esl_nlink_radio_ops_t lops = {NULL, radio_config, radio_write_fw};
+    static const esl_nlink_radio_ops_t lops = {NULL, radio_config, radio_write_fw, radio_tx_power};
     size_t cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
     if (!idata)
         idata = malloc(IMAGES * cap);
@@ -254,6 +260,17 @@ static void test_nlink_flow(void)
     esl_nlink_host_set_config(&hl, 25, PAN);
     sync_at(130000);
     CHECK_INT(radio_channel, 25);
+    CHECK_INT(radio_tx, 99); /* no transmit power yet: the radio keeps its own */
+
+    /* the transmit power: with the next CONFIG, and in every one after */
+    esl_nlink_host_set_tx_power(&hl, -7);
+    sync_at(131000);
+    CHECK_INT(radio_tx, -7);
+    CHECK_INT(radio_channel, 25);
+    radio_tx = 99;
+    esl_nlink_host_set_config(&hl, 25, PAN);
+    sync_at(132000);
+    CHECK_INT(radio_tx, -7);
 
     /* tag firmware, part by part into the radio's flash, then to the tag */
     static uint8_t file[ESL_FWF_HDR_LEN + 3072];
@@ -339,6 +356,15 @@ static void test_nlink_broken(void)
     badcfg[0] = 10;
     CHECK(!esl_nlink_radio_on(&rl, ESL_NLINK_CONFIG, badcfg, sizeof(badcfg)));
     CHECK_INT(radio_channel, before);
+    /* a transmit power out of range is left out; an older radio that reads 3 bytes
+       takes the rest of the CONFIG as before */
+    uint8_t txcfg[4] = {25, PAN & 0xFF, PAN >> 8, 21};
+    radio_tx = 99;
+    CHECK(esl_nlink_radio_on(&rl, ESL_NLINK_CONFIG, txcfg, sizeof(txcfg)));
+    CHECK_INT(radio_tx, 99);
+    txcfg[3] = 20;
+    CHECK(esl_nlink_radio_on(&rl, ESL_NLINK_CONFIG, txcfg, sizeof(txcfg)));
+    CHECK_INT(radio_tx, 20);
 
     /* a SYNC before HELLO, a LOG with no SYNC: the connection is closed */
     esl_nlink_host_t fresh;
