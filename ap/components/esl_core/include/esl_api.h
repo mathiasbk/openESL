@@ -24,6 +24,17 @@ typedef struct {
     uint16_t ver;           /* its firmware, as its HELLO says (0 before HELLO) */
 } esl_radio_link_t;
 
+/* The 802.15.4 transmit power (ESL_TX_POWER_MIN..MAX, esl_link.h), as "tx_power" in
+ * GET/PUT /api/config. The radio code owns it: set() applies dbm to the radio and
+ * saves it, or with builtin, goes back to the menuconfig value and forgets the saved
+ * one. Called under the API's mutex. */
+typedef struct {
+    int8_t dbm;             /* now */
+    int8_t builtin;         /* menuconfig (ESL_TX_POWER_DBM) */
+    void (*set)(void *ctx, int8_t dbm, bool builtin);
+    void *ctx;
+} esl_tx_power_t;
+
 #define ESL_API_MAX_BATCH  50
 #define ESL_API_MAX_BODY   24576
 #define ESL_API_MAX_TOKENS 1024
@@ -43,6 +54,7 @@ typedef struct {
     bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
+    esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

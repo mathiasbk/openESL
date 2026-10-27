@@ -145,6 +145,8 @@ table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 
    the radio, the cache and the link; it is also logged every minute.
 
 The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.
+It also takes the S3's transmit power (`PUT /api/config` `"tx_power"`, in the same CONFIG), but not
+for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies.
 
 ## On hardware
 

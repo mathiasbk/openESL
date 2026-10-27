@@ -967,10 +967,31 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
     return status;
 }
 
-/* PUT/GET /api/config: AP-wide default interval and the webhook. poll_s 0 =
- * tags keep their built-in interval, null = back to the AP's built-in default
- * (menuconfig). webhook null or "" = off. Keys left out stay as they are;
- * one of them must be there. */
+/* "tx_power": a whole number of dBm from ESL_TX_POWER_MIN to ESL_TX_POWER_MAX. */
+static bool parse_dbm(const json_t *j, int v, int8_t *out)
+{
+    const esl_jtok_t *t = &j->tok[v];
+    int i = t->start, n = 0;
+    bool neg = i < t->end && j->js[i] == '-';
+    if (t->type != ESL_JSON_NUMBER || t->end - i - neg < 1 || t->end - i - neg > 2)
+        return false;
+    for (i += neg; i < t->end; i++) {
+        if (j->js[i] < '0' || j->js[i] > '9')
+            return false;
+        n = n * 10 + (j->js[i] - '0');
+    }
+    n = neg ? -n : n;
+    if (n < ESL_TX_POWER_MIN || n > ESL_TX_POWER_MAX)
+        return false;
+    *out = (int8_t)n;
+    return true;
+}
+
+/* PUT/GET /api/config: AP-wide default interval, the webhook and the radio's
+ * transmit power. poll_s 0 = tags keep their built-in interval, null = back to
+ * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in
+ * dBm, null = back to the built-in value. Keys left out stay as they are; one
+ * of them must be there. */
 static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
 {
     bool put = strcmp(method, "PUT") == 0;
@@ -981,11 +1002,13 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             json_t j = {body, tok};
             int v = esl_json_obj_get(body, tok, 0, "poll_s");
             int w = esl_json_obj_get(body, tok, 0, "webhook");
+            int x = esl_json_obj_get(body, tok, 0, "tx_power");
             uint16_t poll_s;
+            int8_t dbm = 0;
             char url[ESL_WEBHOOK_URL_MAX + 1];
             int ul = 0;
-            if (v < 0 && w < 0)
-                status = api_error(out, 422, "poll_s or webhook is required (null resets it)");
+            if (v < 0 && w < 0 && x < 0)
+                status = api_error(out, 422, "poll_s, webhook or tx_power is required (null resets it)");
             else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
                      (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
                       (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
@@ -997,6 +1020,10 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                       (ul = esl_json_str_decode(body, &tok[w], url, sizeof(url) - 1)) < 0 ||
                       (ul && !esl_webhook_url_ok(url, (size_t)ul))))
                 status = api_error(out, 422, "webhook must be null or an http://host[:port][/path] URL of at most 127 characters");
+            else if (x >= 0 && !api->tx_power)
+                status = api_error(out, 422, "this AP cannot set its transmit power");
+            else if (x >= 0 && tok[x].type != ESL_JSON_NULL && !parse_dbm(&j, x, &dbm))
+                status = api_error(out, 422, "tx_power must be null or a whole number of dBm from -24 to 20");
             else {
                 if (v >= 0 && tok[v].type == ESL_JSON_NULL)
                     esl_store_reset_next_poll(api->store);
@@ -1007,6 +1034,13 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                     strcpy(api->notify->url, url);
                     if (api->notify->persist)
                         api->notify->persist(api->notify->ctx, url);
+                }
+                if (x >= 0) {
+                    bool reset = tok[x].type == ESL_JSON_NULL;
+                    esl_tx_power_t *tp = api->tx_power;
+                    tp->dbm = reset ? tp->builtin : dbm;
+                    if (tp->set)
+                        tp->set(tp->ctx, tp->dbm, reset);
                 }
             }
         }
@@ -1022,6 +1056,8 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         esl_sb_json_str(out, api->notify->url);
     else
         esl_sb_puts(out, "null");
+    if (api->tx_power)
+        esl_sb_printf(out, ",\"tx_power\":%d,\"builtin_tx_power\":%d", api->tx_power->dbm, api->tx_power->builtin);
     esl_sb_putc(out, '}');
     return 200;
 }

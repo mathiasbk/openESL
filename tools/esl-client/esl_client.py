@@ -170,7 +170,8 @@ class Client:
         return self._request("GET", "/api/config")
 
     def set_config(self, **kw):
-        """poll_s=None resets the interval, webhook=None or "" turns the webhook off."""
+        """poll_s=None resets the interval, webhook=None or "" turns the webhook off,
+        tx_power=None goes back to the built-in transmit power."""
         return self._request("PUT", "/api/config", kw)
 
     def wifi(self):
@@ -693,7 +694,8 @@ def print_health(h):
 
 
 def print_config(c):
-    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}")
+    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
+          + (f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})" if "tx_power" in c else ""))
 
 
 def print_ota(o):
@@ -1318,9 +1320,11 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval and webhook")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook and transmit power")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
+    s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
+                                      "about 13 - G in the EU), \"null\" = menuconfig value")
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
@@ -1430,6 +1434,8 @@ def main(argv=None):
                 kw["poll_s"] = None if args.poll_s == "null" else int(args.poll_s)
             if args.webhook is not None:
                 kw["webhook"] = args.webhook or None
+            if args.tx_power is not None:
+                kw["tx_power"] = None if args.tx_power == "null" else int(args.tx_power)
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)

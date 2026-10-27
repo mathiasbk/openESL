@@ -594,7 +594,7 @@ paths:
     get:
       tags: [Settings]
       operationId: getApConfig
-      summary: The AP-wide default poll interval and the webhook
+      summary: The AP-wide default poll interval, the webhook and the transmit power
       responses:
         "200":
           description: The default
@@ -606,13 +606,15 @@ paths:
     put:
       tags: [Settings]
       operationId: setApConfig
-      summary: Change the AP-wide default poll interval or the webhook
+      summary: Change the AP-wide default poll interval, the webhook or the transmit power
       description: |
         `poll_s` is the interval for tags without their own `poll_s`; the tags get it in the
         reply to their next poll, so all of them have it within one old interval. Content
         scheduled with `at` still shows on time with a long interval. `webhook` is where the
-        AP posts the health report (`GET /api/health`) when it changes. A key left out keeps
-        its value; at least one must be there. Both are stored in NVS (`cfg/poll_s`, `cfg/webhook`).
+        AP posts the health report (`GET /api/health`) when it changes. `tx_power` is the
+        radio's 802.15.4 transmit power, used from its next reply (a radio over WiFi gets it
+        at its next sync). A key left out keeps its value; at least one must be there. All
+        are stored in NVS (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`).
       requestBody:
         required: true
         content:
@@ -631,6 +633,9 @@ paths:
               no-webhook:
                 summary: Stop posting
                 value: { webhook: null }
+              antenna:
+                summary: An external antenna of 5 dBi, so 8 dBm keeps within the EU's ~13 dBm EIRP
+                value: { tx_power: 8 }
       responses:
         "200":
           description: The new default
@@ -1587,6 +1592,15 @@ components:
             `http://host[:port][/path]` the AP posts the health report to when it changes
             (plain HTTP, at most 127 characters), `null` or `""` = no webhook. `422` on an AP
             built without the webhook.
+        tx_power:
+          type: [integer, "null"]
+          minimum: -24
+          maximum: 20
+          description: |
+            The radio's transmit power in dBm, `null` = back to the value set in menuconfig
+            (`ESL_TX_POWER_DBM`, 10). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
+            about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, the EU limit is about
+            13 − G. Above that only where more is allowed. `422` on an AP without a radio (the stub, the sniffer).
 
     ApConfigReply:
       type: object
@@ -1596,6 +1610,8 @@ components:
         poll_s: { type: integer, minimum: 0, maximum: 3600, description: The default now }
         builtin_poll_s: { type: integer, minimum: 0, maximum: 3600, description: The value set in menuconfig }
         webhook: { type: [string, "null"], maxLength: 127, description: "The webhook URL, null when off" }
+        tx_power: { type: integer, minimum: -24, maximum: 20, description: "The radio's transmit power in dBm now; left out on an AP without a radio" }
+        builtin_tx_power: { type: integer, minimum: -24, maximum: 20, description: The value set in menuconfig }
 
     Health:
       type: object

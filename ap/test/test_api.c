@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -927,7 +927,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s or webhook"));
+    CHECK(HAS(resp, "poll_s, webhook or tx_power"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -964,6 +964,61 @@ static void test_webhook_config(void)
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://hook.local/\"}", 0), 422);
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":60}", 0), 200);
+    api.notify = &notify;
+}
+
+static int8_t tx_set_dbm;
+static int tx_sets, tx_resets;
+static void tx_set(void *ctx, int8_t dbm, bool builtin)
+{
+    (void)ctx;
+    tx_set_dbm = dbm;
+    tx_sets++;
+    tx_resets += builtin;
+}
+
+static void test_tx_power_config(void)
+{
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    esl_tx_power_t tp = {10, 20, tx_set, NULL};
+    api.notify = NULL;
+    api.tx_power = &tp;
+    tx_sets = tx_resets = 0;
+
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"tx_power\":10,\"builtin_tx_power\":20}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tx_power\":15}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"tx_power\":15,\"builtin_tx_power\":20}");
+    CHECK_INT(tx_set_dbm, 15);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tx_power\":-24}", 0), 200);
+    CHECK_INT(tp.dbm, -24);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tx_power\":-0}", 0), 200);
+    CHECK_INT(tp.dbm, 0);
+    /* out of range or not a whole number: nothing changes */
+    static const char *bad[] = {"21", "-25", "100", "1.5", "1e1", "\"10\"", "-", "true", "--1"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char body[40];
+        snprintf(body, sizeof(body), "{\"tx_power\":%s}", bad[i]);
+        CHECK_INT(req("PUT", "/api/config", AUTH, body, 0), 422);
+    }
+    /* a bad value with a good poll_s changes neither */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":60,\"tx_power\":30}", 0), 422);
+    CHECK_INT(esl_store_get_next_poll(&st), 0);
+    CHECK_INT(tx_sets, 3);
+    CHECK_INT(tp.dbm, 0);
+    /* null: back to the built-in value */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tx_power\":null,\"poll_s\":60}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":60,\"builtin_poll_s\":0,\"webhook\":null,\"tx_power\":20,\"builtin_tx_power\":20}");
+    CHECK_INT(tx_sets, 4);
+    CHECK_INT(tx_resets, 1);
+    CHECK_INT(tx_set_dbm, 20);
+    /* an AP that cannot set it */
+    api.tx_power = NULL;
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tx_power\":10}", 0), 422);
+    CHECK(HAS(resp, "transmit power"));
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(!HAS(resp, "tx_power"));
     api.notify = &notify;
 }
 
@@ -1122,6 +1177,7 @@ void test_api(void)
     test_config_api();
     test_streaming();
     test_webhook_config();
+    test_tx_power_config();
     test_health();
     test_tag_level();
 }

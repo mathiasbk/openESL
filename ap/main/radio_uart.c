@@ -472,9 +472,18 @@ static int link_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t sho
     return ESP_OK;
 }
 
+static int link_set_tx_power(esl_link_t *l, int8_t dbm)
+{
+    (void)l;
+    cfg.tx_power = dbm;
+    send_config(); /* HELLO with the new power follows */
+    return ESP_OK;
+}
+
 esl_link_t radio_link = {
     .name = "802.15.4 coprocessor",
     .start = link_start,
     .send = link_send,
     .set_channel = link_set_channel,
+    .set_tx_power = link_set_tx_power,
 };
