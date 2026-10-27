@@ -117,8 +117,8 @@ static void test_parse(void)
     CHECK_INT(n, 1);
     CHECK_STR(cfg[0].id, "hjemme");
     CHECK_INT(cfg[0].type, ESL_SOURCE_MET);
-    CHECK_INT(cfg[0].lat, 599139);
-    CHECK_INT(cfg[0].lon, 107522);
+    CHECK_INT(cfg[0].met.lat, 599139);
+    CHECK_INT(cfg[0].met.lon, 107522);
     CHECK_STR(cfg[0].lang, "nb");
     CHECK_INT(cfg[0].every_min, 30);
     CHECK_INT(cfg[0].nfields, 6); /* the weather template's */
@@ -144,7 +144,7 @@ static void test_parse(void)
                      "\"every_min\":60,\"layout\":\"text\",\"fields\":[\"{temp} C\",\"{desc}\"],\"tags\":[],"
                      "\"status\":{\"ok\":true}}]}";
     CHECK(esl_sources_parse(ok, strlen(ok), cfg, &n, err, sizeof(err)));
-    CHECK(cfg[0].lat == -338688 && cfg[0].lon == -1512000 && cfg[0].nfields == 2 && cfg[0].every_min == 60);
+    CHECK(cfg[0].met.lat == -338688 && cfg[0].met.lon == -1512000 && cfg[0].nfields == 2 && cfg[0].every_min == 60);
     CHECK(esl_sources_parse("{\"sources\":[]}", 14, cfg, &n, err, sizeof(err)) && n == 0);
 
     static const struct {
@@ -153,7 +153,7 @@ static void test_parse(void)
         {"[]", "must be a JSON object"},
         {"{}", "sources: a list of up to 8"},
         {"{\"sources\":[{\"id\":\"A\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].id: 1 to 16"},
-        {"{\"sources\":[{\"id\":\"a\",\"type\":\"rss\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type"},
+        {"{\"sources\":[{\"id\":\"a\",\"type\":\"rss\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\" (the forecast from MET Norway)"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":91,\"lon\":1,\"layout\":\"w\"}]}", "lat: a number from -90"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"layout\":\"w\"}]}", "lon: a number from -180"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\",\"every_min\":10}]}",
@@ -196,8 +196,8 @@ static void test_parse(void)
     CHECK(esl_sources_parse(CFG, sizeof(CFG) - 1, cfg, &n, err, sizeof(err)));
     CHECK(esl_source_url(&cfg[0], url, sizeof(url)) > 0);
     CHECK_STR(url, "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=59.9139&lon=10.7522");
-    cfg[0].lat = -5;
-    cfg[0].lon = -1234567;
+    cfg[0].met.lat = -5;
+    cfg[0].met.lon = -1234567;
     esl_source_url(&cfg[0], url, sizeof(url));
     CHECK(HAS(url, "lat=-0.0005&lon=-123.4567"));
     CHECK(esl_source_url(&cfg[0], url, 20) == 0);
@@ -524,7 +524,7 @@ static void test_api(void)
     /* restored at boot from what was saved */
     esl_sources_init(&sources, &ops);
     CHECK(esl_sources_restore(&sources, saved, strlen(saved)));
-    CHECK(sources.n == 1 && sources.cfg[0].lat == 600000);
+    CHECK(sources.n == 1 && sources.cfg[0].met.lat == 600000);
     CHECK(!esl_sources_restore(&sources, "{", 1));
 
     /* a tag given other content leaves its source (saved), and a source left without tags goes */

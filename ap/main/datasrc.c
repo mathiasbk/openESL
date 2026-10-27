@@ -26,7 +26,7 @@ static const char *TAG = "datasrc";
 
 #define NS "cfg"
 #define KEY "sources"
-#define URL_MAX 160
+#define URL_MAX ESL_SOURCE_URL_MAX
 #define IDLE_S 300 /* longest wait between looks at the clock and the sources */
 
 static esl_sources_t *sources; /* about 16 KB: in PSRAM */

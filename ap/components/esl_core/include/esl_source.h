@@ -17,34 +17,40 @@
  * out the same is not drawn or sent again, so a tag only wakes up for a new forecast.
  *
  * This part is plain C and is tested on the PC: the configuration and its checks, the
- * API at /api/sources, each type's URL and how its answer becomes values, and the
- * content. main/datasrc.c fetches (esp_http_client) and runs it on a task.
+ * API at /api/sources, when each source runs, and the content. main/datasrc.c fetches
+ * (esp_http_client) and runs it on a task.
  *
- * Types:
- *   "met"  the forecast from MET Norway (api.met.no locationforecast 2.0, compact),
- *          for a latitude and longitude. Its data is CC BY 4.0: credit "MET Norway"
- *          where the forecast is shown. Values: esl_met_keys below. */
+ * Each type of source is one file that fills in an esl_source_def_t (below): its own
+ * settings, its URL, and how its answer becomes values. esl_source.c lists the types.
+ *   "met"  esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
+ *
+ * Adding a type: an ESL_SOURCE_* number, a file esl_source_<name>.c with its
+ * esl_source_def_t, its line in types[] in esl_source.c, the file in CMakeLists.txt, and a
+ * test in ap/test/test_source.c. */
 
 #define ESL_SOURCE_MAX        8   /* sources per AP */
 #define ESL_SOURCE_TAGS_MAX   32  /* tags per source */
 #define ESL_SOURCE_ID_MAX     16  /* a-z 0-9 _ - */
 #define ESL_SOURCE_PLACE_MAX  32  /* bytes of UTF-8 */
 #define ESL_SOURCE_TPL_MAX    48  /* bytes of one field template */
-#define ESL_SOURCE_EVERY_MIN  30  /* minutes between fetches: at least, at most and the default */
-#define ESL_SOURCE_EVERY_MAX  1440
-#define ESL_SOURCE_EVERY_DEF  30
+#define ESL_SOURCE_EVERY_MAX  1440 /* most minutes between fetches (the least is the type's) */
 #define ESL_SOURCE_ERR_MAX    96
 #define ESL_SOURCE_BODY_MAX   (128 * 1024) /* biggest answer the AP reads */
 #define ESL_SOURCE_CFG_MAX    16384        /* the configuration as JSON (NVS, GET /api/sources) */
+#define ESL_SOURCE_URL_MAX    160
 
 typedef enum { ESL_SOURCE_MET = 1 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
     uint8_t type;                         /* esl_source_type_t */
-    int32_t lat, lon;                     /* "met": degrees * 10000 (MET takes 4 decimals) */
-    char place[ESL_SOURCE_PLACE_MAX + 1]; /* "met": the place's name, value "place" */
-    char lang[3];                         /* "nb" or "en": the words in value "desc" */
+    union {                               /* the type's own settings */
+        struct {
+            int32_t lat, lon;             /* degrees * 10000 (MET takes 4 decimals) */
+        } met;
+    };
+    char place[ESL_SOURCE_PLACE_MAX + 1]; /* the name shown for it: value "place" */
+    char lang[3];                         /* "nb" or "en": the language of words in the values */
     uint16_t every_min;
     char layout[ESL_LAYOUT_NAME_MAX + 1]; /* a layout from the layout files, or "text" */
     uint8_t nfields;
@@ -66,6 +72,35 @@ typedef struct {
 void esl_values_set(esl_values_t *v, const char *key, const char *val);
 /* NULL when v has no such key */
 const char *esl_values_get(const esl_values_t *v, const char *key);
+
+/* The local time's offset from UTC in s at Unix time t (time zones, summer time) */
+typedef int32_t (*esl_utc_offset_fn)(uint32_t t);
+
+/* A type of source (esl_source_<name>.c) */
+typedef struct {
+    const char *name;            /* "type" in the configuration */
+    uint8_t type;                /* esl_source_type_t */
+    const char *about;           /* for messages: "the forecast from MET Norway" */
+    const char *const *keys;     /* the values it gives, NULL-ended */
+    const char *const *fields;   /* the default field templates, NULL-ended */
+    const char *const *cfg_keys; /* its own keys in a source's configuration, NULL-ended */
+    uint16_t every_min;          /* the least minutes between fetches, and the default */
+    /* Reads its own keys of the configuration object obj into c; false with a message */
+    bool (*parse)(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen);
+    /* Writes them, each as ,"key":value */
+    void (*write)(const esl_source_cfg_t *c, esl_sb_t *out);
+    /* The URL of c's data into buf; 0 when it does not fit */
+    size_t (*url)(const esl_source_cfg_t *c, char *buf, size_t cap);
+    /* Values from an answer at Unix time now; false with a message when it cannot be read */
+    bool (*values)(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
+                   esl_values_t *v, uint32_t *data_at, char *err, size_t errlen);
+} esl_source_def_t;
+
+extern const esl_source_def_t esl_source_met;
+
+/* For the types: a JSON number, and a number rounded half away from zero (no libm) */
+bool esl_source_num(const char *js, const esl_jtok_t *t, double *out);
+long esl_source_round(double d);
 
 /* What happened to a source, for GET /api/sources */
 typedef struct {
@@ -150,9 +185,6 @@ uint32_t esl_sources_wait(esl_sources_t *s, uint32_t now, uint32_t max_s);
 /* The URL of a source's data into buf (cap bytes); 0 when it does not fit */
 size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap);
 
-/* The local time's offset from UTC in s at Unix time t (time zones, summer time) */
-typedef int32_t (*esl_utc_offset_fn)(uint32_t t);
-
 /* Values from an answer (body, len bytes) of source c's type, at Unix time now. False
  * with a message in err when it cannot be read. */
 bool esl_source_values(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
@@ -181,5 +213,3 @@ uint32_t esl_http_date(const char *s);
 /* An ISO 8601 UTC time ("2026-10-26T16:00:00Z") as Unix s, 0 when it is not one */
 uint32_t esl_iso_time(const char *s, size_t len);
 
-/* The values a "met" source gives, in this order (docs/protokoll.md part 2). */
-extern const char *const esl_met_keys[];

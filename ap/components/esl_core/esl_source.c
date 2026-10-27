@@ -6,8 +6,9 @@
 #include "esl_proto.h"
 #include "esl_text.h"
 
-/* Data sources: the configuration, /api/sources, MET Norway's forecast as values, and the
- * content made from them (esl_source.h). */
+/* Data sources: the configuration, /api/sources, when each source runs, and the content made
+ * from its values (esl_source.h). What is particular to a type (its settings, URL and how its
+ * answer becomes values) is in its own file: esl_source_met.c. */
 
 #define PATH_BASE_LEN 12 /* "/api/sources" */
 
@@ -23,8 +24,7 @@ static void unlock(esl_sources_t *s)
         s->ops.unlock(s->ops.ctx);
 }
 
-/* Rounded to the nearest whole number, halves away from zero (no libm in the host tests) */
-static long rnd(double d)
+long esl_source_round(double d)
 {
     return (long)(d < 0 ? d - 0.5 : d + 0.5);
 }
@@ -62,33 +62,20 @@ const char *esl_values_get(const esl_values_t *v, const char *key)
 
 /* ---- the types ---- */
 
-const char *const esl_met_keys[] = {"place", "temp",  "symbol", "desc", "min", "max", "wind", "dir",
-                                    "rain",  "rain1h", "humidity", "h3", "t3", "s3", "h6", "t6",
-                                    "s6",    "tmin", "tmax", "tsym", "updated", NULL};
-
-typedef struct {
-    const char *name;
-    uint8_t type;
-    const char *const *keys;
-    const char *const *fields; /* the default templates: those of the "weather" template (templates/home) */
-} type_t;
-
-static const char *const met_fields[] = {"{place}", "{temp}", "{symbol}", "{desc}", "{min}° / {max}°",
-                                         "{wind} m/s  {rain} mm", NULL};
-
-static const type_t types[] = {
-    {"met", ESL_SOURCE_MET, esl_met_keys, met_fields},
+/* Every type of source: one file each (esl_source_<name>.c), one line here */
+static const esl_source_def_t *const types[] = {
+    &esl_source_met,
 };
 
-static const type_t *type_of(uint8_t type)
+static const esl_source_def_t *type_of(uint8_t type)
 {
     for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++)
-        if (types[i].type == type)
-            return &types[i];
+        if (types[i]->type == type)
+            return types[i];
     return NULL;
 }
 
-static bool key_known(const type_t *t, const char *k, size_t n)
+static bool key_known(const esl_source_def_t *t, const char *k, size_t n)
 {
     for (const char *const *p = t->keys; *p; p++)
         if (strlen(*p) == n && memcmp(*p, k, n) == 0)
@@ -132,7 +119,7 @@ static bool get_str(pc_t *c, int t, char *out, size_t cap)
     return true;
 }
 
-static bool get_num(const char *js, const esl_jtok_t *t, double *out)
+bool esl_source_num(const char *js, const esl_jtok_t *t, double *out)
 {
     char buf[32];
     size_t n = (size_t)(t->end - t->start);
@@ -157,7 +144,7 @@ static bool id_ok(const char *s)
 }
 
 /* A template: text with {key} for the type's values */
-static bool template_ok(pc_t *c, const type_t *t, const char *s, unsigned fi)
+static bool template_ok(pc_t *c, const esl_source_def_t *t, const char *s, unsigned fi)
 {
     for (const char *p = s; *p; p++) {
         if (*p == '}')
@@ -175,10 +162,22 @@ static bool template_ok(pc_t *c, const type_t *t, const char *s, unsigned fi)
     return true;
 }
 
+/* A key of a source's configuration: one every type has, or one of its type's own */
+static bool cfg_key(const char *js, const esl_jtok_t *k, const esl_source_def_t *ty)
+{
+    static const char *const keys[] = {"id", "type", "place", "lang", "every_min", "layout", "fields", "tags",
+                                       "status", NULL};
+    for (const char *const *p = keys; *p; p++)
+        if (esl_json_str_eq(js, k, *p))
+            return true;
+    for (const char *const *p = ty->cfg_keys; p && *p; p++)
+        if (esl_json_str_eq(js, k, *p))
+            return true;
+    return false;
+}
+
 static bool one(pc_t *c, int o, esl_source_cfg_t *src)
 {
-    static const char *const keys[] = {"id", "type", "lat", "lon", "place", "lang", "every_min",
-                                       "layout", "fields", "tags", "status", NULL};
     const char *js = c->js;
     const esl_jtok_t *tok = c->tok;
     char buf[ESL_SOURCE_TPL_MAX + 1];
@@ -186,40 +185,33 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
     memset(src, 0, sizeof(*src));
     if (tok[o].type != ESL_JSON_OBJECT)
         return fail(c, "must be an object"), false;
-    for (int k = o + 1, i = 0; i < tok[o].size; i++, k = tok[k + 1].next) {
-        const char *const *p = keys;
-        while (*p && !esl_json_str_eq(js, &tok[k], *p))
-            p++;
-        if (!*p)
+
+    int t = esl_json_obj_get(js, tok, o, "type");
+    const esl_source_def_t *ty = NULL;
+    for (size_t i = 0; t >= 0 && i < sizeof(types) / sizeof(types[0]); i++)
+        if (esl_json_str_eq(js, &tok[t], types[i]->name))
+            ty = types[i];
+    if (!ty) {
+        char names[64] = "";
+        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]); i++)
+            n += (size_t)snprintf(names + n, n < sizeof(names) ? sizeof(names) - n : 0, "%s\"%s\" (%s)",
+                                  i ? ", " : "", types[i]->name, types[i]->about);
+        return fail(c, "type: one of %s", names);
+    }
+    src->type = ty->type;
+
+    for (int k = o + 1, i = 0; i < tok[o].size; i++, k = tok[k + 1].next)
+        if (!cfg_key(js, &tok[k], ty))
             return fail(c, "%.*s: unknown key", (int)(tok[k].end - tok[k].start > 20 ? 20 : tok[k].end - tok[k].start),
                         js + tok[k].start);
-    }
 
-    int t = esl_json_obj_get(js, tok, o, "id");
+    t = esl_json_obj_get(js, tok, o, "id");
     if (t < 0 || !get_str(c, t, src->id, sizeof(src->id)) || !id_ok(src->id))
         return fail(c, "id: 1 to %d of a-z 0-9 _ -", ESL_SOURCE_ID_MAX);
 
-    t = esl_json_obj_get(js, tok, o, "type");
-    const type_t *ty = NULL;
-    for (size_t i = 0; t >= 0 && i < sizeof(types) / sizeof(types[0]); i++)
-        if (esl_json_str_eq(js, &tok[t], types[i].name))
-            ty = &types[i];
-    if (!ty)
-        return fail(c, "type: must be \"met\" (the forecast from MET Norway)");
-    src->type = ty->type;
-
-    if (src->type == ESL_SOURCE_MET) {
-        static const char *const ll[] = {"lat", "lon"};
-        static const double lim[] = {90, 180};
-        int32_t *dst[] = {&src->lat, &src->lon};
-        for (int i = 0; i < 2; i++) {
-            double d;
-            t = esl_json_obj_get(js, tok, o, ll[i]);
-            if (t < 0 || !get_num(js, &tok[t], &d) || d < -lim[i] || d > lim[i])
-                return fail(c, "%s: a number from -%d to %d (degrees)", ll[i], (int)lim[i], (int)lim[i]);
-            *dst[i] = (int32_t)rnd(d * 10000);
-        }
-    }
+    char msg[ESL_SOURCE_ERR_MAX];
+    if (ty->parse && !ty->parse(js, tok, o, src, msg, sizeof(msg)))
+        return fail(c, "%s", msg);
     t = esl_json_obj_get(js, tok, o, "place");
     if (t >= 0 && !get_str(c, t, src->place, sizeof(src->place)))
         return fail(c, "place: a string of up to %d bytes", ESL_SOURCE_PLACE_MAX);
@@ -228,12 +220,12 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
     if (t >= 0 && (!get_str(c, t, src->lang, sizeof(src->lang)) || (strcmp(src->lang, "nb") && strcmp(src->lang, "en"))))
         return fail(c, "lang: \"nb\" or \"en\"");
 
-    src->every_min = ESL_SOURCE_EVERY_DEF;
+    src->every_min = ty->every_min;
     t = esl_json_obj_get(js, tok, o, "every_min");
     if (t >= 0) {
         double d;
-        if (!get_num(js, &tok[t], &d) || d != (double)(long)d || d < ESL_SOURCE_EVERY_MIN || d > ESL_SOURCE_EVERY_MAX)
-            return fail(c, "every_min: a whole number from %d to %d", ESL_SOURCE_EVERY_MIN, ESL_SOURCE_EVERY_MAX);
+        if (!esl_source_num(js, &tok[t], &d) || d != (double)(long)d || d < ty->every_min || d > ESL_SOURCE_EVERY_MAX)
+            return fail(c, "every_min: a whole number from %u to %d", (unsigned)ty->every_min, ESL_SOURCE_EVERY_MAX);
         src->every_min = (uint16_t)d;
     }
 
@@ -323,24 +315,15 @@ done:
     return ok;
 }
 
-static void write_deg(esl_sb_t *out, const char *key, int32_t v)
-{
-    uint32_t a = (uint32_t)(v < 0 ? -(int64_t)v : v);
-    esl_sb_printf(out, ",\"%s\":%s%lu.%04lu", key, v < 0 ? "-" : "", (unsigned long)(a / 10000),
-                  (unsigned long)(a % 10000));
-}
-
 void esl_source_write_cfg(const esl_source_cfg_t *c, esl_sb_t *out)
 {
-    const type_t *t = type_of(c->type);
+    const esl_source_def_t *t = type_of(c->type);
     esl_sb_puts(out, "{\"id\":");
     esl_sb_json_str(out, c->id);
     esl_sb_puts(out, ",\"type\":");
     esl_sb_json_str(out, t ? t->name : "");
-    if (c->type == ESL_SOURCE_MET) {
-        write_deg(out, "lat", c->lat);
-        write_deg(out, "lon", c->lon);
-    }
+    if (t && t->write)
+        t->write(c, out);
     esl_sb_puts(out, ",\"place\":");
     esl_sb_json_str(out, c->place);
     esl_sb_puts(out, ",\"lang\":");
@@ -382,10 +365,12 @@ void esl_sources_init(esl_sources_t *s, const esl_sources_ops_t *ops)
     s->release = esl_sources_release;
 }
 
-/* What the URL depends on: the same gives the same data, so the last answer still holds */
+/* The same URL gives the same data, so the last answer still holds */
 static bool same_data(const esl_source_cfg_t *a, const esl_source_cfg_t *b)
 {
-    return a->type == b->type && a->lat == b->lat && a->lon == b->lon;
+    char ua[ESL_SOURCE_URL_MAX], ub[ESL_SOURCE_URL_MAX];
+    return a->type == b->type && esl_source_url(a, ua, sizeof(ua)) && esl_source_url(b, ub, sizeof(ub)) &&
+           strcmp(ua, ub) == 0;
 }
 
 /* Takes cfg (n sources), keeping what is known of a source with the same id: its
@@ -517,12 +502,12 @@ static void write_get(esl_sources_t *s, esl_sb_t *out)
 {
     esl_sb_puts(out, "{\"types\":{");
     for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
-        esl_sb_printf(out, "%s\"%s\":{\"values\":[", i ? "," : "", types[i].name);
-        for (const char *const *p = types[i].keys; *p; p++)
-            esl_sb_printf(out, "%s\"%s\"", p == types[i].keys ? "" : ",", *p);
+        esl_sb_printf(out, "%s\"%s\":{\"values\":[", i ? "," : "", types[i]->name);
+        for (const char *const *p = types[i]->keys; *p; p++)
+            esl_sb_printf(out, "%s\"%s\"", p == types[i]->keys ? "" : ",", *p);
         esl_sb_puts(out, "],\"fields\":[");
-        for (const char *const *p = types[i].fields; *p; p++) {
-            if (p != types[i].fields)
+        for (const char *const *p = types[i]->fields; *p; p++) {
+            if (p != types[i]->fields)
                 esl_sb_putc(out, ',');
             esl_sb_json_str(out, *p);
         }
@@ -701,16 +686,9 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
 
 size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap)
 {
-    int n = 0;
-    if (c->type == ESL_SOURCE_MET) {
-        uint32_t la = (uint32_t)(c->lat < 0 ? -(int64_t)c->lat : c->lat);
-        uint32_t lo = (uint32_t)(c->lon < 0 ? -(int64_t)c->lon : c->lon);
-        n = snprintf(buf, cap,
-                     "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=%s%lu.%04lu&lon=%s%lu.%04lu",
-                     c->lat < 0 ? "-" : "", (unsigned long)(la / 10000), (unsigned long)(la % 10000),
-                     c->lon < 0 ? "-" : "", (unsigned long)(lo / 10000), (unsigned long)(lo % 10000));
-    }
-    return n > 0 && (size_t)n < cap ? (size_t)n : 0;
+    const esl_source_def_t *t = type_of(c->type);
+    size_t n = t ? t->url(c, buf, cap) : 0;
+    return n < cap ? n : 0;
 }
 
 /* ---- time ---- */
@@ -768,353 +746,13 @@ uint32_t esl_http_date(const char *s)
     return mo < 12 ? unix_of(y, mo + 1, d, h, mi, se) : 0;
 }
 
-/* ---- MET Norway: locationforecast 2.0 compact ---- */
-
-typedef struct {
-    uint32_t t;
-    double temp, wind, dir, hum, rain1, rain6;
-    bool has_temp, has_wind, has_dir, has_hum, has_rain1, has_rain6;
-    char sym1[32], sym6[32], sym12[32];
-} met_entry_t;
-
-/* The value at obj.k1.k2... (NULL ends the keys), or -1 */
-static int path(const char *js, const esl_jtok_t *tok, int obj, const char *k1, const char *k2, const char *k3)
-{
-    const char *keys[] = {k1, k2, k3};
-    for (int i = 0; i < 3 && keys[i] && obj >= 0; i++)
-        obj = tok[obj].type == ESL_JSON_OBJECT ? esl_json_obj_get(js, tok, obj, keys[i]) : -1;
-    return obj;
-}
-
-static bool num_at(const char *js, const esl_jtok_t *tok, int obj, const char *key, double *out)
-{
-    int t = obj >= 0 && tok[obj].type == ESL_JSON_OBJECT ? esl_json_obj_get(js, tok, obj, key) : -1;
-    return t >= 0 && get_num(js, &tok[t], out);
-}
-
-static void sym_at(const char *js, const esl_jtok_t *tok, int data, const char *period, char *out, size_t cap)
-{
-    int t = path(js, tok, data, period, "summary", "symbol_code");
-    out[0] = '\0';
-    if (t >= 0 && tok[t].type == ESL_JSON_STRING) {
-        int n = esl_json_str_decode(js, &tok[t], out, cap - 1);
-        out[n > 0 ? n : 0] = '\0';
-    }
-}
-
-static bool met_entry(const char *js, const esl_jtok_t *tok, int e, met_entry_t *m)
-{
-    memset(m, 0, sizeof(*m));
-    int t = tok[e].type == ESL_JSON_OBJECT ? esl_json_obj_get(js, tok, e, "time") : -1;
-    if (t < 0 || tok[t].type != ESL_JSON_STRING)
-        return false;
-    m->t = esl_iso_time(js + tok[t].start, (size_t)(tok[t].end - tok[t].start));
-    int data = esl_json_obj_get(js, tok, e, "data");
-    if (!m->t || data < 0)
-        return false;
-    int det = path(js, tok, data, "instant", "details", NULL);
-    m->has_temp = num_at(js, tok, det, "air_temperature", &m->temp);
-    m->has_wind = num_at(js, tok, det, "wind_speed", &m->wind);
-    m->has_dir = num_at(js, tok, det, "wind_from_direction", &m->dir);
-    m->has_hum = num_at(js, tok, det, "relative_humidity", &m->hum);
-    m->has_rain1 = num_at(js, tok, path(js, tok, data, "next_1_hours", "details", NULL), "precipitation_amount", &m->rain1);
-    m->has_rain6 = num_at(js, tok, path(js, tok, data, "next_6_hours", "details", NULL), "precipitation_amount", &m->rain6);
-    sym_at(js, tok, data, "next_1_hours", m->sym1, sizeof(m->sym1));
-    sym_at(js, tok, data, "next_6_hours", m->sym6, sizeof(m->sym6));
-    sym_at(js, tok, data, "next_12_hours", m->sym12, sizeof(m->sym12));
-    return true;
-}
-
-/* The weather for the coming hours: MET's symbol code for the shortest period it has */
-static const char *met_sym(const met_entry_t *m)
-{
-    return m->sym1[0] ? m->sym1 : m->sym6[0] ? m->sym6 : m->sym12;
-}
-
-/* MET's symbol code ("lightrainshowers_day") as one of the icon names of the weather
- * template: sun, moon, partsun, partmoon, cloud, fog, rain, sleet, snow, thunder */
-static const char *met_icon(const char *code)
-{
-    bool night = strstr(code, "_night") != NULL;
-    if (strstr(code, "thunder"))
-        return "thunder";
-    if (strstr(code, "sleet"))
-        return "sleet";
-    if (strstr(code, "snow"))
-        return "snow";
-    if (strstr(code, "rain"))
-        return "rain";
-    if (!strncmp(code, "fog", 3))
-        return "fog";
-    if (!strncmp(code, "cloudy", 6))
-        return "cloud";
-    if (!strncmp(code, "partlycloudy", 12))
-        return night ? "partmoon" : "partsun";
-    if (!strncmp(code, "clearsky", 8) || !strncmp(code, "fair", 4))
-        return night ? "moon" : "sun";
-    return "";
-}
-
-static const struct {
-    const char *code, *nb, *en;
-} met_words[] = {
-    {"clearsky", "Klarvær", "Clear sky"},
-    {"fair", "Lettskyet", "Fair"},
-    {"partlycloudy", "Delvis skyet", "Partly cloudy"},
-    {"cloudy", "Skyet", "Cloudy"},
-    {"fog", "Tåke", "Fog"},
-    {"lightrainshowers", "Lette regnbyger", "Light rain showers"},
-    {"heavyrainshowers", "Kraftige regnbyger", "Heavy rain showers"},
-    {"rainshowers", "Regnbyger", "Rain showers"},
-    {"lightrain", "Lett regn", "Light rain"},
-    {"heavyrain", "Kraftig regn", "Heavy rain"},
-    {"rain", "Regn", "Rain"},
-    {"lightsleetshowers", "Lette sluddbyger", "Light sleet showers"},
-    {"heavysleetshowers", "Kraftige sluddbyger", "Heavy sleet showers"},
-    {"sleetshowers", "Sluddbyger", "Sleet showers"},
-    {"lightsleet", "Lett sludd", "Light sleet"},
-    {"heavysleet", "Kraftig sludd", "Heavy sleet"},
-    {"sleet", "Sludd", "Sleet"},
-    {"lightsnowshowers", "Lette snøbyger", "Light snow showers"},
-    {"heavysnowshowers", "Kraftige snøbyger", "Heavy snow showers"},
-    {"snowshowers", "Snøbyger", "Snow showers"},
-    {"lightsnow", "Lett snø", "Light snow"},
-    {"heavysnow", "Kraftig snø", "Heavy snow"},
-    {"snow", "Snø", "Snow"},
-};
-
-/* The weather in words: "Lette regnbyger og torden" */
-static void met_desc(const char *code, bool en, char *out, size_t cap)
-{
-    size_t n = strcspn(code, "_");
-    bool thunder = n > 10 && !memcmp(code + n - 10, "andthunder", 10);
-    if (thunder)
-        n -= 10;
-    out[0] = '\0';
-    for (size_t i = 0; i < sizeof(met_words) / sizeof(met_words[0]); i++)
-        if (strlen(met_words[i].code) == n && !memcmp(met_words[i].code, code, n)) {
-            snprintf(out, cap, "%s%s", en ? met_words[i].en : met_words[i].nb,
-                     thunder ? (en ? " and thunder" : " og torden") : "");
-            return;
-        }
-}
-
-/* A whole number, never "-0" */
-static void fmt_int(char *out, size_t cap, double d)
-{
-    long v = rnd(d);
-    snprintf(out, cap, "%ld", v);
-}
-
-/* mm of rain: one decimal under 10 with a decimal comma ("0,4"), whole above, "0" for none */
-static void fmt_mm(char *out, size_t cap, double d)
-{
-    long t = rnd(d * 10);
-    if (t <= 0)
-        snprintf(out, cap, "0");
-    else if (t < 100)
-        snprintf(out, cap, "%ld,%ld", t / 10, t % 10);
-    else
-        snprintf(out, cap, "%ld", (t + 5) / 10);
-}
-
-static const char *compass(double deg, bool en)
-{
-    static const char *const nb[] = {"N", "NØ", "Ø", "SØ", "S", "SV", "V", "NV"};
-    static const char *const enw[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-    long d = rnd(deg) % 360;
-    int i = (int)(((d < 0 ? d + 360 : d) * 2 + 45) / 90) % 8;
-    return en ? enw[i] : nb[i];
-}
-
-/* MET's answer is 30-40 KB; more than the tokenizer takes (64 KB) is cut after the last
- * whole entry of the time series that fits, which still leaves days of forecast */
-static size_t met_cut(const char *body, size_t len)
-{
-    static const char sep[] = "},{\"time\"";
-    size_t max = ESL_JSON_MAX_LEN - 8, cut = 0;
-    for (size_t i = 0; i + sizeof(sep) - 1 <= len && i < max; i++)
-        if (body[i] == '}' && !memcmp(body + i, sep, sizeof(sep) - 1))
-            cut = i + 1;
-    return cut;
-}
-
-static bool met_values(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
-                       esl_values_t *v, uint32_t *data_at, char *err, size_t errlen)
-{
-    char *copy = NULL;
-    if (len > ESL_JSON_MAX_LEN) {
-        size_t cut = met_cut(body, len);
-        copy = cut ? malloc(cut + 4) : NULL;
-        if (!copy) {
-            snprintf(err, errlen, cut ? "out of memory" : "the answer is too big");
-            return false;
-        }
-        memcpy(copy, body, cut);
-        memcpy(copy + cut, "]}}", 3);
-        body = copy;
-        len = cut + 3;
-    }
-    /* every token but the last follows one of { [ , : */
-    unsigned max_tok = 2;
-    for (size_t i = 0; i < len; i++)
-        max_tok += body[i] == '{' || body[i] == '[' || body[i] == ',' || body[i] == ':';
-    esl_jtok_t *tok = malloc(sizeof(*tok) * max_tok);
-    bool ok = false;
-    met_entry_t *ent = NULL;
-    if (!tok) {
-        snprintf(err, errlen, "out of memory");
-        goto done;
-    }
-    if (esl_json_parse(body, len, tok, max_tok) < 0 || tok[0].type != ESL_JSON_OBJECT) {
-        snprintf(err, errlen, "the answer is not JSON");
-        goto done;
-    }
-    int props = esl_json_obj_get(body, tok, 0, "properties");
-    int ts = path(body, tok, props, "timeseries", NULL, NULL);
-    if (ts < 0 || tok[ts].type != ESL_JSON_ARRAY || tok[ts].size == 0) {
-        snprintf(err, errlen, "the answer has no properties.timeseries");
-        goto done;
-    }
-    int up = path(body, tok, props, "meta", "updated_at", NULL);
-    *data_at = up >= 0 && tok[up].type == ESL_JSON_STRING
-                   ? esl_iso_time(body + tok[up].start, (size_t)(tok[up].end - tok[up].start))
-                   : 0;
-
-    /* the entries of the next two days or so: hourly first, then every 6 hours */
-    unsigned n = 0, cap = tok[ts].size < 80 ? tok[ts].size : 80;
-    ent = malloc(sizeof(*ent) * cap);
-    if (!ent) {
-        snprintf(err, errlen, "out of memory");
-        goto done;
-    }
-    int cur = -1;
-    for (int k = ts + 1, i = 0; i < tok[ts].size && n < cap; i++, k = tok[k].next) {
-        if (!met_entry(body, tok, k, &ent[n]))
-            continue;
-        if (ent[n].t <= now || cur < 0)
-            cur = (int)n;
-        n++;
-    }
-    if (cur < 0) {
-        snprintf(err, errlen, "the answer's time series has no entries");
-        goto done;
-    }
-    const met_entry_t *m = &ent[cur];
-    if (now > m->t + 3 * 3600) {
-        snprintf(err, errlen, "the forecast is old (it ends before now)");
-        goto done;
-    }
-    bool en = !strcmp(c->lang, "en");
-    char buf[ESL_VALUE_MAX + 1];
-    v->n = 0;
-    esl_values_set(v, "place", c->place);
-    if (m->has_temp) {
-        fmt_int(buf, sizeof(buf), m->temp);
-        esl_values_set(v, "temp", buf);
-    }
-    esl_values_set(v, "symbol", met_icon(met_sym(m)));
-    met_desc(met_sym(m), en, buf, sizeof(buf));
-    esl_values_set(v, "desc", buf);
-
-    /* min and max over the next 24 hours */
-    bool any = false;
-    double lo = 0, hi = 0;
-    for (unsigned i = (unsigned)cur; i < n && ent[i].t < m->t + 24 * 3600; i++)
-        if (ent[i].has_temp) {
-            if (!any || ent[i].temp < lo)
-                lo = ent[i].temp;
-            if (!any || ent[i].temp > hi)
-                hi = ent[i].temp;
-            any = true;
-        }
-    if (any) {
-        fmt_int(buf, sizeof(buf), lo);
-        esl_values_set(v, "min", buf);
-        fmt_int(buf, sizeof(buf), hi);
-        esl_values_set(v, "max", buf);
-    }
-    if (m->has_wind) {
-        fmt_int(buf, sizeof(buf), m->wind);
-        esl_values_set(v, "wind", buf);
-    }
-    if (m->has_dir)
-        esl_values_set(v, "dir", compass(m->dir, en));
-    fmt_mm(buf, sizeof(buf), m->has_rain6 ? m->rain6 : 0);
-    esl_values_set(v, "rain", buf);
-    fmt_mm(buf, sizeof(buf), m->has_rain1 ? m->rain1 : 0);
-    esl_values_set(v, "rain1h", buf);
-    if (m->has_hum) {
-        fmt_int(buf, sizeof(buf), m->hum);
-        esl_values_set(v, "humidity", buf);
-    }
-
-    /* in 3 and 6 hours: the hour (local time), the temperature and the icon */
-    static const char *const later[2][3] = {{"h3", "t3", "s3"}, {"h6", "t6", "s6"}};
-    for (int k = 0; k < 2; k++) {
-        uint32_t want = m->t + (uint32_t)(k + 1) * 3 * 3600;
-        unsigned i = (unsigned)cur;
-        while (i < n && ent[i].t < want)
-            i++;
-        if (i == n || !ent[i].has_temp)
-            continue;
-        uint32_t local = ent[i].t + (uint32_t)(off ? off(ent[i].t) : 0);
-        snprintf(buf, sizeof(buf), "%02u", (unsigned)(local % 86400 / 3600));
-        esl_values_set(v, later[k][0], buf);
-        fmt_int(buf, sizeof(buf), ent[i].temp);
-        esl_values_set(v, later[k][1], buf);
-        esl_values_set(v, later[k][2], met_icon(met_sym(&ent[i])));
-    }
-
-    /* tomorrow (local time): its lowest and highest, and the weather around noon */
-    uint32_t tomorrow = (now + (uint32_t)(off ? off(now) : 0)) / 86400 + 1;
-    int noon = -1;
-    unsigned best = 99;
-    any = false;
-    for (unsigned i = 0; i < n; i++) {
-        uint32_t local = ent[i].t + (uint32_t)(off ? off(ent[i].t) : 0);
-        if (local / 86400 != tomorrow)
-            continue;
-        unsigned h = local % 86400 / 3600, d = h > 12 ? h - 12 : 12 - h;
-        if (ent[i].has_temp) {
-            if (!any || ent[i].temp < lo)
-                lo = ent[i].temp;
-            if (!any || ent[i].temp > hi)
-                hi = ent[i].temp;
-            any = true;
-        }
-        if (d < best && met_sym(&ent[i])[0]) {
-            best = d;
-            noon = (int)i;
-        }
-    }
-    if (any) {
-        fmt_int(buf, sizeof(buf), lo);
-        esl_values_set(v, "tmin", buf);
-        fmt_int(buf, sizeof(buf), hi);
-        esl_values_set(v, "tmax", buf);
-    }
-    if (noon >= 0)
-        esl_values_set(v, "tsym", met_icon(ent[noon].sym6[0] ? ent[noon].sym6 : met_sym(&ent[noon])));
-    if (*data_at) {
-        uint32_t local = *data_at + (uint32_t)(off ? off(*data_at) : 0);
-        snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)(local % 86400 / 3600), (unsigned)(local % 3600 / 60));
-        esl_values_set(v, "updated", buf);
-    }
-    ok = true;
-done:
-    free(ent);
-    free(tok);
-    free(copy);
-    return ok;
-}
-
 bool esl_source_values(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
                        esl_values_t *v, uint32_t *data_at, char *err, size_t errlen)
 {
+    const esl_source_def_t *t = type_of(c->type);
     *data_at = 0;
-    if (c->type == ESL_SOURCE_MET)
-        return met_values(c, body, len, now, off, v, data_at, err, errlen);
+    if (t)
+        return t->values(c, body, len, now, off, v, data_at, err, errlen);
     snprintf(err, errlen, "unknown type");
     return false;
 }

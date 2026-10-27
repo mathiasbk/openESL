@@ -207,9 +207,19 @@ This is also the way on an AP without data sources (the C6 alone).
 ## How it is built
 
 - `ap/components/esl_core/esl_source.c` (plain C, tested on the PC in
-  `ap/test/test_source.c`): the configuration and its checks, the API, MET's URL and how its
-  JSON becomes values, the templates, and giving the content to the tags.
+  `ap/test/test_source.c`): what every type shares. The configuration and its checks, the
+  API, when each source runs (Expires, retries, the random spread), the templates, giving the
+  content to the tags, and taking a tag out when it gets other content.
+- `ap/components/esl_core/esl_source_met.c`: what is particular to `met`, as an
+  `esl_source_def_t` (`esl_source.h`): its own settings (`lat`, `lon`), its URL, how MET's
+  JSON becomes values, and its least interval (30 minutes, MET's terms).
 - `ap/main/datasrc.c`: a task that fetches with `esp_http_client` (TLS with the certificate
-  bundle) when a source is due, keeps the last answer of each in PSRAM, and saves the list in
-  NVS.
-- `web/js/apsources.js`: the Dashboard card.
+  bundle) when a source is due, keeps the last answers in PSRAM by URL, and saves the list in
+  NVS. It does not know what it fetches.
+- `web/js/apsources.js`: the Dashboard's weather (the Send choice, the place dialog and the
+  card).
+
+A new type is a new file like `esl_source_met.c` and its line in `types[]` in
+`esl_source.c`: fetching, caching, templates, the API and saving come with it. What the
+engine does not do yet: requests that need a key or a header, answers other than text values
+(a chart, for example), and answers over 128 KB.
