@@ -19,7 +19,9 @@ test("time zones, NTP servers and webhooks are checked as the AP does", () => {
   assert.equal(checkTz("<+0530>-5:30"), null);
   assert.ok(checkTz("1CET"));
   assert.ok(checkTz("CET -1"));
-  assert.ok(checkTz("Europe/Oslo") === null, "looks like TZ syntax; the AP takes it, but it means UTC there");
+  assert.ok(checkTz("Europe/Oslo"), "a tzdata name: the AP would take it as UTC");
+  assert.ok(checkTz("CET"));
+  assert.equal(checkTz("EST5EDT,M3.2.0,M11.1.0"), null);
   assert.equal(checkNtp("no.pool.ntp.org"), null);
   assert.equal(checkNtp("192.168.1.1"), null);
   assert.ok(checkNtp("-pool"));

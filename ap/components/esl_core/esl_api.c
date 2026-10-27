@@ -1001,12 +1001,29 @@ bool esl_ntp_name_ok(const char *s, size_t len)
 
 bool esl_tz_ok(const char *s, size_t len)
 {
-    if (len < 1 || len > ESL_TZ_MAX || (!isalpha((unsigned char)s[0]) && s[0] != '<'))
+    if (len < 1 || len > ESL_TZ_MAX)
         return false;
     for (size_t i = 0; i < len; i++)
         if (!isalnum((unsigned char)s[i]) && !strchr("+-,./:<>", s[i]))
             return false;
-    return true;
+    /* the POSIX form, a name and its offset: "Europe/Oslo" would be taken as UTC */
+    size_t i = 0;
+    if (s[0] == '<') {
+        while (++i < len && s[i] != '>')
+            if (!isalnum((unsigned char)s[i]) && s[i] != '+' && s[i] != '-')
+                return false;
+        if (i < 2 || i >= len)
+            return false;
+        i++;
+    } else {
+        while (i < len && isalpha((unsigned char)s[i]))
+            i++;
+        if (i < 3)
+            return false;
+    }
+    if (i < len && (s[i] == '+' || s[i] == '-'))
+        i++;
+    return i < len && isdigit((unsigned char)s[i]);
 }
 
 /* A string or null at key k (index i) into buf (cap bytes): its length, 0 for null, -1 when it

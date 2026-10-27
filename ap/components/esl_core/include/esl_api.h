@@ -49,8 +49,9 @@ typedef struct {
 } esl_clock_cfg_t;
 
 /* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name
- * or an IPv4 address). A POSIX TZ: 1 to ESL_TZ_MAX of letters, digits and + - , . / : < >,
- * starting with a letter or '<'. */
+ * or an IPv4 address). A POSIX TZ: up to ESL_TZ_MAX of letters, digits and + - , . / : < >,
+ * starting with a name (3 or more letters, or <...>) and its offset ("CET-1...", "<+0530>-5:30");
+ * a tzdata name such as "Europe/Oslo" is turned down, since the AP would take it as UTC. */
 bool esl_ntp_name_ok(const char *s, size_t len);
 bool esl_tz_ok(const char *s, size_t len);
 

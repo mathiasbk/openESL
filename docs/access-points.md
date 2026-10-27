@@ -35,8 +35,8 @@ How the S3 and the C6 talk, and how to flash the C6: [ap-radio-link.md](ap-radio
 |---|---|---|---|---|
 | Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
 | Settings page: poll interval, webhook, name, WiFi, API token | yes | yes | yes | yes |
-| Settings page: time zone and NTP server | yes, firmware after 0.8.1 | yes, firmware after 0.8.1 | yes, firmware after 0.8.1 | yes, firmware after 0.8.1 |
+| Settings page: time zone and NTP server | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 |
 | Backup and restore from the dashboard | yes | yes | yes | yes |
 | Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes |
 
-The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware newer than 0.8.1 (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.
+The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware newer than 0.8.2 (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.

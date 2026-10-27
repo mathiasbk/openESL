@@ -36,8 +36,9 @@ export function tzForZone(zone) {
 // The same checks as esl_tz_ok() and esl_ntp_name_ok() on the AP: an error, or null
 export function checkTz(tz) {
   if (!tz) return null;
-  if (tz.length > 63 || !/^[A-Za-z<][A-Za-z0-9+,./:<>-]*$/.test(tz))
-    return "A time zone is a POSIX TZ string of at most 63 characters, such as CET-1CEST,M3.5.0,M10.5.0/3.";
+  // the POSIX form, a name and its offset: the AP takes a tzdata name such as Europe/Oslo as UTC
+  if (tz.length > 63 || !/^([A-Za-z]{3,}|<[A-Za-z0-9+-]+>)[+-]?[0-9][A-Za-z0-9+,./:<>-]*$/.test(tz))
+    return "A time zone is a POSIX TZ string of at most 63 characters, such as CET-1CEST,M3.5.0,M10.5.0/3 (not a name such as Europe/Oslo).";
   return null;
 }
 export function checkNtp(name) {

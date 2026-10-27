@@ -1070,7 +1070,8 @@ static void test_clock_config(void)
     static const char *const bad[] = {
         "{\"ntp\":\"-pool\"}", "{\"ntp\":\".pool\"}", "{\"ntp\":\"pool ntp\"}", "{\"ntp\":\"pool_ntp\"}",
         "{\"ntp\":3}", "{\"ntp\":true}", "{\"tz\":\"1CET\"}", "{\"tz\":\"CET -1\"}", "{\"tz\":\"CET\\\"\"}",
-        "{\"tz\":[]}", "{\"tz\":\"UTC0\",\"ntp\":\"a b\"}",
+        "{\"tz\":[]}", "{\"tz\":\"UTC0\",\"ntp\":\"a b\"}", "{\"tz\":\"Europe/Oslo\"}", "{\"tz\":\"CET\"}",
+        "{\"tz\":\"UT0\"}", "{\"tz\":\"<>0\"}", "{\"tz\":\"<+05\"}",
         "{\"ntp\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}", /* 64 */
     };
     for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
@@ -1091,6 +1092,9 @@ static void test_clock_config(void)
     CHECK(esl_ntp_name_ok("192.168.1.1", 11));
     CHECK(!esl_ntp_name_ok("", 0));
     CHECK(esl_tz_ok("UTC0", 4));
+    CHECK(esl_tz_ok("EST5EDT,M3.2.0,M11.1.0", 22));
+    CHECK(esl_tz_ok("<-03>3", 6));
+    CHECK(!esl_tz_ok("Europe/Oslo", 11));
     CHECK(!esl_tz_ok("", 0));
     api.clock = NULL;
 }

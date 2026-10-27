@@ -12,7 +12,7 @@ python3 esl_client.py restore ap.json --dry-run
 
 The default poll interval, the webhook, the time zone and NTP server, the layout files, each label's content (pictures too) and own settings, and the scheduled content.
 
-**Not in it:** the WiFi password (it cannot be read back) and the API token. Set those again on a new AP ([WiFi and API token](WiFi-and-API-token)). Labels that have only polled, with no content, are left out; they come back by themselves at their next poll.
+**Not in it:** the WiFi password (it cannot be read back), the API token, and the radio's transmit power (it depends on the AP's antenna). Set those again on a new AP ([WiFi and API token](WiFi-and-API-token)). Labels that have only polled, with no content, are left out; they come back by themselves at their next poll.
 
 **Noted, not restored:** the AP's name on the network (`openesl.local`, say) and which label firmware the AP offers. A new AP gets a name of its own, and the AP cannot give the firmware file back. `restore` prints a `note:` line for each with the command that sets it again.
 
