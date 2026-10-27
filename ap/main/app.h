@@ -111,6 +111,11 @@ void captive_dns_stop(void);
 /* radio.c (AP or sniffer mode, over the link of the radio driver) or
  * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);
+/* radio_tx.c (not with the stub radio): the transmit power for api->tx_power, loaded
+ * from NVS on the first call; radio_start() uses it. radio_set_tx_power() (radio.c,
+ * radio_net.c) hands a new one to the radio, from any task. */
+esl_tx_power_t *radio_tx_power(void);
+void radio_set_tx_power(int8_t dbm);
 #if CONFIG_ESL_RADIO_DRIVER_NET
 /* radio_net.c: the link to the network radio, for GET /api/tags ("radio") */
 const esl_radio_link_t *radio_net_link(void);

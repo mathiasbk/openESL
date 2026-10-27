@@ -429,6 +429,17 @@
         </form>
         <p id="dash-poll-note" class="hint"></p>
         <p id="dash-poll-msg" class="hint" role="status"></p>
+        <form id="dash-tx" class="form row" novalidate hidden>
+          <label>Radio transmit power
+            <select id="dash-tx-sel"></select>
+          </label>
+          <label id="dash-tx-other" hidden>dBm
+            <input id="dash-tx-db" type="number" min="-24" max="20" step="1" inputmode="numeric">
+          </label>
+          <button id="dash-tx-save" type="submit">Save</button>
+        </form>
+        <p id="dash-tx-note" class="hint" hidden></p>
+        <p id="dash-tx-msg" class="hint" role="status"></p>
       </details>
       <details id="src-box" class="card wide fold" hidden>
         <summary><h2>Weather</h2> <span id="src-sum" class="muted"></span></summary>

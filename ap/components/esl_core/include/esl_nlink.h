@@ -14,7 +14,8 @@
  * arrive whole and in order, so frames carry no CRC. The radio connects and starts:
  *
  *   radio -> host   HELLO   once per connection: who it is and how much it holds
- *   host -> radio   CONFIG  the channel and PAN to serve (also when they change)
+ *   host -> radio   CONFIG  the channel and PAN to serve (also when they change), and
+ *                           the transmit power once the AP has one to give
  *   radio -> host   SYNC    esl_rsync_t, then its log_n LOG entries
  *   host -> radio   the answer: CLEAR, DEFAULT_POLL, TAG, DROP, IMAGE, FW + FW_DATA, then END
  *
@@ -83,6 +84,8 @@ typedef struct {
     /* n bytes of the tag firmware for model at off (ESL_NLINK_FW_PART at most); off 0
        starts it over. False when it cannot be written. May be NULL (no firmware). */
     bool (*write_fw)(void *ctx, uint8_t model, uint32_t off, const uint8_t *data, size_t n);
+    /* the transmit power in dBm (a CONFIG with it; an older AP's has none). May be NULL. */
+    void (*tx_power)(void *ctx, int8_t dbm);
 } esl_nlink_radio_ops_t;
 
 /* Tag firmware arriving for one model */
@@ -119,6 +122,8 @@ typedef struct {
     void *wctx;
     uint8_t channel;
     uint16_t pan;
+    int8_t tx_power;         /* goes with CONFIG when tx_set */
+    bool tx_set;
     bool hello;              /* the radio said HELLO on this connection */
     esl_nlink_hello_t radio;
     esl_rsync_t req;         /* the sync being received */
@@ -137,3 +142,6 @@ void esl_nlink_host_init(esl_nlink_host_t *n, esl_rhost_t *h, esl_tagfw_t *fw, u
 bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size_t len);
 /* The channel or PAN changed: CONFIG goes with the next answer. */
 void esl_nlink_host_set_config(esl_nlink_host_t *n, uint8_t channel, uint16_t pan);
+/* The transmit power (dBm) for the radio: in every CONFIG from now on, the next with
+ * the next answer. Before it is called, CONFIG has none and the radio keeps its own. */
+void esl_nlink_host_set_tx_power(esl_nlink_host_t *n, int8_t dbm);

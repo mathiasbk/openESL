@@ -99,6 +99,9 @@ void app_main(void)
 #elif !CONFIG_ESL_RADIO_STUB
     api.radio_stats = &radio_link.stats;
 #endif
+#if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
+    api.tx_power = radio_tx_power();
+#endif
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
 #endif

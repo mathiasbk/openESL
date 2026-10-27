@@ -48,7 +48,7 @@ static void gather(esl_screen_info_t *in)
         case ESL_TAG_BUSY: in->busy++; break;
         case ESL_TAG_BAD:  in->bad++; break;
         }
-        if (t.seen && now_ms - t.last_seen_ms < SEEN_RECENT_MS)
+        if (t.seen && esl_tag_seen_ms_ago(&t, now_ms) < SEEN_RECENT_MS)
             in->seen++;
     }
     if (api->wifi)

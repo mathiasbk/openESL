@@ -20,7 +20,7 @@ static esl_sources_t sources;
 static esl_sched_entry_t entries[4];
 static esl_sched_t sched;
 static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, &sched, NULL, NULL, NULL, false, NULL, NULL,
-                        &sources};
+                        NULL, &sources};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 static char saved[ESL_SOURCE_CFG_MAX];
