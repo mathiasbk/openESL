@@ -38,14 +38,17 @@ What the AP needs:
 
 1. Tick the tags in the Dashboard's tag table and choose **Send → The weather (MET Norway)**,
    then **Choose the place …**.
-2. In the dialog, pick a place the AP has, or **A new place**: write the place (`Bergen`) and
-   press **Search** or Enter. The browser looks it up in OpenStreetMap's
-   [Nominatim](https://nominatim.org/) (one request per search, never as you type, as its usage
-   policy asks) and takes the first place found; others with the same name are listed to pick
-   from. The name written is shown on the tag; only the name and the coordinates (4 decimals)
-   go to the AP. Without the internet on the computer, open **Coordinates** and paste them as
-   a map copies them (right-click the place in Google Maps or norgeskart.no:
-   `59.9139, 10.7522`).
+2. In the dialog, pick a place the AP has, or **A new place**: start typing the place and pick
+   it in the list of suggestions (arrow keys and Enter work too). The browser asks two services
+   as you type, after a short pause: Kartverket's
+   [place names](https://www.kartverket.no/api-og-data/stedsnavndata) for Norway (towns,
+   villages, municipalities, islands and mountains, found from the first letters: `Berg` gives
+   Bergen) and Open-Meteo's [geocoding](https://open-meteo.com/en/docs/geocoding-api) (GeoNames)
+   for the rest of the world (found by the whole name). Both are CC BY 4.0. **Show the weather**
+   with a name typed but none picked takes the first suggestion. The place's name is shown on
+   the tag; only the name and the coordinates (4 decimals) go to the AP. Without the internet on
+   the computer, open **Coordinates** and paste them as a map copies them (right-click the place
+   in Google Maps or norgeskart.no: `59.9139, 10.7522`).
 3. If the AP's layout file for a ticked tag's model has no layout called `weather`, the dialog
    offers to add the Weather template to it (the file's other layouts stay). The template is
    packed in the AP's firmware, so this works without the internet on the computer.
@@ -64,7 +67,8 @@ that answer.
 Every `every_min` minutes, 30 by default and at least 30. Never before the `Expires` of the
 last answer: MET says in each answer when it has a new forecast, usually within the hour.
 The AP sends `If-Modified-Since`, so an unchanged forecast comes back as `304 Not Modified`
-with no data. After a failed fetch it tries again in 10 minutes.
+with no data. When MET gives no answer at all (mostly a WiFi or DNS hiccup) it tries again
+after 1 minute, then 3, then every 10; after an answer with an error, in 10 minutes.
 
 A forecast changes slowly, so most fetches change nothing on the tags. The temperature now,
 the symbol and the day's lowest and highest change a few times a day.

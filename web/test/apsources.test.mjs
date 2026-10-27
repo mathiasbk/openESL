@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, searchUrl, parseHits, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -81,23 +81,50 @@ test("the place each tag shows, and a place's state in one line", () => {
   assert.equal(s.text, "-3°, Lett snø · fetched 2 min ago");
 });
 
-test("a place found by its name", () => {
-  const u = new URL(searchUrl(" Bergen ", "nb"));
-  assert.equal(u.host, "nominatim.openstreetmap.org");
-  assert.equal(u.searchParams.get("q"), "Bergen");
-  assert.equal(u.searchParams.get("format"), "jsonv2");
-  assert.equal(new URL(searchUrl("Oslo", "en")).searchParams.get("accept-language"), "en");
-  // as Nominatim answers: the coordinates as strings
-  const hits = parseHits([
-    { lat: "60.3943055", lon: "5.3259192", name: "Bergen", display_name: "Bergen, Vestland, Norge" },
-    { lat: "50.4549568", lon: "3.951958", name: "Mons", display_name: "Mons, Hainaut, Wallonie, Belgia" },
-    { lat: "60.3943055", lon: "5.3259192", name: "Bergen", display_name: "Bergen, Vestland, Norge" },
-    { lat: "x", lon: "1", name: "Bad" },
-    { lat: "1", lon: "1", name: "", display_name: "" },
+test("places suggested as you type", () => {
+  const u = placeUrls(" Berg* ", "nb");
+  const no = new URL(u.no), wu = new URL(u.world);
+  assert.equal(no.host, "ws.geonorge.no");
+  assert.equal(no.searchParams.get("sok"), "Berg*");
+  assert.equal(wu.host, "geocoding-api.open-meteo.com");
+  assert.equal(wu.searchParams.get("name"), "Berg");
+  assert.equal(new URL(placeUrls("Oslo", "en").world).searchParams.get("language"), "en");
+  // as Kartverket answers "Trom*"
+  const norway = parseNorway({ navn: [
+    { skrivemåte: "Troms", navneobjekttype: "Fylke", representasjonspunkt: { nord: 69.65278, "øst": 18.94419 }, fylker: [{ fylkesnavn: "Troms - Romsa - Tromssa" }], kommuner: [{ kommunenavn: "Tromsø" }, { kommunenavn: "Harstad - Hárstták" }] },
+    { skrivemåte: "Tromsa", navneobjekttype: "Øy i sjø", representasjonspunkt: { nord: 63.7, "øst": 8.8 }, fylker: [{ fylkesnavn: "Trøndelag - Trööndelage" }], kommuner: [{ kommunenavn: "Frøya" }] },
+    { skrivemåte: "Tromsø", navneobjekttype: "By", representasjonspunkt: { nord: 69.65455, "øst": 18.96366 }, fylker: [{ fylkesnavn: "Troms - Romsa - Tromssa" }], kommuner: [{ kommunenavn: "Tromsø" }] },
+    { skrivemåte: "Tromvegen", navneobjekttype: "Veg", representasjonspunkt: { nord: 63.3, "øst": 10.0 } },
+  ] }, "Trom");
+  assert.deepEqual(norway, [
+    { name: "Tromsø", detail: "Troms", lat: 69.6546, lon: 18.9637, place: true },
+    { name: "Tromsa", detail: "Frøya, Trøndelag", lat: 63.7, lon: 8.8, place: false },
   ]);
-  assert.deepEqual(hits, [
-    { name: "Bergen", label: "Bergen, Vestland, Norge", lat: 60.3943, lon: 5.3259 },
-    { name: "Mons", label: "Mons, Hainaut, Wallonie, Belgia", lat: 50.455, lon: 3.952 },
-  ]);
-  assert.deepEqual(parseHits({ error: "x" }), []);
+  // the name typed in full first, among the towns and villages
+  const two = parseNorway({ navn: [
+    { skrivemåte: "Bergen", navneobjekttype: "By", representasjonspunkt: { nord: 60.39, "øst": 5.32 } },
+    { skrivemåte: "Berg", navneobjekttype: "Grend", representasjonspunkt: { nord: 59.1, "øst": 11.3 } },
+  ] }, "berg");
+  assert.deepEqual(two.map((h) => h.name), ["Berg", "Bergen"]);
+  assert.deepEqual(parseNorway({}), []);
+  // as Open-Meteo answers "Bergen"
+  const world = parseWorld({ results: [
+    { name: "Bergen", latitude: 60.39299, longitude: 5.32415, admin1: "Vestland", country: "Norge" },
+    { name: "Bergen", latitude: 52.81, longitude: 9.96, admin1: "Niedersachsen", country: "Tyskland" },
+    { name: "Bad", latitude: "x", longitude: 1 },
+  ] });
+  assert.equal(world.length, 2);
+  assert.deepEqual(parseWorld({}), []);
+  const bergen = { name: "Bergen", detail: "Vestland", lat: 60.3932, lon: 5.3245, place: true };
+  const bergsoya = { name: "Bergsøya", detail: "Gjemnes, Møre og Romsdal", lat: 62.9, lon: 7.7, place: false };
+  // Bergen once (Kartverket's and GeoNames' points are a few hundred metres apart); the world's
+  // Bergen before Norway's islands
+  let m = mergePlaces("Bergen", [bergen, bergsoya], world);
+  assert.deepEqual(m.map((h) => h.detail), ["Vestland", "Niedersachsen, Tyskland", "Gjemnes, Møre og Romsdal"]);
+  assert.deepEqual(Object.keys(m[0]), ["name", "detail", "lat", "lon"]);
+  // while typing: Norway's Bergen before a Berg in Belgium
+  const belgium = { name: "Berg", detail: "Flanders, Belgia", lat: 50.93, lon: 4.54 };
+  m = mergePlaces("Berg", [bergen, bergsoya], [belgium]);
+  assert.deepEqual(m.map((h) => h.name), ["Bergen", "Berg", "Bergsøya"]);
+  assert.equal(mergePlaces("berg", [bergen, bergsoya], [belgium], 1).length, 1);
 });

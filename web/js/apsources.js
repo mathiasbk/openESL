@@ -45,27 +45,71 @@ export function parseCoords(text) {
   return { lat: Math.round(lat * 1e4) / 1e4, lon: Math.round(lon * 1e4) / 1e4 };
 }
 
-// The place search: OpenStreetMap's Nominatim, asked by the browser (the AP only stores the
-// coordinates), once per search and never as you type, as its usage policy asks
-export function searchUrl(q, lang = "nb") {
-  const u = new URL("https://nominatim.openstreetmap.org/search");
-  u.search = new URLSearchParams({ q: String(q).trim(), format: "jsonv2", limit: "5", "accept-language": lang === "en" ? "en" : "nb,no,en" });
-  return u.href;
+// The place search, asked by the browser as you type (the AP only stores the coordinates):
+// Kartverket's place names (prefix search, Norway) and Open-Meteo's geocoding (whole names,
+// the world, from GeoNames). Both allow a search per keystroke and answer CORS with *
+const NO_TYPES = ["By", "Tettsted", "Bydel", "Tettsteddel", "Tettbebyggelse", "Bygd", "Grend", "Kommune", "Øy", "Øy i sjø", "Fjell", "Nasjonalpark", "Turisthytte"];
+const round4 = (x) => Math.round(Number(x) * 1e4) / 1e4;
+const okCoords = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+// "Troms - Romsa - Tromssa" -> "Troms"
+const firstName = (s) => String(s ?? "").split(" - ")[0].trim();
+
+export function placeUrls(q, lang = "nb") {
+  q = String(q).trim().replace(/[*?]/g, "");
+  const no = new URL("https://ws.geonorge.no/stedsnavn/v1/navn");
+  no.search = new URLSearchParams({ sok: q + "*", fuzzy: "false", utkoordsys: "4258", treffPerSide: "40" });
+  const world = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  world.search = new URLSearchParams({ name: q, count: "8", language: lang === "en" ? "en" : "nb", format: "json" });
+  return { no: no.href, world: world.href };
 }
 
-// Nominatim's answer as [{ name, label, lat, lon }], the coordinates to 4 decimals as MET takes them
-export function parseHits(json) {
-  const seen = new Set();
+// Kartverket's answer as [{ name, detail, lat, lon, place }]: towns and villages first (the
+// name typed in full before the longer ones), then islands and mountains (place false);
+// roads, farms and the like left out
+export function parseNorway(json, q = "") {
+  const typed = String(q).trim().toLocaleLowerCase("nb");
   const out = [];
-  for (const h of Array.isArray(json) ? json : []) {
-    const lat = Math.round(Number(h.lat) * 1e4) / 1e4;
-    const lon = Math.round(Number(h.lon) * 1e4) / 1e4;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) continue;
-    const label = String(h.display_name || h.name || "");
-    const name = String(h.name || label.split(",")[0] || "").trim().slice(0, 32);
-    if (!name || seen.has(label)) continue;
-    seen.add(label);
-    out.push({ name, label, lat, lon });
+  for (const n of Array.isArray(json?.navn) ? json.navn : []) {
+    const type = NO_TYPES.indexOf(n.navneobjekttype);
+    const p = n.representasjonspunkt ?? {};
+    const lat = round4(p.nord), lon = round4(p["øst"]);
+    const name = String(n.skrivemåte ?? n.stedsnavn?.[0]?.skrivemåte ?? "").trim();
+    if (type < 0 || !name || !okCoords(lat, lon)) continue;
+    const kommuner = n.kommuner ?? [];
+    const kommune = kommuner.length === 1 ? firstName(kommuner[0].kommunenavn) : "";
+    const fylke = firstName(n.fylker?.[0]?.fylkesnavn);
+    const detail = [kommune !== name ? kommune : "", fylke].filter(Boolean).join(", ");
+    const place = type <= NO_TYPES.indexOf("Kommune");
+    const rank = (place ? 0 : 2) + (name.toLocaleLowerCase("nb") === typed ? 0 : 1);
+    out.push({ name, detail, lat, lon, place, rank });
+  }
+  // a stable sort keeps Kartverket's own order within a rank
+  return out.sort((x, y) => x.rank - y.rank).map(({ rank, ...h }) => h);
+}
+
+// Open-Meteo's answer as [{ name, detail, lat, lon }] (it sorts by population)
+export function parseWorld(json) {
+  const out = [];
+  for (const r of Array.isArray(json?.results) ? json.results : []) {
+    const lat = round4(r.latitude), lon = round4(r.longitude);
+    const name = String(r.name ?? "").trim();
+    if (!name || !okCoords(lat, lon)) continue;
+    out.push({ name, detail: [r.admin1, r.country].filter(Boolean).join(", "), lat, lon });
+  }
+  return out;
+}
+
+// The suggestions: Norway's towns and villages, then the world's places called just what was
+// typed, then Norway's islands and mountains, then the rest of the world's; one place once
+// (the same name within about 5 km), at most `max`
+export function mergePlaces(q, norway, world, max = 8) {
+  const key = (s) => s.toLocaleLowerCase("nb");
+  const exact = (h) => key(h.name) === key(String(q).trim());
+  const out = [];
+  for (const h of [...norway.filter((h) => h.place), ...world.filter(exact), ...norway.filter((h) => !h.place), ...world.filter((h) => !exact(h))]) {
+    if (out.some((o) => key(o.name) === key(h.name) && Math.abs(o.lat - h.lat) < 0.05 && Math.abs(o.lon - h.lon) < 0.1)) continue;
+    out.push({ name: h.name.slice(0, 32), detail: h.detail, lat: h.lat, lon: h.lon });
+    if (out.length === max) break;
   }
   return out;
 }
@@ -250,49 +294,90 @@ export function initSources() {
 
   const chosen = () => $("wx-places").querySelector("input:checked")?.value ?? "";
 
-  let hits = [];
+  // The suggestions under the place field, as you type
+  let hits = [], active = -1, seq = 0, typing = 0;
+  const list = $("wx-hits");
   function pick(h) {
     $("wx-place").value = h.name;
     $("wx-coords").value = `${h.lat}, ${h.lon}`;
+    close();
+    msg("wx-msg", `${h.name}${h.detail ? ", " + h.detail : ""} (${h.lat}, ${h.lon})`, "ok");
   }
-  function showHits() {
-    $("wx-hits").replaceChildren(...hits.map((h, i) => {
-      const l = document.createElement("label");
-      const r = document.createElement("input");
-      r.type = "radio";
-      r.name = "wx-hit";
-      r.checked = i === 0;
-      r.addEventListener("change", () => pick(h));
-      l.append(r, " " + h.label);
-      return l;
+  function close() {
+    list.hidden = true;
+    active = -1;
+    $("wx-place").setAttribute("aria-expanded", "false");
+    $("wx-place").removeAttribute("aria-activedescendant");
+  }
+  function show() {
+    list.replaceChildren(...hits.map((h, i) => {
+      const li = document.createElement("li");
+      li.id = "wx-hit-" + i;
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", String(i === active));
+      const b = document.createElement("b");
+      b.textContent = h.name;
+      const d = document.createElement("span");
+      d.textContent = h.detail;
+      li.append(b, d);
+      // mousedown, so the field keeps the focus and does not close the list first
+      li.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        pick(h);
+      });
+      return li;
     }));
-    $("wx-hits").hidden = hits.length < 2;
+    list.hidden = !hits.length;
+    $("wx-place").setAttribute("aria-expanded", String(!list.hidden));
+    if (active >= 0) $("wx-place").setAttribute("aria-activedescendant", "wx-hit-" + active);
+    else $("wx-place").removeAttribute("aria-activedescendant");
     $("wx-osm").hidden = !hits.length;
   }
-  // Looks the typed place up; the first place found is taken, the others offered. False when
-  // nothing was found (the message says why)
-  async function search() {
+  // Asks both services; the newest question wins. Resolves to the suggestions (empty when
+  // nothing was found), or throws when neither service answered
+  function lookup(q) {
+    const n = ++seq;
+    const urls = placeUrls(q, $("wx-lang").value);
+    const get = (url, parse) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then(parse);
+    return Promise.allSettled([get(urls.no, (j) => parseNorway(j, q)), get(urls.world, parseWorld)]).then(([no, world]) => {
+      if (no.status === "rejected" && world.status === "rejected") throw no.reason;
+      const found = mergePlaces(q, no.value ?? [], world.value ?? []);
+      if (n === seq) {
+        hits = found;
+        active = -1;
+        if (document.activeElement === $("wx-place")) show();
+      }
+      return found;
+    });
+  }
+  function typed() {
+    $("wx-coords").value = "";
+    msg("wx-msg", "");
+    clearTimeout(typing);
     const q = $("wx-place").value.trim();
-    if (!q) return msg("wx-msg", "Write a place, such as Bergen.", "error"), false;
-    msg("wx-msg", `Looking for ${q} …`);
-    $("wx-search").disabled = true;
-    try {
-      const r = await fetch(searchUrl(q, $("wx-lang").value));
-      if (!r.ok) throw new Error(`the place search answered ${r.status}`);
-      hits = parseHits(await r.json());
-    } catch (e) {
+    if (q.length < 2) {
+      seq++;
       hits = [];
-      showHits();
+      return close();
+    }
+    typing = setTimeout(() => lookup(q).catch(() => {}), 250);
+  }
+  // At "Show the weather" with a name typed but none picked: the first suggestion, looked up
+  // now when it is not there yet. False when there is none (the message says why)
+  async function firstHit() {
+    const q = $("wx-place").value.trim();
+    clearTimeout(typing);
+    msg("wx-msg", `Looking for ${q} …`);
+    let found;
+    try {
+      found = await lookup(q);
+    } catch (e) {
       msg("wx-msg", `The place search did not answer (${e.message}): give the coordinates under Coordinates instead.`, "error");
       $("wx-coords-box").open = true;
       return false;
-    } finally {
-      $("wx-search").disabled = false;
     }
-    showHits();
-    if (!hits.length) return msg("wx-msg", `Found no place called ${q}: check the spelling, or give the coordinates.`, "error"), false;
-    pick(hits[0]);
-    msg("wx-msg", hits.length > 1 ? `Found ${hits[0].label}. Not that one? Pick another above.` : `Found ${hits[0].label}.`, "ok");
+    if (!found.length) return msg("wx-msg", `Found no place called ${q}: check the spelling, or give the coordinates.`, "error"), false;
+    pick(found[0]);
     return true;
   }
 
@@ -309,7 +394,9 @@ export function initSources() {
     $("wx-n").textContent = tags.length === 1 ? "1 tag" : `${tags.length} tags`;
     placesShown();
     hits = [];
-    showHits();
+    seq++;
+    close();
+    $("wx-osm").hidden = true;
     $("wx-place").value = $("wx-coords").value = "";
     $("wx-coords-box").open = false;
     msg("wx-msg", "");
@@ -350,7 +437,7 @@ export function initSources() {
     if (id === "") {
       if (!$("wx-place").value.trim()) return msg("wx-msg", "Write a place, such as Bergen: its name is shown on the tag.", "error");
       // a place typed but not looked up yet: look it up now and take the first one found
-      if (!$("wx-coords").value.trim() && !(await search())) return;
+      if (!$("wx-coords").value.trim() && !(await firstHit())) return;
       const coords = parseCoords($("wx-coords").value);
       if (!coords) return msg("wx-msg", "Coordinates: latitude and longitude, such as 59.9139, 10.7522.", "error");
       to = { place: $("wx-place").value, ...coords, lang: $("wx-lang").value };
@@ -379,20 +466,24 @@ export function initSources() {
   }
 
   $("wx-form").addEventListener("submit", submit);
-  $("wx-search").addEventListener("click", () => search());
+  $("wx-place").addEventListener("input", typed);
   $("wx-place").addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") {
+    if (list.hidden || !hits.length) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
       ev.preventDefault();
-      search();
+      active = (active + (ev.key === "ArrowDown" ? 1 : hits.length - 1 + (active < 0 ? 1 : 0))) % hits.length;
+      show();
+    } else if (ev.key === "Enter" && active >= 0) {
+      ev.preventDefault();
+      pick(hits[active]);
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      close();
     }
   });
-  // a new name is a new place: what was found for the old one no longer holds
-  $("wx-place").addEventListener("input", () => {
-    hits = [];
-    showHits();
-    $("wx-coords").value = "";
-    msg("wx-msg", "");
-  });
+  $("wx-place").addEventListener("blur", close);
+  $("wx-place").addEventListener("focus", () => hits.length && !$("wx-coords").value && show());
   $("wx-form").addEventListener("change", dialogChanged);
   $("wx-cancel").addEventListener("click", () => $("wx-dlg").close());
   $("src-refresh").addEventListener("click", async () => {
