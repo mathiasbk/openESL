@@ -10,6 +10,7 @@
 #include "esl_wifi.h"
 #include "esl_health.h"
 #include "esl_tagfw.h"
+#include "esl_source.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -43,6 +44,7 @@ typedef struct {
     bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
+    esl_sources_t *sources; /* data sources (esl_source.h); NULL: /api/sources answers 404 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

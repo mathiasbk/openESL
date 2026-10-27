@@ -133,6 +133,7 @@ kbd { font: 12px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .warn { color: var(--warn); }
 
 .form { display: grid; gap: 8px; }
+.form[hidden] { display: none; }
 .form label { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 .form label > input, .form label > select { width: 100%; min-width: 0; }
 .form .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }

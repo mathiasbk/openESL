@@ -25,6 +25,7 @@
 #define PATH_HEALTH "/api/health"
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
+#define PATH_SOURCES "/api/sources"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -1930,6 +1931,20 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     if (api->wifi && (plen == wbase || (plen == wbase + 1 && uri[wbase] == '/')) &&
         memcmp(uri, PATH_WIFI, wbase) == 0) {
         int status = ap_wifi(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t dbase = sizeof(PATH_SOURCES) - 1;
+    if (api->sources && plen >= dbase && memcmp(uri, PATH_SOURCES, dbase) == 0 && (plen == dbase || uri[dbase] == '/')) {
+        uint32_t now = api->sched ? esl_sched_now(api->sched, now_ms, NULL) : 0;
+        if (strcmp(method, "PUT") == 0 && plen <= dbase + 1) { /* 400 and 413 as for the other endpoints */
+            esl_jtok_t *tok = NULL;
+            int status = parse_json(body, body_len, &tok, out);
+            free(tok);
+            if (status)
+                return status;
+        }
+        int status = api->sources->api(api->sources, method, uri, plen, body, body_len, now, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 

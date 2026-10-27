@@ -89,7 +89,10 @@ const element = () => (layout() && layout().elements[state.el]) || null;
 const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : layout()?.fields || []);
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
 // Text and barcode elements show a field from each update; the rest are part of the layout
-const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr";
+const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr" ||
+  (e.type === "icon" && e.field !== undefined);
+// An icon element names its picture (fixed size), or takes the picture a field's text names, in a box
+const iconByField = (e) => e.type === "icon" && e.field !== undefined;
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
@@ -394,7 +397,7 @@ function drawOverlay() {
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
     b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
-      (e.type === "icon" ? " fixed-size" : "") + (i === state.el ? " sel" : "");
+      (e.type === "icon" && !iconByField(e) ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
       width: (100 * e.w) / width + "%", height: (100 * e.h) / height + "%",
@@ -404,7 +407,7 @@ function drawOverlay() {
     tag.className = "tag";
     tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
     b.append(tag);
-    if (e.type !== "icon") for (const h of HANDLES) {
+    if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
       const g = document.createElement("span");
       g.className = "grip " + h;
       g.dataset.h = h;
@@ -448,7 +451,8 @@ function refreshList() {
 
 function rectName(e) {
   let kind;
-  if (e.type === "icon") kind = "icon " + e.icon;
+  if (iconByField(e)) kind = "icon named by " + e.field;
+  else if (e.type === "icon") kind = "icon " + e.icon;
   else if (e.type === "line") kind = e.h === 1 ? "line" : e.w === 1 ? "vertical line" : "slanted line";
   else kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : e.border ? "frame box" : "box";
   return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
@@ -542,7 +546,7 @@ function initDrag() {
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
-      resize: (element().type !== "icon" && ev.target.dataset.h) || null,
+      resize: ((element().type !== "icon" || iconByField(element())) && ev.target.dataset.h) || null,
       sx: ev.clientX, sy: ev.clientY,
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
@@ -605,7 +609,7 @@ function onKey(ev) {
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
   else if (mod && key === "c" && e && !window.getSelection()?.toString())
-    state.clip = { ...structuredClone(e), _icon: e.type === "icon" ? structuredClone(doc().icons?.[e.icon]) : undefined };
+    state.clip = { ...structuredClone(e), _icon: e.type === "icon" && !iconByField(e) ? structuredClone(doc().icons?.[e.icon]) : undefined };
   else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
@@ -856,7 +860,7 @@ function refreshElement() {
     inp.min = k === "w" || k === "h" ? 1 : 0;
     inp.value = e[k];
     inp.dataset.k = k;
-    if (e.type === "icon" && (k === "w" || k === "h")) {
+    if (e.type === "icon" && !iconByField(e) && (k === "w" || k === "h")) {
       inp.disabled = true;
       inp.title = "An icon is drawn at its own size";
     }
@@ -933,6 +937,21 @@ function refreshBar() {
     select(bar, "Code", [["code128", "Code 128"], ["ean13", "EAN-13"]], e.symbology, (v) => (e.symbology = v));
     sep();
     alignRow(bar);
+  } else if (e.type === "icon") {
+    // the picture by name, or the one a field names (e.g. a weather symbol: "sun", "rain")
+    const pics = Object.keys(doc().icons || {});
+    const opts = [...pics.map((n) => ["i:" + n, n]), ...layout().fields.map((f) => ["f:" + f, "Named by " + f])];
+    select(bar, "Icon", opts, iconByField(e) ? "f:" + e.field : "i:" + e.icon, (v) => {
+      if (v.startsWith("f:")) {
+        delete e.icon;
+        e.field = v.slice(2);
+      } else {
+        const pic = doc().icons[v.slice(2)];
+        delete e.field;
+        e.icon = v.slice(2);
+        if (pic) Object.assign(e, { w: pic.w, h: pic.h });
+      }
+    });
   } else if (e.type === "qr") {
     select(bar, "Error correction", [["L", "L 7 %"], ["M", "M 15 %"], ["Q", "Q 25 %"], ["H", "H 30 %"]], e.ecc || "M",
       (v) => (v === "M" ? delete e.ecc : (e.ecc = v)));
@@ -1244,10 +1263,11 @@ async function addIcon(file) {
   changed();
 }
 
-// Icons no element in any layout draws are dropped, so they do not take room in the file
+// Icons no element in any layout draws are dropped, so they do not take room in the file. An icon
+// named by a field may be any of them, so with one of those every icon stays.
 function pruneIcons() {
   const d = doc();
-  if (!d.icons) return;
+  if (!d.icons || d.layouts.some((l) => l.elements.some(iconByField))) return;
   const used = new Set(d.layouts.flatMap((l) => l.elements.filter((e) => e.type === "icon").map((e) => e.icon)));
   for (const k of Object.keys(d.icons)) if (!used.has(k)) delete d.icons[k];
   if (!Object.keys(d.icons).length) delete d.icons;
@@ -1282,7 +1302,7 @@ function pasteElement() {
   const { width, height } = MODELS[state.model];
   const { _icon: pic, ...c } = structuredClone(state.clip);
   if (usesField(c) && !lay.fields.includes(c.field)) c.field = lay.fields[0];
-  if (c.type === "icon") {
+  if (c.type === "icon" && !iconByField(c)) {
     // the picture comes along; under another name if this file has a different one by that name
     if (!pic || pic.w > width || pic.h > height) return;
     const d = doc();

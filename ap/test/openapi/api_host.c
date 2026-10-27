@@ -150,9 +150,12 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL};
     static const esl_link_stats_t radio_stats = {.polls = 12, .blocks = 340, .tx_failed = 1, .slow = 2, .worst_us = 6100};
     api.radio_stats = &radio_stats; /* "replies" in GET /api/tags, as on a C6 */
+    static esl_sources_t sources;   /* data sources, as on an S3: kept in RAM, never fetched */
+    esl_sources_init(&sources, NULL);
+    api.sources = &sources;
     uint64_t now_ms = 1000;
     char line[512];
 

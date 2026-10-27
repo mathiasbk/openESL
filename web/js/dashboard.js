@@ -8,6 +8,7 @@ import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
@@ -37,6 +38,7 @@ const store = {
 
 export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
+  const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
@@ -81,6 +83,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    sources.connected(c);
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
