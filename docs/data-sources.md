@@ -38,9 +38,14 @@ What the AP needs:
 
 1. Tick the tags in the Dashboard's tag table and choose **Send → The weather (MET Norway)**,
    then **Choose the place …**.
-2. In the dialog, pick a place the AP has, or **A new place**: its name (shown on the tag) and
-   its coordinates as a map copies them (right-click the place in Google Maps or
-   norgeskart.no: `59.9139, 10.7522`).
+2. In the dialog, pick a place the AP has, or **A new place**: write the place (`Bergen`) and
+   press **Search** or Enter. The browser looks it up in OpenStreetMap's
+   [Nominatim](https://nominatim.org/) (one request per search, never as you type, as its usage
+   policy asks) and takes the first place found; others with the same name are listed to pick
+   from. The name written is shown on the tag; only the name and the coordinates (4 decimals)
+   go to the AP. Without the internet on the computer, open **Coordinates** and paste them as
+   a map copies them (right-click the place in Google Maps or norgeskart.no:
+   `59.9139, 10.7522`).
 3. If the AP's layout file for a ticked tag's model has no layout called `weather`, the dialog
    offers to add the Weather template to it (the file's other layouts stay). The template is
    packed in the AP's firmware, so this works without the internet on the computer.

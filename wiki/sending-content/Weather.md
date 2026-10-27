@@ -19,7 +19,7 @@ The AP must reach the internet and know the time (it gets it over NTP), and the 
 ## Setting it up
 
 1. On the [Dashboard](Dashboard), tick the labels that should show the weather and choose **Send → The weather (MET Norway)**, then **Choose the place …**.
-2. Pick a place the AP already has, or **A new place**: its name (shown on the label) and its coordinates. Right-click the place in Google Maps or norgeskart.no and copy them in, such as `59.9139, 10.7522`.
+2. Pick a place the AP already has, or **A new place**: write the place, such as `Bergen`, and press **Search** (or Enter). The first place found is taken; if there are more with that name, pick the right one in the list. The name you wrote is shown on the label. The search uses OpenStreetMap's Nominatim from your browser, so the computer needs the internet; without it, open **Coordinates** and paste them from a map, such as `59.9139, 10.7522`.
 3. If the AP has no Weather layout for a label size yet, the dialog offers to add it (your other layouts stay). Keep the box ticked.
 4. **Show the weather.** The AP fetches the forecast at once, and the labels show it at their next check-in.
 

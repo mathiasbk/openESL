@@ -394,9 +394,14 @@
           <form id="wx-form" novalidate>
             <div id="wx-places" class="wx-places" role="radiogroup" aria-label="Place"></div>
             <div id="wx-new" class="form">
-              <label>Place <input id="wx-place" maxlength="32" autocomplete="off" placeholder="Oslo" title="Shown on the tag"></label>
-              <label>Coordinates <input id="wx-coords" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="59.9139, 10.7522"></label>
-              <p class="hint">Right-click the place in Google Maps or norgeskart.no and copy its coordinates (latitude, longitude) in here.</p>
+              <label>Place <span class="wx-find"><input id="wx-place" maxlength="32" autocomplete="off" placeholder="Bergen" title="A town, village or address; shown on the tag"> <button type="button" id="wx-search">Search</button></span></label>
+              <div id="wx-hits" class="wx-places" role="radiogroup" aria-label="Places found" hidden></div>
+              <p id="wx-osm" class="hint" hidden>Places from <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> (Nominatim).</p>
+              <details id="wx-coords-box" class="help">
+                <summary>Coordinates</summary>
+                <label>Lat, lon <input id="wx-coords" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="59.9139, 10.7522"></label>
+                <p class="hint">Filled in by the search. Or right-click the place in a map and copy its coordinates in here.</p>
+              </details>
               <label>Words in <select id="wx-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
             </div>
             <label id="wx-layout-label" class="check" hidden><input type="checkbox" id="wx-layout" checked> <span id="wx-layout-text"></span></label>

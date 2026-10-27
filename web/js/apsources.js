@@ -45,6 +45,31 @@ export function parseCoords(text) {
   return { lat: Math.round(lat * 1e4) / 1e4, lon: Math.round(lon * 1e4) / 1e4 };
 }
 
+// The place search: OpenStreetMap's Nominatim, asked by the browser (the AP only stores the
+// coordinates), once per search and never as you type, as its usage policy asks
+export function searchUrl(q, lang = "nb") {
+  const u = new URL("https://nominatim.openstreetmap.org/search");
+  u.search = new URLSearchParams({ q: String(q).trim(), format: "jsonv2", limit: "5", "accept-language": lang === "en" ? "en" : "nb,no,en" });
+  return u.href;
+}
+
+// Nominatim's answer as [{ name, label, lat, lon }], the coordinates to 4 decimals as MET takes them
+export function parseHits(json) {
+  const seen = new Set();
+  const out = [];
+  for (const h of Array.isArray(json) ? json : []) {
+    const lat = Math.round(Number(h.lat) * 1e4) / 1e4;
+    const lon = Math.round(Number(h.lon) * 1e4) / 1e4;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) continue;
+    const label = String(h.display_name || h.name || "");
+    const name = String(h.name || label.split(",")[0] || "").trim().slice(0, 32);
+    if (!name || seen.has(label)) continue;
+    seen.add(label);
+    out.push({ name, label, lat, lon });
+  }
+  return out;
+}
+
 // A source id (a-z 0-9 _ -, at most 16) from a place's name that `taken` does not have
 export function placeId(place, taken) {
   const base = String(place).toLowerCase()
@@ -225,6 +250,52 @@ export function initSources() {
 
   const chosen = () => $("wx-places").querySelector("input:checked")?.value ?? "";
 
+  let hits = [];
+  function pick(h) {
+    $("wx-place").value = h.name;
+    $("wx-coords").value = `${h.lat}, ${h.lon}`;
+  }
+  function showHits() {
+    $("wx-hits").replaceChildren(...hits.map((h, i) => {
+      const l = document.createElement("label");
+      const r = document.createElement("input");
+      r.type = "radio";
+      r.name = "wx-hit";
+      r.checked = i === 0;
+      r.addEventListener("change", () => pick(h));
+      l.append(r, " " + h.label);
+      return l;
+    }));
+    $("wx-hits").hidden = hits.length < 2;
+    $("wx-osm").hidden = !hits.length;
+  }
+  // Looks the typed place up; the first place found is taken, the others offered. False when
+  // nothing was found (the message says why)
+  async function search() {
+    const q = $("wx-place").value.trim();
+    if (!q) return msg("wx-msg", "Write a place, such as Bergen.", "error"), false;
+    msg("wx-msg", `Looking for ${q} …`);
+    $("wx-search").disabled = true;
+    try {
+      const r = await fetch(searchUrl(q, $("wx-lang").value));
+      if (!r.ok) throw new Error(`the place search answered ${r.status}`);
+      hits = parseHits(await r.json());
+    } catch (e) {
+      hits = [];
+      showHits();
+      msg("wx-msg", `The place search did not answer (${e.message}): give the coordinates under Coordinates instead.`, "error");
+      $("wx-coords-box").open = true;
+      return false;
+    } finally {
+      $("wx-search").disabled = false;
+    }
+    showHits();
+    if (!hits.length) return msg("wx-msg", `Found no place called ${q}: check the spelling, or give the coordinates.`, "error"), false;
+    pick(hits[0]);
+    msg("wx-msg", hits.length > 1 ? `Found ${hits[0].label}. Not that one? Pick another above.` : `Found ${hits[0].label}.`, "ok");
+    return true;
+  }
+
   function dialogChanged() {
     $("wx-new").hidden = chosen() !== "";
     const missing = missingModels(pending.tags, layouts);
@@ -237,6 +308,10 @@ export function initSources() {
     layouts = await client.call("GET", "/api/layouts").catch(() => null);
     $("wx-n").textContent = tags.length === 1 ? "1 tag" : `${tags.length} tags`;
     placesShown();
+    hits = [];
+    showHits();
+    $("wx-place").value = $("wx-coords").value = "";
+    $("wx-coords-box").open = false;
     msg("wx-msg", "");
     dialogChanged();
     $("wx-ok").disabled = false;
@@ -273,8 +348,10 @@ export function initSources() {
     const id = chosen();
     let to = id;
     if (id === "") {
+      if (!$("wx-place").value.trim()) return msg("wx-msg", "Write a place, such as Bergen: its name is shown on the tag.", "error");
+      // a place typed but not looked up yet: look it up now and take the first one found
+      if (!$("wx-coords").value.trim() && !(await search())) return;
       const coords = parseCoords($("wx-coords").value);
-      if (!$("wx-place").value.trim()) return msg("wx-msg", "Give the place a name: it is shown on the tag.", "error");
       if (!coords) return msg("wx-msg", "Coordinates: latitude and longitude, such as 59.9139, 10.7522.", "error");
       to = { place: $("wx-place").value, ...coords, lang: $("wx-lang").value };
     }
@@ -302,6 +379,20 @@ export function initSources() {
   }
 
   $("wx-form").addEventListener("submit", submit);
+  $("wx-search").addEventListener("click", () => search());
+  $("wx-place").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      search();
+    }
+  });
+  // a new name is a new place: what was found for the old one no longer holds
+  $("wx-place").addEventListener("input", () => {
+    hits = [];
+    showHits();
+    $("wx-coords").value = "";
+    msg("wx-msg", "");
+  });
   $("wx-form").addEventListener("change", dialogChanged);
   $("wx-cancel").addEventListener("click", () => $("wx-dlg").close());
   $("src-refresh").addEventListener("click", async () => {

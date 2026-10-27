@@ -348,3 +348,8 @@ details.help > p { max-width: 62ch; }
 .wx-dlg .dlg-buttons .sep { flex: 1; }
 .wx-places { display: grid; gap: 6px; }
 .wx-places label { display: flex; gap: 8px; align-items: center; }
+.form .wx-places { margin-left: 104px; }
+.form .wx-places label { display: flex; gap: 8px; align-items: center; }
+.form .wx-places label > input { width: auto; }
+.wx-find { display: flex; gap: 6px; min-width: 0; }
+.wx-find input { flex: 1; min-width: 0; }

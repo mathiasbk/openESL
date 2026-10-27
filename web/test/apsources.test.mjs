@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, searchUrl, parseHits, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -79,4 +79,25 @@ test("the place each tag shows, and a place's state in one line", () => {
   assert.deepEqual(sourceSummary({ status: { fetched_at: 0 } }, now), { text: "Not fetched yet", bad: false });
   const s = sourceSummary({ status: { fetched_at: now - 120, values: { temp: "-3", desc: "Lett snø" } } }, now);
   assert.equal(s.text, "-3°, Lett snø · fetched 2 min ago");
+});
+
+test("a place found by its name", () => {
+  const u = new URL(searchUrl(" Bergen ", "nb"));
+  assert.equal(u.host, "nominatim.openstreetmap.org");
+  assert.equal(u.searchParams.get("q"), "Bergen");
+  assert.equal(u.searchParams.get("format"), "jsonv2");
+  assert.equal(new URL(searchUrl("Oslo", "en")).searchParams.get("accept-language"), "en");
+  // as Nominatim answers: the coordinates as strings
+  const hits = parseHits([
+    { lat: "60.3943055", lon: "5.3259192", name: "Bergen", display_name: "Bergen, Vestland, Norge" },
+    { lat: "50.4549568", lon: "3.951958", name: "Mons", display_name: "Mons, Hainaut, Wallonie, Belgia" },
+    { lat: "60.3943055", lon: "5.3259192", name: "Bergen", display_name: "Bergen, Vestland, Norge" },
+    { lat: "x", lon: "1", name: "Bad" },
+    { lat: "1", lon: "1", name: "", display_name: "" },
+  ]);
+  assert.deepEqual(hits, [
+    { name: "Bergen", label: "Bergen, Vestland, Norge", lat: 60.3943, lon: 5.3259 },
+    { name: "Mons", label: "Mons, Hainaut, Wallonie, Belgia", lat: 50.455, lon: 3.952 },
+  ]);
+  assert.deepEqual(parseHits({ error: "x" }), []);
 });
