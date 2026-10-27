@@ -11,12 +11,21 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.1, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.2, for example:
 
-1. Backup, then the AP to 0.8.1 over the air. It keeps `openesl.local`.
-2. The C6 radio of an S3 on a cable has not changed since 0.5.0; flash it only if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.8.1 release (it is version 0.6.0), one of each model first.
+1. Backup, then the AP to 0.8.2 over the air. It keeps `openesl.local`.
+2. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
+3. The labels to the label firmware of the 0.8.2 release (it is version 0.6.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files.
+
+## From 0.8.1 to 0.8.2
+
+Update the AP. The labels' firmware has not changed, and neither has the C6 over WiFi. Going back to 0.8.1 keeps everything on the AP.
+
+- S3 with a C6 on a cable: the S3 can now update the C6 radio over the cable, from the dashboard (the **Radio** line under Firmware) or with `esl_client.py ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`. The C6 needs one more flash over USB first, from the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab; until then it keeps working as before. See [Updating the access point](Updating-the-access-point).
+- "Last seen" in the API and dashboard no longer jumps to a huge number when a label checks in while the AP answers.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-081-to-082).
 
 ## From 0.8.0 to 0.8.1
 
