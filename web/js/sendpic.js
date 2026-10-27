@@ -38,15 +38,16 @@ export function dragTo(pos, d, screen, drawn) {
   return Math.abs(room) < 0.5 ? pos : clamp(pos + d / room, 0, 1);
 }
 
-// Brightness and contrast (-100..100 each) and transparency (over white) on RGBA pixels, in place
+// Brightness and contrast (-100..100 each) on RGBA pixels, in place, then over white: what
+// is transparent (the picture's own, or the room beside it) stays white whatever the tone
 export function tone(rgba, { brightness = 0, contrast = 0 } = {}) {
   const b = clamp(Number(brightness) || 0, -100, 100) * 1.28;
   const k = 1 + clamp(Number(contrast) || 0, -100, 100) / 100;
   for (let i = 0; i < rgba.length; i += 4) {
     const a = rgba[i + 3] / 255;
     for (let c = 0; c < 3; c++) {
-      const v = rgba[i + c] * a + 255 * (1 - a);
-      rgba[i + c] = clamp(Math.round((v - 128) * k + 128 + b), 0, 255);
+      const v = clamp((rgba[i + c] - 128) * k + 128 + b, 0, 255);
+      rgba[i + c] = Math.round(v * a + 255 * (1 - a));
     }
     rgba[i + 3] = 255;
   }

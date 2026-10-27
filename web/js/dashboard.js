@@ -864,9 +864,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const c = document.createElement("canvas");
     [c.width, c.height] = [w, h];
     const ctx = c.getContext("2d", { willReadFrequently: true });
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, w, h);
-    const b = pic.bitmap;
+    const b = pic.bitmap; // drawn on a transparent canvas: tone() makes the rest white
     const [iw, ih] = turnedSize(b.width, b.height, picTurn);
     const set = picSettings();
     const place = placement(iw, ih, w, h, { fit: set.fit, zoom: Number($("st-zoom").value), x: picX, y: picY });

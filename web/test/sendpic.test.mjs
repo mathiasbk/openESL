@@ -50,6 +50,9 @@ test("tone: transparency over white, brightness and contrast", () => {
   assert.deepEqual([...b], [164, 192, 224, 255]);
   const c = tone(new Uint8ClampedArray([100, 128, 160, 255]), { contrast: 100 });
   assert.deepEqual([...c], [72, 128, 192, 255]);
+  // transparent stays white when darkened; half transparent black is toned first, then over white
+  const d = tone(new Uint8ClampedArray([0, 0, 0, 0, 0, 0, 0, 128]), { brightness: -100 });
+  assert.deepEqual([...d], [255, 255, 255, 255, 127, 127, 127, 255]);
 });
 
 test("nearest colour: black and white by brightness, red only where the model has it", () => {
