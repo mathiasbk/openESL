@@ -131,7 +131,7 @@ Order: the AP, then, only with an S3 and a C6 on a cable, the C6 if you want to 
 
 The S3 with a C6 on a cable can update its C6 radio over the cable (#240): the release has `openesl-ap-radio-esp32c6-<version>-ota.bin` (and `-lcd-`), sent like AP firmware with `esl-client ota ... --wait` or from the dashboard, which shows the radio under Firmware. This needs the radio on 0.8.2 once, over USB: a C6 flashed before 0.8.2 has one app slot and link v1 (`radio.ota` false in `GET /api/ota`). It keeps working with a 0.8.2 S3, so this flash can wait. The Flash AP tab erases the radio's flash anyway; pick the `-lcd` image for a radio with the screen. One-way for the radio only (#240: a new partition table and link v2): going back to an older radio image means the Flash AP tab, since older releases have no radio `-ota.bin`. Host and radio of link v1 and v2 work together in both directions. The S3 + plain C6 on a cable is supported now (tried on hardware on 2026-10-26); the C6 with screen as the radio is still experimental.
 
-`seen_s_ago` in `GET /api/tags` and `/api/health` no longer reads about 2^64 ms when a tag polls while the AP builds the reply (#244). The same wrap could flag such a tag `silent` and show it as long gone in the dashboard. Clients that turned it into a date (Prisjakt did) got a year far in the past.
+`seen_s_ago` in `GET /api/tags` and `/api/health` no longer shows a huge number (an unsigned wrap of about 2^64 ms) when a tag polls while the AP builds the reply (#244). The same wrap could flag such a tag `silent` and show it as long gone in the dashboard. Clients that turned it into a date (Prisjakt did) got a year far in the past.
 
 ## 5. A bad release
 
