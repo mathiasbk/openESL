@@ -26,6 +26,18 @@ Tick labels in the table to:
 - **Send firmware** to the labels that need it ([Updating labels](Updating-labels)).
 - **Forget** labels: removes them from the AP. A label that still polls comes back as a new one.
 
+## Settings
+
+**Settings** (next to **Tags and AP** at the top of the dashboard) changes the AP while it runs, without esl-client. The menu on the left has its groups, one shown at a time:
+
+- **General:** the AP's name (`NAME.local`), the time zone (for dates and local times the AP fills in itself) and how often the labels check for news (the poll interval for all labels). **Save** and **Undo** show up once something differs from what the AP has, and save the whole group at once. **Set it from this computer** shows when the AP's clock is unknown or wrong, for an AP that cannot reach a time server.
+- **Network:** the WiFi network the AP is on (**Change network …** to join another), the webhook where the AP posts its health report ([Health and webhook](Health-and-webhook)), and the time server (NTP).
+- **Radio:** the radio's transmit power, with the EU limit for each kind of antenna ([Access point settings](Access-point-settings)). Only on an AP with a radio.
+- **Security:** a new API token. This page uses it at once; other apps that call the AP need it too.
+- **Backup:** download a backup file, or put one back ([Backup and restore](Backup-and-restore)).
+
+Every AP board has the Settings page, on the AP's own dashboard and over USB. The time zone and NTP server need AP firmware newer than 0.8.1; the rest works on older firmware too ([What each board has](Access-point-boards#what-each-board-has)).
+
 ## Health and webhook
 
 The "need attention" figure comes from the AP's health report. To get told about problems without keeping the dashboard open, see [Health and webhook](Health-and-webhook).

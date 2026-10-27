@@ -694,8 +694,12 @@ def print_health(h):
 
 
 def print_config(c):
-    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
-          + (f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})" if "tx_power" in c else ""))
+    line = f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
+    if "tx_power" in c:
+        line += f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})"
+    if "tz" in c:  # an AP with clock settings
+        line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
+    print(line)
 
 
 def print_ota(o):
@@ -1063,8 +1067,19 @@ def backup(cli, now=None, warn=None):
             "taken": datetime.datetime.fromtimestamp(now or time.time(), datetime.timezone.utc)
             .isoformat(timespec="seconds"),
             "ap": ap,
-            "config": {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")},
+            "config": backup_config(cfg),
             "layouts": layouts, "tags": tags, "scheduled": sched, "tag_firmware": tag_firmware_offered(cli)}
+
+
+def backup_config(cfg):
+    """The AP's settings for a backup: the poll interval and the webhook, and the time zone and
+    NTP server from an AP that has them (the NTP server set in menuconfig as None, so another
+    AP keeps its own)."""
+    out = {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")}
+    if "tz" in cfg:
+        out["tz"] = cfg.get("tz")
+        out["ntp"] = None if cfg.get("ntp") == cfg.get("builtin_ntp") else cfg.get("ntp")
+    return out
 
 
 def tag_firmware_offered(cli):
@@ -1183,7 +1198,9 @@ def restore(cli, b, dry_run=False, now=None):
     pictures = [(t["mac"], base64.b64decode(t["image"])) for t in b["tags"] if "image" in t]
     due = [e for e in b["scheduled"] if e["at"] > now]
     passed = len(b["scheduled"]) - len(due)
-    lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}")
+    clock = {k: cfg[k] for k in ("tz", "ntp") if k in cfg}
+    lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
+                 + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
     lines.append(f"tags: {len(content)} with content, {len(pictures)} with a picture, "
                  f"{len(settings)} with their own settings")
@@ -1202,6 +1219,13 @@ def restore(cli, b, dry_run=False, now=None):
         lines.append(f"warning: the webhook was not restored ({e.body.strip()}); this AP has no webhook")
         cli.set_config(poll_s=want["poll_s"])
         ok = False
+    if clock:
+        try:
+            cli.set_config(**clock)
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings")
     for m, f in layouts.items():
         cli.put_layout(m, json.dumps(f).encode("utf-8"))
     for mac, c in settings:
@@ -1320,11 +1344,13 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook and transmit power")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone and NTP server")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
     s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
                                       "about 13 - G in the EU), \"null\" = menuconfig value")
+    s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
+    s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
@@ -1436,6 +1462,9 @@ def main(argv=None):
                 kw["webhook"] = args.webhook or None
             if args.tx_power is not None:
                 kw["tx_power"] = None if args.tx_power == "null" else int(args.tx_power)
+            for k in ("tz", "ntp"):
+                if getattr(args, k) is not None:
+                    kw[k] = getattr(args, k) or None
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)
