@@ -12,6 +12,15 @@ The AP firmware runs on several ESP32 boards. All of them do the same job: the H
 
 "Experimental" means the firmware builds and is in every release, but it has not been tried on that board yet. Reports are welcome.
 
+## What each board has
+
+| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 |
+|---|---|---|---|---|
+| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
+| Pictures on the labels (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses |
+
+Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from the firmware after 0.8.2. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every label, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([limits](ESP32-S3-with-wireless-C6)).
+
 ## Which one?
 
 - **Start with an ESP32-C6.** One small, cheap board does WiFi and the label radio, and it is flashed from the web page.

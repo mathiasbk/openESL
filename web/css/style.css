@@ -245,6 +245,25 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 .st-ph button { font-family: ui-monospace, Consolas, monospace; }
 .st-list td { font-size: 12px; vertical-align: top; white-space: normal; }
 .st-list td.mono { white-space: nowrap; }
+/* The picture dialog of the Send form: its own rules, since the Dashboard on a C6 has no designer.css */
+.pic-dlg { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; width: min(680px, calc(100vw - 32px)); background: var(--panel); color: var(--text); box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+.pic-dlg::backdrop { background: rgba(0, 0, 0, .35); }
+.pic-dlg h3 { font-size: 17px; margin: 0 0 12px; }
+.pic-dlg .dlg-x { position: absolute; right: 12px; top: 10px; }
+.pic-dlg .dlg-x button { border: 0; background: none; color: var(--muted); }
+.pic-dlg .dlg-buttons { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+.pic-dlg .dlg-buttons .sep { flex: 1; }
+.st-pic { display: grid; gap: 10px; margin-bottom: 10px; }
+.st-pics[hidden] { display: none; }
+.st-drop { display: block; border: 2px dashed var(--line); border-radius: 8px; padding: 18px 12px; text-align: center; cursor: pointer; color: var(--muted); }
+.st-drop:hover, .st-drop.over, .st-drop:focus-within { border-color: var(--accent); color: var(--text); }
+.st-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.st-pic input[type="range"] { width: 120px; }
+.st-pics { display: grid; gap: 10px; }
+.st-pics figure { margin: 0; }
+.st-pics canvas { width: 100%; cursor: grab; touch-action: none; }
+.st-pics canvas.drag { cursor: grabbing; }
+.st-pics figcaption { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
 /* Dashboard layout: the connection as one line, figures, the tag table first, the rest folded */
 #dash-body h2 { font-size: 18px; margin: 0; }

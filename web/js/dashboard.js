@@ -8,6 +8,7 @@ import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
@@ -517,9 +518,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // retry_ms: a failure that may pass (screenErrorFinal) is tried again after that time.
   const SCREEN_RETRY_MS = 15000;
 
-  function paintScreen(img) {
-    const canvas = document.createElement("canvas");
-    [canvas.width, canvas.height] = [img.width, img.height];
+  function paintScreen(img, canvas = document.createElement("canvas")) {
+    if (canvas.width !== img.width || canvas.height !== img.height) [canvas.width, canvas.height] = [img.width, img.height];
     const ctx = canvas.getContext("2d");
     const data = ctx.createImageData(img.width, img.height);
     const px = new Uint32Array(data.data.buffer);
@@ -596,6 +596,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The lines: ready-made for the list's choices, the inputs for "Your own text"
   const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()] || PRESETS.clear);
   const stFw = () => stWhat() === "fw";
+  const stPic = () => stWhat() === "pic";
+  // the picture for "A picture" (js/sendpic.js), turned and placed as the previews show it
+  let pic = null;             // { bitmap, name }
+  let picX = 0.5, picY = 0.5, picTurn = 0;
+  const picViews = new Map(); // model -> { fig, canvas, cap, place }: the previews, kept while dragging
+  const picSettings = () => ({
+    fit: $("st-fit").value, dither: $("st-dither").checked,
+    brightness: Number($("st-bright").value), contrast: Number($("st-contrast").value),
+  });
   let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
@@ -607,6 +616,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     store.set("st.macs", [...stSel].join(","));
     store.set("st.what", stWhat());
     store.set("st.lines", JSON.stringify(stLineInputs.map((el) => el.value)));
+    store.set("st.pic", JSON.stringify(picSettings()));
   };
   if ([...$("st-what").options].some((o) => !o.disabled && o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
   try {
@@ -684,8 +694,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = stFw() || !usesDate(lines);
-    $("st-frame-label").hidden = stFw();
+    $("st-days-label").hidden = stFw() || stPic() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw() || stPic();
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
@@ -713,6 +723,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.text, r.action ? "" : "muted")));
       if (tags.length) $("st-send").textContent = n === 1 ? "Update 1 tag" : `Update ${n} tags`;
       if (!n) $("st-send").disabled = true;
+      return;
+    }
+
+    // A picture: which ticked tags can take one; the dialog chooses it (picOpen)
+    if (stPic()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const plan = picturePlan(tags, TAG_MODELS);
+      const n = plan.filter((p) => p.ok).length;
+      $("st-count").textContent = `${n} of ${tags.length} ${tags.length === 1 ? "tag takes" : "tags take"} a picture`;
+      $("st-count").className = "count";
+      $("st-list").replaceChildren(...plan.map((p) => listRow(p.mac, p.ok ? p.text.replace("the picture", "a picture") : p.text, p.ok ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = "Choose the picture …";
+      if (!n) $("st-send").disabled = true;
+      if ($("pic-dlg").open) picDialog(plan);
       return;
     }
 
@@ -798,6 +823,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
+    if (stPic()) return picOpen();
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
@@ -818,6 +844,217 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       stBusy = false;
       $("st-send").disabled = false;
       $("st-forget").disabled = !client;
+      refresh();
+    }
+  }
+
+  // ---- A picture to the ticked tags (js/sendpic.js) ----
+
+  try {
+    const p = JSON.parse(store.get("st.pic") || "null");
+    if (p && FITS.includes(p.fit)) $("st-fit").value = p.fit;
+    if (p && typeof p.dither === "boolean") $("st-dither").checked = p.dither;
+    if (p && Number.isFinite(p.brightness)) $("st-bright").value = p.brightness;
+    if (p && Number.isFinite(p.contrast)) $("st-contrast").value = p.contrast;
+  } catch { /* nothing saved */ }
+
+  // The picture on a model's screen: { w, h, red, place, pixels } (pixel values as sendpic.js)
+  function picScreen(model) {
+    const { width: w, height: h, colors } = TAG_MODELS[model];
+    const c = document.createElement("canvas");
+    [c.width, c.height] = [w, h];
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
+    const b = pic.bitmap;
+    const [iw, ih] = turnedSize(b.width, b.height, picTurn);
+    const set = picSettings();
+    const place = placement(iw, ih, w, h, { fit: set.fit, zoom: Number($("st-zoom").value), x: picX, y: picY });
+    ctx.imageSmoothingQuality = "high";
+    ctx.translate(place.dx + place.dw / 2, place.dy + place.dh / 2);
+    ctx.rotate((picTurn * Math.PI) / 180);
+    const [rw, rh] = picTurn % 180 ? [place.dh, place.dw] : [place.dw, place.dh];
+    ctx.drawImage(b, -rw / 2, -rh / 2, rw, rh);
+    const data = tone(ctx.getImageData(0, 0, w, h).data, set);
+    const red = colors.includes("red");
+    return { w, h, red, place, pixels: quantize(data, w, h, { red, dither: set.dither }) };
+  }
+
+  // The previews of the models in plan (picturePlan), drawn again in the same canvases
+  function picDraw(plan = picturePlan(stTags(), TAG_MODELS)) {
+    const models = pic ? [...new Set(plan.filter((p) => p.ok).map((p) => p.model))] : [];
+    $("st-zoom").disabled = $("st-fit").value === "stretch";
+    for (const m of [...picViews.keys()]) if (!models.includes(m)) picViews.delete(m);
+    for (const m of models) {
+      let v = picViews.get(m);
+      if (!v) {
+        v = { fig: document.createElement("figure"), canvas: document.createElement("canvas"), cap: document.createElement("figcaption"), place: null };
+        v.canvas.tabIndex = 0;
+        v.canvas.setAttribute("role", "img");
+        picDragging(v, m);
+        v.fig.append(v.canvas, v.cap);
+        picViews.set(m, v);
+      }
+      const s = picScreen(m);
+      v.place = s.place;
+      paintScreen({ width: s.w, height: s.h, pixels: s.pixels }, v.canvas);
+      v.canvas.style.maxWidth = 2 * s.w + "px"; // at most two screen pixels per pixel
+      v.canvas.setAttribute("aria-label", `The picture on a ${m}" tag`);
+      const fill = $("st-fit").value !== "stretch";
+      v.cap.textContent = `${m}" (${s.w} x ${s.h})` + (fill ? ": drag the picture, or use the arrow keys, to move it" : "");
+    }
+    const box = $("st-pics");
+    const figs = models.map((m) => picViews.get(m).fig);
+    if (figs.length !== box.children.length || figs.some((f, i) => box.children[i] !== f)) box.replaceChildren(...figs);
+    box.hidden = !figs.length;
+  }
+
+  // Dragging a preview, or its arrow keys, moves the picture on every model's screen
+  function picDragging(v, model) {
+    const { width: w, height: h } = TAG_MODELS[model];
+    let start = null;
+    v.canvas.addEventListener("pointerdown", (e) => {
+      if (!pic || $("st-fit").value === "stretch") return;
+      const r = v.canvas.getBoundingClientRect();
+      start = { cx: e.clientX, cy: e.clientY, x: picX, y: picY, k: w / r.width, place: v.place };
+      v.canvas.setPointerCapture(e.pointerId);
+      v.canvas.classList.add("drag");
+    });
+    v.canvas.addEventListener("pointermove", (e) => {
+      if (!start) return;
+      picX = dragTo(start.x, (e.clientX - start.cx) * start.k, w, start.place.dw);
+      picY = dragTo(start.y, (e.clientY - start.cy) * start.k, h, start.place.dh);
+      picDraw();
+    });
+    const end = () => {
+      start = null;
+      v.canvas.classList.remove("drag");
+    };
+    v.canvas.addEventListener("pointerup", end);
+    v.canvas.addEventListener("pointercancel", end);
+    v.canvas.addEventListener("keydown", (e) => {
+      const d = { ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, -4], ArrowDown: [0, 4] }[e.key];
+      if (!d || !pic || !v.place || $("st-fit").value === "stretch") return;
+      e.preventDefault();
+      picX = dragTo(picX, d[0], w, v.place.dw);
+      picY = dragTo(picY, d[1], h, v.place.dh);
+      picDraw();
+    });
+  }
+
+  async function picLoad(file) {
+    if (!file) return;
+    if (file.type && !file.type.startsWith("image/"))
+      return picMsg(`${file.name} is not a picture: choose a PNG or JPG.`, "error");
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      pic?.bitmap.close?.();
+      pic = { bitmap, name: file.name || "the pasted picture" };
+      picX = picY = 0.5;
+      picTurn = 0;
+      $("st-zoom").value = 1;
+      $("st-drop-text").textContent = `${pic.name} (${bitmap.width} x ${bitmap.height}). Drop or paste another to change it.`;
+      picMsg("");
+    } catch {
+      picMsg(`${file.name || "That"} could not be read as a picture: choose a PNG or JPG.`, "error");
+    }
+    picDialog();
+  }
+
+  $("st-file").addEventListener("change", (e) => {
+    e.stopPropagation(); // the picture is read first; picLoad() redraws
+    picLoad($("st-file").files[0]);
+    $("st-file").value = "";
+  });
+  const drop = $("st-drop");
+  drop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    drop.classList.add("over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    picLoad(e.dataTransfer?.files?.[0]);
+  });
+  // A picture pasted anywhere while the dialog is open
+  document.addEventListener("paste", (e) => {
+    if (!$("pic-dlg").open) return;
+    const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+    if (!f) return;
+    e.preventDefault();
+    picLoad(f);
+  });
+  $("st-turn").onclick = () => {
+    picTurn = (picTurn + 90) % 360;
+    picDialog();
+  };
+  $("st-pic-reset").onclick = () => {
+    picX = picY = 0.5;
+    picTurn = 0;
+    $("st-zoom").value = 1;
+    $("st-bright").value = 0;
+    $("st-contrast").value = 0;
+    picChanged();
+  };
+
+  // The dialog: the picture, how it sits on each model's screen, and the button that sends it
+  const picMsg = (text, cls = "") => {
+    $("pic-msg").textContent = text;
+    $("pic-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  function picDialog(plan = picturePlan(stTags(), TAG_MODELS)) {
+    const n = plan.filter((p) => p.ok).length;
+    $("pic-n").textContent = n === 1 ? plan.find((p) => p.ok).mac : `${n} tags`;
+    picDraw(plan);
+    $("pic-send").textContent = n === 1 ? "Send to 1 tag" : `Send to ${n} tags`;
+    $("pic-send").disabled = !client || !pic || !n || sending || stBusy;
+  }
+  function picChanged() {
+    stSave();
+    picDialog();
+  }
+  function picOpen() {
+    picMsg("");
+    stMsg("");
+    $("pic-dlg").showModal();
+    picDialog();
+    if (!pic) $("st-file").focus();
+  }
+  $("pic-dlg").addEventListener("input", picChanged);
+  $("pic-dlg").addEventListener("change", picChanged);
+  $("pic-cancel").onclick = () => $("pic-dlg").close();
+  $("pic-send").onclick = () => sendPic(stTags());
+
+  // The picture to every ticked tag that can take it, as its model's raw screen image
+  async function sendPic(tags) {
+    if (!client || !pic || sending || stBusy) return;
+    const plan = picturePlan(tags, TAG_MODELS);
+    const ok = plan.filter((p) => p.ok);
+    if (!ok.length) return picMsg("None of the ticked tags can take it.", "error");
+    const images = {};
+    for (const m of new Set(ok.map((p) => p.model))) {
+      const s = picScreen(m);
+      images[m] = packRaw(s.pixels, s.w, s.h, s.red);
+    }
+    stBusy = true;
+    $("pic-send").disabled = $("st-send").disabled = $("st-forget").disabled = true;
+    picMsg("Sending the picture ...");
+    try {
+      const replies = await sendPictures(client, plan, images, (d, n) => n > 1 && picMsg(`Sending the picture: ${d} of ${n} tags ...`));
+      const waiting = replies.filter((r) => r.pending !== false).length;
+      const who = ok.length === 1 ? "The tag shows" : `${ok.length} tags show`;
+      const left = plan.length - ok.length;
+      $("pic-dlg").close();
+      stMsg((waiting ? `Picture sent. ${who} it at the next poll.` : "Sent; the tags already show this picture.") +
+        (left ? ` ${left} ticked ${left === 1 ? "tag gets" : "tags get"} nothing (see the list).` : ""), "ok");
+    } catch (e) {
+      picMsg((e.sent ? `Only ${e.sent} of ${ok.length} tags got it: ` : "Not sent: ") + e.message, "error");
+    } finally {
+      stBusy = false;
+      $("st-send").disabled = false;
+      $("st-forget").disabled = !client;
+      if ($("pic-dlg").open) picDialog();
       refresh();
     }
   }
