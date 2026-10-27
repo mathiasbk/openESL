@@ -682,10 +682,9 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
                 write_sched_result(out, mac, at);
                 status = 200;
             }
-        } else if ((err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
+        } else if ((leave_source(api, mac), err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
             status = api_error(out, 507, store_err_text(err));
         else {
-            leave_source(api, mac);
             write_set_result(out, mac, &r);
             status = 200;
         }
@@ -771,8 +770,7 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
             leave_source(api, macs[k]);
             write_sched_result(out, macs[k], ats[k]);
-        } else if (!ats[k] && (err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
-            leave_source(api, macs[k]);
+        } else if (!ats[k] && (leave_source(api, macs[k]), err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             write_set_result(out, macs[k], &r);
         } else {
             char m[17];
@@ -1640,12 +1638,12 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     esl_content_t c;
     esl_set_result_t r;
     esl_content_init_image(&c, t.model, esl_crc32(stored, n));
+    leave_source(api, mac); /* first: a source's run cannot overwrite the picture after this */
     esl_store_err_t serr = esl_store_set_image(api->store, mac, stored, n, &c, &r);
     free(img);
     if (serr)
         return api_error(out, 507, serr == ESL_STORE_NOT_SAVED ? "no room to save the picture: NVS is full, or nearly (some is kept for content)"
                                                                : store_err_text(serr));
-    leave_source(api, mac);
     write_set_result(out, mac, &r);
     return status;
 }

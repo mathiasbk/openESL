@@ -807,8 +807,19 @@ bool esl_source_content(const esl_source_cfg_t *c, const esl_values_t *v, esl_co
     return true;
 }
 
+/* Whether tag mac is still in source id. Under the lock. */
+static bool still_in(const esl_sources_t *s, const char *id, uint64_t mac)
+{
+    for (unsigned i = 0; i < s->n; i++)
+        if (strcmp(s->cfg[i].id, id) == 0)
+            for (unsigned k = 0; k < s->cfg[i].ntags; k++)
+                if (s->cfg[i].tags[k] == mac)
+                    return true;
+    return false;
+}
+
 void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_store_t *store, esl_layouts_t *ls,
-                      esl_source_state_t *st)
+                      esl_sources_t *s, esl_source_state_t *st)
 {
     esl_content_t content;
     st->tags_set = st->tags_changed = st->tags_failed = 0;
@@ -831,8 +842,20 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
                 esl_layouts_check_content(ls, model, &content, msg, sizeof(msg));
         }
         esl_set_result_t r;
-        if (!msg[0] && esl_store_set(store, c->tags[i], &content, &r) != ESL_STORE_OK)
-            snprintf(msg, sizeof(msg), "no room for the content of a tag (tag table or NVS full)");
+        bool gone = false;
+        if (!msg[0]) {
+            /* the tag leaves its source before the API sets other content (esl_api.c), so
+               the check and the set under the lock cannot overwrite that */
+            if (s)
+                lock(s);
+            gone = s && !still_in(s, c->id, c->tags[i]);
+            if (!gone && esl_store_set(store, c->tags[i], &content, &r) != ESL_STORE_OK)
+                snprintf(msg, sizeof(msg), "no room for the content of a tag (tag table or NVS full)");
+            if (s)
+                unlock(s);
+        }
+        if (gone)
+            continue;
         if (msg[0]) {
             st->tags_failed++;
             if (!st->error[0])

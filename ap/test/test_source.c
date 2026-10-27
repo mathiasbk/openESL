@@ -382,26 +382,35 @@ static void test_apply(void)
 
     /* MAC1 a 2.9", MAC2 not heard yet: both get it */
     poll(0x00000123456789A8ull, ESL_MODEL_29);
-    esl_source_apply(&cfg[0], &v, &st, &layouts, &run);
+    esl_source_apply(&cfg[0], &v, &st, &layouts, NULL, &run);
     CHECK(run.tags_set == 2 && run.tags_changed == 2 && run.tags_failed == 0 && !run.error[0]);
     esl_tag_t t;
     CHECK(esl_store_get(&st, 0x00000123456789A8ull, &t) && t.has_content);
     /* the same values again: nothing changes, so the tags are not sent anything */
-    esl_source_apply(&cfg[0], &v, &st, &layouts, &run);
+    esl_source_apply(&cfg[0], &v, &st, &layouts, NULL, &run);
     CHECK(run.tags_set == 2 && run.tags_changed == 0);
     esl_values_set(&v, "temp", "9");
-    esl_source_apply(&cfg[0], &v, &st, &layouts, &run);
+    esl_source_apply(&cfg[0], &v, &st, &layouts, NULL, &run);
     CHECK(run.tags_changed == 2);
+    /* MAC2 got other content while the source was fetched: its run (a copy of the
+       configuration from before) leaves MAC2 alone */
+    static esl_sources_t s;
+    esl_sources_init(&s, NULL);
+    s.cfg[s.n++] = cfg[0];
+    CHECK(esl_sources_release(&s, 0x00000123456789B9ull));
+    esl_values_set(&v, "temp", "10");
+    esl_source_apply(&cfg[0], &v, &st, &layouts, &s, &run);
+    CHECK(run.tags_set == 1 && run.tags_changed == 1 && run.tags_failed == 0);
     /* a 1.54" has no such layout here */
     poll(0x00000123456789B9ull, ESL_MODEL_154);
-    esl_source_apply(&cfg[0], &v, &st, &layouts, &run);
+    esl_source_apply(&cfg[0], &v, &st, &layouts, NULL, &run);
     CHECK(run.tags_set == 1 && run.tags_failed == 1);
     CHECK_STR(run.error, "layout \"weather\" is not in the layout file for model 1.54");
     /* content too long: every tag fails */
     esl_values_set(&v, "desc", "0123456789012345678901234567890123456789");
     for (int i = 0; i < 3; i++)
         strcpy(cfg[0].fields[i], "{desc}{desc}");
-    esl_source_apply(&cfg[0], &v, &st, &layouts, &run);
+    esl_source_apply(&cfg[0], &v, &st, &layouts, NULL, &run);
     CHECK(run.tags_set == 0 && run.tags_failed == 2 && HAS(run.error, "longer than"));
     esl_layouts_free(&layouts);
 }

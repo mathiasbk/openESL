@@ -259,7 +259,7 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, NULL, 0, NULL, err);
         return;
     }
-    esl_source_apply(cfg, &values, store, layouts, &result);
+    esl_source_apply(cfg, &values, store, layouts, sources, &result);
     if (result.error[0])
         ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
     ESP_LOGI(TAG, "%s: %s, %u tag(s), %u changed", cfg->id,

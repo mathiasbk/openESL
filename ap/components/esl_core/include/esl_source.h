@@ -196,9 +196,11 @@ bool esl_source_content(const esl_source_cfg_t *c, const esl_values_t *v, esl_co
                         size_t errlen);
 
 /* Gives each of c's tags the content from v (esl_store_set): ls checks the layout is in
- * the file for the tag's model. Counts in st (tags_set, _changed, _failed, error). */
+ * the file for the tag's model. Counts in st (tags_set, _changed, _failed, error). With s,
+ * a tag that left source c->id meanwhile (other content came while c was fetched) is
+ * skipped: the check and the set are made under s's lock. */
 void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_store_t *store, esl_layouts_t *ls,
-                      esl_source_state_t *st);
+                      esl_sources_t *s, esl_source_state_t *st);
 
 /* Records the result of a fetch of source i (same id as cfg, else ignored): status is
  * the HTTP status (0 = no answer), expires and last_modified from the answer's headers
