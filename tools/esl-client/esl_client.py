@@ -170,7 +170,8 @@ class Client:
         return self._request("GET", "/api/config")
 
     def set_config(self, **kw):
-        """poll_s=None resets the interval, webhook=None or "" turns the webhook off."""
+        """poll_s=None resets the interval, webhook=None or "" turns the webhook off,
+        tx_power=None goes back to the built-in transmit power."""
         return self._request("PUT", "/api/config", kw)
 
     def wifi(self):
@@ -693,13 +694,22 @@ def print_health(h):
 
 
 def print_config(c):
-    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}")
+    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
+          + (f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})" if "tx_power" in c else ""))
 
 
 def print_ota(o):
     other = f"{o.get('other_slot')} holds {o.get('other_version') or 'nothing'}" if o.get("other_slot") else "no second slot"
     print(f"running {o.get('version')} from {o.get('slot')}, slot size {o.get('slot_size')} bytes, {other}"
           + (", upload in progress" if o.get("uploading") else ""))
+    r = o.get("radio")  # an AP with a C6 radio on UART
+    if r is not None:
+        if r.get("link") is None:
+            print("radio: not heard from yet (check the wiring)")
+        else:
+            print(f"radio: {r.get('version') or 'older than 0.8.2'}" + (", with screen" if r.get("display") else "")
+                  + (", answering" if r.get("up") else ", not answering")
+                  + ("" if r.get("ota") else "; it takes new firmware only over USB"))
 
 
 def print_tag_firmware(f):
@@ -740,6 +750,32 @@ def wait_back(cli, slot, version, timeout_s=120, poll_s=2, sleep=time.sleep):
             return 1
         if time.monotonic() >= end:
             print(f"no answer from the AP after {timeout_s} s; check its log on the USB port", file=sys.stderr)
+            return 1
+        sleep(poll_s)
+
+
+def wait_radio_back(cli, version, timeout_s=90, poll_s=2, grace_s=10, sleep=time.sleep):
+    """After radio firmware went to the AP's C6 radio: asks GET /api/ota until the AP hears the
+    radio again, and says whether it runs the new image or went back to the old one (it does
+    when the new one does not reach the AP). Right after the upload the AP may still report the
+    old radio for a moment, so an old version counts only after grace_s. Returns 0 when the new
+    one runs, 1 otherwise."""
+    start = time.monotonic()
+    while True:
+        try:
+            r = (cli.ota_info() or {}).get("radio") or {}
+        except ConnectionError:
+            r = {}
+        if r.get("up") and r.get("version") == version:
+            print(f"the radio is back: version {version}")
+            return 0
+        if r.get("up") and r.get("version") and time.monotonic() - start >= grace_s:
+            print(f"the radio is back with version {r.get('version')}: the new image did not reach the AP, "
+                  f"so the radio went back to the old one")
+            return 1
+        if time.monotonic() - start >= timeout_s:
+            print(f"the AP has not heard from its radio for {timeout_s} s; check the radio's log on its USB port",
+                  file=sys.stderr)
             return 1
         sleep(poll_s)
 
@@ -1284,13 +1320,18 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval and webhook")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook and transmit power")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
+    s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
+                                      "about 13 - G in the EU), \"null\" = menuconfig value")
 
-    s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or show the app slots")
-    s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release")
-    s.add_argument("--wait", action="store_true", help="wait until the AP answers again and check that the new image runs")
+    s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
+                                   "it on over the cable), or show the app slots and the radio")
+    s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release; "
+                                            "openesl-ap-radio-*-ota.bin for the radio")
+    s.add_argument("--wait", action="store_true", help="wait until the AP (or the radio) answers again and check that "
+                                                       "the new image runs")
     s.add_argument("--wait-s", type=int, default=120)
 
     s = sub.add_parser("tag-ota", help="send new tag firmware to the AP, which updates the tags over the radio; "
@@ -1393,6 +1434,8 @@ def main(argv=None):
                 kw["poll_s"] = None if args.poll_s == "null" else int(args.poll_s)
             if args.webhook is not None:
                 kw["webhook"] = args.webhook or None
+            if args.tx_power is not None:
+                kw["tx_power"] = None if args.tx_power == "null" else int(args.tx_power)
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)
@@ -1408,6 +1451,12 @@ def main(argv=None):
                     return 2
                 print(f"sending {len(image)} bytes ...", flush=True)
                 r = cli.ota(image, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True))
+                if r.get("radio"):  # the radio coprocessor's image: the AP passed it on to its C6
+                    print(f"sent to the radio: version {r.get('version')}, the radio is restarting")
+                    if args.wait:
+                        print("waiting for the radio to come back ...", flush=True)
+                        return wait_radio_back(cli, r.get("version"), args.wait_s)
+                    return 0
                 print(f"written to {r.get('slot')}: version {r.get('version')}, the AP is restarting")
                 if args.wait:
                     print("waiting for the AP to come back ...", flush=True)

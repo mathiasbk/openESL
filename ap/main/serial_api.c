@@ -105,7 +105,7 @@ static bool serial_sink(esl_sb_t *sb)
 static void handle_ota(const char *seq, const char *method, const char *uri, unsigned len, char *resp, size_t cap)
 {
     esl_sb_t out;
-    char small[256];
+    char small[384]; /* GET /api/ota with the radio's, on an AP with a radio coprocessor */
     esl_sb_init(&out, small, sizeof(small));
     int status;
     if (strcmp(method, "GET") == 0) {

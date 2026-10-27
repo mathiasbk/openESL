@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan } from "../js/fwupload.js";
+import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan, radioImageFor, radioSendQuestion, waitRadioBack } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -200,10 +200,62 @@ test("the page's firmware for the ticked tags", () => {
 test("the version in an AP image", () => {
   assert.equal(firmwareKind(apImage(4096, "0.4.3")).version, "0.4.3");
   assert.equal(firmwareKind(apImage(4096)).version, null); // no app description where it belongs
-  // another app for the chip, such as the radio coprocessor's: not for the AP
-  const radio = firmwareKind(apImage(4096, "0.5.0", 13, "esl_radio"));
-  assert.equal(radio.kind, null);
-  assert.match(radio.error, /radio coprocessor/);
+  // the radio coprocessor's: for the AP to pass on to its C6
+  assert.deepEqual(firmwareKind(apImage(4096, "0.8.2", 13, "esl_radio")), { kind: "radio", size: 4096, version: "0.8.2", chip: "esp32c6" });
+  // another app for the chip: neither
+  const other = firmwareKind(apImage(4096, "0.5.0", 13, "esl_netradio"));
+  assert.equal(other.kind, null);
+  assert.match(other.error, /not AP firmware \(esl_netradio\)/);
+});
+
+test("the page's radio image for the AP's C6 radio", () => {
+  const radios = [
+    { key: "uart-c6", kind: "uart", display: false, ota: "radio-uart-c6-ota", version: "0.8.2" },
+    { key: "uart-c6-lcd", kind: "uart", display: true, ota: "radio-uart-c6-lcd-ota", version: "0.8.2" },
+    { key: "net-c6", kind: "net", display: false },
+  ];
+  const info = { version: "v0.8.2", release: true, radios };
+  const ota = (radio) => ({ version: "0.8.2", radio });
+  assert.deepEqual(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: false }), info),
+    { file: "radio-uart-c6-ota", version: "0.8.2", newer: true, display: false });
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: true }), info).file, "radio-uart-c6-lcd-ota");
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.2", ota: true, display: false }), info).newer, false); // runs it
+  assert.equal(radioImageFor(ota({ up: true, version: null, ota: false }), info), null);  // too old for the cable
+  assert.equal(radioImageFor({ version: "0.8.2" }, info), null);                          // no radio on UART
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true }), { ...info, radios: [radios[2]] }), null);
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: false }), { ...info, release: false }).newer, false);
+});
+
+test("what to ask before radio firmware goes out", () => {
+  const kind = firmwareKind(apImage(4096, "0.8.2", 13, "esl_radio"));
+  const radio = { up: true, version: "0.8.1", ota: true, display: false };
+  let q = radioSendQuestion(kind, { radio }, false);
+  assert.match(q, /Send radio firmware 0\.8\.2 to the AP's C6 radio\? It runs 0\.8\.1 now\./);
+  assert.doesNotMatch(q, /screen/);
+  assert.match(radioSendQuestion(kind, { radio }, true), /for a radio with a screen, and this radio has none/);
+  assert.match(radioSendQuestion(kind, {}), /no radio on a cable/);
+  assert.match(radioSendQuestion(kind, { radio: { ...radio, ota: false } }), /flash it once over USB/);
+  assert.match(radioSendQuestion(kind, { radio: { ...radio, up: false } }), /does not answer the AP/);
+  assert.match(radioSendQuestion(kind, { radio: { ...radio, version: "0.8.2" } }), /already runs/);
+  assert.match(radioSendQuestion(firmwareKind(apImage(4096, "0.8.2", 9, "esl_radio")), { radio }), /for the ESP32-S3/);
+});
+
+test("waiting for the radio after an update", async () => {
+  const sleep = async () => {};
+  const answers = (list) => ({ call: async () => { const a = list.length > 1 ? list.shift() : list[0]; if (a instanceof Error) throw a; return a; } });
+  const ota = (radio) => ({ slot: "ota_0", version: "0.8.2", radio });
+  // the AP still reports the old radio for a moment, then the new one
+  let r = await waitRadioBack(answers([ota({ up: true, version: "0.8.1" }), ota({ up: false, version: "0.8.1" }), ota({ up: true, version: "0.8.2" })]), "0.8.2", { sleep });
+  assert.equal(r.ok, true);
+  assert.match(r.text, /runs 0\.8\.2/);
+  // back with the old version after the grace: it went back
+  r = await waitRadioBack(answers([ota({ up: true, version: "0.8.1" })]), "0.8.2", { sleep, graceMs: 0 });
+  assert.equal(r.ok, false);
+  assert.match(r.text, /went back to the old one/);
+  r = await waitRadioBack(answers([ota({ up: false, version: null })]), "0.8.2", { sleep, timeoutMs: 0 });
+  assert.match(r.text, /USB port/);
+  r = await waitRadioBack(answers([new Error("x")]), "0.8.2", { sleep, alive: () => false });
+  assert.match(r.text, /Connect again/);
 });
 
 test("versions compare by their numbers", () => {

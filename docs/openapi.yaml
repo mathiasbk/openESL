@@ -594,7 +594,7 @@ paths:
     get:
       tags: [Settings]
       operationId: getApConfig
-      summary: The AP-wide default poll interval and the webhook
+      summary: The AP-wide default poll interval, the webhook and the transmit power
       responses:
         "200":
           description: The default
@@ -606,13 +606,15 @@ paths:
     put:
       tags: [Settings]
       operationId: setApConfig
-      summary: Change the AP-wide default poll interval or the webhook
+      summary: Change the AP-wide default poll interval, the webhook or the transmit power
       description: |
         `poll_s` is the interval for tags without their own `poll_s`; the tags get it in the
         reply to their next poll, so all of them have it within one old interval. Content
         scheduled with `at` still shows on time with a long interval. `webhook` is where the
-        AP posts the health report (`GET /api/health`) when it changes. A key left out keeps
-        its value; at least one must be there. Both are stored in NVS (`cfg/poll_s`, `cfg/webhook`).
+        AP posts the health report (`GET /api/health`) when it changes. `tx_power` is the
+        radio's 802.15.4 transmit power, used from its next reply (a radio over WiFi gets it
+        at its next sync). A key left out keeps its value; at least one must be there. All
+        are stored in NVS (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`).
       requestBody:
         required: true
         content:
@@ -631,6 +633,9 @@ paths:
               no-webhook:
                 summary: Stop posting
                 value: { webhook: null }
+              antenna:
+                summary: An external antenna of 5 dBi, so 8 dBm keeps within the EU's ~13 dBm EIRP
+                value: { tx_power: 8 }
       responses:
         "200":
           description: The new default
@@ -678,7 +683,7 @@ paths:
     get:
       tags: [Firmware]
       operationId: getOta
-      summary: Which app slot runs, and what the other holds
+      summary: Which app slot runs, what the other holds, and what the AP's radio coprocessor runs
       x-host-status: 501
       responses:
         "200":
@@ -692,7 +697,7 @@ paths:
     post:
       tags: [Firmware]
       operationId: postOta
-      summary: Write new AP firmware and restart into it
+      summary: Write new AP firmware and restart into it, or pass new firmware on to the radio coprocessor
       description: |
         The body is the app image, whole in one request (no query), or in parts with
         `offset` and `total`: a part at offset 0 starts a new upload, every other part must
@@ -703,6 +708,15 @@ paths:
         boot slot; the reply names it and its version, and the AP restarts one second later.
         The new firmware is kept once it can be reached (`confirmed` in `GET /api/ota`);
         otherwise the AP goes back to the old one after three minutes.
+
+        On an AP with a C6 radio on UART (`radio` in `GET /api/ota`), the radio
+        coprocessor's image (`openesl-ap-radio-*-ota.bin`, project `esl_radio`) is taken the
+        same way: the AP passes each part on to the radio over the cable before it answers,
+        and after the last part the radio restarts into it (`radio: true` in the reply; the AP
+        keeps running). The radio keeps the new firmware once the AP configures it, and goes
+        back to the old one by itself if that does not happen within a minute; `radio.version`
+        in `GET /api/ota` says what it runs. A radio from before 0.8.2 (`radio.ota` false)
+        takes new firmware only over USB.
         Content-Type is not checked.
       x-host-status: 501
       parameters:
@@ -723,7 +737,7 @@ paths:
             schema: { type: string, format: binary }
       responses:
         "200":
-          description: The part is written; `restarting` is in the reply when it was the last one
+          description: The part is written; `restarting` is in the reply when it was the last one, `radio` when it was for the radio coprocessor
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OtaReply" }
@@ -742,13 +756,25 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example: { error: the image does not fit the app slot }
         "422":
-          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, or an app that is not the AP firmware (another project name in its app description, such as the radio coprocessor's `esl_radio`)
+          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, an app that is not the AP firmware (another project name in its app description), or the radio coprocessor's `esl_radio` on an AP without a radio on UART
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example: { error: the image is not valid for this chip }
         "500": { $ref: "#/components/responses/ServerError" }
         "501": { $ref: "#/components/responses/NoOta" }
+        "503":
+          description: The radio coprocessor's image, and the radio does not answer the AP
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: "the radio is not answering on UART1: check the wiring (TX GPIO17, RX GPIO18)" }
+        "504":
+          description: The radio coprocessor stopped answering in the middle of its image
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: the radio stopped answering }
 
   /api/tag-firmware:
     get:
@@ -1566,6 +1592,15 @@ components:
             `http://host[:port][/path]` the AP posts the health report to when it changes
             (plain HTTP, at most 127 characters), `null` or `""` = no webhook. `422` on an AP
             built without the webhook.
+        tx_power:
+          type: [integer, "null"]
+          minimum: -24
+          maximum: 20
+          description: |
+            The radio's transmit power in dBm, `null` = back to the value set in menuconfig
+            (`ESL_TX_POWER_DBM`, 10). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
+            about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, the EU limit is about
+            13 − G. Above that only where more is allowed. `422` on an AP without a radio (the stub, the sniffer).
 
     ApConfigReply:
       type: object
@@ -1575,6 +1610,8 @@ components:
         poll_s: { type: integer, minimum: 0, maximum: 3600, description: The default now }
         builtin_poll_s: { type: integer, minimum: 0, maximum: 3600, description: The value set in menuconfig }
         webhook: { type: [string, "null"], maxLength: 127, description: "The webhook URL, null when off" }
+        tx_power: { type: integer, minimum: -24, maximum: 20, description: "The radio's transmit power in dBm now; left out on an AP without a radio" }
+        builtin_tx_power: { type: integer, minimum: -24, maximum: 20, description: The value set in menuconfig }
 
     Health:
       type: object
@@ -1703,7 +1740,22 @@ components:
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
+        radio: { $ref: "#/components/schemas/RadioInfo" }
       example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
+
+    RadioInfo:
+      type: object
+      additionalProperties: false
+      description: Only on an AP with a radio coprocessor on UART (ESP32-S3 + C6 on cable)
+      required: [up, version, fw, link, ota, display]
+      properties:
+        up: { type: boolean, description: The radio answers the AP and runs with its settings }
+        version: { type: [string, "null"], description: "The radio's firmware version (the VERSION file); `null` before the AP heard it, or from a radio before 0.8.2" }
+        fw: { type: [string, "null"], description: "The radio program's own version (1.1: takes firmware over the cable); `null` before the AP heard it" }
+        link: { type: [integer, "null"], description: "The link version the radio speaks (2: firmware over the cable); `null` before the AP heard it" }
+        ota: { type: boolean, description: "The radio takes new firmware through `POST /api/ota`; false: only over USB" }
+        display: { type: [boolean, "null"], description: "The radio has the 0.96\" screen (the -lcd image); `null` when it does not say" }
+      example: { up: true, version: 0.8.2, fw: "1.1", link: 2, ota: true, display: false }
 
     OtaReply:
       type: object
@@ -1714,7 +1766,8 @@ components:
         total: { type: integer, minimum: 1 }
         slot: { type: string, description: "After the last part: the slot the AP restarts into" }
         version: { type: string, description: "After the last part: the version of the new image" }
-        restarting: { type: boolean, description: "After the last part: the AP restarts in one second" }
+        restarting: { type: boolean, description: "After the last part: the AP restarts in one second (false for the radio's image)" }
+        radio: { type: boolean, description: "After the last part of the radio coprocessor's image: it went to the radio, which restarts into it" }
       example: { received: 1048576, total: 1048576, slot: ota_1, version: 0.2.0, restarting: true }
 
     ModelName:

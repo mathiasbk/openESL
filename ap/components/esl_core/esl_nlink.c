@@ -1,4 +1,5 @@
 #include "esl_nlink.h"
+#include "esl_link.h"
 #include "esl_radio.h"
 #include <string.h>
 
@@ -222,6 +223,11 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
         rc->pan = pan;
         if (r->ops.config)
             r->ops.config(r->ops.ctx, ch, pan);
+        if (g.at < len && r->ops.tx_power) {
+            int8_t dbm = (int8_t)get8(&g);
+            if (dbm >= ESL_TX_POWER_MIN && dbm <= ESL_TX_POWER_MAX)
+                r->ops.tx_power(r->ops.ctx, dbm);
+        }
         return true;
     }
     case ESL_NLINK_CLEAR:
@@ -414,10 +420,12 @@ static void host_end(void *ctx, uint32_t seq, bool more)
 
 static bool send_config(esl_nlink_host_t *n)
 {
-    uint8_t b[3];
+    uint8_t b[4];
     wbuf_t w = {b, 0, sizeof(b)};
     put8(&w, n->channel);
     put16(&w, n->pan);
+    if (n->tx_set)
+        put8(&w, (uint8_t)n->tx_power);
     n->config_due = false;
     return out_ok(n, send_buf(n->write, n->wctx, ESL_NLINK_CONFIG, &w));
 }
@@ -439,6 +447,13 @@ void esl_nlink_host_set_config(esl_nlink_host_t *n, uint8_t channel, uint16_t pa
 {
     n->channel = channel;
     n->pan = pan;
+    n->config_due = true;
+}
+
+void esl_nlink_host_set_tx_power(esl_nlink_host_t *n, int8_t dbm)
+{
+    n->tx_power = dbm;
+    n->tx_set = true;
     n->config_due = true;
 }
 

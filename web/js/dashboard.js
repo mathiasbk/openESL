@@ -6,10 +6,10 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
-import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -246,6 +246,75 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
+  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one: a
+  // preset, or "Other" with a whole number of dBm. As with the poll interval, a choice stays
+  // until it is saved.
+  let txDirty = false;
+  let txSaving = false;
+  const txMsg = (text, cls = "") => {
+    $("dash-tx-msg").textContent = text;
+    $("dash-tx-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  // the power chosen in the form: { dbm } or { error }
+  const txChosen = () => {
+    const v = $("dash-tx-sel").value;
+    return v === "other" ? parseTx($("dash-tx-db").value) : { dbm: Number(v) };
+  };
+  function showTxNote() {
+    const other = $("dash-tx-sel").value === "other";
+    $("dash-tx-other").hidden = !other;
+    $("dash-tx-db").disabled = !other;
+    const c = txChosen();
+    $("dash-tx-note").textContent = [c.error ? "" : txWarning(c.dbm), TX_NOTE].filter(Boolean).join(" ");
+  }
+  function renderTx() {
+    const c = last.config;
+    const has = Number.isInteger(c?.tx_power);
+    $("dash-tx").hidden = $("dash-tx-note").hidden = !has;
+    if (!has) return;
+    const sel = $("dash-tx-sel");
+    if (!txDirty) {
+      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
+        new Option("Other …", "other"));
+      sel.value = String(c.tx_power);
+      $("dash-tx-db").value = "";
+    }
+    $("dash-tx-save").disabled = txSaving || !txDirty;
+    showTxNote();
+  }
+  const txChanged = () => {
+    txDirty = true;
+    txMsg("");
+    if (last) renderTx();
+  };
+  $("dash-tx-sel").addEventListener("change", () => {
+    if ($("dash-tx-sel").value === "other" && !$("dash-tx-db").value) $("dash-tx-db").value = last?.config?.tx_power ?? "";
+    txChanged();
+    if ($("dash-tx-sel").value === "other") $("dash-tx-db").focus();
+  });
+  $("dash-tx-db").addEventListener("input", txChanged);
+  $("dash-tx").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!client) return;
+    const c = txChosen();
+    if (c.error) return txMsg(c.error, "error");
+    // the built-in value is a reset, so a later firmware default applies
+    const body = { tx_power: c.dbm === last?.config?.builtin_tx_power ? null : c.dbm };
+    $("dash-tx-save").disabled = true;
+    txSaving = true;
+    try {
+      await client.call("PUT", "/api/config", body);
+      txDirty = false;
+      txMsg(`Saved. The radio sends at ${c.dbm} dBm from its next reply.`, "ok");
+      refresh();
+    } catch (e) {
+      txMsg("Not saved: " + e.message, "error");
+    } finally {
+      txSaving = false;
+      $("dash-tx-save").disabled = !txDirty;
+    }
+  });
+
   // The filter of the tag table: "all", "bad", "busy" or "model:<model>", kept in this browser
   let filter = store.get("dash.filter") || "all";
   const setFilter = (f) => {
@@ -309,6 +378,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
     renderPoll();
+    renderTx();
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
@@ -829,9 +899,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   };
 
   // The closed firmware card says in one line what it holds
-  function fwSummary(ota, tagfw, img) {
+  function fwSummary(ota, tagfw, img, rimg) {
     const parts = [];
     if (ota) parts.push(`AP ${ota.version}` + (img?.newer ? ` (${img.version} available)` : ""));
+    if (ota?.radio?.version) parts.push(`radio ${ota.radio.version}` + (rimg?.newer ? ` (${rimg.version} available)` : ""));
     for (const r of tagFirmwareRows(tagfw)) if (r.version) parts.push(`${r.model}" ${r.version}: ${r.text}`);
     return parts.join(" · ") || "AP and tag updates";
   }
@@ -844,6 +915,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       ["Other slot", ota.other_slot ? `${ota.other_slot}: ${ota.other_version || "empty"}` : "none (old partition table)"],
     ];
     if (ota && typeof ota.display === "boolean") facts.push(["Status screen", ota.display ? "yes" : "no"]);
+    // An AP with a C6 radio on UART: what the radio runs, and whether the AP hears it
+    const radio = ota?.radio;
+    if (radio)
+      facts.push(["Radio", !radio.link ? "not heard from yet: check the wiring"
+        : `${radio.version || "older than 0.8.2"}${radio.display ? ", with screen" : ""}, ` +
+          (radio.up ? "answering" : "not answering") + (radio.ota ? "" : " (update it once over USB)")]);
     $("dash-ota").replaceChildren(...facts.map(([k, v]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
@@ -855,7 +932,19 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }));
     // A newer release on this page than the AP runs: a button that sends the image that fits it
     const img = ota && ota.other_slot ? apImageFor(ota, pageInfo) : null;
-    $("dash-fw-sum").textContent = fwSummary(ota, tagfw, img);
+    const rimg = radioImageFor(ota, pageInfo);
+    $("dash-fw-sum").textContent = fwSummary(ota, tagfw, img, rimg);
+    if (rimg?.newer && radio.up) {
+      const dd = [...$("dash-ota").querySelectorAll("dt")].find((dt) => dt.textContent === "Radio")?.nextElementSibling;
+      const b = document.createElement("button");
+      b.className = "small fw-up";
+      b.textContent = "\u2191 " + rimg.version; // arrow up
+      b.title = `Update the radio to ${rimg.version}` + (rimg.display ? " (with the screen)" : "");
+      b.setAttribute("aria-label", "Update the radio to " + rimg.version);
+      b.disabled = sending;
+      b.onclick = () => sendPageRadioFirmware(rimg);
+      dd?.append(" ", b);
+    }
     if (img?.newer) {
       const dd = $("dash-ota").querySelector("dd");
       const b = document.createElement("button");
@@ -916,6 +1005,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
   ];
+  // The images for a C6 radio on UART that the AP passes on (radios in info.json with "ota")
+  const radioFiles = (info) => (info?.radios || []).filter((r) => r.kind === "uart" && r.ota);
+  const radioFileLabel = (r) => "Radio firmware for the S3's C6" + (r.display ? " with screen" : "");
   const apFileLabel = (b) => "AP firmware" + (b.target !== "esp32c6" ? " for the " + b.target.toUpperCase().replace(/^ESP32/, "ESP32-") : "") +
     (b.display ? " with the status screen" : "");
   // The tag images published with this page, read once: model -> { data, kind }
@@ -955,8 +1047,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     .then((info) => {
       pageInfo = info;
       // each file with its own version: the AP's and the tags' can differ (ap_version, tag_version)
-      const ver = (k) => (k.startsWith("ap") ? info.ap_version : info.tag_version) || info.version;
-      const files = [...TAG_FILES, ...apBoards(info).map((b) => [b.file + "-ota", apFileLabel(b)])];
+      const ver = (k) => (k.startsWith("ap") ? info.ap_version : k.startsWith("radio") ? radioFiles(info).find((r) => r.ota === k)?.version : info.tag_version) || info.version;
+      const files = [...TAG_FILES, ...apBoards(info).map((b) => [b.file + "-ota", apFileLabel(b)]), ...radioFiles(info).map((r) => [r.ota, radioFileLabel(r)])];
       const opts = files.filter(([k]) => info?.ota?.[k.replace(/-ota$/, "")]).map(([k, label]) => [k, `${label}, ${ver(k)}`]);
       opts.push(["file", "A file from this computer …"]);
       $("fw-src").replaceChildren(...opts.map(([v, label]) => {
@@ -1006,8 +1098,22 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return;
     }
     const v = $("fw-src").value;
-    const board = apBoards(pageInfo).find((b) => b.file + "-ota" === v);
+    const board = apBoards(pageInfo).find((b) => b.file + "-ota" === v) || radioFiles(pageInfo).find((r) => r.ota === v);
     return sendData(data, board ? !!board.display : null);
+  }
+
+  // The arrow-up button next to the radio
+  async function sendPageRadioFirmware(img) {
+    if (!client || sending) return;
+    let data;
+    try {
+      data = await pageFile(img.file);
+    } catch (e) {
+      return fwMsg("Could not read the firmware: " + e.message, "error");
+    }
+    openFw();
+    $("fw-msg").scrollIntoView({ block: "nearest" });
+    return sendData(data, img.display);
   }
 
   // The arrow-up button next to the AP's firmware
@@ -1052,13 +1158,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     refresh();
   }
 
-  // lcd: whether an AP image is the one with the status screen (null: a file of your own);
+  // lcd: whether an AP or radio image is the one with the screen (null: a file of your own);
   // to: the one tag a tag image is for (null: all of its model)
   async function sendData(data, lcd = null, to = null) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
-    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"` : `AP firmware${kind.version ? " " + kind.version : ""}`;
+    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"`
+      : `${kind.kind === "radio" ? "radio" : "AP"} firmware${kind.version ? " " + kind.version : ""}`;
     if (kind.kind === "ap" && !confirm(apSendQuestion(kind, last?.ota, lcd))) return;
+    if (kind.kind === "radio" && !confirm(radioSendQuestion(kind, last?.ota, lcd))) return;
     setSending(true);
     clearTimeout(timer);
     const progress = (sent, total) => {
@@ -1072,6 +1180,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         fwMsg(to
           ? `The AP now has ${r.model}" firmware ${r.version} for tag ${to}. It takes it over its next polls; the table shows how far it is.`
           : `The AP now offers ${r.model}" firmware ${r.version}. Each tag takes it over its next polls; the table shows how far they are.`, "ok");
+      } else if (kind.kind === "radio") {
+        const r = await sendRadioFirmware(c, data, progress);
+        fwMsg(`The radio has firmware ${r.version} and is restarting into it ...`);
+        const back = await waitRadioBack(c, r.version, { alive: () => client === c });
+        fwMsg(back.text, back.ok ? "ok" : "error");
       } else {
         const r = await sendApFirmware(c, data, progress);
         fwMsg(`Written to ${r.slot}: version ${r.version}. The AP is restarting ...`);

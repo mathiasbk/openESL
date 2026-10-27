@@ -201,6 +201,19 @@ static void on_config(void *ctx, uint8_t ch, uint16_t p)
     save_radio = true;
 }
 
+/* The AP's transmit power (in its CONFIG): the driver takes it at the next transmit. Not
+   kept: until the AP is back after a restart, menuconfig's applies. */
+static void on_tx_power(void *ctx, int8_t dbm)
+{
+    (void)ctx;
+    static int8_t now = CONFIG_ESL_TX_POWER_DBM;
+    if (dbm == now)
+        return;
+    now = dbm;
+    radio_link.set_tx_power(&radio_link, dbm);
+    ESP_LOGI(TAG, "802.15.4 transmit power now %d dBm", dbm);
+}
+
 /* Tag firmware in the tagfw partition, one ESL_TAGFW_SLOT per model: its bytes only (the
    AP sends no header). Each 4 KB sector is erased as the first part reaches it. */
 static bool fw_slot(uint8_t model, size_t off, size_t n, size_t *at)
@@ -770,7 +783,7 @@ void app_main(void)
     static const esl_rcache_ops_t ops = {NULL, read_fw};
     esl_rcache_init(&rc, pan, tags, TAGS, images, IMAGES, cap, rlog, LOG, &ops);
     rc.boot = esp_random() | 1;
-    static const esl_nlink_radio_ops_t lops = {NULL, on_config, write_fw};
+    static const esl_nlink_radio_ops_t lops = {NULL, on_config, write_fw, on_tx_power};
     esl_nlink_radio_init(&nl, &rc, &lops, buf_write, NULL);
 
     wifi_start();

@@ -5,7 +5,7 @@ Help is welcome, and most of all with hardware that has not been tried yet:
 - **Other labels:** more SoluM sizes and models, other ZBS243 labels, and labels with other chips. See [Adding hardware](Adding-hardware).
 - **Other access points:** other ESP32 boards, or radios other than the ESP32-C6.
 - **Other flashers:** boards and jigs other than the D1 mini and the pogo-pin jig.
-- **Reports from the experimental boards** ([ESP32-C5](ESP32-C5), [ESP32-S3 + C6](ESP32-S3-and-C6)).
+- **Reports from the experimental boards** ([ESP32-C5](ESP32-C5), the [ESP32-S3 + C6](ESP32-S3-and-C6) with a screen on the C6).
 
 Bug reports and fixes for everything else are just as welcome. Security problems go to [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md), not to an issue.
 

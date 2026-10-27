@@ -180,7 +180,16 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     if (xTaskCreate(radio_task, "radio", 6144, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     esp_err_t err = radio_link.start(&radio_link, channel, pan_id, ESL_AP_SHORT_ADDR, SNIFFER);
-    ESP_LOGI(TAG, "%s %s on channel %u, PAN 0x%04X: %s", radio_link.name, SNIFFER ? "sniffer" : "AP", channel,
-             pan_id, esp_err_to_name(err));
+    int8_t dbm = radio_tx_power()->dbm;
+    if (err == ESP_OK && dbm != CONFIG_ESL_TX_POWER_DBM) /* the driver starts with menuconfig's */
+        radio_set_tx_power(dbm);
+    ESP_LOGI(TAG, "%s %s on channel %u, PAN 0x%04X, %d dBm: %s", radio_link.name, SNIFFER ? "sniffer" : "AP",
+             channel, pan_id, dbm, esp_err_to_name(err));
     return err;
+}
+
+void radio_set_tx_power(int8_t dbm)
+{
+    if (radio_link.set_tx_power)
+        radio_link.set_tx_power(&radio_link, dbm);
 }

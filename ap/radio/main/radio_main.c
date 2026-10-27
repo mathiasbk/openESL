@@ -4,9 +4,11 @@
 #include "esl_coproc.h"
 #include "esl_lcd.h"
 #include "esl_screen.h"
+#include "esp_app_desc.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_ota_ops.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -28,11 +30,19 @@
  * There is no WiFi on this chip, so 802.15.4 has the radio to itself.
  *
  * On a C6 with a small LCD (boards/c6-lcd, ESL_DISPLAY) the screen shows the
- * AP's status, which the host sends as SCREEN every couple of seconds. */
+ * AP's status, which the host sends as SCREEN every couple of seconds.
+ *
+ * The host can send new firmware for this radio over the same link (OTA_*,
+ * link v2): it goes to the app slot this radio does not run from, and the radio
+ * restarts into it. A new image is kept once it gets a CONFIG from the host,
+ * which shows the link works both ways; one that does not within CONFIRM_S goes
+ * back to the old one, so a bad image costs a restart and not a USB cable. */
 
 static const char *TAG = "radio";
 
-#define RADIO_FW_VERSION 0x0100 /* 1.0 */
+#define RADIO_FW_VERSION 0x0101 /* 1.1: new firmware over the link */
+
+#define CONFIRM_S 60
 
 #define TX_RETRY_US     12000 /* from the request's arrival; the tag listens CFG_RX_TIMEOUT_MS (20 ms) */
 #define TX_RETRY_GAP_US 700
@@ -57,6 +67,7 @@ static bool configured;
 static int64_t rx_time[256]; /* arrival of the RX frame with each ref */
 static uint8_t next_ref;
 static esl_coproc_stats_t stats;
+static bool pending_verify; /* runs a new image that has not had a CONFIG yet */
 
 #if CONFIG_ESL_DISPLAY
 #define SCREEN_STALE_MS 10000 /* no SCREEN for this long: say the AP is gone */
@@ -115,6 +126,10 @@ static void send_hello(void)
 {
     uint8_t f[ESL_COPROC_FRAME_MAX], mac[8] = {0};
     esl_coproc_hello_t h = {.version = ESL_COPROC_VERSION, .configured = configured, .fw = RADIO_FW_VERSION, .cfg = cfg};
+    strncpy(h.app_version, esp_app_get_description()->version, ESL_COPROC_APP_VERSION_MAX);
+#if CONFIG_ESL_DISPLAY
+    h.features |= ESL_COPROC_FEAT_DISPLAY;
+#endif
     esp_read_mac(mac, ESP_MAC_IEEE802154);
     for (int i = 0; i < 8; i++)
         h.ieee_addr = h.ieee_addr << 8 | mac[i];
@@ -134,6 +149,111 @@ static void apply_config(const esl_coproc_config_t *c)
     configured = true;
     ESP_LOGI(TAG, "channel %u, PAN 0x%04X, short 0x%04X, %d dBm%s", c->channel, c->pan, c->short_addr,
              c->tx_power, c->flags & ESL_COPROC_CFG_SNIFFER ? ", sniffer" : "");
+    if (pending_verify) {
+        pending_verify = false;
+        esp_ota_mark_app_valid_cancel_rollback();
+        ESP_LOGI(TAG, "new firmware %s confirmed: the host configured it", esp_app_get_description()->version);
+    }
+}
+
+/* ---- new firmware from the host (esl_coproc_ota_handle() with esp_ota_*) ---- */
+
+static esp_ota_handle_t ota_handle;
+static const esp_partition_t *ota_target;
+static uint32_t ota_written;
+
+static int ota_begin(void *ctx, uint32_t size)
+{
+    (void)ctx;
+    ota_target = esp_ota_get_next_update_partition(NULL);
+    if (!ota_target)
+        return ESL_COPROC_OTA_NO_SLOT;
+    if (size > ota_target->size)
+        return ESL_COPROC_OTA_TOO_BIG;
+    /* sequential: each sector is erased as the image reaches it, not all at once here */
+    if (esp_ota_begin(ota_target, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK)
+        return ESL_COPROC_OTA_FLASH;
+    ota_written = 0;
+    ESP_LOGI(TAG, "new firmware: %lu bytes to %s", (unsigned long)size, ota_target->label);
+    return ESL_COPROC_OTA_OK;
+}
+
+/* Another app for this chip (the C6 AP's esl_ap, say) would boot and keep itself without
+ * ever answering the host: only this project's images go in. esp_app_desc_t comes after
+ * the image header (24 bytes) and the first segment's (8), its project name at 48. */
+static bool own_project(const uint8_t *data, size_t len)
+{
+    const esp_app_desc_t *own = esp_app_get_description();
+    uint32_t magic;
+    if (len < 32 + 48 + sizeof(own->project_name))
+        return false;
+    memcpy(&magic, data + 32, 4);
+    return magic == ESP_APP_DESC_MAGIC_WORD &&
+           strncmp((const char *)data + 32 + 48, own->project_name, sizeof(own->project_name)) == 0;
+}
+
+static int ota_write(void *ctx, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    if (ota_written == 0 && !own_project(data, len))
+        return ESL_COPROC_OTA_INVALID;
+    esp_err_t e = esp_ota_write(ota_handle, data, len);
+    if (e != ESP_OK)
+        return e == ESP_ERR_OTA_VALIDATE_FAILED ? ESL_COPROC_OTA_INVALID : ESL_COPROC_OTA_FLASH;
+    ota_written += len;
+    return ESL_COPROC_OTA_OK;
+}
+
+static int ota_end(void *ctx)
+{
+    (void)ctx;
+    esp_err_t e = esp_ota_end(ota_handle);
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "new firmware refused: %s", esp_err_to_name(e));
+        return e == ESP_ERR_OTA_VALIDATE_FAILED ? ESL_COPROC_OTA_INVALID : ESL_COPROC_OTA_FLASH;
+    }
+    if (esp_ota_set_boot_partition(ota_target) != ESP_OK)
+        return ESL_COPROC_OTA_FLASH;
+    esp_app_desc_t d;
+    ESP_LOGI(TAG, "new firmware %s in %s: restarting into it",
+             esp_ota_get_partition_description(ota_target, &d) == ESP_OK ? d.version : "?", ota_target->label);
+    return ESL_COPROC_OTA_OK;
+}
+
+static void ota_abort(void *ctx)
+{
+    (void)ctx;
+    esp_ota_abort(ota_handle);
+}
+
+static esl_coproc_ota_rx_t ota = {.begin = ota_begin, .write = ota_write, .end = ota_end, .abort = ota_abort};
+
+static void give_up_cb(void *arg)
+{
+    (void)arg;
+    if (!pending_verify)
+        return;
+    ESP_LOGE(TAG, "the new firmware had no CONFIG from the host for %d s: back to the old one", CONFIRM_S);
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+    esp_restart(); /* it failed: the bootloader takes the unconfirmed image as aborted */
+}
+
+/* A new image waits for the host's CONFIG (apply_config) to be kept */
+static void ota_watch_running(void)
+{
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    esp_ota_img_states_t st;
+    if (!run || esp_ota_get_state_partition(run, &st) != ESP_OK || st != ESP_OTA_IMG_PENDING_VERIFY)
+        return;
+    const esp_timer_create_args_t a = {.callback = give_up_cb, .name = "ota_confirm"};
+    esp_timer_handle_t t;
+    if (esp_timer_create(&a, &t) != ESP_OK) {
+        esp_ota_mark_app_valid_cancel_rollback();
+        return;
+    }
+    pending_verify = true;
+    ESP_LOGI(TAG, "new firmware on %s: kept once the host configures it (within %d s)", run->label, CONFIRM_S);
+    esp_timer_start_once(t, (uint64_t)CONFIRM_S * 1000 * 1000);
 }
 
 /* Sends psdu, again while the tag listens if the radio refuses it. */
@@ -234,6 +354,22 @@ static void handle_message(const esl_coproc_parser_t *p)
         else
             stats.link_errors++;
 #endif
+        break;
+    }
+    case ESL_COPROC_OTA_BEGIN:
+    case ESL_COPROC_OTA_DATA:
+    case ESL_COPROC_OTA_END: {
+        bool done;
+        size_t n = esl_coproc_ota_handle(&ota, p->type, p->payload, p->len, f, &done);
+        if (!n) {
+            stats.link_errors++;
+            break;
+        }
+        link_send(f, n);
+        if (done) {
+            uart_wait_tx_done(CONFIG_ESL_COPROC_UART_NUM, pdMS_TO_TICKS(100)); /* the ACK first */
+            esp_restart();
+        }
         break;
     }
     case ESL_COPROC_STATS_Q:
@@ -350,9 +486,10 @@ static void screen_start(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "OpenESL 802.15.4 radio %d.%d, link v%d on UART%d (TX GPIO%d, RX GPIO%d, %d baud)",
-             RADIO_FW_VERSION >> 8, RADIO_FW_VERSION & 0xFF, ESL_COPROC_VERSION, CONFIG_ESL_COPROC_UART_NUM,
-             CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO, ESL_COPROC_BAUD);
+    ESP_LOGI(TAG, "OpenESL 802.15.4 radio %d.%d (%s), link v%d on UART%d (TX GPIO%d, RX GPIO%d, %d baud)",
+             RADIO_FW_VERSION >> 8, RADIO_FW_VERSION & 0xFF, esp_app_get_description()->version, ESL_COPROC_VERSION,
+             CONFIG_ESL_COPROC_UART_NUM, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO, ESL_COPROC_BAUD);
+    ota_watch_running();
 
     const uart_config_t uc = {
         .baud_rate = ESL_COPROC_BAUD,
@@ -381,7 +518,7 @@ void app_main(void)
     screen_start(); /* before the link task, which hands it SCREEN */
 #endif
     /* the host's TX before more RX: the tag that sent the last frame listens only briefly */
-    xTaskCreate(uart_task, "link", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
+    xTaskCreate(uart_task, "link", 6144, NULL, configMAX_PRIORITIES - 2, NULL); /* esp_ota_* runs in it too */
     xTaskCreate(rx_task, "rx", 3072, NULL, configMAX_PRIORITIES - 3, NULL);
     send_hello(); /* tells a running host that the radio (re)started and needs CONFIG */
 

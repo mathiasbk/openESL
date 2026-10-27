@@ -217,6 +217,36 @@ export function pollNote(poll_s, tags = []) {
   return parts.join(" ");
 }
 
+// The radio's transmit power (PUT /api/config "tx_power"): the choices for the form, as
+// [dbm, label], highest first. The EU allows about 13 dBm EIRP for 802.15.4 (EN 300 328:
+// 10 dBm/MHz on a signal about 2 MHz wide), so an antenna of G dBi takes at most about
+// 13 - G; the labels say which antenna each fits. The AP's value now and its
+// built-in one are always there.
+export const TX_EU_MAX = 13; // dBm EIRP for 802.15.4 in the EU, with an antenna of up to 0 dBi
+export const TX_MIN = -24, TX_MAX = 20; // what the C6 takes (PUT /api/config)
+export const TX_PRESETS = [[20, "most, above the EU limit"], [13, "EU max with a chip or PCB antenna"], [10, "EU max with a 3 dBi antenna"], [8, "EU max with a 5 dBi antenna"], [5, "EU max with an 8 dBi antenna"], [0, ""]];
+export function txOptions(dbm, builtin) {
+  const all = new Map(TX_PRESETS);
+  for (const v of [dbm, builtin]) if (Number.isInteger(v) && !all.has(v)) all.set(v, "");
+  return [...all].sort((a, b) => b[0] - a[0]).map(([v, fits]) => {
+    const notes = [fits, v === builtin ? "built-in" : ""].filter(Boolean);
+    return [v, `${v} dBm` + (notes.length ? ` (${notes.join(", ")})` : "")];
+  });
+}
+// A transmit power typed in: { dbm } or { error }
+export function parseTx(text) {
+  const t = String(text).trim();
+  const v = Number(t);
+  if (t === "" || !Number.isInteger(v) || v < TX_MIN || v > TX_MAX)
+    return { error: `The transmit power must be a whole number of dBm from ${TX_MIN} to ${TX_MAX}.` };
+  return { dbm: v };
+}
+// A warning for a power above the EU limit with a chip or PCB antenna, else ""
+export const txWarning = (dbm) => dbm > TX_EU_MAX
+  ? `${dbm} dBm is above the EU limit (about ${TX_EU_MAX} dBm with a chip or PCB antenna); fine outside the EU where more is allowed.` : "";
+export const TX_NOTE = "For this radio the EU allows about 13 dBm including the antenna's gain (EN 300 328: 10 dBm/MHz): with an antenna of G dBi, the limit is about 13 − G. "
+  + "More power reaches tags further away, but their answers do not get stronger; for those, a better antenna on the AP helps.";
+
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
 // becomes known, new content, a new image id, or a new layout file for its model; the last
 // matters for a tag the AP has not drawn for, e.g. one without SPI flash). layouts is

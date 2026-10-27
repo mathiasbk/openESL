@@ -414,7 +414,7 @@ static esp_err_t ota_get(httpd_req_t *req)
     if (!ota_auth(req))
         return ESP_OK;
     ota_confirm_running();
-    char buf[256];
+    char buf[384]; /* with the radio's, on an AP with a radio coprocessor */
     esl_sb_t out;
     esl_sb_init(&out, buf, sizeof(buf));
     int status = ota_info(&out);

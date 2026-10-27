@@ -60,19 +60,19 @@ The usual order, unless a section says otherwise:
 
 1. `esl-client backup ap.json`, with the esl-client of the new release (it also works with older APs).
 2. The AP first, over the air (`esl-client ota ... --wait`), then check that `GET /api/ota` says confirmed and that tags check in. Not with "Erase" in the Flash AP tab: that wipes the tags, layouts, token and WiFi.
-3. A C6 radio next to an S3 is flashed by hand (the S3 cannot update it yet), and only when the section says it changed.
+3. A C6 radio on a cable next to an S3, only when the section says it changed: since 0.8.2 over the air through the S3 (`esl-client ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`, or the dashboard). A radio flashed before 0.8.2 needs one more flash over USB first (Flash AP tab), which gives it the second app slot ([ap-radio-link.md](ap-radio-link.md#updating-the-radio-over-the-cable)).
 4. The tags last, one of each model first (Rollout, above). The tags may stay on the old firmware for days: an AP talks to the tags of the release before it.
 
 ### Upgrading over more than one release
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.8.1, for example, with many tags:
+From 0.5.x to 0.8.2, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.8.1 esl-client.
-2. The AP: `openesl-ap-<board>-v0.8.1-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
-3. ESP32-S3 with a C6 on a cable: the C6 radio has not changed since 0.5.0, apart from the screen of the C6 with a 0.96" LCD (colours and lines, #168). Flash it from the Flash AP tab only for that. The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.8.1 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+1. `esl-client backup ap.json` with the 0.8.2 esl-client.
+2. The AP: `openesl-ap-<board>-v0.8.2-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
+3. ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168). The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
+4. The tags: the tag image of the 0.8.2 release, which is version 0.6.0 (tag firmware is unchanged since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
 5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below).
 
 ### Upgrading from 0.4.x to 0.5.0
@@ -124,6 +124,14 @@ The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for do
 A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
+
+### Upgrading from 0.8.1 to 0.8.2
+
+Order: the AP, then, only with an S3 and a C6 on a cable, the C6 if you want to update it over the cable from now on. The tag firmware has not changed (the tag image of this release is 0.6.0), and neither has the C6 over WiFi (netradio). Nothing the AP stores changes: an AP that goes back to 0.8.1 keeps its data, its layout files and its name.
+
+The S3 with a C6 on a cable can update its C6 radio over the cable (#240): the release has `openesl-ap-radio-esp32c6-<version>-ota.bin` (and `-lcd-`), sent like AP firmware with `esl-client ota ... --wait` or from the dashboard, which shows the radio under Firmware. This needs the radio on 0.8.2 once, over USB: a C6 flashed before 0.8.2 has one app slot and link v1 (`radio.ota` false in `GET /api/ota`). It keeps working with a 0.8.2 S3, so this flash can wait. The Flash AP tab erases the radio's flash anyway; pick the `-lcd` image for a radio with the screen. One-way for the radio only (#240: a new partition table and link v2): going back to an older radio image means the Flash AP tab, since older releases have no radio `-ota.bin`. Host and radio of link v1 and v2 work together in both directions. The S3 + plain C6 on a cable is supported now (tried on hardware on 2026-10-26); the C6 with screen as the radio is still experimental.
+
+`seen_s_ago` in `GET /api/tags` and `/api/health` no longer shows a huge number (an unsigned wrap of about 2^64 ms) when a tag polls while the AP builds the reply (#244). The same wrap could flag such a tag `silent` and show it as long gone in the dashboard. Clients that turned it into a date (Prisjakt did) got a year far in the past.
 
 ## 5. A bad release
 
