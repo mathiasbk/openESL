@@ -218,10 +218,11 @@ export function pollNote(poll_s, tags = []) {
 }
 
 // The radio's transmit power (PUT /api/config "tx_power"): the choices for the form, as
-// [dbm, label], highest first. The EU allows 20 dBm EIRP at 2.4 GHz, so an antenna of G dBi
-// takes at most 20 - G; the labels say which antenna each fits. The AP's value now and its
+// [dbm, label], highest first. The EU allows about 13 dBm EIRP for 802.15.4 (EN 300 328:
+// 10 dBm/MHz on a signal about 2 MHz wide), so an antenna of G dBi takes at most about
+// 13 - G; the labels say which antenna each fits. The AP's value now and its
 // built-in one are always there.
-export const TX_PRESETS = [[20, "chip or PCB antenna"], [17, "3 dBi antenna"], [15, "5 dBi antenna"], [12, "8 dBi antenna"], [10, ""], [5, ""], [0, ""]];
+export const TX_PRESETS = [[20, "outside the EU"], [13, "chip or PCB antenna"], [10, "3 dBi antenna"], [8, "5 dBi antenna"], [5, "8 dBi antenna"], [0, ""]];
 export function txOptions(dbm, builtin) {
   const all = new Map(TX_PRESETS);
   for (const v of [dbm, builtin]) if (Number.isInteger(v) && !all.has(v)) all.set(v, "");
@@ -230,7 +231,7 @@ export function txOptions(dbm, builtin) {
     return [v, `${v} dBm` + (notes.length ? ` (${notes.join(", ")})` : "")];
   });
 }
-export const TX_NOTE = "The EU allows 20 dBm (100 mW) including the antenna's gain: with an antenna of G dBi, choose at most 20 − G. "
+export const TX_NOTE = "For this radio the EU allows about 13 dBm including the antenna's gain (EN 300 328: 10 dBm/MHz): with an antenna of G dBi, choose at most about 13 − G. "
   + "More power reaches tags further away, but their answers do not get stronger; for those, a better antenna on the AP helps.";
 
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model

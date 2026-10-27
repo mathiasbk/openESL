@@ -47,9 +47,9 @@ typedef struct {
     uint32_t slow;      /* replies with last_us over ESL_LINK_SLOW_US */
 } esl_link_stats_t;
 
-/* The transmit power a link can be set to, in dBm: what the ESP32-C6 takes. Above 20 dBm
- * EIRP is not allowed in the EU (100 mW at 2.4 GHz), so with an antenna of G dBi use
- * at most 20 - G. */
+/* The transmit power a link can be set to, in dBm: what the ESP32-C6 takes. The EU
+ * (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz, which for 802.15.4 (about 2 MHz
+ * wide) is about 13 dBm EIRP, so with an antenna of G dBi use at most about 13 - G. */
 #define ESL_TX_POWER_MIN (-24)
 #define ESL_TX_POWER_MAX 20
 

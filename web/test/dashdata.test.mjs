@@ -159,8 +159,8 @@ test("which AP: its board name, or the chip of an older AP", async () => {
 });
 
 test("txOptions: presets highest first, the AP's own value and the built-in one marked", () => {
-  assert.deepEqual(txOptions(20, 20).map((o) => o[1]), ["20 dBm (chip or PCB antenna, built-in)", "17 dBm (3 dBi antenna)", "15 dBm (5 dBi antenna)", "12 dBm (8 dBi antenna)", "10 dBm", "5 dBm", "0 dBm"]);
-  assert.deepEqual(txOptions(-7, 10).map((o) => o[0]), [20, 17, 15, 12, 10, 5, 0, -7]);
-  assert.equal(txOptions(-7, 10)[4][1], "10 dBm (built-in)");
-  assert.equal(txOptions(undefined, undefined).length, 7);
+  assert.deepEqual(txOptions(13, 13).map((o) => o[1]), ["20 dBm (outside the EU)", "13 dBm (chip or PCB antenna, built-in)", "10 dBm (3 dBi antenna)", "8 dBm (5 dBi antenna)", "5 dBm (8 dBi antenna)", "0 dBm"]);
+  assert.deepEqual(txOptions(-7, 12).map((o) => o[0]), [20, 13, 12, 10, 8, 5, 0, -7]);
+  assert.equal(txOptions(-7, 12)[2][1], "12 dBm (built-in)");
+  assert.equal(txOptions(undefined, undefined).length, 6);
 });
