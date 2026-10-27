@@ -827,9 +827,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     stBusy = true;
     $("st-send").disabled = $("st-forget").disabled = true;
     try {
-      // a tag that shows the weather leaves its place first, or the next forecast overwrites this
-      const left = await sources.release(tags.map((t) => t.mac));
+      // the AP takes a tag that shows the weather out of its place, so the forecast leaves this be
+      const where = sources.placeOf();
+      const left = [...new Set(tags.filter((t) => where.has(t.mac)).map((t) => where.get(t.mac)))];
       const { replies, note } = await sendRows(client, rows);
+      if (left.length) sources.reload();
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
       const waiting = now.filter((r) => r.pending !== false).length;

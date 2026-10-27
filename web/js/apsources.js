@@ -147,19 +147,6 @@ export function weatherPlan(sources, macs, to) {
   return { sources: list, id };
 }
 
-// The sources without these tags (a place left without tags goes), and the places they
-// leave; null when none of them is in a place
-export function leavePlan(sources, macs) {
-  const leaving = new Set(macs);
-  const left = new Set();
-  const list = [];
-  for (const { status, ...s } of sources || []) {
-    const tags = (s.tags || []).filter((m) => !leaving.has(m) || (left.add(s.place || s.id), false));
-    if (tags.length) list.push({ ...s, tags });
-  }
-  return left.size ? { sources: list, places: [...left] } : null;
-}
-
 // The models of the tags whose layout file on the AP has no layout called "weather", from
 // GET /api/layouts
 export function missingModels(tags, layouts) {
@@ -528,16 +515,7 @@ export function initSources() {
     placeOf: () => placeOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
-    // Other content sent to these tags: they leave their places, or the next forecast would
-    // overwrite it. Resolves to the places they left ([] for none); throws when the AP
-    // could not be changed
-    async release(macs) {
-      if (!client || !data?.sources?.some((s) => s.tags.some((m) => macs.includes(m)))) return [];
-      const plan = leavePlan((await client.call("GET", "/api/sources")).sources, macs);
-      if (!plan) return [];
-      data = await client.call("PUT", "/api/sources", { sources: plan.sources });
-      render();
-      return plan.places;
-    },
+    // Other content was sent to tags: the AP took them out of their places, so read the list again
+    reload: () => load(),
   };
 }

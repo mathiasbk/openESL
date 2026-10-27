@@ -105,10 +105,17 @@ typedef struct esl_sources {
        without data sources (the C6) does not link this part */
     int (*api)(struct esl_sources *s, const char *method, const char *path, size_t plen, const char *body,
                size_t len, uint32_t now, esl_sb_t *out);
+    /* esl_sources_release, the same way */
+    bool (*release)(struct esl_sources *s, uint64_t mac);
 } esl_sources_t;
 
 /* ops may be NULL (no locking, nothing saved). Starts with no sources. */
 void esl_sources_init(esl_sources_t *s, const esl_sources_ops_t *ops);
+
+/* The tag was given other content (PUT /api/tags, a picture): it leaves its source, so the
+ * next run does not overwrite that, and a source left without tags goes. The configuration
+ * is saved. False when the tag was in no source. */
+bool esl_sources_release(esl_sources_t *s, uint64_t mac);
 
 /* Checks a configuration ({"sources": [...]}) into cfg (ESL_SOURCE_MAX of them) and *n.
  * False with a message in err naming the place, e.g. "sources[1].lat: ...". */

@@ -37,7 +37,7 @@ The template shows the place, the temperature now, a weather symbol, the weather
 
 - **Battery:** the forecast changes a few times a day, so a weather label redraws a few times a day. Leave `{updated}` out of your own fields: it changes with every new forecast and makes the label redraw about once an hour.
 - **Credit:** MET's data is free under CC BY 4.0. Keep "MET Norway" on the label (the template has it).
-- **One source per label:** a label can only be in one place's list. Text you send it yourself stays until the next forecast run replaces it.
+- **One source per label:** a label can only be in one place's list. Sending a label anything else (text, a picture, from the Dashboard, the API or Home Assistant) takes it out of its place, so the forecast does not overwrite it. Choose **The weather** again to put it back.
 
 ## Without an AP that can fetch it
 

@@ -147,7 +147,8 @@ tags:
       place from MET Norway, every 30 minutes or less often. Each source fills its fields from
       what it fetched (`{temp}°`, `{wind} m/s`) and gives them to its tags in its layout, as
       if a client had sent `PUT /api/tags`; a tag only gets new content when the text came out
-      different. ESP32-S3 APs only (`ESL_DATASOURCES`); the others answer `404`. The AP needs
+      different. Content a client sends to a tag (`PUT /api/tags`, a picture) takes it out of
+      its source, so the source does not overwrite it; a source left without tags goes. ESP32-S3 APs only (`ESL_DATASOURCES`); the others answer `404`. The AP needs
       to know the time and to reach the internet. How it works, every value and the weather
       template: [docs/data-sources.md](https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md).
       MET Norway's data is CC BY 4.0: show "MET Norway" where the forecast is shown (the weather

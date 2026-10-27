@@ -379,6 +379,7 @@ void esl_sources_init(esl_sources_t *s, const esl_sources_ops_t *ops)
     if (ops)
         s->ops = *ops;
     s->api = esl_sources_api;
+    s->release = esl_sources_release;
 }
 
 /* What the URL depends on: the same gives the same data, so the last answer still holds */
@@ -426,6 +427,46 @@ bool esl_sources_restore(esl_sources_t *s, const char *js, size_t len)
     }
     free(cfg);
     return ok;
+}
+
+bool esl_sources_release(esl_sources_t *s, uint64_t mac)
+{
+    esl_source_cfg_t *cfg = malloc(sizeof(*cfg) * ESL_SOURCE_MAX);
+    if (!cfg)
+        return false;
+    bool found = false;
+    uint8_t n = 0;
+    lock(s);
+    for (unsigned i = 0; i < s->n && !found; i++) {
+        esl_source_cfg_t *c = &s->cfg[i];
+        for (unsigned k = 0; k < c->ntags && !found; k++)
+            if (c->tags[k] == mac) {
+                memmove(&c->tags[k], &c->tags[k + 1], sizeof(c->tags[0]) * (c->ntags - k - 1));
+                c->ntags--;
+                found = true;
+            }
+        if (found && !c->ntags) {
+            memmove(&s->cfg[i], &s->cfg[i + 1], sizeof(s->cfg[0]) * (s->n - i - 1));
+            memmove(&s->state[i], &s->state[i + 1], sizeof(s->state[0]) * (s->n - i - 1));
+            s->n--;
+        }
+    }
+    if (found) {
+        n = s->n;
+        memcpy(cfg, s->cfg, sizeof(*cfg) * n);
+    }
+    unlock(s);
+    char *js = found && s->ops.persist ? malloc(ESL_SOURCE_CFG_MAX) : NULL;
+    if (js) {
+        esl_sb_t sb;
+        esl_sb_init(&sb, js, ESL_SOURCE_CFG_MAX);
+        write_all_cfg(cfg, n, &sb);
+        if (!sb.overflow)
+            s->ops.persist(s->ops.ctx, js, sb.len);
+    }
+    free(js);
+    free(cfg);
+    return found;
 }
 
 /* ---- the API ---- */

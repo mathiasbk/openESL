@@ -157,8 +157,11 @@ in [openapi.yaml](openapi.yaml) under *Data sources*. In short:
   not saved: after a restart each source is fetched again.
 - Changing a source's layout, fields or tags keeps its last answer, so it does not ask MET
   again. A new place does.
-- A tag that leaves a source keeps what it shows until it gets other content. Content sent
-  with `PUT /api/tags` to a tag in a source stays until the source's next run.
+- A tag that leaves a source keeps what it shows until it gets other content.
+- Content sent to a tag in a source (`PUT /api/tags`, `PUT /api/tags/{mac}`, scheduled or
+  not, or a picture) takes the tag out of the source, so the next forecast does not
+  overwrite it; a source left without tags goes. The list is saved. To give it the weather
+  again, add it back (Send → The weather on the Dashboard).
 
 Back up the list with `GET /api/sources` and restore it with `PUT` (the `status` of each
 source may be sent back as it came; it is ignored).

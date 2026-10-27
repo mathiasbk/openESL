@@ -527,6 +527,18 @@ static void test_api(void)
     CHECK(sources.n == 1 && sources.cfg[0].lat == 600000);
     CHECK(!esl_sources_restore(&sources, "{", 1));
 
+    /* a tag given other content leaves its source (saved), and a source left without tags goes */
+    const char *two = "{\"sources\":[{\"id\":\"hjemme\",\"type\":\"met\",\"lat\":59.9,\"lon\":10.7,"
+                      "\"layout\":\"weather\",\"tags\":[\"" MAC1 "\",\"0000000000000002\"]}]}";
+    CHECK_INT(req("PUT", "/api/sources", two), 200);
+    const char *text = "{\"layout\":\"text\",\"fields\":[\"Hei\"]}";
+    CHECK_INT(req("PUT", "/api/tags/" MAC1, text), 200);
+    CHECK(sources.n == 1 && sources.cfg[0].ntags == 1 && sources.cfg[0].tags[0] == 2);
+    CHECK(HAS(saved, "\"tags\":[\"0000000000000002\"]"));
+    CHECK(!esl_sources_release(&sources, 0x00000123456789A8ull));
+    CHECK_INT(req("PUT", "/api/tags", "{\"tags\":[{\"mac\":\"0000000000000002\",\"layout\":\"text\",\"fields\":[\"Hei\"]}]}"), 200);
+    CHECK(sources.n == 0 && !strcmp(saved, "{\"sources\":[]}"));
+
     /* no sources on this AP: 404 */
     api.sources = NULL;
     CHECK_INT(req("GET", "/api/sources", NULL), 404);
