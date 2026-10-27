@@ -618,11 +618,13 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
     if (i >= 0 && i < s->n && strcmp(s->cfg[i].id, id) == 0) {
         esl_source_state_t *st = &s->state[i];
         uint32_t every = (uint32_t)s->cfg[i].every_min * 60;
-        if (status) {
+        /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
+        if (status || !values) {
             st->tried_at = now;
             st->http = (int16_t)status;
         }
         if (status == 200 || status == 304) {
+            st->fails = 0;
             st->fetched_at = now;
             st->expires_at = expires;
             if (status == 200)
@@ -631,8 +633,15 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
             if (expires > st->next_at)
                 st->next_at = expires;
         } else if (status || !values) {
-            /* no answer, or one without data: again in 10 minutes, or at the usual time if sooner */
-            st->next_at = now + (every < 600 ? every : 600);
+            /* An answer without data: again in 10 minutes, or at the usual time if sooner. No
+               answer at all is mostly a WiFi or DNS hiccup: again in 1 minute, then 3, then 10 */
+            uint32_t wait = 600;
+            if (!status) {
+                if (st->fails < 255)
+                    st->fails++;
+                wait = st->fails == 1 ? 60 : st->fails == 2 ? 180 : 600;
+            }
+            st->next_at = now + (every < wait ? every : wait);
         }
         if (values) {
             st->values = *values;

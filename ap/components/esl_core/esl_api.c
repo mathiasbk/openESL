@@ -69,6 +69,7 @@ const char *esl_api_status_line(int status)
 {
     switch (status) {
     case 200: return "200 OK";
+    case 202: return "202 Accepted";
     case 400: return "400 Bad Request";
     case 401: return "401 Unauthorized";
     case 404: return "404 Not Found";

@@ -477,22 +477,35 @@ static void test_api(void)
     CHECK_INT(req("POST", "/api/sources/refresh", NULL), 202);
     CHECK_INT(esl_sources_due(&sources, T0 + 1000, &cfg, lm, sizeof(lm), &fetch), 0);
     CHECK(fetch);
-    /* 304 keeps Last-Modified; no answer tries again in 10 minutes with the error */
+    /* 304 keeps Last-Modified; no answer tries again in 1, 3, then 10 minutes with the error */
     esl_sources_done(&sources, 0, "hjemme", T0 + 4000, 304, 0, NULL, &v, T0 - 1000, &run, NULL);
     CHECK(sources.state[0].next_at == T0 + 4000 + 1800);
     CHECK(!strcmp(sources.state[0].last_modified, "Mon, 26 Oct 2026 15:42:07 GMT"));
     esl_sources_done(&sources, 0, "hjemme", T0 + 9000, 0, 0, NULL, NULL, 0, NULL, "connect failed");
-    CHECK(sources.state[0].next_at == T0 + 9600);
+    CHECK(sources.state[0].next_at == T0 + 9060 && sources.state[0].tried_at == T0 + 9000);
+    CHECK(sources.state[0].http == 0);
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9060, 0, 0, NULL, NULL, 0, NULL, "connect failed");
+    CHECK(sources.state[0].next_at == T0 + 9240);
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9240, 0, 0, NULL, NULL, 0, NULL, "connect failed");
+    CHECK(sources.state[0].next_at == T0 + 9840);
     CHECK_INT(req("GET", "/api/sources", NULL), 200);
     CHECK(HAS(resp, "\"ok\":false") && HAS(resp, "\"error\":\"connect failed\",\"values\":{\"temp\":\"8\"}"));
+    CHECK(HAS(resp, "\"tried_at\":1793039640"));
+    /* an answer with an HTTP error: 10 minutes, and the count of tries without one starts over after data */
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9300, 503, 0, NULL, NULL, 0, NULL, "HTTP 503");
+    CHECK(sources.state[0].next_at == T0 + 9900 && sources.state[0].http == 503);
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9400, 304, 0, NULL, &v, T0 - 1000, &run, NULL);
+    CHECK(sources.state[0].fails == 0);
+    esl_sources_done(&sources, 0, "hjemme", T0 + 9500, 0, 0, NULL, NULL, 0, NULL, "connect failed");
+    CHECK(sources.state[0].next_at == T0 + 9560);
     /* another id at that index (the configuration changed meanwhile): ignored */
     esl_sources_done(&sources, 0, "other", T0 + 9000, 200, 0, NULL, NULL, 0, NULL, NULL);
-    CHECK(sources.state[0].fetched_at == T0 + 4000);
+    CHECK(sources.state[0].fetched_at == T0 + 9400);
 
     /* a new configuration keeps what is known of a source with the same id and place, and
        makes its content again from the last answer; another place starts over */
     CHECK_INT(req("PUT", "/api/sources", CFG), 200);
-    CHECK(sources.state[0].fetched_at == T0 + 4000 && sources.state[0].reapply);
+    CHECK(sources.state[0].fetched_at == T0 + 9400 && sources.state[0].reapply);
     CHECK_INT(esl_sources_due(&sources, T0 + 9100, &cfg, lm, sizeof(lm), &fetch), 0);
     CHECK(!fetch);
     const char *moved = "{\"sources\":[{\"id\":\"hjemme\",\"type\":\"met\",\"lat\":60,\"lon\":10.7522,"

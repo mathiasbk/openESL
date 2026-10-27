@@ -78,6 +78,7 @@ typedef struct {
     uint8_t tags_set;     /* tags given content by the last run, and of them the ones it changed */
     uint8_t tags_changed;
     uint8_t tags_failed;
+    uint8_t fails;        /* tries in a row without an answer (not shown) */
     char error[ESL_SOURCE_ERR_MAX]; /* "" when the last run went well */
     char last_modified[40];         /* the answer's Last-Modified, sent back as If-Modified-Since */
     bool reapply;                   /* the content is to be made again from the last answer (not shown) */
