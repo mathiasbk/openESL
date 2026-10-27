@@ -1,10 +1,17 @@
-// apsources.js - the "Weather and data sources" card on the Dashboard: the AP's data sources
-// (GET/PUT /api/sources, POST /api/sources/refresh; ESP32-S3 APs, docs/data-sources.md). A source
-// is a place whose forecast the AP fetches from MET Norway every so often; its fields fill a
-// layout on the tags given to it. The card stays hidden on an AP without data sources (404).
+// apsources.js - the weather on the Dashboard (ESP32-S3 and ESP32-C5 APs, docs/data-sources.md):
+// "The weather" in the Send form for the ticked tags, with a dialog to choose the place, and the
+// "Weather" card listing the places the AP fetches (GET/PUT /api/sources, POST
+// /api/sources/refresh). A place is a data source: the AP fetches its forecast from MET Norway
+// and puts it on its tags in the layout "weather" (templates/home/weather.json), which the dialog
+// offers to add to the AP's layout file of a model that lacks it. On an AP without data sources
+// (404) the choice and the card stay hidden.
+
+import { addTemplate } from "./catalog.js";
 
 const $ = (id) => document.getElementById(id);
-const EVERY = [30, 60, 120, 180, 360];
+export const WEATHER_LAYOUT = "weather";
+const TAGS_MAX = 32;   // ESL_SOURCE_TAGS_MAX
+const SOURCES_MAX = 8; // ESL_SOURCE_MAX
 
 // "12 min ago" / "in 5 min" from Unix seconds against now (s)
 export function relTime(t, now) {
@@ -22,58 +29,120 @@ export function sourceSummary(s, now) {
   if (st.error) return { text: st.error, bad: true };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
   const what = [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
-  return {
-    text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)} · ${st.tags_set} tag(s), ${st.tags_changed} changed`,
-    bad: false,
-  };
+  return { text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)}`, bad: false };
 }
 
-// The source the form describes, as the API takes it; { error } when something is missing
-export function formSource(f, defaults) {
-  const id = f.id.trim().toLowerCase();
-  if (!/^[a-z0-9_-]{1,16}$/.test(id)) return { error: "Name: 1 to 16 of a-z, 0-9, _ and -" };
-  const lat = Number(String(f.lat).replace(",", "."));
-  const lon = Number(String(f.lon).replace(",", "."));
-  if (!(String(f.lat).trim() && lat >= -90 && lat <= 90)) return { error: "Latitude: -90 to 90 (e.g. 59.9139)" };
-  if (!(String(f.lon).trim() && lon >= -180 && lon <= 180)) return { error: "Longitude: -180 to 180 (e.g. 10.7522)" };
-  if (!f.layout) return { error: "Choose a layout" };
-  const s = { id, type: "met", lat, lon, place: f.place.trim(), lang: f.lang, every_min: +f.every, layout: f.layout, tags: f.tags };
-  const fields = f.fields.map((x) => x.trim());
-  while (fields.length && !fields[fields.length - 1]) fields.pop();
-  if (fields.length && JSON.stringify(fields) !== JSON.stringify(defaults)) s.fields = fields;
-  return s;
+// Latitude and longitude from what a map gives when its place is copied: "59.9139, 10.7522",
+// "59,9139 10,7522" or "59.9139 N, 10.7522 E"; null when it is not two such numbers
+export function parseCoords(text) {
+  const s = String(text).replace(/[°NnEeØø]/g, " ").trim();
+  let m = s.match(/^(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)$/);
+  if (!m) m = s.match(/^(-?\d+(?:,\d+)?)\s+(-?\d+(?:,\d+)?)$/); // decimal commas
+  if (!m) return null;
+  const lat = Number(m[1].replace(",", "."));
+  const lon = Number(m[2].replace(",", "."));
+  if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return null;
+  return { lat: Math.round(lat * 1e4) / 1e4, lon: Math.round(lon * 1e4) / 1e4 };
 }
 
-// The configuration without each source's status, ready for PUT
-export function configOf(sources) {
-  return { sources: sources.map(({ status, ...s }) => s) };
+// A source id (a-z 0-9 _ -, at most 16) from a place's name that `taken` does not have
+export function placeId(place, taken) {
+  const base = String(place).toLowerCase()
+    .replace(/æ/g, "ae").replace(/[øö]/g, "o").replace(/[åä]/g, "a")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 16) || "place";
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 16 - String(n).length - 1)}-${n}`;
+  return id;
+}
+
+// The sources with `macs` moved to one place: `to` is a source's id, or a new place
+// { place, lat, lon, lang }. The tags leave every other place, and a place left without tags
+// goes. { sources, id } as PUT /api/sources takes them (no status), or { error }.
+export function weatherPlan(sources, macs, to) {
+  const moving = new Set(macs);
+  let list = sources.map(({ status, ...s }) => ({ ...s, tags: (s.tags || []).filter((m) => !moving.has(m)) }));
+  let id = typeof to === "string" ? to : null;
+  if (id === null) {
+    if (!to?.place?.trim()) return { error: "Give the place a name: it is shown on the tag" };
+    if (!Number.isFinite(to.lat) || !Number.isFinite(to.lon)) return { error: "Coordinates: latitude and longitude, such as 59.9139, 10.7522" };
+    id = placeId(to.place, new Set(list.map((s) => s.id)));
+    list.push({ id, type: "met", lat: to.lat, lon: to.lon, place: to.place.trim(), lang: to.lang || "nb", layout: WEATHER_LAYOUT, tags: [] });
+  }
+  const target = list.find((s) => s.id === id);
+  if (!target) return { error: `There is no place called ${id} on the AP` };
+  target.tags = [...target.tags, ...macs];
+  if (target.tags.length > TAGS_MAX) return { error: `A place can have at most ${TAGS_MAX} tags (${target.place || id} would have ${target.tags.length})` };
+  list = list.filter((s) => s.tags.length || s.id === id);
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} places: give the tags one it has` };
+  return { sources: list, id };
+}
+
+// The models of the tags whose layout file on the AP has no layout called "weather", from
+// GET /api/layouts
+export function missingModels(tags, layouts) {
+  const has = new Set();
+  for (const m of layouts?.layouts || [])
+    if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
+  return [...new Set(tags.map((t) => t.model).filter((m) => m && !has.has(m)))];
+}
+
+// The place each tag is in now, by MAC
+export function placeOf(sources) {
+  const out = new Map();
+  for (const s of sources || []) for (const m of s.tags || []) out.set(m, s.place || s.id);
+  return out;
+}
+
+// The weather template: published next to the page (web/templates.mjs) and packed on the AP
+// (ap/main/webui.py), at templates/home/weather.json
+async function weatherTemplate() {
+  const r = await fetch(new URL("../templates/home/weather.json", import.meta.url), { cache: "no-cache" });
+  if (!r.ok) throw new Error(`the weather template could not be loaded (${r.status})`);
+  return r.json();
 }
 
 export function initSources() {
   let client = null;
-  let data = null;      // the last GET /api/sources
-  let editing = -1;     // the source in the form, -1 for a new one, null when the form is closed
+  let data = null;      // the last GET /api/sources, null when the AP has none
   let timer = 0;
+  let pending = null;   // the dialog's tags and what to call when it is done
 
-  const msg = (text, cls = "") => {
-    const m = $("src-msg");
-    m.textContent = text;
-    m.className = "hint " + cls;
+  const msg = (id, text, cls = "") => {
+    $(id).textContent = text;
+    $(id).className = "hint" + (cls ? " " + cls : "");
+  };
+  const option = () => $("st-what").querySelector('option[value="weather"]');
+  // The choice in the Send form, only on an AP with data sources
+  const offer = (on) => {
+    option().hidden = option().disabled = !on;
+    if (!on && $("st-what").value === "weather") {
+      $("st-what").value = "ap";
+      $("st-what").dispatchEvent(new Event("change", { bubbles: true }));
+    }
   };
 
   async function load() {
     clearTimeout(timer);
     if (!client) return;
+    const c = client;
     try {
-      data = await client.call("GET", "/api/sources");
+      data = await c.call("GET", "/api/sources");
     } catch (e) {
-      // an AP without data sources answers 404: no card; anything else is shown, and tried again
-      if (e.message.startsWith("404")) $("src-box").hidden = true;
-      else msg(e.message, "error");
-      if (!e.message.startsWith("404")) timer = setTimeout(load, 60000);
+      if (c !== client) return;
+      // an AP without data sources answers 404: no weather here
+      if (e.message.startsWith("404")) {
+        data = null;
+        offer(false);
+        $("src-box").hidden = true;
+        return;
+      }
+      msg("src-msg", e.message, "error");
+      timer = setTimeout(load, 60000);
       return;
     }
-    $("src-box").hidden = false;
+    if (c !== client) return;
+    offer(true);
     render();
     timer = setTimeout(load, 60000);
   }
@@ -81,138 +150,167 @@ export function initSources() {
   function render() {
     const now = Date.now() / 1000;
     const list = data?.sources || [];
-    $("src-sum").textContent = list.length ? `${list.length} source${list.length === 1 ? "" : "s"}` : "none";
-    $("src-list").replaceChildren(...list.map((s, i) => {
+    $("src-box").hidden = !list.length;
+    $("src-sum").textContent = list.length ? `${list.length} place${list.length === 1 ? "" : "s"}` : "";
+    $("src-list").replaceChildren(...list.map((s) => {
       const tr = document.createElement("tr");
       const sum = sourceSummary(s, now);
-      const cells = [
-        s.id,
-        `${s.place || "–"} (${s.lat}, ${s.lon})`,
-        s.layout,
-        String(s.tags.length),
-      ];
-      for (const c of cells) {
+      const cells = [[`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      for (const [text, title] of cells) {
         const td = document.createElement("td");
-        td.textContent = c;
+        td.textContent = text;
+        if (title) td.title = title;
         tr.append(td);
       }
-      const st = document.createElement("td");
-      st.textContent = sum.text;
-      if (sum.bad) st.className = "error";
-      tr.append(st);
+      if (sum.bad) tr.lastChild.className = "error";
       const act = document.createElement("td");
-      const ed = document.createElement("button");
-      ed.type = "button";
-      ed.textContent = "Edit";
-      ed.addEventListener("click", () => openForm(i));
       const del = document.createElement("button");
       del.type = "button";
+      del.className = "small";
       del.textContent = "Remove";
-      del.title = "Its tags keep what they show until they get other content";
-      del.addEventListener("click", () => remove(i));
-      act.append(ed, " ", del);
+      del.title = "Stop fetching this place; its tags keep what they show until they get other content";
+      del.addEventListener("click", () => remove(s));
+      act.append(del);
       tr.append(act);
       return tr;
     }));
-    $("src-empty").hidden = list.length > 0;
   }
 
-  async function openForm(i) {
-    editing = i;
-    const s = i >= 0 ? data.sources[i] : null;
-    const defaults = data?.types?.met?.fields || [];
-    $("src-form").hidden = false;
-    $("src-id").value = s?.id || (data.sources.length ? "" : "home");
-    $("src-id").disabled = !!s;
-    $("src-place").value = s?.place || "";
-    $("src-lat").value = s?.lat ?? "";
-    $("src-lon").value = s?.lon ?? "";
-    $("src-lang").value = s?.lang || "nb";
-    $("src-every").replaceChildren(...EVERY.map((m) => new Option(m < 60 ? `${m} min` : `${m / 60} h`, m)));
-    $("src-every").value = String(s?.every_min || 30);
-    const fields = s?.fields || defaults;
-    document.querySelectorAll("#src-fields input").forEach((inp, k) => (inp.value = fields[k] || ""));
-    $("src-values").textContent = (data?.types?.met?.values || []).map((v) => `{${v}}`).join(" ");
-    // the layouts in the AP's files, and its tags
-    const [lays, tags] = await Promise.all([
-      client.call("GET", "/api/layouts").catch(() => null),
-      client.call("GET", "/api/tags").catch(() => null),
-    ]);
-    const names = new Set(["text"]);
-    for (const m of lays?.layouts || []) for (const n of m.layouts || []) names.add(typeof n === "string" ? n : n.name);
-    if (s?.layout) names.add(s.layout);
-    const sel = $("src-layout");
-    sel.replaceChildren(...[...names].map((n) => new Option(n === "text" ? "text (built in, four lines)" : n, n)));
-    sel.value = s?.layout || (names.has("weather") ? "weather" : "text");
-    $("src-no-weather").hidden = names.has("weather");
-    const chosen = new Set(s?.tags || []);
-    const all = (tags?.tags || []).map((t) => ({ mac: t.mac, model: t.model }));
-    for (const mac of chosen) if (!all.some((t) => t.mac === mac)) all.push({ mac, model: "" });
-    $("src-tags").replaceChildren(...all.map((t) => {
-      const l = document.createElement("label");
-      l.className = "check";
-      const c = document.createElement("input");
-      c.type = "checkbox";
-      c.value = t.mac;
-      c.checked = chosen.has(t.mac);
-      l.append(c, ` ${t.mac}${t.model ? ` (${t.model}")` : ""}`);
-      return l;
-    }));
-    msg("");
-    $("src-place").focus();
-  }
-
-  function closeForm() {
-    editing = null;
-    $("src-form").hidden = true;
-  }
-
-  async function save(list, done) {
+  async function remove(s) {
+    if (!confirm(`Stop the weather for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
-      data = await client.call("PUT", "/api/sources", configOf(list));
+      data = await client.call("PUT", "/api/sources", { sources: data.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
-      msg(done, "ok");
-      return true;
+      msg("src-msg", `Stopped the weather for ${s.place || s.id}.`, "ok");
     } catch (e) {
-      msg("Not saved: " + e.message, "error");
-      return false;
+      msg("src-msg", "Not changed: " + e.message, "error");
     }
   }
 
-  async function remove(i) {
-    const s = data.sources[i];
-    if (!confirm(`Remove the data source "${s.id}"? Its tags keep what they show now.`)) return;
-    const list = data.sources.filter((_, k) => k !== i);
-    if (await save(list, `Removed ${s.id}.`) && editing === i) closeForm();
+  // ---- the dialog ----
+
+  let layouts = null; // GET /api/layouts when the dialog opened
+
+  function placesShown() {
+    const list = data?.sources || [];
+    const radios = list.map((s) => {
+      const l = document.createElement("label");
+      const r = document.createElement("input");
+      r.type = "radio";
+      r.name = "wx-place";
+      r.value = s.id;
+      l.append(r, ` ${s.place || s.id} `, Object.assign(document.createElement("span"), {
+        className: "muted", textContent: `(${s.tags.length} ${s.tags.length === 1 ? "tag" : "tags"})` }));
+      return l;
+    });
+    const l = document.createElement("label");
+    const r = document.createElement("input");
+    r.type = "radio";
+    r.name = "wx-place";
+    r.value = "";
+    l.append(r, " A new place");
+    radios.push(l);
+    $("wx-places").replaceChildren(...radios);
+    $("wx-places").hidden = !list.length;
+    // the place most of the ticked tags are in already, else the first, else a new one
+    const counts = new Map();
+    const where = placeOf(list);
+    for (const t of pending.tags) if (where.has(t.mac)) {
+      const s = list.find((x) => x.tags.includes(t.mac));
+      counts.set(s.id, (counts.get(s.id) || 0) + 1);
+    }
+    const best = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? list[0]?.id ?? "";
+    for (const x of $("wx-places").querySelectorAll("input")) x.checked = x.value === best;
   }
 
-  $("src-add").addEventListener("click", () => openForm(-1));
-  $("src-cancel").addEventListener("click", closeForm);
+  const chosen = () => $("wx-places").querySelector("input:checked")?.value ?? "";
+
+  function dialogChanged() {
+    $("wx-new").hidden = chosen() !== "";
+    const missing = missingModels(pending.tags, layouts);
+    $("wx-layout-label").hidden = !missing.length;
+    $("wx-layout-text").textContent = `Add the Weather layout to the AP's ${missing.map((m) => m + '"').join(" and ")} layout ${missing.length === 1 ? "file" : "files"} (the tags need it; the layouts there stay)`;
+  }
+
+  async function open(tags, done) {
+    pending = { tags, done };
+    layouts = await client.call("GET", "/api/layouts").catch(() => null);
+    $("wx-n").textContent = tags.length === 1 ? "1 tag" : `${tags.length} tags`;
+    placesShown();
+    msg("wx-msg", "");
+    dialogChanged();
+    $("wx-ok").disabled = false;
+    $("wx-dlg").showModal();
+    (chosen() === "" ? $("wx-place") : $("wx-ok")).focus();
+  }
+
+  // The weather layout into the AP's layout file of each model that lacks it
+  async function addLayouts(c, models) {
+    const t = await weatherTemplate();
+    for (const model of models) {
+      let doc;
+      try {
+        doc = await c.call("GET", "/api/layouts/" + encodeURIComponent(model));
+      } catch (e) {
+        if (!e.message.startsWith("404")) throw e;
+        doc = { format: "esl-layouts", version: 1, model, layouts: [] }; // no file yet
+      }
+      const added = addTemplate(doc, t, model);
+      if (!added) throw new Error(`the weather template has no layout for the ${model}"`);
+      msg("wx-msg", `Adding the Weather layout to the ${model}" layout file …`);
+      try {
+        await c.call("PUT", "/api/layouts/" + encodeURIComponent(model), added.doc);
+      } catch (e) {
+        throw new Error(`the ${model}" layout file did not take the Weather layout: ${e.message}`);
+      }
+    }
+  }
+
+  async function submit(ev) {
+    ev.preventDefault();
+    const c = client;
+    const macs = pending.tags.map((t) => t.mac);
+    const id = chosen();
+    let to = id;
+    if (id === "") {
+      const coords = parseCoords($("wx-coords").value);
+      if (!$("wx-place").value.trim()) return msg("wx-msg", "Give the place a name: it is shown on the tag.", "error");
+      if (!coords) return msg("wx-msg", "Coordinates: latitude and longitude, such as 59.9139, 10.7522.", "error");
+      to = { place: $("wx-place").value, ...coords, lang: $("wx-lang").value };
+    }
+    const missing = missingModels(pending.tags, layouts);
+    if (missing.length && !$("wx-layout").checked)
+      return msg("wx-msg", `The ${missing.join('" and ')}" tags need a layout called "weather" on the AP: tick the box, or add it in the Design tab.`, "error");
+    $("wx-ok").disabled = true;
+    try {
+      // the latest list, so a change made elsewhere meanwhile is kept
+      const now = await c.call("GET", "/api/sources");
+      const plan = weatherPlan(now.sources || [], macs, to);
+      if (plan.error) throw new Error(plan.error);
+      if (missing.length) await addLayouts(c, missing);
+      msg("wx-msg", "Saving the place on the AP …");
+      data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      render();
+      const s = data.sources.find((x) => x.id === plan.id);
+      $("wx-dlg").close();
+      pending.done?.(`The AP fetches the weather for ${s?.place || plan.id} now; ${macs.length === 1 ? "the tag shows" : "the tags show"} it at the next poll.`);
+      setTimeout(load, 5000);
+    } catch (e) {
+      msg("wx-msg", "Not done: " + e.message, "error");
+      $("wx-ok").disabled = false;
+    }
+  }
+
+  $("wx-form").addEventListener("submit", submit);
+  $("wx-form").addEventListener("change", dialogChanged);
+  $("wx-cancel").addEventListener("click", () => $("wx-dlg").close());
   $("src-refresh").addEventListener("click", async () => {
     try {
       await client.call("POST", "/api/sources/refresh");
-      msg("Fetching now; the tags change at their next poll if the weather did.", "ok");
+      msg("src-msg", "Fetching now; the tags change at their next poll if the weather did.", "ok");
       setTimeout(load, 5000);
     } catch (e) {
-      msg(e.message, "error");
-    }
-  });
-  $("src-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const s = formSource({
-      id: $("src-id").value, place: $("src-place").value, lat: $("src-lat").value, lon: $("src-lon").value,
-      lang: $("src-lang").value, every: $("src-every").value, layout: $("src-layout").value,
-      tags: [...document.querySelectorAll("#src-tags input:checked")].map((c) => c.value),
-      fields: [...document.querySelectorAll("#src-fields input")].map((i) => i.value),
-    }, data?.types?.met?.fields || []);
-    if (s.error) return msg(s.error, "error");
-    const list = data.sources.slice();
-    if (editing >= 0) list[editing] = s;
-    else if (list.some((x) => x.id === s.id)) return msg(`There is already a source called ${s.id}`, "error");
-    else list.push(s);
-    if (await save(list, `Saved. The AP fetches the weather for ${s.place || s.id} now.`)) {
-      closeForm();
-      setTimeout(load, 5000);
+      msg("src-msg", e.message, "error");
     }
   });
 
@@ -221,10 +319,15 @@ export function initSources() {
     connected(c) {
       client = c;
       data = null;
-      closeForm();
+      if ($("wx-dlg").open) $("wx-dlg").close();
+      offer(false);
       $("src-box").hidden = true;
       clearTimeout(timer);
       if (c) load();
     },
+    // The place each ticked tag shows now, for the Send form's list
+    placeOf: () => placeOf(data?.sources),
+    // Send → The weather: the dialog for these tags; done(message) once it is saved
+    open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
   };
 }

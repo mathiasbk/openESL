@@ -18,9 +18,12 @@ The AP must reach the internet and know the time (it gets it over NTP), and the 
 
 ## Setting it up
 
-1. **Add the weather layout.** In the Design tab: **+ New → From template… → Home → Weather**, for each label size you use (2.9" and 1.54"), and save it to the AP. The symbol changes with the weather.
-2. **Add a place.** On the Dashboard, open **Weather and data sources → Add a place**. Give it a name, the place and its latitude and longitude (right-click the place in a map to copy them; Oslo is 59.9139, 10.7522), choose the layout `weather` and tick the labels that should show it. Save.
-3. The AP fetches the forecast at once, and the labels show it at their next check-in.
+1. On the [Dashboard](Dashboard), tick the labels that should show the weather and choose **Send → The weather (MET Norway)**, then **Choose the place …**.
+2. Pick a place the AP already has, or **A new place**: its name (shown on the label) and its coordinates. Right-click the place in Google Maps or norgeskart.no and copy them in, such as `59.9139, 10.7522`.
+3. If the AP has no Weather layout for a label size yet, the dialog offers to add it (your other layouts stay). Keep the box ticked.
+4. **Show the weather.** The AP fetches the forecast at once, and the labels show it at their next check-in.
+
+The **Weather** card under the label table lists the places and how their last fetch went. **Remove** stops a place; its labels keep what they show.
 
 ![The weather template on a 2.9" and a 1.54" label](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/weather-template.png)
 
@@ -28,7 +31,7 @@ The AP must reach the internet and know the time (it gets it over NTP), and the 
 
 ## What it shows
 
-The template shows the place, the temperature now, a weather symbol, the weather in words, the lowest and highest temperature of the next 24 hours, wind and rain, and the credit "MET Norway". Under **Fields (advanced)** you can write your own fields from values such as `{temp}`, `{wind}`, `{dir}`, `{humidity}` or tomorrow's `{tmin}` and `{tmax}`, for this layout or any other. Every value is listed in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#values).
+The template shows the place, the temperature now, a weather symbol, the weather in words, the lowest and highest temperature of the next 24 hours, wind and rain, and the credit "MET Norway". With the [HTTP API](HTTP-API) (`PUT /api/sources`) you can write your own fields from values such as `{temp}`, `{wind}`, `{dir}`, `{humidity}` or tomorrow's `{tmin}` and `{tmax}`, for this layout or any other. Every value is listed in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#values).
 
 ## Things to keep in mind
 

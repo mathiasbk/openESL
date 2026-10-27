@@ -26,13 +26,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 # Per module: its tab in index.html, the script that starts it on the AP, and every module
 # that script imports (checked below, so a new import cannot break the page on the AP), the
-# stylesheets past style.css, and whether it needs the example layout files
+# stylesheets past style.css, whether it needs the example layout files, and the templates it
+# packs (at /ui/templates/, as web/templates.mjs publishes them next to the page)
 MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "models.js", "apsources.js"],
+               "fwupload.js", "sendtext.js", "models.js", "apsources.js", "catalog.js"],
         "css": [],
+        # the Weather template (templates/), which Send -> The weather adds to a layout file
+        # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
+        "templates": ["home/weather.json"],
     },
     "design": {
         "label": "Design",
@@ -168,6 +172,9 @@ def page_files(web, modules, wasm=None):
         for model, path in example_layouts():
             with open(path, "rb") as f:
                 files.append((f"/ui/designs/layouts/{model}.json", "application/json", f.read()))
+    for t in dict.fromkeys(t for name in modules for t in MODULES[name].get("templates", [])):
+        with open(os.path.join(ROOT, "templates", t), "rb") as f:
+            files.append((f"/ui/templates/{t}", "application/json", f.read()))
     if any(MODULES[name].get("wasm") for name in modules):
         files += renderer_files(wasm or os.path.join(web, "dist", "wasm"))
     return files

@@ -351,7 +351,7 @@
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>) or new firmware.</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), new firmware, or, on an AP that fetches it, the weather.</p>
         <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
@@ -361,6 +361,7 @@
               <option value="tag">The tag's own info</option>
               <option value="date">Today's date</option>
               <option value="text">Your own text</option>
+              <option value="weather" disabled hidden>The weather (MET Norway)</option>
               <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
@@ -387,6 +388,27 @@
           </div>
           <p id="st-msg" class="hint" role="status"></p>
         </form>
+        <dialog id="wx-dlg" class="wx-dlg" aria-labelledby="wx-h">
+          <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+          <h3 id="wx-h">The weather on <span id="wx-n"></span></h3>
+          <form id="wx-form" novalidate>
+            <div id="wx-places" class="wx-places" role="radiogroup" aria-label="Place"></div>
+            <div id="wx-new" class="form">
+              <label>Place <input id="wx-place" maxlength="32" autocomplete="off" placeholder="Oslo" title="Shown on the tag"></label>
+              <label>Coordinates <input id="wx-coords" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="59.9139, 10.7522"></label>
+              <p class="hint">Right-click the place in Google Maps or norgeskart.no and copy its coordinates (latitude, longitude) in here.</p>
+              <label>Words in <select id="wx-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
+            </div>
+            <label id="wx-layout-label" class="check" hidden><input type="checkbox" id="wx-layout" checked> <span id="wx-layout-text"></span></label>
+            <p id="wx-msg" class="hint" role="status"></p>
+            <p class="hint">Weather data from MET Norway (api.met.no), CC BY 4.0: the layout shows the credit.</p>
+            <div class="dlg-buttons">
+              <button type="button" id="wx-cancel">Cancel</button>
+              <span class="sep"></span>
+              <button type="submit" id="wx-ok" class="primary">Show the weather</button>
+            </div>
+          </form>
+        </dialog>
       </section>
       <details id="dash-ap-box" class="card wide fold">
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
@@ -405,52 +427,19 @@
         <p id="dash-poll-msg" class="hint" role="status"></p>
       </details>
       <details id="src-box" class="card wide fold" hidden>
-        <summary><h2>Weather and data sources</h2> <span id="src-sum" class="muted"></span></summary>
-        <p class="muted">The AP fetches the forecast for a place from MET Norway every half hour or so and puts it on the tags you give it, in a layout such as the Weather template (Design tab, + New → From template… → Home). A tag is only sent something when the weather on it changed. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
+        <summary><h2>Weather</h2> <span id="src-sum" class="muted"></span></summary>
+        <p class="muted">The AP fetches the forecast for these places from MET Norway every half hour or so, and a tag is only sent something when the weather on it changed. To add a place or give it more tags, tick the tags above and choose Send → <em>The weather</em>. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>Name</th><th>Place</th><th>Layout</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Place</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody id="src-list"></tbody>
           </table>
         </div>
-        <p id="src-empty" class="muted">No data sources yet.</p>
         <div class="buttons">
-          <button id="src-add" type="button">Add a place</button>
           <button id="src-refresh" type="button" title="POST /api/sources/refresh: fetch now (MET's answer is used again until it expires)">Fetch now</button>
         </div>
-        <form id="src-form" class="form" novalidate hidden>
-          <label>Name <input id="src-id" maxlength="16" spellcheck="false" autocomplete="off" placeholder="home" title="a-z, 0-9, _ and -"></label>
-          <label>Place <input id="src-place" maxlength="32" autocomplete="off" placeholder="Oslo" title="Shown on the tag"></label>
-          <label>Latitude <input id="src-lat" inputmode="decimal" autocomplete="off" placeholder="59.9139"></label>
-          <label>Longitude <input id="src-lon" inputmode="decimal" autocomplete="off" placeholder="10.7522"></label>
-          <p class="hint">Right-click the place in a map (such as Google Maps or norgeskart.no) to copy its latitude and longitude.</p>
-          <label>Layout <select id="src-layout"></select></label>
-          <p id="src-no-weather" class="hint" hidden>No layout called "weather" on the AP yet: add the Weather template in the Design tab for each tag model and save it to the AP.</p>
-          <label>Every <select id="src-every"></select></label>
-          <label>Words in <select id="src-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
-          <fieldset>
-            <legend>Tags</legend>
-            <div id="src-tags" class="chips"></div>
-          </fieldset>
-          <details class="help">
-            <summary>Fields (advanced)</summary>
-            <p class="muted">What each field of the layout shows, in order: text with values in braces. Values: <span id="src-values" class="mono"></span></p>
-            <div id="src-fields">
-              <label>1 <input maxlength="48" spellcheck="false"></label>
-              <label>2 <input maxlength="48" spellcheck="false"></label>
-              <label>3 <input maxlength="48" spellcheck="false"></label>
-              <label>4 <input maxlength="48" spellcheck="false"></label>
-              <label>5 <input maxlength="48" spellcheck="false"></label>
-              <label>6 <input maxlength="48" spellcheck="false"></label>
-            </div>
-          </details>
-          <div class="buttons tight">
-            <button type="submit">Save</button>
-            <button id="src-cancel" type="button">Cancel</button>
-          </div>
-        </form>
         <p id="src-msg" class="hint" role="status"></p>
-        <p class="muted">Weather data from MET Norway (api.met.no), CC BY 4.0.</p>
+        <p class="hint">Weather data from MET Norway (api.met.no), CC BY 4.0.</p>
       </details>
       <details id="dash-fw-box" class="card wide fold">
         <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>

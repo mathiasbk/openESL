@@ -61,7 +61,7 @@ if(CONFIG_ESL_WEB_DASHBOARD)
         list(APPEND webui_modules design)
     endif()
     idf_build_get_property(python PYTHON)
-    file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js
+    file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js ${web_dir}/../templates/home/weather.json
          ${CMAKE_CURRENT_LIST_DIR}/../../tag/designs/layouts/*.json ${CMAKE_CURRENT_LIST_DIR}/../../shared/models.json)
     if(CONFIG_ESL_WEB_DESIGNER)
         # the renderer files and what they are built from: a change to either runs webui.py again,

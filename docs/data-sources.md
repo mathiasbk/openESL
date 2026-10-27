@@ -36,16 +36,21 @@ What the AP needs:
 
 ## Setting it up on the Dashboard
 
-1. **Design tab → + New → From template… → Home → Weather.** Add it to the layout file of
-   each tag model you use (2.9" and 1.54") as the layout `weather`, next to the layouts you
-   already have, and save the file to the AP.
-2. **Dashboard → Weather and data sources → Add a place.** Give a name, the place and its latitude
-   and longitude (yr.no or a map shows them: Oslo is 59.9139, 10.7522), the layout
-   (`weather`) and tick the tags that are to show it. Save.
-3. The AP fetches the forecast at once. The card shows what it got and when, and the tags
-   show it at their next poll.
+1. Tick the tags in the Dashboard's tag table and choose **Send → The weather (MET Norway)**,
+   then **Choose the place …**.
+2. In the dialog, pick a place the AP has, or **A new place**: its name (shown on the tag) and
+   its coordinates as a map copies them (right-click the place in Google Maps or
+   norgeskart.no: `59.9139, 10.7522`).
+3. If the AP's layout file for a ticked tag's model has no layout called `weather`, the dialog
+   offers to add the Weather template to it (the file's other layouts stay). The template is
+   packed in the AP's firmware, so this works without the internet on the computer.
+4. **Show the weather.** The AP fetches the forecast at once, and the tags show it at their
+   next poll. A tag that was in another place leaves it; a place left without tags is
+   removed.
 
-**Fetch now** asks the AP to fetch every source again. A source whose last answer has not
+The **Weather** card under the tag table lists the places, how many tags each has and how its
+last fetch went, with **Remove** (stop fetching it; its tags keep what they show) and
+**Fetch now**, which asks the AP to fetch every place again. A source whose last answer has not
 expired yet is not fetched again (MET's terms, below): its tags' content is made again from
 that answer.
 
