@@ -106,6 +106,13 @@ typedef struct {
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
 } esl_tag_t;
 
+/* Milliseconds since the tag was last heard. A POLL handled after the caller read
+   now_ms leaves last_seen_ms ahead of it; that is 0, not an unsigned wrap. */
+static inline uint64_t esl_tag_seen_ms_ago(const esl_tag_t *t, uint64_t now_ms)
+{
+    return now_ms > t->last_seen_ms ? now_ms - t->last_seen_ms : 0;
+}
+
 /* What a tag polls with when the AP sends 0 (tag/src/config.h CFG_POLL_S) */
 #define ESL_TAG_BUILTIN_POLL_S 60
 /* A tag with scheduled content due before its next poll is told to come back

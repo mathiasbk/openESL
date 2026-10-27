@@ -23,7 +23,7 @@ uint8_t esl_health_flags(const esl_tag_t *t, uint16_t interval_s, uint64_t now_m
             f |= ESL_HEALTH_UNSEEN;
         return f | (esl_tag_content_err(t) ? ESL_HEALTH_CONTENT_ERROR : 0);
     }
-    if (now_ms - t->last_seen_ms >= silent_ms)
+    if (esl_tag_seen_ms_ago(t, now_ms) >= silent_ms)
         f |= ESL_HEALTH_SILENT;
     if (t->poll_flags & ESL_POLL_FLAG_DRAW_FAILED)
         f |= ESL_HEALTH_DRAW_FAILED;

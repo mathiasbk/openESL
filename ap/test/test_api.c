@@ -150,6 +150,13 @@ static void test_put_one(void)
     esl_store_on_poll(&st, 2, &p, -70, 3000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 3000), 200);
     CHECK(HAS(resp, "\"seen_s_ago\":0,\"battery_mv\":0,\"rssi\":-70,\"fw\":1,"));
+
+    /* a POLL handled after the request read the clock: just now, not 2^64 ms ago */
+    esl_store_on_poll(&st, 2, &p, -70, 4000, NULL, reply);
+    CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 3999), 200);
+    CHECK(HAS(resp, "\"seen_s_ago\":0,"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 3999), 200);
+    CHECK(!HAS(resp, "\"silent\"]"));
 }
 
 static void test_put_errors(void)
