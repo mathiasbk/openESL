@@ -182,13 +182,14 @@ menu "OpenESL AP"
     config ESL_TX_POWER_DBM
         int "802.15.4 TX power (dBm)"
         range -24 20
-        default 13
+        default 10
         help
             The built-in value; PUT /api/config "tx_power" sets another, kept in
-            NVS. The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz at 2.4 GHz,
-            which for 802.15.4 (about 2 MHz wide) comes to about 13 dBm: the most
-            with an antenna of up to 0 dBi, such as a chip or PCB antenna. With an
-            external antenna of G dBi, use at most about 13 - G. More power reaches
+            NVS. The C6 gives up to 20 dBm, more than the EU allows: EN 300 328
+            allows 20 dBm EIRP and 10 dBm/MHz at 2.4 GHz, which for 802.15.4 (about
+            2 MHz wide) comes to about 13 dBm with an antenna of up to 0 dBi, such
+            as a chip or PCB antenna. With an external antenna of G dBi, the EU
+            limit is about 13 - G. More power reaches
             tags further away, but their answers do not get stronger: for those, a
             better antenna on the AP helps.
 

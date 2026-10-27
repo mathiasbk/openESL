@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
@@ -246,14 +246,27 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
-  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one. As
-  // with the poll interval, a choice stays until it is saved.
+  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one: a
+  // preset, or "Other" with a whole number of dBm. As with the poll interval, a choice stays
+  // until it is saved.
   let txDirty = false;
   let txSaving = false;
   const txMsg = (text, cls = "") => {
     $("dash-tx-msg").textContent = text;
     $("dash-tx-msg").className = "hint" + (cls ? " " + cls : "");
   };
+  // the power chosen in the form: { dbm } or { error }
+  const txChosen = () => {
+    const v = $("dash-tx-sel").value;
+    return v === "other" ? parseTx($("dash-tx-db").value) : { dbm: Number(v) };
+  };
+  function showTxNote() {
+    const other = $("dash-tx-sel").value === "other";
+    $("dash-tx-other").hidden = !other;
+    $("dash-tx-db").disabled = !other;
+    const c = txChosen();
+    $("dash-tx-note").textContent = [c.error ? "" : txWarning(c.dbm), TX_NOTE].filter(Boolean).join(" ");
+  }
   function renderTx() {
     const c = last.config;
     const has = Number.isInteger(c?.tx_power);
@@ -261,29 +274,38 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!has) return;
     const sel = $("dash-tx-sel");
     if (!txDirty) {
-      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))));
+      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
+        new Option("Other …", "other"));
       sel.value = String(c.tx_power);
+      $("dash-tx-db").value = "";
     }
     $("dash-tx-save").disabled = txSaving || !txDirty;
+    showTxNote();
   }
-  $("dash-tx-note").textContent = TX_NOTE;
-  $("dash-tx-sel").addEventListener("change", () => {
+  const txChanged = () => {
     txDirty = true;
     txMsg("");
     if (last) renderTx();
+  };
+  $("dash-tx-sel").addEventListener("change", () => {
+    if ($("dash-tx-sel").value === "other" && !$("dash-tx-db").value) $("dash-tx-db").value = last?.config?.tx_power ?? "";
+    txChanged();
+    if ($("dash-tx-sel").value === "other") $("dash-tx-db").focus();
   });
+  $("dash-tx-db").addEventListener("input", txChanged);
   $("dash-tx").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     if (!client) return;
-    const dbm = Number($("dash-tx-sel").value);
+    const c = txChosen();
+    if (c.error) return txMsg(c.error, "error");
     // the built-in value is a reset, so a later firmware default applies
-    const body = { tx_power: dbm === last?.config?.builtin_tx_power ? null : dbm };
+    const body = { tx_power: c.dbm === last?.config?.builtin_tx_power ? null : c.dbm };
     $("dash-tx-save").disabled = true;
     txSaving = true;
     try {
       await client.call("PUT", "/api/config", body);
       txDirty = false;
-      txMsg(`Saved. The radio sends at ${dbm} dBm from its next reply.`, "ok");
+      txMsg(`Saved. The radio sends at ${c.dbm} dBm from its next reply.`, "ok");
       refresh();
     } catch (e) {
       txMsg("Not saved: " + e.message, "error");

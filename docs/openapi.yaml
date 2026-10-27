@@ -1598,9 +1598,9 @@ components:
           maximum: 20
           description: |
             The radio's transmit power in dBm, `null` = back to the value set in menuconfig
-            (`ESL_TX_POWER_DBM`, 13). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
-            about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, use at most about 13 − G.
-            Up to 20 for use outside the EU. `422` on an AP without a radio (the stub, the sniffer).
+            (`ESL_TX_POWER_DBM`, 10). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
+            about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, the EU limit is about
+            13 − G. Above that only where more is allowed. `422` on an AP without a radio (the stub, the sniffer).
 
     ApConfigReply:
       type: object

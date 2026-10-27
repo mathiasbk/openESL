@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -158,9 +158,17 @@ test("which AP: its board name, or the chip of an older AP", async () => {
   assert.equal(apIdentity({ fw: "0.5.0" }, null, null), "0.5.0");
 });
 
-test("txOptions: presets highest first, the AP's own value and the built-in one marked", () => {
-  assert.deepEqual(txOptions(13, 13).map((o) => o[1]), ["20 dBm (outside the EU)", "13 dBm (chip or PCB antenna, built-in)", "10 dBm (3 dBi antenna)", "8 dBm (5 dBi antenna)", "5 dBm (8 dBi antenna)", "0 dBm"]);
+test("txOptions: presets highest first, the EU limits named, the AP's own value and the built-in one marked", () => {
+  assert.deepEqual(txOptions(10, 10).map((o) => o[1]), ["20 dBm (most, above the EU limit)", "13 dBm (EU max with a chip or PCB antenna)", "10 dBm (EU max with a 3 dBi antenna, built-in)", "8 dBm (EU max with a 5 dBi antenna)", "5 dBm (EU max with an 8 dBi antenna)", "0 dBm"]);
   assert.deepEqual(txOptions(-7, 12).map((o) => o[0]), [20, 13, 12, 10, 8, 5, 0, -7]);
   assert.equal(txOptions(-7, 12)[2][1], "12 dBm (built-in)");
   assert.equal(txOptions(undefined, undefined).length, 6);
+});
+
+test("parseTx and txWarning", () => {
+  assert.deepEqual(parseTx(" 11 "), { dbm: 11 });
+  assert.deepEqual(parseTx("-24"), { dbm: -24 });
+  for (const bad of ["", "21", "-25", "1.5", "x"]) assert.ok(parseTx(bad).error, bad);
+  assert.equal(txWarning(13), "");
+  assert.match(txWarning(14), /above the EU limit/);
 });

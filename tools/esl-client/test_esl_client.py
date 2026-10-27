@@ -177,7 +177,7 @@ class FakeAp(BaseHTTPRequestHandler):
             if "webhook" in body:
                 FakeAp.config["webhook"] = body["webhook"] or None
             if "tx_power" in body:
-                FakeAp.config.update(tx_power=13 if body["tx_power"] is None else body["tx_power"], builtin_tx_power=13)
+                FakeAp.config.update(tx_power=10 if body["tx_power"] is None else body["tx_power"], builtin_tx_power=10)
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -311,10 +311,10 @@ class ClientTest(unittest.TestCase):
         self.assertIn("webhook off", out)
         rc, out = self.run_cli("config", "--tx-power", "8")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tx_power": 8}))
-        self.assertIn("webhook off, tx_power 8 dBm (menuconfig 13)", out)
+        self.assertIn("webhook off, tx_power 8 dBm (menuconfig 10)", out)
         rc, out = self.run_cli("config", "--tx-power", "null")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tx_power": None}))
-        self.assertIn("tx_power 13 dBm", out)
+        self.assertIn("tx_power 10 dBm", out)
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")
