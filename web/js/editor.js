@@ -1315,6 +1315,43 @@ function addElement(kind) {
   changed();
 }
 
+// Size an SVG is drawn at when it gives none of its own: the longer side of its viewBox, or
+// both sides without one
+const SVG_SIZE = 64;
+
+// A picture file as something drawImage takes, with its width and height. Chromium's
+// createImageBitmap cannot decode an SVG, so an SVG goes through an Image, given a size first:
+// width and height in px when it has them, else from its viewBox, else SVG_SIZE square.
+async function readPicture(file) {
+  const svg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  if (!svg) return createImageBitmap(file);
+  const xml = new DOMParser().parseFromString(await file.text(), "image/svg+xml");
+  const root = xml.documentElement;
+  if (root.localName !== "svg") throw new Error("not an SVG");
+  const px = (v) => (/^\s*[\d.]+\s*(px)?\s*$/.test(v ?? "") ? parseFloat(v) : 0);
+  let w = px(root.getAttribute("width")), h = px(root.getAttribute("height"));
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  const vw = vb.length === 4 && vb[2] > 0 ? vb[2] : 0, vh = vb.length === 4 && vb[3] > 0 ? vb[3] : 0;
+  if (!w || !h) {
+    if (w && vw && vh) h = (w * vh) / vw;
+    else if (h && vw && vh) w = (h * vw) / vh;
+    else if (vw && vh) [w, h] = vw >= vh ? [SVG_SIZE, (SVG_SIZE * vh) / vw] : [(SVG_SIZE * vw) / vh, SVG_SIZE];
+    else w = h = SVG_SIZE;
+  }
+  root.setAttribute("width", String(w));
+  root.setAttribute("height", String(h));
+  if (!root.hasAttribute("xmlns")) root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(xml)], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return { img, width: w, height: h };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // An icon from a picture file: drawn at its own size (scaled down to fit ICON_MAX and the
 // screen), dark pixels drawn, light and transparent ones left.
 async function addIcon(file) {
@@ -1327,9 +1364,9 @@ async function addIcon(file) {
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
-    bmp = await createImageBitmap(file);
+    bmp = await readPicture(file);
   } catch {
-    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG or GIF)", "error");
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
     return;
   }
   const max = Math.min(ICON_MAX, width, height);
@@ -1338,7 +1375,7 @@ async function addIcon(file) {
   const c = document.createElement("canvas");
   [c.width, c.height] = [w, h];
   const ctx = c.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.drawImage(bmp.img ?? bmp, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
   const row = Math.ceil(w / 8);
   const bits = new Uint8Array(row * h);
