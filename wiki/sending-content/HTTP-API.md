@@ -38,7 +38,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
 
 ## Reading only what changed
 
-A client that reads `GET /api/tags` every minute or two, such as Home Assistant, does not have to fetch every label each time. Add `?since=` the first time; the reply has `"since": "5eed0001-17"` and `"full": true`. Send that value next time (`GET /api/tags?since=5eed0001-17`): with `"full": false` the reply holds only the labels that changed since then (a poll, new content, settings, a drawing, firmware), and the next `since`. With `"full": true` it holds every label again, after the AP restarted or a label was deleted, and the client starts over with that list. `seen_s_ago` going up by itself is no change. An AP without this ignores `since` and sends the whole list.
+A client that reads `GET /api/tags` every minute or two, such as Home Assistant, does not have to fetch every label each time. Add `?since=` the first time; the reply has `"since": "5eed0001-17"` and `"full": true`. Send that value next time (`GET /api/tags?since=5eed0001-17`): with `"full": false` the reply holds only the labels that changed since then (a poll, new content, settings, a drawing, firmware), and the next `since`. With `"full": true` it holds every label again, after the AP restarted or a label was deleted, and the client starts over with that list. `seen_s_ago` going up by itself is no change, but every poll is: the saving is largest when the labels poll less often than the client reads (`poll_s` 600 and a read every 2 minutes: about a fifth of the labels each time; with the built-in 60 s nearly all of them). An AP without this ignores `since` and sends the whole list.
 
 ## Errors
 

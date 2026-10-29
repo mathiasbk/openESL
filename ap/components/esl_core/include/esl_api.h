@@ -66,6 +66,7 @@ bool esl_tz_ok(const char *s, size_t len);
 typedef struct {
     uint32_t crc;  /* the row's fingerprint at the last read; 0 = no tag there */
     uint32_t seq;  /* the read that saw it change */
+    uint32_t mac;  /* the low 32 bits of that tag's MAC: another tag in a reused slot means one went */
 } esl_api_change_t;
 typedef struct {
     uint32_t boot;

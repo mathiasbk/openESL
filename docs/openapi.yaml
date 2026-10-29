@@ -171,7 +171,7 @@ paths:
         then: a poll, new content, settings, a drawing, firmware; `seen_s_ago` going up by
         itself is no change, so keep counting it on the client. With `full: true` it holds
         every tag, and the client replaces its list: the first time, after the AP restarted,
-        or when a tag was deleted. An AP firmware without it ignores `since` and sends
+        or when a tag was deleted or pushed out of a full table. An AP firmware without it ignores `since` and sends
         the whole list, without `since` and `full`.
       parameters:
         - name: since
