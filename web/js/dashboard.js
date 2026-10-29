@@ -10,6 +10,7 @@ import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRo
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { initSettings } from "./apsettings.js";
+import { initLayouts } from "./aplayouts.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -50,6 +51,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
+  const layoutCard = initLayouts({ client: () => client, refresh: () => refresh(), firmwareBase, sameOrigin });
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -104,6 +106,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     connectedTo = c ? "Connected to " + where : "";
     $("dash-where").textContent = connectedTo;
     clearTimeout(timer);
+    layoutCard.reset();
     if (c) refresh();
     else {
       $("dash-body").hidden = true;
@@ -163,6 +166,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       render();
       showLive();
       msg("");
+      layoutCard.render(last);
     } catch (e) {
       msg(e.message.charAt(0).toUpperCase() + e.message.slice(1), "error");
       if (last) setStale(true); // the line above says since when
