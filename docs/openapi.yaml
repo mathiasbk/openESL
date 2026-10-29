@@ -630,7 +630,9 @@ paths:
         confirmed it (or at once with `channel_now`, for a move already announced); `channel_next` in the reply shows a move
         that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone). A key
         left out keeps its value; at least one must be there. All are stored in NVS
-        (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel`, `cfg/ntp`, `cfg/tz`).
+        (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`). An AP that restarts during a
+        move comes up on the old channel and waits for the tags again.
       requestBody:
         required: true
         content:
@@ -673,7 +675,11 @@ paths:
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
         "409":
-          description: "`channel_now` to a channel that was not announced first: the tags would stay on the old one"
+          description: |
+            The tags would stay on the old channel: `channel_now` to a channel that was not
+            announced first; tags heard lately with firmware from before 0.9.0 (`channel_old_tags`;
+            `force` moves anyway); or a radio on WiFi from before 0.9.0, which does not pass a
+            move on to the tags (`channel_radio_old`). Back to the built-in channel is never refused.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1769,14 +1775,23 @@ components:
             (CONFIG), and its radio moves once every tag heard lately has confirmed it at the
             poll after, or after two of the longest interval and a minute at the latest. A tag
             that misses its AP tries the announced channel at once, so it is back after one
-            lost poll. Channel 26 is the furthest from WiFi channels 1, 6 and 11, and 25 and
+            lost poll. A move away from the built-in channel answers `409` while a tag heard
+            lately runs firmware from before 0.9.0, which confirms CONFIG but cannot follow it
+            (see `force`), or while the radio on WiFi is that old. Channel 26 is the furthest from WiFi channels 1, 6 and 11, and 25 and
             15 are also between them. `422` on an AP without a radio (the stub, the sniffer).
         channel_now:
           type: boolean
           description: |
             With `channel`: `true` moves the radio at once, without waiting for the tags, to the
-            channel of a move announced before (`channel_next`), else `409`. Tags that had not
-            confirmed it look for the AP on the announced channel and on the built-in one.
+            channel of a move announced before (`channel_next`) or to the built-in one, else
+            `409`. Tags that had not confirmed it look for the AP on the announced channel at
+            once, and on the built-in one after three lost polls.
+        force:
+          type: boolean
+          description: |
+            With `channel`: `true` moves even though tags heard lately run firmware from before
+            0.9.0 (`channel_old_tags`); they stay on the old channel and lose the AP until it
+            is back there.
         ntp:
           type: [string, "null"]
           maxLength: 63
@@ -1810,6 +1825,8 @@ components:
         channel_next: { type: [integer, "null"], minimum: 11, maximum: 26, description: "The channel the AP is moving to once the tags have confirmed it; null when no move is waiting" }
         channel_waiting: { type: integer, minimum: 0, description: "With channel_next: tags heard lately that have not confirmed the move yet" }
         channel_due_s: { type: integer, minimum: 0, description: "With channel_next: the move happens in at most this many seconds" }
+        channel_old_tags: { type: integer, minimum: 0, description: "With channel: tags heard lately whose firmware (before 0.9.0) cannot follow a channel change" }
+        channel_radio_old: { type: boolean, description: "With channel: the radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel" }
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }

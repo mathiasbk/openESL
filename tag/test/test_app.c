@@ -513,13 +513,22 @@ static void test_channel_move(void)
     CHECK_EQ(app.channel, 20);
     CHECK_EQ(fake_channel, 20);
 
-    /* an AP that is just gone: the tag also tries the built-in channel */
+    /* an AP that is just gone: the built-in channel only from the third miss in a row (another
+       AP there would keep a tag that lost one reply to noise) */
     fake_radio_reset();
     fake_ap_channel = 11;
     app_poll_once();
-    CHECK_EQ(fake_tx_count, 4);                /* 20 (also announced) twice, then 25 twice */
-    CHECK_EQ(fake_tx_channel[2], CFG_CHANNEL);
+    CHECK_EQ(fake_tx_count, 2);                /* 20 (also announced) twice */
     CHECK_EQ(app.misses, 1);
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 2);
+    CHECK_EQ(app.misses, 2);
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 4);                /* then 25 twice too */
+    CHECK_EQ(fake_tx_channel[2], CFG_CHANNEL);
+    CHECK_EQ(app.misses, 3);
     CHECK_EQ(app.channel, 20);
 
     /* an AP that went back to the built-in channel before the tag heard of it ("channel_now") */

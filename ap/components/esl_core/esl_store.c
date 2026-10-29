@@ -587,6 +587,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->rssi = rssi;
         t->poll_flags = poll->flags;
         t->cfg_capable = poll->has_cfg_ver;
+        t->channel_capable = poll->has_link;
         t->shown_cfg_ver = poll->cfg_ver;
         t->polls++;
         note_signal(t, poll, rssi);
@@ -904,45 +905,67 @@ void esl_store_set_builtin_channel(esl_store_t *st, uint8_t channel)
     unlock(st);
 }
 
-void esl_store_restore_channel(esl_store_t *st, uint8_t channel)
-{
-    lock(st);
-    st->channel = channel;
-    st->channel_next = 0;
-    unlock(st);
-}
-
 static uint64_t tag_poll_ms(const esl_store_t *st, const esl_tag_t *t)
 {
     uint16_t s = tag_poll_s(st, t);
     return (uint64_t)(s ? s : ESL_TAG_BUILTIN_POLL_S) * 1000;
 }
 
+/* Plans a move to channel (under the lock): long enough for every tag to get CONFIG and
+   confirm it at the POLL after (every tag heard since boot, or every tag with all); the
+   channel the radio is on cancels one */
+static void plan_move(esl_store_t *st, uint8_t channel, bool now, bool all, uint64_t now_ms)
+{
+    st->channel_hold = false;
+    if (channel == st->channel) {
+        st->channel_next = 0;
+        return;
+    }
+    uint64_t longest = ESL_TAG_BUILTIN_POLL_S * 1000ull;
+    for (unsigned i = 0; i < st->cap; i++) {
+        const esl_tag_t *t = at(st, i);
+        if (t->used && (t->seen || all) && tag_poll_ms(st, t) > longest)
+            longest = tag_poll_ms(st, t);
+    }
+    uint64_t wait = 2 * longest + 60000;
+    if (wait > ESL_CHANNEL_MAX_WAIT_S * 1000ull)
+        wait = ESL_CHANNEL_MAX_WAIT_S * 1000ull;
+    st->channel_next = channel;
+    st->channel_due_ms = now ? now_ms : now_ms + wait;
+}
+
+/* What persist_channel keeps: the radio's channel (0 = the built-in one) and the move */
+static void persist_channel(esl_store_t *st, uint8_t channel, uint8_t next)
+{
+    if (st->ops.persist_channel)
+        st->ops.persist_channel(st->ops.ctx, channel == st->channel_builtin ? 0 : channel, next);
+}
+
+void esl_store_restore_channel(esl_store_t *st, uint8_t channel, uint8_t next, uint64_t now_ms)
+{
+    lock(st);
+    if (channel)
+        st->channel = channel;
+    st->channel_next = 0;
+    if (next) {
+        plan_move(st, next, false, true, now_ms);  /* announced again, with a new deadline */
+        st->channel_hold = st->channel_next != 0;
+    }
+    unlock(st);
+}
+
 void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, uint64_t now_ms)
 {
     lock(st);
-    bool builtin = !channel;
-    if (builtin)
-        channel = st->channel_builtin;
-    if (channel == st->channel) {
-        st->channel_next = 0;
-    } else {
-        /* long enough for every tag to get CONFIG and confirm it at the POLL after */
-        uint64_t longest = ESL_TAG_BUILTIN_POLL_S * 1000ull;
-        for (unsigned i = 0; i < st->cap; i++) {
-            const esl_tag_t *t = at(st, i);
-            if (t->used && t->seen && tag_poll_ms(st, t) > longest)
-                longest = tag_poll_ms(st, t);
-        }
-        uint64_t wait = 2 * longest + 60000;
-        if (wait > ESL_CHANNEL_MAX_WAIT_S * 1000ull)
-            wait = ESL_CHANNEL_MAX_WAIT_S * 1000ull;
-        st->channel_next = channel;
-        st->channel_due_ms = now ? now_ms : now_ms + wait;
-    }
+    plan_move(st, channel ? channel : st->channel_builtin, now, false, now_ms);
+    uint8_t on = st->channel, next = st->channel_next;
     unlock(st);
-    if (st->ops.persist_channel)
-        st->ops.persist_channel(st->ops.ctx, builtin ? NULL : &channel);
+    persist_channel(st, on, next);
+}
+
+static bool heard_lately(const esl_store_t *st, const esl_tag_t *t, uint64_t now_ms)
+{
+    return t->seen && esl_tag_seen_ms_ago(t, now_ms) <= ESL_CHANNEL_ACTIVE_POLLS * tag_poll_ms(st, t) + 60000;
 }
 
 /* Tags heard lately that do not have the announced channel yet (under the lock) */
@@ -953,8 +976,9 @@ static unsigned channel_waiting(const esl_store_t *st, uint64_t now_ms)
     tag_defaults(st, &ap);
     for (unsigned i = 0; i < st->cap; i++) {
         const esl_tag_t *t = at(st, i);
-        if (t->used && esl_tag_seen_ms_ago(t, now_ms) <= ESL_CHANNEL_ACTIVE_POLLS * tag_poll_ms(st, t) + 60000 &&
-            esl_tag_cfg_pending(t, &ap))
+        if (!t->used)
+            continue;
+        if (!t->seen ? st->channel_hold : heard_lately(st, t, now_ms) && esl_tag_cfg_pending(t, &ap))
             n++;
     }
     return n;
@@ -967,8 +991,12 @@ uint8_t esl_store_channel_step(esl_store_t *st, uint64_t now_ms)
     if (st->channel_next && (now_ms >= st->channel_due_ms || !channel_waiting(st, now_ms))) {
         ch = st->channel = st->channel_next;
         st->channel_next = 0;
+        st->channel_hold = false;
     }
     unlock(st);
+    if (ch)
+        persist_channel(st, ch, 0);  /* kept only once the radio is there (an AP that restarts
+                                        before announces it again from where it was) */
     return ch;
 }
 
@@ -983,6 +1011,19 @@ void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state
         out->waiting = channel_waiting(st, now_ms);
         out->due_s = st->channel_due_ms > now_ms ? (uint32_t)((st->channel_due_ms - now_ms + 999) / 1000) : 0;
     }
+    for (unsigned i = 0; i < st->cap; i++) {
+        const esl_tag_t *t = at(st, i);
+        if (t->used && !t->channel_capable && heard_lately(st, t, now_ms))
+            out->old_tags++;
+    }
+    out->radio_old = st->channel_radio_old;
+    unlock(st);
+}
+
+void esl_store_set_radio_follows(esl_store_t *st, bool follows)
+{
+    lock(st);
+    st->channel_radio_old = !follows;
     unlock(st);
 }
 

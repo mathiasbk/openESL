@@ -712,16 +712,17 @@ int e2e_run(const char *out, const char *root)
               "and the AP moves at once (its radio task within a second): %.160s", resp);
         t0 = sim_now_ms;
         s0 = sim_stats;
-        /* the tag polls on 20, where it was told, and then on the built-in channel */
+        /* the tag polls on 20, where it was told, and from its third miss in a row also on the
+           built-in channel (not at once: another AP there would keep a tag that lost one reply) */
         while (sim_tag_channel() != 25 && sim_now_ms < t0 + 3600000)
             run_for(10);
         CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 25, "the AP is on 25");
-        CHECK(sim_tag_channel() == 25 && sim_tag_misses() == 0, "the tag found it on 25 in the same round (%.0f s)",
+        CHECK(sim_tag_channel() == 25 && sim_tag_misses() == 0, "the tag found it on 25 in its third round (%.0f s)",
               (sim_now_ms - t0) / 1000.0);
-        CHECK(sim_stats.unanswered == s0.unanswered + 2, "after its POLL and the retry on 20 (%u)",
+        CHECK(sim_stats.unanswered == s0.unanswered + 6, "after its POLL and the retry on 20, three times (%u)",
               sim_stats.unanswered - s0.unanswered);
         run_for(301);
-        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 2, "then straight on 25");
+        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 6, "then straight on 25");
     }
 
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);

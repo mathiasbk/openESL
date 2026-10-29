@@ -78,7 +78,7 @@ typedef struct {
     esl_sources_t *sources; /* data sources (esl_source.h); NULL: /api/sources answers 404 */
     esl_clock_cfg_t *clock; /* NTP server and time zone (GET/PUT /api/config); NULL: left out, and PUT answers 422 */
     bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
-                               false: GET has it, PUT answers 422 */
+                               false: GET leaves it out, PUT answers 422 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

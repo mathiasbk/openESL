@@ -1106,14 +1106,32 @@ static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, si
  * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
  * tz null or "" = UTC. Keys left out stay as they are; one of them must be there. */
 /* "channel_now" skips the wait for a move the tags were told of; a channel they have not heard
-   of would leave them on the old one (docs/protokoll.md, "Changing the channel") */
-static bool channel_now_ok(esl_store_t *st, uint8_t channel, uint64_t now_ms)
+   of would leave them on the old one (docs/protokoll.md, "Changing the channel"). The built-in
+   channel is fine: every tag goes back to it when it loses the AP. */
+static bool channel_now_ok(const esl_channel_state_t *cs, uint8_t channel)
 {
-    esl_channel_state_t cs;
-    esl_store_channel_state(st, now_ms, &cs);
-    if (!channel)
-        channel = cs.builtin;
-    return channel == cs.channel || channel == cs.next;
+    return channel == cs->builtin || channel == cs->channel || channel == cs->next;
+}
+
+/* A move away from the built-in channel needs tags and a radio that pass it on: 0 = fine, or
+   the 409 with why ("force" moves past tags with old firmware, not past an old radio) */
+static int channel_move_ok(const esl_channel_state_t *cs, uint8_t channel, bool force, esl_sb_t *out)
+{
+    if (channel == cs->builtin || channel == cs->channel)
+        return 0;
+    if (cs->radio_old)
+        return api_error(out, 409, "the radio on WiFi runs firmware that cannot tell the tags of a new channel: "
+                                   "update the radio first");
+    if (cs->old_tags && !force) {
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+                 "%u tag%s run%s firmware that cannot follow a channel change: update %s first, "
+                 "or send \"force\": true to leave %s behind",
+                 cs->old_tags, cs->old_tags == 1 ? "" : "s", cs->old_tags == 1 ? "s" : "",
+                 cs->old_tags == 1 ? "it" : "them", cs->old_tags == 1 ? "it" : "them");
+        return api_error(out, 409, msg);
+    }
+    return 0;
 }
 
 static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, uint64_t now_ms,
@@ -1132,6 +1150,9 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int z = esl_json_obj_get(body, tok, 0, "tz");
             int c = esl_json_obj_get(body, tok, 0, "channel");
             int cn = esl_json_obj_get(body, tok, 0, "channel_now");
+            int cf = esl_json_obj_get(body, tok, 0, "force");
+            esl_channel_state_t cs;
+            esl_store_channel_state(api->store, now_ms, &cs);
             uint16_t poll_s, channel = 0;
             int8_t dbm = 0;
             char url[ESL_WEBHOOK_URL_MAX + 1], ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
@@ -1167,9 +1188,15 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                 status = api_error(out, 422, "channel must be null or a whole number from 11 to 26");
             else if (cn >= 0 && (c < 0 || (tok[cn].type != ESL_JSON_TRUE && tok[cn].type != ESL_JSON_FALSE)))
                 status = api_error(out, 422, "channel_now must be true or false, with channel");
-            else if (cn >= 0 && tok[cn].type == ESL_JSON_TRUE && !channel_now_ok(api->store, (uint8_t)channel, now_ms))
+            else if (cf >= 0 && (c < 0 || (tok[cf].type != ESL_JSON_TRUE && tok[cf].type != ESL_JSON_FALSE)))
+                status = api_error(out, 422, "force must be true or false, with channel");
+            else if (cn >= 0 && tok[cn].type == ESL_JSON_TRUE &&
+                     !channel_now_ok(&cs, channel ? (uint8_t)channel : cs.builtin))
                 status = api_error(out, 409, "channel_now moves only to the channel the tags were told of: "
                                              "set the channel first, then move once they have it");
+            else if (c >= 0 && (status = channel_move_ok(&cs, channel ? (uint8_t)channel : cs.builtin,
+                                                         cf >= 0 && tok[cf].type == ESL_JSON_TRUE, out)))
+                ;
             else {
                 if (v >= 0 && tok[v].type == ESL_JSON_NULL)
                     esl_store_reset_next_poll(api->store);
@@ -1220,6 +1247,9 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                           (unsigned)ch.next, ch.waiting, ch.due_s);
         else
             esl_sb_puts(out, ",\"channel_next\":null");
+        /* what stops a move: tags heard lately with firmware from before 0.9.0, an old radio on WiFi */
+        esl_sb_printf(out, ",\"channel_old_tags\":%u,\"channel_radio_old\":%s", ch.old_tags,
+                      ch.radio_old ? "true" : "false");
     }
     if (api->clock) {
         const esl_clock_cfg_t *c = api->clock;

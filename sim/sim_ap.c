@@ -38,6 +38,7 @@ static struct {
     bool has_poll_s;
     uint16_t poll_s;
     uint8_t channel;    /* 0 = none stored */
+    uint8_t ch_next;    /* a move announced, 0 = none */
     char layout[ESL_MODEL_COUNT][ESL_LAYOUT_MAX_SIZE];
     size_t layout_len[ESL_MODEL_COUNT];
     uint8_t sched[CAP][ESL_SCHED_BLOB_MAX];
@@ -100,10 +101,11 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     nvs.poll_s = next_poll_s ? *next_poll_s : 0;
 }
 
-static void nvs_channel(void *ctx, const uint8_t *channel)
+static void nvs_channel(void *ctx, uint8_t channel, uint8_t next)
 {
     (void)ctx;
-    nvs.channel = channel ? *channel : 0;
+    nvs.channel = channel;
+    nvs.ch_next = next;
 }
 
 static void nvs_layout_save(void *ctx, uint8_t model, const char *data, size_t len)
@@ -189,8 +191,6 @@ void sim_ap_boot(void)
     /* as store_nvs_init() and layouts_nvs_init() */
     if (nvs.has_poll_s)
         esl_store_restore_next_poll(&st, nvs.poll_s);
-    if (nvs.channel)
-        esl_store_restore_channel(&st, nvs.channel);
     for (unsigned slot = 0; slot < CAP; slot++) {
         uint64_t mac;
         esl_content_t c;
@@ -200,6 +200,7 @@ void sim_ap_boot(void)
         if (nvs.cfg_len[slot] && esl_persist_cfg_decode(nvs.cfg[slot], nvs.cfg_len[slot], &mac, &cfg))
             esl_store_restore_cfg(&st, slot, mac, &cfg);
     }
+    esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0);   /* after the tags, as store_nvs_init() */
     esl_sched_init(&sched, sched_entries, CAP, &sops);   /* as sched_start(): the time is unknown again */
     for (unsigned slot = 0; slot < CAP; slot++)
         if (nvs.sched_len[slot])

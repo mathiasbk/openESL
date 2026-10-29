@@ -11,6 +11,7 @@
 #endif
 
 #define CFG_CHANNEL         ESL_DEFAULT_CHANNEL
+#define CFG_BUILTIN_AFTER   3        /* the built-in channel is tried from this miss in a row on */
 #define CFG_PAN_ID          ESL_DEFAULT_PAN_ID
 
 #define CFG_POLL_S          60       /* default interval (requirement T4) */

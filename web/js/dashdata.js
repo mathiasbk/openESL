@@ -298,6 +298,17 @@ export function channelMove(config) {
   const due = Number.isInteger(c.channel_due_s) ? `, at the latest in ${fmtInterval(Math.max(60, Math.ceil(c.channel_due_s / 60) * 60))}` : "";
   return `Moving from channel ${c.channel} to ${c.channel_next}: ${wait} not confirmed it yet. The AP moves once they all have it${due}.`;
 }
+// What keeps the AP from moving off its built-in channel (GET /api/config): a radio on WiFi with
+// firmware from before 0.9.0 (it retunes but does not tell the tags), or tags heard lately whose
+// firmware cannot follow a move; "" when nothing does
+export function channelBlock(config) {
+  const c = config || {};
+  if (c.channel_radio_old) return "The radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel: update the radio before you change the channel.";
+  const n = c.channel_old_tags || 0;
+  if (!n) return "";
+  return `${n === 1 ? "1 tag runs" : `${n} tags run`} firmware from before 0.9.0 and cannot follow a channel change: update ${n === 1 ? "it" : "them"} first (Firmware), or ${n === 1 ? "it is" : "they are"} left on the old channel.`;
+}
+
 export const CHANNEL_NOTE = "The AP tells every tag at its next poll and moves once they have confirmed it, so no tag is left behind. "
   + "A tag that misses it tries the new channel as soon as it stops hearing the AP.";
 

@@ -38,6 +38,8 @@ Display updates are cheap once a day but add up. Since 0.9 the core sleeps while
 
 **When the AP is gone for long**, a tag keeps polling at the backoff's 600 s, which is 148 polls a day that each listen twice. After a day without an answer (`long_after_min`, 1440 min) the tag polls only once an hour (`long_poll_s`, 3600 s) until it hears the AP again (#261). That matters for tags on a shelf or in a store room with the AP switched off: 3.2 µA instead of 3.9 µA, two more years on one cell. The cost is that a tag finds a returned AP up to an hour late. Both can be set per tag with `PUT /api/tags/{mac}/config`, like `max_poll_s`, and `long_after_min` 65535 turns it off.
 
+**A tag on another channel than 25** (the channel set in Settings, #256) also tries the built-in channel from its third miss in a row, one more POLL with its retry each round while the AP is gone. That doubles the poll column for such tags: about 0.9 µA more while the AP is gone all day, and 0.15 µA once it has been gone for days. A tag that hears its AP pays nothing.
+
 ## The model
 
 Per day: sleep current for the whole day, plus the charge of each POLL, plus the charge of each display update.

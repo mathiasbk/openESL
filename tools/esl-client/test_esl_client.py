@@ -333,6 +333,8 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"channel": 20, "channel_now": True}))
         self.assertIn("channel 20 (menuconfig 25)", out)
         self.assertNotIn("moving", out)
+        rc, out = self.run_cli("config", "--channel", "15", "--force")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"channel": 15, "force": True}))
 
     def test_clock_config(self):
         FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})

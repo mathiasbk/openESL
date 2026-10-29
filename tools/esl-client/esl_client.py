@@ -172,7 +172,8 @@ class Client:
     def set_config(self, **kw):
         """poll_s=None resets the interval, webhook=None or "" turns the webhook off,
         tx_power=None goes back to the built-in transmit power, channel=None to the built-in
-        channel (the AP moves once its tags have it; channel_now=True moves at once)."""
+        channel (the AP moves once its tags have it; channel_now=True moves at once; force=True
+        moves although tags with firmware from before 0.9.0 cannot follow)."""
         return self._request("PUT", "/api/config", kw)
 
     def wifi(self):
@@ -703,6 +704,10 @@ def print_config(c):
         if c.get("channel_next") is not None:
             line += (f", moving to {c['channel_next']}: {c.get('channel_waiting', 0)} tags have not confirmed it,"
                      f" at the latest in {c.get('channel_due_s', 0)} s")
+        if c.get("channel_radio_old"):
+            line += ", the radio on WiFi is too old to change the channel"
+        elif c.get("channel_old_tags"):
+            line += f", {c['channel_old_tags']} tags cannot follow a channel change (firmware before 0.9.0)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
     print(line)
@@ -1358,6 +1363,8 @@ def main(argv=None):
     s.add_argument("--channel", help="the radio's channel (11 to 26); the AP tells its tags and moves once they "
                                      "have it, \"null\" = menuconfig value")
     s.add_argument("--channel-now", action="store_true", help="with --channel: move at once to a channel announced before, without waiting for the tags")
+    s.add_argument("--force", action="store_true", help="with --channel: move although tags with firmware from before 0.9.0 "
+                                                       "cannot follow and are left behind")
     s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
     s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
 
@@ -1475,8 +1482,10 @@ def main(argv=None):
                 kw["channel"] = None if args.channel == "null" else int(args.channel)
                 if args.channel_now:
                     kw["channel_now"] = True
-            elif args.channel_now:
-                p.error("--channel-now needs --channel")
+                if args.force:
+                    kw["force"] = True
+            elif args.channel_now or args.force:
+                p.error("--channel-now and --force need --channel")
             for k in ("tz", "ntp"):
                 if getattr(args, k) is not None:
                     kw[k] = getattr(args, k) or None

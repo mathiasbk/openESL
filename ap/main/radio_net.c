@@ -156,6 +156,8 @@ static void net_task(void *arg)
                     close_conn(hl.broken ? "write failed" : "bad frame");
                 else
                     net_link.ver = hl.hello ? hl.radio.radio_ver : 0;
+                if (hl.hello)  /* a C6 from before 0.9.0 retunes but does not tell the tags */
+                    esl_store_set_radio_follows(host.st, hl.radio.features & ESL_NLINK_F_CHANNEL);
                 if (host.stats.syncs != syncs) {
                     ESP_LOGI(TAG, "sync %lu answered in %lld ms (log %u)", (unsigned long)host.stats.syncs,
                              (long long)(esp_timer_get_time() - t0) / 1000, hl.req.log_n);

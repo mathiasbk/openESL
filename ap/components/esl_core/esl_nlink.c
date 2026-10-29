@@ -147,6 +147,7 @@ bool esl_nlink_radio_hello(esl_nlink_radio_t *r, const esl_nlink_hello_t *h)
     put16(&w, h->n_images);
     put32(&w, h->image_cap);
     put8(&w, h->fw_models);
+    put8(&w, h->features);
     return send_buf(r->write, r->wctx, ESL_NLINK_HELLO, &w);
 }
 
@@ -524,6 +525,7 @@ bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size
         n->radio.n_images = get16(&g);
         n->radio.image_cap = get32(&g);
         n->radio.fw_models = get8(&g);
+        n->radio.features = g.at < g.n ? get8(&g) : 0;
         if (g.bad || ver != ESL_NLINK_VERSION)
             return false;
         n->hello = true;

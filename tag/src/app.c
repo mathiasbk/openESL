@@ -375,9 +375,10 @@ static bool try_channel(uint8_t ch)
 
 /*
  * No answer on the tag's channel (radio on): one POLL, with its retry, on the channel
- * the AP announced, then on the built-in one, each when it is another (docs/protokoll.md,
- * "Changing the channel"). An AP that moved is found at the first miss; the built-in
- * channel finds one that went back to it before the tag heard. True = reply is filled in
+ * the AP announced, then on the built-in one from the CFG_BUILTIN_AFTER-th miss in a row,
+ * each when it is another (docs/protokoll.md, "Changing the channel"). An AP that moved is
+ * found at the first miss; the built-in channel finds one that went back to it before the
+ * tag heard. True = reply is filled in
  * and the tag stays there.
  */
 static bool try_announced(void)
@@ -386,7 +387,10 @@ static bool try_announced(void)
 
     if (ch == app.channel || !try_channel(ch)) {
         ch = CFG_CHANNEL;
-        if (ch == app.channel || ch == announced_channel() || !try_channel(ch)) {
+        /* the built-in channel only after a few misses: another AP there (every AP answers
+           every tag) would keep a tag that only lost one reply to noise */
+        if (app.misses + 1 < CFG_BUILTIN_AFTER || ch == app.channel || ch == announced_channel() ||
+            !try_channel(ch)) {
             radio_init(app.channel); /* the next round starts where the tag was */
             return false;
         }

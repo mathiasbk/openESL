@@ -6,7 +6,7 @@
 // has one Save, shown with Undo only once something in it differs from what the AP has.
 import { checkToken, newToken, checkHostname, checkWifi, describeWifi } from "./apserial.js";
 import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE,
-  channelOptions, channelMove, CHANNEL_NOTE } from "./dashdata.js";
+  channelOptions, channelMove, channelBlock, CHANNEL_NOTE } from "./dashdata.js";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName } from "./backup.js";
 
 // Time zones as POSIX TZ strings, which is what the AP understands (it has no tz database):
@@ -436,7 +436,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       if ("channel" in cur) {
         chSel.replaceChildren(...channelOptions(c.builtin_channel).map(([v, text]) => new Option(text, String(v))));
         chSel.value = String(cur.channel);
-        $("set-ch-note").textContent = CHANNEL_NOTE;
+        $("set-ch-note").textContent = [channelBlock(c), CHANNEL_NOTE].filter(Boolean).join(" ");
       }
       showMove();
       $("set-tx-field").hidden = !("tx_power" in cur);
@@ -448,7 +448,16 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       showTx();
     },
     async save(client, c) {
-      const r = await client.call("PUT", "/api/config", configBody(c, last.config));
+      const body = configBody(c, last.config);
+      let r;
+      try {
+        r = await client.call("PUT", "/api/config", body);
+      } catch (e) {
+        // tags with old firmware: moving anyway leaves them behind, so only when asked
+        if (!/^409: .*"force"/.test(e.message) || !confirm(e.message.slice(5).replace(/,? or send.*$/, ".")
+          + " Change the channel anyway?")) throw e;
+        r = await client.call("PUT", "/api/config", { ...body, force: true });
+      }
       const said = [];
       if ("channel" in c)
         said.push(c.channel === r?.channel ? `The AP stays on channel ${c.channel}.`

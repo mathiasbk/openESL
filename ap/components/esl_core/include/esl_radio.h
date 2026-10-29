@@ -97,6 +97,7 @@ typedef struct {
     uint32_t idles, configs, rejected;
 
     bool legacy;          /* firmware without CONFIG: 12-byte POLL */
+    bool no_link;         /* firmware before 0.9.0: 14-byte POLL, no link block (no channel moves) */
     uint16_t cfg_ver;     /* from the last CONFIG, sent in POLL */
     esl_tag_cfg_t cfg;    /* settings from the last CONFIG */
     uint16_t interval_s;  /* the interval the tag would sleep now */
