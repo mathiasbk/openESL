@@ -15,6 +15,7 @@
 
 #define CAP 8
 
+static esl_api_changes_t changes;
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_image_t images;
@@ -207,6 +208,11 @@ void sim_ap_boot(void)
         image_mem = malloc(esl_image_mem_size());
     esl_image_init(&images, image_mem, NULL);
     esl_radio_set_image(&images);
+    /* as app_main: GET /api/tags?since= starts over with a new boot number */
+    static uint32_t boots;
+    esl_api_changes_free(&changes);
+    memset(&changes, 0, sizeof(changes));
+    changes.boot = 0x51a00000u + ++boots;
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
@@ -286,7 +292,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL, &changes};
     esl_sb_t out;
     int status;
 
