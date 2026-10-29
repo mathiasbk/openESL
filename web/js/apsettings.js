@@ -401,7 +401,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const n = c.channel_waiting || 0;
     if (n && !confirm(`The AP moves to channel ${c.channel_next} now. ${n === 1 ? "1 tag has" : `${n} tags have`} not been told yet: `
       + (c.channel_next === c.builtin_channel ? "they find it on the built-in channel at their next poll."
-        : `they lose the AP until it is back on channel ${c.channel}.`) + " Move now?")) return;
+        : "they look for it on the other channels after three missed polls.") + " Move now?")) return;
     try {
       await client.call("PUT", "/api/config", { channel: c.channel_next === c.builtin_channel ? null : c.channel_next, channel_now: true });
       say("set-radio-msg", `The AP is on channel ${c.channel_next}.`, "ok");

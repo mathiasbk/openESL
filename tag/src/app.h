@@ -42,6 +42,7 @@ typedef struct {
     uint8_t seq;
     uint8_t channel;          /* where the tag last heard the AP (kept in flash), CFG_CHANNEL at first */
     uint8_t channel_moved;    /* this round found the AP on another channel: save it */
+    uint8_t scan_next;        /* the next channel of CFG_SCAN_CHANNELS to look on (#258), RAM only */
     uint16_t rng;
     app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */
 } app_state_t;

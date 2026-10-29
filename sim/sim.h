@@ -28,6 +28,9 @@ extern uint64_t sim_now_ms;
 /* Starts (or restarts) the AP: an empty table, then everything "NVS" has, as after a
    power cycle. The first call also clears NVS. */
 void sim_ap_boot(void);
+/* The channel in the AP's NVS (0 = none, menuconfig's), as if set without telling the tags:
+   it is on it from its next boot (#258) */
+void sim_ap_set_nvs_channel(uint8_t channel);
 /* Switches the AP off: frames from the tag get no answer, the API answers 503. */
 void sim_ap_off(void);
 bool sim_ap_up(void);

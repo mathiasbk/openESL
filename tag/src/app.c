@@ -400,6 +400,42 @@ static bool try_announced(void)
     return true;
 }
 
+static const uint8_t __code scan_list[CFG_SCAN_COUNT] = { CFG_SCAN_CHANNELS };
+
+/*
+ * The AP is not on the tag's, the announced or the built-in channel (#258): the third
+ * round in a row without an answer looks once on each channel of CFG_SCAN_CHANNELS, every
+ * later one on the next of them only, so a long outage costs one listening window more
+ * per round. One POLL each, without the retry. True = reply is filled in and the tag
+ * stays on that channel.
+ */
+static bool scan(void)
+{
+    uint8_t steps = CFG_SCAN_COUNT, tries, ch;
+
+    if (app.misses + 1 < CFG_SCAN_AFTER)
+        return false;
+    tries = app.misses + 1 == CFG_SCAN_AFTER ? CFG_SCAN_COUNT : 1;
+    while (tries && steps--) {
+        ch = scan_list[app.scan_next];
+        if (++app.scan_next == CFG_SCAN_COUNT)
+            app.scan_next = 0;
+        if (ch == app.channel || ch == announced_channel() || ch == CFG_CHANNEL)
+            continue;                /* tried this round already */
+        tries--;
+        radio_off();
+        radio_init(ch);
+        radio_on();
+        if (exchange(build_poll_frame())) {
+            app.channel = ch;
+            app.channel_moved = 1;
+            return true;
+        }
+    }
+    radio_init(app.channel);
+    return false;
+}
+
 /* ---- Public ---- */
 
 void app_init(void)
@@ -409,6 +445,7 @@ void app_init(void)
     hal_mac_read(app.mac);
     app_store_load();
     app.channel_moved = 0;
+    app.scan_next = 0;
     app.shown_id = 0;
     app.interval_s = base_poll_s();
     app.misses = 0;
@@ -441,7 +478,7 @@ static uint16_t poll_round(void)
 
     hal_wdt_kick();
     radio_on();
-    got = exchange_retry(build_poll_frame()) || try_announced();
+    got = exchange_retry(build_poll_frame()) || try_announced() || scan();
     if (got)                         /* the next POLL tells the AP this one needed its retry */
         app.link_flags = retried ? ESL_POLL_LF_RETRY : 0;
     if (got && reply.type == ESL_MSG_FW) {

@@ -725,6 +725,31 @@ int e2e_run(const char *out, const char *root)
         CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 6, "then straight on 25");
     }
 
+    step("16. The AP comes up on a channel the tag was never told of (#258)");
+    {
+        /* as an AP restored on another channel, or one that moved while the tag was away */
+        sim_ap_set_nvs_channel(26);
+        sim_ap_boot();
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 26, "AP on 26");
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        while (sim_tag_channel() != 26 && sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_tag_channel() == 26 && sim_tag_misses() == 0, "the tag found it on 26 (%.0f s)",
+              (sim_now_ms - t0) / 1000.0);
+        /* two rounds on 25 (POLL and retry), the third also on 15 and 20, then 26 */
+        CHECK(sim_stats.unanswered == s0.unanswered + 8, "after 8 unanswered POLLs (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        CHECK(sim_now_ms - t0 < 3 * 300000 + 10000, "in its third round (poll_s 300 here)");
+        run_for(301);
+        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 8, "then straight on 26");
+        sim_tag_boot();
+        CHECK(sim_tag_channel() == 26, "and starts there after a restart");
+        t0 = sim_now_ms;
+        put_content(PRICE_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 26");
+    }
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

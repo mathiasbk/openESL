@@ -30,6 +30,8 @@ def defaults():
         "backoff_after": 3,    # CFG_BACKOFF_AFTER
         "long_poll_s": 3600,   # CFG_LONG_POLL_S: the interval once the AP has been gone for a day
         "long_after_min": 1440,  # CFG_LONG_AFTER_MIN
+        "scan_after": 3,       # CFG_SCAN_AFTER: the miss that looks on the other channels (#258)
+        "scan_count": 4,       # CFG_SCAN_COUNT: channels it looks on then, one POLL each; later misses one
         "window_ms": 20,       # CFG_RX_TIMEOUT_MS, listening window after POLL
         "retry_pause_ms": 6,   # CFG_RETRY_MIN/MAX_MS = 2..10, mean
         "reply_ms": 5,         # POLL sent until the reply is in (AP answers in well under 5 ms, A3)
@@ -94,6 +96,16 @@ def gone_long_polls_per_day(p):
     return 86400 / max(p["long_poll_s"], p["max_poll_s"])
 
 
+def scan_polls_per_day(p, polls, gone_long=False):
+    """Extra POLLs on other channels while the AP is gone (#258): scan_count at the
+    scan_after-th miss, then one per miss. Gone for days, every miss is past it."""
+    if gone_long:
+        return polls
+    if polls < p["scan_after"]:
+        return 0
+    return p["scan_count"] + polls - p["scan_after"]
+
+
 def budget(p, ap_present=True, gone_long=False):
     if ap_present:
         polls = 86400 / p["poll_s"]
@@ -101,6 +113,10 @@ def budget(p, ap_present=True, gone_long=False):
         polls = gone_long_polls_per_day(p) if gone_long else lost_ap_polls_per_day(p)
     sleep_mc = p["sleep_ua"] / 1000.0 * 86400
     poll_mc = polls * per_poll_mc(p, ap_present)
+    if not ap_present:
+        # one POLL and one listening window each, without the retry
+        scan_mc = (p["wake_ms"] * p["cpu_ma"] + p["window_ms"] * p["radio_ma"]) / 1000.0
+        poll_mc += scan_polls_per_day(p, polls, gone_long) * scan_mc
     epd_mc = p["updates"] * per_update_mc(p) if ap_present else 0.0
     total_mc = sleep_mc + poll_mc + epd_mc
     avg_ua = total_mc / 86400 * 1000

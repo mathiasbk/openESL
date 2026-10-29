@@ -21,6 +21,14 @@
 #define CFG_LONG_POLL_S     3600     /* interval once the AP has been gone for CFG_LONG_AFTER_MIN */
 #define CFG_LONG_AFTER_MIN  1440     /* minutes without an answer (a day) before CFG_LONG_POLL_S */
 
+/* Where a tag that has lost its AP looks for it (#258, docs/protokoll.md "Finding the AP"):
+   after CFG_SCAN_AFTER misses in a row once on each of these channels, then one more of
+   them per missed round. 15, 20 and 26 are clear of WiFi channels 1, 6 and 11, like the
+   built-in 25 (CFG_CHANNEL), which every missed round tries already. */
+#define CFG_SCAN_CHANNELS   15, 20, 26, 11
+#define CFG_SCAN_COUNT      4
+#define CFG_SCAN_AFTER      3
+
 #define CFG_RX_TIMEOUT_MS   20       /* listening window after POLL (protokoll.md) */
 #define CFG_RETRY_MIN_MS    2        /* random pause before one retry */
 #define CFG_RETRY_MAX_MS    10

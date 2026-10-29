@@ -562,6 +562,67 @@ static void test_channel_move(void)
     fake_ap_channel = 0;
 }
 
+/* A tag whose AP is on a channel it was never told of finds it by looking on the others (#258) */
+static void test_channel_scan(void)
+{
+    uint8_t i;
+
+    fresh();
+    fake_ap_channel = 20;                      /* the AP moved without telling this tag */
+    for (i = 0; i < 2; i++) {                  /* two misses: only its own channel, POLL and retry */
+        fake_radio_reset();
+        app_poll_once();
+        CHECK_EQ(fake_tx_count, 2);
+    }
+    CHECK_EQ(app.misses, 2);
+    /* the third looks on 15, then 20, where the AP answers */
+    fake_radio_reset();
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(fake_tx_count, 4);
+    CHECK_EQ(fake_tx_channel[2], 15);
+    CHECK_EQ(fake_tx_channel[3], 20);
+    CHECK_EQ(app.misses, 0);
+    CHECK_EQ(app.channel, 20);
+    app_init();
+    CHECK_EQ(app.channel, 20);                 /* kept in flash */
+
+    /* the AP is gone: the third miss looks on every channel of the list once (not on 20
+       and 25 again), each later one on the next channel only */
+    fake_ap_channel = 13;
+    for (i = 0; i < 2; i++) {
+        fake_radio_reset();
+        app_poll_once();
+        CHECK_EQ(fake_tx_count, 4);            /* 20 twice, the built-in 25 twice */
+    }
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 7);                /* and 15, 26, 11 */
+    CHECK_EQ(fake_tx_channel[4], 15);
+    CHECK_EQ(fake_tx_channel[5], 26);
+    CHECK_EQ(fake_tx_channel[6], 11);
+    CHECK_EQ(fake_channel, 20);                /* the next round starts on 20 again */
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 5);                /* one more: 15 */
+    CHECK_EQ(fake_tx_channel[4], 15);
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 5);                /* 20 is skipped: 26 */
+    CHECK_EQ(fake_tx_channel[4], 26);
+    CHECK_EQ(app.channel, 20);
+
+    /* found on 11 by the rotation */
+    fake_ap_channel = 11;
+    fake_radio_reset();
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(fake_tx_channel[4], 11);
+    CHECK_EQ(app.channel, 11);
+    CHECK_EQ(app.misses, 0);
+    fake_ap_channel = 0;
+}
+
 void test_app(void)
 {
     RUN(test_boot);
@@ -578,4 +639,5 @@ void test_app(void)
     RUN(test_link_block);
     RUN(test_long_backoff);
     RUN(test_channel_move);
+    RUN(test_channel_scan);
 }
