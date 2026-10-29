@@ -51,6 +51,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   const pics = new Map();  // drawn pictures by key
   let sel = null;          // { kind: "ap" | "builtin" | "tpl", name, id }
   let busy = false;
+  let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
   const host = sameOrigin ? location.host : "openesl.local";
   const canEdit = !!$("tab-design");
@@ -229,6 +230,9 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       warn.append(p);
     }
     warn.hidden = !warn.childElementCount;
+    // Tags without their layout: show the warning even when the card was folded away
+    if (!warn.hidden && !warned) $("lay-card").open = true;
+    warned = !warn.hidden;
 
     // On the AP: the built-in layouts, then the file's
     const cards = [];
@@ -323,7 +327,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     const pick = () => {
       sel = s;
       // On a phone the panel is below the cards: take the reader there
-      render(last).then(() => matchMedia("(max-width: 900px)").matches && $("lay-panel").scrollIntoView({ behavior: "smooth", block: "start" }));
+      render(last).then(() => matchMedia("(max-width: 900px)").matches &&
+        $("lay-panel").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
     };
     d.onclick = pick;
     d.onkeydown = (ev) => {
@@ -362,7 +367,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     const onAp = sel.kind !== "tpl";
     panel.show({
       key: model + "/" + sel.name, name: sel.name, state, ok: onAp, desc, fields, sample, what, host,
-      tags: tags.map((t) => ({ mac: t.mac, shows: shown[t.mac]?.layout === sel.name })),
+      tags: tags.map((t) => ({ mac: t.mac, shows: shown[t.mac]?.layout === sel.name, shown: t.content_id ? shown[t.mac]?.layout || "?" : "" })),
       send: onAp ? async (mac, c) => {
         const r = await client().call("PUT", "/api/tags/" + encodeURIComponent(mac), c);
         refresh();

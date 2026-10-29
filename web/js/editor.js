@@ -776,7 +776,8 @@ async function showLayoutInfo(key = infoKey) {
   const pill = builtin ? "Built in" : !ap.connected ? "In this file"
     : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
   const host = onAp ? location.host : "openesl.local";
-  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model).map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name })) : [];
+  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model)
+    .map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name, shown: t.content_id ? ap.tagLayouts[t.mac] || "?" : "" })) : null;
   infoPanel.show({
     key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
     send: ap.connected && st === "ap" ? async (mac, c) => {

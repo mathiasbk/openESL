@@ -5,7 +5,7 @@
 
 // What a client sends for a layout, in the forms the panel offers: { curl, json, csv, ha }
 export function examples({ layout, fields, sample, mac, host }) {
-  const body = { layout, fields: sample.slice(0, fields.length) };
+  const body = content(layout, sample.slice(0, fields.length));
   const json = JSON.stringify(body, null, 2);
   const target = mac || "<MAC>";
   const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
@@ -45,7 +45,8 @@ const short = (mac) => "…" + mac.slice(-6);
 //   ok           whether the pill is green
 //   desc         one line about it, or ""
 //   fields       the field names in order; sample: their sample text; what: what each one is
-//   tags         the tags it can go to, [{ mac, shows }] (shows: it shows this layout now)
+//   tags         the tags it can go to, [{ mac, shows, shown }] (shows: it shows this layout
+//                now; shown: the layout it shows, "" for none), or null when not known
 //   host         the AP's address in the examples
 //   send         async (mac, content) => reply, or null when it cannot be sent from here
 //   why          with no send: what to do first, said under the form
@@ -54,7 +55,8 @@ export function layoutPanel(root, { onClose } = {}) {
   const values = {};   // by key: the field values typed in, kept while the page is open
   let tab = "curl";
   let cur = null;
-  let target = "";
+  let target = "";      // none until one is picked: a click must not overwrite a tag by itself
+  let tagsKey = "";
   let busy = false;
 
   root.replaceChildren();
@@ -65,7 +67,7 @@ export function layoutPanel(root, { onClose } = {}) {
   h.append(name, " ", pill);
   head.append(h);
   if (onClose) {
-    const x = el("button", "link", "✕");
+    const x = el("button", "lay-x", "✕");
     x.type = "button";
     x.setAttribute("aria-label", "Close");
     x.onclick = onClose;
@@ -162,14 +164,21 @@ export function layoutPanel(root, { onClose } = {}) {
       if (!same) say("");
     }
 
-    // The tags of this model, those showing this layout first; the one picked stays picked
+    // The tags of this model, those showing this layout first; the one picked stays picked.
+    // The list is made again only when it changed, so an open list stays open at a refresh.
     const tags = [...(opts.tags || [])].sort((a, b) => Number(b.shows) - Number(a.shows));
-    if (!tags.some((t) => t.mac === target)) target = tags[0]?.mac || "";
-    pick.replaceChildren(...(tags.length ? tags.map((t) => {
-      const o = el("option", "", short(t.mac) + (t.shows ? " · shows it" : ""));
-      o.value = t.mac;
-      return o;
-    }) : [el("option", "", "No tags of this model")]));
+    if (!tags.some((t) => t.mac === target)) target = "";
+    const tk = JSON.stringify(tags.map((t) => [t.mac, t.shows]));
+    if (tk !== tagsKey) {
+      tagsKey = tk;
+      const none = el("option", "", tags.length ? "Choose a tag…" : "No tags of this model");
+      none.value = "";
+      pick.replaceChildren(none, ...tags.map((t) => {
+        const o = el("option", "", short(t.mac) + (t.shows ? " · shows it" : ""));
+        o.value = t.mac;
+        return o;
+      }));
+    }
     pick.value = target;
     pick.disabled = !tags.length;
     pick.hidden = !opts.send;
@@ -181,8 +190,8 @@ export function layoutPanel(root, { onClose } = {}) {
     drawTabs();
     drawCode();
     const u = tags.filter((t) => t.shows);
-    usersH.textContent = `Tags using it (${u.length})`;
-    users.textContent = u.length ? u.map((t) => short(t.mac)).join(" · ") : "None yet.";
+    usersH.textContent = opts.tags ? `Tags using it (${u.length})` : "Tags using it";
+    users.textContent = !opts.tags ? "Connect to your AP to see them." : u.length ? u.map((t) => short(t.mac)).join(" · ") : "None yet.";
   }
 
   pick.onchange = () => {
@@ -196,6 +205,8 @@ export function layoutPanel(root, { onClose } = {}) {
     if (busy || !target) return;
     const c = content(cur.name, typed());
     const mac = target;
+    const t = cur.tags?.find((x) => x.mac === mac);
+    if (t?.shown && !confirm(`${short(mac)} ${t.shown === "?" ? "has content" : `shows "${t.shown}"`} now. Replace it with this?`)) return;
     busy = true;
     canSend();
     say(`Sending to ${short(mac)}…`);
