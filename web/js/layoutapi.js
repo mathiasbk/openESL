@@ -212,6 +212,8 @@ export function layoutPanel(root, { onClose } = {}) {
     say(`Sending to ${short(mac)}…`);
     try {
       const r = await cur.send(mac, c);
+      // Shown now until the next refresh says so too, so a second send asks first as well
+      if (t) t.shown = c.layout;
       say(`Sent to ${short(mac)}. The tag shows it at its next check-in${r?.changed === false ? " (it had this already)" : ""}.`, "ok");
     } catch (e) {
       say(e.message, "error");
