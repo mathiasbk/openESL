@@ -101,6 +101,8 @@ export function initReceive() {
       if (token() !== $("dash-token").value.trim()) {
         $("dash-token").value = token();
         try { localStorage.setItem("openesl.dash.token", token()); } catch { /* private window */ }
+        // Connected with the old token: disconnect first (the button toggles), then connect
+        if ($("dash-connect").textContent === "Disconnect") $("dash-connect").click();
         $("dash-connect").click();
       }
       say(text, errs ? "error" : "ok");
