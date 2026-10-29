@@ -13,7 +13,7 @@ Open the [Design](https://mathiasbk.github.io/openESL/#design) tab. It works in 
 - **Left:** the layouts in the file, and the elements of the one you picked. "+ New" adds an empty layout, or a ready-made one from the template library ("From template…": 3D printer, retail and price, signs, home), drawn on your label model with its sample text. See [Label templates](Label-templates).
 - **Middle:** the label, with the tools over it (text, fixed text, box, line, icon, barcode, QR code). Drag and resize boxes; they snap to the edges, the centre and each other (hold Alt to turn it off). The bar next to the selected element sets font, alignment and colour, and more under "More".
 - **Right:** the layout's name, its fields with the sample text the preview shows, and where the selected element is.
-- **Under the label:** how much of the AP's limits the layout uses, and whether the AP will accept it. The limits are those of the AP you are connected to under Send to tag, or of an ESP32-C6 AP (the smallest) until you connect; click the ring to see which, and each limit. See [Layout elements and limits](Layout-elements-and-limits).
+- **Under the label:** how much of the AP's limits the layout uses, and whether the AP will accept it. The limits are those of the AP you are connected to under Send to your AP, or of an ESP32-C6 AP (the smallest) until you connect; click the ring to see which, and each limit. See [Layout elements and limits](Layout-elements-and-limits).
 
 Undo and redo with Ctrl+Z and Ctrl+Shift+Z. Arrows, Tab, Delete and Ctrl+D (duplicate) work on the selected box.
 
@@ -21,9 +21,13 @@ Undo and redo with Ctrl+Z and Ctrl+Shift+Z. Arrows, Tab, Delete and Ctrl+D (dupl
 
 ## Getting it onto the AP
 
-- **Send to tag…** in the designer uploads the layout file to the AP and puts the sample text on a label you pick. It goes through the bridge in [esl-client](https://github.com/mathiasbk/openESL/blob/master/tools/esl-client/README.md) (`esl_client.py --serial /dev/ttyACM0 serve`), since a web page may not call the AP on your network directly.
+Press **Send to your AP…** and choose how the AP is connected:
+
+- **USB cable:** the AP is plugged into this computer. Connect, pick a label, and **Send** puts the layout with its sample text on it (Chrome or Edge on a computer).
+- **WiFi:** type the AP's address and press **Open my AP**. The AP's own page opens with the file; press **Save on this AP** there.
 - **On the AP itself:** an AP with room for it (the [ESP32-S3 + ESP32-C6](ESP32-S3-and-C6) and the [ESP32-C5](ESP32-C5)) has the designer too, at `http://openesl.local/dashboard#design`. There it opens the layout files stored on that AP, **Save to AP** writes your changes back, and **File → Reload from the AP** drops changes you have not saved. The head says when something is not saved to the AP yet. It uses the Dashboard's token. The preview comes from the AP's own firmware, so it draws exactly as that AP does and works without the internet.
-- Or save the file (File menu) and upload it yourself: `esl_client.py layout-put 2.9 layouts.json`, or `PUT /api/layouts/{model}`.
+
+Step by step, and the other ways (a file, or the bridge for developers): [Getting layouts onto the AP](Getting-layouts-onto-the-AP).
 
 There is one layout file per label model, holding up to 16 layouts. The built-in `price` and `text` can always be used, with or without a file. When you upload a new version, the AP draws every label that uses it again, and each label gets its new screen at its next poll. A layout the AP cannot draw gets a `422` with the reason, the same message the designer shows. A file that no longer fits the content some labels already have (a barcode, QR code or price that is now too big for its smaller box) is stored, but the AP lists those labels in its answer, and the designer says so: they keep the screen they show, with the reason as `content_error` in `GET /api/tags`, until they get content that fits or a file that fits them.
 

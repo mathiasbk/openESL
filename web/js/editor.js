@@ -10,7 +10,9 @@
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
-import { ApClient, apBase } from "./apclient.js";
+import { ApClient, PortClient, apBase } from "./apclient.js";
+import { hasSerial, serialAp, connectSerial, onSerialChange } from "./apport.js";
+import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
@@ -44,7 +46,7 @@ const BUILTIN = {
   text: { id: LAYOUT_TEXT, fields: ["line1", "line2", "line3", "line4"] },
 };
 const STORE = "openesl.editor.";
-const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to tag
+const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to your AP
 const DASH_TOKEN = "openesl.dash.token"; // and its token, which the AP's own page shares
 
 const $ = (id) => document.getElementById(id);
@@ -310,7 +312,7 @@ function refreshMeters(res) {
     if (u.qrs) meters.push(["QR codes", u.qrs, lim.qrs, "QR codes in this layout"]);
   }
   meters.push(["Compiled file", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
-  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to tag uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
+  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to your AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
@@ -340,7 +342,7 @@ function refreshMeters(res) {
 // Whose limits the meters show: the connected AP's, or the default board's (the smallest)
 function limitsSource() {
   const dflt = `Those of an ESP32-C6 AP (${DEFAULT_BOARD}, the smallest)`;
-  if (!ap.connected) return dflt + ". Connect to your AP under Send to tag to see its own.";
+  if (!ap.connected) return dflt + ". Connect under Send to your AP to see your AP's own.";
   if (!ap.limits) return dflt + `: the AP does not report its own (firmware older than this page).`;
   if (!state.renderer.canSetLimits) return dflt + ": this page's renderer is too old to take the AP's.";
   const cut = Object.keys(ap.limits).some((k) => typeof state.renderer.limits[k] === "number" && state.renderer.limits[k] < ap.limits[k]);
@@ -698,7 +700,7 @@ function refreshLayoutForm() {
 }
 
 // The layout's fields, each with its sample value: the name (what the client sends it as) and
-// what the preview shows and Send to tag sends.
+// what the preview shows and Send to your AP sends.
 function refreshSample() {
   const box = $("sample");
   box.replaceChildren();
@@ -1515,7 +1517,9 @@ function initActions() {
 
 // files: on the AP's own page, model -> the layout file the AP has (null: none), once read
 // board and limits: what GET /api/layouts says about the AP (null limits from an older AP)
-const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null };
+// via: on the web page, how the AP is reached: "usb" (its port, js/apport.js) or "wifi" (its
+// own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
+const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false };
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
 // The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
@@ -1527,9 +1531,9 @@ async function apFileVersion() {
   return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
 }
 
-// Upload, send and check only work once Connect has reached the AP (through the bridge)
+// Upload, send and check only work once Connect has reached the AP (over USB or the bridge)
 function apButtons(busy = false) {
-  $("ap-connect").disabled = busy;
+  $("ap-connect").disabled = $("ap-usb-connect").disabled = $("ap-handoff").disabled = busy;
   $("ap-upload").disabled = busy || !ap.connected || isBuiltin();
   if (onAp) $("ap-save").disabled = $("ap-reload").disabled = busy || !ap.connected;
   for (const id of ["ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected || !ap.mac;
@@ -1538,9 +1542,15 @@ function apButtons(busy = false) {
 function apShow() {
   if (!doc()) return;    // before the first model is loaded
   $("ap-setup").hidden = ap.connected;
-  $("ap-conn").hidden = $("ap-pick").hidden = !ap.connected;
+  $("ap-conn").hidden = $("ap-pick").hidden = $("ap-buttons").hidden = !ap.connected;
   $("ap-conn-text").textContent = ap.info;
-  $("send-h").textContent = `Send "${layoutName()}" to a tag`;
+  $("send-h").textContent = `Send "${layoutName()}" to your AP`;
+  if (!onAp) {
+    for (const r of document.querySelectorAll('input[name="ap-via"]')) r.checked = r.value === ap.via;
+    $("ap-usb").hidden = ap.via !== "usb";
+    $("ap-wifi").hidden = ap.via !== "wifi";
+    $("ap-usb-missing").hidden = hasSerial();
+  }
   refreshApTags();
   refreshSends();
   apButtons();
@@ -1548,6 +1558,7 @@ function apShow() {
 
 function apDisconnected() {
   ap.connected = false;
+  ap.usb = false;
   ap.tags = [];
   ap.limits = null;
   ap.board = "";
@@ -1558,6 +1569,10 @@ function apDisconnected() {
 
 function apClient() {
   if (onAp) return new ApClient("", $("ap-token").value.trim());
+  if (ap.usb) {
+    if (!serialAp()) throw new Error("The USB connection to the AP is closed. Connect again.");
+    return new PortClient(serialAp());
+  }
   const { base, error } = apBase($("ap-url").value);
   if (error) throw new Error(error);
   return new ApClient(base, $("ap-token").value.trim());
@@ -1645,7 +1660,7 @@ async function apConnect() {
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
   limitsChanged();
-  const where = onAp ? location.host || "this AP" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
   if (onAp) {
     try { localStorage.setItem(DASH_TOKEN, $("ap-token").value.trim()); } catch { /* private mode */ }
@@ -1759,9 +1774,10 @@ async function apCheck() {
 // key, so one entry serves both. Save to AP and Reload from the AP stand for the file menu's
 // file on disk there: the AP's own file is the one the editor opens.
 function initOnAp() {
+  $("ap-web").hidden = true;
+  $("ap-connect").classList.add("primary");
   $("ap-url").closest("label").hidden = true;
-  document.querySelector("#ap-setup .how").hidden = true;
-  document.querySelector("#ap-setup > p.hint").textContent =
+  document.querySelector("#ap-direct > p.hint").textContent =
     "Enter the AP's API token once; this browser keeps it for this address, and the Dashboard tab uses it too.";
   try { $("ap-token").value = localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
   $("ap-token").placeholder = "the AP's API token";
@@ -1787,7 +1803,7 @@ function initOnAp() {
 
 // On the AP's own page, once the first model is loaded and whenever the tab is shown while not
 // connected: connect with the kept token (the Dashboard may have stored it meanwhile) and open
-// the AP's file, or ask for the token where Send to tag does. Not while the tab is hidden: its
+// the AP's file, or ask for the token where Send to your AP does. Not while the tab is hidden: its
 // dialog is modal, and would leave the Dashboard tab unclickable behind it.
 let apStarting = false;
 let apReady = false;      // the first model is loaded (initEditor)
@@ -1804,7 +1820,10 @@ async function apStart() {
   }
 }
 
-// The web page's Send to tag: the bridge's address (the Dashboard's) and a token for this session
+// The web page's Send to your AP: over USB (the port the Dashboard tab shares, no token), or
+// over WiFi by handing the file to the AP's own page (js/handoff.js). The bridge in
+// tools/esl-client, at the Dashboard's address and with a token for this session, is under
+// Advanced.
 function initOnWeb() {
   const sess = {
     get(k) { try { return sessionStorage.getItem(STORE + k) || ""; } catch { return ""; } },
@@ -1814,12 +1833,36 @@ function initOnWeb() {
   try { url = localStorage.getItem(DASH_URL) || store.get("ap.url") || ""; } catch { /* private mode */ }
   $("ap-url").value = url;
   $("ap-token").value = sess.get("ap.token");
+  $("ap-addr").value = store.get("ap.addr") || "";
+  $("ap-bridge").append($("ap-direct"));
+  $("ap-bridge").open = store.get("ap.bridge") === "1";
+  ap.via = store.get("ap.via") || (hasSerial() ? "usb" : "wifi");
   $("ap-url").addEventListener("change", () => {
     try { localStorage.setItem(DASH_URL, $("ap-url").value.trim()); } catch { /* private mode */ }
     apDisconnected();
   });
   $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
+  $("ap-addr").addEventListener("change", () => store.set("ap.addr", $("ap-addr").value.trim()));
+  $("ap-bridge").addEventListener("toggle", () => store.set("ap.bridge", $("ap-bridge").open ? "1" : ""));
+  for (const r of document.querySelectorAll('input[name="ap-via"]'))
+    r.addEventListener("change", () => {
+      ap.via = r.value;
+      store.set("ap.via", ap.via);
+      apShow();
+      apStatus("");
+    });
+  $("ap-usb-connect").addEventListener("click", () => apRun("Connecting over USB", async () => {
+    await connectSerial();
+    ap.usb = true;
+    return apConnect();
+  }));
+  $("ap-handoff").addEventListener("click", () => apRun("Opening the AP's page", apHandoff));
+  window.addEventListener("message", handoffMessage);
+  // The port closed (unplugged, or the Dashboard tab disconnected it)
+  onSerialChange((port) => { if (!port && ap.usb) apDisconnected(); });
   return () => {
+    if (ap.via === "usb") return serialAp() ? "usb" : "";
+    if (!$("ap-bridge").open) return "";
     // The Dashboard's address may have changed since
     try {
       const u = localStorage.getItem(DASH_URL);
@@ -1829,10 +1872,58 @@ function initOnWeb() {
   };
 }
 
+// ---------- over WiFi: the AP's own page takes the file (js/handoff.js) ----------
+
+let handoff = null;   // { win, msg, host, timer } while the AP's page is opened
+
+async function apHandoff() {
+  const { url, error } = apPageUrl($("ap-addr").value);
+  if (error) throw new Error(error);
+  store.set("ap.addr", $("ap-addr").value.trim());
+  const res = state.renderer.loadLayouts(JSON.stringify(doc()));
+  if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
+  const content = { layout: layoutName(), fields: samples().slice() };
+  if ($("opt-highlight").checked) content.price_highlight = true;
+  if ($("opt-frame").checked) content.frame = true;
+  const msg = layoutsMessage({ model: state.model, file: structuredClone(doc()), layout: layoutName(), content, preview: $("screen").toDataURL("image/png") });
+  clearTimeout(handoff?.timer);
+  // A name, so a second press uses the same tab
+  const win = window.open(url, "openesl-ap");
+  const host = new URL(url).host;
+  if (!win) throw new Error(`The browser blocked the new tab. Allow pop-ups for this page, or open ${url.replace(/\?.*/, "")} yourself.`);
+  handoff = { win, msg, host };
+  handoff.timer = setTimeout(() => {
+    if (handoff?.win === win)
+      apStatus(`No answer from the page at ${host}. Is that the AP's address (its IP address works too), and is the AP's firmware ` +
+        "new enough to take layouts from here? The Dashboard updates it.", "error");
+  }, 20000);
+  return [`Opening ${host} in a new tab …`, ""];
+}
+
+function handoffMessage(ev) {
+  if (!handoff || ev.source !== handoff.win) return;
+  const type = ev.data?.type;
+  if (type === READY) {
+    clearTimeout(handoff.timer);
+    ev.source.postMessage(handoff.msg, ev.origin);
+    apStatus(`Sent to the page on ${handoff.host}. Check it there and press Save.`, "ok");
+  } else if (type === SAVED) {
+    const text = typeof ev.data.text === "string" ? ev.data.text : "";
+    apStatus(text || (ev.data.ok ? "Saved on the AP." : "The AP did not save it."), ev.data.ok ? "ok" : "error");
+    if (ev.data.ok && ev.data.model === handoff.msg.model) {
+      store.set("clean." + handoff.msg.model, JSON.stringify(handoff.msg.file));
+      refreshFileState();
+    }
+  }
+}
+
 function initAp() {
-  // what Connect needs (the token on the AP, the address on the web), "" before it is entered
+  // what Connect needs (the token on the AP, the port or the bridge's address on the web), "" before there is one
   const canConnect = onAp ? initOnAp() : initOnWeb();
-  $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
+  $("ap-connect").addEventListener("click", () => {
+    ap.usb = false;
+    apRun("Connecting", apConnect);
+  });
   $("ap-change").addEventListener("click", apDisconnected);
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
   $("ap-send").addEventListener("click", () => apRun("Sending", apSend));
@@ -1841,8 +1932,11 @@ function initAp() {
     apStatus("");
     apShow();
     $("send-dlg").showModal();
-    if (canConnect() && !ap.connected) apRun("Connecting", apConnect);
-    else if (ap.connected) apRun("Reading the tags", async () => {
+    const how = canConnect();
+    if (how && !ap.connected) {
+      ap.usb = how === "usb";
+      apRun("Connecting", apConnect);
+    } else if (ap.connected) apRun("Reading the tags", async () => {
       ap.tags = (await apClient().tags()).tags || [];
       return ["", ""];
     });

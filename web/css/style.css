@@ -376,3 +376,16 @@ details.help > summary { cursor: pointer; color: var(--accent); font-size: 14px;
 details.help > p { max-width: 62ch; }
 .dash :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+
+/* The AP's own dashboard: a layout file from the designer (js/apreceive.js) */
+.recv { display: flex; gap: 18px; align-items: flex-start; border: 2px solid var(--accent); }
+.recv h2 { margin-top: 0; }
+.recv-img { width: min(296px, 40%); image-rendering: pixelated; border: 1px solid var(--text); background: #fff; }
+.recv-body { flex: 1; min-width: 0; }
+.recv-body p { margin: 6px 0; }
+.recv-body label { display: block; margin: 8px 0; }
+.recv [hidden] { display: none; }
+.lname { display: inline-block; border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; margin: 2px 4px 2px 0; font-size: 13px; }
+.lname.new { border-color: var(--ok); color: var(--ok); }
+.lname.gone { border-color: var(--warn); color: var(--warn); text-decoration: line-through; }
+@media (max-width: 640px) { .recv { flex-direction: column; } .recv-img { width: 100%; } }

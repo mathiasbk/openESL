@@ -93,7 +93,7 @@
         </div>
       </details>
       <button id="ap-save" title="PUT /api/layouts/{model}: the AP draws this model's tags with it" hidden>Save to AP</button>
-      <button id="send-open" class="primary">Send to tag…</button>
+      <button id="send-open" class="primary">Send to your AP…</button>
     </div>
 
     <div class="dz">
@@ -202,22 +202,36 @@
 
     <dialog id="send-dlg" class="dlg" aria-labelledby="send-h">
       <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
-      <h3 id="send-h">Send to a tag</h3>
+      <h3 id="send-h">Send to your AP</h3>
       <div id="ap-setup">
-        <p class="hint">A web page cannot reach the AP by itself. Start the bridge in <code>tools/esl-client</code> on this computer and connect to it. The address is the same one the Dashboard tab uses.</p>
-        <div class="form">
-          <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
-          <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="only over WiFi"></label>
+        <div id="ap-web">
+          <h4 id="ap-via-h" class="sub-h">How is your AP connected?</h4>
+          <div class="via" role="radiogroup" aria-labelledby="ap-via-h">
+            <label class="via-opt"><input type="radio" name="ap-via" value="usb"><span class="via-ico" aria-hidden="true">🔌</span><b>USB cable</b><small>The AP is plugged into this computer</small></label>
+            <label class="via-opt"><input type="radio" name="ap-via" value="wifi"><span class="via-ico" aria-hidden="true">📶</span><b>WiFi</b><small>The AP is somewhere on your network</small></label>
+          </div>
+          <div id="ap-usb" hidden>
+            <p class="hint">Pick the AP's port in the list the browser shows. Close anything else that uses it first, such as <code>esl_client.py ... serve</code>.</p>
+            <p id="ap-usb-missing" class="warn" hidden>This browser cannot use USB ports. Use Chrome or Edge on a computer, or choose WiFi.</p>
+            <div class="buttons tight"><button id="ap-usb-connect" class="primary">Connect over USB</button></div>
+          </div>
+          <div id="ap-wifi" hidden>
+            <div class="form"><label>AP address <input id="ap-addr" spellcheck="false" placeholder="openesl.local"></label></div>
+            <p class="hint">Your AP's own page opens in a new tab with this layout file. Check it there and press <b>Save</b>. Nothing to install.</p>
+            <div class="buttons tight"><button id="ap-handoff" class="primary">Open my AP →</button></div>
+            <details id="ap-bridge" class="hint how">
+              <summary>Advanced: through the esl-client bridge</summary>
+            </details>
+          </div>
         </div>
-        <details class="hint how">
-          <summary>How do I connect?</summary>
-          <ol class="steps">
-            <li>Start the bridge: <code>python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 serve</code> (AP on USB), or <code>--url http://&lt;AP's IP&gt; --token &lt;token&gt;</code> instead of <code>--serial</code> (AP on WiFi).</li>
-            <li>Enter <code>http://localhost:8080</code> above and press Connect.</li>
-          </ol>
-          <p>On https (such as GitHub Pages) the browser only lets the page call the bridge at <code>http://localhost:8080</code>, not the AP's own address.</p>
-        </details>
-        <div class="buttons tight"><button id="ap-connect" class="primary">Connect</button></div>
+        <div id="ap-direct">
+          <p class="hint">Start the bridge in <code>tools/esl-client</code> on this computer: <code>python3 tools/esl-client/esl_client.py --url http://&lt;AP's address&gt; --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>. A page on https may only call the bridge, not the AP itself.</p>
+          <div class="form">
+            <label>Address <input id="ap-url" spellcheck="false" placeholder="http://localhost:8080"></label>
+            <label>Token <input id="ap-token" type="password" autocomplete="off" placeholder="not needed through the bridge"></label>
+          </div>
+          <div class="buttons tight"><button id="ap-connect">Connect</button></div>
+        </div>
       </div>
       <div id="ap-conn" class="conn" hidden><span class="dot"></span><span id="ap-conn-text"></span><button id="ap-change" class="link">Change</button></div>
       <div id="ap-pick" hidden>
@@ -227,7 +241,7 @@
         <p id="ap-sends" class="small"></p>
       </div>
       <p id="ap-status" class="hint" role="status"></p>
-      <div class="dlg-buttons">
+      <div id="ap-buttons" class="dlg-buttons">
         <button id="ap-upload" title="PUT /api/layouts/{model}: the AP draws the tags of this model with it">Upload layout file only</button>
         <span class="sep"></span>
         <button id="ap-refresh" title="Ask the AP what the tag shows now">Check tag</button>
@@ -309,15 +323,28 @@
 
   <!-- ===================== Dashboard ===================== -->
   <main id="tab-dashboard" class="tab dash" role="tabpanel" hidden>
+    <!-- js/apreceive.js, on the AP's own page: a layout file the designer on the web page handed over (js/handoff.js) -->
+    <section id="recv" class="card wide recv" hidden>
+      <img id="recv-img" class="recv-img" alt="The layout, as the designer drew it" hidden>
+      <div class="recv-body">
+        <h2 id="recv-h">The designer sent you a layout file</h2>
+        <p id="recv-what"></p>
+        <p id="recv-note" class="muted"></p>
+        <label id="recv-token-label" hidden>The AP's API token <input id="recv-token" type="password" autocomplete="off"></label>
+        <label id="recv-tag-label" hidden>Also show the sample text on <select id="recv-tag"></select></label>
+        <div id="recv-buttons" class="buttons tight"><button id="recv-save" class="primary">Save on this AP</button><button id="recv-drop">Throw away</button></div>
+        <p id="recv-msg" class="hint" role="status"></p>
+      </div>
+    </section>
     <section id="dash-conn" class="card wide">
       <h2>AP dashboard</h2>
-      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP over USB (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address), since a page on the web may not call an AP on your network. The bridge in <code>tools/esl-client</code> also works: <code>python3 tools/esl-client/esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>.</p>
+      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP with a USB cable (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address). A page on the web may not call an AP on your network, so for WiFi there is the AP's own page, or for developers the bridge in <code>tools/esl-client</code> (<code>esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>).</p>
       <div class="form row">
         <p id="dash-live" class="dash-live" hidden><span id="dash-dot" class="dot"></span> <span id="dash-where"></span> · <span id="dash-updated"></span></p>
         <label>Connect over
           <select id="dash-src">
-            <option value="serial">USB (this computer)</option>
-            <option value="http">Bridge or address</option>
+            <option value="serial">USB cable</option>
+            <option value="http">Bridge (advanced)</option>
           </select>
         </label>
         <label id="dash-url-label" hidden>Address <input id="dash-url" spellcheck="false" placeholder="http://localhost:8080"></label>
