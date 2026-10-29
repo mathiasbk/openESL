@@ -433,7 +433,6 @@ details.help > p { max-width: 62ch; }
 
 /* The Layouts card of the dashboard (js/aplayouts.js) */
 .lay-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-.lay-head h2 { margin: 0; }
 .lay-space { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
 .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 6px; padding: 4px 10px; font-size: 14px; min-height: 0; }
@@ -460,11 +459,20 @@ details.help > p { max-width: 62ch; }
 .lay-panel { flex: 0 0 380px; max-width: 380px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; position: sticky; top: 8px; }
 .lay-p-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .lay-p-head h3 { margin: 0; font-size: 17px; }
+.lay-p-head .lay-x { border: 0; background: none; color: var(--muted); padding: 2px 6px; font-size: 15px; min-height: 0; }
+.lay-p-head .lay-x:hover { color: var(--text); }
 .lay-panel > p { margin: 6px 0; }
-.lay-fields { width: 100%; border-collapse: collapse; font-size: 13px; }
-.lay-fields th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-.lay-fields td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.lay-fields code, .lay-panel p code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.lay-panel code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.lay .hint.error, .lay-panel .hint.error { color: var(--error); }
+.lay .hint.ok, .lay-panel .hint.ok { color: var(--ok); }
+.lay-inputs { display: grid; gap: 6px; }
+.lay-inputs label { display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.lay-f { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lay-inputs input { width: 100%; box-sizing: border-box; }
+.lay-send-row { display: flex; gap: 8px; margin-top: 10px; }
+.lay-send-row select { flex: 1; min-width: 0; }
+.lay-send-row select[hidden] { display: none; }
+.lay-send .hint { margin: 6px 0 0; }
 .lay-p-tabs { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; }
 .lay-code { background: #1c2330; color: #e6edf6; border-radius: 8px; padding: 10px 12px; font-size: 12px; margin: 6px 0 0; white-space: pre; overflow-x: auto; }
 @media (max-width: 900px) {

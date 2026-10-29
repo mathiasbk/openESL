@@ -26,13 +26,13 @@ The Signal column shows how the AP heard the label's last 8 check-ins (32 on an 
 
 ## Layouts
 
-The **Layouts** card shows what the AP can draw, for each label size:
+The **Layouts** card shows what the AP can draw, for each label size. Click its head to fold it away; the head still says how many layouts the AP has, how many more can be sent, and whether labels use one the AP lacks.
 
 - **On the AP:** the built-in `price` and `text`, and every layout in the AP's layout file, drawn as the AP draws them, with how many labels show each one. One no label uses can be removed. **Edit** opens it in the designer, where the page has one (the web page and APs with the designer built in).
 - **Can be sent to the AP:** the ready-made layouts of the [template library](Label-templates) the AP does not have yet. **Send to AP** adds one to the AP's file at once.
 - A warning when labels use a layout the AP does not have (they keep their old picture), with **Send it** when the library has it.
 
-Click a layout to see the data it needs: its fields in the order a client sends them, with examples to copy for curl, plain JSON, a CSV for `esl_client.py sync`, and Home Assistant. The labels that show it are listed under them.
+Click a layout to see the data it needs: its fields in the order a client sends them, each with a box to type in. Pick a label and **Send to tag** sends them straight from the browser; it asks first when the label already shows something. Under the form is the same request to copy for curl, plain JSON, a CSV for `esl_client.py sync`, and Home Assistant, with what you typed in it. The labels that show it are listed at the bottom. The designer has the same panel behind the **API** button of each layout.
 
 ![The Layouts card with the panel for a layout](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/web-layouts.png)
 
