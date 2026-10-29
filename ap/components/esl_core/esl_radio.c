@@ -189,7 +189,7 @@ void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t batt
 
 size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
 {
-    uint8_t payload[ESL_POLL_LEN_CFG];
+    uint8_t payload[ESL_POLL_LEN_LINK];
     uint8_t flags = t->flags;
     if (t->ota)
         flags |= ESL_POLL_F_OTA;
@@ -203,7 +203,7 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_IMG_2D;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
-    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver};
+    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver, !t->legacy, 0, 0, 0, 0};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);

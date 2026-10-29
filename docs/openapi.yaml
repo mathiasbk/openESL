@@ -1554,17 +1554,19 @@ components:
     TagCfg:
       type: object
       additionalProperties: false
-      required: [poll_s, max_poll_s, lost_ap_s]
+      required: [poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min]
       description: The tag's own settings; `null` = the default
       properties:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Poll interval in seconds }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Longest interval when the tag backs off }
         lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the tag shows "No AP found"; 65535 = never' }
+        long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min (built in: 3600)" }
+        long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before the tag polls only every long_poll_s; 65535 = never (built in: 1440, a day)" }
 
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, content_error, ota,
+                 poll_s, config, config_pending, content_error, ota, signal,
                  image, image_id, shown_image_id, fw_update]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
@@ -1589,6 +1591,22 @@ components:
             - a barcode, QR code or number does not fit its box in the layout file for this tag's model
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
+        signal:
+          description: "The tag's last polls, oldest first (8 on an AP without PSRAM, 32 with), and totals since the AP started. RAM only: null for a tag not heard since the AP started"
+          oneOf:
+            - { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [rssi, lost, retry, polls, lost_total, retries, tag_rssi, tag_lqi]
+              properties:
+                rssi: { type: array, items: { type: integer, minimum: -128, maximum: 127 }, description: "The AP's signal strength of each poll, dBm" }
+                lost: { type: array, items: { type: integer, minimum: 0, maximum: 127 }, description: "Polls the tag sent without an answer before each one (127 = 127 or more)" }
+                retry: { type: array, items: { type: integer, enum: [0, 1] }, description: "1: the poll was the tag's second try, so the AP's answer to its first was lost" }
+                polls: { type: integer, minimum: 0, maximum: 4294967295, description: Polls since the AP started }
+                lost_total: { type: integer, minimum: 0, maximum: 65535, description: "Polls without an answer since the AP started, as the tags report them (stops at 65535)" }
+                retries: { type: integer, minimum: 0, maximum: 65535, description: "Polls answered only at the second try since the AP started (stops at 65535)" }
+                tag_rssi: { type: [integer, "null"], minimum: 0, maximum: 255, description: "The tag radio's raw RSSI byte for the AP's last answer; not in dBm (the scale is not measured yet), higher is stronger. null: firmware that does not send it" }
+                tag_lqi: { type: [integer, "null"], minimum: 0, maximum: 127, description: "Link quality of the AP's last answer at the tag; null as tag_rssi" }
         image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so; a tag without SPI flash cannot): `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
         image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
         shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and 0 otherwise" }
@@ -1650,10 +1668,11 @@ components:
             shown_content_id: 2914470401
             pending: false
             poll_s: 120
-            config: { poll_s: 120, max_poll_s: null, lost_ap_s: null }
+            config: { poll_s: 120, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null }
             config_pending: false
             content_error: null
             ota: true
+            signal: { rssi: [-62, -61, -63, -61], lost: [0, 0, 1, 0], retry: [0, 1, 0, 0], polls: 1440, lost_total: 3, retries: 5, tag_rssi: 196, tag_lqi: 108 }
             image: true
             image_id: 3522432519
             shown_image_id: 3522432519
@@ -1673,6 +1692,8 @@ components:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Poll interval in seconds; null: the AP default" }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Longest interval when the tag backs off; null: built in" }
         lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before "No AP found"; 65535 = never; null: built in' }
+        long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min; null: built in (3600)" }
+        long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before long_poll_s; 65535 = never; null: built in (1440)" }
 
     TagConfigFields:
       type: object

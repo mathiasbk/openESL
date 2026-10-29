@@ -76,5 +76,11 @@ if(NOT no_limits AND n_limits GREATER 0)
         message(STATUS "OpenESL AP board ${BOARD}: ${key} = ${value}")
     endforeach()
 endif()
+# The signal history per tag (ESL_LINK_HIST in esl_store.h): 8 POLLs without PSRAM, where
+# every byte of a slot costs tags, 32 where the table is in PSRAM
+string(JSON board_psram ERROR_VARIABLE no_psram GET "${board_json}" psram_mb)
+if(NOT no_psram AND board_psram GREATER 0)
+    idf_build_set_property(COMPILE_DEFINITIONS "ESL_LINK_HIST=32" APPEND)
+endif()
 
 project(esl_ap)

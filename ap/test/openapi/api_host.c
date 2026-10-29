@@ -213,7 +213,7 @@ int main(void)
             if (images && shown && esl_store_get(&st, mac, &t) && t.has_content && t.content_id == shown)
                 esl_store_image_known(&st, mac, shown, 0, shown);
             esl_poll_t p = {2, 2950, shown, images ? ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE : 0, (uint8_t)model,
-                            true, 0};
+                            true, 0, true, 0xC4, 108, 1, ESL_POLL_LF_RETRY};
             esl_layouts_env(&layouts, (uint8_t)model, &env);
             esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
             puts("OK");

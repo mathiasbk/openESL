@@ -20,6 +20,11 @@ typedef struct {
     uint8_t model;       /* ESL_MODEL_*; old firmware sends 0 (unknown) */
     bool has_cfg_ver;    /* the tag understands CONFIG (POLL of ESL_POLL_LEN_CFG bytes or more) */
     uint16_t cfg_ver;    /* the settings the tag uses now; 0 = its built-in defaults */
+    bool has_link;       /* the link block (POLL of ESL_POLL_LEN_LINK bytes or more) */
+    uint8_t rx_rssi;     /* link block: the tag radio's raw RSSI byte for the AP's last answer, 0 = none */
+    uint8_t rx_lqi;      /* ... and its LQI */
+    uint8_t lost;        /* rounds without an answer before this POLL */
+    uint8_t link_flags;  /* ESL_POLL_LF_* */
 } esl_poll_t;
 
 /* Tag settings carried by CONFIG. 0 in a field = the tag's built-in default. */
@@ -28,6 +33,8 @@ typedef struct {
     uint16_t max_poll_s; /* longest interval while the AP does not answer (same range) */
     uint16_t lost_ap_s;  /* "No AP found" after this long without an answer (ESL_CFG_LOST_AP_MIN_S..,
                           * ESL_CFG_LOST_AP_NEVER = never) */
+    uint16_t long_poll_s;    /* interval once the AP has been gone for long_after_min (ESL_CFG_LONG_POLL_MIN_S..) */
+    uint16_t long_after_min; /* (ESL_CFG_LONG_AFTER_MIN_MIN.., ESL_CFG_LONG_NEVER = never) */
 } esl_tag_cfg_t;
 
 /* Version of a set of settings as sent in CONFIG and echoed in POLL: 0 when
@@ -38,10 +45,10 @@ uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c);
 bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c);
 
 /* Accepts payloads longer than 12 bytes so newer tags can append fields:
- * cfg_ver (bytes 12-13) is read from a POLL of at least 14 bytes; anything after
- * it is ignored. */
+ * cfg_ver (bytes 12-13) is read from a POLL of at least 14 bytes, the link block
+ * (14-17) from one of at least 18; anything after it is ignored. */
 bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out);
-/* For tests and the fake tag: 14 bytes if has_cfg_ver, else the old 12. */
+/* For tests and the fake tag: 18 bytes if has_link, 14 if has_cfg_ver, else 12. */
 size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll);
 
 /* FW_REQ (tag -> AP, firmware update; docs/tag-ota.md) */

@@ -258,7 +258,7 @@ static int parse_at(const esl_api_t *api, const json_t *j, int obj, uint32_t *at
     return 0;
 }
 
-/* Fills cfg from {poll_s, max_poll_s, lost_ap_s}; missing or null = default. */
+/* Fills cfg from {poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min}; missing or null = default. */
 static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
 {
     if (parse_uint(j, obj, "poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->poll_s) < 0 ||
@@ -268,6 +268,14 @@ static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **
     }
     if (parse_uint(j, obj, "lost_ap_s", ESL_CFG_LOST_AP_MIN_S, ESL_CFG_LOST_AP_NEVER, &cfg->lost_ap_s) < 0) {
         *msg = "lost_ap_s must be null or a whole number of seconds from 60 to 65535 (65535 = never)";
+        return 422;
+    }
+    if (parse_uint(j, obj, "long_poll_s", ESL_CFG_LONG_POLL_MIN_S, 0xFFFF, &cfg->long_poll_s) < 0) {
+        *msg = "long_poll_s must be null or a whole number of seconds from 60 to 65535";
+        return 422;
+    }
+    if (parse_uint(j, obj, "long_after_min", ESL_CFG_LONG_AFTER_MIN_MIN, ESL_CFG_LONG_NEVER, &cfg->long_after_min) < 0) {
+        *msg = "long_after_min must be null or a whole number of minutes from 10 to 65535 (65535 = never)";
         return 422;
     }
     return 0;
@@ -442,6 +450,10 @@ static void write_tag_cfg(esl_sb_t *out, const esl_tag_t *t, uint16_t default_po
     write_opt_u16(out, "max_poll_s", t->cfg.max_poll_s);
     esl_sb_putc(out, ',');
     write_opt_u16(out, "lost_ap_s", t->cfg.lost_ap_s);
+    esl_sb_putc(out, ',');
+    write_opt_u16(out, "long_poll_s", t->cfg.long_poll_s);
+    esl_sb_putc(out, ',');
+    write_opt_u16(out, "long_after_min", t->cfg.long_after_min);
     esl_sb_printf(out, "},\"config_pending\":%s", esl_tag_cfg_pending(t, default_poll_s) ? "true" : "false");
 }
 
@@ -543,6 +555,34 @@ static bool seen_s_ago(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms
     return true;
 }
 
+/* "signal":{...}: the last POLLs as the AP heard them and what the tag said with them
+   (#261), null for a tag not heard since this boot */
+static void write_signal(esl_sb_t *out, const esl_tag_t *t)
+{
+    int8_t rssi[ESL_LINK_HIST];
+    uint8_t info[ESL_LINK_HIST];
+    unsigned n = t->seen ? esl_tag_signal(t, rssi, info) : 0;
+    if (!n) {
+        esl_sb_puts(out, ",\"signal\":null");
+        return;
+    }
+    esl_sb_puts(out, ",\"signal\":{\"rssi\":[");
+    for (unsigned i = 0; i < n; i++)
+        esl_sb_printf(out, "%s%d", i ? "," : "", (int)rssi[i]);
+    esl_sb_puts(out, "],\"lost\":[");
+    for (unsigned i = 0; i < n; i++)
+        esl_sb_printf(out, "%s%u", i ? "," : "", (unsigned)(info[i] & ESL_HIST_LOST));
+    esl_sb_puts(out, "],\"retry\":[");
+    for (unsigned i = 0; i < n; i++)
+        esl_sb_printf(out, "%s%u", i ? "," : "", (info[i] & ESL_HIST_RETRY) ? 1u : 0u);
+    esl_sb_printf(out, "],\"polls\":%" PRIu32 ",\"lost_total\":%u,\"retries\":%u,", t->polls,
+                  (unsigned)t->lost_total, (unsigned)t->retries);
+    if (t->rx_lqi || t->rx_rssi)
+        esl_sb_printf(out, "\"tag_rssi\":%u,\"tag_lqi\":%u}", (unsigned)t->rx_rssi, (unsigned)t->rx_lqi);
+    else
+        esl_sb_puts(out, "\"tag_rssi\":null,\"tag_lqi\":null}");
+}
+
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
                       uint16_t default_poll_s, bool with_content)
 {
@@ -591,6 +631,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_puts(out, "null");
     /* the tag takes firmware over the radio (docs/tag-ota.md) */
     esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
+    write_signal(out, t);
     /* the tag shows images the AP draws (protokoll.md "Image transfer"): the id of its
        content's image once drawn, 0 before, and the image id the tag reports */
     esl_sb_printf(out, ",\"image\":%s", t->seen && t->image_capable ? "true" : "false");

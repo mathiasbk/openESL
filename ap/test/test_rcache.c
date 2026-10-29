@@ -220,7 +220,7 @@ static void test_rcache_config(void)
     CHECK_INT(round_rc(&a, 5000), ESL_MSG_IDLE);
 
     /* new settings on the host: CONFIG from the cache, then IDLE once the tag reports them */
-    esl_tag_cfg_t cfg = {300, 0, 0};
+    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, 0x0C, &cfg, &cr), ESL_STORE_OK);
     host_push(0x0C, 6000, 0);
     CHECK_INT(round_rc(&a, 10000), ESL_MSG_CONFIG);
@@ -389,7 +389,7 @@ static void test_rcache_waits(void)
 static void test_rcache_bits(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN_CFG];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     boot();
 
     /* frames to another PAN or address: no reply, not in the log */

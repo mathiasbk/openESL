@@ -51,7 +51,7 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
       } else Object.assign(row, pick(d, CONTENT_KEYS));
       step();
     }
-    const cfg = pick(t.config, ["poll_s", "max_poll_s", "lost_ap_s"]);
+    const cfg = pick(t.config, ["poll_s", "max_poll_s", "lost_ap_s", "long_poll_s", "long_after_min"]);
     if (Object.keys(cfg).length) row.config = cfg;
     if (Object.keys(row).length > 1) tags.push(row); // a tag that has only polled comes back when it polls again
   }

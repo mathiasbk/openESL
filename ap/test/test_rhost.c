@@ -206,7 +206,7 @@ static void test_rhost_content(void)
     CHECK_INT(host.stats.images, imgs);
 
     /* settings and the default interval */
-    esl_tag_cfg_t cfg = {300, 0, 0};
+    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0};
     esl_cfg_result_t cr;
     CHECK_INT(esl_store_set_cfg(&st, 0xA1, &cfg, &cr), ESL_STORE_OK);
     esl_store_set_next_poll(&st, 90);

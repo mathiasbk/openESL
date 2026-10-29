@@ -21,6 +21,8 @@ typedef struct {
     uint16_t poll_s;          /* normal interval (CFG_POLL_S) */
     uint16_t max_poll_s;      /* longest interval without an answer (CFG_MAX_POLL_S) */
     uint16_t lost_ap_s;       /* "No AP found" after this long (CFG_LOST_AP_S), ESL_CFG_LOST_AP_NEVER = never */
+    uint16_t long_poll_s;     /* interval once the AP has been gone for long_after_min (CFG_LONG_POLL_S) */
+    uint16_t long_after_min;  /* (CFG_LONG_AFTER_MIN), ESL_CFG_LONG_NEVER = never */
 } app_cfg_t;
 
 typedef struct {
@@ -32,6 +34,9 @@ typedef struct {
     uint16_t slept_s;         /* the sleep the last round asked for, counted into lost_s at the next miss */
     uint8_t lost_shown;       /* "No AP found" is drawn */
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
+    uint8_t rx_rssi;          /* the radio's RSSI and LQI of the AP's last answer, sent in POLL (0 = none yet) */
+    uint8_t rx_lqi;
+    uint8_t link_flags;       /* for the next POLL: ESL_POLL_LF_RETRY when the last answered one needed its retry */
     uint8_t seq;
     uint16_t rng;
     app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */
@@ -45,5 +50,8 @@ uint16_t app_poll_once(void);
 /* Interval after misses in a row (requirement T11), capped at the configured
    max_poll_s (CFG_MAX_POLL_S by default). Exported for the tests. */
 uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses);
+/* The interval once the AP has been gone for lost_s seconds: long_poll_s after
+   long_after_min, else 0 (backoff as usual). Exported for the tests. */
+uint16_t app_long_poll_s(uint32_t lost_s);
 
 #endif /* APP_H */

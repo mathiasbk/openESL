@@ -143,7 +143,7 @@ class Client:
         return self._request("GET", f"/api/tags/{mac}/config")
 
     def set_tag_config(self, mac, cfg):
-        """cfg: poll_s, max_poll_s, lost_ap_s; a key left out or None means the default."""
+        """cfg: poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min; a key left out or None means the default."""
         return self._request("PUT", f"/api/tags/{mac}/config", cfg)
 
     def layouts(self):

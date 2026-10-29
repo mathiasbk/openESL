@@ -18,6 +18,17 @@ Go straight to the newest release: you do not have to install the ones in betwee
 3. The labels to the label firmware of the 0.8.2 release (it is version 0.6.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files.
 
+## From 0.8.2 to 0.9.0
+
+Update the AP, then the labels; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too only if you want to change how long a label waits without the AP (below).
+
+- The dashboard's Signal column shows the last check-ins of each label as bars, with lost check-ins and retries marked ([Dashboard](Dashboard#signal)). Labels need the 0.9.0 label firmware for the lost and retried check-ins; older ones show the signal the AP hears only.
+- The 0.9.0 label firmware saves battery: it sleeps while the screen changes, measures its battery less often, and after a day without the AP checks only once an hour. Such a label can take up to an hour to show up when the AP comes back. `PUT /api/tags/{mac}/config` takes `long_after_min` and `long_poll_s` ([Access point settings](Access-point-settings)).
+- A C6 access point holds about 550 labels instead of 700, since each label's signal history takes memory.
+- A label updated to 0.9.0 uses the built-in settings until its next check-in, then gets its own again.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-082-to-090).
+
 ## From 0.8.1 to 0.8.2
 
 Update the AP. The labels' firmware has not changed. Going back to 0.8.1 keeps everything on the AP, and the radio sends at the built-in power again (a C6 over WiFi on 0.8.2 only after it restarts).

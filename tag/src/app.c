@@ -83,17 +83,28 @@ static uint16_t base_poll_s(void)
     return app.cfg.poll_s ? app.cfg.poll_s : CFG_POLL_S;
 }
 
+static uint16_t long_after_min(void)
+{
+    return app.cfg.long_after_min ? app.cfg.long_after_min : CFG_LONG_AFTER_MIN;
+}
+
+static uint16_t long_poll_s(void)
+{
+    return app.cfg.long_poll_s ? app.cfg.long_poll_s : CFG_LONG_POLL_S;
+}
+
 /*
  * Flash (requirement T12): a restarted tag uses the AP's settings before it reaches the AP.
  * One record through hal_store_* (hal.h):
  *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
+ *   9-10 long_poll_s   11-12 long_after_min
  * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
  * stale or missing copy only costs one extra CONFIG from the AP. The screen itself comes
  * back from the image slot (image.h).
  * Written only when something changes, and with the radio off.
  */
-#define STORE_FORMAT     1
-#define STORE_LEN        9
+#define STORE_FORMAT     3        /* 1: without the long backoff; 2 was the firmware that drew content */
+#define STORE_LEN        13
 
 static uint8_t __xdata store_rec[STORE_LEN];
 
@@ -106,11 +117,15 @@ static void app_store_load(void)
         app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
         app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
         app.cfg.lost_ap_s = ESL_GET_U16(store_rec + 7);
+        app.cfg.long_poll_s = ESL_GET_U16(store_rec + 9);
+        app.cfg.long_after_min = ESL_GET_U16(store_rec + 11);
     } else {
         app.cfg.ver = 0;
         app.cfg.poll_s = 0;
         app.cfg.max_poll_s = 0;
         app.cfg.lost_ap_s = 0;
+        app.cfg.long_poll_s = 0;
+        app.cfg.long_after_min = 0;
     }
 }
 
@@ -121,6 +136,8 @@ static void app_store_save(void)
     ESL_PUT_U16(store_rec + 3, app.cfg.poll_s);
     ESL_PUT_U16(store_rec + 5, app.cfg.max_poll_s);
     ESL_PUT_U16(store_rec + 7, app.cfg.lost_ap_s);
+    ESL_PUT_U16(store_rec + 9, app.cfg.long_poll_s);
+    ESL_PUT_U16(store_rec + 11, app.cfg.long_after_min);
     /* a failed write only costs a CONFIG after a restart */
     hal_store_write(store_rec, STORE_LEN);
 }
@@ -136,13 +153,18 @@ static void apply_config(void)
     uint16_t poll = at_least(reply.cfg_poll_s, ESL_CFG_POLL_MIN_S);
     uint16_t max = at_least(reply.cfg_max_poll_s, ESL_CFG_POLL_MIN_S);
     uint16_t lost = at_least(reply.cfg_lost_ap_s, ESL_CFG_LOST_AP_MIN_S);
+    uint16_t lpoll = at_least(reply.cfg_long_poll_s, ESL_CFG_LONG_POLL_MIN_S);
+    uint16_t lafter = at_least(reply.cfg_long_after_min, ESL_CFG_LONG_AFTER_MIN_MIN);
     bool changed = app.cfg.ver != reply.cfg_ver || app.cfg.poll_s != poll ||
-                   app.cfg.max_poll_s != max || app.cfg.lost_ap_s != lost;
+                   app.cfg.max_poll_s != max || app.cfg.lost_ap_s != lost ||
+                   app.cfg.long_poll_s != lpoll || app.cfg.long_after_min != lafter;
 
     app.cfg.ver = reply.cfg_ver;
     app.cfg.poll_s = poll;
     app.cfg.max_poll_s = max;
     app.cfg.lost_ap_s = lost;
+    app.cfg.long_poll_s = lpoll;
+    app.cfg.long_after_min = lafter;
     app.interval_s = base_poll_s();
     if (changed)
         app_store_save();
@@ -164,6 +186,15 @@ uint16_t app_backoff_s(uint16_t interval_s, uint8_t misses)
     return s;
 }
 
+uint16_t app_long_poll_s(uint32_t lost_s)
+{
+    uint16_t after = long_after_min();
+
+    if (after == ESL_CFG_LONG_NEVER || lost_s < (uint32_t)after * 60u)
+        return 0;
+    return long_poll_s();
+}
+
 /* Sends the frame in txbuf and waits for a valid answer to us. true = reply is filled in. */
 static bool exchange(uint8_t flen)
 {
@@ -182,19 +213,26 @@ static bool exchange(uint8_t flen)
         if (proto_parse_reply(rxbuf + off, (uint8_t)plen, &reply) == PROTO_OK) {
             rx_off = off;
             rx_plen = (uint8_t)plen;
+            app.rx_rssi = radio_rx_rssi();     /* the signal of this frame, for the next POLL */
+            app.rx_lqi = radio_rx_lqi();
             return true;
         }
     }
     return false;
 }
 
-/* exchange(), and once more after a random pause if nothing came (protokoll.md). */
+/* exchange(), and once more after a random pause if nothing came (protokoll.md). The
+   retry is the same frame, byte for byte; retried says it was needed and answered. */
+static bool retried;
+
 static bool exchange_retry(uint8_t flen)
 {
+    retried = false;
     if (exchange(flen))
         return true;
     hal_delay_ms(CFG_RETRY_MIN_MS + (uint8_t)(rng_next() % (CFG_RETRY_MAX_MS - CFG_RETRY_MIN_MS + 1)));
-    return exchange(flen);
+    retried = exchange(flen);
+    return retried;
 }
 
 /* Builds POLL straight into the payload part of txbuf (proto_build_frame copies it onto itself). */
@@ -203,8 +241,9 @@ static uint8_t build_poll_frame(void)
     uint8_t *pl = txbuf + ESL_MAC_HDR_LEN;
     uint8_t flags = app.poll_flags | ota_poll_flags() | image_poll_flags();
 
-    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver);
-    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_CFG);
+    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver,
+                     app.rx_rssi, app.rx_lqi, app.misses, app.link_flags);
+    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LINK);
 }
 
 /*
@@ -283,7 +322,7 @@ static bool show_image(void)
 
 static uint16_t on_miss(void)
 {
-    uint16_t sleep;
+    uint16_t sleep, longer;
     uint16_t lost = app.cfg.lost_ap_s ? app.cfg.lost_ap_s : CFG_LOST_AP_S;
 
     if (app.misses < 255)
@@ -292,6 +331,9 @@ static uint16_t on_miss(void)
     if (app.lost_s < 0xFFFF0000ul)
         app.lost_s += app.slept_s;
     sleep = app_backoff_s(app.interval_s, app.misses);
+    longer = app_long_poll_s(app.lost_s);   /* gone for a day: save the battery (#261) */
+    if (longer > sleep)
+        sleep = longer;
     if (lost == ESL_CFG_LOST_AP_NEVER || app.lost_shown)
         return sleep;
     if (app.lost_s >= lost) {
@@ -319,6 +361,9 @@ void app_init(void)
     app.slept_s = 0;
     app.lost_shown = 0;
     app.poll_flags = ESL_POLL_F_BOOTED;
+    app.rx_rssi = 0;
+    app.rx_lqi = 0;
+    app.link_flags = 0;
     app.seq = 0;
     app.rng = 0xACE1;
     for (i = 0; i < MAC_ADDR_LEN; i++)
@@ -342,6 +387,8 @@ static uint16_t poll_round(void)
     hal_wdt_kick();
     radio_on();
     got = exchange_retry(build_poll_frame());
+    if (got)                         /* the next POLL tells the AP this one needed its retry */
+        app.link_flags = retried ? ESL_POLL_LF_RETRY : 0;
     if (got && reply.type == ESL_MSG_FW) {
         /* The AP sends firmware only when nothing else is waiting: nothing to draw */
         fw_done = fw_transfer();

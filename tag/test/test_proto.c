@@ -8,13 +8,14 @@ static const uint8_t mac[8] = { 0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00 }
 
 static void test_build_poll(void)
 {
-    uint8_t p[ESL_POLL_LEN_CFG];
-    static const uint8_t expect[ESL_POLL_LEN_CFG] = {
+    uint8_t p[ESL_POLL_LEN_LINK];
+    static const uint8_t expect[ESL_POLL_LEN_LINK] = {
         0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE,
-        0x34, 0x12
+        0x34, 0x12, 0xC8, 0x6E, 0x05, 0x01
     };
-    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234), ESL_POLL_LEN_CFG);
+    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0xC8, 0x6E, 5, ESL_POLL_LF_RETRY), ESL_POLL_LEN_LINK);
     CHECK_EQ(ESL_POLL_OFF_CFG_VER + 2, ESL_POLL_LEN_CFG);
+    CHECK_EQ(ESL_POLL_OFF_LINKF + 1, ESL_POLL_LEN_LINK);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
 }
 
@@ -102,7 +103,7 @@ static void test_parse_config(void)
 {
     uint8_t p[ESL_MAX_PAYLOAD + 1];
     proto_reply_t r;
-    uint8_t n = make_config(p, 120, 0xBEEF, 120, 900, ESL_CFG_LOST_AP_NEVER);
+    uint8_t n = make_config_long(p, 120, 0xBEEF, 120, 900, ESL_CFG_LOST_AP_NEVER, 7200, ESL_CFG_LONG_NEVER);
 
     CHECK_EQ(n, ESL_CONFIG_LEN);
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
@@ -112,12 +113,19 @@ static void test_parse_config(void)
     CHECK_EQ(r.cfg_poll_s, 120);
     CHECK_EQ(r.cfg_max_poll_s, 900);
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
+    CHECK_EQ(r.cfg_long_poll_s, 7200);
+    CHECK_EQ(r.cfg_long_after_min, ESL_CFG_LONG_NEVER);
 
     /* settings a newer AP appends are skipped; a cut message is not accepted */
     memset(p + n, 0xEE, 6);
     CHECK_EQ(proto_parse_reply(p, (uint8_t)(n + 6), &r), PROTO_OK);
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
-    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_E_SHORT);
+    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_OK);   /* without long_after_min ... */
+    CHECK_EQ(r.cfg_long_poll_s, 0);                                     /* ... an older AP's 12 bytes */
+    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL, &r), PROTO_OK);
+    CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
+    CHECK_EQ(r.cfg_long_after_min, 0);
+    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL - 1, &r), PROTO_E_SHORT);
     CHECK_EQ(proto_parse_reply(p, ESL_MAX_PAYLOAD + 1, &r), PROTO_E_LONG);
 
     /* an IDLE afterwards leaves no settings behind in r */
@@ -125,21 +133,22 @@ static void test_parse_config(void)
     CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
     CHECK_EQ(r.cfg_ver, 0);
     CHECK_EQ(r.cfg_poll_s, 0);
+    CHECK_EQ(r.cfg_long_poll_s, 0);
 }
 
 static void test_build_frame(void)
 {
-    uint8_t payload[ESL_POLL_LEN_CFG];
+    uint8_t payload[ESL_POLL_LEN_LINK];
     uint8_t f[128];
     static const uint8_t hdr[ESL_MAC_HDR_LEN] = {
         0x41, 0xC8, 0x07, 0x53, 0x45, 0x00, 0x00,
         0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00
     };
-    proto_build_poll(payload, 1, 3000, 0, 0, 0);
-    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_CFG),
-             ESL_MAC_HDR_LEN + ESL_POLL_LEN_CFG);
+    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0, 0, 0, 0);
+    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_LINK),
+             ESL_MAC_HDR_LEN + ESL_POLL_LEN_LINK);
     CHECK(memcmp(f, hdr, sizeof(hdr)) == 0);
-    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN_CFG) == 0);
+    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN_LINK) == 0);
     CHECK_EQ(proto_build_frame(f, 0, ESL_DEFAULT_PAN_ID, mac, payload, ESL_MAX_PAYLOAD + 1), 0);
 }
 

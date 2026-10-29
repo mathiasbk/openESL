@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -212,6 +212,90 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return td;
   };
 
+  // The Signal column: the last RSSI, and the last polls as small bars (higher = stronger,
+  // a red mark where polls were lost before it), with the numbers in the tooltip (#261).
+  // A click on it opens a bigger chart under the row (signalDetail), kept open across refreshes.
+  const SVG = "http://www.w3.org/2000/svg";
+  const openSignal = new Set();
+  const svgEl = (name, attrs, text) => {
+    const e = document.createElementNS(SVG, name);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  function toggleSignal(mac) {
+    if (!openSignal.delete(mac)) openSignal.add(mac);
+    render();
+  }
+  function signalButton(tag, content, title) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sig-btn";
+    b.title = title + " Click for a bigger chart.";
+    b.setAttribute("aria-expanded", String(openSignal.has(tag.mac)));
+    b.append(...content);
+    b.onclick = () => toggleSignal(tag.mac);
+    return b;
+  }
+  function signalCell(tag) {
+    const sig = signalSummary(tag);
+    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num");
+    const td = cell("", "opt num signal" + (sig.weak ? " state-busy" : ""));
+    const W = 5, H = 18, n = tag.signal.rssi.length;
+    const svg = svgEl("svg", { viewBox: `0 0 ${n * W} ${H}`, width: n * W, height: H, "aria-hidden": "true" });
+    tag.signal.rssi.forEach((r, i) => {
+      // -100 dBm and below: 2 px, -40 and above: full height under the marks
+      const h = Math.max(2, Math.min(H - 4, Math.round(((r + 100) / 60) * (H - 4))));
+      svg.append(svgEl("rect", { x: i * W, y: H - h, width: W - 1, height: h, class: "bar" }));
+      if (tag.signal.lost?.[i] || tag.signal.retry?.[i])
+        svg.append(svgEl("rect", { x: i * W, y: 0, width: W - 1, height: 3, class: tag.signal.lost?.[i] ? "lost" : "retry" }));
+    });
+    td.append(signalButton(tag, [svg, " " + sig.text], sig.title));
+    return td;
+  }
+
+  // The bigger chart: one bar per poll from -100 to -40 dBm, the weak line at -85, lost and
+  // retried polls marked above their bar (the numbers stay in the tooltip)
+  function signalDetail(tag) {
+    const sig = signalSummary(tag);
+    const tr = document.createElement("tr");
+    tr.setAttribute("role", "row");
+    tr.className = "sig-detail";
+    const td = cell("", "sig-detail");
+    td.colSpan = 10;
+    const s = tag.signal, n = s.rssi.length;
+    const L = 46, T = 26, PH = 110, step = Math.max(12, Math.min(40, Math.floor(480 / n))), W = L + n * step + 8, H = T + PH + 22;
+    const y = (dbm) => T + PH * (1 - (Math.max(-100, Math.min(-40, dbm)) + 100) / 60);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "sig-chart", role: "img",
+                               "aria-label": sig.title });
+    for (const g of [-40, -60, -85, -100])
+      svg.append(svgEl("line", { x1: L - 4, x2: W - 4, y1: y(g), y2: y(g), class: g === -85 ? "weak" : "grid" }),
+                 svgEl("text", { x: L - 8, y: y(g) + 4, class: "axis", "text-anchor": "end" }, `${g}`));
+    svg.append(svgEl("text", { x: 4, y: 10, class: "axis" }, "dBm"));
+    s.rssi.forEach((r, i) => {
+      const x = L + i * step + 2, bw = step - 4;
+      const bar = svgEl("rect", { x, y: y(r), width: bw, height: Math.max(2, T + PH - y(r)), class: "bar" });
+      const what = s.lost?.[i] ? `, ${s.lost[i]} lost before it` : s.retry?.[i] ? ", on the tag's second try" : "";
+      bar.append(svgEl("title", {}, `${n - 1 - i ? `${n - 1 - i} poll${n - 1 - i === 1 ? "" : "s"} back` : "Last poll"}: ${r} dBm${what}`));
+      svg.append(bar);
+      if (s.lost?.[i] || s.retry?.[i])
+        svg.append(svgEl("rect", { x, y: T - 10, width: bw, height: 5, class: s.lost?.[i] ? "lost" : "retry" }));
+    });
+    svg.append(svgEl("text", { x: L + 2, y: H - 4, class: "axis" }, "older"),
+               svgEl("text", { x: W - 6, y: H - 4, class: "axis", "text-anchor": "end" }, "last poll"));
+    const legend = document.createElement("p");
+    legend.className = "hint sig-legend";
+    legend.innerHTML = '<span class="key lost"></span> no answer before this poll <span class="key retry"></span> answered on the second try <span class="key weak"></span> weak (−85 dBm)';
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "small";
+    close.textContent = "Close";
+    close.onclick = () => toggleSignal(tag.mac);
+    td.append(svg, legend, close);
+    tr.append(td);
+    return tr;
+  }
+
   // A button that sets the filter, pressed while it is the one in use
   function filterButton(f, cls, ...content) {
     const b = document.createElement("button");
@@ -231,7 +315,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!a || !$("dash-body").contains(a)) return null;
     if (a.dataset.f) return `[data-f="${a.dataset.f}"]` + (a.classList.contains("tile") ? ".tile" : ".chip");
     const tr = a.closest("#dash-tags tr[data-mac]");
-    if (tr) return `tr[data-mac="${tr.dataset.mac}"] ` + (a.matches("td.sel input") ? "td.sel input" : "button.fw-up");
+    if (tr) return `tr[data-mac="${tr.dataset.mac}"] ` + (a.matches("td.sel input") ? "td.sel input" : a.matches("td.meta .sig-btn") ? "td.meta .sig-btn" : a.matches(".sig-btn") ? "td.signal .sig-btn" : "button.fw-up");
     return null;
   }
 
@@ -301,7 +385,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
     const rows = filterRows(all, filter, $("dash-find").value);
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
-    $("dash-tags").replaceChildren(...rows.map(({ tag, state, next }) => {
+    $("dash-tags").replaceChildren(...rows.flatMap(({ tag, state, next }) => {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
       tr.dataset.mac = tag.mac;
@@ -328,7 +412,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         cell(tag.model ? tag.model + '"' : "–", "opt"),
         cell(seen.text, "opt", seen.at),
         cell(next ? next.text : "–", "opt " + lateCls, next ? "Expected by " + next.at : ""),
-        cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num"),
+        signalCell(tag),
         cell(battery, "opt num", tag.battery_mv === 0 ? "This model cannot measure its battery" : ""),
         fw);
       // Firmware for it: how far it is, or a button that gives it the page's newer firmware
@@ -357,10 +441,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       }
       // On a phone the columns after the MAC become one line under it
       const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
-        next && !next.late ? "next " + next.text : null, tag.rssi == null ? null : `${tag.rssi} dBm`,
+        next && !next.late ? "next " + next.text : null, signalSummary(tag)?.text ?? (tag.rssi == null ? null : `${tag.rssi} dBm`),
         battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
-      tr.append(screenCell(tag), cell(meta, "meta"));
-      return tr;
+      const metaTd = cell(meta, "meta");
+      const sig = signalSummary(tag);
+      if (sig) {
+        // on a phone the Signal column is hidden: the signal in the line under the MAC opens the chart
+        metaTd.textContent = "";
+        const parts = meta.split(sig.text);
+        metaTd.append(parts[0], signalButton(tag, [sig.text], sig.title), parts.slice(1).join(sig.text));
+      }
+      tr.append(screenCell(tag), metaTd);
+      return openSignal.has(tag.mac) && sig ? [tr, signalDetail(tag)] : [tr];
     }));
     if (!rows.length) {
       const tr = document.createElement("tr");

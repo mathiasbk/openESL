@@ -19,6 +19,12 @@ static void push_config(uint16_t next, uint16_t ver, uint16_t poll, uint16_t max
     fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
 }
 
+static void push_config_long(uint16_t ver, uint16_t long_poll, uint16_t long_after)
+{
+    uint8_t n = make_config_long(pl, 0, ver, 0, 0, 0, long_poll, long_after);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
+}
+
 /* A reply of the old firmware's kinds (CONTENT, LAYOUT): only its type and length matter */
 static void push_old(uint8_t type)
 {
@@ -52,7 +58,7 @@ static void test_boot(void)
     push_idle(0);
     CHECK_EQ(app_poll_once(), CFG_POLL_S);
     CHECK_EQ(fake_tx_count, 1);
-    CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_CFG);
+    CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_LINK);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 0);      /* built-in settings */
     CHECK_EQ(sent_poll(0)[0], ESL_MSG_POLL);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_FW), FW_VERSION);
@@ -238,6 +244,110 @@ static void test_config_from_ap(void)
     CHECK_EQ(app.interval_s, CFG_POLL_S);
 }
 
+/* The link block in POLL (#261): the signal of the AP's last answer, the rounds lost
+   before this one, and whether the last answered round needed its retry. The retry
+   itself is the same frame, byte for byte (so a MIC on it, #260, stays valid). */
+static void test_link_block(void)
+{
+    fresh();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_RX_RSSI], 0);      /* nothing heard yet */
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_RX_LQI], 0);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 0);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
+
+    /* two rounds without an answer: each sends the POLL twice, unchanged */
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 2);
+    CHECK_EQ(fake_tx_len[0], fake_tx_len[1]);
+    CHECK(memcmp(fake_tx[0], fake_tx[1], fake_tx_len[0]) == 0);
+    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_LINKF], 0);
+    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_RX_RSSI], fake_rx_rssi);   /* from the answer before */
+    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_RX_LQI], fake_rx_lqi);
+    fake_radio_reset();
+    app_poll_once();
+
+    /* answered at the second try: it reports both lost rounds; the retry is not flagged yet */
+    fake_radio_reset();
+    fake_rx_lose();
+    push_idle(0);
+    fake_rx_rssi = 0x90;
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 2);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 2);
+    CHECK(memcmp(fake_tx[0], fake_tx[1], fake_tx_len[0]) == 0);
+    CHECK_EQ(app.misses, 0);
+
+    /* the next round says the last one needed its retry, with the new answer's signal */
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 1);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 0);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], ESL_POLL_LF_RETRY);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_RX_RSSI], 0x90);
+
+    /* and the one after that starts clean */
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
+    fake_rx_rssi = 0xC8;
+}
+
+/* #261: after a day without the AP, one POLL an hour (or as the AP set it) */
+static void test_long_backoff(void)
+{
+    unsigned long total = 0;
+    uint16_t s = 0;
+    int rounds = 0;
+
+    fresh();
+    CHECK_EQ(app_long_poll_s(0), 0);
+    CHECK_EQ(app_long_poll_s(CFG_LONG_AFTER_MIN * 60ul - 1), 0);
+    CHECK_EQ(app_long_poll_s(CFG_LONG_AFTER_MIN * 60ul), CFG_LONG_POLL_S);
+
+    push_idle(0);
+    app_poll_once();
+    while (total < 2ul * CFG_LONG_AFTER_MIN * 60 && rounds < 2000) {
+        fake_radio_reset();
+        s = app_poll_once();
+        CHECK(app.lost_s < CFG_LONG_AFTER_MIN * 60ul ? s <= CFG_MAX_POLL_S : s == CFG_LONG_POLL_S);
+        total += s;
+        rounds++;
+    }
+    CHECK_EQ(s, CFG_LONG_POLL_S);
+    /* a day of 600 s sleeps and then hours: far fewer wake-ups than at 600 s */
+    CHECK(rounds < CFG_LONG_AFTER_MIN / 10 + 30);
+
+    /* the AP is back: the first answer ends it */
+    fake_radio_reset();
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+
+    /* set from the AP: 30 min after 10 min, kept in flash; "never" keeps the backoff */
+    fake_radio_reset();
+    push_config_long(9, 1800, 10);
+    app_poll_once();
+    CHECK_EQ(app.cfg.long_poll_s, 1800);
+    CHECK_EQ(app.cfg.long_after_min, 10);
+    CHECK_EQ(app_long_poll_s(600), 1800);
+    app_init();
+    CHECK_EQ(app.cfg.long_poll_s, 1800);
+    CHECK_EQ(app.cfg.long_after_min, 10);
+    fake_radio_reset();
+    push_config_long(10, 5, ESL_CFG_LONG_NEVER);
+    app_poll_once();
+    CHECK_EQ(app.cfg.long_poll_s, ESL_CFG_LONG_POLL_MIN_S);      /* raised to the minimum */
+    CHECK_EQ(app_long_poll_s(0xFFFFFFul), 0);
+    fake_radio_reset();
+    push_config_long(11, 600, 1);
+    app_poll_once();
+    CHECK_EQ(app.cfg.long_after_min, ESL_CFG_LONG_AFTER_MIN_MIN);
+}
+
 /* T9: "No AP found" when CFG_LOST_AP_S have passed since the last answer, not a sleep earlier */
 static void test_lost_ap_on_time(void)
 {
@@ -306,12 +416,11 @@ static void test_restart_bad_flash(void)
 {
     /* A record with settings: kept over a restart, with the start screen (no image) */
     fresh();
-    fake_store[0] = 1;
+    memset(fake_store, 0, sizeof(fake_store));
+    fake_store[0] = 3;
     ESL_PUT_U16(fake_store + 1, 9);
     ESL_PUT_U16(fake_store + 3, 90);
-    ESL_PUT_U16(fake_store + 5, 0);
-    ESL_PUT_U16(fake_store + 7, 0);
-    fake_store_len = 9;
+    fake_store_len = 13;
     fake_draw_count = 0;
     app_init();
     CHECK_EQ(app.cfg.ver, 9);
@@ -319,7 +428,12 @@ static void test_restart_bad_flash(void)
     CHECK_EQ(app.shown_id, 0);
     CHECK_EQ(fake_draw_count, 1);
 
-    /* the record of the firmware that drew content itself (format 2): ignored */
+    /* the record before the long backoff (format 1, 9 bytes) is ignored: the AP sends
+       CONFIG again. So is the one of the firmware that drew content itself (format 2) */
+    fake_store[0] = 1;
+    fake_store_len = 9;
+    app_init();
+    CHECK_EQ(app.cfg.ver, 0);
     fake_store[0] = 2;
     fake_store_len = 60;
     app_init();
@@ -350,4 +464,6 @@ void test_app(void)
     RUN(test_config_from_ap);
     RUN(test_config_backoff_and_lost);
     RUN(test_restart_bad_flash);
+    RUN(test_link_block);
+    RUN(test_long_backoff);
 }

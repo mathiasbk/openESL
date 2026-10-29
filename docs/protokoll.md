@@ -18,7 +18,7 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 
-**POLL** (tag → AP), `type = 0x01`, 14 bytes (12 or 18 from older firmware, see below)
+**POLL** (tag → AP), `type = 0x01`, 18 bytes (12 or 14 from older firmware, see below)
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
@@ -28,15 +28,20 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bit4 stays on until the tag starts downloading another version, so the AP counts it against the version it offered only once the tag has asked for a block of it: before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP (see "Image transfer"); the tag sets it when it has its SPI flash. bit6 = it also takes run-length coded images (IMG `fmt` 1), bit7 = it also takes images coded column against column (IMG `fmt` 2). bit2 is not used (firmware that drew content itself set it for a rejected layout file) |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
+| rx_rssi | 1 | byte 14, the link block (see "Signal"): the tag radio's raw RSSI byte for the AP's last answer it took, 0 = none since it started. Not dBm: the scale is not measured yet, higher is stronger |
+| rx_lqi | 1 | byte 15: the link quality (0–127) of that answer, 0 = none |
+| lost | 1 | byte 16: poll rounds in a row without an answer before this one (255 = 255 or more) |
+| link_flags | 1 | byte 17: bit0 = the tag's last answered round needed its second try. The retry itself is the same frame, byte for byte, so the flag goes in the next round's POLL |
 
 The AP accepts a POLL of 12 bytes or more, and the length says what the firmware can take:
 
 | Length | Firmware | The AP may send |
 |---|---|---|
 | 12–13 | old | IDLE, and IMG and FW when its flags say it takes them |
-| 14 or more | current (`tag/src`) | also CONFIG |
+| 14–17 | 0.6 to 0.8 | also CONFIG |
+| 18 or more | current (`tag/src`) | the same; the AP keeps its link block as the tag's signal history |
 
-So older tags never get a message type they do not know. Firmware that drew content itself sent 18 bytes (bytes 14–17 were its layout file version); the AP reads such a POLL as 14 bytes. Fields added later go after byte 14, and the AP ignores bytes it does not know. CONFIG adds no flag.
+So older tags never get a message type they do not know. Firmware that drew content itself sent 18 bytes with its layout file version at 14–17; no tag runs it any more, and the AP would read those bytes as a link block. Fields added later go after byte 18, and the AP ignores bytes it does not know. CONFIG adds no flag.
 
 **IDLE** (AP → tag), `type = 0x02`, 4 bytes: "nothing new"
 | Field | Bytes | Description |
@@ -46,7 +51,7 @@ So older tags never get a message type they do not know. Firmware that drew cont
 
 Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fields and the layout file to tags that drew their screens themselves, before the AP drew them. They are retired and not used again: the AP never sends them, and it does not answer them.
 
-**CONFIG** (AP → tag), `type = 0x08`, 12 bytes: settings for this tag
+**CONFIG** (AP → tag), `type = 0x08`, 16 bytes: settings for this tag
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x08, 0x01 |
@@ -55,10 +60,12 @@ Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fiel
 | poll_s | 2 | normal interval in seconds (T4) |
 | max_poll_s | 2 | longest interval while the AP does not answer (T11) |
 | lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
+| long_poll_s | 2 | the interval once the AP has been gone for `long_after_min` (#261) |
+| long_after_min | 2 | minutes without an answer before the tag polls only every `long_poll_s`; 65535 = never |
 
-Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest. A CONFIG shorter than 12 bytes is ignored.
+Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s, 3600 s, 1440 min). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s` and `long_poll_s`, 10 min for `long_after_min`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field a shorter CONFIG does not have is 0 (an AP before 0.9 sends 12 bytes). A CONFIG shorter than 12 bytes is ignored.
 
-`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
+`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits; of the first three settings only when the long backoff is not set, which is what an AP before 0.9 sent, so an update sends no tag a CONFIG it already has). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
 
 **FW** (AP → tag), `type = 0x06`, 15 bytes + data. One block of a firmware image (docs/tag-ota.md)
 | Field | Bytes | Description |
@@ -161,8 +168,13 @@ Tag                                      AP
 - If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses). After `lost_ap_s` without an answer it shows "No AP found" with its MAC and firmware version (T9); when the AP answers again it shows its image again, or "Waiting for content" if it has none.
 - The tag sends no separate acknowledgement. The next POLL carries the `image_id` it shows, and that is the acknowledgement. If an image does not arrive whole, the AP offers it again at the next POLL, and the tag goes on from where it stopped.
 - Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG first (see "Priority" below). The next POLL with the new `cfg_ver` is the acknowledgement. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
+- When the AP has been gone for `long_after_min` (a day by default), the tag polls only every `long_poll_s` (an hour by default) instead of every `max_poll_s`, until it gets an answer: the first answer brings its normal interval back. The tag then finds a returned AP up to an hour late, but a tag on a shelf with its AP switched off lasts longer (`docs/strombudsjett.md`).
 - `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG. When scheduled content for the tag is due before that, `next_poll_s` is the time until it is due plus 2 s instead; the next reply brings the normal interval back.
 - Unknown MAC: the AP replies IDLE and adds the tag to the table with `content_id: 0`, so the client sees it in `GET /api/tags` and can give it content.
+
+### Signal
+
+Each POLL tells the AP how the link has been (#261): the link block at bytes 14–17 has the tag radio's RSSI and LQI of the AP's last answer, the rounds that went unanswered since, and a flag when the last answered round needed its second try. A second try that gets an answer means the AP's answer to the first was lost, or the first POLL never reached it; a round with no answer at all shows up as `lost` in the next POLL that gets through. The AP counts neither for the first POLL it hears from a tag after it started, since those rounds may have been lost while the AP itself restarted. Together with the RSSI the AP measures on each POLL, the AP keeps the last 8 POLLs per tag in RAM (32 on an AP with PSRAM), shown under `signal` in `GET /api/tags` and as small bars in the dashboard's Signal column. A tag that loses POLLs or needs its retry for a quarter of them, or one heard below about −85 dBm on average, is marked weak there before it drops out.
 
 ### Firmware transfer (requirement T15)
 The same pattern as the image transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).
