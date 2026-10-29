@@ -252,6 +252,9 @@
       </div>
     </dialog>
 
+    <dialog id="lay-api-dlg" class="dlg lay-api-dlg" aria-label="What to send for this layout">
+      <div id="lay-api" class="lay-panel"></div>
+    </dialog>
     <dialog id="tpl-dlg" class="dlg tpl-dlg" aria-labelledby="tpl-h">
       <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
       <h3 id="tpl-h">New from template <span class="muted">for the <span id="tpl-model">2.9"</span></span></h3>
@@ -482,13 +485,13 @@
           </form>
         </dialog>
       </section>
-      <section id="lay-card" class="card wide lay" hidden>
+      <details id="lay-card" class="card wide fold lay" hidden>
+        <summary><h2>Layouts</h2> <span id="lay-sum" class="muted"></span></summary>
         <div class="lay-head">
-          <h2>Layouts</h2>
           <div id="lay-models" class="seg" role="group" aria-label="Tag model"></div>
           <span class="lay-space"><span id="lay-space" class="muted small"></span> <span id="lay-meter" class="meter"><i></i></span></span>
         </div>
-        <p class="hint">What the AP can draw on the tags. A tag shows the layout its content names; send a layout here first, then content with it.</p>
+        <p class="hint">What the AP can draw on the tags. A tag shows the layout its content names; send a layout here first, then content with it. Pick a layout to send it to a tag.</p>
         <div id="lay-warn" class="lay-warn" role="status" hidden></div>
         <div class="lay-body">
           <div class="lay-main">
@@ -498,23 +501,10 @@
             <p id="lay-can-none" class="hint" hidden></p>
             <div id="lay-can" class="lay-grid"></div>
           </div>
-          <aside id="lay-panel" class="lay-panel" hidden>
-            <div class="lay-p-head">
-              <h3><span id="lay-p-name"></span> <span id="lay-p-state" class="pill"></span></h3>
-              <button id="lay-p-close" type="button" class="link" aria-label="Close">✕</button>
-            </div>
-            <p id="lay-p-desc" class="muted"></p>
-            <h4 class="lay-h">Data it needs from the API</h4>
-            <table class="lay-fields"><thead><tr><th>#</th><th>Field</th><th>What to send</th></tr></thead><tbody id="lay-p-fields"></tbody></table>
-            <p class="hint">Send them in this order, as <code>fields</code>. Fields left out stay empty.</p>
-            <div class="lay-p-tabs"><div id="lay-p-tabs" class="seg small" role="group" aria-label="Example"></div><button id="lay-p-copy" type="button" class="small">Copy</button></div>
-            <pre id="lay-p-code" class="lay-code"></pre>
-            <h4 class="lay-h" id="lay-p-users-h">Tags using it</h4>
-            <p id="lay-p-users" class="mono small"></p>
-          </aside>
+          <aside id="lay-panel" class="lay-panel" hidden></aside>
         </div>
         <p id="lay-msg" class="hint" role="status"></p>
-      </section>
+      </details>
       <details id="dash-ap-box" class="card wide fold">
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
         <dl id="dash-ap" class="facts"></dl>

@@ -16,6 +16,7 @@ import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
 import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
+import { layoutPanel } from "./layoutapi.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -713,7 +714,7 @@ function refreshLayoutList() {
     del.title = del.ariaLabel = lays.length <= 1 ? "The file needs at least one layout" : "Delete this layout";
     del.disabled = lays.length <= 1;
     del.dataset.act = "delete";
-    acts.append(copy, del);
+    acts.append(infoButton(), copy, del);
     li.append(pic, t, acts);
     return li;
   }));
@@ -733,10 +734,72 @@ function refreshLayoutList() {
     const d = document.createElement("span");
     d.className = "dim";
     d.textContent = BUILTIN[name].fields.length + " fields";
-    li.append(n, d);
+    const acts = document.createElement("span");
+    acts.className = "acts";
+    acts.append(infoButton());
+    li.append(n, d, acts);
     return li;
   }));
   if (isBuiltin()) $("builtin-box").open = true;
+}
+
+function infoButton() {
+  const b = document.createElement("button");
+  b.textContent = "API";
+  b.className = "info";
+  b.title = b.ariaLabel = "What a tag needs for this layout: send it to a tag, or see the request for curl, esl-client and Home Assistant";
+  b.dataset.act = "info";
+  return b;
+}
+
+// The window with what a client sends for a layout of the file or a built-in one (key as
+// state.sel), the same panel as the Dashboard's Layouts card (js/layoutapi.js)
+let infoPanel = null;
+let infoKey = "";
+async function showLayoutInfo(key = infoKey) {
+  infoKey = key;
+  const dlg = $("lay-api-dlg");
+  infoPanel ||= layoutPanel($("lay-api"), { onClose: () => dlg.close() });
+  const builtin = key.startsWith("builtin:");
+  const l = builtin ? null : doc().layouts?.[+key.slice(5)];
+  if (!builtin && !l) return;
+  const name = builtin ? key.slice(8) : l.name;
+  const fields = builtin ? BUILTIN[name].fields : l.fields || [];
+  const sample = builtin ? fields.map(defaultSample) : samplesOf(l);
+  let what = [];
+  if (l?._template) {
+    const t = (await templateById(l._template))?.t;
+    if (t) what = fields.map((f) => t.fields?.[f] || "");
+  }
+  const cmp = !builtin && ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
+  const st = builtin ? "ap" : cmp?.states[name];
+  const pill = builtin ? "Built in" : !ap.connected ? "In this file"
+    : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
+  const host = onAp ? location.host : "openesl.local";
+  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model).map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name })) : [];
+  infoPanel.show({
+    key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
+    send: ap.connected && st === "ap" ? async (mac, c) => {
+      const r = await apClient().putContent(mac, c);
+      ap.tagLayouts[mac] = name;
+      refreshLayoutList();
+      showLayoutInfo();
+      return r;
+    } : null,
+    why: !ap.connected ? "Connect to your AP to send to a tag from here."
+      : `The AP does not have this version of "${name}" yet. ${onAp ? "Save the file to the AP" : "Send it to the AP"} first.`,
+    first: { label: !ap.connected ? "Connect to your AP…" : onAp ? "Save to AP" : "Send to your AP…", run: () => {
+      // The Send window and Save to AP work on the selected layout: select this one first
+      $("lay-api-dlg").close();
+      if (state.sel !== key) {
+        state.sel = key;
+        state.el = -1;
+        refreshAll();
+      }
+      $(onAp && ap.connected ? "ap-save" : "send-open").click();
+    } },
+  });
+  if (!dlg.open) dlg.showModal();
 }
 
 // The small pictures of the layouts, by model: the last image data drawn for each
@@ -1499,7 +1562,9 @@ function initActions() {
     const li = ev.target.closest("li");
     if (!li) return;
     const act = ev.target.closest("button")?.dataset.act;
-    if (act === "copy") {
+    if (act === "info") {
+      showLayoutInfo(li.dataset.sel);
+    } else if (act === "copy") {
       const c = structuredClone(layout());
       c.name = uniqueName(c.name);
       addLayout(c);
@@ -1519,6 +1584,7 @@ function initActions() {
   });
   $("builtin-list").addEventListener("click", (ev) => {
     const li = ev.target.closest("li");
+    if (li && ev.target.closest("button")?.dataset.act === "info") return showLayoutInfo(li.dataset.sel);
     if (!li || li.dataset.sel === state.sel) return;
     state.sel = li.dataset.sel;
     state.el = -1;
