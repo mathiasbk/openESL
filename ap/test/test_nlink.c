@@ -315,7 +315,7 @@ static void test_nlink_flow(void)
 
     /* a planned channel move: the radio answers with CONFIG that announces it, and the
        host sees the tag confirm it */
-    esl_store_move_channel(&st, 15, false, 202500);
+    esl_store_move_channel(&st, 15, false, false, 202500);
     sync_at(203000);
     CHECK_INT(wake(&a, 261000), ESL_MSG_CONFIG);
     CHECK_INT(a.cfg.channel, 15);

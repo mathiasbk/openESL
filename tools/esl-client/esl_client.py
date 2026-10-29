@@ -708,6 +708,10 @@ def print_config(c):
             line += ", the radio on WiFi is too old to change the channel"
         elif c.get("channel_old_tags"):
             line += f", {c['channel_old_tags']} tags cannot follow a channel change (firmware before 0.9.0)"
+        elif c.get("channel_unheard_tags"):
+            line += f", {c['channel_unheard_tags']} tags not heard since the AP started (no channel change until they are)"
+        if c.get("channel_stopped") and c.get("channel_next") is None:
+            line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
     print(line)

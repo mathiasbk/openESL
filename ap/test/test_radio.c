@@ -539,11 +539,19 @@ static void test_channel(void)
     CHECK_INT(air(&c, 1000, false), ESL_MSG_CONFIG);
     CHECK_INT(c.cfg.channel, 15);
 
+    /* right after a restart the AP does not know the firmware of the tags it has not heard
+       yet: no move off the built-in channel until they have polled, or their window is over */
+    CHECK_INT(config_at(NULL, 1000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":0,\"channel_unheard_tags\":2,"));
+    CHECK_INT(config_at("{\"channel\":20}", 1000), 409);
+    CHECK(strstr(resp, "2 tags have not polled since the AP started"));
+    CHECK(strstr(resp, "at most 4 min"));
+
     /* a restart during a move: the radio comes up where it was, announces the move again
        and waits for the tags not heard since, up to a new deadline */
-    CHECK_INT(config("{\"channel\":20}"), 200);
+    CHECK_INT(config_at("{\"channel\":20}", 241000), 200);
     CHECK(nvs.channel == 15 && nvs.ch_next == 20);
-    CHECK_INT(air(&c, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(air(&c, 242000, false), ESL_MSG_CONFIG);
     CHECK_INT(c.cfg.channel, 20);
     esl_store_save_seen(&st); /* a planned restart (OTA) */
     ap_boot();
@@ -563,25 +571,38 @@ static void test_channel(void)
     esl_faketag_t d;
     esl_faketag_init(&d, 0xD4, 2, 3000, ESL_MODEL_29);
     d.no_link = true;
-    CHECK_INT(air(&d, 181000, false), ESL_MSG_CONFIG);
-    CHECK_INT(config_at(NULL, 182000), 200);
-    CHECK(strstr(resp, "\"channel_old_tags\":1,\"channel_radio_old\":false"));
-    CHECK_INT(config_at("{\"channel\":18}", 182000), 409);
+    CHECK_INT(air(&d, 250000, false), ESL_MSG_CONFIG);
+    CHECK_INT(config_at(NULL, 251000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":1,\"channel_unheard_tags\":0,\"channel_radio_old\":false"));
+    CHECK_INT(config_at("{\"channel\":18}", 251000), 409);
     CHECK(strstr(resp, "1 tag runs firmware that cannot follow a channel change"));
-    CHECK_INT(config_at("{\"channel\":20}", 182000), 200);                    /* where it is */
-    CHECK_INT(config_at("{\"channel\":18,\"force\":1}", 182000), 422);
-    CHECK_INT(config_at("{\"force\":true}", 182000), 422);
-    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 182000), 200);
-    esl_store_channel_state(&st, 182000, &cs);
+    CHECK_INT(config_at("{\"channel\":20}", 251000), 200);                    /* where it is */
+    CHECK_INT(config_at("{\"channel\":18,\"force\":1}", 251000), 422);
+    CHECK_INT(config_at("{\"force\":true}", 251000), 422);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 251000), 200);
+    esl_store_channel_state(&st, 251000, &cs);
     CHECK_INT(cs.next, 18);
-    CHECK_INT(config_at("{\"channel\":null,\"channel_now\":true}", 182000), 200); /* back to 25 at once */
-    CHECK_INT(esl_store_channel_step(&st, 182000), 25);
+    CHECK_INT(nvs.ch_next, 18 | ESL_CHANNEL_FORCED);                          /* kept forced */
+    CHECK_INT(esl_store_channel_step(&st, 251500), 0);                        /* not stopped */
+    CHECK_INT(config_at("{\"channel\":null,\"channel_now\":true}", 251000), 200); /* back to 25 at once */
+    CHECK_INT(esl_store_channel_step(&st, 252000), 25);
     /* nor with a radio on WiFi that does not pass the move on (a C6 from before 0.9.0) */
     esl_store_set_radio_follows(&st, false);
-    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 182000), 409);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 252000), 409);
     CHECK(strstr(resp, "update the radio first"));
-    CHECK_INT(config_at("{\"channel\":null}", 182000), 200);
+    CHECK_INT(config_at("{\"channel\":null}", 252000), 200);
     esl_store_set_radio_follows(&st, true);
+
+    /* an old tag that shows up during the wait stops the move: it would confirm and stay */
+    CHECK_INT(config_at("{\"channel\":18}", 500000), 200);                    /* d not heard lately */
+    CHECK_INT(air(&d, 501000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 501500), 0);
+    CHECK_INT(config_at(NULL, 501500), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK(strstr(resp, "\"channel_stopped\":1"));
+    CHECK(!nvs.channel && !nvs.ch_next);
+    CHECK_INT(air(&d, 561000, false), ESL_MSG_CONFIG);                        /* told to stay */
+    CHECK_INT(d.cfg.channel, 0);
 
     api.channel_settable = false;
     CHECK_INT(config("{\"channel\":20}"), 422);

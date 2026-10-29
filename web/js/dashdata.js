@@ -304,9 +304,12 @@ export function channelMove(config) {
 export function channelBlock(config) {
   const c = config || {};
   if (c.channel_radio_old) return "The radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel: update the radio before you change the channel.";
-  const n = c.channel_old_tags || 0;
-  if (!n) return "";
-  return `${n === 1 ? "1 tag runs" : `${n} tags run`} firmware from before 0.9.0 and cannot follow a channel change: update ${n === 1 ? "it" : "them"} first (Firmware), or ${n === 1 ? "it is" : "they are"} left on the old channel.`;
+  const n = c.channel_old_tags || 0, u = c.channel_unheard_tags || 0, s = c.channel_stopped || 0;
+  const said = [];
+  if (s && !Number.isInteger(c.channel_next)) said.push(`The last channel change was called off: ${s === 1 ? "a tag" : `${s} tags`} with firmware from before 0.9.0 showed up, which would have been left behind.`);
+  if (n) said.push(`${n === 1 ? "1 tag runs" : `${n} tags run`} firmware from before 0.9.0 and cannot follow a channel change: update ${n === 1 ? "it" : "them"} first (Firmware), or ${n === 1 ? "it is" : "they are"} left on the old channel.`);
+  else if (u) said.push(`${u === 1 ? "1 tag has" : `${u} tags have`} not polled since the AP started, so the AP does not know yet whether ${u === 1 ? "it" : "they"} can follow a channel change: wait until ${u === 1 ? "it has" : "they have"}.`);
+  return said.join(" ");
 }
 
 export const CHANNEL_NOTE = "The AP tells every tag at its next poll and moves once they have confirmed it, so no tag is left behind. "

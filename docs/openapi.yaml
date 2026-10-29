@@ -678,7 +678,9 @@ paths:
           description: |
             The tags would stay on the old channel: `channel_now` to a channel that was not
             announced first; tags heard lately with firmware from before 0.9.0 (`channel_old_tags`;
-            `force` moves anyway); or a radio on WiFi from before 0.9.0, which does not pass a
+            `force` moves anyway); tags not heard since the AP started, whose firmware it does not
+            know yet (`channel_unheard_tags`, until they poll or 3 of their intervals and a minute
+            have gone; `force` moves anyway); or a radio on WiFi from before 0.9.0, which does not pass a
             move on to the tags (`channel_radio_old`). Back to the built-in channel is never refused.
           content:
             application/json:
@@ -1790,8 +1792,10 @@ components:
           type: boolean
           description: |
             With `channel`: `true` moves even though tags heard lately run firmware from before
-            0.9.0 (`channel_old_tags`); they stay on the old channel and lose the AP until it
-            is back there.
+            0.9.0 (`channel_old_tags`) or have not polled since the AP started; old ones stay on
+            the old channel and lose the AP until it is back there. Without it, a move off the
+            built-in channel is called off when such a tag shows up during the wait
+            (`channel_stopped`).
         ntp:
           type: [string, "null"]
           maxLength: 63
@@ -1826,6 +1830,8 @@ components:
         channel_waiting: { type: integer, minimum: 0, description: "With channel_next: tags heard lately that have not confirmed the move yet" }
         channel_due_s: { type: integer, minimum: 0, description: "With channel_next: the move happens in at most this many seconds" }
         channel_old_tags: { type: integer, minimum: 0, description: "With channel: tags heard lately whose firmware (before 0.9.0) cannot follow a channel change" }
+        channel_unheard_tags: { type: integer, minimum: 0, description: "With channel: tags in the table not heard since the AP started that may still poll; a move off the built-in channel waits for them (409) unless forced" }
+        channel_stopped: { type: integer, minimum: 0, description: "With channel: the last move was called off because this many tags with old firmware showed up during the wait (1 also for an old radio); 0 = not" }
         channel_radio_old: { type: boolean, description: "With channel: the radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel" }
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }

@@ -173,6 +173,8 @@ typedef struct {
     uint64_t channel_due_ms;  /* ... which happens at this time at the latest */
     bool channel_hold;        /* the move was restored at boot: tags not heard since count as waiting */
     bool channel_radio_old;   /* the radio does not pass a move on to the tags (esl_store_set_radio_follows) */
+    bool channel_force;       /* the planned move goes even with tags that cannot follow */
+    uint16_t channel_stopped; /* tags with old firmware that stopped the last move (1 for an old radio), 0 = none */
     esl_store_ops_t ops;
 } esl_store_t;
 
@@ -315,9 +317,10 @@ void esl_store_restore_channel(esl_store_t *st, uint8_t channel, uint8_t next, u
  * when esl_store_channel_step() says, right away with now; the channel the radio is on
  * cancels a planned move. persist_channel(ctx, radio's channel or 0 for the built-in one,
  * planned move or 0) is called here and when the radio moves. */
-void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, uint64_t now_ms);
+void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, bool force, uint64_t now_ms);
 /* Called by the radio's task now and then (every second): the channel to move the radio
- * to now, 0 = stay. */
+ * to now, 0 = stay. A move off the built-in channel without force is given up (stopped)
+ * when a tag heard lately cannot follow it, or the radio cannot pass it on. */
 uint8_t esl_store_channel_step(esl_store_t *st, uint64_t now_ms);
 typedef struct {
     uint8_t channel;    /* the radio is on it */
@@ -326,7 +329,10 @@ typedef struct {
     unsigned waiting;   /* tags heard lately that have not confirmed the move */
     uint32_t due_s;     /* the move happens in at most this many seconds */
     unsigned old_tags;  /* tags heard lately whose firmware cannot follow a move (before 0.9.0) */
+    unsigned unheard;   /* tags heard before boot, not since, that may still poll: firmware not known now */
+    uint32_t unheard_s; /* ... the most seconds until they no longer count */
     bool radio_old;     /* the radio cannot pass a move on to the tags (esl_store_set_radio_follows) */
+    unsigned stopped;   /* the last move was given up when tags with old firmware showed up (how many) */
 } esl_channel_state_t;
 void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state_t *out);
 /* For a radio over the network (docs/ap-netradio.md): false when the one connected
@@ -336,6 +342,8 @@ void esl_store_set_radio_follows(esl_store_t *st, bool follows);
 /* A tag counts in a move while it was heard within this many of its intervals (and a
  * minute): one that has gone quiet does not hold it up. */
 #define ESL_CHANNEL_ACTIVE_POLLS 3
+/* persist_channel's next for a forced move (esl_store_move_channel force): the channel | this */
+#define ESL_CHANNEL_FORCED 0x80
 /* The move waits at most two of the longest interval of a tag (and a minute) for the
  * tags to confirm, and never longer than this. */
 #define ESL_CHANNEL_MAX_WAIT_S (2 * ESL_CFG_POLL_MAX_S + 60)

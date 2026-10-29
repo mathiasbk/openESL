@@ -917,6 +917,7 @@ static uint64_t tag_poll_ms(const esl_store_t *st, const esl_tag_t *t)
 static void plan_move(esl_store_t *st, uint8_t channel, bool now, bool all, uint64_t now_ms)
 {
     st->channel_hold = false;
+    st->channel_stopped = 0;
     if (channel == st->channel) {
         st->channel_next = 0;
         return;
@@ -934,11 +935,13 @@ static void plan_move(esl_store_t *st, uint8_t channel, bool now, bool all, uint
     st->channel_due_ms = now ? now_ms : now_ms + wait;
 }
 
-/* What persist_channel keeps: the radio's channel (0 = the built-in one) and the move */
-static void persist_channel(esl_store_t *st, uint8_t channel, uint8_t next)
+/* What persist_channel keeps: the radio's channel (0 = the built-in one) and the move,
+   with ESL_CHANNEL_FORCED when it was forced */
+static void persist_channel(esl_store_t *st, uint8_t channel, uint8_t next, bool force)
 {
     if (st->ops.persist_channel)
-        st->ops.persist_channel(st->ops.ctx, channel == st->channel_builtin ? 0 : channel, next);
+        st->ops.persist_channel(st->ops.ctx, channel == st->channel_builtin ? 0 : channel,
+                                next && force ? next | ESL_CHANNEL_FORCED : next);
 }
 
 void esl_store_restore_channel(esl_store_t *st, uint8_t channel, uint8_t next, uint64_t now_ms)
@@ -947,25 +950,45 @@ void esl_store_restore_channel(esl_store_t *st, uint8_t channel, uint8_t next, u
     if (channel)
         st->channel = channel;
     st->channel_next = 0;
-    if (next) {
-        plan_move(st, next, false, true, now_ms);  /* announced again, with a new deadline */
+    if (next & ~ESL_CHANNEL_FORCED) {
+        plan_move(st, next & ~ESL_CHANNEL_FORCED, false, true, now_ms);  /* announced again, with a new deadline */
         st->channel_hold = st->channel_next != 0;
+        st->channel_force = (next & ESL_CHANNEL_FORCED) != 0;
     }
     unlock(st);
 }
 
-void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, uint64_t now_ms)
+void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, bool force, uint64_t now_ms)
 {
     lock(st);
     plan_move(st, channel ? channel : st->channel_builtin, now, false, now_ms);
+    st->channel_force = force;
     uint8_t on = st->channel, next = st->channel_next;
     unlock(st);
-    persist_channel(st, on, next);
+    persist_channel(st, on, next, force);
+}
+
+/* The window after a POLL in which a tag counts as active: 3 of its intervals and a minute */
+static uint64_t active_ms(const esl_store_t *st, const esl_tag_t *t)
+{
+    return ESL_CHANNEL_ACTIVE_POLLS * tag_poll_ms(st, t) + 60000;
 }
 
 static bool heard_lately(const esl_store_t *st, const esl_tag_t *t, uint64_t now_ms)
 {
-    return t->seen && esl_tag_seen_ms_ago(t, now_ms) <= ESL_CHANNEL_ACTIVE_POLLS * tag_poll_ms(st, t) + 60000;
+    return t->seen && esl_tag_seen_ms_ago(t, now_ms) <= active_ms(st, t);
+}
+
+/* Tags heard lately whose firmware cannot follow a move (under the lock) */
+static unsigned old_tags(const esl_store_t *st, uint64_t now_ms)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; i < st->cap; i++) {
+        const esl_tag_t *t = at(st, i);
+        if (t->used && !t->channel_capable && heard_lately(st, t, now_ms))
+            n++;
+    }
+    return n;
 }
 
 /* Tags heard lately that do not have the announced channel yet (under the lock) */
@@ -987,16 +1010,31 @@ static unsigned channel_waiting(const esl_store_t *st, uint64_t now_ms)
 uint8_t esl_store_channel_step(esl_store_t *st, uint64_t now_ms)
 {
     uint8_t ch = 0;
+    bool stop = false;
     lock(st);
+    /* a tag with old firmware (or an old radio) that shows up during the wait stops a move off
+       the built-in channel: it would confirm the move and stay behind */
+    if (st->channel_next && st->channel_next != st->channel_builtin && !st->channel_force) {
+        unsigned old = old_tags(st, now_ms);
+        if (old || st->channel_radio_old) {
+            st->channel_next = 0;
+            st->channel_hold = false;
+            st->channel_stopped = old ? old : 1;
+            stop = true;
+        }
+    }
     if (st->channel_next && (now_ms >= st->channel_due_ms || !channel_waiting(st, now_ms))) {
         ch = st->channel = st->channel_next;
         st->channel_next = 0;
         st->channel_hold = false;
     }
+    uint8_t on = st->channel;
     unlock(st);
     if (ch)
-        persist_channel(st, ch, 0);  /* kept only once the radio is there (an AP that restarts
-                                        before announces it again from where it was) */
+        persist_channel(st, ch, 0, false);  /* kept only once the radio is there (an AP that
+                                               restarts before announces it again from where it was) */
+    else if (stop)
+        persist_channel(st, on, 0, false);
     return ch;
 }
 
@@ -1011,12 +1049,20 @@ void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state
         out->waiting = channel_waiting(st, now_ms);
         out->due_s = st->channel_due_ms > now_ms ? (uint32_t)((st->channel_due_ms - now_ms + 999) / 1000) : 0;
     }
+    out->old_tags = old_tags(st, now_ms);
+    /* tags heard before the AP started (fw from their stored record) but not since, while they
+       may still poll (now_ms counts from boot): the AP does not know their firmware now */
     for (unsigned i = 0; i < st->cap; i++) {
         const esl_tag_t *t = at(st, i);
-        if (t->used && !t->channel_capable && heard_lately(st, t, now_ms))
-            out->old_tags++;
+        if (t->used && !t->seen && t->fw && now_ms <= active_ms(st, t)) {
+            out->unheard++;
+            uint32_t left = (uint32_t)((active_ms(st, t) - now_ms + 999) / 1000);
+            if (left > out->unheard_s)
+                out->unheard_s = left;
+        }
     }
     out->radio_old = st->channel_radio_old;
+    out->stopped = st->channel_stopped;
     unlock(st);
 }
 

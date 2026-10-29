@@ -201,6 +201,9 @@ test("radio channels and a waiting move", async () => {
   assert.match(channelBlock({ channel_old_tags: 3 }), /^3 tags run firmware from before 0\.9\.0 .* update them first/);
   assert.match(channelBlock({ channel_old_tags: 1 }), /^1 tag runs .* it is left on the old channel\.$/);
   assert.match(channelBlock({ channel_old_tags: 3, channel_radio_old: true }), /update the radio/);
+  assert.match(channelBlock({ channel_old_tags: 0, channel_unheard_tags: 5 }), /^5 tags have not polled since the AP started/);
+  assert.match(channelBlock({ channel_old_tags: 1, channel_stopped: 1, channel_next: null }), /^The last channel change was called off: a tag .* 1 tag runs/);
+  assert.equal(channelBlock({ channel_stopped: 2, channel_next: 20 }), "");
   const o = channelOptions(25);
   assert.equal(o.length, 16);
   assert.deepEqual(o[0], [11, "Channel 11"]);

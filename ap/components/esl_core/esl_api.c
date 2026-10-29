@@ -1122,6 +1122,16 @@ static int channel_move_ok(const esl_channel_state_t *cs, uint8_t channel, bool 
     if (cs->radio_old)
         return api_error(out, 409, "the radio on WiFi runs firmware that cannot tell the tags of a new channel: "
                                    "update the radio first");
+    if (cs->unheard && !force) {
+        char msg[200];
+        snprintf(msg, sizeof(msg),
+                 "%u tag%s %s not polled since the AP started, so the AP does not know if %s can follow a "
+                 "channel change: wait until %s %s (at most %u min), or send \"force\": true",
+                 cs->unheard, cs->unheard == 1 ? "" : "s", cs->unheard == 1 ? "has" : "have",
+                 cs->unheard == 1 ? "it" : "they", cs->unheard == 1 ? "it" : "they",
+                 cs->unheard == 1 ? "has" : "have", (unsigned)((cs->unheard_s + 59) / 60));
+        return api_error(out, 409, msg);
+    }
     if (cs->old_tags && !force) {
         char msg[160];
         snprintf(msg, sizeof(msg),
@@ -1219,7 +1229,7 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                     api->clock->set(api->clock->ctx, n >= 0 ? ntp : NULL, z >= 0 ? tz : NULL);
                 if (c >= 0)
                     esl_store_move_channel(api->store, (uint8_t)channel, cn >= 0 && tok[cn].type == ESL_JSON_TRUE,
-                                           now_ms);
+                                           cf >= 0 && tok[cf].type == ESL_JSON_TRUE, now_ms);
             }
         }
         free(tok);
@@ -1248,8 +1258,8 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         else
             esl_sb_puts(out, ",\"channel_next\":null");
         /* what stops a move: tags heard lately with firmware from before 0.9.0, an old radio on WiFi */
-        esl_sb_printf(out, ",\"channel_old_tags\":%u,\"channel_radio_old\":%s", ch.old_tags,
-                      ch.radio_old ? "true" : "false");
+        esl_sb_printf(out, ",\"channel_old_tags\":%u,\"channel_unheard_tags\":%u,\"channel_radio_old\":%s"
+                      ",\"channel_stopped\":%u", ch.old_tags, ch.unheard, ch.radio_old ? "true" : "false", ch.stopped);
     }
     if (api->clock) {
         const esl_clock_cfg_t *c = api->clock;

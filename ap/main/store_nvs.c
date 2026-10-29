@@ -407,7 +407,7 @@ static void restore_channel(esl_store_t *st, uint8_t ch, uint8_t ch_next)
     if (ch)
         ESP_LOGI(TAG, "radio channel %u (from NVS)", (unsigned)ch);
     if (ch_next)
-        ESP_LOGW(TAG, "a move to channel %u was waiting: announced again", (unsigned)ch_next);
+        ESP_LOGW(TAG, "a move to channel %u was waiting: announced again", (unsigned)(ch_next & ~ESL_CHANNEL_FORCED));
 }
 
 esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
@@ -435,7 +435,8 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
         }
         if (nvs_get_u8(h, "channel", &ch) != ESP_OK || ch < ESL_CHANNEL_MIN || ch > ESL_CHANNEL_MAX)
             ch = 0;
-        if (nvs_get_u8(h, "ch_next", &ch_next) != ESP_OK || ch_next < ESL_CHANNEL_MIN || ch_next > ESL_CHANNEL_MAX)
+        if (nvs_get_u8(h, "ch_next", &ch_next) != ESP_OK || (ch_next & ~ESL_CHANNEL_FORCED) < ESL_CHANNEL_MIN ||
+            (ch_next & ~ESL_CHANNEL_FORCED) > ESL_CHANNEL_MAX)
             ch_next = 0;
         nvs_close(h);
     }
