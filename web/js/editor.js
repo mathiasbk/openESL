@@ -1379,6 +1379,60 @@ function addElement(kind) {
   changed();
 }
 
+// Size an SVG is drawn at, on its longer side: an SVG scales, and the icon sets of the web give
+// theirs at 16 or 24 px, which is too small on a tag (an icon cannot be made bigger later)
+const SVG_SIZE = 64;
+
+// An SVG length in px: a number with px, pt, pc, mm, cm, in or no unit; 0 for anything else (%)
+function svgLength(v) {
+  const m = /^\s*([+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|pt|pc|mm|cm|in)?\s*$/i.exec(v ?? "");
+  const k = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 }[(m?.[2] ?? "px").toLowerCase()];
+  return m ? parseFloat(m[1]) * k : 0;
+}
+
+// A picture file as something drawImage takes, with its width and height. Chromium's
+// createImageBitmap cannot decode an SVG, so an SVG goes through an Image, drawn SVG_SIZE on its
+// longer side with the shape of its viewBox (or of its width and height, or square). linked: it
+// had pictures that are not in the file (<image> with a link), which are left out.
+async function readPicture(file) {
+  const svg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  if (!svg) return createImageBitmap(file);
+  const xml = new DOMParser().parseFromString(await file.text(), "image/svg+xml");
+  const root = xml.documentElement;
+  if (root.localName !== "svg") throw new Error("not an SVG");
+  const ow = svgLength(root.getAttribute("width")), oh = svgLength(root.getAttribute("height"));
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  let [vw, vh] = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? [vb[2], vb[3]] : [0, 0];
+  if (!vw && ow && oh) {
+    // without a viewBox its content is in px of its own size: keep that, scaled
+    [vw, vh] = [ow, oh];
+    root.setAttribute("viewBox", `0 0 ${ow} ${oh}`);
+  }
+  const r = vw ? vw / vh : 1;
+  const [w, h] = r >= 1 ? [SVG_SIZE, SVG_SIZE / r] : [SVG_SIZE * r, SVG_SIZE];
+  root.setAttribute("width", String(w));
+  root.setAttribute("height", String(h));
+  if (!root.hasAttribute("xmlns")) root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  // a linked picture is not loaded from a blob, and would be drawn as a broken-image sign
+  let linked = false;
+  for (const im of [...xml.getElementsByTagNameNS("http://www.w3.org/2000/svg", "image")]) {
+    const href = im.getAttribute("href") ?? im.getAttributeNS("http://www.w3.org/1999/xlink", "href") ?? "";
+    if (!href.trim().startsWith("data:")) {
+      im.remove();
+      linked = true;
+    }
+  }
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(xml)], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return { img, width: w, height: h, linked };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // An icon from a picture file: drawn at its own size (scaled down to fit ICON_MAX and the
 // screen), dark pixels drawn, light and transparent ones left.
 async function addIcon(file) {
@@ -1391,9 +1445,9 @@ async function addIcon(file) {
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
-    bmp = await createImageBitmap(file);
+    bmp = await readPicture(file);
   } catch {
-    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG or GIF)", "error");
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
     return;
   }
   const max = Math.min(ICON_MAX, width, height);
@@ -1402,7 +1456,7 @@ async function addIcon(file) {
   const c = document.createElement("canvas");
   [c.width, c.height] = [w, h];
   const ctx = c.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.drawImage(bmp.img ?? bmp, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
   const row = Math.ceil(w / 8);
   const bits = new Uint8Array(row * h);
@@ -1421,7 +1475,7 @@ async function addIcon(file) {
   d.icons[name] = { w, h, data: btoa(String.fromCharCode(...bits)) };
   lay.elements.push({ type: "icon", icon: name, x: Math.floor((width - w) / 2), y: Math.floor((height - h) / 2), w, h });
   state.el = lay.elements.length - 1;
-  changed();
+  changed();  if (bmp.linked) setStatus(file.name + " links pictures that are not in the file; they were left out", "error");
 }
 
 // Icons no element in any layout draws are dropped, so they do not take room in the file. An icon
