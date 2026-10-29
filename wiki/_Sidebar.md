@@ -4,6 +4,7 @@
 - [How it works](How-it-works)
 - [Getting started](Getting-started)
 - [What you need](What-you-need)
+- [Roadmap](Roadmap)
 
 **Access point**
 - [Choosing a board](Access-point-boards)
