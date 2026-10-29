@@ -1721,24 +1721,25 @@ static void test_image_clock(void)
     CHECK_INT(put("0000000000000DA2", "{\"layout\":\"week\",\"fields\":[\"Menu\"]}"), 200);
     CHECK_INT(put("0000000000000DA3", "{\"layout\":\"plain\",\"fields\":[\"Menu\"]}"), 200);
 
-    /* the time not known yet: the fields are drawn empty */
+    /* the time not known yet (after a restart, before NTP): the date layouts are not drawn,
+       and their tags keep what they show; the plain one is */
     uint64_t t = 1000;
-    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
-    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
-    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
-    uint32_t d0 = d.shown, w0 = w.shown, p0 = p.shown;
-    t += 10000;
     CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
     CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
-    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK(d.shown == 0 && w.shown == 0);
+    CHECK_INT(images.drawn, 1);
+    uint32_t p0 = p.shown;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000DA1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
 
-    /* then known (Thursday 29 October 2026, week 44): both date layouts get a new image */
+    /* then known (Thursday 29 October 2026, week 44): both date layouts get their image */
     esl_clock_set_today(20755);
     t += 10000;
     CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
     CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
     CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
-    CHECK(d.shown != d0 && w.shown != w0 && p.shown == p0);
+    CHECK(d.shown != 0 && w.shown != 0 && d.shown != w.shown && p.shown == p0);
     uint32_t d1 = d.shown, w1 = w.shown;
     t += 10000;
     CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);

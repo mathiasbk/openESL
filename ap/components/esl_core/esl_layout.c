@@ -150,6 +150,26 @@ bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_
     return v != 0;
 }
 
+/* ESL_CLOCK_* of the layout whose name hashes to layout_hash in l, NONE when it has none. Under the lock. */
+static uint8_t clock_of(const esl_layout_t *l, uint32_t layout_hash)
+{
+    for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
+        if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
+            return l->bin.clock[i];
+    return ESL_CLOCK_NONE;
+}
+
+uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash)
+{
+    uint8_t res = ESL_CLOCK_NONE;
+    if (ls) {
+        lock(ls);
+        res = clock_of(slot(ls, model), layout_hash);
+        unlock(ls);
+    }
+    return res;
+}
+
 uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash)
 {
     uint32_t v = 0;
@@ -159,11 +179,7 @@ uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout
         esl_layout_t *l = slot(ls, model);
         if (l) {
             v = l->bin.version;
-            for (unsigned i = 0; layout_hash && i < l->bin.count; i++)
-                if (esl_layout_name_hash(l->bin.names[i]) == layout_hash) {
-                    res = l->bin.clock[i];
-                    break;
-                }
+            res = clock_of(l, layout_hash);
         }
         unlock(ls);
     }

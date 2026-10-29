@@ -46,7 +46,7 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    web_set_today(getenv("ESL_TODAY") ? atoi(getenv("ESL_TODAY")) : -1);
+    web_set_today(getenv("ESL_TODAY") && *getenv("ESL_TODAY") ? atoi(getenv("ESL_TODAY")) : -1);
     n = argc - 4;
     for (i = 0; i < n; i++)
         f[i] = argv[4 + i];

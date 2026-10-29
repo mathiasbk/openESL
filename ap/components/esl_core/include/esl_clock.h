@@ -16,12 +16,21 @@
  *   {week}       "44" (ISO 8601 week)
  *
  * In English. A word in braces that is not
- * one of these is drawn as it is. While the AP does not know the time (no NTP yet), the
- * fields are drawn empty, and filled in once it does.
+ * one of these is drawn as it is. Drawn without the time (the web page before it is set),
+ * the fields are empty.
+ *
+ * The fields are filled in with the AP's local date, in the time zone set on the AP
+ * (Settings, General; UTC until one is set). A layout with them is not drawn at all while
+ * the time is unknown (after a restart, until NTP or PUT /api/time): its tags keep what
+ * they show (esl_image.c draw()).
  *
  * The compiler notes which layouts use them (esl_layout_bin_t clock), and the version
  * the AP keeps with a drawn image (esl_layouts_image_ver) mixes in the day or week for
- * those, so a new day draws them again as a new layout file does. */
+ * those, so a new day draws them again as a new layout file does. The version is read
+ * before the image is drawn: should the day change in between, the image of the new day
+ * is kept with the old day's version, and the next POLL draws it once more (the same
+ * bytes, so nothing is sent); the other way round, an old image with a new version that
+ * would stand for a day, cannot happen. */
 
 #define ESL_CLOCK_NONE 0
 #define ESL_CLOCK_WEEK 1 /* only {week} */

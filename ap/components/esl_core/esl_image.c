@@ -1,4 +1,5 @@
 #include "esl_image.h"
+#include "esl_clock.h"
 #include "esl_crc32.h"
 #include "esl_img2d.h"
 #include "esl_png.h"
@@ -348,6 +349,12 @@ static bool draw(esl_store_t *st, esl_layouts_t *ls, const esl_tag_t *t, uint32_
        before the tag's POLL gets here (esl_store_check_tag in esl_radio_handle, or in
        esl_radio_after with esl_radio_set_draw_later) */
     if (t->content_check && !esl_store_check_tag(st, ls, t->mac))
+        return false;
+    /* A layout with date fields waits for the time (NTP after a restart): drawn without it,
+       the tag would get a full refresh with the fields empty, and another once it is known.
+       It keeps what it shows meanwhile (id 0: nothing offered) */
+    int32_t today;
+    if (!esl_clock_today(&today) && esl_layouts_clock(ls, t->model, t->layout_hash) != ESL_CLOCK_NONE)
         return false;
     /* From NVS on the device, in the tag's reply window (well under a millisecond,
        unless NVS is busy with a write elsewhere; then the next POLL offers it again).

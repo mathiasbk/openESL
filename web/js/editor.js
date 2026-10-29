@@ -987,8 +987,8 @@ function dateFieldButtons(inp) {
   div.className = "date-fields";
   const p = document.createElement("p");
   p.className = "small muted";
-  p.textContent = "Date fields, filled in by the AP: the tag is redrawn once a day ({week} alone: once a week). " +
-    "An AP from before 0.9 shows them as written.";
+  p.textContent = "Date fields, filled in by the AP in its time zone (Settings, General; UTC until set): " +
+    "the tag is redrawn once a day ({week} alone: once a week). An AP from before 0.9 shows them as written.";
   const chips = document.createElement("div");
   chips.className = "chips";
   for (const [f, what] of DATE_FIELDS) {
@@ -1000,7 +1000,10 @@ function dateFieldButtons(inp) {
     b.addEventListener("click", () => {
       const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
       const v = inp.value.slice(0, at) + f + inp.value.slice(end);
-      if (v.length > inp.maxLength) return;
+      if (v.length > inp.maxLength) {
+        setStatus(`${f} does not fit: a fixed text is at most ${inp.maxLength} characters`, "error");
+        return;
+      }
       inp.value = v;
       inp.focus();
       inp.setSelectionRange(at + f.length, at + f.length);
