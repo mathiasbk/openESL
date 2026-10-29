@@ -29,7 +29,7 @@
 ## Features
 
 - **Two tag models so far:** SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), both on the ZBS243 chip. See [Supported tags](#supported-tags); more makers and models are welcome.
-- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md)). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
+- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md), which also has an [integration](https://github.com/mathiasbk/openesl-homeassistant) for HACS). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
 - **Your own label layouts**, drawn in the browser: text in four sizes, inverted and highlighted text, lines, boxes and Code 128 or EAN-13 barcodes. The preview is the AP's own drawing code, so what you see is what the tag shows.
 - **Scheduled prices** that switch at a time you choose, and **per-tag settings** such as the poll interval.
 - **Firmware updates without cables (OTA):** the AP updates itself over WiFi, and passes new firmware to the tags over the radio, for one tag or a whole model at once.
@@ -135,7 +135,7 @@ Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's 
 
 ## Roadmap
 
-Next up: more SoluM label models (the 2.9" with red first), choosing the radio channel on the AP's Settings page, measured battery life and a Home Assistant integration. Later: labels that find the AP by themselves, several APs in one place and security on the radio. Some day: labels with other chips, such as SoluM M3 "Newton" and Hanshow Nebular. The whole list is in the [wiki](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+Next up: more SoluM label models (the 2.9" with red first), choosing the radio channel on the AP's Settings page, and measured battery life. Later: labels that find the AP by themselves, several APs in one place and security on the radio. Some day: labels with other chips, such as SoluM M3 "Newton" and Hanshow Nebular. The whole list is in the [wiki](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
 ## Folders
 
