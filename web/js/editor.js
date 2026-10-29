@@ -1852,7 +1852,12 @@ function initOnWeb() {
       apStatus("");
     });
   $("ap-usb-connect").addEventListener("click", () => apRun("Connecting over USB", async () => {
-    await connectSerial();
+    try {
+      await connectSerial();
+    } catch (e) {
+      if (e.name === "NotFoundError") return ["", ""];   // no port picked: nothing to say
+      throw e;
+    }
     ap.usb = true;
     return apConnect();
   }));

@@ -13,13 +13,13 @@ Press **Send to your AP…** in the designer and pick how your AP is connected:
 | Your AP is … | Choose | What happens |
 |---|---|---|
 | plugged into this computer | **USB cable** | Press **Connect over USB** and pick the AP's port. The dialog lists the AP's labels: **Send** puts the layout with its sample text on the one you pick, **Upload layout file only** just stores the file. Chrome or Edge on a computer. |
-| somewhere on your network | **WiFi** | Type the AP's address (`openesl.local`, or its IP address) and press **Open my AP**. The AP's own page opens in a new tab with the file. Check it there and press **Save on this AP**. Any browser, also on a phone. |
+| somewhere on your network | **WiFi** | Type the AP's address (`openesl.local`, or its IP address) and press **Open my AP**. The AP's own page opens in a new tab with the file. Check it there and press **Save on this AP**. Any browser, also on a phone (phones often do not find `openesl.local`: use the IP address there). |
 
 On the AP's page you see the preview, the layouts in the file, and what changes on the AP: a layout in green is new, a crossed-out one is on the AP now but not in this file, so it is gone after saving. You can also put the sample text on one of the AP's labels. The first time, the page asks for the AP's API token, and keeps it.
 
 ![The AP's own page with a layout file from the designer](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/web-ap-receive.png)
 
-**Why a new tab?** The web page is on https, and the AP is on plain http in your home network. Browsers do not let an https page call such an address. It may open the AP's own page, though, and hand it the file. The AP's page only takes files from the openESL web page, and stores nothing until you press Save.
+**Why a new tab?** The web page is on https, and the AP is on plain http in your home network. Browsers do not let an https page call such an address. It may open the AP's own page, though, and hand it the file. The AP's page only takes files from the openESL web page, and stores nothing until you press Save. A copy of the designer hosted somewhere else (a fork's own GitHub Pages, say) cannot hand files to the AP: use USB, or run the page on `localhost`.
 
 ## APs with the designer built in
 
