@@ -32,7 +32,8 @@ MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "models.js", "apsources.js", "catalog.js"],
+               "fwupload.js", "sendtext.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
+               "apsources.js", "handoff.js", "aplayouts.js", "layoutinfo.js", "catalog.js"],
         "css": [],
         # the Weather template (templates/), which Send -> The weather adds to a layout file
         # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
@@ -41,7 +42,7 @@ MODULES = {
     "design": {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
-               "models.js", "tplpicker.js", "catalog.js"],
+               "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,

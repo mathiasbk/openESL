@@ -1,6 +1,6 @@
 # Label templates
 
-The [Label designer](Label-designer) has a library of ready-made layouts: **+ New → From template…**. They are grouped by category (3D printer, retail and price, signs, home), each drawn on your label model with its sample text, exactly as the AP draws it. Pick one to see its fields, what each means, and whether your layout file still fits the AP with it; **Add** puts it in your file under a name the file does not have yet, with its sample text, and Undo takes it out again.
+The [Label designer](Label-designer) has a library of ready-made layouts: **+ From template**. They are grouped by category (3D printer, retail and price, signs, home), each drawn on your label model with its sample text, exactly as the AP draws it. Pick one to see its fields, what each means, and whether your layout file still fits the AP with it; **Add** puts it in your file under a name the file does not have yet, with its sample text, and Undo takes it out again.
 
 Every template has the same fields in the same order on every label model, so an automation keeps working when you swap a 2.9" label for a 1.54". When you switch model in the designer with a template's layout selected, it offers to add the same template for the other model.
 

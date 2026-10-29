@@ -32,6 +32,8 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 /* sched.c: scheduled content kept in NVS, applied by its own task, and the
  * clock from NTP. Call after wifi_start(). NULL when there is no memory for it. */
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap);
+/* The NTP server and time zone for api->clock, after sched_start(); NULL before. */
+esl_clock_cfg_t *sched_clock(void);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
  * HTTP and serial transports; call api_handle_init() before either starts. */

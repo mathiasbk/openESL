@@ -35,6 +35,26 @@ typedef struct {
     void (*set)(void *ctx, int8_t dbm, bool builtin);
     void *ctx;
 } esl_tx_power_t;
+/* The AP's clock settings, "ntp" and "tz" in GET/PUT /api/config, kept by the glue
+ * (main/sched.c) in NVS. */
+#define ESL_NTP_MAX 63 /* an NTP server's name */
+#define ESL_TZ_MAX  63 /* a POSIX TZ string, "CET-1CEST,M3.5.0,M10.5.0/3" */
+typedef struct {
+    char ntp[ESL_NTP_MAX + 1]; /* the NTP server in use; "" = none */
+    char tz[ESL_TZ_MAX + 1];   /* the time zone for local time; "" = UTC */
+    const char *builtin_ntp;   /* the server set in menuconfig, which ntp "" goes back to */
+    void *ctx;
+    /* Saves and uses them at once. ntp: NULL = unchanged, "" = back to builtin_ntp;
+       tz: NULL = unchanged, "" = UTC. Fills in ntp and tz above. */
+    void (*set)(void *ctx, const char *ntp, const char *tz);
+} esl_clock_cfg_t;
+
+/* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name
+ * or an IPv4 address). A POSIX TZ: up to ESL_TZ_MAX of letters, digits and + - , . / : < >,
+ * starting with a name (3 or more letters, or <...>) and its offset ("CET-1...", "<+0530>-5:30");
+ * a tzdata name such as "Europe/Oslo" is turned down, since the AP would take it as UTC. */
+bool esl_ntp_name_ok(const char *s, size_t len);
+bool esl_tz_ok(const char *s, size_t len);
 
 #define ESL_API_MAX_BATCH  50
 #define ESL_API_MAX_BODY   24576
@@ -57,6 +77,7 @@ typedef struct {
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
     esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
     esl_sources_t *sources; /* data sources (esl_source.h); NULL: /api/sources answers 404 */
+    esl_clock_cfg_t *clock; /* NTP server and time zone (GET/PUT /api/config); NULL: left out, and PUT answers 422 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

@@ -50,3 +50,20 @@ test("apBase: a bare address gets http://, https pages are sent to the bridge", 
   assert.match(apBase("ftp://x", "http:").error, /not an http address/);
   assert.match(apBase("http://", "http:").error, /not an address/);
 });
+
+test("PortClient makes the same calls over the USB port", async () => {
+  const { PortClient } = await import("../js/apclient.js");
+  const calls = [];
+  const port = {
+    async call(method, path, body) {
+      calls.push([method, path, body]);
+      if (path === "/api/tags/X") throw new Error("422: text too long");
+      return { ok: true };
+    },
+  };
+  const c = new PortClient(port);
+  assert.deepEqual(await c.tags(), { ok: true });
+  await c.putLayouts("2.9", { format: "esl-layouts" });
+  await assert.rejects(c.putContent("X", { layout: "price" }), /^Error: 422: text too long/);
+  assert.deepEqual(calls, [["GET", "/api/tags", undefined], ["PUT", "/api/layouts/2.9", { format: "esl-layouts" }], ["PUT", "/api/tags/X", { layout: "price" }]]);
+});
