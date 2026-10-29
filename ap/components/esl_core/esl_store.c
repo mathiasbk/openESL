@@ -510,12 +510,17 @@ static void note_signal(esl_tag_t *t, const esl_poll_t *poll, int8_t rssi)
 {
     uint8_t info = 0;
     if (poll->has_link) {
-        info = (uint8_t)(poll->lost > ESL_HIST_LOST ? ESL_HIST_LOST : poll->lost);
-        if (poll->link_flags & ESL_POLL_LF_RETRY) {
-            info |= ESL_HIST_RETRY;
+        /* The first POLL since the AP started: rounds it lost may be the ones while the AP
+         * itself was down (a restart, an OTA update), so they are not counted against the link */
+        if (t->hist_n) {
+            info = (uint8_t)(poll->lost > ESL_HIST_LOST ? ESL_HIST_LOST : poll->lost);
+            add_u16(&t->lost_total, poll->lost);
+        }
+        /* the retry flag is about the round before this one: it marks that POLL's entry */
+        if ((poll->link_flags & ESL_POLL_LF_RETRY) && t->hist_n) {
+            t->hist_info[(t->hist_at + ESL_LINK_HIST - 1) % ESL_LINK_HIST] |= ESL_HIST_RETRY;
             add_u16(&t->retries, 1);
         }
-        add_u16(&t->lost_total, poll->lost);
         t->rx_rssi = poll->rx_rssi;
         t->rx_lqi = poll->rx_lqi;
     }

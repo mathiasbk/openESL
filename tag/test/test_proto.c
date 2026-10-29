@@ -11,9 +11,9 @@ static void test_build_poll(void)
     uint8_t p[ESL_POLL_LEN_LINK];
     static const uint8_t expect[ESL_POLL_LEN_LINK] = {
         0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE,
-        0x34, 0x12, 0xC8, 0x6E, 0x05, 0x00
+        0x34, 0x12, 0xC8, 0x6E, 0x05, 0x01
     };
-    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0xC8, 0x6E, 5), ESL_POLL_LEN_LINK);
+    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0xC8, 0x6E, 5, ESL_POLL_LF_RETRY), ESL_POLL_LEN_LINK);
     CHECK_EQ(ESL_POLL_OFF_CFG_VER + 2, ESL_POLL_LEN_CFG);
     CHECK_EQ(ESL_POLL_OFF_LINKF + 1, ESL_POLL_LEN_LINK);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
@@ -144,7 +144,7 @@ static void test_build_frame(void)
         0x41, 0xC8, 0x07, 0x53, 0x45, 0x00, 0x00,
         0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00
     };
-    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0, 0, 0);
+    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0, 0, 0, 0);
     CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_LINK),
              ESL_MAC_HDR_LEN + ESL_POLL_LEN_LINK);
     CHECK(memcmp(f, hdr, sizeof(hdr)) == 0);

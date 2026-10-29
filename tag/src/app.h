@@ -36,6 +36,7 @@ typedef struct {
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
     uint8_t rx_rssi;          /* the radio's RSSI and LQI of the AP's last answer, sent in POLL (0 = none yet) */
     uint8_t rx_lqi;
+    uint8_t link_flags;       /* for the next POLL: ESL_POLL_LF_RETRY when the last answered one needed its retry */
     uint8_t seq;
     uint16_t rng;
     app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */

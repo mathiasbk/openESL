@@ -63,7 +63,7 @@ typedef struct {
 #define ESL_LINK_HIST 8
 #endif
 #define ESL_HIST_LOST     0x7F /* hist_info: rounds the tag lost before this POLL (127 = 127 or more) */
-#define ESL_HIST_RETRY    0x80 /* ... and it was the second try of its round */
+#define ESL_HIST_RETRY    0x80 /* ... and its answer came only on the tag's second try */
 
 /* One slot of the table. Kept small, since there is one per tag for the whole run
  * (sizeof is printed in the boot log): the content itself is not here but in NVS

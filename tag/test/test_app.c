@@ -245,7 +245,8 @@ static void test_config_from_ap(void)
 }
 
 /* The link block in POLL (#261): the signal of the AP's last answer, the rounds lost
-   before this one, and whether this POLL is the retry */
+   before this one, and whether the last answered round needed its retry. The retry
+   itself is the same frame, byte for byte (so a MIC on it, #260, stays valid). */
 static void test_link_block(void)
 {
     fresh();
@@ -256,18 +257,19 @@ static void test_link_block(void)
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 0);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
 
-    /* two rounds without an answer: each sends the POLL twice, the second marked */
+    /* two rounds without an answer: each sends the POLL twice, unchanged */
     fake_radio_reset();
     app_poll_once();
     CHECK_EQ(fake_tx_count, 2);
-    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
-    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_LINKF], ESL_POLL_LF_RETRY);
+    CHECK_EQ(fake_tx_len[0], fake_tx_len[1]);
+    CHECK(memcmp(fake_tx[0], fake_tx[1], fake_tx_len[0]) == 0);
+    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_LINKF], 0);
     CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_RX_RSSI], fake_rx_rssi);   /* from the answer before */
     CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_RX_LQI], fake_rx_lqi);
     fake_radio_reset();
     app_poll_once();
 
-    /* answered at the second try: it reports both lost rounds, and the retry */
+    /* answered at the second try: it reports both lost rounds; the retry is not flagged yet */
     fake_radio_reset();
     fake_rx_lose();
     push_idle(0);
@@ -275,18 +277,23 @@ static void test_link_block(void)
     app_poll_once();
     CHECK_EQ(fake_tx_count, 2);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 2);
-    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_LOST], 2);
-    CHECK_EQ(sent_poll(1)[ESL_POLL_OFF_LINKF], ESL_POLL_LF_RETRY);
+    CHECK(memcmp(fake_tx[0], fake_tx[1], fake_tx_len[0]) == 0);
     CHECK_EQ(app.misses, 0);
 
-    /* the next round starts clean, with the new answer's signal */
+    /* the next round says the last one needed its retry, with the new answer's signal */
     fake_radio_reset();
     push_idle(0);
     app_poll_once();
     CHECK_EQ(fake_tx_count, 1);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LOST], 0);
-    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], ESL_POLL_LF_RETRY);
     CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_RX_RSSI], 0x90);
+
+    /* and the one after that starts clean */
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF], 0);
     fake_rx_rssi = 0xC8;
 }
 

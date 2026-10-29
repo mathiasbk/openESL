@@ -31,7 +31,7 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | rx_rssi | 1 | byte 14, the link block (see "Signal"): the tag radio's raw RSSI byte for the AP's last answer it took, 0 = none since it started. Not dBm: the scale is not measured yet, higher is stronger |
 | rx_lqi | 1 | byte 15: the link quality (0–127) of that answer, 0 = none |
 | lost | 1 | byte 16: poll rounds in a row without an answer before this one (255 = 255 or more) |
-| link_flags | 1 | byte 17: bit0 = this POLL is the second try of its round (the first got no answer) |
+| link_flags | 1 | byte 17: bit0 = the tag's last answered round needed its second try. The retry itself is the same frame, byte for byte, so the flag goes in the next round's POLL |
 
 The AP accepts a POLL of 12 bytes or more, and the length says what the firmware can take:
 
@@ -174,7 +174,7 @@ Tag                                      AP
 
 ### Signal
 
-Each POLL tells the AP how the link has been (#261): the link block at bytes 14–17 has the tag radio's RSSI and LQI of the AP's last answer, the rounds that went unanswered since, and a flag on the second try of a round. A second try that gets an answer means the AP's answer to the first was lost, or the first POLL never reached it; a round with no answer at all shows up as `lost` in the next POLL that gets through. Together with the RSSI the AP measures on each POLL, the AP keeps the last 8 POLLs per tag in RAM (32 on an AP with PSRAM), shown under `signal` in `GET /api/tags` and as small bars in the dashboard's Signal column. A tag that loses POLLs or needs its retry for a quarter of them, or one heard below about −85 dBm on average, is marked weak there before it drops out.
+Each POLL tells the AP how the link has been (#261): the link block at bytes 14–17 has the tag radio's RSSI and LQI of the AP's last answer, the rounds that went unanswered since, and a flag when the last answered round needed its second try. A second try that gets an answer means the AP's answer to the first was lost, or the first POLL never reached it; a round with no answer at all shows up as `lost` in the next POLL that gets through. The AP counts neither for the first POLL it hears from a tag after it started, since those rounds may have been lost while the AP itself restarted. Together with the RSSI the AP measures on each POLL, the AP keeps the last 8 POLLs per tag in RAM (32 on an AP with PSRAM), shown under `signal` in `GET /api/tags` and as small bars in the dashboard's Signal column. A tag that loses POLLs or needs its retry for a quarter of them, or one heard below about −85 dBm on average, is marked weak there before it drops out.
 
 ### Firmware transfer (requirement T15)
 The same pattern as the image transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).

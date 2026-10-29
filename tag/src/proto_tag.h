@@ -50,10 +50,11 @@ typedef struct {
 /* Writes POLL (ESL_POLL_LEN_LINK bytes: cfg_ver at 12, then the link block) to out, with
    the image_id the tag shows in the content_id field. rx_rssi and rx_lqi are what the
    radio measured on the AP's last answer, lost the rounds without an answer before this
-   one. The link flags are 0. Returns the length. */
+   one, link_flags ESL_POLL_LF_RETRY when the last answered round needed its retry.
+   Returns the length. */
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
                          uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
-                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost);
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags);
 
 /* Writes FW_REQ (ESL_FREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max);

@@ -64,7 +64,7 @@
 #define ESL_POLL_OFF_LINKF   17     /* u8 ESL_POLL_LF_* */
 #define ESL_POLL_LEN_LINK    18     /* POLL with cfg_ver and the link block */
 
-#define ESL_POLL_LF_RETRY    0x01   /* this POLL is the second try of its round: the first got no answer */
+#define ESL_POLL_LF_RETRY    0x01   /* the round before this one was answered only on its second try (the retry itself is sent unchanged) */
 
 /* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
  * så AP-en leser den som "ukjent" og alt virker som før. De kjente modellene

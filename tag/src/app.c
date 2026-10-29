@@ -221,16 +221,18 @@ static bool exchange(uint8_t flen)
     return false;
 }
 
-/* exchange(), and once more after a random pause if nothing came (protokoll.md). A
-   POLL sent again says so in its link flags, so the AP sees the first answer was lost. */
+/* exchange(), and once more after a random pause if nothing came (protokoll.md). The
+   retry is the same frame, byte for byte; retried says it was needed and answered. */
+static bool retried;
+
 static bool exchange_retry(uint8_t flen)
 {
+    retried = false;
     if (exchange(flen))
         return true;
     hal_delay_ms(CFG_RETRY_MIN_MS + (uint8_t)(rng_next() % (CFG_RETRY_MAX_MS - CFG_RETRY_MIN_MS + 1)));
-    if (txbuf[ESL_MAC_HDR_LEN + ESL_OFF_TYPE] == ESL_MSG_POLL)
-        txbuf[ESL_MAC_HDR_LEN + ESL_POLL_OFF_LINKF] |= ESL_POLL_LF_RETRY;
-    return exchange(flen);
+    retried = exchange(flen);
+    return retried;
 }
 
 /* Builds POLL straight into the payload part of txbuf (proto_build_frame copies it onto itself). */
@@ -240,7 +242,7 @@ static uint8_t build_poll_frame(void)
     uint8_t flags = app.poll_flags | ota_poll_flags() | image_poll_flags();
 
     proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver,
-                     app.rx_rssi, app.rx_lqi, app.misses);
+                     app.rx_rssi, app.rx_lqi, app.misses, app.link_flags);
     return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LINK);
 }
 
@@ -361,6 +363,7 @@ void app_init(void)
     app.poll_flags = ESL_POLL_F_BOOTED;
     app.rx_rssi = 0;
     app.rx_lqi = 0;
+    app.link_flags = 0;
     app.seq = 0;
     app.rng = 0xACE1;
     for (i = 0; i < MAC_ADDR_LEN; i++)
@@ -384,6 +387,8 @@ static uint16_t poll_round(void)
     hal_wdt_kick();
     radio_on();
     got = exchange_retry(build_poll_frame());
+    if (got)                         /* the next POLL tells the AP this one needed its retry */
+        app.link_flags = retried ? ESL_POLL_LF_RETRY : 0;
     if (got && reply.type == ESL_MSG_FW) {
         /* The AP sends firmware only when nothing else is waiting: nothing to draw */
         fw_done = fw_transfer();

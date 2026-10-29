@@ -7,7 +7,7 @@
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
                          uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
-                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost)
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags)
 {
     out[ESL_OFF_TYPE] = ESL_MSG_POLL;
     out[ESL_OFF_VER] = ESL_PROTO_VER;
@@ -20,7 +20,7 @@ uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
     out[ESL_POLL_OFF_RX_RSSI] = rx_rssi;
     out[ESL_POLL_OFF_RX_LQI] = rx_lqi;
     out[ESL_POLL_OFF_LOST] = lost;
-    out[ESL_POLL_OFF_LINKF] = 0;                         /* ESL_POLL_LF_RETRY is set by the retry */
+    out[ESL_POLL_OFF_LINKF] = link_flags;
     return ESL_POLL_LEN_LINK;
 }
 

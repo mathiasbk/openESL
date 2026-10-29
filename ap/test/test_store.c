@@ -343,7 +343,7 @@ static void test_store_signal(void)
     CHECK_INT(info[0], 0);
     CHECK_INT(t.rx_lqi, 0);
 
-    /* with it: lost rounds and the retry, and the totals */
+    /* with it: lost rounds, the retry (which marks the POLL before), and the totals */
     p.has_link = true;
     p.rx_rssi = 0xB0;
     p.rx_lqi = 90;
@@ -356,7 +356,8 @@ static void test_store_signal(void)
     CHECK(esl_store_get(&st, A, &t));
     CHECK_INT(esl_tag_signal(&t, rssi, info), 3);
     CHECK_INT(rssi[1], -70);
-    CHECK_INT(info[1], 3 | ESL_HIST_RETRY);
+    CHECK_INT(info[0], ESL_HIST_RETRY);
+    CHECK_INT(info[1], 3);
     CHECK_INT(info[2], ESL_HIST_LOST);
     CHECK_INT(t.lost_total, 203);
     CHECK_INT(t.retries, 1);
@@ -372,6 +373,18 @@ static void test_store_signal(void)
     CHECK_INT(rssi[ESL_LINK_HIST - 1], -(ESL_LINK_HIST + 299) % 100);
     CHECK_INT(rssi[0], -300 % 100);
     CHECK_INT(t.lost_total, 0xFFFF);
+
+    /* the first POLL since the AP started: its lost rounds (and a retry) may be the AP's own
+       restart, so they are not held against the link */
+    const uint64_t B = 0xB2;
+    p.lost = 2;
+    p.link_flags = ESL_POLL_LF_RETRY;
+    esl_store_on_poll(&st, B, &p, -60, 4000, NULL, reply);
+    CHECK(esl_store_get(&st, B, &t));
+    CHECK_INT(esl_tag_signal(&t, rssi, info), 1);
+    CHECK_INT(info[0], 0);
+    CHECK_INT(t.lost_total, 0);
+    CHECK_INT(t.retries, 0);
     esl_store_free(&st);
 }
 
