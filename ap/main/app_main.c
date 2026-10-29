@@ -6,6 +6,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_random.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -89,6 +90,10 @@ void app_main(void)
     store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;
+    /* GET /api/tags?since= (#270): a since from before this restart gets the whole list */
+    static esl_api_changes_t changes;
+    changes.boot = esp_random();
+    api.changes = &changes;
     api.token = token;
     static esl_api_lock_t lock;
     api.lock = &lock;

@@ -583,8 +583,10 @@ static void write_signal(esl_sb_t *out, const esl_tag_t *t)
         esl_sb_puts(out, "\"tag_rssi\":null,\"tag_lqi\":null}");
 }
 
+/* fingerprint: for the change fingerprint (esl_api_changes_t), when the tag was last
+   heard instead of how long ago, which changes every second */
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
-                      uint16_t default_poll_s, bool with_content)
+                      uint16_t default_poll_s, bool with_content, bool fingerprint)
 {
     char m[17];
     esl_mac_format(t->mac, m);
@@ -593,7 +595,10 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
      * (wall clock) if both that and the time now are known */
     bool known = t->seen || t->fw; /* fw 0: nothing stored from a POLL */
     uint64_t ago;
-    if (seen_s_ago(api, t, now_ms, &ago))
+    if (fingerprint)
+        esl_sb_printf(out, "%u,%" PRIu64 ",%" PRIu32 ",%d,", (unsigned)t->seen, t->last_seen_ms, t->seen_unix,
+                      seen_s_ago(api, t, now_ms, &ago));
+    else if (seen_s_ago(api, t, now_ms, &ago))
         esl_sb_printf(out, "\"seen_s_ago\":%" PRIu64 ",", ago);
     else
         esl_sb_puts(out, "\"seen_s_ago\":null,");
@@ -833,7 +838,90 @@ done:
     return status;
 }
 
-static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
+/* ---- GET /api/tags?since= (esl_api_changes_t) ------------------------------------ */
+
+void esl_api_changes_free(esl_api_changes_t *ch)
+{
+    for (unsigned c = 0; c < ESL_STORE_MAX_CHUNKS; c++) {
+        free(ch->chunk[c]);
+        ch->chunk[c] = NULL;
+    }
+}
+
+/* A sink that only adds the bytes to a CRC: a tag's row is fingerprinted without room for it */
+static bool crc_sink(esl_sb_t *sb)
+{
+    uint32_t *crc = sb->ctx;
+    *crc = esl_crc32_update(*crc, sb->buf, sb->len);
+    return true;
+}
+
+static uint32_t row_crc(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, uint16_t def_poll)
+{
+    char buf[64];
+    uint32_t crc = 0;
+    esl_sb_t sb;
+    esl_sb_init(&sb, buf, sizeof(buf));
+    esl_sb_set_sink(&sb, crc_sink, &crc);
+    esl_sb_stream(&sb, 200);
+    write_tag(api, &sb, t, now_ms, def_poll, false, true);
+    esl_sb_flush(&sb);
+    return crc ? crc : 1; /* 0 is "no tag" */
+}
+
+/* Fingerprints every row and stamps those that changed with the next seq. False when
+   there was no memory for the table: the caller sends the whole list. */
+static bool changes_update(const esl_api_t *api, uint64_t now_ms, uint16_t def_poll)
+{
+    esl_api_changes_t *ch = api->changes;
+    uint32_t next = ch->seq + 1;
+    bool changed = false;
+    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
+        esl_api_change_t **chunk = &ch->chunk[s / ESL_STORE_CHUNK];
+        if (!*chunk && !(*chunk = calloc(ESL_STORE_CHUNK, sizeof(esl_api_change_t))))
+            return false;
+        esl_api_change_t *e = &(*chunk)[s % ESL_STORE_CHUNK];
+        esl_tag_t t;
+        uint32_t crc = esl_store_get_slot(api->store, s, &t) ? row_crc(api, &t, now_ms, def_poll) : 0;
+        if (crc == e->crc)
+            continue;
+        if (!crc)
+            ch->removed_seq = next;
+        e->crc = crc;
+        e->seq = next;
+        changed = true;
+    }
+    if (changed)
+        ch->seq = next;
+    return true;
+}
+
+/* ?since=<boot>-<seq> (8 hex digits, a number): true and the seq when it is from this
+   boot, not ahead of now, and no tag has gone since */
+static bool since_ok(const esl_api_changes_t *ch, const char *v, size_t len, uint32_t *seq)
+{
+    if (len < 10 || len > 19 || v[8] != '-')
+        return false;
+    uint32_t boot = 0, n = 0;
+    for (size_t i = 0; i < 8; i++) {
+        int c = tolower((unsigned char)v[i]);
+        int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+        if (d < 0)
+            return false;
+        boot = boot << 4 | (uint32_t)d;
+    }
+    for (size_t i = 9; i < len; i++) {
+        if (!isdigit((unsigned char)v[i]) || n > (UINT32_MAX - 9) / 10)
+            return false;
+        n = n * 10 + (uint32_t)(v[i] - '0');
+    }
+    if (boot != ch->boot || n > ch->seq || n < ch->removed_seq)
+        return false;
+    *seq = n;
+    return true;
+}
+
+static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_sb_t *out)
 {
     /* The list can be far larger than the buffer (ESL_API_RESP_SIZE): a
        glue with a sink gets it in pieces. Nothing below can fail. */
@@ -881,16 +969,32 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
                       ",\"dropped\":%" PRIu32 ",\"slow\":%" PRIu32 ",\"worst_us\":%" PRId64 "}",
                       r->polls, r->blocks, r->tx_failed, r->dropped, r->slow, r->worst_us);
     }
-    esl_sb_puts(out, "},\"tags\":[");
+    esl_sb_putc(out, '}');
+    /* ?since=: only the tags that changed since that read ("full":false), or all of them
+       when it cannot be told ("full":true); without since the reply is as before */
+    size_t sl;
+    const char *since = query_str(uri, "since", &sl);
+    bool partial = false;
+    uint32_t from = 0;
+    if (since && api->changes && changes_update(api, now_ms, def_poll)) {
+        partial = since_ok(api->changes, since, sl, &from);
+        esl_sb_printf(out, ",\"since\":\"%08" PRIx32 "-%" PRIu32 "\",\"full\":%s", api->changes->boot,
+                      api->changes->seq, partial ? "false" : "true");
+    }
+    esl_sb_puts(out, ",\"tags\":[");
     bool first = true;
     for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
         esl_tag_t t;
+        /* a chunk the radio's task added a tag to after changes_update: sent */
+        const esl_api_change_t *chunk = partial ? api->changes->chunk[s / ESL_STORE_CHUNK] : NULL;
+        if (chunk && chunk[s % ESL_STORE_CHUNK].seq <= from)
+            continue;
         if (!esl_store_get_slot(api->store, s, &t))
             continue;
         if (!first)
             esl_sb_putc(out, ',');
         first = false;
-        write_tag(api, out, &t, now_ms, def_poll, false);
+        write_tag(api, out, &t, now_ms, def_poll, false, false);
     }
     esl_sb_puts(out, "]}");
     return 200;
@@ -2169,7 +2273,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     } else if (item_image)
         return api_error(out, 405, "method not allowed");
     else if (collection && strcmp(method, "GET") == 0)
-        status = get_all(api, now_ms, out);
+        status = get_all(api, uri, now_ms, out);
     else if (collection && strcmp(method, "PUT") == 0)
         status = put_batch(api, body, body_len, now_ms, out);
     else if (item && strcmp(method, "PUT") == 0)
@@ -2178,7 +2282,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         esl_tag_t t;
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
-        write_tag(api, out, &t, now_ms, esl_store_get_next_poll(api->store), true);
+        write_tag(api, out, &t, now_ms, esl_store_get_next_poll(api->store), true, false);
         status = 200;
     } else if (item && strcmp(method, "DELETE") == 0) {
         char m[17];

@@ -36,6 +36,10 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
 
 `PUT /api/tags` takes a list of up to 50 labels. Unchanged labels are skipped, so you can send the whole price list every time.
 
+## Reading only what changed
+
+A client that reads `GET /api/tags` every minute or two, such as Home Assistant, does not have to fetch every label each time. Add `?since=` the first time; the reply has `"since": "5eed0001-17"` and `"full": true`. Send that value next time (`GET /api/tags?since=5eed0001-17`): with `"full": false` the reply holds only the labels that changed since then (a poll, new content, settings, a drawing, firmware), and the next `since`. With `"full": true` it holds every label again, after the AP restarted or a label was deleted, and the client starts over with that list. `seen_s_ago` going up by itself is no change. An AP without this ignores `since` and sends the whole list.
+
 ## Errors
 
 - `401`: wrong or missing token. `429`: locked after wrong tokens, wait 60 seconds.
