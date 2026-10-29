@@ -31,13 +31,14 @@ MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "models.js", "apsettings.js", "backup.js"],
+               "fwupload.js", "sendtext.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
+               "handoff.js", "aplayouts.js", "layoutinfo.js", "catalog.js"],
         "css": [],
     },
     "design": {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
-               "models.js", "tplpicker.js", "catalog.js"],
+               "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,

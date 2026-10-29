@@ -18,9 +18,9 @@ Details: [Flashing labels](Flashing-labels).
 
 ## 3. Pick or design a layout
 
-The AP comes with the layouts `price` and `text`. To make your own, draw it on the [Design](https://mathiasbk.github.io/openESL/#design) tab and send it to the AP.
+The AP comes with the layouts `price` and `text`. To make your own, draw it on the [Design](https://mathiasbk.github.io/openESL/#design) tab and press **Send to your AP…**: choose **USB cable** if the AP is plugged into your computer, or **WiFi** to open the AP's own page and save it there.
 
-Details: [Label designer](Label-designer).
+Details: [Label designer](Label-designer), [Getting layouts onto the AP](Getting-layouts-onto-the-AP).
 
 ## 4. Send content
 
