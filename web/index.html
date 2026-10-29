@@ -386,7 +386,7 @@
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>) or new firmware.</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), new firmware, or, on an AP that fetches it, the weather.</p>
         <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
@@ -396,6 +396,7 @@
               <option value="tag">The tag's own info</option>
               <option value="date">Today's date</option>
               <option value="text">Your own text</option>
+              <option value="weather" disabled hidden>The weather (MET Norway)</option>
               <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
@@ -422,6 +423,31 @@
           </div>
           <p id="st-msg" class="hint" role="status"></p>
         </form>
+        <dialog id="wx-dlg" class="wx-dlg" aria-labelledby="wx-h">
+          <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+          <h3 id="wx-h">The weather on <span id="wx-n"></span></h3>
+          <form id="wx-form" novalidate>
+            <div id="wx-places" class="wx-places" role="radiogroup" aria-label="Place"></div>
+            <div id="wx-new" class="form">
+              <label>Place <span class="wx-find"><input id="wx-place" maxlength="32" autocomplete="off" spellcheck="false" placeholder="Start typing: Bergen" title="A town or village; its name is shown on the tag" role="combobox" aria-autocomplete="list" aria-controls="wx-hits" aria-expanded="false"><ul id="wx-hits" class="wx-hits" role="listbox" aria-label="Places" hidden></ul></span></label>
+              <p id="wx-osm" class="hint" hidden>Places from <a href="https://www.kartverket.no/api-og-data/stedsnavndata">Kartverket</a> (Norway) and <a href="https://open-meteo.com/en/docs/geocoding-api">Open-Meteo</a> / <a href="https://www.geonames.org/">GeoNames</a>, CC BY 4.0.</p>
+              <details id="wx-coords-box" class="help">
+                <summary>Coordinates</summary>
+                <label>Lat, lon <input id="wx-coords" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="59.9139, 10.7522"></label>
+                <p class="hint">Filled in when you pick a place. Or right-click the place in a map and copy its coordinates in here.</p>
+              </details>
+              <label>Words in <select id="wx-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
+            </div>
+            <label id="wx-layout-label" class="check" hidden><input type="checkbox" id="wx-layout" checked> <span id="wx-layout-text"></span></label>
+            <p id="wx-msg" class="hint" role="status"></p>
+            <p class="hint">Weather data from MET Norway (api.met.no), CC BY 4.0: the layout shows the credit.</p>
+            <div class="dlg-buttons">
+              <button type="button" id="wx-cancel">Cancel</button>
+              <span class="sep"></span>
+              <button type="submit" id="wx-ok" class="primary">Show the weather</button>
+            </div>
+          </form>
+        </dialog>
       </section>
       <section id="lay-card" class="card wide lay" hidden>
         <div class="lay-head">
@@ -460,6 +486,21 @@
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
         <dl id="dash-ap" class="facts"></dl>
         <p id="dash-wifi" class="muted"></p>
+      </details>
+      <details id="src-box" class="card wide fold" hidden>
+        <summary><h2>Weather</h2> <span id="src-sum" class="muted"></span></summary>
+        <p class="muted">The AP fetches the forecast for these places from MET Norway every half hour or so, and a tag is only sent something when the weather on it changed. To add a place or give it more tags, tick the tags above and choose Send → <em>The weather</em>. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
+        <div class="table-wrap">
+          <table class="dash-tags">
+            <thead><tr><th>Place</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody id="src-list"></tbody>
+          </table>
+        </div>
+        <div class="buttons">
+          <button id="src-refresh" type="button" title="POST /api/sources/refresh: fetch now (MET's answer is used again until it expires)">Fetch now</button>
+        </div>
+        <p id="src-msg" class="hint" role="status"></p>
+        <p class="hint">Weather data from MET Norway (api.met.no), CC BY 4.0.</p>
       </details>
       <details id="dash-fw-box" class="card wide fold">
         <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>

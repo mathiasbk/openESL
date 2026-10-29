@@ -26,6 +26,7 @@
 #define PATH_HEALTH "/api/health"
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
+#define PATH_SOURCES "/api/sources"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -70,6 +71,7 @@ const char *esl_api_status_line(int status)
 {
     switch (status) {
     case 200: return "200 OK";
+    case 202: return "202 Accepted";
     case 400: return "400 Bad Request";
     case 401: return "401 Unauthorized";
     case 404: return "404 Not Found";
@@ -84,6 +86,14 @@ const char *esl_api_status_line(int status)
     case 507: return "507 Insufficient Storage";
     default:  return "500 Internal Server Error";
     }
+}
+
+/* A tag given content here leaves its data source (esl_source.h), or the source's next run
+   would overwrite it */
+static void leave_source(const esl_api_t *api, uint64_t mac)
+{
+    if (api->sources && api->sources->release)
+        api->sources->release(api->sources, mac);
 }
 
 /* ---- auth ---------------------------------------------------------------- */
@@ -670,10 +680,11 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
             if (esl_sched_add(api->sched, mac, at, &c) != ESL_SCHED_OK)
                 status = api_error(out, 507, "schedule full");
             else {
+                leave_source(api, mac);
                 write_sched_result(out, mac, at);
                 status = 200;
             }
-        } else if ((err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
+        } else if ((leave_source(api, mac), err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
             status = api_error(out, 507, store_err_text(err));
         else {
             write_set_result(out, mac, &r);
@@ -759,8 +770,9 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         if (k)
             esl_sb_putc(out, ',');
         if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
+            leave_source(api, macs[k]);
             write_sched_result(out, macs[k], ats[k]);
-        } else if (!ats[k] && (err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
+        } else if (!ats[k] && (leave_source(api, macs[k]), err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             write_set_result(out, macs[k], &r);
         } else {
             char m[17];
@@ -1703,6 +1715,7 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     esl_content_t c;
     esl_set_result_t r;
     esl_content_init_image(&c, t.model, esl_crc32(stored, n));
+    leave_source(api, mac); /* first: a source's run cannot overwrite the picture after this */
     esl_store_err_t serr = esl_store_set_image(api->store, mac, stored, n, &c, &r);
     free(img);
     if (serr)
@@ -2043,6 +2056,20 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     if (api->wifi && (plen == wbase || (plen == wbase + 1 && uri[wbase] == '/')) &&
         memcmp(uri, PATH_WIFI, wbase) == 0) {
         int status = ap_wifi(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t dbase = sizeof(PATH_SOURCES) - 1;
+    if (api->sources && plen >= dbase && memcmp(uri, PATH_SOURCES, dbase) == 0 && (plen == dbase || uri[dbase] == '/')) {
+        uint32_t now = api->sched ? esl_sched_now(api->sched, now_ms, NULL) : 0;
+        if (strcmp(method, "PUT") == 0 && plen <= dbase + 1) { /* 400 and 413 as for the other endpoints */
+            esl_jtok_t *tok = NULL;
+            int status = parse_json(body, body_len, &tok, out);
+            free(tok);
+            if (status)
+                return status;
+        }
+        int status = api->sources->api(api->sources, method, uri, plen, body, body_len, now, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 

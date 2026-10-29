@@ -33,3 +33,6 @@ CONFIG_ESL_WEB_DESIGNER=y
 # default of 10, the HTTP server (7 clients) ran out once a browser held 5 connections
 # open, and the API stopped answering; the S3 has the RAM for more.
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# Data sources (weather from MET Norway): the AP fetches over HTTPS, which PSRAM has room for
+CONFIG_ESL_DATASOURCES=y

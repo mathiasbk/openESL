@@ -880,6 +880,20 @@ static const uint8_t *fixed_text(const rd_file_t *fl, uint8_t i, uint8_t *len)
     return fl->bin + pos + 1;
 }
 
+/* The icon whose name (fixed text names + i, ESL_LE_OFF_NAMES) is t, or -1 */
+static int icon_by_name(const rd_file_t *fl, uint8_t names, const uint8_t *t, uint8_t len)
+{
+    if (!len || !fl->icon_pos)
+        return -1;
+    for (uint8_t i = 0; i < fl->bin[ESL_LBIN_OFF_NICON] && names + i < fl->bin[ESL_LBIN_OFF_NTEXT]; i++) {
+        uint8_t n;
+        const uint8_t *name = fixed_text(fl, (uint8_t)(names + i), &n);
+        if (n == len && memcmp(name, t, len) == 0)
+            return i;
+    }
+    return -1;
+}
+
 /* Elements of layout n (0-based), or NULL */
 static const uint8_t *file_find(const rd_file_t *fl, uint8_t n, uint8_t *nelem)
 {
@@ -1005,6 +1019,15 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     add_line(s, x0, y1, x1, y0, e->lines ? e->lines : 1, color);
                 else
                     add_line(s, x0, y0, x1, y1, e->lines ? e->lines : 1, color);
+            } else if (e->kind == ESL_LE_ICON && (e->field & ESL_LE_ICON_FIELD)) {
+                uint8_t f = (uint8_t)(e->field & ~ESL_LE_ICON_FIELD);
+                int i = f < nfields ? icon_by_name(fl, e->font[0], text[f], lens[f]) : -1;
+                uint16_t iw;
+                uint8_t ih;
+                const uint8_t *d = i < 0 ? 0 : file_icon(fl, (uint8_t)i, &iw, &ih);
+                if (d && iw <= e->w && ih <= e->h)
+                    add_icon(s, d, (uint16_t)(e->x + (e->w - iw) / 2), (uint16_t)(e->y + (e->h - ih) / 2), iw, ih,
+                             color);
             } else if (e->kind == ESL_LE_ICON) {
                 uint16_t iw;
                 uint8_t ih;

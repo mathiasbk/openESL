@@ -122,7 +122,7 @@ Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind: 1 = text, 2 = rectangle, 3 = barcode, 4 = line, 5 = icon, 6 = QR code |
-| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file |
+| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file, or 0x40 + f when text field f names the icon (`ESL_LE_ICON_FIELD`); then byte 2 is the fixed text holding icon 0's name, the names of all icons follow it in order, and the icon whose name equals the field's text is drawn centred in the box (nothing when none does or it is larger than the box) |
 | 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF. QR code: the first byte is the error correction level (0 = L, 1 = M, 2 = Q, 3 = H), the other two 0xFF |
 | 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom). Rectangle: border width, 0 = filled. Line: bit 0 set = from the bottom-left to the top-right corner of the box, else from the top-left to the bottom-right |
 | 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits. QR code: module size in pixels 1..8, 0 = the largest that fits. Rectangle: corner radius. Line: width 1..16 |
@@ -259,6 +259,7 @@ In short:
 | `GET`/`POST /api/ota` | New firmware for the AP itself: the app image, whole or in parts; the AP restarts into it (`esl-client ota`) |
 | `GET`/`PUT /api/tag-firmware`, `GET`/`DELETE /api/tag-firmware/{model}` | New firmware for the tags of a model, in parts; the AP sends it to them over the radio (part 1, "Firmware transfer"), and shows how far they are (`esl-client tag-ota`) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
+| `GET`/`PUT /api/sources`, `POST /api/sources/refresh` | Data sources (ESP32-S3 APs): content the AP fetches for itself, such as the weather from MET Norway, and gives to its tags ([data-sources.md](data-sources.md)) |
 
 **WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there, and a phone that joins is sent to the form by the captive portal) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".
 
@@ -298,12 +299,12 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
 | `elements` | 1 or more, drawn in order (all rectangles, then lines, then icons, then the barcode and QR code, then all text, see `esl_render.c`) |
 | `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
-| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon takes only `x` and `y` (or `w` and `h` equal to the icon's). A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
+| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon with `icon` takes only `x` and `y` (or `w` and `h` equal to the icon's); one with `field` needs all four. A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
 | `direction` | line only: `down` (default, top-left to bottom-right corner) or `up` (bottom-left to top-right) |
 | `width` | line only: 1–16 px, default 1. A straight line is exactly `width` px thick, (width − 1) / 2 of them above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round |
 | `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
-| `icon` | icon only, required: a name from `icons` |
-| `field` | text, barcode and qr: a name from `fields` (or its index) |
+| `icon` | icon only: a name from `icons`; give this or `field` |
+| `field` | text, barcode and qr: a name from `fields` (or its index). Icon, instead of `icon`: the field whose text is the name of the icon to draw, so the content picks it (a weather symbol); the icon is centred in the box, and nothing is drawn when the text names no icon or the icon is larger than the box. The names are stored once per file as fixed texts |
 | `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
 | `module` | barcode: module width 1–4 px; qr: module size 1–8 px; 0 (default) = the largest that fits the box |

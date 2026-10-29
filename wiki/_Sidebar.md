@@ -33,6 +33,7 @@
 - [Price lists from CSV](Price-lists-from-CSV)
 - [Scheduled prices](Scheduled-prices)
 - [Home Assistant](Home-Assistant)
+- [Weather on a label](Weather)
 
 **Running it**
 - [Dashboard](Dashboard)

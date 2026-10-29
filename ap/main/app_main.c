@@ -117,6 +117,9 @@ void app_main(void)
         if (bad)
             ESP_LOGW(TAG, "%u tags of model %s have content that does not fit its layout file", bad, esl_model_name(m));
     }
+#if CONFIG_ESL_DATASOURCES
+    api.sources = datasrc_start(&store, api.layouts, api.sched);
+#endif
     api.tagfw = tagfw_start();
     esl_radio_set_tagfw(api.tagfw);
     /* Images for tags that show what the AP draws: two buffers of the largest screen

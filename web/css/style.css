@@ -133,6 +133,7 @@ kbd { font: 12px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .warn { color: var(--warn); }
 
 .form { display: grid; gap: 8px; }
+.form[hidden] { display: none; }
 .form label { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 .form label > input, .form label > select { width: 100%; min-width: 0; }
 .form .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
@@ -432,3 +433,23 @@ details.help > p { max-width: 62ch; }
   .lay-space { margin-left: 0; }
   .lay-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 }
+
+/* The weather dialog of the Dashboard's Send form (apsources.js): its own rules, since the
+   Dashboard on a C6 has no designer.css */
+.wx-dlg { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+.wx-dlg::backdrop { background: rgba(0, 0, 0, .35); }
+.wx-dlg h3 { font-size: 17px; margin: 0 0 12px; }
+.wx-dlg .dlg-x { position: absolute; right: 12px; top: 10px; }
+.wx-dlg .dlg-x button { border: 0; background: none; color: var(--muted); }
+.wx-dlg .form { margin: 10px 0; }
+.wx-dlg .dlg-buttons { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+.wx-dlg .dlg-buttons .sep { flex: 1; }
+.wx-places { display: grid; gap: 6px; }
+.wx-places label { display: flex; gap: 8px; align-items: center; }
+.wx-find { position: relative; min-width: 0; }
+.wx-find input { width: 100%; }
+.wx-hits { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 5; margin: 0; padding: 4px 0; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); max-height: 280px; overflow-y: auto; }
+.wx-hits[hidden] { display: none; }
+.wx-hits li { display: flex; flex-direction: column; padding: 5px 10px; cursor: pointer; }
+.wx-hits li span { font-size: 12px; color: var(--muted); }
+.wx-hits li:hover, .wx-hits li[aria-selected="true"] { background: var(--line); }

@@ -11,5 +11,5 @@
   "artifact": "openesl-ap-c5-n16r8",
   "release": "openesl-ap-esp32c5-n16r8",
   "status": "experimental",
-  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16 }
+  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16, "fileBytes": 8192, "jsonBytes": 16384 }
 }

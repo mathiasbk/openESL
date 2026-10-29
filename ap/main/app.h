@@ -95,6 +95,11 @@ bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
 void ota_watch_running(bool wait);
 
+/* datasrc.c (ESL_DATASOURCES): data sources, such as the weather, fetched by their own task
+ * (esl_source.h), for api->sources. Call once the layout files are loaded; sched is the
+ * clock. NULL when it could not start. */
+esl_sources_t *datasrc_start(esl_store_t *st, esl_layouts_t *ls, esl_sched_t *sched);
+
 /* tagfw.c: the store for tag firmware images (the "tagfw" partition). NULL
  * when the partition table has none. */
 esl_tagfw_t *tagfw_start(void);

@@ -8,6 +8,7 @@ import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
@@ -39,6 +40,7 @@ const store = {
 
 export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
+  const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
@@ -96,6 +98,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    sources.connected(c);
     settings.reset();
     screens.clear();
     screenQueue.length = 0;
@@ -471,6 +474,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The lines: ready-made for the list's choices, the inputs for "Your own text"
   const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()] || PRESETS.clear);
   const stFw = () => stWhat() === "fw";
+  const stWeather = () => stWhat() === "weather"; // apsources.js: a dialog chooses the place
   let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
@@ -559,8 +563,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = stFw() || !usesDate(lines);
-    $("st-frame-label").hidden = stFw();
+    $("st-days-label").hidden = stFw() || stWeather() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw() || stWeather();
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
@@ -576,6 +580,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       tr.append(td1, td2);
       return tr;
     };
+
+    // The weather: the place each tag shows now; the dialog chooses the new one
+    if (stWeather()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const where = sources.placeOf();
+      $("st-count").textContent = "";
+      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? "The weather for " + where.get(t.mac) : "No weather yet", where.has(t.mac) ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = "Choose the place …";
+      return;
+    }
 
     // Firmware: what each tag gets, or why it gets nothing
     if (stFw()) {
@@ -596,7 +611,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+    const where = sources.placeOf();
+    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -673,20 +690,31 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
+    if (stWeather()) {
+      return sources.open(tags, (text, err) => {
+        stMsg(err ? "Not done: " + err.message : text, err ? "error" : "ok");
+        refresh();
+      });
+    }
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
     stBusy = true;
     $("st-send").disabled = $("st-forget").disabled = true;
     try {
+      // the AP takes a tag that shows the weather out of its place, so the forecast leaves this be
+      const where = sources.placeOf();
+      const left = [...new Set(tags.filter((t) => where.has(t.mac)).map((t) => where.get(t.mac)))];
       const { replies, note } = await sendRows(client, rows);
+      if (left.length) sources.reload();
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
       const waiting = now.filter((r) => r.pending !== false).length;
       const who = tags.length === 1 ? "The tag shows" : `${tags.length} tags show`;
       stMsg((waiting ? `Sent. ${who} it at the next poll.` : "Sent; the tags already show this.") +
         (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
-        (note ? " " + note : ""), "ok");
+        (note ? " " + note : "") +
+        (left.length ? ` No more weather for ${left.length === 1 && tags.length === 1 ? "it" : "them"} (${left.join(", ")}).` : ""), "ok");
     } catch (e) {
       stMsg("Not sent: " + e.message, "error");
     } finally {

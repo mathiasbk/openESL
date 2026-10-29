@@ -1,0 +1,415 @@
+{
+ "format": "esl-template",
+ "version": 1,
+ "id": "weather",
+ "category": "home",
+ "title": "Weather",
+ "description": "The weather for a place: a symbol that changes with the weather, the temperature, the weather in words, the day's lowest and highest, wind and rain. The AP's data sources fill it from MET Norway's forecast (ESP32-S3 APs), or send the fields yourself, e.g. from Home Assistant.",
+ "tags": [
+  "home",
+  "weather",
+  "forecast",
+  "temperature",
+  "met",
+  "yr"
+ ],
+ "docs": "docs/data-sources.md",
+ "fields": {
+  "place": "The place's name",
+  "temp": "Temperature now, digits only (e.g. 7 or -3)",
+  "symbol": "The weather as one of the template's icon names: sun, moon, partsun, partmoon, cloud, fog, rain, sleet, snow or thunder",
+  "desc": "The weather in words (e.g. Light rain)",
+  "range": "The lowest and highest temperature of the coming day (e.g. 3° / 9°)",
+  "detail": "Wind and rain (e.g. 4 m/s  0,6 mm)"
+ },
+ "variants": {
+  "2.9": {
+   "icons": {
+    "sun": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAGAAAAAAYAAAAABgAAAAAGAAAAAAYAAAAwBgDAADgAAcAAHAADgAAOAAcAAAQPAgAAAD/AAAAAf+AAAAD/8AAAAf/4AAAB//gAAAP//AAH4//8fgfj//x+AAP//AAAAf/4AAAB//gAAAD/8AAAAH/gAAAAP8AAAAQPAgAADgAHAAAcAAOAADgAAcAAMAYAwAAABgAAAAAGAAAAAAYAAAAABgAAAAAGAAAAAAAAAA"
+    },
+    "moon": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAGAAAAAB4AAAAAPAAAAAB8AAAAAPwAAAAA+AAAAAH4AAAAAfgAAAAD+AAAAAP4AAAAA/gAAAAD/AAAAAP8AAAAA/wAAAAD/gAAAAP/AAAAAf8AAAAB/4AAAAH/4AAAAP/wAAAAf/4AAAA///AAAB//4AAAD/+AAAAB/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "partsun": {
+     "w": 36,
+     "h": 36,
+     "data": "ABgAAAAAGAAAAAAYAAAAGBgYAAAcADgAAA4AcAAABDggAAAA/gAAAAH/AAAAAf+AAAAD/wAAAPP8AAAA8/h/AAAB8f/AAAHj4+AAAOOA8AAARwBwAAQGADwADh4APwAcfgAPgBh4AAOAAOAAAcABwAABwAHAAADgA8AAAPADAAAAcAMAAAAwAwAAAHAD////8AH////gAP///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "partmoon": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAAAAAAAAAAAAAMAAAAABgAAAAAeAAAAADwAAAAAPAAAAAB8AAAAAHwAAAAA/AAAAAD8AAAAAPwB/AAA/Af/AAD+D4+AAP8OA8AAfxwBwAB8GADwADh4APwAMfgAPgAR4AAOAAOAAAcABwAABwAHAAADgA8AAAPADAAAAcAMAAAAwAwAAAHAD////8AH////gAP///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "cloud": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAA/wAAAAP/wAAAB+PgAAAPAPAAAB4AOAAAPAAcAAA4ABwAADAAD4AA8AAPwAPwAAHgB8AAAHAPAAAAOA4AAAA4HAAAABgcAAAAHDgAAAAcMAAAAAQgAAAABCAAAAAAIAAAAAAwAAAABD4AAAB8P/////wP////+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "fog": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAA/wAAAAH/gAAAA+fAAAAHgeAAAAcA8AAADgB8AAA+AH4AAHwADwAA8AAHAADgAAOAAcAAA4ADwAADwAOAAADgAwAAAOADAAAA4AP////gAf///8AA////gAAAAAAAAAAAAAAAAAAAAAP////AA////8AAAAAAAAAAAAAAAH///gAAf//+AAB///4AAAAAAAAAAAAAAAP////AA////8AD////wAAAAAAAAAAAAAA"
+    },
+    "rain": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAfgAAAAH/gAAAB+fgAAAPAPAAAA4AcAAAHAA4AAAcAD4AADgAH4AA+AAPwAH4AAHAA4AAAOAHAAAAYAcAAABwDgAAAHgeAAAAOBwAAAAcGAAAABwcAAAAHBwAAAAcD/////gH////8AH////AAAAEAAAAA44cAAAHDjgAAAccOAAADhxwAAAOOHAAABw44AAAHHDgAAA4ccAAABggwAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "sleet": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAfgAAAAH/gAAAB+fgAAAPAPAAAA4AcAAAHAA4AAAcAD4AADgAH4AA+AAPwAH4AAHAA4AAAOAHAAAAYAcAAABwDgAAAHgeAAAAOBwAAAAcGAAAABwcAAAAHBwAAAAcD/////gH////8AH////AAAAAAAAAA4AcAAAHGDgAAAdaOAAADn5wAAAOPHAAABx+4AAAHH7gAAA4GcAAABgIwAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "snow": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAfgAAAAH/gAAAB+fgAAAPAPAAAA4AcAAAHAA4AAAcAD4AADgAH4AA+AAPwAH4AAHAA4AAAOAHAAAAYAcAAABwDgAAAHgeAAAAOBwAAAAcGAAAABwcAAAAHBwAAAAcD/////gH////8AH////AABgAGAAAWAAaAAB/AP4AAH4AfgAAfhh+AAB+Wn4AABh+GAAAGDwYAAAAfgAAAAB+AAAAABgAAAAAAAAAAAAAAAA"
+    },
+    "thunder": {
+     "w": 36,
+     "h": 36,
+     "data": "AAAAAAAAAfgAAAAH/gAAAB+fgAAAPAPAAAA4AcAAAHAA4AAAcAD4AADgAH4AA+AAPwAH4AAHAA4AAAOAHAAAAYAcAAABwDgAAAHgeAAAAOBwAAAAcGAAAABwcAAAAHBwAAAAcD/////gH////8AH////AAAAcAAAAADwAAAAAf8AAAAD/wAAAAf+AAAAD/wAAAAAeAAAAABwAAAAAOAAAAAAwAAAAAGAAAAAAQAAAAAAAAAA"
+    }
+   },
+   "layout": {
+    "name": "weather",
+    "description": "The weather symbol, the temperature large and the weather in words; under a rule the place, the day's range, wind and rain, and the credit to MET Norway",
+    "fields": [
+     "place",
+     "temp",
+     "symbol",
+     "desc",
+     "range",
+     "detail"
+    ],
+    "_sample": [
+     "Oslo",
+     "7",
+     "partsun",
+     "Delvis skyet",
+     "3° / 9°",
+     "4 m/s  0,6 mm"
+    ],
+    "elements": [
+     {
+      "type": "icon",
+      "field": "symbol",
+      "x": 6,
+      "y": 10,
+      "w": 40,
+      "h": 40
+     },
+     {
+      "type": "text",
+      "field": "temp",
+      "x": 48,
+      "y": 4,
+      "w": 100,
+      "h": 56,
+      "fonts": [
+       "large",
+       "mid"
+      ],
+      "align": "right",
+      "valign": "bottom",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "text": "°",
+      "x": 150,
+      "y": 10,
+      "w": 20,
+      "h": 24,
+      "fonts": [
+       "medium"
+      ],
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "field": "desc",
+      "x": 174,
+      "y": 6,
+      "w": 116,
+      "h": 54,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "valign": "middle",
+      "lines": 2
+     },
+     {
+      "type": "rect",
+      "x": 6,
+      "y": 66,
+      "w": 284,
+      "h": 2
+     },
+     {
+      "type": "text",
+      "field": "place",
+      "x": 6,
+      "y": 72,
+      "w": 168,
+      "h": 26,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "valign": "middle",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 176,
+      "y": 72,
+      "w": 114,
+      "h": 26,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "align": "right",
+      "valign": "middle",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "field": "detail",
+      "x": 6,
+      "y": 104,
+      "w": 180,
+      "h": 20,
+      "fonts": [
+       "small"
+      ],
+      "valign": "bottom",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "text": "MET Norway",
+      "x": 190,
+      "y": 104,
+      "w": 100,
+      "h": 20,
+      "fonts": [
+       "small"
+      ],
+      "align": "right",
+      "valign": "bottom",
+      "lines": 1
+     }
+    ]
+   }
+  },
+  "1.54": {
+   "icons": {
+    "sun": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAABgAAAAAGAAAAAAYAAAAABgAAAAAGAAAAQAYAIADgBgBwAHAAAOAAOAABwAAcAAOAAAgGAQAAAD/AAAAA//AAAAH/+AAAAf/4AAAD//wAAAP//AAAA//8AB/H//4/n8f//j+AA//8AAAD//wAAAP//AAAAf/4AAAB//gAAAD/8AAAAD/AAAAIBgEAABwAA4AAOAABwABwAADgAOAGAHAAQAYAIAAABgAAAAAGAAAAAAYAAAAABgAAAAAGAAAAAAAAAA="
+    },
+    "moon": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAOAAAAADwAAAAAfAAAAAD4AAAAAfgAAAAB+AAAAAPwAAAAB/AAAAAH8AAAAAfwAAAAB/gAAAAP+AAAAA/4AAAAD/gAAAAP/AAAAA/8AAAAB/4AAAAH/wAAAAf/AAAAA//AAAAD/+AAAAH/+AAAAP//AAAAf//4AAA///AAAB//wAAAB/+AAAAA+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "partsun": {
+     "w": 40,
+     "h": 40,
+     "data": "AA4AAAAADgAAAAAOAAAACA4EAAAcAA4AAA4AHgAABgAcAAAAHwgAAAB/gAAAAP/AAAAA/+AAAAH/wAAA8f8AAADx/g/AAPH8P/AAAfj/+AAA8fA8AABxwB4AACPADgAGA4AHwA8PgAfgHh8AA/AMPwAAeAB4AAA4AHAAABwA4AAAHAHgAAAeAcAAAA8DgAAABwOAAAAHA4AAAAcB/////wH////+AH////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "partmoon": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAAAAAAAAAAAAACAAAAAA4AAAAAHAAAAAB4AAAAAHgAAAAA+AAAAAH4AAAAAfgAAAAB+AAAAAP4AAAAA/gA/AAD+AP/AAP8D/+AA/wfA8AB/hwB4AH+PADgAPg4AHwA8PgAfgBh8AA/ACPwAAeAB4AAA4AHAAABwA4AAAHAHgAAAeAcAAAA8DgAAABwOAAAAHA4AAAAcB/////wH////+AH////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "cloud": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAH4AAAAB/4AAAAf/4AAAD4HwAAAeAHgAADwAPAAAeAAeAABwAA4AAHAAD8AA4AAH8AfgAAf4D+AAAHwfAAAAHDwAAAAOOAAAAA5wAAAADnAAAAAH8AAAAAfgAAAAA8AAAAABgAAAAACAAAAAAMAAAAABwAAAAAH/////////////P/////4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "fog": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAP8AAAAB/4AAAAP/wAAAB4HgAAAPAPAAAA4AeAAAHAA+AAB8AD8AAPwAB4AB4AADwAPAAAHAA4AAAOAHgAAA8AcAAADwDgAAADgOAAAAOA4AAABwB/////AH////4AH////AAAAAAAAAAAAAAAAAAAAAB////+AH////4Af////gAAAAAAAAAAAAAAD///8AAP///wAA////AAAAAAAAAAAAAAAAAAAAAAf////gB////+AAAAAAAAAAAAAAAAAAAAA="
+    },
+    "rain": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAH4AAAAB/4AAAAf/4AAAD4HwAAAeAHgAABwAOAAAOAAcAAA4AB8AAPAAD8AD8AAH4AfwAADwB4AAAHAOAAAAOA4AAAA4HAAAADw8AAAAHngAAAAOcAAAAAdwAAAAB3AAAAAHcAAAAA8//////h/////8D/////gAAAAAAAADBgwAAAcODgAABw4cAAAOHBwAAA4cOAAAHDg4AAAcOHAAADhwcAAAOHDgAABwYOAAAAAgAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "sleet": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAH4AAAAB/4AAAAf/4AAAD4HwAAAeAHgAABwAOAAAOAAcAAA4AB8AAPAAD8AD8AAH4AfwAADwB4AAAHAOAAAAOA4AAAA4HAAAADw8AAAAHngAAAAOcAAAAAdwAAAAB3AAAAAHcAAAAA8//////h/////8D/////gAAAAAAAADAAwAAAcADgAABxgcAAAOWhwAAA7/OAAAHH44AAAcfnAAADj/cAAAOFrgAABwGOAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    },
+    "snow": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAH4AAAAB/4AAAAf/4AAAD4HwAAAeAHgAABwAOAAAOAAcAAA4AB8AAPAAD8AD8AAH4AfwAADwB4AAAHAOAAAAOA4AAAA4HAAAADw8AAAAHngAAAAOcAAAAAdwAAAAB3AAAAAHcAAAAA8//////h/////8D/////gAAAAAAAAwAAwAALIATQAB/gB/gAD8AD8AAPwYPwAB/lp/gACw/y0AADB+DAAAAH4AAAAA/wAAAABaAAAAABgAAAAAAAAAAAAAAAA="
+    },
+    "thunder": {
+     "w": 40,
+     "h": 40,
+     "data": "AAAAAAAAAH4AAAAB/4AAAAf/4AAAD4HwAAAeAHgAABwAOAAAOAAcAAA4AB8AAPAAD8AD8AAH4AfwAADwB4AAAHAOAAAAOA4AAAA4HAAAADw8AAAAHngAAAAOcAAAAAdwAAAAB3AAAAAHcAAAAA8//////h/////8D/////gAAA4AAAAAHgAAAAA8AAAAAH/gAAAA/8AAAAH/gAAAA/8AAAAAHgAAAAAeAAAAADwAAAAAOAAAAABwAAAAAGAAAAAAQAAAAACAAAA="
+    }
+   },
+   "layout": {
+    "name": "weather",
+    "description": "The place in the band, the weather symbol and the temperature large, the weather in words, the day's range, wind and rain, and the credit to MET Norway",
+    "fields": [
+     "place",
+     "temp",
+     "symbol",
+     "desc",
+     "range",
+     "detail"
+    ],
+    "_sample": [
+     "Oslo",
+     "7",
+     "partsun",
+     "Delvis skyet",
+     "3° / 9°",
+     "4 m/s  0,6 mm"
+    ],
+    "elements": [
+     {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 32,
+      "color": "black"
+     },
+     {
+      "type": "text",
+      "field": "place",
+      "x": 6,
+      "y": 2,
+      "w": 188,
+      "h": 28,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "align": "center",
+      "valign": "middle",
+      "lines": 1,
+      "color": "white"
+     },
+     {
+      "type": "icon",
+      "field": "symbol",
+      "x": 12,
+      "y": 42,
+      "w": 52,
+      "h": 52
+     },
+     {
+      "type": "text",
+      "field": "temp",
+      "x": 66,
+      "y": 38,
+      "w": 104,
+      "h": 60,
+      "fonts": [
+       "large",
+       "price44",
+       "mid"
+      ],
+      "align": "right",
+      "valign": "bottom",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "text": "°",
+      "x": 172,
+      "y": 44,
+      "w": 24,
+      "h": 24,
+      "fonts": [
+       "medium"
+      ],
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "field": "desc",
+      "x": 6,
+      "y": 102,
+      "w": 188,
+      "h": 48,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "align": "center",
+      "valign": "middle",
+      "lines": 2
+     },
+     {
+      "type": "rect",
+      "x": 10,
+      "y": 152,
+      "w": 180,
+      "h": 2
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 6,
+      "y": 156,
+      "w": 188,
+      "h": 24,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "align": "center",
+      "valign": "middle",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "field": "detail",
+      "x": 4,
+      "y": 181,
+      "w": 98,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "valign": "bottom",
+      "lines": 1
+     },
+     {
+      "type": "text",
+      "text": "MET Norway",
+      "x": 102,
+      "y": 181,
+      "w": 96,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "align": "right",
+      "valign": "bottom",
+      "lines": 1
+     }
+    ]
+   }
+  }
+ }
+}

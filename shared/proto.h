@@ -302,12 +302,18 @@
  *   of them above or left of the box, with square ends. A slanted line is every pixel whose
  *   centre is at most width / 2 from it, so it reaches width / 2 past the box, with round ends
  * An icon element:
- *   ESL_LE_OFF_FIELD   the icon's number in the file
+ *   ESL_LE_OFF_FIELD   the icon's number in the file, or ESL_LE_ICON_FIELD | a text field: the
+ *                      icon whose name is that field's text, centred in the box (an unknown name,
+ *                      or an icon bigger than the box, draws nothing)
+ *   ESL_LE_OFF_NAMES   with ESL_LE_ICON_FIELD: the fixed text that holds the name of icon 0;
+ *                      icon i's name is the fixed text after it by i
  *   ESL_LE_OFF_COLOR   black, white or red: the icon's 1 bits are drawn, 0 bits left as they are */
 #define ESL_LE_OFF_RADIUS    ESL_LE_OFF_LINES
 #define ESL_LE_OFF_BORDER    ESL_LE_OFF_OPTS
 #define ESL_LE_OFF_WIDTH     ESL_LE_OFF_LINES
 #define ESL_LE_RISING        0x01
+#define ESL_LE_ICON_FIELD    0x40
+#define ESL_LE_OFF_NAMES     ESL_LE_OFF_FONT
 #define ESL_LINE_W_MAX       16
 
 /* A QR element uses the text element's bytes like this (the rest as for text):
