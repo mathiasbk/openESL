@@ -31,7 +31,7 @@ def defaults():
         "long_poll_s": 3600,   # CFG_LONG_POLL_S: the interval once the AP has been gone for a day
         "long_after_min": 1440,  # CFG_LONG_AFTER_MIN
         "scan_after": 3,       # CFG_SCAN_AFTER: the miss that looks on the other channels (#258)
-        "scan_count": 4,       # CFG_SCAN_COUNT: channels it looks on then, one POLL each; later misses one
+        "scan_count": 4,       # CFG_SCAN_FIRST: channels it looks on then, one POLL each; later misses one
         "window_ms": 20,       # CFG_RX_TIMEOUT_MS, listening window after POLL
         "retry_pause_ms": 6,   # CFG_RETRY_MIN/MAX_MS = 2..10, mean
         "reply_ms": 5,         # POLL sent until the reply is in (AP answers in well under 5 ms, A3)

@@ -526,7 +526,7 @@ static void test_channel_move(void)
     CHECK_EQ(app.misses, 2);
     fake_radio_reset();
     app_poll_once();
-    CHECK_EQ(fake_tx_count, 4);                /* then 25 twice too */
+    CHECK_EQ(fake_tx_count, 8);                /* then 25 twice too, and the scan (#258) */
     CHECK_EQ(fake_tx_channel[2], CFG_CHANNEL);
     CHECK_EQ(app.misses, 3);
     CHECK_EQ(app.channel, 20);
@@ -587,38 +587,44 @@ static void test_channel_scan(void)
     app_init();
     CHECK_EQ(app.channel, 20);                 /* kept in flash */
 
-    /* the AP is gone: the third miss looks on every channel of the list once (not on 20
-       and 25 again), each later one on the next channel only */
-    fake_ap_channel = 13;
+    /* the AP is gone, or on a channel this tag never heard of: the third miss looks on the
+       first four of the list once (not on 20 again), each later one on the next channel of
+       the list only, through all of 11-26; one frame, the round's POLL, on every channel */
+    fake_ap_channel = 18;
     for (i = 0; i < 2; i++) {
         fake_radio_reset();
         app_poll_once();
-        CHECK_EQ(fake_tx_count, 4);            /* 20 twice, the built-in 25 twice */
+        CHECK_EQ(fake_tx_count, 4);            /* 20 twice, 25 twice: no CONFIG came on 20, so the
+                                                  announced channel is still the built-in one */
     }
     fake_radio_reset();
     app_poll_once();
-    CHECK_EQ(fake_tx_count, 7);                /* and 15, 26, 11 */
+    CHECK_EQ(fake_tx_count, 8);                /* and 15, 26, 11, 12 */
+    CHECK_EQ(fake_tx_channel[2], CFG_CHANNEL);
     CHECK_EQ(fake_tx_channel[4], 15);
     CHECK_EQ(fake_tx_channel[5], 26);
     CHECK_EQ(fake_tx_channel[6], 11);
+    CHECK_EQ(fake_tx_channel[7], 12);
+    for (i = 1; i < 8; i++)
+        CHECK_EQ(fake_tx[i][2], fake_tx[0][2]); /* the same sequence number: the same frame */
     CHECK_EQ(fake_channel, 20);                /* the next round starts on 20 again */
-    fake_radio_reset();
-    app_poll_once();
-    CHECK_EQ(fake_tx_count, 5);                /* one more: 15 */
-    CHECK_EQ(fake_tx_channel[4], 15);
-    fake_radio_reset();
-    app_poll_once();
-    CHECK_EQ(fake_tx_count, 5);                /* 20 is skipped: 26 */
-    CHECK_EQ(fake_tx_channel[4], 26);
-    CHECK_EQ(app.channel, 20);
+    for (i = 13; i < 18; i++) {
+        if (i == 15)
+            continue;                          /* in the list's first four */
+        fake_radio_reset();
+        app_poll_once();
+        CHECK_EQ(fake_tx_count, 5);            /* one more each round: 13, 14, 16, 17 */
+        CHECK_EQ(fake_tx_channel[4], i);
+        CHECK_EQ(app.channel, 20);
+    }
 
-    /* found on 11 by the rotation */
-    fake_ap_channel = 11;
+    /* found on 18 by the rotation */
+    fake_ap_channel = 18;
     fake_radio_reset();
     push_idle(0);
     CHECK_EQ(app_poll_once(), CFG_POLL_S);
-    CHECK_EQ(fake_tx_channel[4], 11);
-    CHECK_EQ(app.channel, 11);
+    CHECK_EQ(fake_tx_channel[4], 18);
+    CHECK_EQ(app.channel, 18);
     CHECK_EQ(app.misses, 0);
     fake_ap_channel = 0;
 }
