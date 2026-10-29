@@ -21,6 +21,10 @@ On the AP's page you see the preview, the layouts in the file, and what changes 
 
 **Why a new tab?** The web page is on https, and the AP is on plain http in your home network. Browsers do not let an https page call such an address. It may open the AP's own page, though, and hand it the file. The AP's page only takes files from the openESL web page, and stores nothing until you press Save. A copy of the designer hosted somewhere else (a fork's own GitHub Pages, say) cannot hand files to the AP: use USB, or run the page on `localhost`.
 
+## Ready-made layouts, with no designer
+
+The **Layouts** card on the [Dashboard](Dashboard) lists what the AP has, and the ready-made layouts it can get from the [template library](Label-templates), each with **Send to AP**. It also shows, for each layout, which fields a client sends and an example to copy. This works on the AP's own page too, over WiFi.
+
 ## APs with the designer built in
 
 The [ESP32-S3 + C6](ESP32-S3-and-C6) and the [ESP32-C5](ESP32-C5) have the designer on the AP too, at `http://openesl.local/dashboard#design`. There it opens the layout file stored on that AP, and **Save to AP** writes it back. Nothing to send.

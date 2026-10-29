@@ -99,16 +99,18 @@
     <div class="dz">
       <aside class="dz-left">
         <div class="dz-h">
-          <h3>Layouts</h3>
-          <details class="menu" id="layout-new">
-            <summary title="Add a layout to this layout file">+ New</summary>
-            <div class="menu-list" role="menu" id="layout-new-list">
-              <button id="layout-add" class="item" role="menuitem">Empty layout</button>
-              <button id="layout-from-tpl" class="item" role="menuitem" title="Ready-made layouts by category: 3D printer, retail, signs, home">From template…</button>
-            </div>
-          </details>
+          <h3>Layouts <span class="muted small" id="layout-count"></span></h3>
+        </div>
+        <div class="lay-add">
+          <button id="layout-add" class="small" title="A new layout with one text field">+ Empty</button>
+          <button id="layout-from-tpl" class="small" title="Ready-made layouts by category: 3D printer, retail, signs, home">+ From template</button>
         </div>
         <ol id="layout-list" class="dz-list"></ol>
+        <p id="layout-gone" class="lay-gone small" hidden></p>
+        <details id="builtin-box" class="builtin-box">
+          <summary class="small muted">Built in: price, text</summary>
+          <ol id="builtin-list" class="dz-list"></ol>
+        </details>
         <div class="dz-h" id="el-head">
           <h3>Elements</h3>
           <span class="muted small">front at the top</span>
@@ -218,9 +220,10 @@
           <div id="ap-wifi" hidden>
             <div class="form"><label>AP address <input id="ap-addr" spellcheck="false" placeholder="openesl.local"></label></div>
             <p class="hint">Your AP's own page opens in a new tab with this layout file. Check it there and press <b>Save</b>. Nothing to install.</p>
+            <p class="hint note">The AP needs firmware newer than 0.8.2 for this (the Dashboard tab shows its version and updates it). With older firmware, use the USB cable, or the bridge under Advanced.</p>
             <div class="buttons tight"><button id="ap-handoff" class="primary">Open my AP →</button></div>
             <details id="ap-bridge" class="hint how">
-              <summary>Advanced: through the esl-client bridge</summary>
+              <summary>Advanced: through the esl-client bridge (older AP firmware, or to pick a tag and check it from here)</summary>
             </details>
           </div>
         </div>
@@ -419,6 +422,39 @@
           </div>
           <p id="st-msg" class="hint" role="status"></p>
         </form>
+      </section>
+      <section id="lay-card" class="card wide lay" hidden>
+        <div class="lay-head">
+          <h2>Layouts</h2>
+          <div id="lay-models" class="seg" role="group" aria-label="Tag model"></div>
+          <span class="lay-space"><span id="lay-space" class="muted small"></span> <span id="lay-meter" class="meter"><i></i></span></span>
+        </div>
+        <p class="hint">What the AP can draw on the tags. A tag shows the layout its content names; send a layout here first, then content with it.</p>
+        <div id="lay-warn" class="lay-warn" role="status" hidden></div>
+        <div class="lay-body">
+          <div class="lay-main">
+            <h3 class="lay-h">On the AP</h3>
+            <div id="lay-on" class="lay-grid"></div>
+            <h3 class="lay-h">Can be sent to the AP</h3>
+            <p id="lay-can-none" class="hint" hidden></p>
+            <div id="lay-can" class="lay-grid"></div>
+          </div>
+          <aside id="lay-panel" class="lay-panel" hidden>
+            <div class="lay-p-head">
+              <h3><span id="lay-p-name"></span> <span id="lay-p-state" class="pill"></span></h3>
+              <button id="lay-p-close" type="button" class="link" aria-label="Close">✕</button>
+            </div>
+            <p id="lay-p-desc" class="muted"></p>
+            <h4 class="lay-h">Data it needs from the API</h4>
+            <table class="lay-fields"><thead><tr><th>#</th><th>Field</th><th>What to send</th></tr></thead><tbody id="lay-p-fields"></tbody></table>
+            <p class="hint">Send them in this order, as <code>fields</code>. Fields left out stay empty.</p>
+            <div class="lay-p-tabs"><div id="lay-p-tabs" class="seg small" role="group" aria-label="Example"></div><button id="lay-p-copy" type="button" class="small">Copy</button></div>
+            <pre id="lay-p-code" class="lay-code"></pre>
+            <h4 class="lay-h" id="lay-p-users-h">Tags using it</h4>
+            <p id="lay-p-users" class="mono small"></p>
+          </aside>
+        </div>
+        <p id="lay-msg" class="hint" role="status"></p>
       </section>
       <details id="dash-ap-box" class="card wide fold">
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
