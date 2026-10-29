@@ -6,10 +6,13 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
+import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
+import { initSettings } from "./apsettings.js";
+import { initLayouts } from "./aplayouts.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -38,6 +41,7 @@ const store = {
 
 export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
+  const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
@@ -50,6 +54,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
+  const layoutCard = initLayouts({ client: () => client, refresh: () => refresh(), firmwareBase, sameOrigin });
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -79,9 +84,23 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   const visible = () => !$("tab-dashboard").hidden && !document.hidden;
 
+  // The Settings page (js/apsettings.js): a new token is used from now on, and kept on the AP's own page
+  const settings = initSettings({
+    getClient: () => client,
+    refresh: () => refresh(),
+    overUsb: () => src() === "serial",
+    onToken: (token) => {
+      if (client instanceof ApClient) client.token = token;
+      $("dash-token").value = token;
+      if (sameOrigin) store.set("dash.token", token);
+    },
+  });
+
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    sources.connected(c);
+    settings.reset();
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
@@ -91,6 +110,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     connectedTo = c ? "Connected to " + where : "";
     $("dash-where").textContent = connectedTo;
     clearTimeout(timer);
+    layoutCard.reset();
     if (c) refresh();
     else {
       $("dash-body").hidden = true;
@@ -150,6 +170,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       render();
       showLive();
       msg("");
+      layoutCard.render(last);
     } catch (e) {
       msg(e.message.charAt(0).toUpperCase() + e.message.slice(1), "error");
       if (last) setStale(true); // the line above says since when
@@ -173,148 +194,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (visible()) refresh();
     else timer = setTimeout(tick, REFRESH_MS);
   }
-
-  // The poll interval for all tags (PUT /api/config). What the AP has is shown until the
-  // choice is changed here; then it stays as chosen until it is saved
-  let pollDirty = false;
-  let pollSaving = false; // a PUT is under way: a refresh meanwhile leaves Save off
-  const pollMsg = (text, cls = "") => {
-    $("dash-poll-msg").textContent = text;
-    $("dash-poll-msg").className = "hint" + (cls ? " " + cls : "");
-  };
-  // the interval chosen in the form: { poll_s } or { error }
-  const pollChosen = () => {
-    const v = $("dash-poll-sel").value;
-    return v === "other" ? parsePoll($("dash-poll-s").value) : { poll_s: Number(v) };
-  };
-  function showPollNote() {
-    const c = pollChosen();
-    const other = $("dash-poll-sel").value === "other";
-    $("dash-poll-other").hidden = !other;
-    $("dash-poll-s").disabled = !other;
-    $("dash-poll-note").textContent = c.error ? "" : pollNote(c.poll_s, last?.list?.tags);
-  }
-  function renderPoll() {
-    const cur = last.list.ap.poll_s || 0;
-    const sel = $("dash-poll-sel");
-    if (!sel.options.length) {
-      const opt = (value, text) => sel.append(new Option(text, value));
-      opt("0", `${fmtInterval(TAG_BUILTIN_POLL_S)} (tag default)`);
-      for (const s of POLL_PRESETS) opt(String(s), fmtInterval(s));
-      opt("other", "Other …");
-    }
-    if (!pollDirty) {
-      const preset = [...sel.options].some((o) => o.value === String(cur));
-      sel.value = preset ? String(cur) : "other";
-      $("dash-poll-s").value = preset ? "" : cur;
-    }
-    $("dash-poll-save").disabled = pollSaving || !pollDirty;
-    showPollNote();
-  }
-  const pollChanged = () => {
-    pollDirty = true;
-    pollMsg("");
-    if (last) renderPoll();
-  };
-  $("dash-poll-sel").addEventListener("change", () => {
-    if ($("dash-poll-sel").value === "other" && !$("dash-poll-s").value) $("dash-poll-s").value = last?.list?.ap.poll_s || TAG_BUILTIN_POLL_S;
-    pollChanged();
-    if ($("dash-poll-sel").value === "other") $("dash-poll-s").focus();
-  });
-  $("dash-poll-s").addEventListener("input", pollChanged);
-  $("dash-poll").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (!client) return;
-    const c = pollChosen();
-    if (c.error) return pollMsg(c.error, "error");
-    // the AP's built-in value (menuconfig) is a reset, so a later firmware default applies
-    const builtin = last?.config?.builtin_poll_s;
-    const body = { poll_s: c.poll_s === builtin ? null : c.poll_s };
-    $("dash-poll-save").disabled = true;
-    pollSaving = true;
-    try {
-      await client.call("PUT", "/api/config", body);
-      pollDirty = false;
-      pollMsg(c.poll_s
-        ? `Saved. The tags poll every ${fmtInterval(c.poll_s)} from their next poll.`
-        : `Saved. The tags go back to their default ${fmtInterval(TAG_BUILTIN_POLL_S)} from their next poll.`, "ok");
-      refresh();
-    } catch (e) {
-      pollMsg("Not saved: " + e.message, "error");
-    } finally {
-      pollSaving = false;
-      $("dash-poll-save").disabled = !pollDirty;
-    }
-  });
-
-  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one: a
-  // preset, or "Other" with a whole number of dBm. As with the poll interval, a choice stays
-  // until it is saved.
-  let txDirty = false;
-  let txSaving = false;
-  const txMsg = (text, cls = "") => {
-    $("dash-tx-msg").textContent = text;
-    $("dash-tx-msg").className = "hint" + (cls ? " " + cls : "");
-  };
-  // the power chosen in the form: { dbm } or { error }
-  const txChosen = () => {
-    const v = $("dash-tx-sel").value;
-    return v === "other" ? parseTx($("dash-tx-db").value) : { dbm: Number(v) };
-  };
-  function showTxNote() {
-    const other = $("dash-tx-sel").value === "other";
-    $("dash-tx-other").hidden = !other;
-    $("dash-tx-db").disabled = !other;
-    const c = txChosen();
-    $("dash-tx-note").textContent = [c.error ? "" : txWarning(c.dbm), TX_NOTE].filter(Boolean).join(" ");
-  }
-  function renderTx() {
-    const c = last.config;
-    const has = Number.isInteger(c?.tx_power);
-    $("dash-tx").hidden = $("dash-tx-note").hidden = !has;
-    if (!has) return;
-    const sel = $("dash-tx-sel");
-    if (!txDirty) {
-      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
-        new Option("Other …", "other"));
-      sel.value = String(c.tx_power);
-      $("dash-tx-db").value = "";
-    }
-    $("dash-tx-save").disabled = txSaving || !txDirty;
-    showTxNote();
-  }
-  const txChanged = () => {
-    txDirty = true;
-    txMsg("");
-    if (last) renderTx();
-  };
-  $("dash-tx-sel").addEventListener("change", () => {
-    if ($("dash-tx-sel").value === "other" && !$("dash-tx-db").value) $("dash-tx-db").value = last?.config?.tx_power ?? "";
-    txChanged();
-    if ($("dash-tx-sel").value === "other") $("dash-tx-db").focus();
-  });
-  $("dash-tx-db").addEventListener("input", txChanged);
-  $("dash-tx").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (!client) return;
-    const c = txChosen();
-    if (c.error) return txMsg(c.error, "error");
-    // the built-in value is a reset, so a later firmware default applies
-    const body = { tx_power: c.dbm === last?.config?.builtin_tx_power ? null : c.dbm };
-    $("dash-tx-save").disabled = true;
-    txSaving = true;
-    try {
-      await client.call("PUT", "/api/config", body);
-      txDirty = false;
-      txMsg(`Saved. The radio sends at ${c.dbm} dBm from its next reply.`, "ok");
-      refresh();
-    } catch (e) {
-      txMsg("Not saved: " + e.message, "error");
-    } finally {
-      txSaving = false;
-      $("dash-tx-save").disabled = !txDirty;
-    }
-  });
 
   // The filter of the tag table: "all", "bad", "busy" or "model:<model>", kept in this browser
   let filter = store.get("dash.filter") || "all";
@@ -378,8 +257,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
-    renderPoll();
-    renderTx();
+    settings.render(last);
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
@@ -605,6 +483,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     fit: $("st-fit").value, dither: $("st-dither").checked,
     brightness: Number($("st-bright").value), contrast: Number($("st-contrast").value),
   });
+  const stWeather = () => stWhat() === "weather"; // apsources.js: a dialog chooses the place
   let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
@@ -694,8 +573,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = stFw() || stPic() || !usesDate(lines);
-    $("st-frame-label").hidden = stFw() || stPic();
+    $("st-days-label").hidden = stFw() || stPic() || stWeather() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw() || stPic() || stWeather();
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
@@ -711,6 +590,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       tr.append(td1, td2);
       return tr;
     };
+
+    // The weather: the place each tag shows now; the dialog chooses the new one
+    if (stWeather()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const where = sources.placeOf();
+      $("st-count").textContent = "";
+      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? "The weather for " + where.get(t.mac) : "No weather yet", where.has(t.mac) ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = "Choose the place …";
+      return;
+    }
 
     // Firmware: what each tag gets, or why it gets nothing
     if (stFw()) {
@@ -746,7 +636,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+    const where = sources.placeOf();
+    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -824,20 +716,31 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
     if (stPic()) return picOpen();
+    if (stWeather()) {
+      return sources.open(tags, (text, err) => {
+        stMsg(err ? "Not done: " + err.message : text, err ? "error" : "ok");
+        refresh();
+      });
+    }
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
     stBusy = true;
     $("st-send").disabled = $("st-forget").disabled = true;
     try {
+      // the AP takes a tag that shows the weather out of its place, so the forecast leaves this be
+      const where = sources.placeOf();
+      const left = [...new Set(tags.filter((t) => where.has(t.mac)).map((t) => where.get(t.mac)))];
       const { replies, note } = await sendRows(client, rows);
+      if (left.length) sources.reload();
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
       const waiting = now.filter((r) => r.pending !== false).length;
       const who = tags.length === 1 ? "The tag shows" : `${tags.length} tags show`;
       stMsg((waiting ? `Sent. ${who} it at the next poll.` : "Sent; the tags already show this.") +
         (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
-        (note ? " " + note : ""), "ok");
+        (note ? " " + note : "") +
+        (left.length ? ` No more weather for ${left.length === 1 && tags.length === 1 ? "it" : "them"} (${left.join(", ")}).` : ""), "ok");
     } catch (e) {
       stMsg("Not sent: " + e.message, "error");
     } finally {

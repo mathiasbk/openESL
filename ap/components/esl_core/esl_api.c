@@ -3,6 +3,7 @@
 #include "esl_image.h"
 #include "esl_render.h"
 #include "esl_text.h"
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,10 +26,12 @@
 #define PATH_HEALTH "/api/health"
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
+#define PATH_SOURCES "/api/sources"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
                "update the config error messages");
+_Static_assert(ESL_NTP_MAX == 63 && ESL_TZ_MAX == 63, "update the ntp and tz error messages");
 _Static_assert(ESL_API_MAX_BODY > ESL_LAYOUT_MAX_SIZE && ESL_API_RESP_SIZE(0) > ESL_LAYOUT_MAX_SIZE,
                "a layout file must fit in a request and a response");
 
@@ -68,6 +71,7 @@ const char *esl_api_status_line(int status)
 {
     switch (status) {
     case 200: return "200 OK";
+    case 202: return "202 Accepted";
     case 400: return "400 Bad Request";
     case 401: return "401 Unauthorized";
     case 404: return "404 Not Found";
@@ -82,6 +86,14 @@ const char *esl_api_status_line(int status)
     case 507: return "507 Insufficient Storage";
     default:  return "500 Internal Server Error";
     }
+}
+
+/* A tag given content here leaves its data source (esl_source.h), or the source's next run
+   would overwrite it */
+static void leave_source(const esl_api_t *api, uint64_t mac)
+{
+    if (api->sources && api->sources->release)
+        api->sources->release(api->sources, mac);
 }
 
 /* ---- auth ---------------------------------------------------------------- */
@@ -668,10 +680,11 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
             if (esl_sched_add(api->sched, mac, at, &c) != ESL_SCHED_OK)
                 status = api_error(out, 507, "schedule full");
             else {
+                leave_source(api, mac);
                 write_sched_result(out, mac, at);
                 status = 200;
             }
-        } else if ((err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
+        } else if ((leave_source(api, mac), err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
             status = api_error(out, 507, store_err_text(err));
         else {
             write_set_result(out, mac, &r);
@@ -757,8 +770,9 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         if (k)
             esl_sb_putc(out, ',');
         if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
+            leave_source(api, macs[k]);
             write_sched_result(out, macs[k], ats[k]);
-        } else if (!ats[k] && (err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
+        } else if (!ats[k] && (leave_source(api, macs[k]), err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             write_set_result(out, macs[k], &r);
         } else {
             char m[17];
@@ -987,11 +1001,63 @@ static bool parse_dbm(const json_t *j, int v, int8_t *out)
     return true;
 }
 
-/* PUT/GET /api/config: AP-wide default interval, the webhook and the radio's
- * transmit power. poll_s 0 = tags keep their built-in interval, null = back to
- * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in
- * dBm, null = back to the built-in value. Keys left out stay as they are; one
- * of them must be there. */
+bool esl_ntp_name_ok(const char *s, size_t len)
+{
+    if (len < 1 || len > ESL_NTP_MAX || s[0] == '-' || s[0] == '.')
+        return false;
+    for (size_t i = 0; i < len; i++)
+        if (!isalnum((unsigned char)s[i]) && s[i] != '-' && s[i] != '.')
+            return false;
+    return true;
+}
+
+bool esl_tz_ok(const char *s, size_t len)
+{
+    if (len < 1 || len > ESL_TZ_MAX)
+        return false;
+    for (size_t i = 0; i < len; i++)
+        if (!isalnum((unsigned char)s[i]) && !strchr("+-,./:<>", s[i]))
+            return false;
+    /* the POSIX form, a name and its offset: "Europe/Oslo" would be taken as UTC */
+    size_t i = 0;
+    if (s[0] == '<') {
+        while (++i < len && s[i] != '>')
+            if (!isalnum((unsigned char)s[i]) && s[i] != '+' && s[i] != '-')
+                return false;
+        if (i < 2 || i >= len)
+            return false;
+        i++;
+    } else {
+        while (i < len && isalpha((unsigned char)s[i]))
+            i++;
+        if (i < 3)
+            return false;
+    }
+    if (i < len && (s[i] == '+' || s[i] == '-'))
+        i++;
+    return i < len && isdigit((unsigned char)s[i]);
+}
+
+/* A string or null at key k (index i) into buf (cap bytes): its length, 0 for null, -1 when it
+   is neither or does not fit, -2 when check (may be NULL) turns a non-empty one down. */
+static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, size_t cap,
+                   bool (*check)(const char *s, size_t len))
+{
+    buf[0] = '\0';
+    if (tok[i].type == ESL_JSON_NULL)
+        return 0;
+    int n = tok[i].type == ESL_JSON_STRING ? esl_json_str_decode(body, &tok[i], buf, cap - 1) : -1;
+    if (n < 0)
+        return -1;
+    buf[n] = '\0';
+    return n && check && !check(buf, (size_t)n) ? -2 : n;
+}
+
+/* PUT/GET /api/config: AP-wide default interval, the webhook, the radio's transmit
+ * power and the clock. poll_s 0 = tags keep their built-in interval, null = back to
+ * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in dBm,
+ * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
+ * tz null or "" = UTC. Keys left out stay as they are; one of them must be there. */
 static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
 {
     bool put = strcmp(method, "PUT") == 0;
@@ -1003,12 +1069,14 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int v = esl_json_obj_get(body, tok, 0, "poll_s");
             int w = esl_json_obj_get(body, tok, 0, "webhook");
             int x = esl_json_obj_get(body, tok, 0, "tx_power");
+            int n = esl_json_obj_get(body, tok, 0, "ntp");
+            int z = esl_json_obj_get(body, tok, 0, "tz");
             uint16_t poll_s;
             int8_t dbm = 0;
-            char url[ESL_WEBHOOK_URL_MAX + 1];
+            char url[ESL_WEBHOOK_URL_MAX + 1], ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
             int ul = 0;
-            if (v < 0 && w < 0 && x < 0)
-                status = api_error(out, 422, "poll_s, webhook or tx_power is required (null resets it)");
+            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0)
+                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp or tz is required (null resets it)");
             else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
                      (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
                       (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
@@ -1024,6 +1092,13 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                 status = api_error(out, 422, "this AP cannot set its transmit power");
             else if (x >= 0 && tok[x].type != ESL_JSON_NULL && !parse_dbm(&j, x, &dbm))
                 status = api_error(out, 422, "tx_power must be null or a whole number of dBm from -24 to 20");
+            else if ((n >= 0 || z >= 0) && !api->clock)
+                status = api_error(out, 422, "this AP has no clock settings");
+            else if (n >= 0 && opt_str(body, tok, n, ntp, sizeof(ntp), esl_ntp_name_ok) < 0)
+                status = api_error(out, 422, "ntp must be null or a server name of at most 63 letters, digits, '-' and '.'");
+            else if (z >= 0 && opt_str(body, tok, z, tz, sizeof(tz), esl_tz_ok) < 0)
+                status = api_error(out, 422, "tz must be null or a POSIX time zone of at most 63 characters, "
+                                             "such as CET-1CEST,M3.5.0,M10.5.0/3");
             else {
                 if (v >= 0 && tok[v].type == ESL_JSON_NULL)
                     esl_store_reset_next_poll(api->store);
@@ -1042,6 +1117,8 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                     if (tp->set)
                         tp->set(tp->ctx, tp->dbm, reset);
                 }
+                if (n >= 0 || z >= 0)
+                    api->clock->set(api->clock->ctx, n >= 0 ? ntp : NULL, z >= 0 ? tz : NULL);
             }
         }
         free(tok);
@@ -1058,6 +1135,18 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         esl_sb_puts(out, "null");
     if (api->tx_power)
         esl_sb_printf(out, ",\"tx_power\":%d,\"builtin_tx_power\":%d", api->tx_power->dbm, api->tx_power->builtin);
+    if (api->clock) {
+        const esl_clock_cfg_t *c = api->clock;
+        const char *keys[] = {"ntp", "builtin_ntp", "tz"};
+        const char *vals[] = {c->ntp, c->builtin_ntp, c->tz};
+        for (unsigned i = 0; i < 3; i++) {
+            esl_sb_printf(out, ",\"%s\":", keys[i]);
+            if (vals[i] && vals[i][0])
+                esl_sb_json_str(out, vals[i]);
+            else
+                esl_sb_puts(out, "null");
+        }
+    }
     esl_sb_putc(out, '}');
     return 200;
 }
@@ -1626,6 +1715,7 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     esl_content_t c;
     esl_set_result_t r;
     esl_content_init_image(&c, t.model, esl_crc32(stored, n));
+    leave_source(api, mac); /* first: a source's run cannot overwrite the picture after this */
     esl_store_err_t serr = esl_store_set_image(api->store, mac, stored, n, &c, &r);
     free(img);
     if (serr)
@@ -1966,6 +2056,20 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
     if (api->wifi && (plen == wbase || (plen == wbase + 1 && uri[wbase] == '/')) &&
         memcmp(uri, PATH_WIFI, wbase) == 0) {
         int status = ap_wifi(api, method, body, body_len, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t dbase = sizeof(PATH_SOURCES) - 1;
+    if (api->sources && plen >= dbase && memcmp(uri, PATH_SOURCES, dbase) == 0 && (plen == dbase || uri[dbase] == '/')) {
+        uint32_t now = api->sched ? esl_sched_now(api->sched, now_ms, NULL) : 0;
+        if (strcmp(method, "PUT") == 0 && plen <= dbase + 1) { /* 400 and 413 as for the other endpoints */
+            esl_jtok_t *tok = NULL;
+            int status = parse_json(body, body_len, &tok, out);
+            free(tok);
+            if (status)
+                return status;
+        }
+        int status = api->sources->api(api->sources, method, uri, plen, body, body_len, now, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 

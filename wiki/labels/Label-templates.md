@@ -1,6 +1,6 @@
 # Label templates
 
-The [Label designer](Label-designer) has a library of ready-made layouts: **+ New → From template…**. They are grouped by category (3D printer, retail and price, signs, home), each drawn on your label model with its sample text, exactly as the AP draws it. Pick one to see its fields, what each means, and whether your layout file still fits the AP with it; **Add** puts it in your file under a name the file does not have yet, with its sample text, and Undo takes it out again.
+The [Label designer](Label-designer) has a library of ready-made layouts: **+ From template**. They are grouped by category (3D printer, retail and price, signs, home), each drawn on your label model with its sample text, exactly as the AP draws it. Pick one to see its fields, what each means, and whether your layout file still fits the AP with it; **Add** puts it in your file under a name the file does not have yet, with its sample text, and Undo takes it out again.
 
 Every template has the same fields in the same order on every label model, so an automation keeps working when you swap a 2.9" label for a 1.54". When you switch model in the designer with a template's layout selected, it offers to add the same template for the other model.
 
@@ -76,7 +76,7 @@ Rules the build checks (`python web/build.py`, which runs [web/templates.mjs](ht
 - `same_as` only points at a model with the same screen;
 - a template with the same layout name as one in the example files (`tag/designs/layouts/<model>.json`) has the same fields and elements, so the two do not drift apart.
 
-Keep a template well within one file's budget, so it can be combined with others: the designer shows what it uses (compiled bytes, text lines, boxes, icons), and the check refuses one over 1 KB compiled. Use only the elements and fonts the AP has (`mid`, `price44` and `large` only have digits and ` ,-.:`), and no third-party artwork: draw icons for the project. Choose the field order so a Home Assistant `rest_command` stays simple.
+Keep a template well within one file's budget, so it can be combined with others: the designer shows what it uses (compiled bytes, text lines, boxes, icons), and the check refuses one over 1 KB compiled, not counting its icons, or with more than 2 KB of icons. Use only the elements and fonts the AP has (`mid`, `price44` and `large` only have digits and ` ,-.:`), and no third-party artwork: draw icons for the project. Choose the field order so a Home Assistant `rest_command` stays simple.
 
 A template-only change builds no firmware and changes no firmware version: the AP does not carry the library.
 

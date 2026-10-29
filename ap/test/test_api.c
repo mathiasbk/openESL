@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -927,7 +927,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook or tx_power"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp or tz"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1020,6 +1020,83 @@ static void test_tx_power_config(void)
     CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
     CHECK(!HAS(resp, "tx_power"));
     api.notify = &notify;
+}
+
+static int clock_sets;
+static char clock_last_ntp[8], clock_last_tz[8]; /* "-" for NULL (unchanged) */
+
+static void clock_set(void *ctx, const char *ntp, const char *tz)
+{
+    esl_clock_cfg_t *c = ctx;
+    clock_sets++;
+    snprintf(clock_last_ntp, sizeof(clock_last_ntp), "%s", ntp ? ntp : "-");
+    snprintf(clock_last_tz, sizeof(clock_last_tz), "%s", tz ? tz : "-");
+    if (ntp)
+        snprintf(c->ntp, sizeof(c->ntp), "%s", ntp[0] ? ntp : c->builtin_ntp);
+    if (tz)
+        snprintf(c->tz, sizeof(c->tz), "%s", tz);
+}
+
+static void test_clock_config(void)
+{
+    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set};
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    notify.url[0] = '\0';
+
+    /* without clock settings: left out, and PUT says so */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tz\":\"UTC0\"}", 0), 422);
+    CHECK(HAS(resp, "no clock settings"));
+    api.clock = &clock;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp or tz"));
+
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}");
+    CHECK_INT(clock_sets, 1);
+    /* one key leaves the other alone */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tz\":\"<+0530>-5:30\"}", 0), 200);
+    CHECK_STR(clock_last_ntp, "-");
+    CHECK_STR(clock.ntp, "no.pool.ntp.org");
+    CHECK(HAS(resp, "\"tz\":\"<+0530>-5:30\"}"));
+    /* poll_s alone does not touch the clock */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":60}", 0), 200);
+    CHECK_INT(clock_sets, 2);
+
+    static const char *const bad[] = {
+        "{\"ntp\":\"-pool\"}", "{\"ntp\":\".pool\"}", "{\"ntp\":\"pool ntp\"}", "{\"ntp\":\"pool_ntp\"}",
+        "{\"ntp\":3}", "{\"ntp\":true}", "{\"tz\":\"1CET\"}", "{\"tz\":\"CET -1\"}", "{\"tz\":\"CET\\\"\"}",
+        "{\"tz\":[]}", "{\"tz\":\"UTC0\",\"ntp\":\"a b\"}", "{\"tz\":\"Europe/Oslo\"}", "{\"tz\":\"CET\"}",
+        "{\"tz\":\"UT0\"}", "{\"tz\":\"<>0\"}", "{\"tz\":\"<+05\"}",
+        "{\"ntp\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}", /* 64 */
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad[i], 0), 422);
+    }
+    CHECK_INT(clock_sets, 2); /* nothing saved by a bad request */
+    CHECK_STR(clock.tz, "<+0530>-5:30");
+
+    /* null and "" go back: ntp to the built-in server, tz to UTC */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":null,\"tz\":\"\"}", 0), 200);
+    CHECK_STR(clock_last_ntp, "");
+    CHECK_STR(clock_last_tz, "");
+    CHECK_STR(resp, "{\"poll_s\":60,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"\",\"tz\":null}", 0), 200);
+    CHECK_INT(clock_sets, 4);
+
+    CHECK(esl_ntp_name_ok("192.168.1.1", 11));
+    CHECK(!esl_ntp_name_ok("", 0));
+    CHECK(esl_tz_ok("UTC0", 4));
+    CHECK(esl_tz_ok("EST5EDT,M3.2.0,M11.1.0", 22));
+    CHECK(esl_tz_ok("<-03>3", 6));
+    CHECK(!esl_tz_ok("Europe/Oslo", 11));
+    CHECK(!esl_tz_ok("", 0));
+    api.clock = NULL;
 }
 
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
@@ -1178,6 +1255,7 @@ void test_api(void)
     test_streaming();
     test_webhook_config();
     test_tx_power_config();
+    test_clock_config();
     test_health();
     test_tag_level();
 }

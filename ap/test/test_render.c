@@ -146,8 +146,44 @@ static void test_shapes(void)
     CHECK(px(img, 260, 50) && px(img, 267, 51) && !px(img, 261, 50) && !px(img, 260, 51) && !px(img, 267, 50));
 }
 
+/* An icon named by a field: the field's text picks the icon, centred in the box; an unknown
+ * name, or an icon bigger than the box, draws nothing */
+static void test_icon_field(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\","
+        "\"icons\":{\"dot\":{\"w\":2,\"h\":2,\"data\":\"wMA=\"},\"big\":{\"w\":8,\"h\":8,\"data\":\"//////////8=\"}},"
+        "\"layouts\":[{\"name\":\"w\",\"fields\":[\"t\",\"sym\"],\"elements\":["
+        "{\"type\":\"icon\",\"field\":\"sym\",\"x\":100,\"y\":20,\"w\":6,\"h\":4},"
+        "{\"type\":\"text\",\"text\":\"dot\",\"x\":0,\"y\":100,\"w\":50,\"h\":20,\"fonts\":[\"small\"]}]}]}";
+    static uint8_t img[296 * 16];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    esl_content_init_named(&c, "w", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"x", 1);
+    esl_content_add_field(&c, (const uint8_t *)"dot", 3);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    /* 2x2 in a 6x4 box at (100, 20): at (102, 21) */
+    CHECK(px(img, 102, 21) && px(img, 103, 22) && !px(img, 101, 21) && !px(img, 104, 21) && !px(img, 102, 20));
+    /* too big for the box, unknown or empty: nothing in the box */
+    static const char *const none[] = {"big", "do", "dots", ""};
+    for (int k = 0; k < 4; k++) {
+        esl_content_init_named(&c, "w", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)"x", 1);
+        esl_content_add_field(&c, (const uint8_t *)none[k], strlen(none[k]));
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        for (unsigned x = 100; x < 106; x++)
+            for (unsigned y = 20; y < 24; y++)
+                CHECK(!px(img, x, y));
+    }
+}
+
 void test_render(void)
 {
+    test_icon_field();
     static uint8_t img[8192], img2[8192];
     static esl_layout_bin_t bin;
     char err[ESL_LAYOUT_ERR_MAX];

@@ -32,6 +32,7 @@ const VARIANT_KEYS = ["layout", "icons", "note", "same_as"];
 const CATEGORY_KEYS = ["id", "title", "description", "order"];
 const RED = new Set(["red", "red_invert"]);
 const TEMPLATE_MAX = 1024;      // compiled bytes of one template: a quarter of a layout file
+const TEMPLATE_ICONS_MAX = 2048; // and of its icons on top of that: half a file (a symbol per weather)
 
 const str = (v) => typeof v === "string" && v.trim() !== "";
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -165,13 +166,18 @@ export async function checkCatalog({ categories, templates }, { root = ROOT, was
         err(`${vat}: the AP would refuse it: ${res.error}`);
         continue;
       }
-      if (res.size > TEMPLATE_MAX) err(`${vat}: ${res.size} bytes compiled; keep a template within ${TEMPLATE_MAX}, so it fits in a file with others`);
+      // icons: width (2 bytes), height (1), then a column of (height + 7) / 8 bytes per pixel of width
+      const iconBytes = Object.values(solo.icons || {}).reduce((a, i) => a + 3 + i.w * Math.ceil(i.h / 8), 0);
+      if (res.size - iconBytes > TEMPLATE_MAX)
+        err(`${vat}: ${res.size - iconBytes} bytes compiled without its icons; keep a template within ${TEMPLATE_MAX}, so it fits in a file with others`);
+      if (iconBytes > TEMPLATE_ICONS_MAX)
+        err(`${vat}: its icons are ${iconBytes} bytes compiled; keep them within ${TEMPLATE_ICONS_MAX}`);
       const shown = r.render(LAYOUT_FILE, 0, Array.isArray(l._sample) ? l._sample : []);
       if (!shown.ok || shown.refused) err(`${vat}: the AP would refuse the sample text: ${shown.error || shown.refused}`);
       const u = layoutUsage(l, r.limits);
       models[model] = {
         runs: u.runs, rects: u.rects, lines: u.lines, icons: u.icons, barcodes: u.barcodes, qrs: u.qrs,
-        bytes: res.size,
+        bytes: res.size, icon_bytes: iconBytes,
         json: new TextEncoder().encode(JSON.stringify(solo.layouts[0]) + JSON.stringify(solo.icons || {})).length,
       };
     }

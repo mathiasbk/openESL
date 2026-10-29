@@ -37,3 +37,15 @@ Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web 
 ![Wiring between the ESP32-S3 and the ESP32-C6: GPIO17 to GPIO17, GPIO18 to GPIO16, GND, and 5V only when the C6 has no USB cable](images/ap-s3-c6-wiring.svg)
 
 How the S3 and the C6 talk, and how to flash the C6: [ap-radio-link.md](ap-radio-link.md).
+
+## What each board has
+
+| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 |
+|---|---|---|---|---|
+| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
+| Settings page: poll interval, webhook, name, WiFi, API token | yes | yes | yes | yes |
+| Settings page: time zone and NTP server | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 |
+| Backup and restore from the dashboard | yes | yes | yes | yes |
+| Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes |
+
+The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware newer than 0.8.2 (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.

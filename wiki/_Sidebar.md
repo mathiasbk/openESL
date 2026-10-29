@@ -22,6 +22,7 @@
 - [Flashing labels](Flashing-labels)
   - [Label backups](Label-backups)
 - [Label designer](Label-designer)
+  - [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
   - [Layout elements and limits](Layout-elements-and-limits)
   - [Label templates](Label-templates)
 
@@ -32,6 +33,7 @@
 - [Price lists from CSV](Price-lists-from-CSV)
 - [Scheduled prices](Scheduled-prices)
 - [Home Assistant](Home-Assistant)
+- [Weather on a label](Weather)
 
 **Running it**
 - [Dashboard](Dashboard)

@@ -178,6 +178,12 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["webhook"] = body["webhook"] or None
             if "tx_power" in body:
                 FakeAp.config.update(tx_power=10 if body["tx_power"] is None else body["tx_power"], builtin_tx_power=10)
+            if ("tz" in body or "ntp" in body) and "tz" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no clock settings"})
+            if "tz" in body:
+                FakeAp.config["tz"] = body["tz"] or None
+            if "ntp" in body:
+                FakeAp.config["ntp"] = body["ntp"] or FakeAp.config["builtin_ntp"]
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -315,6 +321,38 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("config", "--tx-power", "null")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tx_power": None}))
         self.assertIn("tx_power 10 dBm", out)
+
+    def test_clock_config(self):
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
+        rc, out = self.run_cli("config")
+        self.assertIn("time zone UTC, NTP pool.ntp.org", out)
+        rc, out = self.run_cli("config", "--tz", "CET-1CEST,M3.5.0,M10.5.0/3", "--ntp", "no.pool.ntp.org")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tz": "CET-1CEST,M3.5.0,M10.5.0/3", "ntp": "no.pool.ntp.org"}))
+        self.assertIn("time zone CET-1CEST,M3.5.0,M10.5.0/3, NTP no.pool.ntp.org", out)
+        rc, out = self.run_cli("config", "--tz", "", "--ntp", "")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tz": None, "ntp": None}))
+
+    def test_backup_and_restore_clock(self):
+        FakeAp.config.update({"ntp": "no.pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"})
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["config"], {"poll_s": 0, "webhook": None, "tz": "CET-1CEST,M3.5.0,M10.5.0/3",
+                                       "ntp": "no.pool.ntp.org"})
+        # onto an AP with clock settings: both are set
+        self.setUp()
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("config: poll_s 0, webhook off, time zone CET-1CEST,M3.5.0,M10.5.0/3, NTP no.pool.ntp.org", lines)
+        self.assertEqual((FakeAp.config["tz"], FakeAp.config["ntp"]), ("CET-1CEST,M3.5.0,M10.5.0/3", "no.pool.ntp.org"))
+        # onto an older AP: the rest goes on, with a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings", lines)
+        # the AP's own NTP server is kept as None
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
+        self.assertEqual(esl_client.backup(cli)["config"], {"poll_s": 0, "webhook": None, "tz": None, "ntp": None})
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")

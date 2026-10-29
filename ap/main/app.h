@@ -32,6 +32,8 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 /* sched.c: scheduled content kept in NVS, applied by its own task, and the
  * clock from NTP. Call after wifi_start(). NULL when there is no memory for it. */
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap);
+/* The NTP server and time zone for api->clock, after sched_start(); NULL before. */
+esl_clock_cfg_t *sched_clock(void);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
  * HTTP and serial transports; call api_handle_init() before either starts. */
@@ -92,6 +94,11 @@ int ota_info(esl_sb_t *out);
 bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
 void ota_watch_running(bool wait);
+
+/* datasrc.c (ESL_DATASOURCES): data sources, such as the weather, fetched by their own task
+ * (esl_source.h), for api->sources. Call once the layout files are loaded; sched is the
+ * clock. NULL when it could not start. */
+esl_sources_t *datasrc_start(esl_store_t *st, esl_layouts_t *ls, esl_sched_t *sched);
 
 /* tagfw.c: the store for tag firmware images (the "tagfw" partition). NULL
  * when the partition table has none. */

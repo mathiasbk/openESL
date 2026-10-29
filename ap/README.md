@@ -22,6 +22,7 @@ ap/
     esl_render    draws a tag's content into its image; esl_image sends it
     esl_persist   blob formats for NVS (content and settings per tag)
     esl_sched     scheduled content ("at") and the AP's clock
+    esl_source    data sources (/api/sources): configuration, MET's answer -> values -> content
     esl_json      small JSON parser and writer
     esl_health    health flags per tag (silent, unseen, draw_failed, low_battery, content_error) for /api/health, the status page and the webhook
     esl_barcode   barcode checks (Code 128, EAN-13) for content the tags must encode
@@ -39,6 +40,7 @@ ap/
     radio_stub.c        simulated tags (esl_faketag), no radio
     serial_api.c        the API over the USB port, "@ESL" frames next to the log
     health.c            posts the health report to the webhook when it changes (ESL_WEBHOOK)
+    datasrc.c           fetches the data sources (MET Norway) and sets their tags' content (ESL_DATASOURCES)
     ota.c               new AP firmware through POST /api/ota (ESL_OTA)
     display.c           status on a small ST7789 LCD (ESL_DISPLAY, boards/c6-supermini-lcd)
   boards/                 one folder per AP board: board.json, sdkconfig.defaults, partitions.csv (boards/README.md)
@@ -117,7 +119,8 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 
 `"at"` (Unix seconds, UTC) in `PUT /api/tags` sets content at a given time instead of now: new prices from Monday 07:00, or a sale that starts and one that ends it. The AP applies it itself, so the client does not need to run then (`esl-client sync prices.csv --at "2026-10-19 07:00"`).
 
-- **Clock:** the AP has none that survives a restart. It gets the time from NTP once it is on WiFi (`ESL_NTP_SERVER`, default `pool.ntp.org`), or from `PUT /api/time`; `esl-client` sets it from the computer before it schedules anything if the AP does not know it. Without a known time `at` gives `409`, and after a restart without NTP nothing is applied until the time is set again; then the entries that came due meanwhile are applied, the latest per tag.
+- **Time zone:** `PUT /api/config {"tz": "CET-1CEST,M3.5.0,M10.5.0/3"}` (NVS `cfg/tz`, a POSIX TZ string; UTC without it) sets `TZ` for the whole firmware at boot and at once when changed, so `localtime()` gives local time. The clock and `at` stay in UTC.
+- **Clock:** the AP has none that survives a restart. It gets the time from NTP once it is on WiFi (`ESL_NTP_SERVER`, default `pool.ntp.org`, or the server set with `PUT /api/config {"ntp": ...}`, NVS `cfg/ntp`), or from `PUT /api/time`; `esl-client` sets it from the computer before it schedules anything if the AP does not know it. Without a known time `at` gives `409`, and after a restart without NTP nothing is applied until the time is set again; then the entries that came due meanwhile are applied, the latest per tag.
 - **Room:** `ESL_MAX_SCHEDULED` (menuconfig, default 256, 0 turns it off) entries for all tags together; a tag can have several (the same tag and time replaces). Each costs 16 bytes of RAM and up to about 160 bytes of NVS (blob `s<slot>` in namespace `esl_sched`) while it waits, and is erased once applied.
 - **Applying:** a task (`main/sched.c`) checks every second and sets the content as `PUT /api/tags` would have; the tag then gets it at its next poll.
 - **Waking the tag:** after each change (and once a minute) the task tells the store when each tag's next entry is due (`esl_store_note_due`). A tag that polls before then gets `next_poll_s` = time left + 2 s instead of its interval, if that is shorter, so the price shows a few seconds after `at` even with a long interval. It needs one poll between scheduling and `at`, so schedule at least one interval ahead. The radio path does not take the schedule's lock (which is held during NVS writes); the due time sits in the tag table.
@@ -127,6 +130,10 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 `GET /api/health` lists the tags that need attention, for monitoring: `silent` (no poll for `silent_s`, default 3 x the interval the AP sends the tag), `unseen` (in the table from NVS, but no poll since the AP started for that long), `draw_failed`, `low_battery` (below `battery_mv`, default 2500; a tag that reports 0 cannot measure it) and `content_error`. `?silent_s=600&battery_mv=2400` changes the thresholds for one call, and `ok` says whether anything is listed. `esl-client health` prints it and exits 1 when there are problems.
 
 With `PUT /api/config {"webhook":"http://host:port/path"}` (`esl-client config --webhook ...`, kept in NVS `cfg/webhook`) the AP posts the same report, with `changed` = how many tags' problems differ from the last report, to that URL whenever it changes; `health.c` checks every `ESL_HEALTH_PERIOD_S` (30 s). Plain HTTP, no retries: a failed POST is logged and the change goes out with the next one. The logic is in `esl_health.c` and `esl_api_health()` (host-tested); the task and `esp_http_client` are the ESP-IDF side (`ESL_WEBHOOK`, on by default).
+
+## Data sources
+
+On the S3 boards (`ESL_DATASOURCES`) the AP fetches content for itself: the weather forecast for a place from MET Norway, every 30 minutes or less often, filled into the source's field templates and set on its tags as `PUT /api/tags` would (`GET`/`PUT /api/sources`, `POST /api/sources/refresh`, the Dashboard's "Weather and data sources" card). The list is kept in NVS `cfg/sources`; the last answer of each source is kept in PSRAM, sent back with `If-Modified-Since`, and used again when only the layout, fields or tags changed. The AP never asks MET before an answer's `Expires`. The configuration, the API, MET's JSON and the content are in `esl_source.c` (host-tested, `test_source.c`); `datasrc.c` is the task with `esp_http_client`. Details, every value and MET's terms: [docs/data-sources.md](../docs/data-sources.md).
 
 ### Over the USB port
 
@@ -196,7 +203,7 @@ Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF
 
 ## Configuration
 
-`idf.py menuconfig` -> «OpenESL AP»: WiFi, setup network (`ESL_WIFI_SETUP_AFTER_S`, `ESL_WIFI_SETUP_PASSWORD`, `ESL_WIFI_CAPTIVE`), token, mDNS name (`openesl`), status page, channel (25), PAN ID (0x4553), `ESL_NEXT_POLL_S` (0 = the tags keep their own interval), max tags, TX power, radio mode (`ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub), the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`). `ESL_NEXT_POLL_S` is the built-in default interval and `ESL_TX_POWER_DBM` (10; about 13 is the EU limit for 802.15.4) the built-in transmit power; `PUT /api/config` overrides them at run time (`poll_s`, `tx_power`, kept in NVS). SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`), which the setup page and `PUT /api/wifi` write.
+`idf.py menuconfig` -> «OpenESL AP»: WiFi, setup network (`ESL_WIFI_SETUP_AFTER_S`, `ESL_WIFI_SETUP_PASSWORD`, `ESL_WIFI_CAPTIVE`), token, mDNS name (`openesl`), status page, channel (25), PAN ID (0x4553), `ESL_NEXT_POLL_S` (0 = the tags keep their own interval), max tags, TX power, radio mode (`ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub), the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), data sources (`ESL_DATASOURCES`, on for the S3 boards; [docs/data-sources.md](../docs/data-sources.md)), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`). `ESL_NEXT_POLL_S` is the built-in default interval and `ESL_TX_POWER_DBM` (10; about 13 is the EU limit for 802.15.4) the built-in transmit power; `PUT /api/config` overrides them at run time (`poll_s`, `tx_power`, kept in NVS). SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`), which the setup page and `PUT /api/wifi` write.
 
 Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel with its channel number, does not answer, no WiFi; `ESL_SNIFFER_HOP_MS` > 0 hops through channels 11-26 instead, that many ms per channel, and stays 10 s on a channel where it heard a frame, for finding a device whose channel is unknown, see [docs/solum-remote.md](../docs/solum-remote.md)), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download images like the tag firmware does).
 

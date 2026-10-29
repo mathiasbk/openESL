@@ -12,5 +12,5 @@
   "artifact": "openesl-ap-s3-n16r8-netradio",
   "release": "openesl-ap-esp32s3-n16r8-netradio",
   "status": "experimental",
-  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16 }
+  "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16, "fileBytes": 8192, "jsonBytes": 16384 }
 }

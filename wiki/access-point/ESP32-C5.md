@@ -8,6 +8,7 @@ An ESP32-C5 with 16 MB flash and 8 MB PSRAM, such as the Waveshare ESP32-C5-WIFI
 
 - **More labels:** the PSRAM gives room for 1000 labels.
 - **Bigger layouts:** twice the lines of text, boxes, lines and icons per layout of a C6 ([Layout elements and limits](Layout-elements-and-limits)).
+- **Weather by itself:** it can fetch the [weather](Weather) for labels from MET Norway.
 - **WiFi on 5 GHz** if you want it, which keeps 2.4 GHz free for the labels.
 - **Same radio code** as the C6, and still one chip, so WiFi and the label radio still take turns.
 - **Antenna** on the module, or external through u.FL on the WROOM-1U.

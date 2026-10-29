@@ -26,3 +26,6 @@ CONFIG_LWIP_TCP_WND_DEFAULT=5760
 
 # Room to spare: the AP's page has the Design tab too, for the layout files stored here
 CONFIG_ESL_WEB_DESIGNER=y
+
+# Data sources (weather from MET Norway): the AP fetches over HTTPS, which PSRAM has room for
+CONFIG_ESL_DATASOURCES=y

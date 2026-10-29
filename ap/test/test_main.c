@@ -25,6 +25,7 @@ void test_sched(void);
 void test_tagfw(void);
 void test_coproc(void);
 void test_png(void);
+void test_source(void);
 
 static const struct {
     const char *name;
@@ -53,6 +54,7 @@ static const struct {
     {"sched", test_sched},
     {"tagfw", test_tagfw},
     {"coproc", test_coproc},
+    {"source", test_source},
 };
 
 int main(void)
