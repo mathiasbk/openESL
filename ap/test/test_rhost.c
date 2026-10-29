@@ -3,6 +3,7 @@
 #include "esl_image.h"
 #include "esl_radio.h"
 #include "esl_rcache.h"
+#include "esl_clock.h"
 #include "esl_rhost.h"
 #include "esl_render.h"
 #include <stdlib.h>
@@ -481,8 +482,54 @@ static void test_rhost_link(void)
     CHECK_INT((long long)rtags[0].s.mac, 0xE1);
 }
 
+/* Date fields while the time is unknown: no draws are spent on those tags, so the others
+   still get theirs, and they follow once it is known (#183) */
+static void test_rhost_clock_unknown(void)
+{
+    static esl_layouts_t ls;
+    static esl_layout_bin_t bin;
+    const char *f = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+"{\"name\":\"day\",\"fields\":[\"n\"],\"elements\":[{\"type\":\"text\",\"field\":\"n\",\"x\":0,\"y\":0,\"w\":200,\"h\":30,\"fonts\":[\"medium\"]},"
+"{\"type\":\"text\",\"text\":\"{date}\",\"x\":0,\"y\":50,\"w\":200,\"h\":30,\"fonts\":[\"medium\"]}]},"
+"{\"name\":\"plain\",\"fields\":[\"n\"],\"elements\":[{\"type\":\"text\",\"field\":\"n\",\"x\":0,\"y\":0,\"w\":200,\"h\":30,\"fonts\":[\"medium\"]}]}]}";
+    char err[ESL_LAYOUT_ERR_MAX];
+    bool changed;
+    esl_faketag_t t[12];
+    boot();
+    esl_clock_set_today(-1);
+    memset(&ls, 0, sizeof(ls));
+    CHECK(esl_layout_compile(f, strlen(f), ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK(esl_layouts_set(&ls, ESL_MODEL_29, f, strlen(f), &bin, &changed) != 0);
+    host.ls = &ls;
+    for (unsigned i = 0; i < 12; i++) {
+        esl_faketag_init(&t[i], 0xC00 + i, 1, 3000, ESL_MODEL_29);
+        wake(&t[i], 1000 + i);
+    }
+    sync_at(2000);
+    for (unsigned i = 0; i < 12; i++) {
+        esl_content_t c;
+        esl_set_result_t r;
+        const char *n = i < 10 ? "day" : "plain";
+        CHECK(esl_content_init_named(&c, n, strlen(n), 0) == ESL_CONTENT_OK);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)"X", 1) == ESL_CONTENT_OK);
+        CHECK_INT(esl_store_set(&st, 0xC00 + i, &c, &r), ESL_STORE_OK);
+    }
+    for (int s = 0; s < 6; s++)
+        sync_at(3000 + s * 1000);
+    CHECK_INT(host.stats.images, 1); /* the plain tags (one image, the same content) */
+    CHECK(!rc.want);                 /* no draws spent on the date tags */
+    esl_clock_set_today(20755);
+    for (int s = 0; s < 6; s++)
+        sync_at(10000 + s * 1000);
+    CHECK_INT(host.stats.images, 2); /* and the date tags once the time is known */
+    esl_clock_set_today(-1);
+    host.ls = NULL;
+    esl_layouts_free(&ls);
+}
+
 void test_rhost(void)
 {
+    test_rhost_clock_unknown();
     test_rhost_content();
     test_rhost_unfit();
     test_rhost_many();
