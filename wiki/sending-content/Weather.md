@@ -14,7 +14,7 @@ An AP with PSRAM can put the weather forecast on labels by itself, with no compu
 
 The C6 has no PSRAM, and fetching a forecast over HTTPS takes more memory than it has next to its labels. On a C6 the Dashboard simply does not show the weather card.
 
-The AP must reach the internet and know the time (it gets it over NTP), and the time zone decides what "tomorrow" means (UTC until the AP has a time zone setting).
+The AP must reach the internet and know the time (it gets it over NTP), and the time zone decides what "tomorrow" means (set it under **Settings → General** on the Dashboard; without one it is UTC).
 
 ## Setting it up
 

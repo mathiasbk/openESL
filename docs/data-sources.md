@@ -29,8 +29,8 @@ The C6 has no PSRAM and no RAM to spare next to its tags, so there `/api/sources
 
 What the AP needs:
 - **The time.** It gets it from NTP. The local time zone decides what "tomorrow", `{h3}`,
-  `{h6}` and `{updated}` mean. Until the AP has a time zone setting, that is UTC (the
-  template's own fields use none of these).
+  `{h6}` and `{updated}` mean: set it under Settings → General on the Dashboard (`tz` in
+  `PUT /api/config`); without one it is UTC.
 - **The internet.** It fetches `https://api.met.no/` over TLS.
 - **A layout** for each tag's model with the name the source gives, for example the
   `weather` template from the Design tab, or the built-in `text` layout.
