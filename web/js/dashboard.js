@@ -255,7 +255,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   }
 
   // The bigger chart: one bar per poll from -100 to -40 dBm, the weak line at -85, lost and
-  // retried polls marked above their bar, and the numbers under it
+  // retried polls marked above their bar (the numbers stay in the tooltip)
   function signalDetail(tag) {
     const sig = signalSummary(tag);
     const tr = document.createElement("tr");
@@ -286,14 +286,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const legend = document.createElement("p");
     legend.className = "hint sig-legend";
     legend.innerHTML = '<span class="key lost"></span> no answer before this poll <span class="key retry"></span> answered on the second try <span class="key weak"></span> weak (−85 dBm)';
-    const text = document.createElement("p");
-    text.textContent = sig.title;
     const close = document.createElement("button");
     close.type = "button";
     close.className = "small";
     close.textContent = "Close";
     close.onclick = () => toggleSignal(tag.mac);
-    td.append(svg, legend, text, close);
+    td.append(svg, legend, close);
     tr.append(td);
     return tr;
   }
