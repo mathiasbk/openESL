@@ -386,7 +386,7 @@
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), new firmware, or, on an AP that fetches it, the weather.</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), a picture, new firmware, or, on an AP that fetches it, the weather.</p>
         <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
@@ -396,6 +396,7 @@
               <option value="tag">The tag's own info</option>
               <option value="date">Today's date</option>
               <option value="text">Your own text</option>
+              <option value="pic">A picture</option>
               <option value="weather" disabled hidden>The weather (MET Norway)</option>
               <option value="fw" disabled hidden>New firmware</option>
             </select></label>
@@ -423,6 +424,38 @@
           </div>
           <p id="st-msg" class="hint" role="status"></p>
         </form>
+        <dialog id="pic-dlg" class="pic-dlg" aria-labelledby="pic-h">
+          <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+          <h3 id="pic-h">A picture on <span id="pic-n"></span></h3>
+          <div id="st-pic" class="st-pic">
+            <label id="st-drop" class="st-drop">
+              <input id="st-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp">
+              <span id="st-drop-text">Drop a PNG or JPG here, paste one, or <u>choose a file</u></span>
+            </label>
+            <div class="form row">
+              <label>Fit <select id="st-fit">
+                <option value="fill">Fill the screen (crop)</option>
+                <option value="fit">The whole picture</option>
+                <option value="stretch">Stretch</option>
+              </select></label>
+              <label>Zoom <input id="st-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
+              <button type="button" id="st-turn" class="small" title="Turn the picture 90° clockwise">Turn ↻</button>
+            </div>
+            <div class="form row">
+              <label class="check" title="Error diffusion: grey shades become dots, best for photos. Off: each pixel black or white, best for drawings, text and logos"><input type="checkbox" id="st-dither" checked> Dither</label>
+              <label>Brightness <input id="st-bright" type="range" min="-100" max="100" value="0"></label>
+              <label>Contrast <input id="st-contrast" type="range" min="-100" max="100" value="0"></label>
+              <button type="button" id="st-pic-reset" class="small">Reset</button>
+            </div>
+          </div>
+          <div id="st-pics" class="st-pics" hidden></div>
+          <p id="pic-msg" class="hint" role="status"></p>
+          <div class="dlg-buttons">
+            <button type="button" id="pic-cancel">Cancel</button>
+            <span class="sep"></span>
+            <button type="button" id="pic-send" class="primary" disabled>Send</button>
+          </div>
+        </dialog>
         <dialog id="wx-dlg" class="wx-dlg" aria-labelledby="wx-h">
           <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
           <h3 id="wx-h">The weather on <span id="wx-n"></span></h3>

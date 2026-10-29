@@ -201,7 +201,7 @@ To show the file name in the band, put `states('sensor.snapmaker_filename')[:15]
 
 ## A picture instead of text
 
-For what four lines cannot show (a chart, a camera snapshot, a dashboard drawn elsewhere), the AP takes a PNG with `PUT /api/tags/{mac}/image` ([openapi.yaml](openapi.yaml)) and sends it to the tag as it is. The PNG must be exactly the tag's screen size: 296 x 128 for the 2.9", 200 x 200 for the 1.54". The AP turns each pixel into black or white (the nearest), or with `?dither=true` mixes them for shades of grey, which suits photos. The tag must have polled the AP once.
+For what four lines cannot show (a chart, a camera snapshot, a dashboard drawn elsewhere), the AP takes a PNG with `PUT /api/tags/{mac}/image` ([openapi.yaml](openapi.yaml)) and sends it to the tag as it is. The PNG must be exactly the tag's screen size: 296 x 128 for the 2.9", 200 x 200 for the 1.54". The AP turns each pixel into black or white (the nearest), or with `?dither=true` mixes them for shades of grey, which suits photos. The tag must have polled the AP once. To send a picture by hand, tick the tag on the Dashboard and pick "A picture" under Send: any PNG or JPG is cropped or fitted to the screen and turned into black and white in the browser (dithered for photos, or not), with a preview of exactly what the tag will show. Which APs take pictures: [access-points.md](access-points.md#what-each-board-has).
 
 `rest_command` sends text only, so the file goes with `curl` from a `shell_command`. Put the whole command in `secrets.yaml`, since the token is in it:
 

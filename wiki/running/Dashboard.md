@@ -39,6 +39,7 @@ On the AP's own page the pictures and the library come from the web page, so the
 Tick labels in the table to:
 
 - **Send text** with the `text` layout: the AP's address and WiFi, the label's own info, today's date, or your own four lines. Words in braces are filled in per label, such as `{mac}`, `{battery}`, `{date}` and `{ap_ip}`. With the date in it, the next days are scheduled so the label changes date at midnight by itself.
+- **Send a picture:** drop, paste or choose a PNG or JPG of any size. It is cropped to the label's screen (or fitted whole, or stretched), and can be zoomed, moved by dragging the preview, turned, and made lighter or darker. The browser turns it into black and white, dithered for photos or not for drawings and text, and the preview shows exactly what the label will show, one per label model ticked. The labels get it at their next poll, as with text. Which access points take pictures: [What each board has](Access-point-boards#what-each-board-has).
 - **Send firmware** to the labels that need it ([Updating labels](Updating-labels)).
 - **Forget** labels: removes them from the AP. A label that still polls comes back as a new one.
 

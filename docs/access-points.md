@@ -13,6 +13,15 @@ The AP firmware is built for several boards. This page compares them; how to fla
 | **ESP32-S3 N16R8 + ESP32-C6 with 0.96" screen** | the same, with the screen board as the radio; the screen shows the AP's status | 1000 | each chip its own; u.FL with a WROOM-1U | 10 $ + a C6 with screen | experimental: tried with a plain C6, not yet with the screen board |
 | **ESP32-S3 N16R8 + wireless ESP32-C6** (`netradio`) | the same two chips, the C6 elsewhere on the WiFi network with no wire to the S3 | not decided | each chip its own | 10 $ + a C6 | experimental, not secure yet (plain TCP): tried on one S3 + C6 with two tags; read the limits in [ap-netradio.md](ap-netradio.md) |
 
+## What each board has
+
+| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 |
+|---|---|---|---|---|
+| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
+| Pictures on the tags (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses |
+
+Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from the firmware after 0.8.2. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
+
 **ESP32-C6.** One small board does WiFi and the tag radio. It is cheap, flashed from the web page, and the board OpenESL is tested on. The C6 has no PSRAM, so its 512 KB of RAM limits it to about 700 tags next to WiFi (not measured on hardware yet, see [ap/README.md](../ap/README.md)), and WiFi and the tag radio take turns on one radio (so API replies can wait a little, and a tag's poll can be missed while WiFi is busy).
 
 **ESP32-C6 with screen.** The same, plus a status screen with the AP's address, WiFi and tag count, which is handy while setting it up. Same limits.
