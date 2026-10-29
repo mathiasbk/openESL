@@ -85,6 +85,7 @@ void app_main(void)
 
 #if CONFIG_ESL_MAX_SCHEDULED
     api.sched = sched_start(&store, CONFIG_ESL_MAX_SCHEDULED);
+    api.clock = sched_clock();
     store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;

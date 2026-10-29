@@ -253,7 +253,7 @@ In short:
 | `GET /api/tags/{mac}/image` | The screen the AP draws for the tag's content (base64), for previews |
 | `PUT /api/tags/{mac}/image` | A picture as the tag's content, for what a layout cannot show: a PNG of the screen's size (296 x 128 on the 2.9"), which the AP turns into the tag's colours (nearest colour, or `?dither=true` for photos), keeps in NVS and sends like any other screen. The tag must have polled once |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
-| `GET`/`PUT /api/config` | The AP-wide default poll interval, the webhook the AP posts the health report to, and the radio's transmit power (`tx_power`, dBm) |
+| `GET`/`PUT /api/config` | The AP-wide default poll interval, the webhook the AP posts the health report to, the radio's transmit power (`tx_power`, dBm), and the clock (`ntp`, `tz`) |
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, content that cannot be shown), for monitoring |
 | `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
 | `GET`/`POST /api/ota` | New firmware for the AP itself: the app image, whole or in parts; the AP restarts into it (`esl-client ota`) |

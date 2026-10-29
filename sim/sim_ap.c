@@ -286,7 +286,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL};
     esl_sb_t out;
     int status;
 

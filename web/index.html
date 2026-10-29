@@ -329,6 +329,11 @@
     </section>
 
     <div id="dash-body" hidden>
+      <nav id="dash-views" class="views" aria-label="Dashboard">
+        <button type="button" data-view="overview" aria-pressed="true">Tags and AP</button>
+        <button type="button" data-view="settings" aria-pressed="false">Settings</button>
+      </nav>
+      <div id="dash-overview">
       <div id="dash-tiles" class="tiles"></div>
       <section class="card wide">
         <div class="dash-head">
@@ -392,28 +397,6 @@
         <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
         <dl id="dash-ap" class="facts"></dl>
         <p id="dash-wifi" class="muted"></p>
-        <form id="dash-poll" class="form row" novalidate>
-          <label>Poll interval for all tags
-            <select id="dash-poll-sel"></select>
-          </label>
-          <label id="dash-poll-other" hidden>Seconds
-            <input id="dash-poll-s" type="number" min="10" max="3600" step="1" inputmode="numeric">
-          </label>
-          <button id="dash-poll-save" type="submit">Save</button>
-        </form>
-        <p id="dash-poll-note" class="hint"></p>
-        <p id="dash-poll-msg" class="hint" role="status"></p>
-        <form id="dash-tx" class="form row" novalidate hidden>
-          <label>Radio transmit power
-            <select id="dash-tx-sel"></select>
-          </label>
-          <label id="dash-tx-other" hidden>dBm
-            <input id="dash-tx-db" type="number" min="-24" max="20" step="1" inputmode="numeric">
-          </label>
-          <button id="dash-tx-save" type="submit">Save</button>
-        </form>
-        <p id="dash-tx-note" class="hint" hidden></p>
-        <p id="dash-tx-msg" class="hint" role="status"></p>
       </details>
       <details id="dash-fw-box" class="card wide fold">
         <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>
@@ -438,6 +421,116 @@
         <progress id="fw-progress" max="1" value="0" hidden></progress>
         <p id="fw-msg" class="hint" role="status"></p>
       </details>
+      </div>
+      <section id="dash-settings" class="card wide set-page" hidden>
+        <nav class="set-nav" role="tablist" aria-label="Settings">
+          <button type="button" role="tab" id="set-tab-general" data-set="general" aria-selected="true">General<small>Name, time zone, tag interval</small></button>
+          <button type="button" role="tab" id="set-tab-network" data-set="network" aria-selected="false">Network<small>WiFi, webhook, time server</small></button>
+          <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Transmit power</small></button>
+          <button type="button" role="tab" id="set-tab-security" data-set="security" aria-selected="false">Security<small>API token</small></button>
+          <button type="button" role="tab" id="set-tab-backup" data-set="backup" aria-selected="false">Backup<small>Download, restore</small></button>
+        </nav>
+
+        <form id="set-general" class="set-pane" role="tabpanel" aria-labelledby="set-tab-general" novalidate>
+          <div class="set-fields">
+            <label class="field" id="set-host-field"><span>AP name</span>
+              <input id="set-hostname" spellcheck="false" autocomplete="off" maxlength="32">
+              <small id="set-host-note"></small>
+            </label>
+            <label class="field" id="set-tz-field"><span>Time zone</span>
+              <select id="set-tz-sel"></select>
+            </label>
+            <label class="field" id="set-tz-other" hidden><span>POSIX TZ</span>
+              <input id="set-tz" spellcheck="false" autocomplete="off" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
+            </label>
+            <p class="field-note"><span id="set-time"></span> <button type="button" id="set-time-now" class="link" hidden title="PUT /api/time: for an AP that cannot reach an NTP server">Set it from this computer</button></p>
+            <div class="field"><span>Tags check for news every</span>
+              <div class="row">
+                <select id="set-poll-sel" aria-label="Poll interval for all tags"></select>
+                <input id="set-poll-s" type="number" min="10" max="3600" step="1" inputmode="numeric" aria-label="Seconds" hidden>
+                <span id="set-poll-unit" class="muted" hidden>seconds</span>
+              </div>
+              <small id="set-poll-note"></small>
+            </div>
+          </div>
+          <div class="savebar"><span id="set-general-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
+        </form>
+
+        <div id="set-network" class="set-pane" role="tabpanel" aria-labelledby="set-tab-network" hidden>
+          <form id="set-wifi" class="set-fields" novalidate>
+            <h3>WiFi</h3>
+            <p id="set-wifi-now" class="muted"></p>
+            <div><button type="button" id="set-wifi-change">Change network …</button></div>
+            <div id="set-wifi-edit" class="set-fields" hidden>
+            <label class="field"><span>Network</span><select id="set-ssid-sel"></select></label>
+            <label class="field" id="set-ssid-other" hidden><span>Network name</span><input id="set-ssid" spellcheck="false" autocomplete="off" maxlength="32"></label>
+            <label class="field"><span>Password</span><input id="set-pass" type="password" autocomplete="new-password" maxlength="63" placeholder="empty for an open network"></label>
+            <div class="row"><button id="set-wifi-save" type="submit" class="primary">Join this network</button><button type="button" id="set-wifi-cancel">Cancel</button></div>
+            </div>
+            <p id="set-wifi-msg" class="hint" role="status"></p>
+          </form>
+          <form id="set-netcfg" class="set-fields" novalidate>
+            <h3>Services</h3>
+            <label class="field"><span>Webhook</span>
+              <input id="set-hook-url" spellcheck="false" autocomplete="off" placeholder="off">
+              <small>The AP posts its health report (tags gone silent, failed to draw, low battery) here when it changes. Plain <code>http://</code>, for example a Home Assistant webhook. Empty is off.</small>
+            </label>
+            <label class="field" id="set-ntp-field"><span>Time server (NTP)</span>
+              <input id="set-ntp" spellcheck="false" autocomplete="off">
+              <small>Empty uses the one built in.</small>
+            </label>
+            <div class="savebar"><span id="set-netcfg-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
+          </form>
+        </div>
+
+        <form id="set-radio" class="set-pane" role="tabpanel" aria-labelledby="set-tab-radio" hidden novalidate>
+          <div class="set-fields">
+            <div class="field"><span>Transmit power</span>
+              <div class="row">
+                <select id="set-tx-sel" aria-label="The radio's transmit power"></select>
+                <input id="set-tx-db" type="number" min="-24" max="20" step="1" inputmode="numeric" aria-label="dBm" hidden>
+                <span id="set-tx-unit" class="muted" hidden>dBm</span>
+              </div>
+              <small id="set-tx-note"></small>
+            </div>
+          </div>
+          <div class="savebar"><span id="set-radio-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
+        </form>
+
+        <form id="set-security" class="set-pane" role="tabpanel" aria-labelledby="set-tab-security" hidden novalidate>
+          <div class="set-fields">
+            <p class="muted">The API token is what every app that talks to the AP sends: this page, Home Assistant, esl-client. The AP never shows it again, so keep a copy. After a change, put the new one in those apps too.</p>
+            <label class="field"><span>New token</span>
+              <span class="row"><input id="set-token-new" spellcheck="false" autocomplete="off" maxlength="128"><button type="button" id="set-token-gen">Make one</button></span>
+            </label>
+            <div class="row"><button id="set-token-save" type="submit">Change token</button><span id="set-token-msg" class="hint" role="status"></span></div>
+          </div>
+        </form>
+
+        <div id="set-backup" class="set-pane" role="tabpanel" aria-labelledby="set-tab-backup" hidden>
+          <div class="set-fields">
+            <p class="muted">One file with the AP's settings, layout files, every tag's content (pictures too) and own settings, and the content scheduled for later. Put it back on this AP or on a new one, for example after a full erase. Not in it: the WiFi password, the API token, the radio's transmit power (it depends on the antenna) and tag firmware.</p>
+            <div class="row">
+              <button id="bk-save" type="button">Download backup</button>
+              <button id="bk-load" type="button">Restore from a file …</button>
+              <input id="bk-file" type="file" accept=".json,application/json" hidden>
+            </div>
+            <div id="bk-ask" class="bk-ask" hidden>
+              <p id="bk-what"></p>
+              <div class="row">
+                <label class="check"><input type="checkbox" id="bk-p-settings" checked> Settings</label>
+                <label class="check"><input type="checkbox" id="bk-p-layouts" checked> Layout files</label>
+                <label class="check"><input type="checkbox" id="bk-p-tags" checked> Tags</label>
+                <label class="check"><input type="checkbox" id="bk-p-scheduled" checked> Scheduled</label>
+              </div>
+              <div class="row"><button id="bk-go" type="button" class="primary">Restore</button><button id="bk-cancel" type="button">Cancel</button></div>
+            </div>
+            <progress id="bk-progress" max="1" value="0" hidden></progress>
+            <p id="bk-msg" class="hint" role="status"></p>
+            <details id="bk-log-box" class="help" hidden><summary>What was done</summary><ul id="bk-log" class="hint"></ul></details>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 

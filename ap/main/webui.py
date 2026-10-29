@@ -31,7 +31,7 @@ MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "models.js"],
+               "fwupload.js", "sendtext.js", "models.js", "apsettings.js", "backup.js"],
         "css": [],
     },
     "design": {
