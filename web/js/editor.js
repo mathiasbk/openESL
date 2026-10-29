@@ -263,6 +263,7 @@ async function offerVariant(id) {
 
 function compileAndDraw() {
   const r = state.renderer;
+  applyLimits();
   const res = r.loadLayouts(JSON.stringify(doc()));
   let layoutId;
   if (isBuiltin()) {
@@ -356,6 +357,8 @@ function limitsSource() {
 }
 
 // The renderer checks against the connected AP's limits, or the default board's without one
+// The renderer is shared with the dashboard's Layouts card, which sets its own AP's limits:
+// called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
 }
@@ -752,6 +755,7 @@ function scheduleThumbs() {
 function drawThumbs() {
   const r = state.renderer;
   if (!r || !doc()) return;
+  applyLimits();
   const res = r.loadLayouts(JSON.stringify(doc()));
   if (!res.ok) return;
   const list = (thumbs[state.model] = []);
@@ -1828,6 +1832,7 @@ async function apOpen(model, discard = false) {
 }
 
 async function apUpload(skip) {
+  applyLimits();
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
@@ -1859,6 +1864,7 @@ async function apSend() {
   if ($("opt-frame").checked) content.frame = true;
   let r, uploaded = false;
   // An AP without this version of the file gets it first, so the tag shows what you see
+  applyLimits();
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   let unfit = "";
   if (!isBuiltin() && res.ok && ap.fileVersion !== res.version) {
@@ -2010,6 +2016,7 @@ async function apHandoff() {
   const { url, error } = apPageUrl($("ap-addr").value);
   if (error) throw new Error(error);
   store.set("ap.addr", $("ap-addr").value.trim());
+  applyLimits();
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const content = { layout: layoutName(), fields: samples().slice() };
@@ -2080,11 +2087,12 @@ function initAp() {
 // user says so.
 async function openFromAp({ model, file, name }) {
   if (!MODELS[model] || !file?.layouts) return;
+  location.hash = "#design";
+  // Load the model first: its file (with unsaved changes) may only be in the browser's storage yet
+  if (model !== state.model) await loadModel(model);
   if (state.docs[model] && JSON.stringify(state.docs[model]) !== JSON.stringify(file) &&
       store.get("clean." + model) !== JSON.stringify(state.docs[model]) &&
       !confirm(`The designer has changes to its ${model}" layout file that are not saved anywhere. Open the AP's file instead?`)) return;
-  location.hash = "#design";
-  if (model !== state.model) await loadModel(model);
   setDoc(structuredClone(file));
   state.history[model].reset(JSON.stringify(file));
   ap.files[model] = structuredClone(file);

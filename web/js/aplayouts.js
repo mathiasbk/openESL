@@ -84,7 +84,6 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     try {
       rendererMod ||= await import(firmwareBase ? new URL("js/renderer.js", firmwareBase).href : "./renderer.js");
       const r = await rendererMod.loadRenderer(m, firmwareBase ? new URL("wasm/", firmwareBase) : undefined);
-      if (last?.layouts?.limits) r.setLimits?.(last.layouts.limits);
       return r;
     } catch {
       return null;
@@ -94,6 +93,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   // Draws `layout` (an id: built-in or 0x10 + n) of `file` (or none) into a canvas
   function paint(r, file, layout, fields, flags = 0) {
     if (file) {
+      // The renderer is shared with the designer: check with this AP's limits each time
+      r.setLimits?.(last?.layouts?.limits || null);
       const res = r.loadLayouts(JSON.stringify(file));
       if (!res.ok) return null;
     }
@@ -269,7 +270,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       cards.push(card({
         key: "ap:" + l.name, name: l.name, pic: r && paint(r, file, 0x10 + i, sampleOf(l)),
         sub: [el("span", "pill " + (c ? "ok" : "off"), c ? `${c} tag${c === 1 ? "" : "s"}` : "Not used"),
-              el("span", "", ` ${(l.fields || []).length} fields`)],
+              el("span", "", ` ${(l.fields || []).length} field${(l.fields || []).length === 1 ? "" : "s"}`)],
         buttons, sel: { kind: "ap", name: l.name },
       }));
     });
@@ -302,7 +303,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-can-none").hidden = !!can.length;
     $("lay-can-none").textContent = cat ? "Every layout of the template library is on the AP already."
       : "The template library is on the web page; this browser could not reach it.";
-    if (!r) say("No pictures: the drawing code could not be loaded (it comes from the web page).", "");
+    if (!r && !$("lay-msg").textContent) say("No pictures: the drawing code could not be loaded (it comes from the web page).", "");
     await drawPanel(file, tags, cat);
   }
 
