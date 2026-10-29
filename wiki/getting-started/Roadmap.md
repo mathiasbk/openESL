@@ -12,7 +12,6 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
   The image format, the AP's drawing and the designer already have a red plane; what is new for each model is its entry in `shared/models.json`, the panel settings in the label firmware, and testing on a real label. The larger screens also need fewer round trips for their bigger images ([#180](https://github.com/mathiasbk/openESL/issues/180)). Have one of these, or another label? See [Adding hardware](Adding-hardware).
 - **Choosing the radio channel** on the AP's Settings page, instead of the fixed channel 25 ([#256](https://github.com/mathiasbk/openESL/issues/256); [#217](https://github.com/mathiasbk/openESL/issues/217) for the wireless C6).
 - **Measured battery life.** The figures in the [power budget](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md) are calculated; they will be measured on real labels and published, and the label can save more while the panel refreshes ([#261](https://github.com/mathiasbk/openESL/issues/261)).
-- **A Home Assistant integration** that finds the AP, shows each label as a device with battery, signal and last check-in, and sends text and pictures, instead of the `rest_command` in [Home Assistant](Home-Assistant) ([#257](https://github.com/mathiasbk/openESL/issues/257)).
 
 ## Later
 
@@ -20,6 +19,7 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
 - **Several APs in one place:** one AP keeps the labels and the API, and extra radios cover more rooms ([#259](https://github.com/mathiasbk/openESL/issues/259)).
 - **Security on the radio:** content and label firmware that only your AP can send (see [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md) for what is not protected today) ([#260](https://github.com/mathiasbk/openESL/issues/260)).
 - **Better range in practice:** signal history per label on the Dashboard, and measured range per antenna and transmit power ([#261](https://github.com/mathiasbk/openESL/issues/261)).
+- **Home Assistant without polling:** the AP tells the [integration](Home-Assistant) when a label checks in or gets a problem, instead of the integration reading the list of labels every few minutes.
 - **Layouts:** rotated text ([#176](https://github.com/mathiasbk/openESL/issues/176)), fonts without new firmware ([#177](https://github.com/mathiasbk/openESL/issues/177)), more fields and UTF-8 ([#182](https://github.com/mathiasbk/openESL/issues/182)), date and week in layouts ([#183](https://github.com/mathiasbk/openESL/issues/183)).
 
 ## Some day
