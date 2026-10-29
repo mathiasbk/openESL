@@ -48,6 +48,19 @@ void hal_uart_puts(const char *s) { (void)s; }
 void hal_mac_read(uint8_t *mac8) { memcpy(mac8, fake_mac, 8); }
 uint16_t battery_read_mv(void) { return fake_batt_mv; }
 void power_sleep_s(uint16_t s) { (void)s; }
+bool fake_doze_ok = true;
+int fake_doze_calls;
+bool hal_doze_1s(void)
+{
+    if (!fake_doze_ok)
+        return false;
+    fake_doze_calls++;
+    return true;
+}
+uint8_t fake_rx_rssi = 0xC8, fake_rx_lqi = 0x6E;
+static uint8_t last_rssi, last_lqi;
+uint8_t radio_rx_rssi(void) { return last_rssi; }
+uint8_t radio_rx_lqi(void) { return last_lqi; }
 int8_t hal_temp_c(void) { return 20; }
 
 uint8_t fake_store[HAL_STORE_MAX];
@@ -117,5 +130,7 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
         n = maxlen;
     memcpy(buf, rxq[rxq_head], n);
     rxq_head++;
+    last_rssi = fake_rx_rssi;
+    last_lqi = fake_rx_lqi;
     return (int8_t)n;
 }

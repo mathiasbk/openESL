@@ -92,10 +92,14 @@ typedef struct esl_api_lock {
 #define ESL_API_AUTH_LOCK_S 60
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a
- * layout file. */
+ * layout file. ESL_API_RESP_SIZE_ is n batch replies; a tag in the list takes
+ * ESL_API_LIST_TAG, with its signal history (esl_store.h) at 11 bytes a POLL. */
 #define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
-#define ESL_API_RESP_SIZE(max_tags) \
-    ESL_API_RESP_SIZE_((max_tags) > ESL_API_MAX_BATCH ? (max_tags) : ESL_API_MAX_BATCH)
+#define ESL_API_LIST_TAG (640 + 11 * ESL_LINK_HIST)
+#define ESL_API_LIST_SIZE_(n) (512 + ESL_API_LIST_TAG * (n))
+#define ESL_API_RESP_SIZE(max_tags)                                                        \
+    (ESL_API_LIST_SIZE_(max_tags) > ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH) ? ESL_API_LIST_SIZE_(max_tags) \
+                                                                          : ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH))
 /* Buffer for a glue that streams (esl_sb_set_sink): every reply that is not
  * streamed (a batch reply, a layout file, errors) fits in it, and GET
  * /api/tags and the status page, which grow with the tag table, come through

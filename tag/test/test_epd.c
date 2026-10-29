@@ -31,6 +31,12 @@ int test_checks;
 #define RAM_Y   320              /* gate lines */
 
 static bool cs = true, dc, sck, mosi, powered;
+
+/* The time as epd.c sees it: its 1 ms waits and the seconds it dozes */
+static unsigned long now_ms(void)
+{
+    return fake_delay_ms_total + 1000ul * (unsigned long)fake_doze_calls;
+}
 static uint8_t shift, nbits;
 static uint8_t cur_cmd = 0xFF, first_cmd = 0xFF, last_cmd = 0xFF;
 static uint8_t param[8], nparam;
@@ -38,7 +44,10 @@ static uint8_t entry = 0x03, xs, xe = RAM_X - 1, xc;
 static uint16_t ys, ye = RAM_Y - 1, yc, gate_lines;
 static uint8_t gate_scan;        /* 0x01 byte 3: bit 0 = TB, gates scanned from the last line */
 static uint8_t ram[2][RAM_Y][RAM_X];
-static int n_written[2], n_out_of_window, busy_polls;
+static int n_written[2], n_out_of_window;
+static unsigned long busy_until;   /* BUSY is high until this time (now_ms) */
+static int busy_polls_in_refresh;  /* BUSY reads after the refresh started */
+static bool refreshing, refresh_stuck;
 static bool asleep, busy_stuck;
 
 static void ram_write(uint8_t plane, uint8_t b)
@@ -75,6 +84,12 @@ static void on_byte(uint8_t b)
         if (b == 0x12) {                 /* software reset: defaults */
             entry = 0x03;
             asleep = false;
+            busy_until = now_ms() + 3;
+        }
+        if (b == 0x20) {                 /* master activation: the refresh, 2.9 s */
+            busy_until = now_ms() + (refresh_stuck ? 1000000ul : 2900);
+            refreshing = true;
+            busy_polls_in_refresh = 0;
         }
         return;
     }
@@ -114,7 +129,12 @@ void hal_epd_sck(bool high)
     }
     sck = high;
 }
-bool hal_epd_busy(void) { return busy_stuck || ++busy_polls % 50 != 0; }   /* busy for a while */
+bool hal_epd_busy(void)
+{
+    if (refreshing)
+        busy_polls_in_refresh++;
+    return busy_stuck || now_ms() < busy_until;
+}
 
 static void reset_model(void)
 {
@@ -124,6 +144,8 @@ static void reset_model(void)
     first_cmd = last_cmd = cur_cmd = 0xFF;
     gate_lines = 0;
     gate_scan = 0;
+    refreshing = false;
+    busy_polls_in_refresh = 0;
 }
 
 /* Pixel (x, y) of the screen as the controller holds it: 0 white, 1 black.
@@ -285,6 +307,40 @@ static void test_epd_init_table(void)
     CHECK_EQ(i, sizeof(init));
 }
 
+/* #261: the core sleeps while the panel refreshes, a second at a time; without the
+   doze (start screen before the radio was on) it waits awake as before */
+static void test_epd_doze(void)
+{
+    static draw_scene_t sc;
+    draw_clear(&sc);
+    reset_model();
+    fake_doze_calls = 0;
+    fake_delay_ms_total = 0;
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(fake_doze_calls, 3);                 /* 2.9 s: awake again after 3 */
+    CHECK(busy_polls_in_refresh <= 4);
+    CHECK(asleep);                                /* and to deep sleep after it */
+
+    reset_model();
+    fake_doze_ok = false;
+    fake_doze_calls = 0;
+    CHECK(epd_draw(&sc));
+    CHECK_EQ(fake_doze_calls, 0);
+    CHECK(busy_polls_in_refresh >= 2900);         /* awake, every millisecond */
+    CHECK(asleep);
+    fake_doze_ok = true;
+
+    /* a refresh that never ends: gives up after EPD_BUSY_TIMEOUT_MS, still to deep sleep */
+    reset_model();
+    refresh_stuck = true;
+    fake_doze_calls = 0;
+    CHECK(!epd_draw(&sc));
+    CHECK_EQ(fake_doze_calls, 30);
+    CHECK(asleep);
+    refresh_stuck = false;
+    refreshing = false;
+}
+
 static void test_epd_no_busy(void)
 {
     /* A display that never answers: false, and the power is switched off again */
@@ -304,6 +360,7 @@ int main(int argc, char **argv)
     test_epd_stream(argc > 1 ? argv[1] : NULL);
     RUN(test_epd_image);
     RUN(test_epd_init_table);
+    RUN(test_epd_doze);
     RUN(test_epd_no_busy);
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;

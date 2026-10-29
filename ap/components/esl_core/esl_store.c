@@ -501,6 +501,31 @@ void esl_store_note_due(esl_store_t *st, uint64_t mac, uint32_t due_s)
     unlock(st);
 }
 
+static void add_u16(uint16_t *v, unsigned n)
+{
+    *v = *v + n > 0xFFFFu ? 0xFFFFu : (uint16_t)(*v + n);
+}
+
+static void note_signal(esl_tag_t *t, const esl_poll_t *poll, int8_t rssi)
+{
+    uint8_t info = 0;
+    if (poll->has_link) {
+        info = (uint8_t)(poll->lost > ESL_HIST_LOST ? ESL_HIST_LOST : poll->lost);
+        if (poll->link_flags & ESL_POLL_LF_RETRY) {
+            info |= ESL_HIST_RETRY;
+            add_u16(&t->retries, 1);
+        }
+        add_u16(&t->lost_total, poll->lost);
+        t->rx_rssi = poll->rx_rssi;
+        t->rx_lqi = poll->rx_lqi;
+    }
+    t->hist_rssi[t->hist_at] = rssi;
+    t->hist_info[t->hist_at] = info;
+    t->hist_at = (uint8_t)((t->hist_at + 1) % ESL_LINK_HIST);
+    if (t->hist_n < ESL_LINK_HIST)
+        t->hist_n++;
+}
+
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply)
 {
@@ -540,6 +565,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->cfg_capable = poll->has_cfg_ver;
         t->shown_cfg_ver = poll->cfg_ver;
         t->polls++;
+        note_signal(t, poll, rssi);
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
         t->image_rle = t->image_capable && (poll->flags & ESL_POLL_F_IMG_RLE);
         t->image_2d = t->image_capable && (poll->flags & ESL_POLL_F_IMG_2D);
@@ -846,4 +872,15 @@ uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac)
     uint16_t v = idx >= 0 ? tag_poll_s(st, at(st, (unsigned)idx)) : st->next_poll_s;
     unlock(st);
     return v;
+}
+
+unsigned esl_tag_signal(const esl_tag_t *t, int8_t *rssi, uint8_t *info)
+{
+    unsigned n = t->hist_n;
+    for (unsigned i = 0; i < n; i++) {
+        unsigned at = (t->hist_at + ESL_LINK_HIST - n + i) % ESL_LINK_HIST;
+        rssi[i] = t->hist_rssi[at];
+        info[i] = t->hist_info[at];
+    }
+    return n;
 }

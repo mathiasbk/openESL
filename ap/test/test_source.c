@@ -355,7 +355,7 @@ static void poll(uint64_t mac, uint8_t model)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, ESL_POLL_F_IMAGE, model, true, 0};
+    esl_poll_t p = {2, 2950, 0, ESL_POLL_F_IMAGE, model, true, 0, false, 0, 0, 0, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }

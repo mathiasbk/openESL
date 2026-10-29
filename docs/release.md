@@ -125,6 +125,16 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
+### Upgrading from 0.8.2 to 0.9.0
+
+Order: the AP, then the tags; with an S3 and a C6 over WiFi, also the C6 if you want to set the long backoff per tag (below). Any order works: a 0.9.0 tag talks to a 0.8.2 AP and the other way round, and a C6 on a cable next to an S3 needs nothing new for this.
+
+Signal history (#261): every POLL from 0.9.0 tag firmware carries a link block (the tag's RSSI and LQI of the AP's last answer, rounds lost since and a retry flag; POLL is 18 bytes, [protokoll.md](protokoll.md#signal)). The AP keeps the last 8 POLLs per tag in RAM (32 on boards with PSRAM), shown as `signal` in `GET /api/tags` and as bars in the dashboard's Signal column. Older tags show the AP's own RSSI only. A tag slot in RAM grows from 88 to 112 bytes, so a C6 AP next to WiFi holds about 550 tags instead of about 700 before `table_full`; the S3 and C5 boards are not affected in practice. The history starts empty after every restart.
+
+Power saving in the tag (#261): the core sleeps while the panel refreshes (about half the charge of a display update), the battery is read every 4 hours instead of every hour, and after a day without an answer (`long_after_min`, 1440) the tag polls only every hour (`long_poll_s`, 3600) until it hears the AP again. CONFIG grows from 12 to 16 bytes with those two settings (`PUT /api/tags/{mac}/config`); a 0.9.0 tag takes the 12 bytes of an older AP (the long backoff then has its defaults), and a 0.8.2 tag ignores the 4 new bytes. The AP's per-tag settings blob is version 2 (19 bytes); 0.9.0 reads version 1, and an AP that goes back to 0.8.2 drops only the per-tag settings that were saved by 0.9.0 (the tags keep using them until the AP sends new ones). A tag updated to 0.9.0 forgets its stored settings once (settings record format 3) and gets them again with the next CONFIG, so it uses the built-in values for one poll. With an S3 and a C6 over WiFi, a C6 from before 0.9.0 sends tags the long backoff's defaults; the signal history works with it as it is.
+
+Going back: a tag on 0.8.2 firmware forgets the long backoff and polls every 600 s without the AP as before; an AP on 0.8.2 ignores the link block.
+
 ### Upgrading from 0.8.1 to 0.8.2
 
 Order: the AP, then, with an S3 and a C6 on a cable, the C6 if you want to update it over the cable from now on, or with an S3 and a C6 over WiFi, the C6 if you want to set the transmit power. The tag firmware has not changed (the tag image of this release is 0.6.0). The C6 over WiFi (netradio) needs a flash only to take a transmit power set on the S3 (below). The AP stores one new setting, the transmit power (`cfg/tx_dbm`), which an AP that goes back to 0.8.1 ignores: it keeps its data, its layout files and its name, and sends at the built-in 10 dBm again (a 0.8.2 C6 over WiFi keeps the power it was set to until it restarts).

@@ -162,7 +162,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -340,12 +340,12 @@ static void test_config(void)
     CHECK_INT(air(&old, 1000, false), ESL_MSG_IDLE);
     CHECK_INT(t.interval_s, ESL_FAKETAG_POLL_S);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000C0FFEE01", AUTH, NULL, 0, 2000, &out), 200);
-    CHECK(HAS(resp, "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+    CHECK(HAS(resp, "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},"
                     "\"config_pending\":false"));
 
     /* per-tag settings: the tag gets CONFIG, uses the new interval and confirms */
     CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":120,\"lost_ap_s\":65535}"), 200);
-    CHECK(HAS(resp, "\"poll_s\":120,\"config\":{\"poll_s\":120,\"max_poll_s\":null,\"lost_ap_s\":65535}"));
+    CHECK(HAS(resp, "\"poll_s\":120,\"config\":{\"poll_s\":120,\"max_poll_s\":null,\"lost_ap_s\":65535,\"long_poll_s\":null,\"long_after_min\":null}"));
     CHECK(HAS(resp, "\"config_pending\":true,\"changed\":true"));
     CHECK_INT(air(&t, 61000, false), ESL_MSG_CONFIG);
     CHECK_INT(t.interval_s, 120);

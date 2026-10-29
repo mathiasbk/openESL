@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -20,6 +20,28 @@ test("formats", () => {
   assert.equal(fmtTagFw(null), "–");
   assert.equal(fmtBattery(2950), "2.95 V");
   assert.equal(fmtBattery(0), "–");
+});
+
+test("signal history (#261)", () => {
+  assert.equal(signalSummary(tag("A")), null); // an AP from before the history
+  assert.equal(signalSummary(tag("A", { signal: null })), null);
+  const s = (rssi, lost = rssi.map(() => 0), retry = rssi.map(() => 0), more = {}) =>
+    signalSummary(tag("A", { signal: { rssi, lost, retry, polls: 40, lost_total: 3, retries: 1, tag_rssi: 200, tag_lqi: 110, ...more } }));
+  const ok = s([-60, -62, -61]);
+  assert.deepEqual([ok.rssi, ok.min, ok.avg, ok.lost, ok.retries, ok.weak, ok.text], [-61, -62, -61, 0, 0, false, "-61 dBm"]);
+  assert.match(ok.title, /^The last 3 polls: -62 to -60 dBm, -61 on average\. The tag hears the AP at link quality 110 of 127\. Since the AP started: 40 polls, 3 lost, 1 retried\.$/);
+  // lost polls, retries on a quarter of them or a low average make it weak; one retry now and then does not
+  const lost = s([-70, -72], [0, 2]);
+  assert.equal(lost.weak, true);
+  assert.equal(lost.text, "-72 dBm · weak");
+  assert.match(lost.title, /2 polls got no answer\./);
+  assert.match(s([-70], [0], [1]).title, /^The last poll: -70 dBm\. 1 answer needed the tag's second try\./);
+  const z8 = [0, 0, 0, 0, 0, 0, 0, 0], r8 = [-70, -70, -70, -70, -70, -70, -70, -70];
+  assert.equal(s(r8, z8, [0, 0, 0, 1, 0, 0, 0, 0]).weak, false);
+  assert.equal(s(r8, z8, [0, 1, 0, 1, 0, 0, 0, 0]).weak, true);
+  assert.equal(s([-86, -88]).weak, true);
+  assert.equal(s([-84, -85]).weak, false);
+  assert.doesNotMatch(s([-60], [0], [0], { tag_lqi: null }).title, /link quality/);
 });
 
 test("tag state: problems first, then what is still on its way", () => {

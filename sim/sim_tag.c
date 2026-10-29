@@ -48,6 +48,10 @@ void hal_mac_read(uint8_t *mac8)
 uint16_t battery_read_mv(void) { return 2950; }
 int8_t hal_temp_c(void) { return 20; }
 void power_sleep_s(uint16_t s) { sim_now_ms += (uint64_t)s * 1000; }
+bool hal_doze_1s(void) { sim_now_ms += 1000; return true; }
+/* the radio's RSSI byte and LQI for every answer (not a measured scale) */
+uint8_t radio_rx_rssi(void) { return 0xC8; }
+uint8_t radio_rx_lqi(void) { return 0x6E; }
 
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {

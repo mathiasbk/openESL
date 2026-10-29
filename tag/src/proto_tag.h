@@ -43,12 +43,17 @@ typedef struct {
     uint16_t cfg_poll_s;
     uint16_t cfg_max_poll_s;
     uint16_t cfg_lost_ap_s;
+    uint16_t cfg_long_poll_s;
+    uint16_t cfg_long_after_min;
 } proto_reply_t;
 
-/* Writes POLL (ESL_POLL_LEN_CFG bytes: cfg_ver at 12) to out, with the image_id the tag
-   shows in the content_id field. Returns the length. */
+/* Writes POLL (ESL_POLL_LEN_LINK bytes: cfg_ver at 12, then the link block) to out, with
+   the image_id the tag shows in the content_id field. rx_rssi and rx_lqi are what the
+   radio measured on the AP's last answer, lost the rounds without an answer before this
+   one. The link flags are 0. Returns the length. */
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
-                         uint32_t shown_id, uint8_t flags, uint16_t cfg_ver);
+                         uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost);
 
 /* Writes FW_REQ (ESL_FREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max);

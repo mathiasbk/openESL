@@ -361,15 +361,17 @@ static uint16_t measure_battery_mv(void)
     return mv;
 }
 
-/* Measured on the first call and then every BATT_EVERY calls (it wakes the display). */
-#define BATT_EVERY      60
+/* Measured on the first call and then every BATT_EVERY calls (it wakes the display):
+   every 4 hours at the 60 s interval. A coin cell's voltage moves over weeks, and each
+   measurement costs more than an hour of polls (batteri-analyse, 2026-10-18). */
+#define BATT_EVERY      240
 static uint16_t batt_mv;
 static uint8_t batt_age;
 
 uint16_t battery_read_mv(void)
 {
     if (!batt_age-- ) {
-        batt_age = BATT_EVERY - 1;
+        batt_age = (uint8_t)(BATT_EVERY - 1);
         batt_mv = measure_battery_mv();
     }
     return batt_mv;
@@ -520,6 +522,24 @@ void power_sleep_s(uint16_t s)
 }
 
 
+
+/*
+ * Sleep while the display refreshes (#261): the core used to wait awake on BUSY for
+ * the whole 2.9 s. power_sleep_s keeps the display's CS and RESET high and puts its
+ * clock and data pins to inputs with pull-up, which it ignores with CS high. Only
+ * after the radio has been on once since reset: that is how every sleep in the main
+ * loop starts, and the sleep timer is in the radio block. The start screen at boot
+ * waits awake.
+ */
+extern bool radio_ever_on;
+
+bool hal_doze_1s(void)
+{
+    if (!radio_ever_on)
+        return false;
+    power_sleep_s(1);
+    return true;
+}
 
 /* ---- Display pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, SCK P0.0, MOSI P0.1 ---- */
 void hal_epd_power(bool on) { (void)on; }   /* no switchable display supply known */

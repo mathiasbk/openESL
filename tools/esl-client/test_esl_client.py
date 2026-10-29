@@ -87,7 +87,7 @@ class FakeAp(BaseHTTPRequestHandler):
     @staticmethod
     def _cfg(mac):
         c = FakeAp.tag_cfg.get(mac, {})
-        return {k: c.get(k) for k in ("poll_s", "max_poll_s", "lost_ap_s")}
+        return {k: c.get(k) for k in ("poll_s", "max_poll_s", "lost_ap_s", "long_poll_s", "long_after_min")}
 
     def do_GET(self):
         if not self._auth():

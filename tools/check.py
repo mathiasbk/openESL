@@ -145,7 +145,7 @@ def step_ap_test():
 
 def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
-    run([PY, "-m", "unittest", "test_power_budget"], cwd=os.path.join(ROOT, "tools", "power-budget"))
+    run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
     run([PY, "-m", "unittest", "test_release_notes"], cwd=os.path.join(ROOT, "tools"))
 
 

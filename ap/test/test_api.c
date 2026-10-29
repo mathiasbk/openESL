@@ -46,7 +46,7 @@ static void drawn(uint64_t mac, uint32_t shown)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     drawn(mac, shown);
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
@@ -102,12 +102,14 @@ static void test_put_one(void)
     CHECK(HAS(resp, "\"changed\":false,\"pending\":false"));
 
     CHECK_INT(req("GET", "/api/tags/" MAC1 "/", AUTH, NULL, 17000), 200);
-    char expect[768];
+    char expect[1024];
     snprintf(expect, sizeof(expect),
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
-             "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
+             "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},\"config_pending\":false,"
              "\"content_error\":null,\"ota\":false,"
+             "\"signal\":{\"rssi\":[-61,-61],\"lost\":[0,0],\"retry\":[0,0],\"polls\":2,\"lost_total\":0,"
+             "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
              "\"image\":true,\"image_id\":%u,\"shown_image_id\":%u,\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id, (unsigned)id, (unsigned)id);
@@ -135,7 +137,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -350,9 +352,11 @@ static void test_batch_and_list(void)
     api.reset_reason = NULL;
     CHECK(HAS(resp, "{\"mac\":\"0000000000ABCDEF\",\"seen_s_ago\":86399,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
-                    "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+                    "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},"
                     "\"config_pending\":false,"
                     "\"content_error\":null,\"ota\":false,"
+                    "\"signal\":{\"rssi\":[-61],\"lost\":[0],\"retry\":[0],\"polls\":1,\"lost_total\":0,"
+                    "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
                     "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
@@ -376,7 +380,7 @@ static void poll_model(uint64_t mac, uint8_t model, bool images)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0};
+    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -709,7 +713,7 @@ static void test_status_page(void)
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0};
+    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
@@ -742,7 +746,7 @@ static void test_status_page(void)
         snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                  i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
         CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0};
+        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
         uint8_t reply[ESL_MAX_PAYLOAD];
         esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
     }
@@ -800,16 +804,16 @@ static void test_config_api(void)
     CHECK_INT(req("PUT", "/api/tags/" MAC1 "/config/", AUTH,
                   "{\"poll_s\":10,\"max_poll_s\":3600,\"lost_ap_s\":60,\"other\":1}", 0), 200);
     CHECK_STR(resp, "{\"mac\":\"" MAC1 "\",\"poll_s\":10,\"config\":{\"poll_s\":10,\"max_poll_s\":3600,"
-                    "\"lost_ap_s\":60},\"config_pending\":false,\"changed\":true}");
+                    "\"lost_ap_s\":60,\"long_poll_s\":null,\"long_after_min\":null},\"config_pending\":false,\"changed\":true}");
     CHECK_INT(req("GET", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"lost_ap_s\":60}"));
+    CHECK(HAS(resp, "\"lost_ap_s\":60,\"long_poll_s\":null,\"long_after_min\":null}"));
     CHECK_INT(req("GET", "/api/tags/" MAC1, AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_id\":0,"));
     CHECK(HAS(resp, "\"poll_s\":10,"));
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -825,9 +829,11 @@ static void test_config_api(void)
     for (unsigned i = 0; i < CAP; i++) {
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
-        CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1};
-        esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
+        CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535,"
+                                      "\"long_poll_s\":65535,\"long_after_min\":65535}", 0), 200);
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF};
+        for (unsigned k = 0; k < ESL_LINK_HIST + 1; k++)
+            esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
         esl_set_result_t r;
         esl_content_init(&c, ESL_LAYOUT_TEXT, 0);
@@ -837,6 +843,8 @@ static void test_config_api(void)
     CHECK(!out.overflow);
     CHECK(HAS(resp, "\"draw_failed\":true"));
     CHECK(HAS(resp, "\"config_pending\":true,\"content_error\":null,\"ota\":true,"));
+    CHECK(HAS(resp, "\"lost\":[127,127,"));
+    CHECK(HAS(resp, "\"tag_rssi\":255,\"tag_lqi\":127}"));
 }
 
 /* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
@@ -1102,7 +1110,7 @@ static void test_clock_config(void)
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0};
+    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     drawn(mac, shown);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);

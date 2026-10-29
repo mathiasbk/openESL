@@ -39,7 +39,7 @@ class FakeAp {
       return {
         ap: { fw: "0.8.1", board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable", channel: 25, time: this.time, poll_s: this.config.poll_s },
         tags: [...this.tags.values()].map((t) => ({ mac: t.mac, model: t.model, content_id: t.content ? 7 : 0,
-          config: { poll_s: null, max_poll_s: null, lost_ap_s: null, ...t.config } })),
+          config: { poll_s: null, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null, ...t.config } })),
       };
     if (method === "GET" && path === "/api/config") return { ...this.config };
     if (method === "PUT" && path === "/api/config") {

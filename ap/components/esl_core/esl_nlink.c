@@ -251,6 +251,10 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
         s.fw_ver = get16(&g);
         s.image_failed = get32(&g);
         s.fw_failed = get16(&g);
+        if (g.at + 4 <= g.n) { /* the long backoff (#261), after the fields older hosts send */
+            s.cfg.long_poll_s = get16(&g);
+            s.cfg.long_after_min = get16(&g);
+        }
         if (g.bad)
             return false;
         esl_rcache_set_tag(rc, &s); /* no room: the host sends it again (it asks, ack) */
@@ -348,6 +352,8 @@ static bool host_tag(void *ctx, const esl_rtag_state_t *s)
     put16(&w, s->fw_ver);
     put32(&w, s->image_failed);
     put16(&w, s->fw_failed);
+    put16(&w, s->cfg.long_poll_s);
+    put16(&w, s->cfg.long_after_min);
     /* sent is not refused: whether the radio had room shows in its next SYNC */
     return out_ok(n, send_buf(n->write, n->wctx, ESL_NLINK_TAG, &w));
 }

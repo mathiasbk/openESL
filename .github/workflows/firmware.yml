@@ -77,7 +77,7 @@ jobs:
       - name: Tool tests (esl-client against a fake AP, power budget, release notes)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
-          (cd tools/power-budget && python3 -m unittest -v test_power_budget)
+          (cd tools/power-budget && python3 -m unittest -v test_power_budget test_measure)
           (cd tools && python3 -m unittest -v test_release_notes)   # docs/release.md has upgrade instructions for VERSION
 
   # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:

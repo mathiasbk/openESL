@@ -54,6 +54,34 @@ export function fmtBattery(mv) {
   return (mv / 1000).toFixed(2) + " V";
 }
 
+// The signal history in GET /api/tags (signal: the last POLLs, #261): { rssi, min, avg,
+// lost, retries, n, weak, text, title }, null for a tag not heard since the AP started.
+// Weak: a POLL lost or answered only at its retry in the history, or an average below
+// WEAK_RSSI. The radios still hear each other down to about -95 dBm, so a tag that is
+// weak now is the one to move or give a nearer AP before it drops out.
+export const WEAK_RSSI = -85;
+export function signalSummary(tag) {
+  const s = tag.signal;
+  if (!s || !s.rssi?.length) return null;
+  const n = s.rssi.length;
+  const min = Math.min(...s.rssi);
+  const avg = Math.round(s.rssi.reduce((a, b) => a + b, 0) / n);
+  const lost = (s.lost || []).reduce((a, b) => a + b, 0);
+  const retries = (s.retry || []).reduce((a, b) => a + b, 0);
+  // one retry now and then is normal; a lost round, a weak average or retries on a quarter
+  // of the polls are not
+  const weak = lost > 0 || avg < WEAK_RSSI || retries * 4 >= n;
+  const rssi = s.rssi[n - 1];
+  const polls = n === 1 ? "The last poll" : `The last ${n} polls`;
+  const parts = [n === 1 ? `${polls}: ${rssi} dBm.` : `${polls}: ${min} to ${Math.max(...s.rssi)} dBm, ${avg} on average.`];
+  if (lost) parts.push(lost === 1 ? "1 poll got no answer." : `${lost} polls got no answer.`);
+  if (retries) parts.push(retries === 1 ? "1 answer needed the tag's second try." : `${retries} answers needed the tag's second try.`);
+  if (s.tag_lqi != null) parts.push(`The tag hears the AP at link quality ${s.tag_lqi} of 127.`);
+  if (s.polls) parts.push(`Since the AP started: ${s.polls} polls, ${s.lost_total} lost, ${s.retries} retried.`);
+  if (weak) parts.push("Weak: move the tag or the AP closer, or the tag may drop out.");
+  return { rssi, min, avg, lost, retries, n, weak, text: `${rssi} dBm` + (weak ? " · weak" : ""), title: parts.join(" ") };
+}
+
 export const PROBLEM_TEXT = {
   silent: "silent",
   unseen: "not seen since the AP started",

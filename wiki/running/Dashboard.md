@@ -20,6 +20,10 @@ When the designer sends a layout file with **Open my AP**, it shows up at the to
 - Four figures that also filter the table: labels, need attention, busy or late, scheduled.
 - Every label: its screen as the AP draws it, last and next check-in, signal, battery, firmware, and what it is waiting for or what is wrong.
 
+### Signal
+
+The Signal column shows how the AP heard the label's last 8 check-ins (32 on an AP with PSRAM) as small bars: taller is stronger. A red mark is a check-in the label made but the AP never answered, an amber mark one that got through only on the label's second try. Next to the bars is the last signal in dBm, and hovering shows the weakest and average signal, and how many check-ins were lost or needed a retry. Click the bars (on a phone, the dBm in the line under the label) for a bigger chart under the row, with a dBm scale and the −85 dBm line; it stays open while the page refreshes, until you close it. The label is marked **weak** when the AP hears it below about −85 dBm on average, or when check-ins are lost, or a quarter of them need a retry: that label is close to the edge of the range, often before it drops out. The history is kept in the AP's memory only, so it starts empty after the AP restarts.
+
 ## Layouts
 
 The **Layouts** card shows what the AP can draw, for each label size:

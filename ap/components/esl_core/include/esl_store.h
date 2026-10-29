@@ -56,6 +56,15 @@ typedef struct {
     size_t (*load_image)(void *ctx, unsigned slot, uint8_t *buf, size_t cap);
 } esl_store_ops_t;
 
+/* Signal history per tag (#261): the last ESL_LINK_HIST POLLs, in RAM only. 2 bytes
+ * each, so a board without PSRAM keeps 8 (16 bytes a slot); the CMakeLists sets more
+ * on boards with PSRAM. */
+#ifndef ESL_LINK_HIST
+#define ESL_LINK_HIST 8
+#endif
+#define ESL_HIST_LOST     0x7F /* hist_info: rounds the tag lost before this POLL (127 = 127 or more) */
+#define ESL_HIST_RETRY    0x80 /* ... and it was the second try of its round */
+
 /* One slot of the table. Kept small, since there is one per tag for the whole run
  * (sizeof is printed in the boot log): the content itself is not here but in NVS
  * (esl_store_get_content), and the flags are bits. */
@@ -87,6 +96,16 @@ typedef struct {
     uint32_t layout_hash;     /* esl_content_layout_hash() of the content, 0 = built-in layout */
     uint32_t shown_content_id;
     uint32_t polls;
+    /* Signal (#261, RAM only): the AP's RSSI of each of the last POLLs and what the tag's
+       link block said with it, oldest first from hist_at - hist_n; the totals since boot */
+    int8_t hist_rssi[ESL_LINK_HIST];
+    uint8_t hist_info[ESL_LINK_HIST];
+    uint8_t hist_n;           /* entries in use */
+    uint8_t hist_at;          /* where the next one goes */
+    uint8_t rx_rssi;          /* the tag radio's raw RSSI and LQI of the AP's last answer (link block), 0 = none */
+    uint8_t rx_lqi;
+    uint16_t lost_total;      /* rounds the tag reported without an answer (saturates) */
+    uint16_t retries;         /* POLLs answered only at their second try (saturates) */
     /* Images (ESL_POLL_F_IMAGE, esl_image): the tag shows what the AP draws. image_id is
        the id of its content's image once drawn (0 = not drawn since the content was set),
        image_layout_ver the version of the layout file it was drawn with;
@@ -317,6 +336,8 @@ bool esl_tag_pending(const esl_tag_t *t);
  * also while the tag still shows an image of it drawn before (a layout file it no longer fits,
  * or that lacks its layout). content_err is worked out again at each POLL and upload. */
 uint8_t esl_tag_content_err(const esl_tag_t *t);
+/* Its signal history, oldest first, into rssi and info (ESL_LINK_HIST each): how many. */
+unsigned esl_tag_signal(const esl_tag_t *t, int8_t *rssi, uint8_t *info);
 /* The tag has content or its own settings (so it is kept when the table is full). */
 bool esl_tag_holds_data(const esl_tag_t *t);
 /* The settings the AP sends this tag: its own, with poll_s from the default

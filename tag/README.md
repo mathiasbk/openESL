@@ -8,14 +8,14 @@ Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [d
 
 | Part | Status |
 |---|---|
-| Packets: POLL (with the model byte, T18, and `cfg_ver`), IDLE, CONFIG, IMG, IMG_REQ, FW, FW_REQ and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
-| Settings from the AP (CONFIG: interval, backoff cap, "No AP found" delay), kept in flash through `hal_store_*` (`app.c`) | Done, tested on PC (fake flash); the flash store itself is tested on the tag by `hwtest`, not yet with CONFIG on the air |
+| Packets: POLL (with the model byte, T18, `cfg_ver`, and the link block with RSSI/LQI of the last answer, lost rounds and a retry flag), IDLE, CONFIG, IMG, IMG_REQ, FW, FW_REQ and the 802.15.4 frame around them (`proto.c`, `shared/proto.h`) | Done, tested on PC |
+| Settings from the AP (CONFIG: interval, backoff cap, "No AP found" delay, long backoff), kept in flash through `hal_store_*` (`app.c`) | Done, tested on PC (fake flash); the flash store itself is tested on the tag by `hwtest`, not yet with CONFIG on the air |
 | Screen images from the AP ([protokoll.md](../docs/protokoll.md) part 1, "Image transfer"): download into the SPI flash slot, CRC-32 check, the 2D and RLE codes, streamed to the panel (`image.c`, `app.c`); the slot is kept, so a restart shows the last screen without the AP (T12) | Done, tested on PC and on the 1.54" (hardware test C) |
 | Fonts: small (17 px) and medium (24 px) for the status screens; the price fonts large (52 px) and mid (36 px), digits and ` ,-.:` only, are drawn by the AP | Done, generated from Inter (OFL) |
 | Column-by-column drawing (`draw.c`) of the status screens (`status.c`) for both models | Done, tested on PC for both models |
-| State machine: POLL, retry, draw only a new image, longer interval without AP, "No AP found" screen (`app.c`) | Done, tested on PC with a fake radio |
-| SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Draws correctly on the 1.54" and the 2.9" (RAM layout and direction confirmed on the tags, [kildelogg.md](../docs/kildelogg.md), the 2.9" mirror fix in #71); the commands are not checked against a datasheet |
-| Clock, GPIO, UART, timer, watchdog, temperature, flash, deep sleep (`hal/zbs243/`), and `hwtest.c` to check them | Done and running on the tag; facts in [kildelogg.md](../docs/kildelogg.md). Battery voltage reads 0 mV (unknown) on the ST-GM16XX2 (issue #4) |
+| State machine: POLL, retry, draw only a new image, longer interval without AP, once an hour after a day without AP, "No AP found" screen (`app.c`) | Done, tested on PC with a fake radio; the long backoff not yet seen on hardware |
+| SSD16xx display driver over bit-banged SPI (`epd.c`) | Written, tested against fake pins and a model of the controller RAM. Draws correctly on the 1.54" and the 2.9" (RAM layout and direction confirmed on the tags, [kildelogg.md](../docs/kildelogg.md), the 2.9" mirror fix in #71); the commands are not checked against a datasheet. The core sleeps in 1 s steps while the panel refreshes (`wait_refresh`, `hal_doze_1s`), except for the start screen before the radio is set up |
+| Clock, GPIO, UART, timer, watchdog, temperature, flash, deep sleep (`hal/zbs243/`), and `hwtest.c` to check them | Done and running on the tag; facts in [kildelogg.md](../docs/kildelogg.md). Battery voltage reads 0 mV (unknown) on the ST-GM16XX2 (issue #4); it is read every 4 hours |
 | Radio (`hal/zbs243/radio_zbs243.c`) | Done, sends and receives with the C6 (phases 3 and 5) |
 
 ## Folders
@@ -147,7 +147,7 @@ The tag draws only its status screens, and ZBS243 does not have RAM for a whole 
 
 ## Missing hardware facts
 
-The ZBS243 HAL is written and runs on the tag. What is still open: the display commands checked against a datasheet, battery voltage on the ST-GM16XX2 (issue #4), and the sleep current measured (phase 6). Every register fact that is used must go into [docs/kildelogg.md](../docs/kildelogg.md) with its source. The order follows [docs/fremdriftsplan.md](../docs/fremdriftsplan.md):
+The ZBS243 HAL is written and runs on the tag. What is still open: the display commands checked against a datasheet, battery voltage on the ST-GM16XX2 (issue #4), and the sleep current measured (how: [strombudsjett.md](../docs/strombudsjett.md), "Measuring a tag"). Every register fact that is used must go into [docs/kildelogg.md](../docs/kildelogg.md) with its source. The order follows [docs/fremdriftsplan.md](../docs/fremdriftsplan.md):
 
 The original order, now done except as noted above:
 

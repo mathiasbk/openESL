@@ -63,9 +63,16 @@ void radio_off(void);
 bool radio_tx(const uint8_t *frame, uint8_t len);
 /* Waits up to timeout_ms for a frame with a correct FCS. Returns length without FCS, or -1. */
 int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms);
+/* The radio's RSSI byte and LQI (0..127) of the last frame radio_rx returned (0 before the first). */
+uint8_t radio_rx_rssi(void);
+uint8_t radio_rx_lqi(void);
 
 /* ---- Power ---- */
 /* Deep sleep for s seconds. Radio and display must be off. */
 void power_sleep_s(uint16_t s);
+/* About a second of deep sleep while the display refreshes (its pins keep their idle
+   levels, BUSY is read again after it). The radio must be off. False when it cannot be
+   done now; the caller then waits awake. */
+bool hal_doze_1s(void);
 
 #endif /* HAL_H */

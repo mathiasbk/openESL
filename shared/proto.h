@@ -53,8 +53,18 @@
 #define ESL_POLL_OFF_CFG_VER 12     /* u16 cfg_ver tagen bruker nå (0 = innebygde standardverdier) */
 #define ESL_POLL_LEN_CFG     14     /* POLL med cfg_ver */
 
-/* Tag firmware that downloaded layout files sent 18 bytes (the layout file version at
- * 14-17). The AP reads the first 14 and ignores the rest. */
+/* The link block after cfg_ver: how the tag hears the AP (docs/protokoll.md, "Signal").
+ * The AP keeps it with its own RSSI of the POLL as the tag's signal history. Firmware
+ * that downloaded layout files sent 18 bytes with a layout file version at 14-17; no
+ * tag runs that any more. */
+#define ESL_POLL_OFF_RX_RSSI 14     /* u8 the radio's raw RSSI byte for the AP's last answer the tag took
+                                     * (scale not measured yet; higher = stronger), 0 = none since start */
+#define ESL_POLL_OFF_RX_LQI  15     /* u8 LQI of that answer (0..127), 0 = none */
+#define ESL_POLL_OFF_LOST    16     /* u8 poll rounds in a row with no answer before this one (255 = 255 or more) */
+#define ESL_POLL_OFF_LINKF   17     /* u8 ESL_POLL_LF_* */
+#define ESL_POLL_LEN_LINK    18     /* POLL with cfg_ver and the link block */
+
+#define ESL_POLL_LF_RETRY    0x01   /* this POLL is the second try of its round: the first got no answer */
 
 /* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
  * så AP-en leser den som "ukjent" og alt virker som før. De kjente modellene
@@ -67,20 +77,25 @@
 #define ESL_IDLE_LEN         4
 #define ESL_OFF_NEXT_POLL    2      /* u16 sekunder til neste POLL (0 = behold), også i CONFIG, FW og IMG */
 
-/* CONFIG, 12 byte: taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
+/* CONFIG, 16 byte (12 before the long backoff; a tag reads those as 0): taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
  * Hver innstilling er u16, 0 = tagens innebygde standardverdi (tag/src/config.h).
  * Nye innstillinger legges bare til på slutten: tagen leser feltene den kjenner
  * og hopper over resten, og et felt som mangler i en kortere melding er 0. */
-#define ESL_CONFIG_LEN       12
+#define ESL_CONFIG_LEN       16
 #define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; tagen sender den tilbake i POLL som kvittering */
 #define ESL_CONFIG_OFF_POLL  6      /* u16 vanlig intervall i sekunder (krav T4) */
 #define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 lengste intervall uten svar fra AP-en (krav T11) */
 #define ESL_CONFIG_OFF_LOST_AP 10   /* u16 sekunder uten svar før "No AP found" (krav T9) */
+#define ESL_CONFIG_OFF_LONG_POLL 12 /* u16 interval in seconds once the AP has been gone for long_after_min */
+#define ESL_CONFIG_OFF_LONG_AFTER 14 /* u16 minutes without an answer before long_poll_s, ESL_CFG_LONG_NEVER = never */
 
 #define ESL_CFG_POLL_MIN_S   10     /* grenser for poll_s og max_poll_s */
 #define ESL_CFG_POLL_MAX_S   3600
 #define ESL_CFG_LOST_AP_MIN_S 60    /* grenser for lost_ap_s */
 #define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: vis aldri "No AP found" */
+#define ESL_CFG_LONG_POLL_MIN_S 60  /* lower limit of long_poll_s (no upper one: 65535 s is 18 h) */
+#define ESL_CFG_LONG_AFTER_MIN_MIN 10 /* lower limit of long_after_min */
+#define ESL_CFG_LONG_NEVER   0xFFFFu /* long_after_min: never go to long_poll_s */
 
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */
 #define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
