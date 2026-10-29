@@ -133,6 +133,10 @@ Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-
 
 Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's images, so every tag needs the new tag firmware: over the radio (`esl-client tag-ota`, or the dashboard) if it has the bootloader (0.3.0 and newer), otherwise in the jig ([tag/README.md](tag/README.md)).
 
+## Roadmap
+
+Next up: more SoluM label models (the 2.9" with red first), choosing the radio channel on the AP's Settings page, measured battery life and a Home Assistant integration. Later: labels that find the AP by themselves, several APs in one place and security on the radio. Some day: labels with other chips, such as SoluM M3 "Newton" and Hanshow Nebular. The whole list is in the [wiki](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+
 ## Folders
 
 | Folder | Contents |

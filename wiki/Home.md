@@ -36,7 +36,7 @@ More: [How it works](How-it-works).
 ## The guide
 
 **Getting started**
-[How it works](How-it-works) · [Getting started](Getting-started) · [What you need](What-you-need)
+[How it works](How-it-works) · [Getting started](Getting-started) · [What you need](What-you-need) · [Roadmap](Roadmap)
 
 **Access point**
 [Choosing a board](Access-point-boards) · [ESP32-C6](ESP32-C6) · [ESP32-C6 with screen](ESP32-C6-with-screen) · [ESP32-C5](ESP32-C5) · [ESP32-S3 + C6](ESP32-S3-and-C6) · [Flashing the AP](Flashing-the-access-point) · [WiFi and API token](WiFi-and-API-token) · [AP settings](Access-point-settings)
