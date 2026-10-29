@@ -26,6 +26,11 @@ const cache = {};
 // The limits an AP board sets (esl_limits in esl_layout.h), by their web_limit number
 const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, jsonBytes: 14, lines: 17, icons: 18 };
 
+// Days since 1970-01-01 of d's local date (web_set_today)
+export function localDays(d) {
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+}
+
 export function loadRenderer(model, base = new URL("../wasm/", import.meta.url)) {
   if (!MODELS[model]) throw new Error("unknown model " + model);
   if (!cache[model]) cache[model] = create(model, base);
@@ -111,7 +116,11 @@ async function create(model, base) {
       return call("web_text_bytes", "number", ["string"], [s]);
     },
 
-    render(layout, flags, fields) {
+    render(layout, flags, fields, today = new Date()) {
+      // today's date for date fields in fixed texts ({date}, {week}), as the AP fills them in;
+      // a renderer from before them has no web_set_today and draws them as written
+      if (typeof M._web_set_today === "function")
+        call("web_set_today", null, ["number"], [localDays(today)]);
       const f = fields.slice(0, 6).map((s) => String(s ?? ""));
       const n = f.length;
       while (f.length < 6) f.push("");

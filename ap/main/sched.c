@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include "app.h"
+#include "esl_clock.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
@@ -156,11 +157,27 @@ esl_clock_cfg_t *sched_clock(void)
     return clock_cfg.set ? &clock_cfg : NULL;
 }
 
+/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown */
+static int32_t local_days(void)
+{
+    uint32_t now = esl_sched_now(&sched, now_ms(), NULL);
+    if (!now)
+        return -1;
+    time_t tt = (time_t)now;
+    struct tm l, g;
+    localtime_r(&tt, &l);
+    gmtime_r(&tt, &g);
+    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
+    int32_t off = days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+    return (int32_t)(((int64_t)now + off) / 86400);
+}
+
 static void tick_task(void *arg)
 {
     esl_store_t *st = arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        esl_clock_set_today(local_days());
         unsigned n = esl_sched_tick(&sched, st, now_ms());
         if (n)
             ESP_LOGI(TAG, "scheduled content applied to %u tag(s)", n);

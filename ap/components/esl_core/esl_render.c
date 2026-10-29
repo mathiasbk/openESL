@@ -6,6 +6,7 @@
 #include "esl_render.h"
 #include <string.h>
 #include "barcode.h" /* tag/src */
+#include "esl_clock.h"
 #include "esl_qr.h"
 #include "font.h"    /* tag/src */
 #include "esl_text.h"
@@ -131,6 +132,9 @@ typedef struct {
     /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
     uint8_t nnums;
     uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
+    /* Fixed texts with their date fields filled in (esl_clock.h); the runs point into them */
+    uint8_t nclocks;
+    uint8_t clock[ESL_CLOCK_TEXTS][ESL_CLOCK_TEXT_MAX];
     /* place_text is placing a formatted number; one fitted in none of its fonts */
     uint8_t num_now, num_cut;
     rd_qr_t qr;
@@ -142,6 +146,7 @@ static void scene_clear(rd_scene_t *s)
     s->nrects = 0;
     s->nbars = 0;
     s->nnums = 0;
+    s->nclocks = 0;
     s->num_now = 0;
     s->num_cut = 0;
     s->nlines = 0;
@@ -1039,6 +1044,14 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                 uint8_t len = 0;
                 if (e->field & ESL_LE_FIELD_FIXED) {
                     t = fixed_text(fl, (uint8_t)(e->field & ~ESL_LE_FIELD_FIXED), &len);
+                    if (len && e->kind == ESL_LE_TEXT && s->nclocks < ESL_CLOCK_TEXTS && esl_clock_res(t, len)) {
+                        int32_t days;
+                        uint8_t *buf = s->clock[s->nclocks++];
+                        if (!esl_clock_today(&days))
+                            days = -1;
+                        len = (uint8_t)esl_clock_fill(t, len, days, buf, ESL_CLOCK_TEXT_MAX);
+                        t = buf;
+                    }
                 } else if (e->field < nfields) {
                     t = text[e->field];
                     len = lens[e->field];

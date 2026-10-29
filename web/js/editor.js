@@ -1006,7 +1006,7 @@ function refreshElement() {
         $("sel-title").textContent = "Selected: " + elementName(e);
       });
       l.append(inp);
-      box.append(l);
+      box.append(l, dateFieldButtons(inp));
     }
   }
   // position and size
@@ -1035,6 +1035,48 @@ function refreshElement() {
     xywh.append(l);
   }
   box.append(xywh);
+}
+
+// Date fields the AP fills in when it draws a fixed text (esl_clock.h on the AP): a button for
+// each puts it in at the cursor, with today's value on hover as the preview draws it
+const DATE_FIELDS = [
+  ["{weekday}", "the weekday, Thursday"],
+  ["{date}", "the date, 29 October 2026"],
+  ["{date_short}", "the date, 29.10.2026"],
+  ["{week}", "the week number, 44"],
+];
+
+function dateFieldButtons(inp) {
+  const div = document.createElement("div");
+  div.className = "date-fields";
+  const p = document.createElement("p");
+  p.className = "small muted";
+  p.textContent = "Date fields, filled in by the AP in its time zone (Settings, General; UTC until set): " +
+    "the tag is redrawn once a day ({week} alone: once a week). An AP from before 0.9 shows them as written.";
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  for (const [f, what] of DATE_FIELDS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = f;
+    b.title = "Put in " + what;
+    b.addEventListener("click", () => {
+      const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
+      const v = inp.value.slice(0, at) + f + inp.value.slice(end);
+      if (v.length > inp.maxLength) {
+        setStatus(`${f} does not fit: a fixed text is at most ${inp.maxLength} characters`, "error");
+        return;
+      }
+      inp.value = v;
+      inp.focus();
+      inp.setSelectionRange(at + f.length, at + f.length);
+      inp.dispatchEvent(new Event("input"));
+    });
+    chips.append(b);
+  }
+  div.append(chips, p);
+  return div;
 }
 
 function updatePositionInputs() {

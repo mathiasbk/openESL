@@ -1,5 +1,6 @@
 #include "tinytest.h"
 #include "esl_api.h"
+#include "esl_clock.h"
 #include "esl_persist.h"
 #include "esl_image.h"
 #include "esl_img2d.h"
@@ -1689,6 +1690,85 @@ static void test_link(void)
     CHECK_INT(l.stats.tx_failed, 2);
 }
 
+/* Date fields in a layout (#183): the AP fills them in when it draws, and draws a tag
+   again when the day (or for {week} alone, the week) changes; a tag whose layout has
+   none is not drawn again */
+static void test_image_clock(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+        "{\"name\":\"day\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]},"
+        "{\"type\":\"text\",\"text\":\"{weekday} {date}\",\"x\":0,\"y\":60,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]},"
+        "{\"name\":\"week\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]},"
+        "{\"type\":\"text\",\"text\":\"Week {week}\",\"x\":0,\"y\":60,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]},"
+        "{\"name\":\"plain\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]}]}";
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_clock_set_today(-1);
+    CHECK_INT(put_layout("2.9", file, strlen(file)), 200);
+    esl_faketag_t d, w, p;
+    esl_faketag_init(&d, 0xDA1, 1, 3000, ESL_MODEL_29);
+    d.img_rle = d.img_2d = false; /* raw: GET .../image gives the same id */
+    esl_faketag_init(&w, 0xDA2, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&p, 0xDA3, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("0000000000000DA1", "{\"layout\":\"day\",\"fields\":[\"Menu\"]}"), 200);
+    CHECK_INT(put("0000000000000DA2", "{\"layout\":\"week\",\"fields\":[\"Menu\"]}"), 200);
+    CHECK_INT(put("0000000000000DA3", "{\"layout\":\"plain\",\"fields\":[\"Menu\"]}"), 200);
+
+    /* the time not known yet (after a restart, before NTP): the date layouts are not drawn,
+       and their tags keep what they show; the plain one is */
+    uint64_t t = 1000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK(d.shown == 0 && w.shown == 0);
+    CHECK_INT(images.drawn, 1);
+    uint32_t p0 = p.shown;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000DA1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
+
+    /* then known (Thursday 29 October 2026, week 44): both date layouts get their image */
+    esl_clock_set_today(20755);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(d.shown != 0 && w.shown != 0 && d.shown != w.shown && p.shown == p0);
+    uint32_t d1 = d.shown, w1 = w.shown;
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    unsigned drawn = images.drawn;
+
+    /* Sunday 1 November: a new day, the same week; the plain one is not even drawn */
+    esl_clock_set_today(20758);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(d.shown != d1 && w.shown == w1);
+    CHECK_INT(images.drawn, drawn + 1);
+
+    /* Monday 2 November: week 45 */
+    esl_clock_set_today(20759);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(w.shown != w1 && p.shown == p0);
+
+    /* GET .../image draws what the tag is sent */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000DA1/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)d.shown);
+    esl_clock_set_today(-1);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1702,6 +1782,7 @@ void test_radio(void)
     test_picture();
     test_image_choice();
     test_image_2d();
+    test_image_clock();
     test_draw_later();
     test_link();
 }

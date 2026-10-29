@@ -328,3 +328,8 @@
 .via-ico { font-size: 20px; }
 @media (max-width: 480px) { .via { flex-direction: column; } }
 #ap-wifi .note { color: var(--warn); }
+
+/* date fields under a fixed text (dateFieldButtons) */
+.date-fields { display: grid; gap: 4px; margin: -2px 0 6px; }
+.date-fields .chip { min-height: 24px; padding: 2px 8px; font-size: 12px; font-family: ui-monospace, monospace; }
+.date-fields p { margin: 0; }
