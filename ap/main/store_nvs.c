@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
 #include "nvs.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
@@ -242,6 +243,23 @@ static void persist_next_poll(void *ctx, const uint16_t *next_poll_s)
         ESP_LOGE(TAG, "saving cfg/poll_s failed: %s", esp_err_to_name(err));
 }
 
+static void persist_channel(void *ctx, const uint8_t *channel)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = channel ? nvs_set_u8(h, "channel", *channel) : nvs_erase_key(h, "channel");
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/channel failed: %s", esp_err_to_name(err));
+}
+
 static void seen_key(unsigned slot, char key[8])
 {
     snprintf(key, 8, "s%u", slot);
@@ -379,12 +397,13 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
                                         persist_next_poll, persist_seen, unix_now, load_content, table_alloc,
-                                        save_lock, save_unlock, persist_image, load_image};
+                                        save_lock, save_unlock, persist_image, load_image, persist_channel};
     mutex = xSemaphoreCreateMutex();
     save_mutex = xSemaphoreCreateMutex();
     if (!mutex || !save_mutex)
         return ESP_ERR_NO_MEM;
     esl_store_init(st, max, &ops, next_poll_s);
+    esl_store_set_builtin_channel(st, CONFIG_ESL_CHANNEL);
     store_ref = st;
     if (xTaskCreate(seen_task, "store_seen", 4096, NULL, 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
@@ -395,6 +414,11 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
         if (nvs_get_u16(h, "poll_s", &v) == ESP_OK) {
             esl_store_restore_next_poll(st, v);
             ESP_LOGI(TAG, "default poll interval %u s (from NVS)", (unsigned)v);
+        }
+        uint8_t ch;
+        if (nvs_get_u8(h, "channel", &ch) == ESP_OK && ch >= ESL_CHANNEL_MIN && ch <= ESL_CHANNEL_MAX) {
+            esl_store_restore_channel(st, ch);
+            ESP_LOGI(TAG, "radio channel %u (from NVS)", (unsigned)ch);
         }
         nvs_close(h);
     }

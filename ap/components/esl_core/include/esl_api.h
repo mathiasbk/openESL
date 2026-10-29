@@ -64,7 +64,6 @@ typedef struct {
     esl_store_t *store;
     const char *token;      /* bearer token; empty or NULL rejects every request */
     const char *fw_version; /* reported in GET /api/tags */
-    uint8_t channel;
     esl_layouts_t *layouts; /* NULL: the /api/layouts endpoints answer 404 */
     const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
     const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
@@ -78,6 +77,8 @@ typedef struct {
     esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
     esl_sources_t *sources; /* data sources (esl_source.h); NULL: /api/sources answers 404 */
     esl_clock_cfg_t *clock; /* NTP server and time zone (GET/PUT /api/config); NULL: left out, and PUT answers 422 */
+    bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
+                               false: GET has it, PUT answers 422 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

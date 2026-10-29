@@ -6,7 +6,7 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 ### Basic setup
 - Standard 802.15.4 data frame (frame type 001), 250 kbit/s O-QPSK. Both radios do this in hardware.
-- Fixed channel (proposal: **channel 25**, 2475 MHz, sits between WiFi channels 11 and 13 and is the least disturbed). Configurable.
+- One channel per AP, **channel 25** by default (2475 MHz, sits between WiFi channels 11 and 13 and is the least disturbed). The built-in one is set in menuconfig; the Settings page changes it while the AP runs and the tags follow (see "Changing the channel" below).
 - Own PAN ID (proposal `0x4553`, "ES"). Choose one that is not used by nearby Zigbee/Thread.
 - The tag sends from its 64-bit MAC (extended) to the AP's short address `0x0000`.
 - The AP replies from `0x0000` to the tag's 64-bit MAC.
@@ -51,7 +51,7 @@ So older tags never get a message type they do not know. Firmware that drew cont
 
 Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fields and the layout file to tags that drew their screens themselves, before the AP drew them. They are retired and not used again: the AP never sends them, and it does not answer them.
 
-**CONFIG** (AP → tag), `type = 0x08`, 16 bytes: settings for this tag
+**CONFIG** (AP → tag), `type = 0x08`, 18 bytes: settings for this tag
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x08, 0x01 |
@@ -62,10 +62,11 @@ Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fiel
 | lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
 | long_poll_s | 2 | the interval once the AP has been gone for `long_after_min` (#261) |
 | long_after_min | 2 | minutes without an answer before the tag polls only every `long_poll_s`; 65535 = never |
+| channel | 2 | the AP's channel (11–26) the tag follows, 0 = the built-in one (25); see "Changing the channel" |
 
-Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s, 3600 s, 1440 min). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s` and `long_poll_s`, 10 min for `long_after_min`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field a shorter CONFIG does not have is 0 (an AP before 0.9 sends 12 bytes). A CONFIG shorter than 12 bytes is ignored.
+Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s, 3600 s, 1440 min, channel 25). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s` and `long_poll_s`, 10 min for `long_after_min`) to the minimum, and ignores a channel outside 11–26. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field a shorter CONFIG does not have is 0 (an AP before 0.9 sends 12 bytes, one with the long backoff but no channel 16). A CONFIG shorter than 12 bytes is ignored.
 
-`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits; of the first three settings only when the long backoff is not set, which is what an AP before 0.9 sent, so an update sends no tag a CONFIG it already has). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
+`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits; of the first three settings only when neither the long backoff nor the channel is set, of the first five when only the long backoff is, which is what older APs sent, so an update sends no tag a CONFIG it already has). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
 
 **FW** (AP → tag), `type = 0x06`, 15 bytes + data. One block of a firmware image (docs/tag-ota.md)
 | Field | Bytes | Description |
@@ -170,11 +171,23 @@ Tag                                      AP
 - Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG first (see "Priority" below). The next POLL with the new `cfg_ver` is the acknowledgement. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
 - When the AP has been gone for `long_after_min` (a day by default), the tag polls only every `long_poll_s` (an hour by default) instead of every `max_poll_s`, until it gets an answer: the first answer brings its normal interval back. The tag then finds a returned AP up to an hour late, but a tag on a shelf with its AP switched off lasts longer (`docs/strombudsjett.md`).
 - `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG. When scheduled content for the tag is due before that, `next_poll_s` is the time until it is due plus 2 s instead; the next reply brings the normal interval back.
+- Changing the channel: see below.
 - Unknown MAC: the AP replies IDLE and adds the tag to the table with `content_id: 0`, so the client sees it in `GET /api/tags` and can give it content.
 
 ### Signal
 
 Each POLL tells the AP how the link has been (#261): the link block at bytes 14–17 has the tag radio's RSSI and LQI of the AP's last answer, the rounds that went unanswered since, and a flag when the last answered round needed its second try. A second try that gets an answer means the AP's answer to the first was lost, or the first POLL never reached it; a round with no answer at all shows up as `lost` in the next POLL that gets through. The AP counts neither for the first POLL it hears from a tag after it started, since those rounds may have been lost while the AP itself restarted. Together with the RSSI the AP measures on each POLL, the AP keeps the last 8 POLLs per tag in RAM (32 on an AP with PSRAM), shown under `signal` in `GET /api/tags` and as small bars in the dashboard's Signal column. A tag that loses POLLs or needs its retry for a quarter of them, or one heard below about −85 dBm on average, is marked weak there before it drops out.
+
+### Changing the channel
+
+`PUT /api/config {"channel": 20}` (the Settings page, Radio) changes the AP's channel without leaving any tag behind. Only the channel changes this way: the PAN ID stays the one built in, since a tag that missed a new PAN could not find the AP again.
+
+1. The AP keeps the new channel in NVS (`cfg/channel`) at once and puts it in the `channel` field of every tag's CONFIG. That changes every tag's `cfg_ver`, so each tag gets a CONFIG at its next POLL, still on the old channel.
+2. The tag keeps the new channel in flash with its other settings and goes on polling on the old channel. Its next POLL with the new `cfg_ver` is the acknowledgement, as for any setting.
+3. The AP moves when every tag it has heard lately has acknowledged (heard within 3 of its intervals plus 60 s), or at the latest after twice the longest interval plus 60 s (at most 2 h 1 min). `"channel_now": true` moves at once, but only to the channel of a move already announced (else `409`): a tag that has not heard of a channel cannot follow it. Setting the channel the AP is on cancels a move that waits.
+4. A tag that gets no answer to a POLL and its retry tries once on the channel from its last CONFIG, and then once on the built-in channel (25), each if it is another one. When the AP answers there, the tag stays on that channel and keeps it in flash; otherwise it goes back. So a tag that slept through the move, or acked just as the AP moved, finds it in the same round, and so does one whose AP went back to the built-in channel before the tag heard of it, for the cost of one or two extra POLLs while the AP is not heard.
+
+A tag that never got the CONFIG (off for longer than the wait) does not know the new channel; it keeps polling the old one until the channel scan (#258) finds the AP. After a restart the AP comes up on the channel in NVS; `GET /api/config` shows `channel`, `builtin_channel`, and while a move waits `channel_next`, `channel_waiting` (tags that have not acknowledged) and `channel_due_s`.
 
 ### Firmware transfer (requirement T15)
 The same pattern as the image transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).

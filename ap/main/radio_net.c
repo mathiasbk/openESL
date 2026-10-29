@@ -130,6 +130,15 @@ static void net_task(void *arg)
                 last_rx = esp_timer_get_time();
             }
         }
+        /* a planned channel move (esl_store_move_channel): the radio gets it in the CONFIG
+           with its next answer, or when it connects */
+        uint8_t ch = esl_store_channel_step(host.st, now_ms());
+        if (ch) {
+            channel = ch;
+            if (conn >= 0)
+                esl_nlink_host_set_config(&hl, channel, pan);
+            ESP_LOGI(TAG, "radio moves to channel %u", ch);
+        }
         if (r > 0 && conn >= 0 && FD_ISSET(conn, &fds)) {
             int n = recv(conn, buf, sizeof(buf), 0);
             if (n <= 0) {

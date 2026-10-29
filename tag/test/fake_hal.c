@@ -8,6 +8,9 @@ uint8_t fake_tx_len[FAKE_MAX_FRAMES];
 int fake_tx_count;
 int fake_rx_calls;
 int fake_radio_on;
+uint8_t fake_channel;
+uint8_t fake_ap_channel;
+uint8_t fake_tx_channel[FAKE_MAX_FRAMES];
 
 static uint8_t rxq[FAKE_MAX_FRAMES][128];
 static uint8_t rxq_len[FAKE_MAX_FRAMES];
@@ -96,7 +99,7 @@ uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
     return fake_store_len;
 }
 
-void radio_init(uint8_t channel) { (void)channel; }
+void radio_init(uint8_t channel) { fake_channel = channel; }
 void radio_on(void) { fake_radio_on = 1; }
 void radio_off(void) { fake_radio_on = 0; }
 
@@ -107,6 +110,7 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
     if (fake_tx_count < FAKE_MAX_FRAMES) {
         memcpy(fake_tx[fake_tx_count], frame, len);
         fake_tx_len[fake_tx_count] = len;
+        fake_tx_channel[fake_tx_count] = fake_channel;
     }
     fake_tx_count++;
     return true;
@@ -116,7 +120,7 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
 {
     uint8_t n;
     fake_rx_calls++;
-    if (!fake_radio_on || rxq_head >= rxq_tail) {
+    if (!fake_radio_on || rxq_head >= rxq_tail || (fake_ap_channel && fake_channel != fake_ap_channel)) {
         fake_delay_ms_total += timeout_ms;
         return -1;
     }

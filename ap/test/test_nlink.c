@@ -299,6 +299,20 @@ static void test_nlink_flow(void)
     CHECK(memcmp(radio_flash[ESL_MODEL_29 - 1], app, 3072) == 0);
     CHECK_INT(wake(&b, 201000), ESL_MSG_FW);
     CHECK_INT(b.fw, 3);
+
+    /* a planned channel move: the radio answers with CONFIG that announces it, and the
+       host sees the tag confirm it */
+    esl_store_move_channel(&st, 15, false, 202500);
+    sync_at(203000);
+    CHECK_INT(wake(&a, 261000), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 15);
+    CHECK_INT(wake(&b, 261500), ESL_MSG_CONFIG);
+    sync_at(262000);
+    CHECK_INT(esl_store_channel_step(&st, 262000), 0);
+    CHECK_INT(wake(&a, 321000), ESL_MSG_IDLE);
+    CHECK_INT(wake(&b, 321500), ESL_MSG_IDLE);
+    sync_at(322000);
+    CHECK_INT(esl_store_channel_step(&st, 322000), 15);
 }
 
 static void test_nlink_broken(void)

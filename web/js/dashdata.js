@@ -275,6 +275,32 @@ export const txWarning = (dbm) => dbm > TX_EU_MAX
 export const TX_NOTE = "For this radio the EU allows about 13 dBm including the antenna's gain (EN 300 328: 10 dBm/MHz): with an antenna of G dBi, the limit is about 13 − G. "
   + "More power reaches tags further away, but their answers do not get stronger; for those, a better antenna on the AP helps.";
 
+// The radio channel (PUT /api/config "channel"): 802.15.4 channels 11-26, as [channel, label].
+// 15, 20, 25 and 26 lie between or above WiFi channels 1, 6 and 11, the ones most networks
+// use; the built-in one is marked.
+export const CHANNEL_MIN = 11, CHANNEL_MAX = 26;
+export const CHANNEL_CLEAR = [15, 20, 25, 26];
+export function channelOptions(builtin) {
+  const out = [];
+  for (let c = CHANNEL_MIN; c <= CHANNEL_MAX; c++) {
+    const notes = [CHANNEL_CLEAR.includes(c) ? "clear of WiFi 1, 6, 11" : "", c === builtin ? "built-in" : ""].filter(Boolean);
+    out.push([c, `Channel ${c}` + (notes.length ? ` (${notes.join(", ")})` : "")]);
+  }
+  return out;
+}
+// A move the AP is waiting with (GET /api/config channel_next), as a sentence, or "" for none
+export function channelMove(config) {
+  const c = config || {};
+  if (!Number.isInteger(c.channel_next)) return "";
+  const n = c.channel_waiting || 0;
+  if (!n) return `Moving from channel ${c.channel} to ${c.channel_next}: every tag has it, so the AP moves now.`;
+  const wait = n === 1 ? "1 tag has" : `${n} tags have`;
+  const due = Number.isInteger(c.channel_due_s) ? `, at the latest in ${fmtInterval(Math.max(60, Math.ceil(c.channel_due_s / 60) * 60))}` : "";
+  return `Moving from channel ${c.channel} to ${c.channel_next}: ${wait} not confirmed it yet. The AP moves once they all have it${due}.`;
+}
+export const CHANNEL_NOTE = "The AP tells every tag at its next poll and moves once they have confirmed it, so no tag is left behind. "
+  + "A tag that misses it tries the new channel as soon as it stops hearing the AP.";
+
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
 // becomes known, new content, a new image id, or a new layout file for its model; the last
 // matters for a tag the AP has not drawn for, e.g. one without SPI flash). layouts is

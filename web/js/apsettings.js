@@ -1,11 +1,12 @@
 // apsettings.js - the Settings page of the dashboard, a menu of groups shown one at a time:
 // General (the AP's name, time zone and the tags' poll interval), Network (WiFi, webhook and NTP
-// server), Radio (the transmit power, on an AP with a radio), Security (the API token) and
+// server), Radio (the channel and the transmit power, on an AP with a radio), Security (the API token) and
 // Backup (js/backup.js). Through the same client as the
 // rest of the dashboard (GET/PUT /api/config, /api/wifi, PUT /api/time). A group of settings
 // has one Save, shown with Undo only once something in it differs from what the AP has.
 import { checkToken, newToken, checkHostname, checkWifi, describeWifi } from "./apserial.js";
-import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE } from "./dashdata.js";
+import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE,
+  channelOptions, channelMove, CHANNEL_NOTE } from "./dashdata.js";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName } from "./backup.js";
 
 // Time zones as POSIX TZ strings, which is what the AP understands (it has no tz database):
@@ -68,7 +69,8 @@ export function clockSkew(apTime, nowS) {
 // What the AP has for the settings on the page, as the fields show them: "" for none or
 // built in, 0 for the tags' own poll default. Keys the AP does not have are left out
 // (an AP without WiFi has no name, older firmware no time zone or NTP server, an AP
-// without a radio no transmit power).
+// without a radio no transmit power or channel). The channel is the one the AP moves to while
+// a move is waiting.
 export function currentSettings(last) {
   const c = last?.config || {}, cur = {};
   if (last?.wifi) cur.hostname = last.wifi.hostname || "";
@@ -77,6 +79,7 @@ export function currentSettings(last) {
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
   if (Number.isInteger(c.tx_power)) cur.tx_power = c.tx_power;
+  if (Number.isInteger(c.channel)) cur.channel = Number.isInteger(c.channel_next) ? c.channel_next : c.channel;
   return cur;
 }
 
@@ -94,6 +97,7 @@ export function configBody(changes, config = {}) {
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
   if ("tx_power" in changes) body.tx_power = changes.tx_power === config.builtin_tx_power ? null : changes.tx_power;
+  if ("channel" in changes) body.channel = changes.channel === config.builtin_channel ? null : changes.channel;
   return body;
 }
 
@@ -384,7 +388,28 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     });
   });
 
-  // ---- Radio: the transmit power, on an AP that has one ----
+  // ---- Radio: the channel and the transmit power, on an AP that has them ----
+  const chSel = $("set-ch-sel");
+  const showMove = () => {
+    const move = channelMove(last?.config);
+    $("set-ch-move").textContent = move;
+    $("set-ch-move-box").hidden = !move;
+  };
+  $("set-ch-now").addEventListener("click", () => busy($("set-ch-now"), async () => {
+    const client = getClient(), c = last?.config;
+    if (!client || !Number.isInteger(c?.channel_next)) return;
+    const n = c.channel_waiting || 0;
+    if (n && !confirm(`The AP moves to channel ${c.channel_next} now. ${n === 1 ? "1 tag has" : `${n} tags have`} not been told yet: `
+      + (c.channel_next === c.builtin_channel ? "they find it on the built-in channel at their next poll."
+        : `they lose the AP until it is back on channel ${c.channel}.`) + " Move now?")) return;
+    try {
+      await client.call("PUT", "/api/config", { channel: c.channel_next === c.builtin_channel ? null : c.channel_next, channel_now: true });
+      say("set-radio-msg", `The AP is on channel ${c.channel_next}.`, "ok");
+      refresh();
+    } catch (e) {
+      say("set-radio-msg", "Not moved: " + e.message, "error");
+    }
+  }));
   const txSel = $("set-tx-sel");
   const showTx = () => {
     const other = txSel.value === "other";
@@ -399,13 +424,23 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
   const radio = group($("set-radio"), "set-radio-msg", {
     read() {
       showTx();
-      if (!("tx_power" in currentSettings(last))) return {};
+      const cur = currentSettings(last), r = {};
+      if ("channel" in cur) r.channel = Number(chSel.value);
+      if (!("tx_power" in cur)) return r;
       const c = txSel.value === "other" ? parseTx($("set-tx-db").value) : { dbm: Number(txSel.value) };
-      return c.error ? c : { tx_power: c.dbm };
+      return c.error ? c : { ...r, tx_power: c.dbm };
     },
     fill(cur) {
-      if (!("tx_power" in cur)) return;
       const c = last.config;
+      $("set-ch-field").hidden = !("channel" in cur);
+      if ("channel" in cur) {
+        chSel.replaceChildren(...channelOptions(c.builtin_channel).map(([v, text]) => new Option(text, String(v))));
+        chSel.value = String(cur.channel);
+        $("set-ch-note").textContent = CHANNEL_NOTE;
+      }
+      showMove();
+      $("set-tx-field").hidden = !("tx_power" in cur);
+      if (!("tx_power" in cur)) return;
       txSel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
         new Option("Other …", "other"));
       txSel.value = String(cur.tx_power);
@@ -413,8 +448,13 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       showTx();
     },
     async save(client, c) {
-      await client.call("PUT", "/api/config", configBody(c, last.config));
-      return `Saved. The radio sends at ${c.tx_power} dBm from its next reply.`;
+      const r = await client.call("PUT", "/api/config", configBody(c, last.config));
+      const said = [];
+      if ("channel" in c)
+        said.push(c.channel === r?.channel ? `The AP stays on channel ${c.channel}.`
+          : `The tags are told at their next poll, and the AP moves to channel ${c.channel} once they have confirmed it.`);
+      if ("tx_power" in c) said.push(`The radio sends at ${c.tx_power} dBm from its next reply.`);
+      return "Saved. " + said.join(" ");
     },
   });
 
@@ -538,9 +578,9 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const tx = Number.isInteger(last.config?.tx_power);
-      $("set-tab-radio").hidden = !tx;
-      if (!tx && !$("set-radio").hidden) showPane("general");
+      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel);
+      $("set-tab-radio").hidden = !radioSet;
+      if (!radioSet && !$("set-radio").hidden) showPane("general");
       renderClock();
       renderNet();
       general.render();

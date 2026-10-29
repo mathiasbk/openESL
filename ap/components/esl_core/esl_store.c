@@ -104,6 +104,20 @@ static esl_tag_t *take_slot(esl_store_t *st, unsigned i, uint64_t mac)
     return t;
 }
 
+/* The channel in CONFIG: the one moved to, else the one the radio is on; 0 for the default */
+static uint16_t announced_channel(const esl_store_t *st)
+{
+    uint8_t ch = st->channel_next ? st->channel_next : st->channel;
+    return ch == ESL_DEFAULT_CHANNEL ? 0 : ch;
+}
+
+static void tag_defaults(const esl_store_t *st, esl_tag_cfg_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->poll_s = st->next_poll_s;
+    out->channel = announced_channel(st);
+}
+
 static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
     uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
@@ -188,9 +202,10 @@ static uint16_t next_poll(const esl_tag_t *t, uint16_t poll_s, uint64_t now_ms)
 static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll, const esl_layout_env_t *env,
                           uint64_t now_ms, uint8_t *reply)
 {
-    esl_tag_cfg_t eff;
+    esl_tag_cfg_t ap, eff;
 
-    esl_tag_effective_cfg(t, st->next_poll_s, &eff);
+    tag_defaults(st, &ap);
+    esl_tag_effective_cfg(t, &ap, &eff);
     /* tag_poll_s, not eff.poll_s: 0 would leave an image tag at ESL_IMAGE_BUSY_S */
     uint16_t next = next_poll(t, tag_poll_s(st, t), now_ms);
     t->content_err = ESL_CERR_NONE;
@@ -201,7 +216,7 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     else if (t->has_content && t->content_unfit && env && env->version)
         t->content_err = ESL_CERR_UNFIT;
     /* Only tags that send cfg_ver get CONFIG; older firmware would drop it. */
-    if (esl_tag_cfg_pending(t, st->next_poll_s))
+    if (esl_tag_cfg_pending(t, &ap))
         return esl_config_msg_build(reply, next, &eff);
     return esl_idle_build(reply, next);
 }
@@ -223,17 +238,18 @@ bool esl_tag_holds_data(const esl_tag_t *t)
     return t->has_content || !esl_tag_cfg_is_default(&t->cfg);
 }
 
-void esl_tag_effective_cfg(const esl_tag_t *t, uint16_t default_poll_s, esl_tag_cfg_t *out)
+void esl_tag_effective_cfg(const esl_tag_t *t, const esl_tag_cfg_t *ap, esl_tag_cfg_t *out)
 {
     *out = t->cfg;
     if (!out->poll_s)
-        out->poll_s = default_poll_s;
+        out->poll_s = ap->poll_s;
+    out->channel = ap->channel;
 }
 
-bool esl_tag_cfg_pending(const esl_tag_t *t, uint16_t default_poll_s)
+bool esl_tag_cfg_pending(const esl_tag_t *t, const esl_tag_cfg_t *ap)
 {
     esl_tag_cfg_t eff;
-    esl_tag_effective_cfg(t, default_poll_s, &eff);
+    esl_tag_effective_cfg(t, ap, &eff);
     return t->seen && t->cfg_capable && t->shown_cfg_ver != esl_tag_cfg_version(&eff);
 }
 
@@ -243,6 +259,7 @@ void esl_store_init(esl_store_t *st, unsigned max, const esl_store_ops_t *ops, u
     st->max = max < ESL_STORE_MAX_TAGS ? max : ESL_STORE_MAX_TAGS;
     st->next_poll_s = next_poll_s;
     st->next_poll_builtin = next_poll_s;
+    st->channel = st->channel_builtin = ESL_DEFAULT_CHANNEL;
     if (ops)
         st->ops = *ops;
 }
@@ -472,7 +489,9 @@ esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_c
     res->changed = memcmp(&t->cfg, cfg, sizeof(*cfg)) != 0;
     if (res->changed)
         t->cfg = *cfg;
-    res->pending = esl_tag_cfg_pending(t, st->next_poll_s);
+    esl_tag_cfg_t ap;
+    tag_defaults(st, &ap);
+    res->pending = esl_tag_cfg_pending(t, &ap);
     bool is_default = esl_tag_cfg_is_default(cfg);
     unlock(st);
 
@@ -868,6 +887,103 @@ uint16_t esl_store_get_next_poll(esl_store_t *st)
     uint16_t v = st->next_poll_s;
     unlock(st);
     return v;
+}
+
+void esl_store_tag_defaults(esl_store_t *st, esl_tag_cfg_t *out)
+{
+    lock(st);
+    tag_defaults(st, out);
+    unlock(st);
+}
+
+void esl_store_set_builtin_channel(esl_store_t *st, uint8_t channel)
+{
+    lock(st);
+    st->channel = st->channel_builtin = channel;
+    st->channel_next = 0;
+    unlock(st);
+}
+
+void esl_store_restore_channel(esl_store_t *st, uint8_t channel)
+{
+    lock(st);
+    st->channel = channel;
+    st->channel_next = 0;
+    unlock(st);
+}
+
+static uint64_t tag_poll_ms(const esl_store_t *st, const esl_tag_t *t)
+{
+    uint16_t s = tag_poll_s(st, t);
+    return (uint64_t)(s ? s : ESL_TAG_BUILTIN_POLL_S) * 1000;
+}
+
+void esl_store_move_channel(esl_store_t *st, uint8_t channel, bool now, uint64_t now_ms)
+{
+    lock(st);
+    bool builtin = !channel;
+    if (builtin)
+        channel = st->channel_builtin;
+    if (channel == st->channel) {
+        st->channel_next = 0;
+    } else {
+        /* long enough for every tag to get CONFIG and confirm it at the POLL after */
+        uint64_t longest = ESL_TAG_BUILTIN_POLL_S * 1000ull;
+        for (unsigned i = 0; i < st->cap; i++) {
+            const esl_tag_t *t = at(st, i);
+            if (t->used && t->seen && tag_poll_ms(st, t) > longest)
+                longest = tag_poll_ms(st, t);
+        }
+        uint64_t wait = 2 * longest + 60000;
+        if (wait > ESL_CHANNEL_MAX_WAIT_S * 1000ull)
+            wait = ESL_CHANNEL_MAX_WAIT_S * 1000ull;
+        st->channel_next = channel;
+        st->channel_due_ms = now ? now_ms : now_ms + wait;
+    }
+    unlock(st);
+    if (st->ops.persist_channel)
+        st->ops.persist_channel(st->ops.ctx, builtin ? NULL : &channel);
+}
+
+/* Tags heard lately that do not have the announced channel yet (under the lock) */
+static unsigned channel_waiting(const esl_store_t *st, uint64_t now_ms)
+{
+    esl_tag_cfg_t ap;
+    unsigned n = 0;
+    tag_defaults(st, &ap);
+    for (unsigned i = 0; i < st->cap; i++) {
+        const esl_tag_t *t = at(st, i);
+        if (t->used && esl_tag_seen_ms_ago(t, now_ms) <= ESL_CHANNEL_ACTIVE_POLLS * tag_poll_ms(st, t) + 60000 &&
+            esl_tag_cfg_pending(t, &ap))
+            n++;
+    }
+    return n;
+}
+
+uint8_t esl_store_channel_step(esl_store_t *st, uint64_t now_ms)
+{
+    uint8_t ch = 0;
+    lock(st);
+    if (st->channel_next && (now_ms >= st->channel_due_ms || !channel_waiting(st, now_ms))) {
+        ch = st->channel = st->channel_next;
+        st->channel_next = 0;
+    }
+    unlock(st);
+    return ch;
+}
+
+void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    lock(st);
+    out->channel = st->channel;
+    out->builtin = st->channel_builtin;
+    out->next = st->channel_next;
+    if (st->channel_next) {
+        out->waiting = channel_waiting(st, now_ms);
+        out->due_s = st->channel_due_ms > now_ms ? (uint32_t)((st->channel_due_ms - now_ms + 999) / 1000) : 0;
+    }
+    unlock(st);
 }
 
 uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac)

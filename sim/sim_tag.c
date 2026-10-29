@@ -70,7 +70,9 @@ uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
     return flash_rec_len;
 }
 
-void radio_init(uint8_t channel) { (void)channel; }
+static uint8_t radio_channel;
+void radio_init(uint8_t channel) { radio_channel = channel; }
+uint8_t sim_tag_channel(void) { return radio_channel; }
 void radio_on(void) { radio_is_on = true; }
 void radio_off(void) { radio_is_on = false; }
 
@@ -78,7 +80,7 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
 {
     if (!radio_is_on)
         return false;
-    rx_len = sim_link(frame, len, rx_frame);
+    rx_len = sim_link(radio_channel, frame, len, rx_frame);
     return true;
 }
 

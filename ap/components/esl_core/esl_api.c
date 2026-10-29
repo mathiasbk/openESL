@@ -439,10 +439,10 @@ static void write_opt_u16(esl_sb_t *out, const char *key, uint16_t v)
 }
 
 /* "poll_s":<effective>,"config":{<the tag's own settings>},"config_pending":<bool> */
-static void write_tag_cfg(esl_sb_t *out, const esl_tag_t *t, uint16_t default_poll_s)
+static void write_tag_cfg(esl_sb_t *out, const esl_tag_t *t, const esl_tag_cfg_t *ap)
 {
     esl_tag_cfg_t eff;
-    esl_tag_effective_cfg(t, default_poll_s, &eff);
+    esl_tag_effective_cfg(t, ap, &eff);
     write_opt_u16(out, "poll_s", eff.poll_s);
     esl_sb_puts(out, ",\"config\":{");
     write_opt_u16(out, "poll_s", t->cfg.poll_s);
@@ -454,7 +454,7 @@ static void write_tag_cfg(esl_sb_t *out, const esl_tag_t *t, uint16_t default_po
     write_opt_u16(out, "long_poll_s", t->cfg.long_poll_s);
     esl_sb_putc(out, ',');
     write_opt_u16(out, "long_after_min", t->cfg.long_after_min);
-    esl_sb_printf(out, "},\"config_pending\":%s", esl_tag_cfg_pending(t, default_poll_s) ? "true" : "false");
+    esl_sb_printf(out, "},\"config_pending\":%s", esl_tag_cfg_pending(t, ap) ? "true" : "false");
 }
 
 static const char *layout_name(const esl_content_t *c)
@@ -584,7 +584,7 @@ static void write_signal(esl_sb_t *out, const esl_tag_t *t)
 }
 
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
-                      uint16_t default_poll_s, bool with_content)
+                      const esl_tag_cfg_t *ap, bool with_content)
 {
     char m[17];
     esl_mac_format(t->mac, m);
@@ -621,7 +621,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     } else
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
-    write_tag_cfg(out, t, default_poll_s);
+    write_tag_cfg(out, t, ap);
 
     esl_sb_puts(out, ",\"content_error\":");
     const char *err = esl_content_err_text(esl_tag_content_err(t));
@@ -842,10 +842,13 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     /* which board this is (ap/boards/<board>/board.json), so a dashboard can tell two APs apart */
     esl_sb_puts(out, ",\"board\":\"" ESL_BOARD "\",\"board_name\":\"" ESL_BOARD_NAME "\"");
-    uint16_t def_poll = esl_store_get_next_poll(api->store);
+    esl_tag_cfg_t ap;
+    esl_store_tag_defaults(api->store, &ap);
+    esl_channel_state_t ch;
+    esl_store_channel_state(api->store, now_ms, &ch);
     esl_sb_printf(out, ",\"uptime_s\":%" PRIu64 ",\"channel\":%u,\"max_tags\":%u,\"table_full\":%s,\"poll_s\":%u",
-                  now_ms / 1000, (unsigned)api->channel, api->store->max,
-                  esl_store_full(api->store) ? "true" : "false", (unsigned)def_poll);
+                  now_ms / 1000, (unsigned)ch.channel, api->store->max,
+                  esl_store_full(api->store) ? "true" : "false", (unsigned)ap.poll_s);
     if (api->reset_reason) {
         esl_sb_puts(out, ",\"reset\":");
         esl_sb_json_str(out, api->reset_reason);
@@ -890,7 +893,7 @@ static int get_all(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
         if (!first)
             esl_sb_putc(out, ',');
         first = false;
-        write_tag(api, out, &t, now_ms, def_poll, false);
+        write_tag(api, out, &t, now_ms, &ap, false);
     }
     esl_sb_puts(out, "]}");
     return 200;
@@ -985,12 +988,14 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
 {
     char m[17];
     esl_tag_t t;
+    esl_tag_cfg_t ap;
     esl_mac_format(mac, m);
     if (strcmp(method, "GET") == 0) {
+        esl_store_tag_defaults(api->store, &ap);
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
         esl_sb_printf(out, "{\"mac\":\"%s\",", m);
-        write_tag_cfg(out, &t, esl_store_get_next_poll(api->store));
+        write_tag_cfg(out, &t, &ap);
         esl_sb_putc(out, '}');
         return 200;
     }
@@ -1012,8 +1017,9 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
         else if (!esl_store_get(api->store, mac, &t))
             status = api_error(out, 500, "tag vanished");
         else {
+            esl_store_tag_defaults(api->store, &ap);
             esl_sb_printf(out, "{\"mac\":\"%s\",", m);
-            write_tag_cfg(out, &t, esl_store_get_next_poll(api->store));
+            write_tag_cfg(out, &t, &ap);
             esl_sb_printf(out, ",\"changed\":%s}", r.changed ? "true" : "false");
             status = 200;
         }
@@ -1099,7 +1105,19 @@ static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, si
  * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in dBm,
  * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
  * tz null or "" = UTC. Keys left out stay as they are; one of them must be there. */
-static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
+/* "channel_now" skips the wait for a move the tags were told of; a channel they have not heard
+   of would leave them on the old one (docs/protokoll.md, "Changing the channel") */
+static bool channel_now_ok(esl_store_t *st, uint8_t channel, uint64_t now_ms)
+{
+    esl_channel_state_t cs;
+    esl_store_channel_state(st, now_ms, &cs);
+    if (!channel)
+        channel = cs.builtin;
+    return channel == cs.channel || channel == cs.next;
+}
+
+static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, uint64_t now_ms,
+                     esl_sb_t *out)
 {
     bool put = strcmp(method, "PUT") == 0;
     if (put) {
@@ -1112,12 +1130,14 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int x = esl_json_obj_get(body, tok, 0, "tx_power");
             int n = esl_json_obj_get(body, tok, 0, "ntp");
             int z = esl_json_obj_get(body, tok, 0, "tz");
-            uint16_t poll_s;
+            int c = esl_json_obj_get(body, tok, 0, "channel");
+            int cn = esl_json_obj_get(body, tok, 0, "channel_now");
+            uint16_t poll_s, channel = 0;
             int8_t dbm = 0;
             char url[ESL_WEBHOOK_URL_MAX + 1], ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
             int ul = 0;
-            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0)
-                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp or tz is required (null resets it)");
+            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0)
+                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz or channel is required (null resets it)");
             else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
                      (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
                       (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
@@ -1140,6 +1160,16 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             else if (z >= 0 && opt_str(body, tok, z, tz, sizeof(tz), esl_tz_ok) < 0)
                 status = api_error(out, 422, "tz must be null or a POSIX time zone of at most 63 characters, "
                                              "such as CET-1CEST,M3.5.0,M10.5.0/3");
+            else if (c >= 0 && !api->channel_settable)
+                status = api_error(out, 422, "this AP cannot change its radio channel");
+            else if (c >= 0 && tok[c].type != ESL_JSON_NULL &&
+                     parse_uint(&j, 0, "channel", ESL_CHANNEL_MIN, ESL_CHANNEL_MAX, &channel) < 0)
+                status = api_error(out, 422, "channel must be null or a whole number from 11 to 26");
+            else if (cn >= 0 && (c < 0 || (tok[cn].type != ESL_JSON_TRUE && tok[cn].type != ESL_JSON_FALSE)))
+                status = api_error(out, 422, "channel_now must be true or false, with channel");
+            else if (cn >= 0 && tok[cn].type == ESL_JSON_TRUE && !channel_now_ok(api->store, (uint8_t)channel, now_ms))
+                status = api_error(out, 409, "channel_now moves only to the channel the tags were told of: "
+                                             "set the channel first, then move once they have it");
             else {
                 if (v >= 0 && tok[v].type == ESL_JSON_NULL)
                     esl_store_reset_next_poll(api->store);
@@ -1160,6 +1190,9 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                 }
                 if (n >= 0 || z >= 0)
                     api->clock->set(api->clock->ctx, n >= 0 ? ntp : NULL, z >= 0 ? tz : NULL);
+                if (c >= 0)
+                    esl_store_move_channel(api->store, (uint8_t)channel, cn >= 0 && tok[cn].type == ESL_JSON_TRUE,
+                                           now_ms);
             }
         }
         free(tok);
@@ -1176,6 +1209,18 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         esl_sb_puts(out, "null");
     if (api->tx_power)
         esl_sb_printf(out, ",\"tx_power\":%d,\"builtin_tx_power\":%d", api->tx_power->dbm, api->tx_power->builtin);
+    /* the channel, and a move the tags are being told about: how many of the tags heard
+       lately still have to confirm it, and the most it waits for them */
+    if (api->channel_settable) {
+        esl_channel_state_t ch;
+        esl_store_channel_state(api->store, now_ms, &ch);
+        esl_sb_printf(out, ",\"channel\":%u,\"builtin_channel\":%u", (unsigned)ch.channel, (unsigned)ch.builtin);
+        if (ch.next)
+            esl_sb_printf(out, ",\"channel_next\":%u,\"channel_waiting\":%u,\"channel_due_s\":%" PRIu32,
+                          (unsigned)ch.next, ch.waiting, ch.due_s);
+        else
+            esl_sb_puts(out, ",\"channel_next\":null");
+    }
     if (api->clock) {
         const esl_clock_cfg_t *c = api->clock;
         const char *keys[] = {"ntp", "builtin_ntp", "tz"};
@@ -1273,9 +1318,9 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
     esl_health_cfg_t cfg = {0, 0}; /* the defaults, as the dashboard asks GET /api/health */
     if (tag_health(api, t, now_ms, &cfg))
         return ESL_TAG_BAD;
-    uint16_t def_poll = esl_store_get_next_poll(api->store);
-    esl_tag_cfg_t eff;
-    esl_tag_effective_cfg(t, def_poll, &eff); /* "poll_s" in GET /api/tags */
+    esl_tag_cfg_t ap, eff;
+    esl_store_tag_defaults(api->store, &ap);
+    esl_tag_effective_cfg(t, &ap, &eff); /* "poll_s" in GET /api/tags */
     uint64_t poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
     uint64_t ago; /* "seen_s_ago": late also for a tag from NVS not heard since this boot */
     if (seen_s_ago(api, t, now_ms, &ago) && ago > poll_s + ESL_TAG_CHECKIN_GRACE_S)
@@ -1284,7 +1329,7 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
     uint16_t got;
     if (t->seen && esl_tagfw_get(api->tagfw, t->model, &img) && tag_fw_update(api, t, &img, &got) == FWU_UPDATING)
         return ESL_TAG_BUSY;
-    if (esl_tag_pending(t) || esl_tag_cfg_pending(t, def_poll))
+    if (esl_tag_pending(t) || esl_tag_cfg_pending(t, &ap))
         return ESL_TAG_BUSY;
     return ESL_TAG_OK;
 }
@@ -1930,7 +1975,9 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
                 api->fw_version ? strlen(api->fw_version) : 0);
     esl_sb_puts(out, ", up ");
     html_ago(out, now_ms / 1000);
-    esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)api->channel,
+    esl_channel_state_t ch;
+    esl_store_channel_state(api->store, now_ms, &ch);
+    esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)ch.channel,
                   esl_store_count(api->store), api->store->max);
     if (esl_store_full(api->store))
         esl_sb_puts(out, " <span class=\"p\">(full: no room for a new tag)</span>");
@@ -2074,7 +2121,7 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
 
     const size_t cbase = sizeof(PATH_CONFIG) - 1;
     if ((plen == cbase || (plen == cbase + 1 && uri[cbase] == '/')) && memcmp(uri, PATH_CONFIG, cbase) == 0) {
-        int status = ap_config(api, method, body, body_len, out);
+        int status = ap_config(api, method, body, body_len, now_ms, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
@@ -2178,7 +2225,9 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         esl_tag_t t;
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
-        write_tag(api, out, &t, now_ms, esl_store_get_next_poll(api->store), true);
+        esl_tag_cfg_t ap;
+        esl_store_tag_defaults(api->store, &ap);
+        write_tag(api, out, &t, now_ms, &ap, true);
         status = 200;
     } else if (item && strcmp(method, "DELETE") == 0) {
         char m[17];

@@ -255,6 +255,8 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
             s.cfg.long_poll_s = get16(&g);
             s.cfg.long_after_min = get16(&g);
         }
+        if (g.at + 2 <= g.n) /* the channel (#256); an older host's TAG ends before it: the default channel */
+            s.cfg.channel = get16(&g);
         if (g.bad)
             return false;
         esl_rcache_set_tag(rc, &s); /* no room: the host sends it again (it asks, ack) */
@@ -354,6 +356,7 @@ static bool host_tag(void *ctx, const esl_rtag_state_t *s)
     put16(&w, s->fw_failed);
     put16(&w, s->cfg.long_poll_s);
     put16(&w, s->cfg.long_after_min);
+    put16(&w, s->cfg.channel);
     /* sent is not refused: whether the radio had room shows in its next SYNC */
     return out_ok(n, send_buf(n->write, n->wctx, ESL_NLINK_TAG, &w));
 }

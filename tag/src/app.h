@@ -4,7 +4,8 @@
  *   app_init()      read the MAC, draw the start screen
  *   app_poll_once() one round: POLL -> IDLE/CONFIG, or IMG (the screen the AP drew,
  *                   IMG_REQ -> IMG until it is whole, then shown) or FW (new firmware,
- *                   FW_REQ -> FW). Returns how many seconds the tag should sleep.
+ *                   FW_REQ -> FW). With no answer, one more POLL on the channel the AP
+ *                   announced it moves to. Returns how many seconds the tag should sleep.
  *
  * main.c just does: hal_init(); app_init(); for (;;) power_sleep_s(app_poll_once());
  * The tests in test/ run the same code against a fake radio and display.
@@ -23,6 +24,7 @@ typedef struct {
     uint16_t lost_ap_s;       /* "No AP found" after this long (CFG_LOST_AP_S), ESL_CFG_LOST_AP_NEVER = never */
     uint16_t long_poll_s;     /* interval once the AP has been gone for long_after_min (CFG_LONG_POLL_S) */
     uint16_t long_after_min;  /* (CFG_LONG_AFTER_MIN), ESL_CFG_LONG_NEVER = never */
+    uint8_t channel;          /* the AP's channel, now or after a planned move; 0 = CFG_CHANNEL */
 } app_cfg_t;
 
 typedef struct {
@@ -38,6 +40,8 @@ typedef struct {
     uint8_t rx_lqi;
     uint8_t link_flags;       /* for the next POLL: ESL_POLL_LF_RETRY when the last answered one needed its retry */
     uint8_t seq;
+    uint8_t channel;          /* where the tag last heard the AP (kept in flash), CFG_CHANNEL at first */
+    uint8_t channel_moved;    /* this round found the AP on another channel: save it */
     uint16_t rng;
     app_cfg_t cfg;            /* kept in flash, see app_cfg_load/app_cfg_save in app.c */
 } app_state_t;

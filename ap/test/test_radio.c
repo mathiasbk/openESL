@@ -28,6 +28,8 @@ typedef struct {
     uint8_t cfg[CAP][ESL_PERSIST_CFG_LEN];
     bool has_next_poll;
     uint16_t next_poll_s;
+    bool has_channel;
+    uint8_t channel;
     uint8_t img[CAP][ESL_IMAGE_STORED_MAX(5000)]; /* pictures (ops.persist_image) */
     size_t img_len[CAP];
     int img_writes;
@@ -70,6 +72,13 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     n->next_poll_s = next_poll_s ? *next_poll_s : 0;
 }
 
+static void nvs_channel(void *ctx, const uint8_t *channel)
+{
+    nvs_t *n = ctx;
+    n->has_channel = channel != NULL;
+    n->channel = channel ? *channel : 0;
+}
+
 static bool nvs_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
 {
     nvs_t *n = ctx;
@@ -94,7 +103,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -116,11 +125,13 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
         esl_store_restore_next_poll(&st, nvs.next_poll_s);
+    if (nvs.has_channel)
+        esl_store_restore_channel(&st, nvs.channel);
     for (unsigned s = 0; s < CAP; s++) {
         uint64_t mac;
         esl_content_t c;
@@ -421,6 +432,98 @@ static void test_config(void)
     for (unsigned i = 0; i < CAP; i++)
         any |= nvs.cfg_used[i];
     CHECK(!any);
+}
+
+static int config(const char *body)
+{
+    return esl_api_handle(&api, body ? "PUT" : "GET", "/api/config", AUTH, body, body ? strlen(body) : 0, 0, &out);
+}
+
+/* A planned channel move (#256): announced in CONFIG, the radio moves once the tags
+ * heard lately have confirmed it, or at the deadline, or at once with channel_now. */
+static void test_channel(void)
+{
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    api.channel_settable = true;
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0xA1, 2, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0xB2, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&a, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(a.cfg_ver, 0); /* the default channel: no CONFIG for it */
+
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK_INT(config("{\"channel\":27}"), 422);
+    CHECK_INT(config("{\"channel\":10}"), 422);
+    CHECK_INT(config("{\"channel_now\":true}"), 422);
+    CHECK_INT(config("{\"channel\":20,\"channel_now\":1}"), 422);
+    CHECK(!nvs.has_channel);
+
+    /* announced: stored at once, the radio stays until both have confirmed it */
+    CHECK_INT(config("{\"channel\":20}"), 200);
+    CHECK(nvs.has_channel && nvs.channel == 20);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":20,\"channel_waiting\":2,"));
+    /* waits at most 2 x the longest interval (60 s) + 1 min */
+    CHECK_INT(json_u32(resp, "\"channel_due_s\":"), 180);
+    CHECK_INT(esl_store_channel_step(&st, 2000), 0);
+    CHECK_INT(air(&a, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 20);
+    CHECK_INT(air(&b, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 62000), 0); /* not confirmed yet */
+    CHECK_INT(air(&a, 121000, false), ESL_MSG_IDLE);   /* a confirms */
+    esl_channel_state_t cs;
+    esl_store_channel_state(&st, 121000, &cs);
+    CHECK_INT(cs.waiting, 1);
+    CHECK_INT(esl_store_channel_step(&st, 121500), 0);
+    CHECK_INT(air(&b, 122000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 122500), 20);
+    CHECK_INT(esl_store_channel_step(&st, 123000), 0); /* once */
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":20,\"builtin_channel\":25,\"channel_next\":null"));
+    /* on the new channel: the same settings, so no new CONFIG */
+    CHECK_INT(air(&a, 181000, false), ESL_MSG_IDLE);
+
+    /* a tag that stops answering holds the move up only until the deadline */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"channel\":null}", 16, 200000, &out), 200);
+    CHECK(!nvs.has_channel); /* back to the built-in one */
+    CHECK_INT(air(&a, 241000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 0);
+    CHECK_INT(air(&a, 301000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 301500), 0); /* b, heard at 122 s, has not confirmed */
+    CHECK_INT(esl_store_channel_step(&st, 200000 + 180000), 25);
+
+    /* channel_now; and the channel the radio is on cancels a planned move */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":25}"), 200);
+    CHECK(strstr(resp, "\"channel_next\":null"));
+    CHECK_INT(esl_store_channel_step(&st, 400000), 0);
+    /* not to a channel the tags were not told of: they would stay where they are */
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 409);
+    CHECK(strstr(resp, "set the channel first"));
+    esl_store_channel_state(&st, 400000, &cs);
+    CHECK_INT(cs.next, 0);
+    CHECK_INT(config("{\"channel\":25,\"channel_now\":true}"), 200);   /* where it is: nothing to do */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 200);
+    CHECK_INT(esl_store_channel_step(&st, 0), 15);
+
+    /* after a restart the AP starts on the stored channel, and tells the tags */
+    ap_boot();
+    esl_store_channel_state(&st, 0, &cs);
+    CHECK_INT(cs.channel, 15);
+    CHECK_INT(cs.next, 0);
+    esl_faketag_t c;
+    esl_faketag_init(&c, 0xC3, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&c, 1000, false), ESL_MSG_CONFIG);
+    CHECK_INT(c.cfg.channel, 15);
+
+    api.channel_settable = false;
+    CHECK_INT(config("{\"channel\":20}"), 422);
+    CHECK_INT(config(NULL), 200);
+    CHECK(!strstr(resp, "channel"));
+    memset(&nvs, 0, sizeof(nvs));
 }
 
 static void test_many_tags(void)
@@ -1696,6 +1799,7 @@ void test_radio(void)
     test_fake_tag_filters();
     test_end_to_end();
     test_config();
+    test_channel();
     test_many_tags();
     test_image_send();
     test_image_rle();

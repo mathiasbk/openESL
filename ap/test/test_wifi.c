@@ -216,7 +216,7 @@ static void test_api_wifi(void)
     esl_sb_t out;
     esl_store_free(&st);
     esl_store_init(&st, 4, NULL, 0);
-    esl_api_t api = {&st, "tok12345", "1.0", 25, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL};
+    esl_api_t api = {&st, "tok12345", "1.0", NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false};
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi", AUTH, NULL, 0, 0, &out), 404);
