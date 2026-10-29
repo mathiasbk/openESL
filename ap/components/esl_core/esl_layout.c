@@ -1,3 +1,4 @@
+#include "esl_clock.h"
 #include "esl_layout.h"
 #include "esl_render.h"
 #include <stdio.h>
@@ -147,6 +148,26 @@ bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_
     if (bin_size)
         *bin_size = b;
     return v != 0;
+}
+
+uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash)
+{
+    uint32_t v = 0;
+    uint8_t res = ESL_CLOCK_NONE;
+    if (ls) {
+        lock(ls);
+        esl_layout_t *l = slot(ls, model);
+        if (l) {
+            v = l->bin.version;
+            for (unsigned i = 0; layout_hash && i < l->bin.count; i++)
+                if (esl_layout_name_hash(l->bin.names[i]) == layout_hash) {
+                    res = l->bin.clock[i];
+                    break;
+                }
+        }
+        unlock(ls);
+    }
+    return v ^ esl_clock_stamp(res);
 }
 
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)

@@ -327,13 +327,11 @@ static esl_image_buf_t *take(esl_image_t *im, uint64_t now_ms)
     return old;
 }
 
-/* Version of the model's layout file, 0 when it has none. */
-static uint32_t layout_ver(esl_layouts_t *ls, uint8_t model)
+/* Version of the model's layout file for t's layout, 0 when it has none: with the day or
+   week in it when the layout has date fields (esl_layouts_image_ver) */
+static uint32_t layout_ver(esl_layouts_t *ls, const esl_tag_t *t)
 {
-    uint32_t ver = 0;
-    if (!esl_layouts_info(ls, model, &ver, NULL, NULL))
-        ver = 0;
-    return ver;
+    return esl_layouts_image_ver(ls, t->model, t->layout_hash);
 }
 
 /* Draws the tag's content into b. False when the tag has no content it can be drawn
@@ -431,7 +429,7 @@ static esl_image_buf_t *ready(esl_image_t *im, esl_store_t *st, esl_layouts_t *l
     *busy = false;
     if (!esl_store_get(st, mac, &t))
         return NULL;
-    uint32_t ver = layout_ver(ls, t.model);
+    uint32_t ver = layout_ver(ls, &t);
     esl_image_buf_t *b = find(im, mac);
     if (b && fresh(b, &t, ver))
         return b;
@@ -462,7 +460,7 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
         return 0;
     }
     lock(im);
-    if (t.image_id && t.image_id == shown && t.image_layout_ver == layout_ver(ls, t.model)) {
+    if (t.image_id && t.image_id == shown && t.image_layout_ver == layout_ver(ls, &t)) {
         /* It shows the image: nothing to draw, and its buffer is done with */
         esl_image_buf_t *b = find(im, mac);
         if (b)
@@ -488,7 +486,7 @@ uint32_t esl_image_prepare_later(esl_image_t *im, esl_store_t *st, esl_layouts_t
         return 0;
     }
     lock(im);
-    uint32_t ver = layout_ver(ls, t.model);
+    uint32_t ver = layout_ver(ls, &t);
     esl_image_buf_t *b = find(im, mac);
     if (t.image_id && t.image_id == shown && t.image_layout_ver == ver) {
         if (b)
@@ -532,7 +530,7 @@ static size_t block(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint64_
         b = NULL;
         if (esl_store_get(st, mac, &t) && t.has_content && !t.content_err) {
             b = find(im, mac);
-            if (!b || !fresh(b, &t, layout_ver(ls, t.model))) {
+            if (!b || !fresh(b, &t, layout_ver(ls, &t))) {
                 b = NULL;
                 if (!im->later)
                     im->later = mac;
@@ -583,7 +581,7 @@ size_t esl_image_draw(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, uint6
     if (!esl_store_get(st, mac, &t))
         return 0;
     lock(im);
-    uint32_t ver = layout_ver(ls, t.model);
+    uint32_t ver = layout_ver(ls, &t);
     bool ok = draw(st, ls, &t, ver, &b, cap, 0);
     if (ok) {
         im->drawn++;

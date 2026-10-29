@@ -91,10 +91,7 @@ static bool image_id(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, uint32
     *id = 0;
     if (!t->image_capable || !t->has_content || t->content_err || !t->model || !h->im)
         return true;
-    uint32_t ver = 0;
-    if (!esl_layouts_info(h->ls, t->model, &ver, NULL, NULL))
-        ver = 0;
-    if (t->image_id && t->image_layout_ver == ver) {
+    if (t->image_id && t->image_layout_ver == esl_layouts_image_ver(h->ls, t->model, t->layout_hash)) {
         *id = t->image_id;
         return true;
     }

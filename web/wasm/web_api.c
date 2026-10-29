@@ -16,12 +16,15 @@
  *                                the AP does) into the frame buffer. layout 1 = price,
  *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error,
  *                                2 = drawn, but the AP would refuse the content (web_error)
+ *   web_set_today(days)          today for date fields in layouts ({date}, {week}; esl_clock.h):
+ *                                local days since 1970-01-01, -1 = unknown (drawn empty)
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
  *                                1 = black, 2 = red
  */
 #include <stdio.h>
 #include <string.h>
 #include <emscripten/emscripten.h>
+#include "esl_clock.h"
 #include "esl_content.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
@@ -87,6 +90,8 @@ EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
     bin_ver = 0;    /* compile again against the new limits */
     return *l;
 }
+
+EMSCRIPTEN_KEEPALIVE void web_set_today(int days) { esl_clock_set_today(days); }
 
 /* The compiled file, as the AP stores it. Valid after web_load_layouts() returned 1. */
 EMSCRIPTEN_KEEPALIVE const uint8_t *web_layout_bin(void) { return bin.bin; }
