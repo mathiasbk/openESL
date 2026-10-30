@@ -1,8 +1,9 @@
 # The GitHub wiki (https://github.com/mathiasbk/openESL/wiki) is made from the pages in wiki/.
-# Every pull request checks their links (tools/check_wiki.py). Each push to master publishes
-# wiki/ to the wiki repository, replacing what is there, so the wiki describes the latest
-# release. Edit the pages in wiki/ through a pull request: edits made on the wiki's own pages
-# on GitHub are overwritten by the next publish.
+# Each push to master publishes wiki/ to the wiki repository, replacing what is there, so the
+# wiki describes the latest release. Pull requests check the links (tools/check_wiki.py) in
+# web.yml's page job, so they need no runner of their own here. Edit the pages in wiki/
+# through a pull request: edits made on the wiki's own pages on GitHub are overwritten by the
+# next publish.
 #
 # One-time setup: Settings -> Features -> Wikis on, a first page created in the Wiki tab (so
 # the wiki repository exists), and "Restrict editing to collaborators only".
@@ -11,7 +12,6 @@ name: Wiki
 on:
   push:
     branches: [master]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
       - run: python3 tools/check_wiki.py
 
   publish:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     needs: check
     runs-on: ubuntu-24.04
     permissions:

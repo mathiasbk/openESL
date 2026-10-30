@@ -56,3 +56,6 @@ sim/build/
 
 # tools/check.py
 out/
+
+# ccache of the AP builds in CI (firmware.yml)
+.ccache/
