@@ -18,6 +18,19 @@ This wiki is the user guide: how to get from a box of labels to labels that show
 
 The labels are shop shelf labels, often sold cheaply second-hand. They run for years on a coin cell and keep showing their screen without power.
 
+## What you need to get started
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-front.jpg" alt="A 2.9-inch label" height="110"><br><b>Labels</b><br><sub>A <a href="SoluM-2.9-ST-GM29XX2">SoluM 2.9"</a> or <a href="SoluM-1.54-ST-GM16XX2">1.54"</a>. Check the product name on the back.</sub></td>
+    <td align="center" valign="top" width="25%"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/ap-c6-supermini.jpg" alt="An ESP32-C6 Super Mini board" height="110"><br><b>An access point</b><br><sub>An ESP32-C6 Super Mini (about 5 $) is enough to start. <a href="Access-point-boards">Other boards</a></sub></td>
+    <td align="center" valign="top" width="25%"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/Jig/Hardware/images/photo-tag-angle.jpg" alt="A label in the 3D-printed flashing jig" height="110"><br><b>A flashing jig</b><br><sub>A Wemos D1 mini and pogo pins, to flash each label once. <a href="Flashing-jig">How to build it</a></sub></td>
+    <td align="center" valign="top" width="25%"><b>A computer</b><br><sub>With Chrome or Edge, to flash from the <a href="https://mathiasbk.github.io/openESL/">web page</a>. Nothing to install.</sub></td>
+  </tr>
+</table>
+
+Plus a USB cable for the AP and one for the D1 mini, and CR2450 cells for the labels. The full list: [What you need](What-you-need).
+
 ## How it works, in short
 
 ```mermaid
