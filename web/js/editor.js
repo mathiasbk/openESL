@@ -1219,7 +1219,7 @@ function numberRows(e, row) {
     check(row(""), "As sent", "The decimals as sent, with a decimal comma: 199,5 stays 199,5", true, () => set({ keep: false }), false, true);
   else if (dec)
     check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
-  check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v }), keep);
+  check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);
   check(row(""), "Thousands separator", "A space between every three digits: 1 299", !!e.thousands, (v) => set({ thousands: v }));
   return true;
 }
