@@ -109,7 +109,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Tag OTA tried on the jig (2026-10-15): `openesl.bin` with the bootloader flashed once, then four updates through the AP (two up, two down), each installed and confirmed in 5–9 minutes at poll 60 s, with the price shown again after the restart ([tag-ota.md](tag-ota.md), "Tried on the jig")
 - [ ] Tag OTA rollback tried on the jig: a broken image (one that never polls) copied back after 9 starts
 - [ ] SPI flash probed on a 2.9"
-- [x] Radio security (T16, #260): paired tags sign every message with a 4-byte AES-CMAC MIC and a counter in a trailer, the AP's answers are bound to that counter; per-tag keys from the AP's installation key, pairing from the dashboard or `esl-client pair` (the key goes once in the clear), "Only paired tags" in the AP's settings; the key is in the backup. Authentication only, no encryption ([protokoll.md](protokoll.md), "Security"). Host-tested (tag, AP, simulation); not on hardware yet, and the AES time on the ZBS243 is not measured
+- [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, and five wrong tokens in a row lock it for 60 s (`429`)
 
 ## Phase 0: Preparation
 - Install and pin the SDCC and ESP-IDF versions.

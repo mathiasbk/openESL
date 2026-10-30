@@ -1,6 +1,6 @@
 # Firmware update over radio for the tags (T15)
 
-Status: implemented and on. Tested on the PC (host tests for the tag, the bootloader and the AP, and the end-to-end simulation) and on the jig tag 000002079350341C (1.54"), where four updates in a row installed and were confirmed (see "Tried on the jig"). Rollback is not tried on a tag yet. It was built and turned on before radio security (T16), by decision; a paired tag now takes firmware only from its AP (see "Security").
+Status: implemented and on. Tested on the PC (host tests for the tag, the bootloader and the AP, and the end-to-end simulation) and on the jig tag 000002079350341C (1.54"), where four updates in a row installed and were confirmed (see "Tried on the jig"). Rollback is not tried on a tag yet. Radio security (T16) is not done, so this was built and turned on without it, by decision (see "Security").
 
 The approach is our own; the SPI flash pins and the idea of staging an image in the tag's SPI flash before copying it into the chip come from OpenEPaperLink (atc1441 and others) and Dmitry Grinberg's ZBS243 work, see Credits in the main README.
 
@@ -25,7 +25,7 @@ The image can go to one tag instead of all of its model: `PUT /api/tag-firmware?
 
 | Fact | Value | Source |
 |------|-------|--------|
-| ZBS243 main flash | 64 KB, 1 KB pages; 0xF400 and 0xF800 the settings record, two copies in turn (the probes log at 0xF400, not on a tag in use), 0xFC00 up stock MAC/flags | `tag/tools/build.py`, kildelogg.md |
+| ZBS243 main flash | 64 KB, 1 KB pages; 0xF400 free (the probes log there), 0xF800 settings record, 0xFC00 up stock MAC/flags | `tag/tools/build.py`, kildelogg.md |
 | Firmware (SDCC 4.5.0, with OTA) | application 39,647 bytes (2.9") and 40,072 (1.54"); bootloader 994 bytes; OTA file 39,952 bytes (2.9") and 40,976 (1.54") | `build.py fw`, 2026-10-20 |
 | Interrupts | none used (`IEN0 = 0`), so the bootloader needs no vector forwarding | `hal_zbs243.c` (`hal_init`) |
 | Writing the main flash from the firmware | works: erase + write of a whole 1 KB page | kildelogg.md 2026-10-14/15, `flash_write_page` |
@@ -77,7 +77,7 @@ Tag firmware 0.4.7 and older draws content from CONTENT and LAYOUT and does not 
 
 ## Security
 
-A paired tag (T16, [protokoll.md](protokoll.md), "Security") takes a FW block only with a valid MIC from its AP, bound to the counter of its own FW_REQ, so only its AP can give it firmware. The image itself is not signed: the bootloader checks the CRC, as before, and the AP decides what to offer. A tag that is not paired takes firmware from anyone in radio range who speaks the protocol, as before T16 (Mathias decided on 2026-10-15 to have OTA on before T16). Pair the tags to close that.
+Without signed or authenticated images, anyone in radio range who speaks the protocol can install any code on the tags. The same person can already send any content, which is what T16 (MIC) is for; T16 is on hold. The study recommended keeping OTA off until T16 or a separate check of the image is in place; Mathias decided on 2026-10-15 to build it and have it on now. When T16 comes, the FW block and the image header are the places to add a MAC.
 
 ## Energy
 
@@ -153,4 +153,4 @@ Seen on the way: the AP keeps the tags' run-time state (last poll, OTA support) 
 1. Try a rollback on the jig tag: an image that never polls must be copied back after 9 starts and reported with POLL flag bit4.
 2. Probe a 2.9".
 3. Measure the energy of a whole update.
-4. Signed images (a signature over the whole image, checked by the bootloader); T16 authenticates each block for paired tags.
+4. Signed images, with T16.

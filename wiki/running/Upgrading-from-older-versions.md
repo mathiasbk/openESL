@@ -11,12 +11,23 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.9.0, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.9.2, for example:
 
-1. Backup, then the AP to 0.9.0 over the air. It keeps `openesl.local`. Take another backup afterwards: it now holds the radio key, so keep it secret.
+1. Backup, then the AP to 0.9.2 over the air. It keeps `openesl.local`.
 2. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.9.1 release (not 0.9.0), one of each model first.
-4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Pair labels or change the radio channel only once every label runs 0.9.0.
+3. The labels to the label firmware of the 0.9.2 release (never 0.9.0), one of each model first.
+4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2.
+
+## From 0.9.1 to 0.9.2
+
+0.9.2 takes pairing and the radio key out again: a paired label that loses its AP's key could only be brought back in the flashing jig, which is too big a risk for a site with many labels. Everything else from 0.9.0 and 0.9.1 stays (channel, signal history, battery saving, date fields, whole-kroner prices).
+
+1. **First unpair every paired label** while the AP still runs 0.9.1 and has its key: turn "Only paired labels" off, tick the labels with a lock in the dashboard and click Unpair, and wait until the lock is gone. A label that is still paired when the AP runs 0.9.2 gets no answer. The AP keeps the key, so put it back on 0.9.1 over the air (never with "Erase"), unpair the label and update again; only without the key is the flashing jig left.
+2. Update the AP over the air, then the labels to the 0.9.2 label firmware, one of each model first. A label updated from 0.9.0 or 0.9.1 forgets its stored settings once and gets them again at its next check-in.
+
+Labels that were never paired (all labels on 0.8.2 or older) need nothing special. Backups made by 0.9.0 or 0.9.1 restore as before; the radio key in them is ignored.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-091-to-092).
 
 ## From 0.9.0 to 0.9.1
 
@@ -28,7 +39,7 @@ Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master
 
 Update the AP, then a few labels for some days, then the rest; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too if you want to change how long a label waits without the AP, or change the radio channel (below). Pair labels and change the channel only after that, when every label runs 0.9.0.
 
-- Labels can now be paired with the AP, so only your AP can change what they show or give them firmware ([Security on the radio](Security-on-the-radio)). Nothing changes until you pair labels: unpaired labels work as before. Take a backup after the update: it now holds the radio key, so keep the file secret.
+- Labels could be paired with the AP. 0.9.2 takes pairing out again (above).
 - The dashboard's Signal column shows the last check-ins of each label as bars, with lost check-ins and retries marked ([Dashboard](Dashboard#signal)). Labels need the 0.9.0 label firmware for the lost and retried check-ins; older ones show the signal the AP hears only.
 - The 0.9.0 label firmware saves battery: it measures its battery less often, and after a day without the AP checks only once an hour. Such a label can take up to an hour to show up when the AP comes back. `PUT /api/tags/{mac}/config` takes `long_after_min` and `long_poll_s` ([Access point settings](Access-point-settings)). It also slept while the screen changed, which 0.9.1 takes back (above).
 - A C6 access point holds about 510 labels instead of 700, since each label's signal history and radio security take memory.

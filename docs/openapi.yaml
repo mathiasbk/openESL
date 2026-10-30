@@ -103,14 +103,6 @@ tags:
       `webhook` set in `PUT /api/config`, the AP checks every 30 s and `POST`s the same
       report (plus `changed`) to that URL whenever any tag's problems change, so nothing
       needs to poll it.
-  - name: Security
-    description: |
-      Radio security: a paired tag signs its messages and takes only signed answers, so
-      nobody else in radio range can change what it shows or install firmware on it
-      ([docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md), "Security").
-      Pair a tag with `PUT /api/tags/{mac}/pair`, then turn on `radio_secure` in
-      `PUT /api/config` so the AP answers only paired tags. Keep the key (`GET /api/radio-key`)
-      in the backup.
   - name: Firmware
     description: |
       New firmware for the AP itself over the API (`esl-client ota esl_ap.bin`). The image
@@ -238,50 +230,6 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "409": { $ref: "#/components/responses/NoTime" }
         "507": { $ref: "#/components/responses/TableFull" }
-
-  /api/tags/{mac}/pair:
-    parameters:
-      - $ref: "#/components/parameters/mac"
-    put:
-      tags: [Security]
-      operationId: pairTag
-      summary: Give a tag this AP's key
-      description: |
-        At its next poll the tag gets its key (derived from the AP's key and its MAC) and from
-        then on signs its messages and takes only signed answers. The key goes over the air
-        in plain text at that moment, so pair where nobody is listening. `pairing` in
-        `GET /api/tags` is `pair` until the tag's first signed message, then `secure` is
-        true. Only for a tag the AP has heard.
-      responses:
-        "200":
-          description: The tag gets its key at its next poll
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/PairReply" }
-        "400": { $ref: "#/components/responses/BadMac" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "429": { $ref: "#/components/responses/Locked" }
-        "404": { $ref: "#/components/responses/UnknownTag" }
-        "409": { $ref: "#/components/responses/NoPairing" }
-    delete:
-      tags: [Security]
-      operationId: unpairTag
-      summary: Make a paired tag forget its key
-      description: |
-        At its next signed poll the tag gets a signed order to forget its key, and talks
-        plainly again (for moving it to another AP). With `radio_secure` this AP then no
-        longer answers it.
-      responses:
-        "200":
-          description: The tag forgets its key at its next poll
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/PairReply" }
-        "400": { $ref: "#/components/responses/BadMac" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "429": { $ref: "#/components/responses/Locked" }
-        "404": { $ref: "#/components/responses/UnknownTag" }
-        "409": { $ref: "#/components/responses/NoPairing" }
 
   /api/tags/{mac}:
     parameters:
@@ -669,51 +617,6 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "507": { $ref: "#/components/responses/TableFull" }
 
-  /api/radio-key:
-    get:
-      tags: [Security]
-      operationId: getRadioKey
-      summary: The AP's radio key, for the backup
-      description: |
-        The key every paired tag's key comes from. Anyone with it can sign messages to the
-        tags, so keep the backup safe. The AP makes it the first time it starts.
-      responses:
-        "200":
-          description: The key
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/RadioKey" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "429": { $ref: "#/components/responses/Locked" }
-    put:
-      tags: [Security]
-      operationId: setRadioKey
-      summary: Put back the radio key from a backup
-      description: |
-        For a new AP that takes over from an old one: with the old AP's key the paired tags
-        keep working. Tags paired with the key it replaces get no answers until they are
-        paired again. Stored in NVS (`cfg/radio_key`).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/RadioKey" }
-            examples:
-              restore:
-                summary: The key from the old AP's backup
-                value: { key: "00112233445566778899AABBCCDDEEFF" }
-      responses:
-        "200":
-          description: The new key
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/RadioKey" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "429": { $ref: "#/components/responses/Locked" }
-        "413": { $ref: "#/components/responses/TooLarge" }
-        "422": { $ref: "#/components/responses/Invalid" }
-
   /api/config:
     get:
       tags: [Settings]
@@ -740,11 +643,10 @@ paths:
         at its next sync). `channel` moves the AP and its tags to another 802.15.4 channel: the
         AP tells every tag in its next reply and moves once the tags heard lately have
         confirmed it (or at once with `channel_now`, for a move already announced); `channel_next` in the reply shows a move
-        that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone).
-        `radio_secure` makes the AP answer only paired tags. A key
+        that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone). A key
         left out keeps its value; at least one must be there. All are stored in NVS
         (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
-        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/radio_req`). An AP that restarts during a
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`). An AP that restarts during a
         move comes up on the old channel and waits for the tags again.
       requestBody:
         required: true
@@ -776,9 +678,6 @@ paths:
               clock:
                 summary: Norwegian time, from a Norwegian NTP server
                 value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3" }
-              secure:
-                summary: Answer only paired tags
-                value: { radio_secure: true }
       responses:
         "200":
           description: The new default
@@ -1393,12 +1292,6 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: "too many wrong tokens: locked for 42 s" }
-    NoPairing:
-      description: The AP has no radio key yet, or its radio is a network radio, which answers the tags itself and has no keys
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-          example: { error: "pairing needs the radio on the AP itself, not a network radio" }
     UnknownTag:
       description: The AP does not know this tag
       content:
@@ -1754,12 +1647,6 @@ components:
         image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so; a tag without SPI flash cannot): `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
         image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
         shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and 0 otherwise" }
-        secure: { type: boolean, description: "Its last message was authenticated: it has this AP's key (radio security, `PUT /api/tags/{mac}/pair`). Left out by an AP without radio security" }
-        pairing:
-          type: [string, "null"]
-          enum: [pair, forget, null]
-          description: "What the tag gets at its next poll: its key (`pair`), or the order to forget it (`forget`); null when nothing waits. Kept in RAM only"
-        sec_rejected: { type: integer, minimum: 0, maximum: 65535, description: "Messages from this MAC turned away since the AP started: a wrong MIC (another key, or someone else) or a counter already used (a replay)" }
         fw_update:
           description: "The AP's firmware for its model, which the tag takes and is for it: how many bytes it has fetched (the AP has sent up to there). null when it runs it, cannot take it, rejected it, or it is not for it. Kept in RAM only, so 0 again after a restart until its next block"
           oneOf:
@@ -1771,21 +1658,6 @@ components:
                 version: { type: string }
                 received: { type: integer, minimum: 0 }
                 size: { type: integer, minimum: 1024 }
-
-    PairReply:
-      type: object
-      additionalProperties: false
-      required: [mac, pairing]
-      properties:
-        mac: { type: string, pattern: "^[0-9A-F]{16}$" }
-        pairing: { type: string, enum: [pair, forget] }
-
-    RadioKey:
-      type: object
-      additionalProperties: false
-      required: [key]
-      properties:
-        key: { type: string, pattern: "^[0-9A-Fa-f]{32}$", description: "16 bytes as hex, not all zero" }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]
@@ -1954,12 +1826,6 @@ components:
             The NTP server the AP sets its clock from once it is on WiFi: a host name or IPv4
             address. `null` or `""` = back to the one set in menuconfig (`ESL_NTP_SERVER`).
             Used at once, no restart.
-        radio_secure:
-          type: [boolean, "null"]
-          description: |
-            Radio security: `true` = the AP answers only tags paired with its key (and a tag it
-            is pairing), `false` or `null` = tags without a key get answers too (paired tags are
-            authenticated either way). `422` on an AP without radio security.
         tz:
           type: [string, "null"]
           maxLength: 63
@@ -1992,7 +1858,6 @@ components:
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
-        radio_secure: { type: boolean, description: "Only paired tags get answers. Left out by an AP without radio security" }
 
     Health:
       type: object

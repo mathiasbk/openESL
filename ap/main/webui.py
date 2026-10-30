@@ -32,7 +32,7 @@ MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "radiokey.js", "apreceive.js",
+               "fwupload.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
                "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js"],
         "css": [],
         # the Weather template (templates/), which Send -> The weather adds to a layout file

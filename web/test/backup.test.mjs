@@ -7,13 +7,11 @@ import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName, BACK
 const PIC = Buffer.from(Uint8Array.from({ length: 16 }, (_, i) => i)).toString("base64");
 
 class FakeAp {
-  constructor({ clock = true, webhook = true, radioKey = null } = {}) {
+  constructor({ clock = true, webhook = true } = {}) {
     this.clock = clock;
-    this.radioKey = radioKey; // an AP with radio security has a key and radio_secure
     this.hasWebhook = webhook;
     this.config = { poll_s: 0, builtin_poll_s: 0, webhook: null };
     if (clock) Object.assign(this.config, { ntp: "pool.ntp.org", builtin_ntp: "pool.ntp.org", tz: null });
-    if (radioKey) this.config.radio_secure = false;
     this.layouts = {};   // model -> file
     this.tags = new Map(); // mac -> { mac, model, content, config }
     this.scheduled = [];
@@ -51,10 +49,6 @@ class FakeAp {
       }
       for (const [k, v] of Object.entries(body)) this.config[k] = v === null && "builtin_" + k in this.config ? this.config["builtin_" + k] : v;
       return { ...this.config };
-    }
-    if (path === "/api/radio-key" && this.radioKey) {
-      if (method === "PUT") this.radioKey = body.key.toUpperCase();
-      return { key: this.radioKey };
     }
     if (method === "GET" && path === "/api/wifi") return { hostname: "openesl", ssid: "home" };
     if (method === "PUT" && path === "/api/time") return {};
@@ -214,26 +208,4 @@ test("files that are not a backup are turned down", () => {
   assert.throws(() => parseBackup(JSON.stringify({ ...ok, tags: [{ mac: "0000000000000001", layout: "text" }] })), /no fields/);
   assert.throws(() => parseBackup(JSON.stringify({ ...ok, tags: [{ mac: "0000000000000001", image: "!!" }] })), /not base64/);
   assert.deepEqual(parseBackup(JSON.stringify(ok)).tags, []);
-});
-
-test("the radio key and \"only paired tags\" go along, the key first", async () => {
-  const old = filledAp();
-  old.radioKey = "00112233445566778899AABBCCDDEEFF";
-  old.config.radio_secure = true;
-  const b = parseBackup(JSON.stringify(await makeBackup(old)));
-  assert.equal(b.radio_key, "00112233445566778899AABBCCDDEEFF");
-  assert.equal(b.config.radio_secure, true);
-  const ap = new FakeAp({ radioKey: "FFEEDDCCBBAA99887766554433221100" });
-  const r = await restoreBackup(ap, b);
-  assert.deepEqual(r.failed, []);
-  assert.equal(ap.radioKey, "00112233445566778899AABBCCDDEEFF");
-  assert.equal(ap.config.radio_secure, true);
-  assert.ok(ap.calls.indexOf("PUT /api/radio-key") < ap.calls.indexOf("PUT /api/config"), "the key before radio_secure");
-  // an AP without radio security, and one already with the key: nothing to put
-  const plain = new FakeAp();
-  assert.ok(!("radio_key" in await makeBackup(plain)));
-  const same = new FakeAp({ radioKey: b.radio_key });
-  await restoreBackup(same, b, { parts: { layouts: false, tags: false, scheduled: false } });
-  assert.ok(!same.calls.includes("PUT /api/radio-key"));
-  assert.throws(() => parseBackup(JSON.stringify({ ...b, radio_key: "12" })), /radio key/);
 });

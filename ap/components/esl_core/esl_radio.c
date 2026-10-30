@@ -1,11 +1,9 @@
 #include "esl_radio.h"
 #include "esl_crc32.h"
 #include "esl_render.h"
-#include "cmac.h"
 #include <string.h>
 
 static esl_tagfw_t *tagfw;
-static esl_radio_sec_t *sec;
 static esl_image_t *images;
 static bool draw_later;
 
@@ -17,80 +15,6 @@ void esl_radio_set_tagfw(esl_tagfw_t *fw)
 void esl_radio_set_image(esl_image_t *im)
 {
     images = im;
-}
-
-void esl_radio_set_sec(esl_radio_sec_t *s)
-{
-    sec = s;
-}
-
-esl_radio_sec_t *esl_radio_sec(void)
-{
-    return sec;
-}
-
-bool esl_radio_sec_has_key(const esl_radio_sec_t *s)
-{
-    uint8_t any = 0;
-    if (!s)
-        return false;
-    for (int i = 0; i < ESL_SEC_KEY_LEN; i++)
-        any |= s->key[i];
-    return any != 0;
-}
-
-void esl_radio_tag_key(const esl_radio_sec_t *s, uint64_t mac, uint8_t key[ESL_SEC_KEY_LEN])
-{
-    uint8_t m[9];
-    cmac_t c;
-    m[0] = ESL_SEC_KDF_LABEL;
-    for (int i = 0; i < 8; i++)
-        m[1 + i] = (uint8_t)(mac >> (8 * i));
-    cmac_start(&c, s->key);
-    cmac_add(&c, m, sizeof(m));
-    cmac_finish(&c, key);
-}
-
-/* A message from the tag with ESL_PROTO_VER_SEC (p, len bytes): true when its MIC is right
-   for the tag's key (into key) and its counter (into ctr) new; the message without the
-   trailer, as ESL_PROTO_VER, is then in msg (*mlen bytes). */
-static bool sec_check(esl_store_t *st, uint64_t mac, const uint8_t *p, size_t len, uint8_t *key, uint32_t *ctr,
-                      uint8_t *msg, size_t *mlen)
-{
-    uint8_t mic[ESL_SEC_MIC_LEN];
-    if (!esl_radio_sec_has_key(sec) || len < 2 + ESL_SEC_TRAILER_TAG || len > ESL_MAX_PAYLOAD)
-        return false;
-    size_t n = len - ESL_SEC_TRAILER_TAG;
-    *ctr = (uint32_t)p[n] | (uint32_t)p[n + 1] << 8 | (uint32_t)p[n + 2] << 16 | (uint32_t)p[n + 3] << 24;
-    esl_radio_tag_key(sec, mac, key);
-    sec_mic(key, ESL_SEC_DIR_TAG, *ctr, p, (uint8_t)n, mic);
-    uint8_t diff = 0;
-    for (int i = 0; i < ESL_SEC_MIC_LEN; i++)
-        diff |= (uint8_t)(mic[i] ^ p[n + ESL_SEC_CTR_LEN + i]);
-    if (diff) {
-        esl_store_sec_bad(st, mac);
-        return false;
-    }
-    if (!esl_store_sec_ok(st, mac, *ctr))
-        return false;
-    memcpy(msg, p, n);
-    msg[ESL_OFF_VER] = ESL_PROTO_VER;
-    *mlen = n;
-    return true;
-}
-
-/* PAIR with the tag's key, or zeros (forget), into reply */
-static size_t pair_build(uint64_t mac, bool forget, uint16_t next_poll_s, uint8_t *reply)
-{
-    reply[ESL_OFF_TYPE] = ESL_MSG_PAIR;
-    reply[ESL_OFF_VER] = ESL_PROTO_VER;
-    reply[ESL_OFF_NEXT_POLL] = (uint8_t)next_poll_s;
-    reply[ESL_OFF_NEXT_POLL + 1] = (uint8_t)(next_poll_s >> 8);
-    if (forget)
-        memset(reply + ESL_PAIR_OFF_KEY, 0, ESL_SEC_KEY_LEN);
-    else
-        esl_radio_tag_key(sec, mac, reply + ESL_PAIR_OFF_KEY);
-    return ESL_PAIR_LEN;
 }
 
 void esl_radio_set_draw_later(bool on)
@@ -157,32 +81,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         return 0;
     memset(&poll, 0, sizeof(poll));
 
-    /* Security: a message with a trailer is checked and read without it; with require, a
-       plain one is answered only to pair the tag */
-    uint8_t key[ESL_SEC_KEY_LEN], msg[ESL_MAX_PAYLOAD];
-    uint32_t ctr = 0;
-    bool secure = f.payload_len > ESL_OFF_VER && f.payload[ESL_OFF_VER] == ESL_PROTO_VER_SEC;
-    if (secure) {
-        size_t mlen;
-        if (!sec_check(st, f.src_mac, f.payload, f.payload_len, key, &ctr, msg, &mlen))
-            return 0;
-        f.payload = msg;
-        f.payload_len = mlen;
-    } else if (sec && sec->require &&
-               (f.payload_len < ESL_IDLE_LEN || f.payload[ESL_OFF_TYPE] != ESL_MSG_POLL ||
-                esl_store_pair_op(st, f.src_mac, false) != ESL_PAIR_OP_PAIR)) {
-        /* a tag that was told to forget its key did; any other plain frame changes nothing,
-           so nobody can make a paired tag look unpaired */
-        if (esl_store_pair_op(st, f.src_mac, false) == ESL_PAIR_OP_FORGET)
-            esl_store_sec_heard(st, f.src_mac, false);
-        return 0;
-    }
-
-    /* signed blocks are shorter, so the frame stays within ESL_SEC_MAX_REPLY */
-    const uint8_t cut = secure ? ESL_SEC_CHUNK_CUT : 0;
     if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
-        if (freq.max > ESL_FW_CHUNK_MAX - cut)
-            freq.max = ESL_FW_CHUNK_MAX - cut;
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_fw_taken(st, f.src_mac, freq.ver);
         n = 0;
@@ -194,8 +93,6 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             note_fw_sent(st, f.src_mac, reply, n, false);
         esl_blocks_poll_soon(reply, n); /* back soon for the rest when it stops part way */
     } else if (esl_img_req_parse(f.payload, f.payload_len, &ireq)) {
-        if (ireq.max > ESL_IMG_CHUNK_MAX - cut)
-            ireq.max = ESL_IMG_CHUNK_MAX - cut;
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_image_taken(st, f.src_mac, ireq.id);
         if (images && !replay && draw_later)
@@ -211,14 +108,6 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         esl_layout_env_t env;
         esl_layouts_env(ls, poll.model, &env);
         n = esl_store_on_poll(st, f.src_mac, &poll, rssi, now_ms, &env, reply);
-        /* Pairing (the status is noted all the same): a plain PAIR with its key to a tag
-           without one, an authenticated one of zeros to make it forget. It comes back soon,
-           to show that it took it; images and firmware wait for that. */
-        uint8_t op = replay || !esl_radio_sec_has_key(sec) ? ESL_PAIR_OP_NONE : esl_store_pair_op(st, f.src_mac, false);
-        if ((op == ESL_PAIR_OP_PAIR && !secure) || (op == ESL_PAIR_OP_FORGET && secure)) {
-            esl_store_pair_op(st, f.src_mac, true);
-            n = pair_build(f.src_mac, op == ESL_PAIR_OP_FORGET, ESL_BLOCKS_POLL_S, reply);
-        }
         /* Content not checked against this model's file yet (from the schedule, or set
            before the model was known) is, before its image is drawn */
         if (!draw_later || replay)
@@ -234,7 +123,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             uint32_t id = draw_later ? esl_image_prepare_later(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy)
                                      : esl_image_prepare(images, st, ls, f.src_mac, poll.content_id, now_ms, &busy);
             if (esl_store_image_offer(st, f.src_mac, &poll, id))
-                n = esl_image_block(images, st, ls, f.src_mac, id, 0, ESL_IMG_CHUNK_MAX - cut, next, now_ms, reply);
+                n = esl_image_block(images, st, ls, f.src_mac, id, 0, ESL_IMG_CHUNK_MAX, next, now_ms, reply);
             else if (busy)
                 n = esl_idle_build(reply, ESL_IMAGE_BUSY_S); /* every buffer is taken: back in a moment */
         }
@@ -244,7 +133,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && !offered) {
             bool has = esl_tagfw_get(tagfw, poll.model, &img) && esl_tagfw_for(tagfw, poll.model, f.src_mac);
             if (esl_store_fw_offer(st, f.src_mac, &poll, has ? img.ver : 0)) {
-                size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX - cut,
+                size_t m = esl_tagfw_block(tagfw, poll.model, 0, 0, 0, ESL_FW_CHUNK_MAX,
                                            esl_store_tag_poll_s(st, f.src_mac), reply);
                 if (m) {
                     n = m;
@@ -254,15 +143,6 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         }
     } else {
         return 0;
-    }
-
-    esl_store_sec_heard(st, f.src_mac, secure);
-    if (secure) {
-        if (n + ESL_SEC_TRAILER_AP > ESL_SEC_MAX_REPLY)
-            return 0;
-        reply[ESL_OFF_VER] = ESL_PROTO_VER_SEC;
-        sec_mic(key, ESL_SEC_DIR_AP, ctr, reply, (uint8_t)n, reply + n);
-        n += ESL_SEC_TRAILER_AP;
     }
 
     if (ev) {

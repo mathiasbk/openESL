@@ -11,7 +11,6 @@
 #include "../hal.h"
 #include "../hal_epd.h"
 #include "zbs243.h"
-#include "../../store_ab.h"
 
 #define TICKS_PER_MS    1333u                  /* 16 MHz / 12 */
 #define UART_BRG        138u                   /* 16 MHz / 139 = 115108 baud (115200) */
@@ -160,17 +159,15 @@ static void infopage_read(uint16_t ofs, uint8_t __xdata *dst, uint8_t len)
 
 /*
  * Persistent stores, kept out of the firmware by CODE_SIZE in build.py:
- *   pages 0x3E (0xF800-0xFBFF, A) and 0x3D (0xF400-0xF7FF, B): the record (hal_store_*),
- *     in one and then the other, so the last good copy stays while a new one is written
- *     (store_ab.c). Firmware before radio security kept one copy in page 0x3E. (Page 0x3D
- *     was free; the probes in this folder wrote their logs there, which the checks turn away.)
+ *   page 0x3E (0xF800-0xFBFF): the record (hal_store_*): 0xA5, length, data, sum of the data bytes
+ *   page 0x3D (0xF400-0xF7FF): not used by the firmware (the layout file was kept there;
+ *                              the probes in this folder write their logs there)
  * Main flash reads directly as code memory.
  */
-#define STORE_PAGE_A    0x3E
-#define STORE_PAGE_B    0x3D
-static __code const uint8_t __at (STORE_PAGE_A * 0x400u) store_a[STORE_AB_SIZE];
-static __code const uint8_t __at (STORE_PAGE_B * 0x400u) store_b[STORE_AB_SIZE];
-static __xdata uint8_t store_buf[STORE_AB_SIZE];
+#define STORE_PAGE      0x3E
+#define STORE_MAGIC     0xA5
+static __code const uint8_t __at (STORE_PAGE * 0x400u) store_flash[4 + HAL_STORE_MAX];
+static __xdata uint8_t store_buf[3 + HAL_STORE_MAX];
 
 /* Erases flash page `page` and writes len (1..1024) bytes from XRAM at src to its start.
    False if the controller did not finish. */
@@ -201,19 +198,41 @@ static bool flash_write_page(uint8_t page, uint16_t src, uint16_t len)
     return t != 0;
 }
 
-bool store_ab_page(bool to_a, const uint8_t *buf, uint8_t len)
-{
-    return flash_write_page(to_a ? STORE_PAGE_A : STORE_PAGE_B, (uint16_t)buf, len);
-}
-
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {
-    return store_ab_write(store_a, store_b, store_buf, data, len);
+    uint8_t i, sum = 0;
+
+    if (len > HAL_STORE_MAX)
+        return false;
+    store_buf[0] = STORE_MAGIC;
+    store_buf[1] = len;
+    for (i = 0; i < len; i++) {
+        store_buf[2 + i] = data[i];
+        sum += data[i];
+    }
+    store_buf[2 + len] = sum;
+    return flash_write_page(STORE_PAGE, (uint16_t)store_buf, (uint16_t)len + 3) &&
+           hal_store_read(store_buf, HAL_STORE_MAX) == len;
 }
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
 {
-    return store_ab_read(store_a, store_b, data, maxlen);
+    uint8_t i, len, sum = 0;
+
+    if (store_flash[0] != STORE_MAGIC)
+        return 0;
+    len = store_flash[1];
+    if (len > HAL_STORE_MAX)
+        return 0;
+    for (i = 0; i < len; i++)
+        sum += store_flash[2 + i];
+    if (sum != store_flash[2 + len])
+        return 0;
+    if (len > maxlen)
+        return 0;                       /* also maxlen 0: just checks the record */
+    for (i = 0; i < len; i++)
+        data[i] = store_flash[2 + i];
+    return len;
 }
 
 void hal_mac_read(uint8_t *mac8)

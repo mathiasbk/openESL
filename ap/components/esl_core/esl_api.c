@@ -27,7 +27,6 @@
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
 #define PATH_SOURCES "/api/sources"
-#define PATH_RADIO_KEY "/api/radio-key"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -649,12 +648,6 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_printf(out, ",\"shown_image_id\":%" PRIu32, t->shown_content_id);
     else
         esl_sb_puts(out, ",\"shown_image_id\":null");
-    /* radio security: it has our key, what pairing waits for it, and messages turned away */
-    if (api->sec) {
-        static const char *const ops[] = {"null", "\"pair\"", "\"forget\""};
-        esl_sb_printf(out, ",\"secure\":%s,\"pairing\":%s,\"sec_rejected\":%u", t->seen && esl_tag_secure(t) ? "true" : "false",
-                      ops[esl_tag_pair_op(t)], (unsigned)t->sec_bad);
-    }
     /* the firmware it is fetching from the AP: how far it is (null: none for it) */
     esl_tagfw_img_t img;
     uint16_t got;
@@ -1120,7 +1113,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
     int status = parse_json(body, len, &tok, out);
     if (status == 0) {
         json_t j = {body, tok};
-        esl_tag_cfg_t cfg = {0}; /* channel is AP-wide: never per tag */
+        esl_tag_cfg_t cfg;
         esl_cfg_result_t r;
         const char *msg;
         status = parse_cfg(&j, 0, &cfg, &msg);
@@ -1278,17 +1271,11 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             esl_channel_state_t cs;
             esl_store_channel_state(api->store, now_ms, &cs);
             uint16_t poll_s, channel = 0;
-            int rs = esl_json_obj_get(body, tok, 0, "radio_secure");
             int8_t dbm = 0;
             char url[ESL_WEBHOOK_URL_MAX + 1], ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
             int ul = 0;
-            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && rs < 0)
-                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz, channel or radio_secure is required (null resets it)");
-            else if (rs >= 0 && !api->sec)
-                status = api_error(out, 422, "this AP has no radio security");
-            else if (rs >= 0 && tok[rs].type != ESL_JSON_TRUE && tok[rs].type != ESL_JSON_FALSE &&
-                     tok[rs].type != ESL_JSON_NULL)
-                status = api_error(out, 422, "radio_secure must be true, false or null");
+            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0)
+                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz or channel is required (null resets it)");
             else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
                      (parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
                       (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
@@ -1350,11 +1337,6 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                 if (c >= 0)
                     esl_store_move_channel(api->store, (uint8_t)channel, cn >= 0 && tok[cn].type == ESL_JSON_TRUE,
                                            cf >= 0 && tok[cf].type == ESL_JSON_TRUE, now_ms);
-                if (rs >= 0) {
-                    api->sec->require = tok[rs].type == ESL_JSON_TRUE;
-                    if (api->sec->save)
-                        api->sec->save(api->sec->ctx);
-                }
             }
         }
         free(tok);
@@ -1371,8 +1353,6 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         esl_sb_puts(out, "null");
     if (api->tx_power)
         esl_sb_printf(out, ",\"tx_power\":%d,\"builtin_tx_power\":%d", api->tx_power->dbm, api->tx_power->builtin);
-    if (api->sec)
-        esl_sb_printf(out, ",\"radio_secure\":%s", api->sec->require ? "true" : "false");
     /* the channel, and a move the tags are being told about: how many of the tags heard
        lately still have to confirm it, and the most it waits for them */
     if (api->channel_settable) {
@@ -2252,77 +2232,6 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
     return 200;
 }
 
-/* GET/PUT /api/radio-key: the installation key of radio security, as 32 hex digits, for
- * the backup. PUT {"key": "..."} replaces it (a restore): tags paired with another key no
- * longer get answers until they are paired again. All zeros is refused. */
-static int radio_key(const esl_api_t *api, const char *method, const char *body, size_t len, esl_sb_t *out)
-{
-    static const char hex[] = "0123456789ABCDEF";
-    if (strcmp(method, "PUT") == 0) {
-        esl_jtok_t *tok = NULL;
-        int status = parse_json(body, len, &tok, out);
-        if (status == 0) {
-            int k = esl_json_obj_get(body, tok, 0, "key");
-            char v[2 * ESL_SEC_KEY_LEN + 2];
-            uint8_t key[ESL_SEC_KEY_LEN], any = 0;
-            int kl = k >= 0 && tok[k].type == ESL_JSON_STRING ? esl_json_str_decode(body, &tok[k], v, sizeof(v) - 1) : -1;
-            bool ok = kl == 2 * ESL_SEC_KEY_LEN;
-            for (int i = 0; ok && i < 2 * ESL_SEC_KEY_LEN; i++) {
-                char c = v[i];
-                int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-                if (d < 0)
-                    ok = false;
-                else if (i & 1)
-                    key[i / 2] |= (uint8_t)d;
-                else
-                    key[i / 2] = (uint8_t)(d << 4);
-            }
-            for (int i = 0; ok && i < ESL_SEC_KEY_LEN; i++)
-                any |= key[i];
-            if (!ok || !any)
-                status = api_error(out, 422, "key must be 32 hex digits, not all zero");
-            else {
-                memcpy(api->sec->key, key, sizeof(key));
-                if (api->sec->save)
-                    api->sec->save(api->sec->ctx);
-            }
-        }
-        free(tok);
-        if (status)
-            return status;
-    } else if (strcmp(method, "GET") != 0) {
-        return api_error(out, 405, "method not allowed");
-    }
-    char k[2 * ESL_SEC_KEY_LEN + 1];
-    for (int i = 0; i < ESL_SEC_KEY_LEN; i++) {
-        k[2 * i] = hex[api->sec->key[i] >> 4];
-        k[2 * i + 1] = hex[api->sec->key[i] & 15];
-    }
-    k[2 * ESL_SEC_KEY_LEN] = '\0';
-    esl_sb_printf(out, "{\"key\":\"%s\"}", k);
-    return 200;
-}
-
-/* PUT /api/tags/{mac}/pair: the tag gets its key at its next POLL; DELETE: it forgets it
- * (it must have it, to take that). 409 with a network radio (esl_rcache answers the tags
- * there and has no keys). */
-static int tag_pair(const esl_api_t *api, const char *method, uint64_t mac, esl_sb_t *out)
-{
-    char m[17];
-    bool put = strcmp(method, "PUT") == 0;
-    if (!put && strcmp(method, "DELETE") != 0)
-        return api_error(out, 405, "method not allowed");
-    if (api->link)
-        return api_error(out, 409, "pairing needs the radio on the AP itself, not a network radio");
-    if (!esl_radio_sec_has_key(api->sec))
-        return api_error(out, 409, "the AP has no radio key");
-    if (!esl_store_set_pair(api->store, mac, put ? ESL_PAIR_OP_PAIR : ESL_PAIR_OP_FORGET))
-        return api_error(out, 404, "unknown tag");
-    esl_mac_format(mac, m);
-    esl_sb_printf(out, "{\"mac\":\"%s\",\"pairing\":\"%s\"}", m, put ? "pair" : "forget");
-    return 200;
-}
-
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out)
 {
@@ -2372,11 +2281,6 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return api_error(out, 405, "method not allowed");
     }
 
-    const size_t kbase = sizeof(PATH_RADIO_KEY) - 1;
-    if (api->sec && (plen == kbase || (plen == kbase + 1 && uri[kbase] == '/')) &&
-        memcmp(uri, PATH_RADIO_KEY, kbase) == 0)
-        return radio_key(api, method, body, body_len, out);
-
     const size_t hbase = sizeof(PATH_HEALTH) - 1;
     if ((plen == hbase || (plen == hbase + 1 && uri[hbase] == '/')) && memcmp(uri, PATH_HEALTH, hbase) == 0) {
         int status = get_health(api, method, uri, now_ms, out);
@@ -2422,14 +2326,14 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
-    bool collection = false, item = false, item_cfg = false, item_image = false, item_pair = false;
+    bool collection = false, item = false, item_cfg = false, item_image = false;
     uint64_t mac = 0;
     if (plen >= base && memcmp(uri, PATH_TAGS, base) == 0) {
         if (plen == base || (plen == base + 1 && uri[base] == '/'))
             collection = true;
         else if (uri[base] == '/') {
-            static const char cfg_suffix[] = "/config", img_suffix[] = "/image", pair_suffix[] = "/pair";
-            const size_t sl = sizeof(cfg_suffix) - 1, il = sizeof(img_suffix) - 1, pl = sizeof(pair_suffix) - 1;
+            static const char cfg_suffix[] = "/config", img_suffix[] = "/image";
+            const size_t sl = sizeof(cfg_suffix) - 1, il = sizeof(img_suffix) - 1;
             size_t ml = plen - base - 1;
             if (ml == 17 && uri[base + 17] == '/')
                 ml = 16;
@@ -2441,21 +2345,15 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
                        (ml == 16 + il || uri[base + 17 + il] == '/')) {
                 ml = 16;
                 item_image = true;
-            } else if (api->sec && (ml == 16 + pl || ml == 17 + pl) && memcmp(&uri[base + 17], pair_suffix, pl) == 0 &&
-                       (ml == 16 + pl || uri[base + 17 + pl] == '/')) {
-                ml = 16;
-                item_pair = true;
             }
             if (!esl_mac_parse(&uri[base + 1], ml, &mac))
                 return api_error(out, 400, "mac must be 16 hex digits");
-            item = !item_cfg && !item_image && !item_pair;
+            item = !item_cfg && !item_image;
         }
     }
 
     int status;
-    if (item_pair)
-        status = tag_pair(api, method, mac, out);
-    else if (item_cfg)
+    if (item_cfg)
         status = tag_config(api, method, mac, body, body_len, out);
     else if (item_image && strcmp(method, "GET") == 0)
         status = tag_image(api, mac, out);

@@ -125,6 +125,16 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
+### Upgrading from 0.9.1 to 0.9.2
+
+Order: unpair every paired tag first, then the AP, then the tags. 0.9.2 takes radio security out again (#260: #273, #280, #281): a paired tag never drops its key and has no way back without the AP's radio key, so an AP lost without a backup of its key meant flashing every paired tag again in the jig. The work is kept on the branch `paring-og-radionokkel` and in #289 until that has a safe answer. Everything else from 0.9.0 and 0.9.1 stays.
+
+**Unpair before updating.** An AP on 0.9.2 neither signs nor checks signatures, so a tag that is still paired gets no answers from it and must be flashed again in the jig. While the AP still runs 0.9.1: turn "Only paired tags" off (Settings, Radio), tick the tags with the lock and click Unpair (or `esl-client unpair MAC`), and wait until `secure` is `false` for every tag in `GET /api/tags`. Tags on 0.8.2 or older were never paired and need nothing.
+
+The tag image of 0.9.2 keeps its settings in one flash page again, as 0.8.2 did (record format 4). A tag updated from 0.9.0 or 0.9.1 does not read their record (format 5, two pages), so it uses the built-in settings until its next CONFIG, and starts on the built-in channel 25; on another channel it finds the AP again by scanning (#266). A tag slot on the AP is back to 112 bytes, so a C6 next to WiFi holds about 550 tags again. The AP ignores `radio_key` in backups from 0.9.0 and 0.9.1, and `cfg/radio_key` stays unused in its NVS. `/api/radio-key`, `/api/tags/{mac}/pair` and `radio_secure` in `/api/config` are gone.
+
+Going back to 0.9.1 is possible but brings pairing back: do not pair tags with it. It is also the way out for a tag that was missed and is still paired: the AP on 0.9.2 leaves its key in NVS, so put the AP back on 0.9.1 over the air (not with "Erase"), unpair the tag, and update the AP again. An AP flashed with "Erase" gets the key back from a 0.9.0 or 0.9.1 backup restored while it runs 0.9.1; only with the key gone too is the jig left.
+
 ### Upgrading from 0.9.0 to 0.9.1
 
 Order: only the tags. **Every tag on 0.9.0 firmware should get the tag image of 0.9.1**, one of each model first as usual ([section 3](#3-rollout-to-the-tags)). Nothing the AP or either C6 radio does has changed, so neither needs an update: their images say 0.9.1 only because the AP builds some of the tag's source files too (`tools/fw_version.py`), and the file that changed (`tag/src/epd.c`) is not one of them. Updating the AP anyway does no harm. Nothing is one-way: a tag on 0.9.1 talks to the AP as a 0.9.0 tag does, keeps its settings, radio key and channel, and takes older firmware as before.
