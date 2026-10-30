@@ -67,13 +67,13 @@ The usual order, unless a section says otherwise:
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.9.0, for example, with many tags:
+From 0.5.x to 0.9.2, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.9.0 esl-client. Take another one after the update: from 0.9.0 the backup holds the radio key, so keep it secret.
-2. The AP: `openesl-ap-<board>-v0.9.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
+1. `esl-client backup ap.json` with the 0.9.2 esl-client.
+2. The AP: `openesl-ap-<board>-v0.9.2-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
 3. ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168). The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.9.1 release, which is version 0.9.1 (the first new tag firmware since 0.6.0; not the 0.9.0 tag image, which draws faded screens, see 0.9.1 below). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
-5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Pair the tags, and change the radio channel, only once every tag runs 0.9.0 (below).
+4. The tags: the tag image of the 0.9.2 release, which is version 0.9.2 (the first new tag firmware since 0.6.0 to use; not the 0.9.0 tag image, which draws faded screens, and not 0.9.1, which can pair tags). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Change the radio channel only once every tag runs 0.9.2 (below).
 
 ### Upgrading from 0.4.x to 0.5.0
 
@@ -199,6 +199,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 ## 6. Summaries
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 0.9.2
+
+Pairing and the radio key from 0.9.0 are taken out again (#290): a paired tag could only be brought back in the flashing jig if the AP's key was lost, too big a risk on a site with many tags. The work is kept for later (#289). Everything else from 0.9.0 and 0.9.1 stays: radio channel and channel scan, signal history, battery saving, date fields and whole-krone prices. **Unpair every paired tag before updating the AP.** Use 0.9.2 instead of 0.9.0 and 0.9.1.
 
 ### Summary of 0.9.1
 
