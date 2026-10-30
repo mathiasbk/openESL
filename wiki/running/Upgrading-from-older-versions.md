@@ -22,11 +22,14 @@ Go straight to the newest release: you do not have to install the ones in betwee
 
 Update the AP, then the labels; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too only if you want to change how long a label waits without the AP (below).
 
+- Labels can now be paired with the AP, so only your AP can change what they show or give them firmware ([Security on the radio](Security-on-the-radio)). Nothing changes until you pair labels: unpaired labels work as before. Take a backup after the update: it now holds the radio key, so keep the file secret.
 - The dashboard's Signal column shows the last check-ins of each label as bars, with lost check-ins and retries marked ([Dashboard](Dashboard#signal)). Labels need the 0.9.0 label firmware for the lost and retried check-ins; older ones show the signal the AP hears only.
 - The 0.9.0 label firmware saves battery: it sleeps while the screen changes, measures its battery less often, and after a day without the AP checks only once an hour. Such a label can take up to an hour to show up when the AP comes back. `PUT /api/tags/{mac}/config` takes `long_after_min` and `long_poll_s` ([Access point settings](Access-point-settings)).
-- A C6 access point holds about 550 labels instead of 700, since each label's signal history takes memory.
+- A C6 access point holds about 510 labels instead of 700, since each label's signal history and radio security take memory.
 - A label updated to 0.9.0 uses the built-in settings until its next check-in, then gets its own again.
 - Layouts can show today's date or week number with date fields in a fixed text, such as "Week {week}" ([Layout elements and limits](Layout-elements-and-limits)). Use them only once the AP runs 0.9.0: an older AP shows `{week}` as written.
+- Going back to 0.8.2: the AP answers every label unsigned again, and paired labels get no answer until it is back on 0.9.0. A label that goes back to older firmware forgets its key; turn "Only paired labels" off first.
+- An S3 with a wireless C6 cannot pair labels yet.
 
 Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-082-to-090).
 

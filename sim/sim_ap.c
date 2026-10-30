@@ -26,6 +26,9 @@ static bool ap_up;
 static esl_tagfw_t tagfw;
 static uint8_t tagfw_flash[ESL_MODEL_COUNT - 1][ESL_TAGFW_SLOT];   /* the "tagfw" partition, kept over restarts */
 static uint64_t ap_boot_ms;
+/* Radio security as radio_sec.c keeps it: a key made once ("NVS"), off until the API turns it on */
+static esl_radio_sec_t sec = {{0x5E, 0xC0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E},
+                              false, NULL, NULL};
 
 sim_stats_t sim_stats;
 
@@ -213,6 +216,7 @@ void sim_ap_boot(void)
     esl_api_changes_free(&changes);
     memset(&changes, 0, sizeof(changes));
     changes.boot = 0x51a00000u + ++boots;
+    esl_radio_set_sec(&sec);
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
@@ -292,7 +296,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL, &changes};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL, &changes, &sec};
     esl_sb_t out;
     int status;
 

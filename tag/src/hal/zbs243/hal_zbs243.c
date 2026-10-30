@@ -159,15 +159,22 @@ static void infopage_read(uint16_t ofs, uint8_t __xdata *dst, uint8_t len)
 
 /*
  * Persistent stores, kept out of the firmware by CODE_SIZE in build.py:
- *   page 0x3E (0xF800-0xFBFF): the record (hal_store_*): 0xA5, length, data, sum of the data bytes
- *   page 0x3D (0xF400-0xF7FF): not used by the firmware (the layout file was kept there;
- *                              the probes in this folder write their logs there)
+ *   pages 0x3E (0xF800-0xFBFF) and 0x3D (0xF400-0xF7FF): the record (hal_store_*), in turn
+ *     in one and then the other, so the last good copy stays while a new one is written
+ *     (a write cut short by a battery change no longer loses the record, and with it the
+ *     radio key): 0xA6, sequence number, length, data, sum of the data bytes. The newer
+ *     good copy counts. Firmware before radio security kept one copy in page 0x3E as 0xA5,
+ *     length, data, sum; it is read as older than any new one. (Page 0x3D was free; the
+ *     probes in this folder wrote their logs there, which the checks turn away.)
  * Main flash reads directly as code memory.
  */
-#define STORE_PAGE      0x3E
-#define STORE_MAGIC     0xA5
-static __code const uint8_t __at (STORE_PAGE * 0x400u) store_flash[4 + HAL_STORE_MAX];
-static __xdata uint8_t store_buf[3 + HAL_STORE_MAX];
+#define STORE_PAGE_A    0x3E
+#define STORE_PAGE_B    0x3D
+#define STORE_MAGIC_OLD 0xA5
+#define STORE_MAGIC     0xA6
+static __code const uint8_t __at (STORE_PAGE_A * 0x400u) store_a[4 + HAL_STORE_MAX];
+static __code const uint8_t __at (STORE_PAGE_B * 0x400u) store_b[4 + HAL_STORE_MAX];
+static __xdata uint8_t store_buf[4 + HAL_STORE_MAX];
 
 /* Erases flash page `page` and writes len (1..1024) bytes from XRAM at src to its start.
    False if the controller did not finish. */
@@ -198,40 +205,80 @@ static bool flash_write_page(uint8_t page, uint16_t src, uint16_t len)
     return t != 0;
 }
 
+/* The length of the good record at f (0 = none); *seq its sequence number, and 0x100 more
+   for the old format so it never counts as newer */
+static uint8_t store_check(const uint8_t __code *f, uint16_t *seq)
+{
+    uint8_t i, len, off, sum = 0;
+
+    if (f[0] == STORE_MAGIC) {
+        off = 3;
+        *seq = f[1];
+    } else if (f[0] == STORE_MAGIC_OLD && f == store_a) {
+        off = 2;
+        *seq = 0x100;
+    } else {
+        return 0;
+    }
+    len = f[off - 1];
+    if (len == 0 || len > HAL_STORE_MAX)
+        return 0;
+    for (i = 0; i < len; i++)
+        sum += f[off + i];
+    return sum == f[off + len] ? len : 0;
+}
+
+/* The newer good copy (0 = none), its length and sequence number */
+static const uint8_t __code *store_newest(uint8_t *len, uint16_t *seq)
+{
+    uint16_t sa, sb;
+    uint8_t la = store_check(store_a, &sa), lb = store_check(store_b, &sb);
+
+    /* sequence numbers wrap: b is newer when it is 1..127 ahead of a (an old-format a is
+       older than any b) */
+    if (lb && (!la || sa == 0x100 || (int8_t)((uint8_t)sb - (uint8_t)sa) > 0)) {
+        *len = lb;
+        *seq = sb;
+        return store_b;
+    }
+    *len = la;
+    *seq = sa;
+    return la ? store_a : 0;
+}
+
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {
-    uint8_t i, sum = 0;
+    uint8_t i, sum = 0, n;
+    uint16_t seq, check;
+    const uint8_t __code *cur = store_newest(&n, &seq);
+    /* into the page that does not hold the newest copy */
+    const uint8_t __code *to = cur == store_a ? store_b : store_a;
 
-    if (len > HAL_STORE_MAX)
+    if (len == 0 || len > HAL_STORE_MAX)
         return false;
     store_buf[0] = STORE_MAGIC;
-    store_buf[1] = len;
+    store_buf[1] = cur ? (uint8_t)(seq + 1) : 0;
+    store_buf[2] = len;
     for (i = 0; i < len; i++) {
-        store_buf[2 + i] = data[i];
+        store_buf[3 + i] = data[i];
         sum += data[i];
     }
-    store_buf[2 + len] = sum;
-    return flash_write_page(STORE_PAGE, (uint16_t)store_buf, (uint16_t)len + 3) &&
-           hal_store_read(store_buf, HAL_STORE_MAX) == len;
+    store_buf[3 + len] = sum;
+    return flash_write_page(to == store_a ? STORE_PAGE_A : STORE_PAGE_B, (uint16_t)store_buf, (uint16_t)len + 4) &&
+           store_check(to, &check) == len && store_newest(&n, &seq) == to;
 }
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
 {
-    uint8_t i, len, sum = 0;
+    uint8_t i, len;
+    uint16_t seq;
+    const uint8_t __code *f = store_newest(&len, &seq);
 
-    if (store_flash[0] != STORE_MAGIC)
-        return 0;
-    len = store_flash[1];
-    if (len > HAL_STORE_MAX)
-        return 0;
-    for (i = 0; i < len; i++)
-        sum += store_flash[2 + i];
-    if (sum != store_flash[2 + len])
-        return 0;
-    if (len > maxlen)
+    if (!f || len > maxlen)
         return 0;                       /* also maxlen 0: just checks the record */
+    f += f[0] == STORE_MAGIC ? 3 : 2;
     for (i = 0; i < len; i++)
-        data[i] = store_flash[2 + i];
+        data[i] = f[i];
     return len;
 }
 

@@ -374,6 +374,7 @@ button.tile:hover { border-color: var(--accent); }
 .dash-tools input { min-height: 34px; }
 .tag-table .mac { font-size: 13px; }
 .tag-table .mac .pre { color: var(--muted); }
+.tag-table .mac .pair { font-size: 0.85em; cursor: help; }
 .tag-table .mac b { font-weight: 600; }
 .tag-table .st { display: inline-flex; gap: 6px; align-items: center; }
 .tag-table .st::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }

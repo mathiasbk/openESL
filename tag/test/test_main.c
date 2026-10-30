@@ -11,6 +11,7 @@ void test_status(void);
 void test_app(void);
 void test_ota(void);
 void test_image(void);
+void test_sec(void);
 
 int main(void)
 {
@@ -21,6 +22,7 @@ int main(void)
     test_app();
     test_ota();
     test_image();
+    test_sec();
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

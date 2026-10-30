@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.join(ROOT, "shared"))
 import models  # noqa: E402  (the model registry, shared/models.json)
 
 SDCC_VERSION = "4.5.0"          # locked version (requirement G5). Another version gives different code.
-CODE_SIZE = 0xF400              # 0xF400-0xF7FF: free (the probes' logs), 0xF800-0xFBFF: record store (hal_store_*); 0xFC00 up: the stock MAC
+CODE_SIZE = 0xF400              # 0xF400-0xFBFF: the record store, two pages in turn (hal_store_*; the probes log at 0xF400); 0xFC00 up: the stock MAC
 BOOT_SIZE = 0x400               # page 0: the bootloader (boot/); the application starts here (ESL_FW_APP_BASE)
 
 INCLUDES = [os.path.join(TAG, "src"), os.path.join(ROOT, "shared"), os.path.join(TAG, "test"),
@@ -49,7 +49,7 @@ FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fon
 FW_FONTS = ["fonts/font_small.c", "fonts/font_medium.c"]
 
 HOST_TARGETS = {
-    "test_all": CORE + FONTS + ["src/app.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+    "test_all": CORE + FONTS + ["src/app.c", "src/sec.c", "src/cmac.c", "test/test_sec.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
                                 "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_status.c",
                                 "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
@@ -114,7 +114,7 @@ CHIPS = {
     },
 }
 # What the firmware is built from besides the chip's own files
-FW_COMMON = ["src/main.c", "src/app.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS
+FW_COMMON = ["src/main.c", "src/app.c", "src/sec.c", "src/cmac.c", "src/epd.c", "src/ota.c", "src/image.c"] + CORE + FW_FONTS
 
 
 def chip_of(m):

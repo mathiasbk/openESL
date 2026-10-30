@@ -10,6 +10,7 @@
 #include "esl_render.h"
 #include "esl_png.h"
 #include "png_fixtures.h"
+#include "cmac.h"
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
@@ -95,7 +96,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -1769,6 +1770,156 @@ static void test_image_clock(void)
     esl_clock_set_today(-1);
 }
 
+/* ---- Radio security (docs/protokoll.md "Security") ---- */
+
+static int sec_saves;
+static void sec_save(void *ctx)
+{
+    (void)ctx;
+    sec_saves++;
+}
+
+/* A POLL from mac, plain (key NULL) or with key and counter ctr; the reply's payload (MIC
+   checked and taken off for a secure one) into r, its length, 0 for none, -1 for a bad MIC */
+static int sec_poll(uint64_t mac, const uint8_t *key, uint32_t ctr, uint8_t *r)
+{
+    uint8_t pl[ESL_MAX_PAYLOAD], rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], mic[ESL_SEC_MIC_LEN];
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    size_t n = esl_poll_build(pl, &p);
+    if (key) {
+        pl[ESL_OFF_VER] = ESL_PROTO_VER_SEC;
+        pl[n] = (uint8_t)ctr;
+        pl[n + 1] = (uint8_t)(ctr >> 8);
+        pl[n + 2] = (uint8_t)(ctr >> 16);
+        pl[n + 3] = (uint8_t)(ctr >> 24);
+        sec_mic(key, ESL_SEC_DIR_TAG, ctr, pl, (uint8_t)n, pl + n + ESL_SEC_CTR_LEN);
+        n += ESL_SEC_TRAILER_TAG;
+    }
+    n = esl_frame_build_from_tag(rx, 7, PAN, ESL_AP_SHORT_ADDR, mac, pl, n);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 1000, tx, NULL);
+    if (!m)
+        return 0;
+    esl_ap_frame_t f;
+    CHECK(esl_frame_parse_to_tag(tx, m, &f));
+    memcpy(r, f.payload, f.payload_len);
+    if (!key) {
+        CHECK_INT(r[ESL_OFF_VER], ESL_PROTO_VER);
+        return (int)f.payload_len;
+    }
+    CHECK_INT(r[ESL_OFF_VER], ESL_PROTO_VER_SEC);
+    size_t len = f.payload_len - ESL_SEC_TRAILER_AP;
+    sec_mic(key, ESL_SEC_DIR_AP, ctr, r, (uint8_t)len, mic);
+    if (memcmp(mic, r + len, ESL_SEC_MIC_LEN) != 0)
+        return -1;
+    r[ESL_OFF_VER] = ESL_PROTO_VER;
+    return (int)len;
+}
+
+static void test_security(void)
+{
+    static esl_radio_sec_t sec = {{0}, false, sec_save, NULL};
+    const uint64_t mac = 0x00000123456789A8ull, other = 0x00000123456789A9ull;
+    uint8_t r[ESL_MAX_PAYLOAD], key[ESL_SEC_KEY_LEN], bad[ESL_SEC_KEY_LEN];
+    char uri[64];
+
+    ap_boot();
+    for (int i = 0; i < ESL_SEC_KEY_LEN; i++)
+        sec.key[i] = (uint8_t)(0xA0 + i);
+    sec.require = false;
+    esl_radio_set_sec(&sec);
+    api.sec = &sec;
+
+    /* without pairing a tag talks plainly, as before */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_IDLE_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"radio_secure\":false"));
+
+    /* pairing: an unknown tag 404, then the key in a plain PAIR at its next POLL */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)other);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 404);
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)mac);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false,\"pairing\":\"pair\""));
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_PAIR_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_PAIR);
+    CHECK_INT(r[ESL_OFF_NEXT_POLL], ESL_BLOCKS_POLL_S);
+    esl_radio_tag_key(&sec, mac, key);
+    CHECK(memcmp(r + ESL_PAIR_OFF_KEY, key, ESL_SEC_KEY_LEN) == 0);
+    /* lost: sent again; then the tag's first message with the key ends the pairing */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_PAIR_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10000, r), ESL_IDLE_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true,\"pairing\":null,\"sec_rejected\":0"));
+
+    /* the same counter again (a retry) is answered; an older one, a wrong MIC or another
+       key are not, and are counted */
+    CHECK_INT(sec_poll(mac, key, 0x10000, r), ESL_IDLE_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10005, r), ESL_IDLE_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10004, r), 0);
+    memcpy(bad, key, sizeof(bad));
+    bad[3] ^= 1;
+    CHECK_INT(sec_poll(mac, bad, 0x10006, r), 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"sec_rejected\":2"));
+    CHECK_INT(sec_poll(mac, key, 0x10006, r), ESL_IDLE_LEN);
+
+    /* require: a plain tag gets nothing, the paired one goes on */
+    CHECK_INT(sec_poll(other, NULL, 0, r), ESL_IDLE_LEN);
+    int saves = sec_saves;
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"radio_secure\":true}", 21, 0, &out), 200);
+    CHECK(HAS(resp, "\"radio_secure\":true"));
+    CHECK_INT(sec_saves, saves + 1);
+    CHECK(sec.require);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"radio_secure\":1}", 18, 0, &out), 422);
+    CHECK_INT(sec_poll(other, NULL, 0, r), 0);
+    CHECK_INT(sec_poll(mac, key, 0x10007, r), ESL_IDLE_LEN);
+    /* a plain frame in its name is dropped and does not make it look unpaired */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true"));
+    /* ... except to pair it */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)other);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(sec_poll(other, NULL, 0, r), ESL_PAIR_LEN);
+
+    /* forget: an authenticated PAIR of zeros, until the tag talks plainly */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)mac);
+    CHECK_INT(esl_api_handle(&api, "DELETE", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pairing\":\"forget\""));
+    CHECK_INT(sec_poll(mac, key, 0x10008, r), ESL_PAIR_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_PAIR);
+    memset(bad, 0, sizeof(bad));
+    CHECK(memcmp(r + ESL_PAIR_OFF_KEY, bad, ESL_SEC_KEY_LEN) == 0);
+    CHECK_INT(sec_poll(mac, NULL, 0, r), 0);  /* plain, with require: no answer */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false,\"pairing\":null"));
+
+    /* the key for the backup, and back */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/radio-key", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "{\"key\":\"A0A1A2A3A4A5A6A7A8A9AAABACADAEAF\"}"));
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, "{\"key\":\"00\"}", 12, 0, &out), 422);
+    const char *zero = "{\"key\":\"00000000000000000000000000000000\"}";
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, zero, strlen(zero), 0, &out), 422);
+    const char *nk = "{\"key\":\"00112233445566778899aabbccddeeff\"}";
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, nk, strlen(nk), 0, &out), 200);
+    CHECK(HAS(resp, "00112233445566778899AABBCCDDEEFF"));
+    CHECK_INT(sec.key[15], 0xFF);
+    CHECK_INT(sec_poll(other, key, 0x20000, r), 0);  /* a key from before: no answer */
+
+    /* a network radio answers the tags itself and has no keys */
+    esl_radio_link_t link = {0};
+    api.link = &link;
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 409);
+    api.link = NULL;
+
+    esl_radio_set_sec(NULL);
+    api.sec = NULL;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/radio-key", AUTH, NULL, 0, 0, &out), 404);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1785,4 +1936,5 @@ void test_radio(void)
     test_image_clock();
     test_draw_later();
     test_link();
+    test_security();
 }

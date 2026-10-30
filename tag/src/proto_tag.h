@@ -28,9 +28,9 @@
  * data at data_off (an offset into the buffer that was parsed), data_len bytes long.
  */
 typedef struct {
-    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_IMG or ESL_MSG_FW */
+    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_IMG, ESL_MSG_FW or ESL_MSG_PAIR */
     uint16_t next_poll_s;    /* 0 = keep the interval */
-    uint8_t data_off;        /* IMG and FW: the block */
+    uint8_t data_off;        /* IMG and FW: the block; PAIR: the key */
     uint8_t data_len;
     uint16_t size;           /* IMG and FW: size of the whole image */
     uint16_t pos;            /* IMG and FW: where in it the block starts */
@@ -63,7 +63,7 @@ uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t
 uint8_t proto_build_img_req(uint8_t *out, uint32_t img_id, uint16_t pos, uint8_t max);
 
 /*
- * Parses an IDLE, CONFIG, IMG or FW payload; any other type is PROTO_E_TYPE. Bytes after
+ * Parses an IDLE, CONFIG, IMG, FW or PAIR payload (the trailer taken off, sec.h); any other type is PROTO_E_TYPE. Bytes after
  * the settings in CONFIG are ignored (settings a newer AP may add). An IMG or FW block
  * must lie inside the image it belongs to.
  */

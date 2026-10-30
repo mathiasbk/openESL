@@ -98,7 +98,44 @@
 #define ESL_CFG_LONG_NEVER   0xFFFFu /* long_after_min: never go to long_poll_s */
 
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */
-#define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
+#define ESL_MIC_RESERVE      4      /* room in IMG and FW for the MIC (ESL_SEC_MIC_LEN) */
+
+/* ---- Security (docs/protokoll.md part 1, "Security"; requirement T16) ----
+ * A tag that has a key (from PAIR) sends every message with ESL_PROTO_VER_SEC in the
+ * version byte and a trailer at the very end: u32 counter + MIC. The AP answers it with
+ * ESL_PROTO_VER_SEC and a MIC at the very end, computed over the counter of the message it
+ * answers (the counter is not sent back). Everything between the header and the trailer is
+ * the message as without security, so its fields keep their offsets: strip the trailer
+ * first, then read the message as version ESL_PROTO_VER.
+ * MIC = the first ESL_SEC_MIC_LEN bytes of AES-CMAC(key, dir || counter || message),
+ * counter little-endian, message without the trailer (tag/src/cmac.c).
+ * The counter only goes up for one key: the high 16 bits count the tag's restarts (kept in
+ * flash), the low 16 bits its messages since. The AP takes a counter only at or above the
+ * last one it took from that tag (the same one again is the tag's retry of a frame that got
+ * no answer). */
+#define ESL_PROTO_VER_SEC    2
+#define ESL_SEC_CTR_LEN      4
+#define ESL_SEC_MIC_LEN      ESL_MIC_RESERVE
+#define ESL_SEC_TRAILER_TAG  (ESL_SEC_CTR_LEN + ESL_SEC_MIC_LEN)   /* tag -> AP: counter + MIC */
+#define ESL_SEC_TRAILER_AP   ESL_SEC_MIC_LEN                       /* AP -> tag: MIC */
+#define ESL_SEC_DIR_TAG      0x54   /* 'T': a message from the tag */
+#define ESL_SEC_DIR_AP       0x41   /* 'A': a message from the AP */
+#define ESL_SEC_KEY_LEN      16
+/* A signed answer is at most ESL_SEC_MAX_REPLY bytes, MIC included: 4 below ESL_MAX_PAYLOAD,
+ * so the frame is at most 123 bytes (PSDU). Signed IMG and FW blocks carry ESL_SEC_CHUNK_CUT
+ * bytes less data than ESL_*_CHUNK_MAX for that. Frames of the full 127 bytes did not reach
+ * the tag on the hardware (S3 + C6 on a cable, 2.9" tag, 2026-10-29), and no frame before
+ * radio security was that long. */
+#define ESL_SEC_CHUNK_CUT    4
+#define ESL_SEC_MAX_REPLY    (ESL_MAX_PAYLOAD - ESL_SEC_CHUNK_CUT)
+
+/* PAIR, 20 byte (AP -> tag): the tag's key. Sent as ESL_PROTO_VER to a tag without a key,
+ * in answer to a POLL, only while pairing is turned on for it on the AP. A tag with a key
+ * takes PAIR only as ESL_PROTO_VER_SEC (with a valid MIC): a new key, or all zeros to
+ * forget its key. next_poll_s at ESL_OFF_NEXT_POLL as in IDLE. */
+#define ESL_MSG_PAIR         0x0B
+#define ESL_PAIR_LEN         20
+#define ESL_PAIR_OFF_KEY     4
 
 /* ---- What a tag shows (the AP's content; not sent on the air as such) ----
  * The AP draws the content into an image (IMG below). These are the built-in layouts,

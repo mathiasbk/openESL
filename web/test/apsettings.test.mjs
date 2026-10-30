@@ -69,5 +69,8 @@ test("the transmit power is a setting only on an AP with a radio", () => {
   assert.equal(currentSettings(last).tx_power, 8);
   assert.ok(!("tx_power" in currentSettings({ ...last, config: { poll_s: 0, webhook: null } })));
   assert.deepEqual(configBody({ tx_power: 10 }, last.config), { tx_power: null });
+  assert.equal(currentSettings({ ...last, config: { ...last.config, radio_secure: true } }).radio_secure, true);
+  assert.ok(!("radio_secure" in currentSettings(last)));
+  assert.deepEqual(configBody({ radio_secure: false }, last.config), { radio_secure: false });
   assert.deepEqual(configBody({ tx_power: 13 }, last.config), { tx_power: 13 });
 });

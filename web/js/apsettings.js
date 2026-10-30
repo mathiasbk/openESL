@@ -77,6 +77,7 @@ export function currentSettings(last) {
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
   if (Number.isInteger(c.tx_power)) cur.tx_power = c.tx_power;
+  if (typeof c.radio_secure === "boolean") cur.radio_secure = c.radio_secure;
   return cur;
 }
 
@@ -94,6 +95,7 @@ export function configBody(changes, config = {}) {
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
   if ("tx_power" in changes) body.tx_power = changes.tx_power === config.builtin_tx_power ? null : changes.tx_power;
+  if ("radio_secure" in changes) body.radio_secure = changes.radio_secure;
   return body;
 }
 
@@ -384,7 +386,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     });
   });
 
-  // ---- Radio: the transmit power, on an AP that has one ----
+  // ---- Radio: the transmit power, on an AP that has one, and whether it answers only paired tags ----
   const txSel = $("set-tx-sel");
   const showTx = () => {
     const other = txSel.value === "other";
@@ -399,11 +401,16 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
   const radio = group($("set-radio"), "set-radio-msg", {
     read() {
       showTx();
-      if (!("tx_power" in currentSettings(last))) return {};
+      const cur = currentSettings(last), r = {};
+      if ("radio_secure" in cur) r.radio_secure = $("set-secure").checked;
+      if (!("tx_power" in cur)) return r;
       const c = txSel.value === "other" ? parseTx($("set-tx-db").value) : { dbm: Number(txSel.value) };
-      return c.error ? c : { tx_power: c.dbm };
+      return c.error ? c : { ...r, tx_power: c.dbm };
     },
     fill(cur) {
+      $("set-secure-field").hidden = !("radio_secure" in cur);
+      $("set-secure").checked = !!cur.radio_secure;
+      $("set-tx-field").hidden = !("tx_power" in cur);
       if (!("tx_power" in cur)) return;
       const c = last.config;
       txSel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
@@ -414,7 +421,10 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     },
     async save(client, c) {
       await client.call("PUT", "/api/config", configBody(c, last.config));
-      return `Saved. The radio sends at ${c.tx_power} dBm from its next reply.`;
+      const said = [];
+      if ("tx_power" in c) said.push(`The radio sends at ${c.tx_power} dBm from its next reply.`);
+      if ("radio_secure" in c) said.push(c.radio_secure ? "The AP now answers only paired tags." : "The AP answers unpaired tags again.");
+      return "Saved. " + said.join(" ");
     },
   });
 
@@ -538,7 +548,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const tx = Number.isInteger(last.config?.tx_power);
+      const tx = Number.isInteger(last.config?.tx_power) || typeof last.config?.radio_secure === "boolean";
       $("set-tab-radio").hidden = !tx;
       if (!tx && !$("set-radio").hidden) showPane("general");
       renderClock();

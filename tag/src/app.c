@@ -5,6 +5,7 @@
 #include "epd.h"
 #include "ota.h"
 #include "image.h"
+#include "sec.h"
 #include "hal/hal.h"
 
 #define RX_TRIES 3       /* other tags may be in the window; read up to 3 frames */
@@ -19,6 +20,7 @@ static draw_scene_t __xdata scene;
 static uint8_t __xdata lines[4][LINE_MAX];
 static uint8_t __xdata line_len[4];
 static uint8_t rx_off, rx_plen;      /* payload in rxbuf after a valid answer */
+static uint8_t rx_secure;            /* it was authenticated (sec_unwrap) */
 
 /* ---- Helpers ---- */
 
@@ -98,21 +100,29 @@ static uint16_t long_poll_s(void)
  * One record through hal_store_* (hal.h):
  *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
  *   9-10 long_poll_s   11-12 long_after_min
+ *   13 has a key   14-29 the key   30-31 restarts with the key (sec.h)
  * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
- * stale or missing copy only costs one extra CONFIG from the AP. The screen itself comes
- * back from the image slot (image.h).
- * Written only when something changes, and with the radio off.
+ * stale or missing copy only costs one extra CONFIG from the AP. A lost key has to be
+ * paired again. The screen itself comes back from the image slot (image.h).
+ * Written only when something changes (and once per restart with a key), with the radio off.
  */
-#define STORE_FORMAT     3        /* 1: without the long backoff; 2 was the firmware that drew content */
-#define STORE_LEN        13
+#define STORE_FORMAT     4          /* 2 was the record of the firmware that drew content itself */
+#define STORE_FORMAT_3   3          /* the settings only (bytes 0-12), before the key; 1 is ignored */
+#define STORE_LEN_3      13
+#define STORE_OFF_KEY    14
+#define STORE_OFF_BOOTS  (STORE_OFF_KEY + ESL_SEC_KEY_LEN)
+#define STORE_LEN        (STORE_OFF_BOOTS + 2)
 
 static uint8_t __xdata store_rec[STORE_LEN];
 
 static void app_store_load(void)
 {
-    uint8_t n = hal_store_read(store_rec, sizeof(store_rec));
+    uint8_t i, n = hal_store_read(store_rec, sizeof(store_rec));
+    bool now = n >= STORE_LEN && store_rec[0] == STORE_FORMAT;
 
-    if (n >= STORE_LEN && store_rec[0] == STORE_FORMAT) {
+    sec.has_key = 0;
+    sec.boots = 0;
+    if (now || (n >= STORE_LEN_3 && store_rec[0] == STORE_FORMAT_3)) {
         app.cfg.ver = ESL_GET_U16(store_rec + 1);
         app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
         app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
@@ -127,10 +137,18 @@ static void app_store_load(void)
         app.cfg.long_poll_s = 0;
         app.cfg.long_after_min = 0;
     }
+    if (now) {
+        sec.has_key = store_rec[13];
+        for (i = 0; i < ESL_SEC_KEY_LEN; i++)
+            sec.key[i] = store_rec[STORE_OFF_KEY + i];
+        sec.boots = ESL_GET_U16(store_rec + STORE_OFF_BOOTS);
+    }
 }
 
 static void app_store_save(void)
 {
+    uint8_t i;
+
     store_rec[0] = STORE_FORMAT;
     ESL_PUT_U16(store_rec + 1, app.cfg.ver);
     ESL_PUT_U16(store_rec + 3, app.cfg.poll_s);
@@ -138,8 +156,14 @@ static void app_store_save(void)
     ESL_PUT_U16(store_rec + 7, app.cfg.lost_ap_s);
     ESL_PUT_U16(store_rec + 9, app.cfg.long_poll_s);
     ESL_PUT_U16(store_rec + 11, app.cfg.long_after_min);
-    /* a failed write only costs a CONFIG after a restart */
-    hal_store_write(store_rec, STORE_LEN);
+    store_rec[13] = sec.has_key;
+    for (i = 0; i < ESL_SEC_KEY_LEN; i++)
+        store_rec[STORE_OFF_KEY + i] = sec.key[i];
+    ESL_PUT_U16(store_rec + STORE_OFF_BOOTS, sec.boots);
+    /* a failed write only costs a CONFIG after a restart (or, with a key, a repeated counter
+       range after one: save_due stays set and it is tried again) */
+    if (hal_store_write(store_rec, STORE_LEN))
+        sec.save_due = 0;
 }
 
 static uint16_t at_least(uint16_t v, uint16_t min)
@@ -210,6 +234,9 @@ static bool exchange(uint8_t flen)
         plen = proto_check_frame(rxbuf, (uint8_t)n, CFG_PAN_ID, app.mac, &off);
         if (plen < 0)
             continue;
+        plen = sec_unwrap(rxbuf + off, (uint8_t)plen, &rx_secure);
+        if (plen < 0)
+            continue;
         if (proto_parse_reply(rxbuf + off, (uint8_t)plen, &reply) == PROTO_OK) {
             rx_off = off;
             rx_plen = (uint8_t)plen;
@@ -241,9 +268,9 @@ static uint8_t build_poll_frame(void)
     uint8_t *pl = txbuf + ESL_MAC_HDR_LEN;
     uint8_t flags = app.poll_flags | ota_poll_flags() | image_poll_flags();
 
-    proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver,
-                     app.rx_rssi, app.rx_lqi, app.misses, app.link_flags);
-    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LINK);
+    uint8_t n = proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver,
+                                 app.rx_rssi, app.rx_lqi, app.misses, app.link_flags);
+    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, sec_wrap(pl, n));
 }
 
 /*
@@ -261,7 +288,8 @@ static bool fw_transfer(void)
     while (r == OTA_MORE && ++req <= CFG_FW_MAX_REQ) {
         if ((req & 15) == 0)
             hal_wdt_kick();
-        n = proto_build_fw_req(txbuf + ESL_MAC_HDR_LEN, ota.dl_ver, ota.dl_got, ota.dl_crc, ESL_FW_CHUNK_MAX);
+        n = sec_wrap(txbuf + ESL_MAC_HDR_LEN,
+                     proto_build_fw_req(txbuf + ESL_MAC_HDR_LEN, ota.dl_ver, ota.dl_got, ota.dl_crc, ESL_FW_CHUNK_MAX));
         if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
                                               txbuf + ESL_MAC_HDR_LEN, n))) {
             if (++miss > CFG_FW_MAX_MISS)
@@ -292,7 +320,8 @@ static uint8_t image_transfer(void)
     while (r == IMAGE_MORE && ++req <= CFG_IMG_MAX_REQ) {
         if ((req & 15) == 0)
             hal_wdt_kick();
-        n = proto_build_img_req(txbuf + ESL_MAC_HDR_LEN, image.dl_id, image.dl_got, ESL_IMG_CHUNK_MAX);
+        n = sec_wrap(txbuf + ESL_MAC_HDR_LEN,
+                     proto_build_img_req(txbuf + ESL_MAC_HDR_LEN, image.dl_id, image.dl_got, ESL_IMG_CHUNK_MAX));
         if (!exchange_retry(proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac,
                                               txbuf + ESL_MAC_HDR_LEN, n))) {
             if (++miss > CFG_FW_MAX_MISS)
@@ -354,6 +383,10 @@ void app_init(void)
 
     hal_mac_read(app.mac);
     app_store_load();
+    /* A counter range of its own for this run, saved after the first round (poll_round)
+       like every other save, not right after hal_mac_read's flash DMA, which changes
+       SETTINGS: with the save here, a tag lost its key at a battery change (2026-10-29) */
+    sec_boot();
     app.shown_id = 0;
     app.interval_s = base_poll_s();
     app.misses = 0;
@@ -401,8 +434,13 @@ static uint16_t poll_round(void)
     }
     radio_off();
 
-    if (!got)
+    if (!got) {
+        if (sec.save_due) {
+            sec_roll();
+            app_store_save();        /* the run's counter range, also without an answer */
+        }
         return on_miss();
+    }
     ota_confirm();                   /* a new image that reaches the AP stays */
     if (fw_done)
         ota_install();               /* restarts into the bootloader */
@@ -412,6 +450,12 @@ static uint16_t poll_round(void)
     app.poll_flags &= (uint8_t)~ESL_POLL_F_BOOTED;
     if (reply.type == ESL_MSG_CONFIG)
         apply_config();              /* new base settings first, next_poll_s below as for any reply */
+    if (reply.type == ESL_MSG_PAIR && sec_pair(rxbuf + rx_off + reply.data_off, rx_secure))
+        sec.save_due = 1;
+    if (sec.save_due) {
+        sec_roll();
+        app_store_save();            /* a new key, or the counter's next range */
+    }
     if (reply.next_poll_s)
         app.interval_s = reply.next_poll_s;
 

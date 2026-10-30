@@ -108,6 +108,11 @@ void app_main(void)
 #if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
     api.tx_power = radio_tx_power();
 #endif
+#if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER && !CONFIG_ESL_RADIO_DRIVER_NET
+    /* a network radio answers the tags itself (esl_rcache) and has no keys */
+    api.sec = radio_sec();
+    esl_radio_set_sec(api.sec);
+#endif
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
 #endif

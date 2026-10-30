@@ -669,6 +669,66 @@ void esl_store_fw_taken(esl_store_t *st, uint64_t mac, uint16_t ver)
     unlock(st);
 }
 
+bool esl_store_sec_ok(esl_store_t *st, uint64_t mac, uint32_t ctr)
+{
+    lock(st);
+    int idx = find(st, mac);
+    esl_tag_t *t = idx >= 0 ? at(st, (unsigned)idx) : NULL;
+    bool ok = !t || ctr >= t->sec_ctr;
+    if (t && ok)
+        t->sec_ctr = ctr;
+    else if (t && t->sec_bad < UINT16_MAX)
+        t->sec_bad++;
+    unlock(st);
+    return ok;
+}
+
+void esl_store_sec_bad(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0 && at(st, (unsigned)idx)->sec_bad < UINT16_MAX)
+        at(st, (unsigned)idx)->sec_bad++;
+    unlock(st);
+}
+
+void esl_store_sec_heard(esl_store_t *st, uint64_t mac, bool secure)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = at(st, (unsigned)idx);
+        t->secure = secure;
+        if ((secure && t->pair_op == ESL_PAIR_OP_PAIR) || (!secure && t->pair_op == ESL_PAIR_OP_FORGET))
+            t->pair_op = ESL_PAIR_OP_NONE;
+    }
+    unlock(st);
+}
+
+bool esl_store_set_pair(esl_store_t *st, uint64_t mac, uint8_t op)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0)
+        at(st, (unsigned)idx)->pair_op = op & 3;
+    unlock(st);
+    return idx >= 0;
+}
+
+uint8_t esl_store_pair_op(esl_store_t *st, uint64_t mac, bool sent)
+{
+    uint8_t op = ESL_PAIR_OP_NONE;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        op = at(st, (unsigned)idx)->pair_op;
+        if (sent)
+            at(st, (unsigned)idx)->sec_ctr = 0;
+    }
+    unlock(st);
+    return op;
+}
+
 void esl_store_fw_counts(esl_store_t *st, uint8_t model, uint16_t ver, esl_fw_counts_t *out)
 {
     memset(out, 0, sizeof(*out));

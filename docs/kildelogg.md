@@ -51,6 +51,8 @@ Source types: `datasheet`, `measurement`, `experiment`, `stock-fw` (study of a b
 | 2026-10-20 | ESP32-C6 Super Mini: GPIO16 and GPIO17 are the pins marked TX and RX | text | The board's printed pin labels and seller pinout; not yet checked with the S3 wired to it | `ap/radio/main/Kconfig.projbuild` |
 | 2026-10-20 | The C6's ROM prints boot text on U0TXD (GPIO16) at reset, so the host can see garbage before the first frame | datasheet | ESP32-C6 technical reference manual / ESP-IDF boot log docs; the link parser resyncs on 0xA5 and a CRC (tested in `ap/test/test_coproc.c`) | `ap/components/esl_coproc` |
 | 2026-10-20 | ESP32-S3 N16R8 modules have 16 MB flash and 8 MB octal PSRAM | datasheet | ESP32-S3-WROOM-1/1U datasheet, ordering information | `ap/boards/s3-n16r8-c6/sdkconfig.defaults` (`CONFIG_SPIRAM_MODE_OCT`) |
+| 2026-10-29 | AES-128 (S-box, key expansion, rounds) and AES-CMAC (subkeys K1/K2, padding, last block) | datasheet | FIPS-197 (AES) and NIST SP 800-38B (CMAC), written from the standards; the FIPS-197 appendix C.1 vector and the SP 800-38B examples for AES-128 (0, 16, 40 and 64 bytes) are tested in `tag/test/test_sec.c` | `tag/src/cmac.c` (tag, AP, simulation) |
+| 2026-10-29 | A full 127-byte 802.15.4 frame (110-byte payload) from the S3 + C6 on a cable did not reach a 2.9" tag, while frames up to 123 bytes did; so frames are kept at 123 bytes or less. Not found out which side (C6 TX or the tag's RX/DMA) drops it | experiment | Signed IMG blocks of 110 bytes were never taken by the paired tag; a short signed PAIR was, and unsigned blocks of 106 bytes always are | `shared/proto.h` (`ESL_SEC_MAX_REPLY`), `ap/components/esl_core/esl_radio.c` |
 
 ## Unconfirmed: in the code, but must be checked before it counts as a fact
 
