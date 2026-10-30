@@ -1343,6 +1343,27 @@ static void test_since(void)
     CHECK_INT(req("GET", q, AUTH, NULL, 65000), 200);
     CHECK(strstr(resp, "\"full\":false,\"tags\":[]") != NULL);
 
+    /* deleted and its slot taken by a new tag before the next read: still full */
+    since_of(q, sizeof(q));
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000001", AUTH, NULL, 66000), 200);
+    poll_as_tag(4, 0, 66000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 66000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") == NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000004\"") != NULL);
+
+    /* a full table: a new tag evicts the longest-unseen one without content, in its slot */
+    for (uint64_t m = 5; esl_store_count(&st) < CAP; m++)
+        poll_as_tag(m, 0, 67000);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("GET", q, AUTH, NULL, 67000), 200);
+    since_of(q, sizeof(q));
+    unsigned before = esl_store_count(&st);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000100", AUTH, "{\"layout\":\"text\",\"fields\":[\"x\"]}", 68000), 200);
+    CHECK_INT((int)esl_store_count(&st), (int)before);
+    CHECK_INT(req("GET", q, AUTH, NULL, 68000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+
     api.changes = NULL;
     esl_api_changes_free(&ch);
     esl_store_free(&st);

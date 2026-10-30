@@ -889,12 +889,15 @@ static bool changes_update(const esl_api_t *api, uint64_t now_ms, uint16_t def_p
             return false;
         esl_api_change_t *e = &(*chunk)[s % ESL_STORE_CHUNK];
         esl_tag_t t;
-        uint32_t crc = esl_store_get_slot(api->store, s, &t) ? row_crc(api, &t, now_ms, def_poll) : 0;
+        bool used = esl_store_get_slot(api->store, s, &t);
+        uint32_t crc = used ? row_crc(api, &t, now_ms, def_poll) : 0;
         if (crc == e->crc)
             continue;
-        if (!crc)
+        /* gone, or deleted or evicted and its slot taken by another tag since the last read */
+        if (e->crc && (!used || (uint32_t)t.mac != e->mac))
             ch->removed_seq = next;
         e->crc = crc;
+        e->mac = used ? (uint32_t)t.mac : 0;
         e->seq = next;
         changed = true;
     }
