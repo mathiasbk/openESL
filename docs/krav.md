@@ -33,7 +33,7 @@
 | T13 | Barcode or QR code. | LATER (Code 128 and EAN-13 done in layouts; no QR yet) |
 | T14 | Arbitrary images/logos sent through the API. | LATER |
 | T15 | Firmware update over radio (OTA). | LATER, built early: [tag-ota.md](tag-ota.md) (on, tried on the 1.54"; rollback not tried) |
-| T16 | Encrypted/signed content (AES-CCM or similar). | Signed (AES-CMAC) for paired tags, not encrypted; see protokoll.md "Security" |
+| T16 | Encrypted/signed content (AES-CCM or similar). | LATER, but the packet format has room for it |
 | T17 | Draws according to a layout file received from the AP (G7), and only fetches it again when the layout version has changed. | MUST, replaced: since the AP draws the screens (after 0.4.7) the tag gets the image and no layout file; the AP draws according to the file |
 | T18 | The tag states its model (2.9" or 1.54") in POLL, so the AP and the client know which layout and text lengths apply. | MUST |
 | T19 | Display driver, resolution and layout are parameterised per tag size. One firmware build per size from the same code. | MUST |

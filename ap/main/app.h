@@ -117,8 +117,6 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
  * from NVS on the first call; radio_start() uses it. radio_set_tx_power() (radio.c,
  * radio_net.c) hands a new one to the radio, from any task. */
 esl_tx_power_t *radio_tx_power(void);
-/* Radio security: the key and "radio_secure" from NVS, a new key the first time (radio_sec.c) */
-esl_radio_sec_t *radio_sec(void);
 void radio_set_tx_power(int8_t dbm);
 #if CONFIG_ESL_RADIO_DRIVER_NET
 /* radio_net.c: the link to the network radio, for GET /api/tags ("radio") */

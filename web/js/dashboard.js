@@ -6,14 +6,13 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, pairText, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
-import { readKey, keyPanel, isSaved, initKeyCard } from "./radiokey.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -88,11 +87,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The Settings page (js/apsettings.js): a new token is used from now on, and kept on the AP's own page
   const settings = initSettings({
     getClient: () => client,
-    // { key: true } after a restore, which can give the AP another radio key
-    refresh: (o) => {
-      if (o?.key) keyStale = true;
-      refresh();
-    },
+    refresh: () => refresh(),
     overUsb: () => src() === "serial",
     onToken: (token) => {
       if (client instanceof ApClient) client.token = token;
@@ -101,41 +96,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     },
   });
 
-  // The AP's details for the radio key file and the browser's copy of it
-  const apInfo = () => ({
-    hostname: last?.wifi?.hostname, ip: last?.wifi?.ip, setup_ssid: last?.wifi?.setup_ssid,
-    board: last?.list?.ap?.board_name || last?.list?.ap?.board, fw: last?.list?.ap?.fw,
-  });
-  const keyCard = initKeyCard({ getClient: () => client, apInfo });
-
-  // The radio key above everything else until this browser is told it is saved: an AP makes it
-  // the first time it starts 0.9.0, so this also comes up after an update over the API, and when
-  // a restore gave the AP another key
-  let shownKey = "";
-  let keyStale = true;   // read the key at the next refresh: once per connection, not every 10 s
-  function showKey() {
-    const key = last?.radioKey || "";
-    const box = $("dash-key");
-    if (!key || isSaved(key)) {
-      box.hidden = true;
-      box.replaceChildren();
-      shownKey = "";
-      return;
-    }
-    if (key === shownKey) return;   // as it is: the ticks and messages in it stay
-    shownKey = key;
-    box.replaceChildren(keyPanel(key, { ap: apInfo(), onSaved: () => showKey() }));
-    box.hidden = false;
-    keyCard.listKept();
-  }
-
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
     sources.connected(c);
     settings.reset();
-    keyCard.reset();
-    keyStale = true;
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
@@ -152,7 +117,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       last = null;
       lastAt = 0;
       failed = false;
-      showKey();
       setStale(false);
     }
     showLive();
@@ -198,20 +162,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const tagfw = await optional("/api/tag-firmware");
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
-      // firmware with radio security (0.9.0) has "radio_secure", and a radio key
-      // read once per connection, and again after new AP firmware or a restore
-      const secure = typeof config?.radio_secure === "boolean";
-      const fresh = secure && keyStale;
-      let keyRead = false;   // a failed read is tried again at the next refresh
-      const radioKey = !secure ? null : fresh ? await readKey(c).then((k) => ((keyRead = true), k), () => last?.radioKey ?? null) : last?.radioKey ?? null;
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw, layouts, config, radioKey };
-      if (keyRead) keyStale = false;
+      last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
       render();
-      showKey();
       showLive();
       msg("");
       layoutCard.render(last);
@@ -448,8 +404,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const b = document.createElement("b");
       b.textContent = tag.mac.slice(-6);
       mac.append(pre, b);
-      const lock = pairMark(tag);
-      if (lock) mac.append(" ", lock);
       const seen = lastCheckin(tag);
       const lateCls = next?.late ? (state.level === "bad" ? "state-bad" : "state-busy") : "";
       const battery = fmtBattery(tag.battery_mv);
@@ -678,18 +632,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return b;
   }));
 
-  // The lock next to a tag's MAC: paired, being paired or unpaired
-  function pairMark(tag) {
-    const p = pairText(tag);
-    if (!p) return null;
-    const s = document.createElement("span");
-    s.className = "pair";
-    s.textContent = p[0];
-    s.title = p[1];
-    s.setAttribute("aria-label", p[1]);
-    return s;
-  }
-
   // Called after the tag table is drawn
   function renderSendTags() {
     // Ticked tags bring up the bar and the form; none, only a hint
@@ -697,9 +639,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
     $("st-forget").disabled = !client || sending || stBusy;
-    // pairing, on an AP with signed radio frames
-    $("st-pair").hidden = $("st-unpair").hidden = !(last?.list.tags || []).some((t) => "secure" in t);
-    $("st-pair").disabled = $("st-unpair").disabled = !client || sending || stBusy;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
     // the text goes to every ticked tag, also those Find or a filter hides now
     const hidden = stHidden(n, rows);
@@ -1182,40 +1121,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   };
 
-  // Pair or unpair the ticked tags: the AP sends or takes back the radio key at their next poll
-  async function pairTags(on) {
-    const tags = stTags();
-    if (!client || !tags.length || sending || stBusy) return;
-    const what = tags.length === 1 ? tags[0].mac : `${tags.length} tags`;
-    if (on && !confirm(`Pair ${what}? At ${tags.length === 1 ? "its" : "their"} next poll the AP sends ${tags.length === 1 ? "it" : "each"} a radio key, ` +
-      `unsigned if the tag has none yet: pair where nobody listens in. From then on the AP only takes signed frames from ${tags.length === 1 ? "it" : "them"}.`)) return;
-    if (!on && !confirm(`Unpair ${what}? At the next poll ${tags.length === 1 ? "it forgets its" : "they forget their"} radio key and send unsigned frames again.`)) return;
-    const c = client;
-    sending = true;
-    clearTimeout(timer);
-    forgetMsg("");
-    $("st-pair").disabled = $("st-unpair").disabled = $("st-forget").disabled = $("st-send").disabled = true;
-    let n = 0;
-    try {
-      for (const t of tags) {
-        await c.call(on ? "PUT" : "DELETE", "/api/tags/" + encodeURIComponent(t.mac) + "/pair");
-        n++;
-      }
-      const verb = on ? "pairs" : "unpairs";
-      forgetMsg(n === 1 ? `${tags[0].mac} ${verb} at its next poll.` : `${n} tags ${verb.slice(0, -1)} at their next poll.`, "ok");
-    } catch (e) {
-      const why = e.message.startsWith("409") ? "this AP cannot pair tags (no radio key, or the radio is on the network)" : e.message;
-      forgetMsg((n ? `Only ${n} of ${tags.length} tags: ` : "Not done: ") + why, "error");
-    } finally {
-      sending = false;
-      stSave();
-      if (client === c) refresh();
-      else renderSendTags();
-    }
-  }
-  $("st-pair").onclick = () => pairTags(true);
-  $("st-unpair").onclick = () => pairTags(false);
-
   // ---- Firmware card ----
 
   const fwMsg = (text, cls = "") => {
@@ -1514,7 +1419,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         const r = await sendApFirmware(c, data, progress);
         fwMsg(`Written to ${r.slot}: version ${r.version}. The AP is restarting ...`);
         const back = await waitApBack(c, r.slot, r.version, { alive: () => client === c });
-        keyStale = true;   // firmware with radio security makes its key at its first start
         fwMsg(back.text, back.ok ? "ok" : "error");
       }
     } catch (e) {

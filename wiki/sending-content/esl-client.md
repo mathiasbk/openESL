@@ -32,7 +32,6 @@ python3 esl_client.py show 00000123456789A8
 | `health` | Labels that need attention; exits 1 if there are any |
 | `config --poll-s 60` / `config --webhook URL` | Default poll interval / health webhook |
 | `config --tz "CET-1CEST,M3.5.0,M10.5.0/3"` / `config --ntp HOST` | The AP's time zone / NTP server |
-| `pair MAC`, `unpair MAC`, `config --radio-secure on` | [Security on the radio](Security-on-the-radio) |
 | `layouts`, `layout-put 2.9 FILE` | List or upload layout files |
 | `ota FILE --wait` | New AP firmware, or the C6 radio's on an S3 + C6 ([Updating the AP](Updating-the-access-point)) |
 | `tag-ota FILE` | New label firmware ([Updating labels](Updating-labels)) |

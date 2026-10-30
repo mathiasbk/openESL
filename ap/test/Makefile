@@ -13,7 +13,7 @@ CFLAGS  += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
 
-TAG_SRCS := ../../tag/src/font.c ../../tag/src/barcode.c ../../tag/src/cmac.c $(wildcard ../../tag/fonts/font_*.c)
+TAG_SRCS := ../../tag/src/font.c ../../tag/src/barcode.c $(wildcard ../../tag/fonts/font_*.c)
 SRCS := $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) $(wildcard *.c) $(TAG_SRCS)
 BIN  := build/esl_tests
 

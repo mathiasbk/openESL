@@ -16,7 +16,7 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 ### Messages
 
-All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1). A paired tag and the AP's answers to it have `proto_ver` = 2 and a signature at the end (see "Security" below); between the two the message is the same, so the tables here hold for both.
+All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 
 **POLL** (tag → AP), `type = 0x01`, 18 bytes (12 or 14 from older firmware, see below)
 | Field | Bytes | Description |
@@ -156,13 +156,6 @@ The largest compiled file is **4096 bytes** (`ESL_LBIN_MAX`). That is about 290 
 
 These limits, and the per-layout ones below, belong to the AP, not the tag: the AP draws the image, and the tag only shows it. They are set per AP board (`"limits"` in `ap/boards/<board>/board.json`); the numbers here are the ESP32-C6's, the default and the smallest. Boards with PSRAM (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) allow 64 text lines, 40 rectangles, 32 lines and 16 icons per layout, so a file such an AP accepts can be refused by a C6. `GET /api/layouts` says which board an AP is and what it allows (`board`, `limits`), and the designer shows the limits of the AP it is connected to.
 
-**PAIR** (AP → tag), `type = 0x0B`, 20 bytes: the tag's radio key (see "Security")
-| Field | Bytes | Description |
-|---|---|---|
-| type, proto_ver | 2 | 0x0B, 0x01 (to a tag without a key) or 0x02 (signed, to a paired tag) |
-| next_poll_s | 2 | as in IDLE |
-| key | 16 | the tag's AES-128 key; all zeros = forget the key |
-
 ### Sequence
 ```
 Tag                                      AP
@@ -200,7 +193,7 @@ A tag that never got the CONFIG (off for longer than the wait) does not know the
 
 ### Finding the AP
 
-A tag whose AP answers on none of the channels above (it moved while the tag was off, or it came up on a channel the tag was never told of) looks for it (#258). The third round in a row without an answer sends its POLL once more, without the retry, on each of the first four channels of `CFG_SCAN_CHANNELS` (15, 20, 26, 11: with the built-in 25 the ones clear of WiFi 1, 6 and 11, then 11) that the round has not tried yet; every later round without an answer tries the next channel of the list only, which goes on through every channel the AP can be set to (12–14, 16–19, 21–24, 25) and starts over. Every channel of a round gets the same frame (the same sequence number), as a retry does. The tag stays on the first channel where an AP with its PAN ID answers, and keeps it in flash, so it starts there after a restart. The AP needs nothing for this. While the AP answers the tag does not look; while it is gone it costs one listening window more per round (`docs/strombudsjett.md`). Since the PAN ID and the AP's short address are the same for every openESL AP, a tag can find another AP this way; that AP takes it on like a new tag, the tag keeps the channel, and since the new AP answers, it never looks back. On a site with several APs on their own channels, the tags of an AP that is down for three rounds (30 minutes at `poll_s` 600, a power cut) can so end up with a neighbour, which has no content for them. Pairing the tags with their AP (#260) is what fixes this: a tag must move only on an answer its own AP has signed.
+A tag whose AP answers on none of the channels above (it moved while the tag was off, or it came up on a channel the tag was never told of) looks for it (#258). The third round in a row without an answer sends its POLL once more, without the retry, on each of the first four channels of `CFG_SCAN_CHANNELS` (15, 20, 26, 11: with the built-in 25 the ones clear of WiFi 1, 6 and 11, then 11) that the round has not tried yet; every later round without an answer tries the next channel of the list only, which goes on through every channel the AP can be set to (12–14, 16–19, 21–24, 25) and starts over. Every channel of a round gets the same frame (the same sequence number), as a retry does. The tag stays on the first channel where an AP with its PAN ID answers, and keeps it in flash, so it starts there after a restart. The AP needs nothing for this. While the AP answers the tag does not look; while it is gone it costs one listening window more per round (`docs/strombudsjett.md`). Since the PAN ID and the AP's short address are the same for every openESL AP, a tag can find another AP this way; that AP takes it on like a new tag, the tag keeps the channel, and since the new AP answers, it never looks back. On a site with several APs on their own channels, the tags of an AP that is down for three rounds (30 minutes at `poll_s` 600, a power cut) can so end up with a neighbour, which has no content for them. Pairing the tags with their AP would fix this (#260, parked in #289): a tag would move only on an answer its own AP has signed.
 
 ### Firmware transfer (requirement T15)
 The same pattern as the image transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).
@@ -264,28 +257,6 @@ The AP answers each POLL with one message. When several things are waiting for a
 4. **IDLE**.
 
 The next item goes out at the next POLL. `next_poll_s` in every reply, IMG and FW blocks included, is the tag's own interval (its `poll_s`, or the AP default).
-
-### Security (requirement T16)
-A paired tag signs every message it sends, and takes only signed answers. The messages are not encrypted: anyone in range can still read prices, but nobody without the key can change what a paired tag shows, give it firmware, or answer it in the AP's place.
-
-**Keys.** The AP has one installation key `K_inst` of 16 random bytes, made at its first start and kept in its NVS (`GET`/`PUT /api/radio-key`, in the backup). Each tag's key is `K_tag = AES-CMAC(K_inst, 0x4B || MAC)`, the MAC as 8 bytes little-endian, so the AP keeps no table of keys. The tag keeps its key in its flash record.
-
-**Trailer.** The signature goes at the very end, after every field, so the fields keep their offsets and new fields can still be appended:
-
-| Direction | `proto_ver` | After the message |
-|---|---|---|
-| tag → AP | 2 | `counter` (u32) + `mic` (4 bytes) |
-| AP → tag | 2 | `mic` (4 bytes), over the counter of the message it answers (not sent back) |
-
-`mic` is the first 4 bytes of `AES-CMAC(K_tag, dir || counter || message)`: `dir` is `T` (0x54) from the tag and `A` (0x41) from the AP, `counter` is 4 bytes little-endian, and `message` is everything before the trailer, with `proto_ver` = 2 as sent. A receiver checks the MIC, strips the trailer, and reads the rest as a version 1 message. FW and IMG already leave 4 bytes for the MIC (`ESL_MIC_RESERVE`), and the tag's messages are short enough for 8 more. A signed answer is still at most 106 bytes with its MIC (`ESL_SEC_MAX_REPLY`), so the AP sends signed FW and IMG blocks with 4 bytes less data (87 and 88): full 127-byte frames did not reach the tag on the hardware, and no frame was that long before.
-
-**Counter.** The high 16 bits are the tag's restarts (kept in its flash record and raised at every start), the low 16 bits its messages since. The tag saves the next restart number in time before the low half runs out, so a counter never repeats for one key. The AP takes a counter at or above the last one it took from the tag (the same one again is the tag's retry of a frame that got no answer) and counts the rest as rejected (`sec_rejected` in `GET /api/tags`). An answer is bound to the counter of the request, so an old answer is no good for a new request.
-
-**Pairing.** `PUT /api/tags/{mac}/pair` marks the tag; at its next POLL the AP answers PAIR with `K_tag` instead of the usual answer. To a tag without a key that PAIR goes unsigned, so the key is in the air once: pair where nobody listens in (later a key can be put on in the flashing jig instead). The tag stores the key and signs from its next message; the AP sees that (`secure: true`) and stops sending PAIR. A tag with a key takes PAIR only signed with that key: a new key, or all zeros to forget it (`DELETE /api/tags/{mac}/pair`). A tag never takes an unsigned PAIR while it has a key.
-
-**Only paired tags.** With `radio_secure` on (`PUT /api/config`, the dashboard's Settings → Radio), the AP drops every unsigned message, except a POLL from a tag it is pairing. Off (the default), it answers unsigned tags as before, and paired tags still sign. Turn it on once every tag is paired. A tag left out shows "No AP found" after its `lost_ap_s` and backs off its search; after the switch is turned off again it can take several minutes (about 8 on hardware) before it is heard.
-
-**Limits.** The AP keeps the last counter of each tag in RAM only: after an AP restart, a recorded frame from the tag's current restart is taken once more (it can only repeat what the tag said). A network radio (C6 on WiFi, [ap-netradio.md](ap-netradio.md)) answers the tags itself and has no keys, so pairing is refused there (`409`). Losing the AP's key (a full erase without a backup) leaves paired tags without answers: put the key back from the backup (`PUT /api/radio-key`), or flash the tags again.
 
 ### Listening window and battery
 The tag is awake for about 5–25 ms per round. Adjust the window from measurements in phases 5–6; it is the most important power parameter after sleep current.

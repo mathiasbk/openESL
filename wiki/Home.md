@@ -72,7 +72,7 @@ Your software sends text, the access point (AP) draws the screen from a layout y
 [Overview](Sending-content) · [HTTP API](HTTP-API) · [esl-client](esl-client) · [Price lists from CSV](Price-lists-from-CSV) · [Scheduled prices](Scheduled-prices) · [Home Assistant](Home-Assistant) · [Weather](Weather)
 
 **Running it**
-[Dashboard](Dashboard) · [Health and webhook](Health-and-webhook) · [Updating the AP](Updating-the-access-point) · [Updating labels](Updating-labels) · [Upgrading from older versions](Upgrading-from-older-versions) · [Backup and restore](Backup-and-restore) · [Security on the radio](Security-on-the-radio) · [Moving to a new AP](Moving-to-a-new-AP)
+[Dashboard](Dashboard) · [Health and webhook](Health-and-webhook) · [Updating the AP](Updating-the-access-point) · [Updating labels](Updating-labels) · [Upgrading from older versions](Upgrading-from-older-versions) · [Backup and restore](Backup-and-restore) · [Moving to a new AP](Moving-to-a-new-AP)
 
 **Help**
 [Troubleshooting](Troubleshooting) · [FAQ](FAQ)

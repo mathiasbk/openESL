@@ -10,7 +10,7 @@ python3 esl_client.py restore ap.json --dry-run
 
 ## What is in it
 
-The default poll interval, the webhook, the time zone and NTP server, the layout files, each label's content (pictures too) and own settings, the scheduled content, and the radio key of paired labels with the "Only paired labels" setting ([Security on the radio](Security-on-the-radio)). **Keep the file secret:** with the key, anyone could send content to your paired labels.
+The default poll interval, the webhook, the time zone and NTP server, the layout files, each label's content (pictures too) and own settings, and the scheduled content.
 
 **Not in it:** the WiFi password (it cannot be read back), the API token, and the radio's transmit power (it depends on the AP's antenna). Set those again on a new AP ([WiFi and API token](WiFi-and-API-token)). Labels that have only polled, with no content, are left out; they come back by themselves at their next poll.
 
