@@ -2,6 +2,8 @@
 
 Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome or Edge on a computer.
 
+Four steps on the web page and one test request take you to the first label. Words you have not seen before are in the [Glossary](Glossary).
+
 ## 1. Flash the access point
 
 On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, follow the three steps: choose your AP, flash it (plug in each board when asked), then give it your WiFi and an API token over the same cable. **Keep a copy of the token**: every API request needs it, and it cannot be read back. The last step shows the AP's address and a button to its dashboard.
@@ -32,7 +34,9 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The label shows the new content at its next poll, usually within a minute.
+Put in the label's MAC (on its start screen and on the dashboard), your API token, and your AP's name instead of `openesl.local` ([finding the AP](WiFi-and-API-token#finding-the-ap-on-the-network)). The label shows the new content at its next poll, usually within a minute.
+
+No command line? The AP's [Dashboard](Dashboard) can send text to a label from the browser, and [Home Assistant](Home-Assistant) has an integration.
 
 Details: [Sending content](Sending-content).
 

@@ -7,6 +7,16 @@ Help is welcome, and most of all with hardware that has not been tried yet:
 - **Other flashers:** boards and jigs other than the D1 mini and the pogo-pin jig.
 - **Reports from the experimental boards** ([ESP32-C5](ESP32-C5), the [ESP32-S3 + C6](ESP32-S3-and-C6) with a screen on the C6).
 
+## Easy ways to start
+
+No C or firmware needed for these:
+
+- **Photos and details of a label we do not support yet**, in a [hardware issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml): both sides of the board, and what is written on the chip, the display cable and the back.
+- **A report from a board marked experimental**: did it flash, did labels show up?
+- **A new [template](Label-templates)**, a JSON file in `templates/` with a layout for each label model.
+- **A clearer sentence in this wiki.** The pages are in [wiki/](https://github.com/mathiasbk/openESL/tree/master/wiki); edit one on GitHub and send a pull request.
+- **A question in an issue** when something here was hard to follow. That tells us what to explain better.
+
 Bug reports and fixes for everything else are just as welcome. Security problems go to [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md), not to an issue.
 
 ## How a change is made

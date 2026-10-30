@@ -5,6 +5,7 @@
 - [Getting started](Getting-started)
 - [What you need](What-you-need)
 - [Roadmap](Roadmap)
+- [Glossary](Glossary)
 
 **Access point**
 - [Choosing a board](Access-point-boards)
@@ -19,13 +20,17 @@
 
 **Labels**
 - [Supported labels](Supported-labels)
+  - [SoluM 2.9"](SoluM-2.9-ST-GM29XX2)
+  - [SoluM 1.54"](SoluM-1.54-ST-GM16XX2)
 - [The flashing jig](Flashing-jig)
 - [Flashing labels](Flashing-labels)
   - [Label backups](Label-backups)
+
+**Layouts**
 - [Label designer](Label-designer)
-  - [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
-  - [Layout elements and limits](Layout-elements-and-limits)
-  - [Label templates](Label-templates)
+- [Label templates](Label-templates)
+- [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
+- [Layout elements and limits](Layout-elements-and-limits)
 
 **Sending content**
 - [Overview](Sending-content)

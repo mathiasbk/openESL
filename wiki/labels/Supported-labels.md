@@ -1,24 +1,39 @@
 # Supported labels
 
-| Maker | Label | Product | Screen | Colours | Chip | Battery |
-|---|---|---|---|---|---|---|
-| SoluM | 2.9" black/white | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | two |
-| SoluM | 1.54" black/white | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | one CR2450 |
+OpenESL runs on these labels. Each has its own page with photos, specifications, how to recognise it and what is known about it. Click a photo or a name to open it.
 
-The current list is always in the [README](https://github.com/mathiasbk/openESL/blob/master/README.md#supported-tags), made from [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json).
+| Label | Product | Screen | Colours | Chip | Battery | Battery reading | Status | Photo |
+|---|---|---|---|---|---|---|---|---|
+| [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | two CR2450 | yes | supported | <a href="SoluM-2.9-ST-GM29XX2"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-front.jpg" alt="The 2.9-inch label" width="140"></a> |
+| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | one CR2450 | no (shows 0) | supported | <a href="SoluM-1.54-ST-GM16XX2"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-154-front.jpg" alt="The 1.54-inch label" width="70"></a> |
 
-<table>
-  <tr>
-    <td align="center"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/pcb-154.jpg" alt="The 1.54-inch circuit board" width="240"><br><sub>1.54" board: ZBS243 and display connector</sub></td>
-    <td align="center"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-154-back.jpg" alt="The back of a 1.54-inch label" width="240"><br><sub>1.54" back: test pads behind the CR2450</sub></td>
-    <td align="center"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-back.jpg" alt="The back of a 2.9-inch label" width="140"><br><sub>2.9" back: two batteries, test pads</sub></td>
-  </tr>
-</table>
+Both talk 802.15.4 to the AP, are flashed once in the [jig](Flashing-jig) and then take new firmware over the air, and every [template](Label-templates) has a version for each. One AP serves both kinds at the same time.
 
-## Known limits
+The list is made from [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json), the one place a label model is described; the [README](https://github.com/mathiasbk/openESL/blob/master/README.md#supported-tags) shows the same list.
 
-- The 1.54" cannot measure its battery voltage yet, so it reports 0 (unknown).
-- Hardware notes for the 1.54": [docs/st-gm16xx2.md](https://github.com/mathiasbk/openESL/blob/master/docs/st-gm16xx2.md).
+## Which one?
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tags-29-and-154.jpg" alt="A 2.9-inch label with a big price and a QR code next to a 1.54-inch label with a small QR code" width="560">
+</p>
+
+- **The 2.9"** for shelf prices: a product name, a big price and a barcode or QR code side by side. Its battery level shows on the dashboard.
+- **The 1.54"** where space is short, or for a single number or status, like a 3D printer's progress or a room's temperature.
+
+## What the status means
+
+- **Supported:** works on hardware and is in every release. Not every release is tested on every label model.
+- **Experimental:** builds and is in the releases, but has not been tested on the label yet. Reports are welcome.
+- **Planned:** someone has asked for it; nothing is built yet.
+
+## Not supported yet
+
+Labels that look like the ones above but are not the same inside do not work with this firmware. Check the product name on the back before you flash. Known look-alikes:
+
+| Label | Why it does not work yet |
+|---|---|
+| SoluM 1.54" ST-GR16000 | Older label with a 152 × 152 screen and another display |
+| SoluM 2.9" with red (black/white/red) | Not added yet: it needs red in the label firmware and its own display settings |
 
 ## Have a label that is not on the list?
 
