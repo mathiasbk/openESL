@@ -1185,6 +1185,14 @@ def restore_notes(cli, b):
                          + ", ".join(f"{i.get('model')} {i.get('version')}" for i in fw if isinstance(i, dict)))
         else:
             lines.extend(x for x in (tag_firmware_note(i, new) for i in fw) if x)
+    if b.get("radio_key"):
+        try:
+            cur = cli.radio_key()
+        except ApiError:
+            cur = None  # no radio security, or no answer: restore says so itself
+        if cur and cur.upper() != b["radio_key"].upper():
+            lines.append("warning: this AP has another radio key, and restore puts the backup's in its place: tags "
+                         "paired with the AP's own key stop getting answers (--dry-run shows this before anything is sent)")
     name = (b.get("ap") or {}).get("hostname")
     if name:
         try:

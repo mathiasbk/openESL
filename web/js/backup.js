@@ -203,11 +203,15 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
 async function putSettings(client, b, note) {
   const config = b.config;
   if (b.radio_key) {
-    const k = await client.call("GET", "/api/radio-key").catch(() => null);
-    if (k?.key && k.key !== b.radio_key.toUpperCase()) {
+    // said either way: a radio key file holds nothing else, so a key left out must not read as done
+    const k = await client.call("GET", "/api/radio-key").catch((e) => ({ error: e }));
+    if (k?.key && k.key.toUpperCase() === b.radio_key.toUpperCase()) note(true, "Radio key: already as in the backup");
+    else if (k?.key) {
       await client.call("PUT", "/api/radio-key", { key: b.radio_key });
       note(true, "Radio key: the paired tags' frames are taken again");
-    }
+    } else if ([404, 405].includes(k?.error?.status ?? parseInt(k?.error?.message, 10)))   // ApClient: "404: ..."
+      note(false, "Radio key: not restored, this AP's firmware has no radio security (update it to 0.9.0 or later, then restore again)");
+    else note(false, `Radio key: not restored, could not read this AP's key (${k?.error?.message || "no key"}); restore again`);
   }
   const cur = await client.call("GET", "/api/config");
   const same = (k, v) => v === cur[k] || ((v === null || v === "") && (cur[k] == null || cur[k] === cur["builtin_" + k]));

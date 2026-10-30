@@ -133,7 +133,7 @@ export function initApWizard(info, store) {
     const where = p.usbPort ? `Plug the ${esc(chip)} into its port marked <b>USB</b>.` : `Plug in the ${p.role === "radio" ? "C6 radio" : esc(chip)}.`;
     const busy = s.status === "busy";
     const pic = p.usbPort ? `<svg class="wz-board" viewBox="0 0 70 100" aria-hidden="true">${devkit(10, 6, chip, true)}</svg>` : "";
-    const err = s.status === "error" ? `<p class="error">${esc(s.msg)}</p>${s.code === "different" ? `<p class="buttons tight"><button type="button" data-flash="${i}" data-erase="1">Erase and flash as new</button><span class="muted">Back up first: <code>esl-client backup ap.json</code></span></p>` : ""}` : "";
+    const err = s.status === "error" ? `<p class="error">${esc(s.msg)}</p>${s.code === "different" ? `<p class="buttons tight"><button type="button" data-flash="${i}" data-erase="1">Erase and flash as new</button><span class="muted">This also erases the radio key: back up first (Dashboard, Settings, Backup, or <code>esl-client backup ap.json</code>), or paired tags must be flashed again.</span></p>` : ""}` : "";
     return `<div class="wz-part on"><span class="wz-n on">${i + 1}</span><div class="wz-grow">
       ${head} <span class="muted">· ${where}</span>
       <div class="wz-row">${pic}<div class="wz-grow">
@@ -142,7 +142,7 @@ export function initApWizard(info, store) {
           <p class="buttons tight"><button type="button" class="primary" data-flash="${i}" ${hasSerial() ? "" : "disabled"}>Connect and flash</button>
           <button type="button" class="ghost" data-skip="${i}">Skip</button></p>
           ${p.role === "radio" && radio()?.kind === "uart" ? `<p class="muted">The radio is erased first: it keeps nothing.</p>` : `
-          <p class="wz-erase"><label><input type="checkbox" data-erase-opt="${i}" ${s.erase ? "checked" : ""}> Erase first (WiFi, token, tags and layouts are lost)</label></p>
+          <p class="wz-erase"><label><input type="checkbox" data-erase-opt="${i}" ${s.erase ? "checked" : ""}> Erase first (WiFi, token, tags, layouts and the radio key are lost: paired tags must then be flashed again, unless you restore a backup)</label></p>
           <p class="muted">${p.role === "radio" ? "A C6 that was an AP or a radio keeps its WiFi unless erased." : "An AP that runs OpenESL keeps its data unless erased first."}</p>`}`}
         ${err}
       </div></div></div></div>`;
@@ -339,6 +339,10 @@ export function initApWizard(info, store) {
     } catch {
       return;   // no port picked
     }
+    // An AP erased loses its radio key: tags paired with it need it back from a backup. Asked
+    // after the port is picked, as the picker needs the click, which a dialog read for a while uses up
+    if ((erase || s.erase) && p.role !== "radio" && !confirm("Erase the AP? Its WiFi, token, tags, layouts and radio key are lost. " +
+      "Tags paired with it only answer it again if you restore its backup or key file; without one they must be flashed again in the jig.")) return;
     // a port open on the dashboard, the Set up tab or step 3 of an AP before this one
     if (serialPort() === port) await disconnectSerial().catch(() => {});
     // the radio on a cable is always erased (its partition table is not the AP's); the radio over

@@ -88,7 +88,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The Settings page (js/apsettings.js): a new token is used from now on, and kept on the AP's own page
   const settings = initSettings({
     getClient: () => client,
-    refresh: () => refresh(),
+    // { key: true } after a restore, which can give the AP another radio key
+    refresh: (o) => {
+      if (o?.key) keyStale = true;
+      refresh();
+    },
     overUsb: () => src() === "serial",
     onToken: (token) => {
       if (client instanceof ApClient) client.token = token;
@@ -108,6 +112,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // the first time it starts 0.9.0, so this also comes up after an update over the API, and when
   // a restore gave the AP another key
   let shownKey = "";
+  let keyStale = true;   // read the key at the next refresh: once per connection, not every 10 s
   function showKey() {
     const key = last?.radioKey || "";
     const box = $("dash-key");
@@ -130,6 +135,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     sources.connected(c);
     settings.reset();
     keyCard.reset();
+    keyStale = true;
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
@@ -193,9 +199,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
       // firmware with radio security (0.9.0) has "radio_secure", and a radio key
-      const radioKey = typeof config?.radio_secure === "boolean" ? await readKey(c).catch(() => last?.radioKey ?? null) : null;
+      // read once per connection, and again after new AP firmware or a restore
+      const secure = typeof config?.radio_secure === "boolean";
+      const fresh = secure && keyStale;
+      let keyRead = false;   // a failed read is tried again at the next refresh
+      const radioKey = !secure ? null : fresh ? await readKey(c).then((k) => ((keyRead = true), k), () => last?.radioKey ?? null) : last?.radioKey ?? null;
       if (c !== client) return;
       last = { list, health, wifi, ota, tagfw, layouts, config, radioKey };
+      if (keyRead) keyStale = false;
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
@@ -1503,6 +1514,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         const r = await sendApFirmware(c, data, progress);
         fwMsg(`Written to ${r.slot}: version ${r.version}. The AP is restarting ...`);
         const back = await waitApBack(c, r.slot, r.version, { alive: () => client === c });
+        keyStale = true;   // firmware with radio security makes its key at its first start
         fwMsg(back.text, back.ok ? "ok" : "error");
       }
     } catch (e) {

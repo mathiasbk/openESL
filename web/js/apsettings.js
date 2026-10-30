@@ -501,6 +501,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
 
   // ---- backup ----
   let loaded = null; // the backup read from a file, waiting for Restore
+  let replacesKey = false; // and it would give this AP another radio key
   const bar = $("bk-progress");
   const showProgress = ({ done, total }) => {
     bar.hidden = false;
@@ -558,6 +559,15 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       `layout files for ${s.layouts.map((m) => m + '"').join(", ") || "no model"}, ${s.scheduled} scheduled. ` +
       "What is on the AP for the same tags and models is replaced; other tags are left as they are." +
       (loaded.radio_key ? " It has the radio key of the paired tags: Settings puts it on this AP." : "");
+    replacesKey = false;
+    $("bk-key-warn").hidden = true;
+    // a key file for another AP would cut this AP off from the tags paired with it: say so first
+    const client = getClient();
+    const cur = loaded.radio_key && client ? await client.call("GET", "/api/radio-key").catch(() => null) : null;
+    if (cur?.key && cur.key.toUpperCase() !== loaded.radio_key.toUpperCase()) {
+      replacesKey = true;
+      $("bk-key-warn").hidden = false;
+    }
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;
     say("bk-msg", "");
@@ -570,6 +580,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const client = getClient();
     if (!client || !loaded) return;
     const parts = Object.fromEntries(["settings", "layouts", "tags", "scheduled"].map((k) => [k, $("bk-p-" + k).checked]));
+    if (replacesKey && parts.settings && !confirm("Replace this AP's radio key with the one in the file? Tags paired with this AP's " +
+      "key stop getting answers. Save its key first (Show radio key) if any tags are paired with it.")) return;
     say("bk-msg", "Restoring …");
     try {
       const r = await restoreBackup(client, loaded, { parts, progress: showProgress });
@@ -579,7 +591,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         r.failed.length ? "error" : "ok");
       if (!r.waiting.length) $("bk-ask").hidden = true;
       if (r.notes.length && !r.failed.length) say("bk-msg", $("bk-msg").textContent + " See the notes below.", "ok");
-      refresh();
+      refresh({ key: true });   // the AP may have another radio key now
     } catch (e) {
       say("bk-msg", "Not restored: " + e.message, "error");
     } finally {

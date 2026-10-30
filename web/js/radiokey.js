@@ -14,6 +14,7 @@ import { BACKUP_FORMAT, BACKUP_VERSION } from "./backup.js";
 
 const KEPT = "openesl.radiokeys";        // [{ key, ap, saved }]
 const SAVED = "openesl.radiokey.saved";  // fingerprints of the keys the user said are saved
+const NOT_KEPT = "openesl.radiokey.notkept";  // and of those the user chose not to keep here
 
 const KEY_RE = /^[0-9A-F]{32}$/;
 
@@ -56,7 +57,8 @@ export function keyBackup(key, ap = {}, now = new Date()) {
     version: BACKUP_VERSION,
     taken: now.toISOString().replace(/\.\d+Z$/, "+00:00"),
     note: "OpenESL radio key. Keep this file secret and away from the AP: without the key, paired tags must be flashed again. Restore it from the dashboard (Settings, Backup) or with esl-client restore.",
-    ap: info,
+    // which AP it is from; not "ap", which a restore compares with the AP it goes onto (its name)
+    key_of: info,
     radio_key: String(key).toUpperCase(),
     config: {},
     layouts: {},
@@ -67,7 +69,7 @@ export function keyBackup(key, ap = {}, now = new Date()) {
 
 // "openesl-radio-key-<host>-2026-10-30.json"
 export function keyFileName(b) {
-  const host = String(b.ap?.hostname || b.ap?.setup_ssid || "ap").replace(/[^A-Za-z0-9-]/g, "");
+  const host = String(b.key_of?.hostname || b.key_of?.setup_ssid || "ap").replace(/[^A-Za-z0-9-]/g, "");
   return `openesl-radio-key-${host}-${String(b.taken || "").slice(0, 10)}.json`;
 }
 
@@ -85,7 +87,7 @@ export function keepKey(key, ap = {}, store = local, now = new Date()) {
   if (!KEY_RE.test(key)) return false;
   const list = readList(store, KEPT).filter((e) => e?.key !== key);
   const old = readList(store, KEPT).find((e) => e?.key === key);
-  list.push({ key, ap: { ...old?.ap, ...keyBackup(key, ap).ap }, saved: old?.saved || now.toISOString() });
+  list.push({ key, ap: { ...old?.ap, ...keyBackup(key, ap).key_of }, saved: old?.saved || now.toISOString() });
   return store.set(KEPT, JSON.stringify(list));
 }
 
@@ -94,14 +96,21 @@ export function dropKey(key, store = local) {
   store.set(KEPT, JSON.stringify(readList(store, KEPT).filter((e) => e?.key !== key)));
 }
 
-export const isSaved = (key, store = local) => readList(store, SAVED).includes(fingerprint(key));
+const hasMark = (list, key, store) => readList(store, list).includes(fingerprint(key));
 
-export function markSaved(key, store = local) {
+function setMark(list, key, on, store) {
   const f = fingerprint(key);
-  const list = readList(store, SAVED).filter((x) => x !== f);
-  list.push(f);
-  store.set(SAVED, JSON.stringify(list.slice(-50)));
+  const marks = readList(store, list).filter((x) => x !== f);
+  if (on) marks.push(f);
+  store.set(list, JSON.stringify(marks.slice(-50)));
 }
+
+export const isSaved = (key, store = local) => hasMark(SAVED, key, store);
+export const markSaved = (key, store = local) => setMark(SAVED, key, true, store);
+
+// Whether the user unticked "Keep a copy in this browser" for this key: the panel then starts
+// unticked, also after the page is loaded again
+export const notKept = (key, store = local) => hasMark(NOT_KEPT, key, store);
 
 // The key of an AP, or null when its firmware has no radio security (before 0.9.0: 404)
 export async function readKey(client) {
@@ -132,7 +141,8 @@ const el = (tag, props = {}, ...kids) => {
 
 // The panel that shows a key and asks for it to be saved. ap: { hostname, ip, setup_ssid, board,
 // fw } for the file and the browser's copy; onSaved() after "I have saved the key"; keep: whether
-// "Keep a copy in this browser" starts ticked (it is kept right away then).
+// "Keep a copy in this browser" starts ticked (it is kept right away then), unless the user
+// unticked it for this key before.
 export function keyPanel(key, { ap = {}, onSaved = null, keep = true, title = "Save the radio key", store = local } = {}) {
   key = String(key).toUpperCase();
   const msg = el("span", { className: "hint", role: "status" });
@@ -150,7 +160,7 @@ export function keyPanel(key, { ap = {}, onSaved = null, keep = true, title = "S
     download(keyBackup(key, ap));
     msg.textContent = "Saved to your downloads: move it somewhere safe, away from this AP.";
   };
-  const box = el("input", { type: "checkbox", checked: keep || isKept(key, store) });
+  const box = el("input", { type: "checkbox", checked: isKept(key, store) || (keep && !notKept(key, store)) });
   const keepNote = el("span", { className: "muted" });
   const setKeep = () => {
     if (box.checked) {
@@ -160,9 +170,11 @@ export function keyPanel(key, { ap = {}, onSaved = null, keep = true, title = "S
         return;
       }
     } else dropKey(key, store);
+    setMark(NOT_KEPT, key, !box.checked, store);
     keepNote.textContent = box.checked ? " Kept: see Dashboard, Settings, Backup on this page." : "";
   };
   box.onchange = setKeep;
+  // kept right away when ticked, so it is there even if the page is closed before anything is clicked
   if (box.checked) setKeep();
   const done = onSaved && el("button", { type: "button", className: "primary", textContent: "I have saved the key" });
   if (done) done.onclick = () => {
@@ -175,7 +187,7 @@ export function keyPanel(key, { ap = {}, onSaved = null, keep = true, title = "S
     el("p", { className: "rk-key mono", textContent: groupKey(key) }),
     el("div", { className: "buttons tight" }, copy, file, msg),
     el("label", { className: "check rk-keep" }, box, " Keep a copy in this browser", keepNote),
-    el("p", { className: "muted rk-small", textContent: "The browser's copy is a spare, not the backup: anyone who can use this browser profile can read it, and it is gone if the browser data is cleared. It is kept for this page's address only." }),
+    el("p", { className: "muted rk-small", textContent: "The browser's copy is a spare, not the backup: anyone who can use this browser profile can read it, and it is gone if the browser data is cleared. It is kept for this site only (on GitHub Pages that is every page under mathiasbk.github.io, on the AP its own address)." }),
     done && el("div", { className: "buttons tight" }, done));
 }
 
@@ -205,6 +217,7 @@ export function initKeyCard({ getClient, apInfo }) {
       forget.onclick = () => {
         if (!confirm(`Remove the copy of the radio key of ${apLabel(e.ap)} from this browser? Make sure it is saved somewhere else.`)) return;
         dropKey(e.key);
+        setMark(NOT_KEPT, e.key, true, local);
         listKept();
       };
       return el("li", {}, el("b", { textContent: apLabel(e.ap) }), " ",

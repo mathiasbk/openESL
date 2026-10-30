@@ -450,8 +450,13 @@ class ClientTest(unittest.TestCase):
                     "config": {}, "layouts": {}, "tags": [], "scheduled": []}
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(key_file, f)
-        lines, ok = esl_client.restore(cli, esl_client.read_backup(f.name))
+        kf = esl_client.read_backup(f.name)
         os.unlink(f.name)
+        # the AP has another key: the dry run warns before anything is sent
+        lines, ok = esl_client.restore(cli, kf, dry_run=True)
+        self.assertTrue(any(l.startswith("warning: this AP has another radio key") for l in lines), lines)
+        self.assertEqual(FakeAp.radio_key, "FFEEDDCCBBAA99887766554433221100")
+        lines, ok = esl_client.restore(cli, kf)
         self.assertTrue(ok, lines)
         self.assertEqual(FakeAp.radio_key, "00112233445566778899AABBCCDDEEFF")
         self.assertEqual(FakeAp.config["poll_s"], 600)
