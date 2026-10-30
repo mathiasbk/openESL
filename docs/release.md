@@ -202,7 +202,7 @@ Every release has a section "Summary of X.Y.Z" here: a few sentences on what the
 
 ### Summary of 0.9.2
 
-Pairing and the radio key from 0.9.0 are taken out again (#290): a paired tag could only be brought back in the flashing jig if the AP's key was lost, too big a risk on a site with many tags. The work is kept for later (#289). Everything else from 0.9.0 and 0.9.1 stays: radio channel and channel scan, signal history, battery saving, date fields and whole-krone prices. **Unpair every paired tag before updating the AP.** Use 0.9.2 instead of 0.9.0 and 0.9.1.
+Pairing and the radio key from 0.9.0 are taken out again (#290): a paired tag could only be brought back in the flashing jig if the AP's key was lost, too big a risk on a site with many tags. The work is kept for later (#289). Everything else from 0.9.0 and 0.9.1 stays: radio channel and channel scan, signal history, battery saving, date fields and whole-krone prices. The tag firmware keeps the drawing fix from 0.9.1 (#283), so tags on 0.9.0 should move to 0.9.2. **Unpair every paired tag before updating the AP.** Use 0.9.2 instead of 0.9.0 and 0.9.1.
 
 ### Summary of 0.9.1
 
