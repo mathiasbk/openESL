@@ -50,9 +50,9 @@ Per day: sleep current for the whole day, plus the charge of each POLL, plus the
 - **POLL, not answered:** wake-up, two full listening windows (the POLL and its one retry) at radio current, and the random pause between them at core current. `5 × 4 + 2 × 20 × 12 + 6 × 4 = 0.52 mC`.
 - **Without an AP** the tag polls 3 times at 60 s, then doubles the interval up to 600 s (T11), so 148 polls a day.
 - **Without an AP for a day** the tag polls once each `long_poll_s` (3600 s), 24 polls a day.
-- **Display update:** init and image transfer at core plus panel current, then the 2.9 s refresh at panel current with the core asleep. `0.3 s × (4 + 3) mA + 2.9 s × 3 mA = 10.8 mC` (`--doze 0` for the core awake: 22 mC).
+- **Display update:** init, image transfer and the 2.9 s refresh at core plus panel current, with the core awake throughout. `0.3 s × (4 + 3) mA + 2.9 s × (4 + 3) mA = 22 mC` (`--doze 1` for the core asleep during the refresh, as in 0.9.0: 10.8 mC).
 - **Battery:** usable capacity is 70 % of nominal, to cover the tag's cut-off voltage above the cell's rated 2.0 V, cold, and the voltage sag when the radio draws its peaks from a coin cell. Self-discharge of 1 % a year is added as a constant current.
-- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "No AP found" screen (drawn once after 2 hours without the AP), retries when the AP is there but a reply is lost, the once-a-second wake-ups to check BUSY during a refresh, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
+- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "No AP found" screen (drawn once after 2 hours without the AP), retries when the AP is there but a reply is lost, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
 
 ## The figures and where they come from
 
