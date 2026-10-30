@@ -190,6 +190,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
 
+### Summary of 0.9.1
+
+A fix for the tags: tag firmware 0.9.0 could draw a grey, half-finished image with the old one showing through, while it told the AP the image was shown. 0.9.1 keeps the tag awake through the display refresh again, as 0.8.2 did. Every tag on 0.9.0 should be updated to 0.9.1; the AP and the C6 radios need nothing.
+
 ### Summary of 0.9.0
 
 Radio security: tags can be paired with the AP, so only that AP can change them, and the AP's radio key is shown after flashing and kept in the backup. The radio channel can be changed, and tags that missed the move find the AP again by scanning. Tags use less battery and report their signal, and layouts get date fields and whole-krone prices (`199,-`).
