@@ -23,7 +23,7 @@ test("the key is shown in groups of four, and its fingerprint does not give it a
 test("the key file is a backup with only the key, and restores only the key", async () => {
   const b = keyBackup(KEY.toLowerCase(), { hostname: "openesl", ip: "192.168.0.170", board: "C6", fw: "0.9.0", junk: 1 }, new Date("2026-10-30T12:34:56.789Z"));
   assert.equal(keyFileName(b), "openesl-radio-key-openesl-2026-10-30.json");
-  assert.deepEqual(b.ap, { hostname: "openesl", ip: "192.168.0.170", board: "C6", fw: "0.9.0" });
+  assert.deepEqual(b.key_of, { hostname: "openesl", ip: "192.168.0.170", board: "C6", fw: "0.9.0" });
   const back = parseBackup(JSON.stringify(b));
   assert.equal(back.radio_key, KEY);
   assert.deepEqual(backupSummary(back), { layouts: [], tags: 0, pictures: 0, configs: 0, scheduled: 0 });
@@ -47,6 +47,9 @@ test("the key file is a backup with only the key, and restores only the key", as
   const r = await restoreBackup(ap, back);
   assert.equal(apKey, KEY);
   assert.deepEqual(r.failed, []);
+  assert.ok(r.done.includes("Radio key: the paired tags' frames are taken again"), r.done.join(", "));
+  // again: said to be as in the file, not left out
+  assert.ok((await restoreBackup(ap, back)).done.includes("Radio key: already as in the backup"));
   assert.ok(!calls.includes("PUT /api/config"), calls.join(", "));
   assert.equal(keyFileName(keyBackup(KEY, { setup_ssid: "openesl-A3AC" }, new Date("2026-10-30T00:00:00Z"))), "openesl-radio-key-openesl-A3AC-2026-10-30.json");
 });
@@ -72,6 +75,24 @@ test("copies in the browser are added, never replaced, and can be removed", () =
   // a broken entry does not break the list
   s.set("openesl.radiokeys", "{oops");
   assert.deepEqual(keptKeys(s), []);
+});
+
+test("a key file on an AP that cannot take it fails, it does not say restored", async () => {
+  const b = parseBackup(JSON.stringify(keyBackup(KEY)));
+  const ap = (keyError) => ({
+    call: async (method, path) => {
+      if (path === "/api/tags") return { ap: { fw: "0.8.2" }, tags: [] };
+      if (path === "/api/radio-key") throw keyError;
+      if (path === "/api/config") return { poll_s: 600 };
+      if (path === "/api/wifi") return {};
+      throw new Error("unexpected " + method + " " + path);
+    },
+  });
+  const old = await restoreBackup(ap(new Error("404: not found")), b);
+  assert.equal(old.failed.length, 1);
+  assert.match(old.failed[0], /no radio security/);
+  const flaky = await restoreBackup(ap(Object.assign(new Error("no answer from the AP on the USB port"), { status: 0 })), b);
+  assert.match(flaky.failed[0], /could not read this AP's key/);
 });
 
 test("saved is remembered by fingerprint only", () => {
