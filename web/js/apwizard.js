@@ -3,13 +3,14 @@
 // flashes each board in it (js/apflash.js, the C6 radio first), step 3 gives the AP its WiFi
 // and API token over the same USB port (js/apserial.js through js/apport.js) and, for the radio
 // over WiFi, the radio its network and the AP's address (js/radioconsole.js), step 4 shows
-// where the AP is.
+// where the AP is and its radio key, read over USB, to be saved (js/radiokey.js).
 import { cards, radiosFor, plan, shortChip, isNativeUsb, twoPorts } from "./apsteps.js";
 import { setupPicture, devkit } from "./appics.js";
 import { loadParts, flashBoard, portAgain } from "./apflash.js";
 import { hasSerial, serialAp, serialPort, connectSerial, connectSerialPort, disconnectSerial, onSerialChange } from "./apport.js";
 import { checkWifi, checkToken, checkHostname, newToken } from "./apserial.js";
 import { setUpRadio } from "./radioconsole.js";
+import { readKey, keyPanel } from "./radiokey.js";
 
 const STEPS = ["Choose AP", "Flash", "WiFi & token", "Done"];
 const JOIN_WAIT_MS = 30000;
@@ -39,6 +40,8 @@ export function initApWizard(info, store) {
     apPort: null,        // the port the main board was flashed on
     radioPort: null,     // and the radio
     log: [],             // the radio's log lines
+    key: null,           // step 4: the AP's radio key, "reading", "none" (no radio security) or "no-usb"
+    keySaved: false,     // and the user said it is saved
   };
 
   const radios = () => (st.card ? radiosFor(st.card.board, info) : []);
@@ -56,6 +59,8 @@ export function initApWizard(info, store) {
     st.parts = plan(st.card.board, radio());
     st.flash = st.parts.flash.map(fresh);
     st.connect = st.parts.connect.map(fresh);
+    st.key = null;
+    st.keySaved = false;
   }
 
   const finished = (list) => list.every((p) => p.status === "done" || p.status === "skipped");
@@ -86,6 +91,7 @@ export function initApWizard(info, store) {
     next.textContent = st.step === 2 ? "Finish →" : "Next →";
     next.disabled = st.step === 0 ? !st.card || !hasSerial() : st.step === 1 ? !finished(st.flash) : st.step === 2 ? !finished(st.connect) : false;
     wire();
+    if (st.step === 3) showKey();
   }
 
   function badge(status) {
@@ -225,6 +231,7 @@ export function initApWizard(info, store) {
     return `<div class="wz-panel wz-done">
       <div class="wz-big ok">✓</div>
       ${where}
+      <div id="wz-key" class="wz-key"></div>
       <p class="muted">${esc(st.card.title)}${radio() && st.parts.flash.some((p) => p.role === "radio") ? ` · ${esc(radio().display ? "C6 radio with screen" : "C6 radio")}` : ""}${version ? ` · ${esc(version)}` : ""}</p>
       <p class="buttons wz-center">
         ${w?.ip ? `<a class="button primary" href="http://${esc(w.ip)}/dashboard" target="_blank" rel="noopener">Open dashboard</a>` : `<a class="button primary" href="#setup">Set up</a>`}
@@ -233,6 +240,40 @@ export function initApWizard(info, store) {
       </p>
       <p><button type="button" class="ghost" id="wz-again">Flash another AP</button></p>
     </div>`;
+  }
+
+  // The radio key on the done page. The AP makes it the first time it starts (0.9.0), so it is
+  // read now, over the USB port of step 3; an AP this page cannot reach shows it on its dashboard.
+  function showKey() {
+    const box = $("wz-key");
+    if (st.key === null) {
+      st.key = "reading";
+      readWizardKey();
+    }
+    if (st.keySaved) {
+      box.innerHTML = `<p class="ok">✓ You saved the radio key.</p>`;
+    } else if (st.key === "no-usb") {
+      box.innerHTML = `<p class="warn"><b>Save the AP's radio key.</b> This page could not read it over USB. The AP's dashboard shows it until you say it is saved; it is also under Settings, Backup. Without it, a new or erased AP cannot reach paired tags, and they must be flashed again.</p>`;
+    } else if (st.key && st.key !== "reading" && st.key !== "none") {
+      box.replaceChildren(keyPanel(st.key, {
+        ap: { hostname: st.wifi?.hostname, ip: st.wifi?.ip, setup_ssid: st.wifi?.setup_ssid, board: st.card?.title, fw: version },
+        title: "Save the radio key now",
+        onSaved: () => {
+          st.keySaved = true;
+          render();
+        },
+      }));
+    }
+  }
+
+  async function readWizardKey() {
+    const ap = serialAp();
+    try {
+      st.key = ap ? (await readKey(ap)) || "none" : "no-usb";
+    } catch {
+      st.key = "no-usb";
+    }
+    if (st.step === 3) render();
   }
 
   // ---------- actions ----------
@@ -275,7 +316,7 @@ export function initApWizard(info, store) {
     $("wz-again")?.addEventListener("click", async () => {
       // the AP just set up may still be open over USB: the next one must not answer as it
       await disconnectSerial().catch(() => {});
-      Object.assign(st, { step: 0, wifi: null, onWifi: null, editWifi: false, apPort: null, radioPort: null });
+      Object.assign(st, { step: 0, wifi: null, onWifi: null, editWifi: false, apPort: null, radioPort: null, key: null, keySaved: false });
       render();
     });
   }

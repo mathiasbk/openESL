@@ -556,7 +556,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     $("bk-what").textContent = `${f.name}, made ${new Date(loaded.taken).toLocaleString()}${from ? ` on ${from}` : ""}: ` +
       `${s.tags + s.pictures} tags with content (${s.pictures} pictures), ${s.configs} with their own settings, ` +
       `layout files for ${s.layouts.map((m) => m + '"').join(", ") || "no model"}, ${s.scheduled} scheduled. ` +
-      "What is on the AP for the same tags and models is replaced; other tags are left as they are.";
+      "What is on the AP for the same tags and models is replaced; other tags are left as they are." +
+      (loaded.radio_key ? " It has the radio key of the paired tags: Settings puts it on this AP." : "");
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;
     say("bk-msg", "");

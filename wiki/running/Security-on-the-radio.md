@@ -18,6 +18,8 @@ The key goes to a label unsigned once, when it is paired. Pair where nobody is l
 
 The AP makes its radio key the first time it starts with 0.9.0. Every label's key is made from it, so the AP keeps no list. The key is in the [backup](Backup-and-restore), so **keep backup files secret**. A restore onto a new AP puts the key back, and the paired labels carry on. Without the key (a full erase and no backup), paired labels get no answers until they are flashed again in the [jig](Flashing-jig).
 
+The web page shows the key so it gets saved: the Flash AP tab at the end, read over USB, and the AP's dashboard until you click **I have saved the key** (so also after an update over the air, and after a restore that gave the AP another key). **Download key file** saves a small file with only the key; Restore under Settings, Backup (or `esl_client.py restore`) puts it back and leaves the AP's other settings alone. **Keep a copy in this browser** is a spare, ticked by default: anyone who can use that browser profile can read it, and it is lost when the browser data is cleared, so untick it on a shared computer. The copies are listed under Settings, Backup, on the page they were kept on (the AP's own dashboard and the web page each have their own).
+
 ## What it does not protect
 
 - Nothing is encrypted: anyone in range can read the prices.

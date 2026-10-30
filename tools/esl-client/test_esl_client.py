@@ -440,6 +440,22 @@ class ClientTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("warning: the radio key was not restored; this AP has no radio security: pair the tags again", lines)
         self.assertEqual(len(FakeAp.tags), 1)
+        # the web page's radio key file (js/radiokey.js): a backup with only the key, which leaves
+        # the AP's own settings as they are
+        self.setUp()
+        FakeAp.radio_key = "FFEEDDCCBBAA99887766554433221100"
+        FakeAp.config["poll_s"] = 600
+        key_file = {"format": "openesl-backup", "version": 1, "taken": "2026-10-30T12:00:00+00:00",
+                    "ap": {"hostname": "openesl"}, "radio_key": "00112233445566778899AABBCCDDEEFF",
+                    "config": {}, "layouts": {}, "tags": [], "scheduled": []}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(key_file, f)
+        lines, ok = esl_client.restore(cli, esl_client.read_backup(f.name))
+        os.unlink(f.name)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.radio_key, "00112233445566778899AABBCCDDEEFF")
+        self.assertEqual(FakeAp.config["poll_s"], 600)
+        self.assertNotIn("/api/config", [c[0] for c in FakeAp.calls])
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")
