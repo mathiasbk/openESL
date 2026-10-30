@@ -72,7 +72,7 @@ From 0.5.x to 0.9.0, for example, with many tags:
 1. `esl-client backup ap.json` with the 0.9.0 esl-client. Take another one after the update: from 0.9.0 the backup holds the radio key, so keep it secret.
 2. The AP: `openesl-ap-<board>-v0.9.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
 3. ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168). The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.9.0 release, which is version 0.9.0 (the first new tag firmware since 0.6.0). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+4. The tags: the tag image of the 0.9.1 release, which is version 0.9.1 (the first new tag firmware since 0.6.0; not the 0.9.0 tag image, which draws faded screens, see 0.9.1 below). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
 5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Pair the tags, and change the radio channel, only once every tag runs 0.9.0 (below).
 
 ### Upgrading from 0.4.x to 0.5.0
@@ -124,6 +124,14 @@ The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for do
 A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
+
+### Upgrading from 0.9.0 to 0.9.1
+
+Order: only the tags. **Every tag on 0.9.0 firmware should get the tag image of 0.9.1**, one of each model first as usual ([section 3](#3-rollout-to-the-tags)). Nothing the AP or either C6 radio does has changed, so neither needs an update: their images say 0.9.1 only because the AP builds some of the tag's source files too (`tools/fw_version.py`), and the file that changed (`tag/src/epd.c`) is not one of them. Updating the AP anyway does no harm. Nothing is one-way: a tag on 0.9.1 talks to the AP as a 0.9.0 tag does, keeps its settings, radio key and channel, and takes older firmware as before.
+
+The fix (#283): tag firmware 0.9.0 let the core sleep a second at a time while the panel refreshed (#261). On hardware the panel then stops partway: the image comes out grey and half drawn with the old one showing through, on the 1.54" and the 2.9", while the tag tells the AP it was shown. Tag firmware 0.9.1 waits awake through the refresh again, as 0.8.2 did; everything else of 0.9.0 (signal history, long backoff, rarer battery reading, channel, pairing) stays. A display update now costs about what it did in 0.8.2, so "about half the charge of a display update" under 0.9.0 below no longer holds (4.6 µA on average and about 9.3 years in [strombudsjett.md](strombudsjett.md)).
+
+A tag on 0.9.0 still polls and takes firmware normally, so the update goes over the air like any other. A tag starts with no image after the update, so the AP sends it its screen again at its next poll and the faded image is replaced by a sharp one; nothing has to be sent by hand. A tag that never got 0.9.0 skips it and goes straight to 0.9.1 ("Upgrading from 0.8.2 to 0.9.0" below, with the tag image of 0.9.1). Do not give tags the 0.9.0 tag image.
 
 ### Upgrading from 0.8.2 to 0.9.0
 
