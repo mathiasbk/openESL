@@ -22,7 +22,7 @@ The list is made from [shared/models.json](https://github.com/mathiasbk/openESL/
 
 ## What the status means
 
-- **Supported:** tested on hardware and in every release.
+- **Supported:** works on hardware and is in every release. Not every release is tested on every label model.
 - **Experimental:** builds and is in the releases, but has not been tested on the label yet. Reports are welcome.
 - **Planned:** someone has asked for it; nothing is built yet.
 
