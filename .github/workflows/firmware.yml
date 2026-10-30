@@ -14,12 +14,20 @@
 # (tools/fw_version.py), so the images of a release that changed only one of them are the
 # previous ones again for the other; the "Versions" step shows what this run built.
 # The AP is built one job per board and per radio (ap/build.py --jobs), side by side, and
-# collected into the ap-firmware artifact.
+# collected into the ap-firmware artifact. ccache keeps the compiled objects between runs
+# (most of them are ESP-IDF's own, which do not change), so a build takes about a third of
+# the time it takes from scratch. web.yml asks for fewer AP builds on pull requests that
+# cannot change the AP (inputs.ap); release.yml always builds them all.
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
 
 on:
   workflow_call:
+    inputs:
+      ap:
+        description: "Which AP builds: all (every board and radio), one (c6-supermini) or none"
+        type: string
+        default: all
 
 permissions:
   contents: read
@@ -83,13 +91,19 @@ jobs:
   # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:
   # one after another they took 13 minutes, about 1.5 minutes each
   ap-jobs:
+    if: inputs.ap != 'none'
     runs-on: ubuntu-24.04
     outputs:
       jobs: ${{ steps.jobs.outputs.jobs }}
     steps:
       - uses: actions/checkout@v7
       - id: jobs
-        run: echo "jobs=$(python3 ap/build.py --jobs)" >> "$GITHUB_OUTPUT"
+        env:
+          AP: ${{ inputs.ap }}
+        run: |
+          jobs=$(python3 ap/build.py --jobs)
+          if [ "$AP" = one ]; then jobs=$(echo "$jobs" | jq -c '[.[] | select(.name == "c6-supermini")]'); fi
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
   ap-build:
     needs: ap-jobs
@@ -115,13 +129,21 @@ jobs:
       - name: Renderer for the AP's Design tab (web/dist/wasm/)
         if: ${{ !contains(matrix.job.args, '/') }}
         run: python3 web/build.py --wasm
+      # the newest cache of this build (a pull request also finds master's, which the
+      # releases fill); ccache checks every object against its sources and flags
+      - uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.job.name }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.job.name }}-
       - name: Build ${{ matrix.job.name }} (ESP-IDF v5.5.5), merged into one image
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
           target: esp32c6   # only for the action; ap/build.py takes the chip from each board
           path: ap
-          command: python build.py ${{ matrix.job.args }}
+          extra_docker_args: -e IDF_CCACHE_ENABLE=1 -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e CCACHE_MAXSIZE=200M
+          command: python build.py ${{ matrix.job.args }} && ccache -s
       - uses: actions/upload-artifact@v7
         with:
           name: ap-build-${{ matrix.job.name }}
