@@ -35,7 +35,7 @@
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .menu-note { font-size: 12px; color: var(--muted); padding: 4px 10px 2px; }
 
-.dz { display: grid; grid-template-columns: 250px minmax(0, 1fr) 320px; height: calc(100vh - var(--head) - var(--top, 57px)); min-height: 520px; }
+.dz { display: grid; grid-template-columns: 310px minmax(0, 1fr) 320px; height: calc(100vh - var(--head) - var(--top, 57px)); min-height: 520px; }
 .dz-left, .dz-right { background: var(--panel); overflow: auto; }
 .dz-left { border-right: 1px solid var(--line); padding: 12px 10px; }
 .dz-right { border-left: 1px solid var(--line); }
@@ -52,17 +52,24 @@
 .dz-list .dim { color: var(--muted); font-size: 12px; }
 #layout-list li.sel, #builtin-list li.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 #layout-list li.sel .name, #builtin-list li.sel .name { font-weight: 600; }
-#layout-list li.lay { grid-template-columns: 64px minmax(0, 1fr); align-items: start; padding: 6px; gap: 8px; position: relative; }
-#layout-list .thumb { width: 64px; max-height: 64px; object-fit: contain; border: 1px solid var(--line); border-radius: 3px; background: #fff; image-rendering: auto; }
+#layout-list li.lay { grid-template-columns: 72px minmax(0, 1fr) auto; align-items: start; padding: 6px; gap: 8px; }
+#layout-list .thumb { width: 72px; max-height: 72px; object-fit: contain; border: 1px solid var(--line); border-radius: 3px; background: #fff; image-rendering: auto; }
 #layout-list .t { display: grid; min-width: 0; line-height: 1.3; }
 #layout-list .st { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 #layout-list .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
 #layout-list .st.ap::before { background: #2e9e4f; }
 #layout-list .st.changed::before { background: #e08a00; }
-#layout-list .acts { display: none; gap: 2px; position: absolute; top: 4px; right: 2px; }
-#layout-list li.sel .acts { display: inline-flex; }
-#layout-list .acts button { border: 0; background: none; padding: 0 5px; color: var(--muted); font-weight: 400; }
-#layout-list .acts button:hover { color: var(--text); }
+#builtin-list li { grid-template-columns: minmax(0, 1fr) auto auto; }
+.dz-list .acts { display: inline-flex; gap: 2px; align-items: center; }
+.dz-list .acts button { border: 0; background: none; padding: 0 5px; color: var(--muted); font-weight: 400; min-height: 0; }
+.dz-list .acts button:hover { color: var(--text); }
+/* The info button is always there; copy and delete only on the selected layout */
+#layout-list .acts button:not(.info) { display: none; }
+#layout-list li.sel .acts button, #layout-list li:hover .acts button { display: inline-block; }
+.dz-list .acts button.info { border: 1px solid var(--line); border-radius: 5px; font-size: 11px; font-weight: 600; padding: 1px 5px; letter-spacing: .03em; }
+.dz-list .acts button.info:hover { border-color: var(--accent); color: var(--accent); }
+.lay-api-dlg { width: min(500px, calc(100vw - 32px)); }
+.lay-api-dlg .lay-panel { border: 0; padding: 0; position: static; max-width: none; }
 .lay-add { display: flex; gap: 6px; margin: 0 4px 8px; }
 .lay-add button { flex: 1; white-space: nowrap; padding-left: 6px; padding-right: 6px; }
 .lay-gone { color: var(--muted); margin: 6px 6px 0; }
@@ -229,7 +236,7 @@
 .dz-canvas { display: flex; flex-direction: column; justify-content: safe center; }
 
 @media (max-width: 1200px) and (min-width: 1001px) {
-  .dz { grid-template-columns: 200px minmax(0, 1fr) 280px; }
+  .dz { grid-template-columns: 260px minmax(0, 1fr) 280px; }
 }
 @media (max-width: 1000px) {
   /* The bar for the selected element docks at the bottom of the window, one row that scrolls sideways */
@@ -321,3 +328,8 @@
 .via-ico { font-size: 20px; }
 @media (max-width: 480px) { .via { flex-direction: column; } }
 #ap-wifi .note { color: var(--warn); }
+
+/* date fields under a fixed text (dateFieldButtons) */
+.date-fields { display: grid; gap: 4px; margin: -2px 0 6px; }
+.date-fields .chip { min-height: 24px; padding: 2px 8px; font-size: 12px; font-family: ui-monospace, monospace; }
+.date-fields p { margin: 0; }

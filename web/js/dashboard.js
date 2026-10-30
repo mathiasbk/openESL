@@ -1446,8 +1446,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   $("dash-find").addEventListener("input", render);
   // The folded cards stay as they were left
-  for (const id of ["dash-ap-box", "dash-fw-box"]) {
-    $(id).open = store.get(id) === "open";
+  for (const id of ["lay-card", "dash-ap-box", "dash-fw-box"]) {
+    $(id).open = store.get(id) ? store.get(id) === "open" : id === "lay-card";
     $(id).addEventListener("toggle", () => store.set(id, $(id).open ? "open" : "closed"));
   }
   $("dash-auto").addEventListener("change", () => (client && $("dash-auto").checked ? refresh() : clearTimeout(timer)));

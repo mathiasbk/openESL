@@ -16,6 +16,7 @@ import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
 import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
+import { layoutPanel } from "./layoutapi.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -713,7 +714,7 @@ function refreshLayoutList() {
     del.title = del.ariaLabel = lays.length <= 1 ? "The file needs at least one layout" : "Delete this layout";
     del.disabled = lays.length <= 1;
     del.dataset.act = "delete";
-    acts.append(copy, del);
+    acts.append(infoButton(), copy, del);
     li.append(pic, t, acts);
     return li;
   }));
@@ -733,10 +734,73 @@ function refreshLayoutList() {
     const d = document.createElement("span");
     d.className = "dim";
     d.textContent = BUILTIN[name].fields.length + " fields";
-    li.append(n, d);
+    const acts = document.createElement("span");
+    acts.className = "acts";
+    acts.append(infoButton());
+    li.append(n, d, acts);
     return li;
   }));
   if (isBuiltin()) $("builtin-box").open = true;
+}
+
+function infoButton() {
+  const b = document.createElement("button");
+  b.textContent = "API";
+  b.className = "info";
+  b.title = b.ariaLabel = "What a tag needs for this layout: send it to a tag, or see the request for curl, esl-client and Home Assistant";
+  b.dataset.act = "info";
+  return b;
+}
+
+// The window with what a client sends for a layout of the file or a built-in one (key as
+// state.sel), the same panel as the Dashboard's Layouts card (js/layoutapi.js)
+let infoPanel = null;
+let infoKey = "";
+async function showLayoutInfo(key = infoKey) {
+  infoKey = key;
+  const dlg = $("lay-api-dlg");
+  infoPanel ||= layoutPanel($("lay-api"), { onClose: () => dlg.close() });
+  const builtin = key.startsWith("builtin:");
+  const l = builtin ? null : doc().layouts?.[+key.slice(5)];
+  if (!builtin && !l) return;
+  const name = builtin ? key.slice(8) : l.name;
+  const fields = builtin ? BUILTIN[name].fields : l.fields || [];
+  const sample = builtin ? fields.map(defaultSample) : samplesOf(l);
+  let what = [];
+  if (l?._template) {
+    const t = (await templateById(l._template))?.t;
+    if (t) what = fields.map((f) => t.fields?.[f] || "");
+  }
+  const cmp = !builtin && ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
+  const st = builtin ? "ap" : cmp?.states[name];
+  const pill = builtin ? "Built in" : !ap.connected ? "In this file"
+    : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
+  const host = onAp ? location.host : "openesl.local";
+  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model)
+    .map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name, shown: t.content_id ? ap.tagLayouts[t.mac] || "?" : "" })) : null;
+  infoPanel.show({
+    key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
+    send: ap.connected && st === "ap" ? async (mac, c) => {
+      const r = await apClient().putContent(mac, c);
+      ap.tagLayouts[mac] = name;
+      refreshLayoutList();
+      showLayoutInfo();
+      return r;
+    } : null,
+    why: !ap.connected ? "Connect to your AP to send to a tag from here."
+      : `The AP does not have this version of "${name}" yet. ${onAp ? "Save the file to the AP" : "Send it to the AP"} first.`,
+    first: { label: !ap.connected ? "Connect to your AP…" : onAp ? "Save to AP" : "Send to your AP…", run: () => {
+      // The Send window and Save to AP work on the selected layout: select this one first
+      $("lay-api-dlg").close();
+      if (state.sel !== key) {
+        state.sel = key;
+        state.el = -1;
+        refreshAll();
+      }
+      $(onAp && ap.connected ? "ap-save" : "send-open").click();
+    } },
+  });
+  if (!dlg.open) dlg.showModal();
 }
 
 // The small pictures of the layouts, by model: the last image data drawn for each
@@ -942,7 +1006,7 @@ function refreshElement() {
         $("sel-title").textContent = "Selected: " + elementName(e);
       });
       l.append(inp);
-      box.append(l);
+      box.append(l, dateFieldButtons(inp));
     }
   }
   // position and size
@@ -971,6 +1035,48 @@ function refreshElement() {
     xywh.append(l);
   }
   box.append(xywh);
+}
+
+// Date fields the AP fills in when it draws a fixed text (esl_clock.h on the AP): a button for
+// each puts it in at the cursor, with today's value on hover as the preview draws it
+const DATE_FIELDS = [
+  ["{weekday}", "the weekday, Thursday"],
+  ["{date}", "the date, 29 October 2026"],
+  ["{date_short}", "the date, 29.10.2026"],
+  ["{week}", "the week number, 44"],
+];
+
+function dateFieldButtons(inp) {
+  const div = document.createElement("div");
+  div.className = "date-fields";
+  const p = document.createElement("p");
+  p.className = "small muted";
+  p.textContent = "Date fields, filled in by the AP in its time zone (Settings, General; UTC until set): " +
+    "the tag is redrawn once a day ({week} alone: once a week). An AP from before 0.9 shows them as written.";
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  for (const [f, what] of DATE_FIELDS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = f;
+    b.title = "Put in " + what;
+    b.addEventListener("click", () => {
+      const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
+      const v = inp.value.slice(0, at) + f + inp.value.slice(end);
+      if (v.length > inp.maxLength) {
+        setStatus(`${f} does not fit: a fixed text is at most ${inp.maxLength} characters`, "error");
+        return;
+      }
+      inp.value = v;
+      inp.focus();
+      inp.setSelectionRange(at + f.length, at + f.length);
+      inp.dispatchEvent(new Event("input"));
+    });
+    chips.append(b);
+  }
+  div.append(chips, p);
+  return div;
 }
 
 function updatePositionInputs() {
@@ -1315,6 +1421,60 @@ function addElement(kind) {
   changed();
 }
 
+// Size an SVG is drawn at, on its longer side: an SVG scales, and the icon sets of the web give
+// theirs at 16 or 24 px, which is too small on a tag (an icon cannot be made bigger later)
+const SVG_SIZE = 64;
+
+// An SVG length in px: a number with px, pt, pc, mm, cm, in or no unit; 0 for anything else (%)
+function svgLength(v) {
+  const m = /^\s*([+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|pt|pc|mm|cm|in)?\s*$/i.exec(v ?? "");
+  const k = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 }[(m?.[2] ?? "px").toLowerCase()];
+  return m ? parseFloat(m[1]) * k : 0;
+}
+
+// A picture file as something drawImage takes, with its width and height. Chromium's
+// createImageBitmap cannot decode an SVG, so an SVG goes through an Image, drawn SVG_SIZE on its
+// longer side with the shape of its viewBox (or of its width and height, or square). linked: it
+// had pictures that are not in the file (<image> with a link), which are left out.
+async function readPicture(file) {
+  const svg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  if (!svg) return createImageBitmap(file);
+  const xml = new DOMParser().parseFromString(await file.text(), "image/svg+xml");
+  const root = xml.documentElement;
+  if (root.localName !== "svg") throw new Error("not an SVG");
+  const ow = svgLength(root.getAttribute("width")), oh = svgLength(root.getAttribute("height"));
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  let [vw, vh] = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? [vb[2], vb[3]] : [0, 0];
+  if (!vw && ow && oh) {
+    // without a viewBox its content is in px of its own size: keep that, scaled
+    [vw, vh] = [ow, oh];
+    root.setAttribute("viewBox", `0 0 ${ow} ${oh}`);
+  }
+  const r = vw ? vw / vh : 1;
+  const [w, h] = r >= 1 ? [SVG_SIZE, SVG_SIZE / r] : [SVG_SIZE * r, SVG_SIZE];
+  root.setAttribute("width", String(w));
+  root.setAttribute("height", String(h));
+  if (!root.hasAttribute("xmlns")) root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  // a linked picture is not loaded from a blob, and would be drawn as a broken-image sign
+  let linked = false;
+  for (const im of [...xml.getElementsByTagNameNS("http://www.w3.org/2000/svg", "image")]) {
+    const href = im.getAttribute("href") ?? im.getAttributeNS("http://www.w3.org/1999/xlink", "href") ?? "";
+    if (!href.trim().startsWith("data:")) {
+      im.remove();
+      linked = true;
+    }
+  }
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(xml)], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return { img, width: w, height: h, linked };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // An icon from a picture file: drawn at its own size (scaled down to fit ICON_MAX and the
 // screen), dark pixels drawn, light and transparent ones left.
 async function addIcon(file) {
@@ -1327,9 +1487,9 @@ async function addIcon(file) {
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
-    bmp = await createImageBitmap(file);
+    bmp = await readPicture(file);
   } catch {
-    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG or GIF)", "error");
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
     return;
   }
   const max = Math.min(ICON_MAX, width, height);
@@ -1338,7 +1498,7 @@ async function addIcon(file) {
   const c = document.createElement("canvas");
   [c.width, c.height] = [w, h];
   const ctx = c.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.drawImage(bmp.img ?? bmp, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
   const row = Math.ceil(w / 8);
   const bits = new Uint8Array(row * h);
@@ -1357,7 +1517,7 @@ async function addIcon(file) {
   d.icons[name] = { w, h, data: btoa(String.fromCharCode(...bits)) };
   lay.elements.push({ type: "icon", icon: name, x: Math.floor((width - w) / 2), y: Math.floor((height - h) / 2), w, h });
   state.el = lay.elements.length - 1;
-  changed();
+  changed();  if (bmp.linked) setStatus(file.name + " links pictures that are not in the file; they were left out", "error");
 }
 
 // Icons no element in any layout draws are dropped, so they do not take room in the file. An icon
@@ -1499,7 +1659,9 @@ function initActions() {
     const li = ev.target.closest("li");
     if (!li) return;
     const act = ev.target.closest("button")?.dataset.act;
-    if (act === "copy") {
+    if (act === "info") {
+      showLayoutInfo(li.dataset.sel);
+    } else if (act === "copy") {
       const c = structuredClone(layout());
       c.name = uniqueName(c.name);
       addLayout(c);
@@ -1519,6 +1681,7 @@ function initActions() {
   });
   $("builtin-list").addEventListener("click", (ev) => {
     const li = ev.target.closest("li");
+    if (li && ev.target.closest("button")?.dataset.act === "info") return showLayoutInfo(li.dataset.sel);
     if (!li || li.dataset.sel === state.sel) return;
     state.sel = li.dataset.sel;
     state.el = -1;

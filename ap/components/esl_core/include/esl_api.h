@@ -56,6 +56,26 @@ typedef struct {
 bool esl_ntp_name_ok(const char *s, size_t len);
 bool esl_tz_ok(const char *s, size_t len);
 
+/* GET /api/tags?since= (#270): which tags changed since a client last read the list.
+ * Each such read takes a fingerprint (CRC) of every tag's row and stamps the rows that
+ * differ from the last read with a new number, seq; the reply gives the client
+ * "<boot>-<seq>" to send next time, and holds only the tags stamped after the one it
+ * sent. One entry per slot of the tag table, allocated a chunk at a time like the table.
+ * boot is set by the glue at start (a random number), so a since from before a restart
+ * gets the whole list. Touched only under the API's mutex. */
+typedef struct {
+    uint32_t crc;  /* the row's fingerprint at the last read; 0 = no tag there */
+    uint32_t seq;  /* the read that saw it change */
+    uint32_t mac;  /* the low 32 bits of that tag's MAC: another tag in a reused slot means one went */
+} esl_api_change_t;
+typedef struct {
+    uint32_t boot;
+    uint32_t seq;
+    uint32_t removed_seq; /* the last read that found a tag gone: an older since gets the whole list */
+    esl_api_change_t *chunk[ESL_STORE_MAX_CHUNKS];
+} esl_api_changes_t;
+void esl_api_changes_free(esl_api_changes_t *ch);
+
 #define ESL_API_MAX_BATCH  50
 #define ESL_API_MAX_BODY   24576
 #define ESL_API_MAX_TOKENS 1024
@@ -79,6 +99,7 @@ typedef struct {
     esl_clock_cfg_t *clock; /* NTP server and time zone (GET/PUT /api/config); NULL: left out, and PUT answers 422 */
     bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
                                false: GET leaves it out, PUT answers 422 */
+    esl_api_changes_t *changes; /* GET /api/tags?since= (above); NULL: since is ignored, the whole list */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

@@ -1,4 +1,5 @@
 #include "esl_rhost.h"
+#include "esl_clock.h"
 #include "esl_radio.h"
 #include <string.h>
 
@@ -91,13 +92,15 @@ static bool image_id(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, uint32
     *id = 0;
     if (!t->image_capable || !t->has_content || t->content_err || !t->model || !h->im)
         return true;
-    uint32_t ver = 0;
-    if (!esl_layouts_info(h->ls, t->model, &ver, NULL, NULL))
-        ver = 0;
-    if (t->image_id && t->image_layout_ver == ver) {
+    if (t->image_id && t->image_layout_ver == esl_layouts_image_ver(h->ls, t->model, t->layout_hash)) {
         *id = t->image_id;
         return true;
     }
+    /* a layout with date fields is not drawn while the time is unknown (esl_image.c draw()):
+       no draw is spent on it, so the others are not held up */
+    int32_t today;
+    if (!esl_clock_today(&today) && esl_layouts_clock(h->ls, t->model, t->layout_hash) != ESL_CLOCK_NONE)
+        return true;
     if (!*draws)
         return false;
     if (draw(h, t->mac, draws))

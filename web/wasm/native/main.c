@@ -5,7 +5,8 @@
  *   web_render <layouts.json | -> <layout> <flags> [field ...]
  *
  * Prints "ok <width> <height>" and then one line of 0/1 per pixel row, or
- * "error <message>". "-" means no layout file (built-in layouts only).
+ * "error <message>". "-" means no layout file (built-in layouts only). ESL_TODAY in the
+ * environment is today for date fields (days since 1970-01-01; else unknown).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@ int web_height(void);
 const char *web_error(void);
 unsigned char *web_fb(void);
 int web_load_layouts(const char *json, int len);
+void web_set_today(int days);
 int web_render(int layout, int flags, int n, const char *f0, const char *f1, const char *f2, const char *f3,
                const char *f4, const char *f5);
 
@@ -44,6 +46,7 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    web_set_today(getenv("ESL_TODAY") && *getenv("ESL_TODAY") ? atoi(getenv("ESL_TODAY")) : -1);
     n = argc - 4;
     for (i = 0; i < n; i++)
         f[i] = argv[4 + i];

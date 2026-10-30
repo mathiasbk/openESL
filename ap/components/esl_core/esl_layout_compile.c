@@ -1,4 +1,5 @@
 #include "esl_barcode.h"
+#include "esl_clock.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
 #include "esl_qr.h"
@@ -177,6 +178,8 @@ typedef struct {
     int8_t qr_field;      /* the QR element, the same */
     uint8_t qr_ecc;
     uint16_t qr_cap;
+    uint8_t clock;        /* ESL_CLOCK_*: the finest date field in its fixed texts */
+    unsigned clocks;      /* text elements with date fields */
 } lay_t;
 
 static bool field_name_ok(const char *s)
@@ -582,6 +585,14 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         if (fb < 0)
             return false;
         out[ESL_LE_OFF_FIELD] = (uint8_t)fb;
+        unsigned ti = (unsigned)fb & ~ESL_LE_FIELD_FIXED;
+        uint8_t res = esl_clock_res(c->text[ti], c->tlen[ti]);
+        if (res) {
+            if (++lay->clocks > ESL_CLOCK_TEXTS)
+                return fail(c, "at most %d texts with date fields ({date}, {week}, ...) in a layout", ESL_CLOCK_TEXTS);
+            if (res > lay->clock)
+                lay->clock = res;
+        }
     } else if (f < 0)
         return fail(c, barcode ? "a barcode element needs a field"
                        : qr    ? "a QR element needs a field"
@@ -846,6 +857,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     out->qr_field[c->li] = lay.qr_field;
     out->qr_ecc[c->li] = lay.qr_ecc;
     out->qr_cap[c->li] = lay.qr_cap;
+    out->clock[c->li] = lay.clock;
     return true;
 }
 

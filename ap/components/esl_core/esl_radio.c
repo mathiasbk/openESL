@@ -60,12 +60,9 @@ static void note_fw_sent(esl_store_t *st, uint64_t mac, const uint8_t *reply, si
 static uint32_t known_image(esl_store_t *st, esl_layouts_t *ls, uint64_t mac)
 {
     esl_tag_t t;
-    uint32_t ver = 0;
     if (!esl_store_get(st, mac, &t) || !t.has_content || t.content_err || !t.image_id)
         return 0;
-    if (!esl_layouts_info(ls, t.model, &ver, NULL, NULL))
-        ver = 0;
-    return t.image_layout_ver == ver ? t.image_id : 0;
+    return t.image_layout_ver == esl_layouts_image_ver(ls, t.model, t.layout_hash) ? t.image_id : 0;
 }
 
 /* esl_radio_handle(), or with replay esl_radio_replay(): the store learns the same,

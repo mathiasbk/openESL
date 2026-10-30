@@ -1,7 +1,8 @@
 // aplayouts.js - the Layouts card of the dashboard: the layouts the AP has for each tag model,
 // drawn as the AP draws them, with how many tags show each one, and the ready-made layouts of
 // the template library that can be sent to the AP with one press. Picking a layout shows what
-// a client has to send for it (its fields, in order) with examples to copy.
+// a client has to send for it (its fields, in order), with a form to send it to a tag from here
+// and examples to copy (js/layoutapi.js). The card folds away; its head says what it holds.
 //
 // The same on the web page (over USB or the bridge) and on the AP's own page, where the
 // renderer and the templates come from the published web page (firmwareBase).
@@ -9,6 +10,7 @@
 import { MODELS } from "./models.js";
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
+import { layoutPanel } from "./layoutapi.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
@@ -39,25 +41,6 @@ function pruneIcons(file) {
   return file;
 }
 
-// What a client sends for a layout, in the forms the panel offers: { curl, json, csv, ha }
-export function examples({ layout, fields, sample, mac, host }) {
-  const body = { layout, fields: sample.slice(0, fields.length) };
-  const json = JSON.stringify(body, null, 2);
-  const target = mac || "<MAC>";
-  const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
-  return {
-    curl: `curl -X PUT http://${host}/api/tags/${target} \\\n  -H "Authorization: Bearer $TOKEN" \\\n` +
-          `  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body, null, 2).replace(/\n/g, "\n     ").replace(/'/g, "'\\''")}'`,
-    json: `PUT /api/tags/${target}\n\n${json}`,
-    csv: `# tags.csv\nmac,layout,${fields.join(",")}\n${target},${layout},${body.fields.map(q).join(",")}\n\n` +
-         `python3 tools/esl-client/esl_client.py --url http://${host} --token $TOKEN sync tags.csv`,
-    ha: `# rest_command from docs/home-assistant.md\naction: rest_command.esl_tag_text\ndata:\n` +
-        `  mac: "${target}"\n  layout: ${layout}\n  fields: ${JSON.stringify(body.fields)}`,
-  };
-}
-
-const TABS = [["curl", "curl"], ["json", "JSON"], ["csv", "esl-client"], ["ha", "Home Assistant"]];
-
 export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = false }) {
   let last = null;
   let model = "";
@@ -67,8 +50,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   const tplFiles = {};     // the template files by id
   const pics = new Map();  // drawn pictures by key
   let sel = null;          // { kind: "ap" | "builtin" | "tpl", name, id }
-  let tab = "curl";
   let busy = false;
+  let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
   const host = sameOrigin ? location.host : "openesl.local";
   const canEdit = !!$("tab-design");
@@ -212,7 +195,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       return;
     }
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, tab, busy]);
+    const key = JSON.stringify([model, files[model]?.version, tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -247,6 +230,9 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       warn.append(p);
     }
     warn.hidden = !warn.childElementCount;
+    // Tags without their layout: show the warning even when the card was folded away
+    if (!warn.hidden && !warned) $("lay-card").open = true;
+    warned = !warn.hidden;
 
     // On the AP: the built-in layouts, then the file's
     const cards = [];
@@ -303,6 +289,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-can-none").hidden = !!can.length;
     $("lay-can-none").textContent = cat ? "Every layout of the template library is on the AP already."
       : "The template library is on the web page; this browser could not reach it.";
+    const nMissing = Object.values(missing).flat().length;
+    $("lay-sum").textContent = `${m}": ${onAp.length + Object.keys(BUILTIN).length} on the AP` +
+      (can.length ? ` · ${can.length} more can be sent` : "") +
+      (nMissing ? ` · ⚠ ${nMissing} tag${nMissing === 1 ? " uses a layout" : "s use layouts"} the AP lacks` : "");
     if (!r && !$("lay-msg").textContent) say("No pictures: the drawing code could not be loaded (it comes from the web page).", "");
     await drawPanel(file, tags, cat);
   }
@@ -336,7 +326,9 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     }
     const pick = () => {
       sel = s;
-      render(last);
+      // On a phone the panel is below the cards: take the reader there
+      render(last).then(() => matchMedia("(max-width: 900px)").matches &&
+        $("lay-panel").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
     };
     d.onclick = pick;
     d.onkeydown = (ev) => {
@@ -352,7 +344,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   async function drawPanel(file, tags, cat) {
     const p = $("lay-panel");
     if (!sel) return (p.hidden = true);
-    let fields, sample, what = [], desc = "", state;
+    let fields, sample, what = [], desc = "", state, entry;
     if (sel.kind === "builtin") {
       const b = BUILTIN[sel.name];
       [fields, sample, what, state] = [b.fields, b.sample, b.what, "Built in"];
@@ -361,47 +353,29 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const l = file?.layouts?.find((x) => x.name === sel.name);
       if (!l) return (p.hidden = true);
       [fields, sample, desc, state] = [l.fields || [], sampleOf(l), l.description || "", "On the AP"];
-      const entry = cat?.index.templates.find((t) => t.id === l._template || t.layout === l.name);
-      if (entry) try { const t = await templateFile(entry); what = fields.map((f) => t.fields?.[f] || ""); } catch { /* none */ }
+      const e = cat?.index.templates.find((t) => t.id === l._template || t.layout === l.name);
+      if (e) try { const t = await templateFile(e); what = fields.map((f) => t.fields?.[f] || ""); } catch { /* none */ }
     } else {
-      const entry = cat?.index.templates.find((t) => t.id === sel.id);
+      entry = cat?.index.templates.find((t) => t.id === sel.id);
       if (!entry) return (p.hidden = true);
       const t = await templateFile(entry);
       const v = variantFor(t, model);
       [fields, sample, desc, state] = [v.layout.fields || [], sampleOf(v.layout), t.description || "", "Not on the AP"];
       what = fields.map((f) => t.fields?.[f] || "");
     }
-    const users = tags.filter((t) => shown[t.mac]?.layout === sel.name);
     p.hidden = false;
-    $("lay-p-name").textContent = sel.name;
-    $("lay-p-state").textContent = state;
-    $("lay-p-state").className = "pill " + (state === "Not on the AP" ? "off" : "ok");
-    $("lay-p-desc").textContent = desc;
-    $("lay-p-desc").hidden = !desc;
-    $("lay-p-fields").replaceChildren(...fields.map((f, i) => {
-      const tr = el("tr");
-      const code = el("code", "", f);
-      const td = el("td");
-      td.append(code);
-      tr.append(el("td", "muted", String(i)), td, el("td", "", what[i] || (sample[i] ? `e.g. ${sample[i]}` : "")));
-      return tr;
-    }));
-    const ex = examples({ layout: sel.name, fields, sample, mac: users[0]?.mac, host });
-    $("lay-p-tabs").replaceChildren(...TABS.map(([k, label]) => {
-      const b = el("button", k === tab ? "on" : "", label);
-      b.type = "button";
-      b.setAttribute("aria-pressed", String(k === tab));
-      b.onclick = () => {
-        tab = k;
-        drawnKey = "";
-        render(last);
-      };
-      return b;
-    }));
-    $("lay-p-code").textContent = ex[tab];
-    $("lay-p-users-h").textContent = `Tags using it (${users.length})`;
-    $("lay-p-users").textContent = users.length ? users.map((t) => "…" + t.mac.slice(-6)).join(" · ")
-      : sel.kind === "tpl" ? "None: send it to the AP first, then to a tag." : "None yet.";
+    const onAp = sel.kind !== "tpl";
+    panel.show({
+      key: model + "/" + sel.name, name: sel.name, state, ok: onAp, desc, fields, sample, what, host,
+      tags: tags.map((t) => ({ mac: t.mac, shows: shown[t.mac]?.layout === sel.name, shown: t.content_id ? shown[t.mac]?.layout || "?" : "" })),
+      send: onAp ? async (mac, c) => {
+        const r = await client().call("PUT", "/api/tags/" + encodeURIComponent(mac), c);
+        refresh();
+        return r;
+      } : null,
+      why: "It is not on the AP yet. Send it there first; then it can go to a tag.",
+      first: entry && !busy ? { label: "Send to AP", run: () => sendTemplate(entry) } : null,
+    });
   }
 
   async function run(what, fn) {
@@ -482,19 +456,12 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     say("");
   }
 
-  $("lay-p-close")?.addEventListener("click", () => {
-    sel = null;
-    drawnKey = "";
-    render(last);
-  });
-  $("lay-p-copy")?.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText($("lay-p-code").textContent);
-      $("lay-p-copy").textContent = "Copied";
-    } catch {
-      $("lay-p-copy").textContent = "Select and copy";
-    }
-    setTimeout(() => ($("lay-p-copy").textContent = "Copy"), 1500);
+  const panel = $("lay-panel") && layoutPanel($("lay-panel"), {
+    onClose: () => {
+      sel = null;
+      drawnKey = "";
+      render(last);
+    },
   });
 
   return { render, reset };

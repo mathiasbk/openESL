@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -1246,6 +1246,130 @@ static void test_tag_level(void)
     CHECK_INT(esl_api_tag_level(&api, &t, now), ESL_TAG_OK);
 }
 
+static unsigned count_str(const char *s, const char *what)
+{
+    unsigned n = 0;
+    for (const char *p = strstr(s, what); p; p = strstr(p + 1, what))
+        n++;
+    return n;
+}
+
+/* The "since" token of the last reply, as a query: "?since=<boot>-<seq>" */
+static void since_of(char *q, size_t cap)
+{
+    const char *p = strstr(resp, "\"since\":\"");
+    CHECK(p != NULL);
+    if (!p) {
+        snprintf(q, cap, "?since=");
+        return;
+    }
+    p += 9;
+    snprintf(q, cap, "/api/tags?since=%.*s", (int)strcspn(p, "\""), p);
+}
+
+static void test_since(void)
+{
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    esl_api_changes_t ch = {.boot = 0xabc01234};
+    char q[64];
+
+    /* without changes, or without since: the list as before, no "since" */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 1000), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"b\"]}", 1000), 200);
+    CHECK_INT(req("GET", "/api/tags?since=abc01234-0", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\"") == NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    api.changes = &ch;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\"") == NULL);
+
+    /* a since it cannot use (empty, another boot, ahead, junk): all of them, full */
+    static const char *bad[] = {"", "x", "abc01235-0", "abc01234-99", "abc0123-0", "abc01234-", "abc01234-1x",
+                                "abc01234-99999999999", "ABC01234-1z"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        snprintf(q, sizeof(q), "/api/tags?since=%s", bad[i]);
+        CHECK_INT(req("GET", q, AUTH, NULL, 1000), 200);
+        CHECK(strstr(resp, "\"since\":\"abc01234-1\",\"full\":true,\"tags\":[") != NULL);
+        CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    }
+
+    /* nothing changed: an empty list, the same since (case does not matter in the boot) */
+    CHECK_INT(req("GET", "/api/tags?since=ABC01234-1", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\":\"abc01234-1\",\"full\":false,\"tags\":[]}") != NULL);
+    /* time passing alone (seen_s_ago) is no change */
+    poll_as_tag(1, 0, 2000);
+    CHECK_INT(req("GET", "/api/tags?since=abc01234-1", AUTH, NULL, 2000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") != NULL);
+    since_of(q, sizeof(q));
+    CHECK_STR(q, "/api/tags?since=abc01234-2");
+    CHECK_INT(req("GET", q, AUTH, NULL, 60000), 200);
+    CHECK(strstr(resp, "\"tags\":[]") != NULL);
+
+    /* a poll, new content, new settings: each is a change for that tag only */
+    poll_as_tag(1, 0, 61000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 61000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"c\"]}", 62000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 62000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000002\"") != NULL);
+    char older[64];
+    strcpy(older, q);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001/config", AUTH, "{\"poll_s\":120}", 63000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 63000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") != NULL);
+    /* an older since gets every change after it: here both */
+    CHECK_INT(req("GET", older, AUTH, NULL, 63000), 200);
+    CHECK(strstr(resp, "\"full\":false") != NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    since_of(q, sizeof(q));
+
+    /* a new tag is a change; a tag gone makes every older since full */
+    poll_as_tag(3, 0, 64000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 64000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000003\"") != NULL);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000002", AUTH, NULL, 65000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 65000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("GET", q, AUTH, NULL, 65000), 200);
+    CHECK(strstr(resp, "\"full\":false,\"tags\":[]") != NULL);
+
+    /* deleted and its slot taken by a new tag before the next read: still full */
+    since_of(q, sizeof(q));
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000001", AUTH, NULL, 66000), 200);
+    poll_as_tag(4, 0, 66000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 66000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") == NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000004\"") != NULL);
+
+    /* a full table: a new tag evicts the longest-unseen one without content, in its slot */
+    for (uint64_t m = 5; esl_store_count(&st) < CAP; m++)
+        poll_as_tag(m, 0, 67000);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("GET", q, AUTH, NULL, 67000), 200);
+    since_of(q, sizeof(q));
+    unsigned before = esl_store_count(&st);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000100", AUTH, "{\"layout\":\"text\",\"fields\":[\"x\"]}", 68000), 200);
+    CHECK_INT((int)esl_store_count(&st), (int)before);
+    CHECK_INT(req("GET", q, AUTH, NULL, 68000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+
+    api.changes = NULL;
+    esl_api_changes_free(&ch);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+}
+
 void test_api(void)
 {
     esl_store_free(&st);
@@ -1266,4 +1390,5 @@ void test_api(void)
     test_clock_config();
     test_health();
     test_tag_level();
+    test_since();
 }

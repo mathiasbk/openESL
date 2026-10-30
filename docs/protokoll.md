@@ -319,7 +319,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
-| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG, JPEG or GIF |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG, JPEG, GIF or SVG (an SVG is drawn 64 px on its longer side) |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
@@ -332,7 +332,7 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
 | `icon` | icon only: a name from `icons`; give this or `field` |
 | `field` | text, barcode and qr: a name from `fields` (or its index). Icon, instead of `icon`: the field whose text is the name of the icon to draw, so the content picks it (a weather symbol); the icon is centred in the box, and nothing is drawn when the text names no icon or the icon is larger than the box. The names are stored once per file as fixed texts |
-| `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
+| `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content. It may hold the date fields `{weekday}` (Thursday), `{date}` (29 October 2026), `{date_short}` (29.10.2026) and `{week}` (44, ISO 8601), which the AP fills in with its local date when it draws (in the time zone, `tz` in `PUT /api/config`, UTC until one is set; while the AP does not know the time, after a restart until NTP answers, such a layout is not drawn and its tags keep what they show); a tag with such a layout is drawn again when the date changes, once a day, or once a week for `{week}` alone, and gets the new image only when it came out different. At most 4 such texts per layout. Any other word in braces is drawn as written, and so are these on an AP from before 0.9 |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
 | `module` | barcode: module width 1–4 px; qr: module size 1–8 px; 0 (default) = the largest that fits the box |
 | `ecc` | qr only: error correction `L`, `M` (default), `Q` or `H` (about 7, 15, 25 or 30 % of the code can be lost); higher takes more modules for the same text |
