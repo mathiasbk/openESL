@@ -1,6 +1,6 @@
 # Upgrading from older versions
 
-Most releases are just [update the AP](Updating-the-access-point), then [update the labels](Updating-labels). Every release lists its upgrade instructions at the top of its [release notes](https://github.com/mathiasbk/openESL/releases), and this page has them too.
+Most releases are just [update the AP](Updating-the-access-point), then [update the labels](Updating-labels). Every release lists short upgrade instructions at the end of its [release notes](https://github.com/mathiasbk/openESL/releases), and this page has them too.
 
 The usual order:
 

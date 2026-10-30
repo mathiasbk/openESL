@@ -4,7 +4,7 @@ How a release goes from `development` to the tags: the pull requests, the checks
 
 ## 1. Pull requests
 
-1. Branch `version-X.Y.Z` from `development`, change [VERSION](../VERSION) and add the section "Upgrading from A to X.Y.Z" to [Upgrade instructions](#4-upgrade-instructions) (and the user guide's page), and merge it to `development`. CI fails without that section.
+1. Branch `version-X.Y.Z` from `development`, change [VERSION](../VERSION), add the section "Upgrading from A to X.Y.Z" to [Upgrade instructions](#4-upgrade-instructions) (and the user guide's page) and "Summary of X.Y.Z" to [Summaries](#6-summaries), and merge it to `development`. CI fails without those sections.
 2. Open the pull request `development` → `master` titled "Release X.Y.Z" with the release template: add `?template=release.md` to the address of the new pull request ([.github/PULL_REQUEST_TEMPLATE/release.md](../.github/PULL_REQUEST_TEMPLATE/release.md)). Its notes are the output of
 
    ```
@@ -23,7 +23,7 @@ The release template has this list; tick it off in the release pull request. Cha
 - [ ] CI green on the release pull request
 - [ ] python tools/check.py passes on the development HEAD, ap-fw included
 - [ ] The notes from tools/release_notes.py read right, and say which parts changed
-- [ ] The notes start with the upgrade instructions (docs/release.md, "Upgrading from A to X.Y.Z"): the order, what is not backward compatible, what going back costs
+- [ ] The notes read: a short summary, the changes, then short upgrade instructions (docs/release.md, "Summary of X.Y.Z" and the first paragraph of "Upgrading from A to X.Y.Z": the order and what to watch out for)
 - [ ] One-way changes in this release are listed, and each was tested on hardware
 - [ ] The wiki (wiki/) describes this release: new features, changed steps, upgrade notes
 AP (if the AP firmware changed):
@@ -54,7 +54,7 @@ The AP is updated with `esl-client ota openesl-ap-...-ota.bin --wait`. If the ne
 
 ## 4. Upgrade instructions
 
-Every release has a section "Upgrading from A to X.Y.Z" below, also a patch release where nothing special is needed (then it says so: update the AP, then the tags). The section says the order, what is not backward compatible, and what going back costs. `tools/release_notes.py` puts it at the top of the release notes and stops with an error when the section for the version in [VERSION](../VERSION) is missing. CI checks it on every pull request that changes more than docs (`tools/test_release_notes.py`), and the release job first (`python3 tools/release_notes.py --check`), so a release cannot go out without it. The user guide's page [Upgrading from older versions](../wiki/running/Upgrading-from-older-versions.md) says the same in fewer words.
+Every release has a section "Upgrading from A to X.Y.Z" below, also a patch release where nothing special is needed (then it says so: update the AP, then the tags). The section says the order, what is not backward compatible, and what going back costs. Its first paragraph is the short version, a few sentences: the order and what to watch out for. `tools/release_notes.py` puts only that paragraph at the end of the release notes, after the changes, with a link to the whole section, and stops with an error when the section for the version in [VERSION](../VERSION) is missing. CI checks it on every pull request that changes more than docs (`tools/test_release_notes.py`), and the release job first (`python3 tools/release_notes.py --check`), so a release cannot go out without it. The user guide's page [Upgrading from older versions](../wiki/running/Upgrading-from-older-versions.md) says the same in fewer words.
 
 The usual order, unless a section says otherwise:
 
@@ -127,7 +127,9 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 ### Upgrading from 0.8.2 to 0.9.0
 
-Order: the AP, then the tags, then (if you want it) pairing; with an S3 and a C6 over WiFi, also the C6 if you want to set the long backoff per tag or change the channel (below). Any order works for the update itself: a 0.9.0 tag talks to a 0.8.2 AP and the other way round, and a C6 on a cable next to an S3 needs nothing new for this. **Change the radio channel only after everything runs 0.9.0** (below).
+Order: the AP, then a few test tags for some days, then the rest of the tags. Take a backup after the AP update: it now holds the radio key, which a paired tag needs. Pair tags and change the radio channel only once every tag runs 0.9.0, if at all. With an S3 and a C6 over WiFi, update the C6 too before you change the channel or set the long backoff per tag.
+
+Any order works for the update itself: a 0.9.0 tag talks to a 0.8.2 AP and the other way round, and a C6 on a cable next to an S3 needs nothing new for this. **Change the radio channel only after everything runs 0.9.0** (below).
 
 Signal history (#261): every POLL from 0.9.0 tag firmware carries a link block (the tag's RSSI and LQI of the AP's last answer, rounds lost since and a retry flag; POLL is 18 bytes, [protokoll.md](protokoll.md#signal)). The AP keeps the last 8 POLLs per tag in RAM (32 on boards with PSRAM), shown as `signal` in `GET /api/tags` and as bars in the dashboard's Signal column. Older tags show the AP's own RSSI only. A tag slot in RAM grows from 88 to 112 bytes (120 with the radio security below), so a C6 AP next to WiFi holds about 510 tags instead of about 700 before `table_full`; the S3 and C5 boards are not affected in practice. The history starts empty after every restart.
 
@@ -175,3 +177,11 @@ The radio's transmit power can be set while the AP runs (#243), from -24 to 20 d
 - Write what went wrong in the issue for it, and add a line to the checklist above if a check would have caught it.
 
 Not tried on hardware yet: the automatic rollback of the tag after 9 failed starts, and of the AP ([tag-ota.md](tag-ota.md), "Still to do").
+
+## 6. Summaries
+
+Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 0.9.0
+
+Radio security: tags can be paired with the AP, so only that AP can change them, and the AP's radio key is shown after flashing and kept in the backup. The radio channel can be changed, and tags that missed the move find the AP again by scanning. Tags use less battery and report their signal, and layouts get date fields and whole-krone prices (`199,-`).
