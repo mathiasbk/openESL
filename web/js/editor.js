@@ -1182,6 +1182,48 @@ function refreshBar() {
   placeBar();
 }
 
+// The number format of a text element as checkboxes; they write "decimals" (0, 2, "auto",
+// "dash", "0-dash", "keep") and "thousands".
+function numberRows(e, row) {
+  const d = e.decimals;
+  const on = d !== undefined || !!e.thousands;
+  const keep = on && (d === "keep" || d === undefined);
+  const dec = keep || d === 2 || d === "auto" || d === "dash";
+  const dash = d === "dash" || d === "0-dash";
+  const hide = d === "auto" || d === "dash";
+  const set = (f) => {
+    const o = { on, dec, keep, dash, hide, thousands: !!e.thousands, ...f };
+    delete e.decimals;
+    delete e.thousands;
+    if (!o.on) return;
+    e.decimals = o.dec && o.keep ? "keep" : o.dec ? (o.dash ? "dash" : o.hide ? "auto" : 2) : o.dash ? "0-dash" : 0;
+    if (o.thousands) e.thousands = true;
+  };
+  const check = (r, label, title, checked, act, disabled, sub) => {
+    const l = document.createElement("label");
+    l.className = "check" + (sub ? " sub" : "");
+    l.title = title;
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = checked;
+    c.disabled = !!disabled;
+    c.addEventListener("change", () => { act(c.checked); changed({}); });
+    l.append(c, " " + label);
+    r.append(l);
+  };
+  check(row("Number"), "Format as number", "Draw a price or other number the same way whatever form it is sent in",
+    on, (v) => set(v ? { on: true, dec: true, keep: false } : { on: false }));
+  if (!on) return false;
+  check(row(""), "With decimals", "On: 199,90. Off: rounded to whole kroner, 199", dec, (v) => set({ dec: v, keep: false }));
+  if (keep)
+    check(row(""), "As sent", "The decimals as sent, with a decimal comma: 199,5 stays 199,5", true, () => set({ keep: false }), false, true);
+  else if (dec)
+    check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
+  check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);
+  check(row(""), "Thousands separator", "A space between every three digits: 1 299", !!e.thousands, (v) => set({ thousands: v }));
+  return true;
+}
+
 // What is used less: vertical alignment, lines, smaller fonts, placing on the screen, order.
 function moreMenu(e, btn, select, open) {
   const { width, height } = MODELS[state.model];
@@ -1227,19 +1269,13 @@ function moreMenu(e, btn, select, open) {
     p.className = "hint";
     p.textContent = "The tag uses the first font the text fits in, otherwise the last one with “…”.";
     list.append(p);
-    // A price or other number: decimals and thousands separator (the AP formats it)
-    const nr = row("Number");
-    select(nr, "Decimals", [["", "as sent"], ["2", "199,90"], ["0", "199"], ["auto", "199 or 199,90"],
-      ["dash", "199,- or 199,90"], ["keep", "as sent, comma"]], String(e.decimals ?? ""), (val) => {
-      if (val === "") delete e.decimals;
-      else e.decimals = /^\d$/.test(val) ? +val : val;
-    });
-    btn(nr, "1 000", "Thousands separator: 1 299,90", () => (e.thousands ? delete e.thousands : (e.thousands = true)), !!e.thousands)
-      .setAttribute("role", "switch");
-    const pn = document.createElement("p");
-    pn.className = "hint";
-    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
-    list.append(pn);
+    // A price or other number: decimals, ",-" and thousands separator (the AP formats it)
+    if (numberRows(e, row)) {
+      const pn = document.createElement("p");
+      pn.className = "hint";
+      pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
+      list.append(pn);
+    }
   }
   if (e.type === "barcode") {
     const lim = state.renderer.limits;

@@ -133,6 +133,12 @@ void test_number(void)
     num("199.5", ESL_LE_NUM_KEEP, "199,5");
     num("199", ESL_LE_NUM_KEEP, "199");
     num("199,-", ESL_LE_NUM_KEEP, "199,-");
+    num("199", ESL_LE_NUM_0_DASH, "199,-");
+    num("199.90", ESL_LE_NUM_0_DASH, "200,-");
+    num("199.49", ESL_LE_NUM_0_DASH, "199,-");
+    num("199,-", ESL_LE_NUM_0_DASH, "199,-");
+    num("1299.5", ESL_LE_NUM_0_DASH | T, "1 300,-");
+    num("-0.4", ESL_LE_NUM_0_DASH, "0,-");
 
     /* thousands */
     num("1299.9", ESL_LE_NUM_KEEP | T, "1 299,9");
@@ -160,7 +166,7 @@ void test_number(void)
     num("1.1234567", ESL_LE_NUM_2, NULL);
     num("199", 0, NULL);
     num("199", T, NULL);
-    num("199", 0x60, NULL);
+    num("199", 0x70, NULL);
 }
 
 void test_content(void)

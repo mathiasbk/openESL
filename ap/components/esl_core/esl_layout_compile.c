@@ -225,8 +225,8 @@ static int fixed_text(cc_t *c, int v)
 /* "decimals" and "thousands": how a text element draws a number (ESL_LE_NUM_* in opts). */
 static bool number_format(cc_t *c, int e, uint8_t *opts)
 {
-    static const char *const modes[] = {"keep", "auto", "dash", NULL};
-    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH};
+    static const char *const modes[] = {"keep", "auto", "dash", "0-dash", NULL};
+    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH, ESL_LE_NUM_0_DASH};
     uint8_t num = 0;
 
     int d = esl_json_obj_get(c->js, c->tok, e, "decimals");
@@ -238,7 +238,7 @@ static bool number_format(cc_t *c, int e, uint8_t *opts)
         else if (get_uint(c, d, &n) && (n == 0 || n == 2))
             num = n ? ESL_LE_NUM_2 : ESL_LE_NUM_0;
         else
-            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00) or \"keep\"");
+            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00), \"0-dash\" (none, ,-) or \"keep\"");
     }
     int t = esl_json_obj_get(c->js, c->tok, e, "thousands");
     if (t >= 0) {
