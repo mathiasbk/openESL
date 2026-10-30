@@ -19,13 +19,21 @@ Either order works ([protokoll.md](protokoll.md), [VERSION](../VERSION#x)).
 
 ### Upgrading from 0.6.x to 0.7.0
 
-Order: only the AP.
+Order: only the AP, see [a page](https://example.com/a) and [the rollout](#3-rollout-to-the-tags).
 
-See [a page](https://example.com/a) and [the rollout](#3-rollout-to-the-tags).
+Every detail, not in the notes.
 
 ## 5. A bad release
 
 Not part of it.
+
+## 6. Summaries
+
+### Summary of 0.7.0
+
+New icons ([protokoll.md](protokoll.md)).
+
+### Summary of 0.6.0
 """
 
 
@@ -33,7 +41,7 @@ class UpgradeNotes(unittest.TestCase):
     def test_section_for_the_version(self):
         heading, body = release_notes.upgrade_section(DOC, "0.7.0")
         self.assertEqual(heading, "Upgrading from 0.6.x to 0.7.0")
-        self.assertTrue(body.startswith("Order: only the AP."))
+        self.assertTrue(body.startswith("Order: only the AP,"))
         self.assertNotIn("bad release", body)
 
     def test_no_section(self):
@@ -52,6 +60,20 @@ class UpgradeNotes(unittest.TestCase):
         self.assertIn("](%sdocs/release.md#upgrading-from-05x-to-060)" % base, notes)
         self.assertIn("#upgrading-over-more-than-one-release", notes)
 
+    def test_first_paragraph_only(self):
+        notes = release_notes.upgrade_notes(DOC, "0.7.0", "v0.7.0")
+        self.assertIn("Order: only the AP", notes)
+        self.assertNotIn("Every detail, not in the notes", notes)
+
+    def test_summary(self):
+        intro = release_notes.summary(DOC, "0.7.0", "v0.7.0")
+        self.assertEqual(intro, "New icons ([protokoll.md](https://github.com/%s/blob/v0.7.0/docs/protokoll.md)).\n"
+                         % release_notes.REPO)
+        for version in ("0.6.0", "0.7.1"):  # empty, missing
+            with self.assertRaises(SystemExit) as e:
+                release_notes.summary(DOC, version, "v" + version)
+            self.assertIn("Summary of %s" % version, str(e.exception))
+
     def test_other_links_kept(self):
         notes = release_notes.upgrade_notes(DOC, "0.7.0", "v0.7.0")
         self.assertIn("](https://example.com/a)", notes)
@@ -63,6 +85,8 @@ class UpgradeNotes(unittest.TestCase):
         doc = open(os.path.join(root, release_notes.RELEASE_MD), encoding="utf-8").read()
         self.assertIsNotNone(release_notes.upgrade_section(doc, version),
                              "docs/release.md needs \"### Upgrading from <previous> to %s\"" % version)
+        self.assertIsNotNone(release_notes.upgrade_section(doc, version, release_notes.SUMMARY_HEAD),
+                             "docs/release.md needs \"### Summary of %s\"" % version)
 
 
 if __name__ == "__main__":

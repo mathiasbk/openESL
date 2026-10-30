@@ -18,11 +18,13 @@ both. The AP and tag sections say the version the firmware carries at UNTIL (the
 each model's, when they differ), and "unchanged" when no pull request touched that part since
 the previous release.
 
-The notes start with the upgrade instructions: the section "### Upgrading from A to X.Y.Z" of
-docs/release.md for the version in VERSION at UNTIL. Every release must have one, so the script
-stops with an error when it is missing, and
+The notes start with a summary of a few sentences, the section "### Summary of X.Y.Z" of
+docs/release.md. The changes come next, then the upgrade instructions: the first paragraph of the section
+"### Upgrading from A to X.Y.Z" of docs/release.md for the version in VERSION at UNTIL (the short
+version: the order and what to watch out for), with a link to the whole section. Every release
+must have both, so the script stops with an error when one is missing, and
 
-    release_notes.py --check             the section for VERSION is in docs/release.md (the
+    release_notes.py --check             both sections for VERSION are in docs/release.md (the
                                          files as they are here; release.yml runs it first,
                                          and test_release_notes.py checks it in CI)
 """
@@ -38,6 +40,7 @@ import fw_version  # noqa: E402
 REPO = os.environ.get("GITHUB_REPOSITORY", "mathiasbk/openESL")
 RELEASE_MD = "docs/release.md"
 UPGRADE_HEAD = re.compile(r"^### Upgrading from (.+) to (\S+)\s*$")
+SUMMARY_HEAD = re.compile(r"^### Summary of (\S+)\s*$")
 
 SECTIONS = [("ap", "AP firmware"), ("tag", "Tag firmware"), ("web", "Web page"), ("other", "Tools, docs and CI")]
 
@@ -46,13 +49,13 @@ def git(*args):
     return subprocess.run(["git", "-C", ROOT] + list(args), capture_output=True, text=True, check=True).stdout
 
 
-def upgrade_section(text, version):
-    """(heading, body) of the section "### Upgrading from A to <version>" in the text of
-    docs/release.md, or None"""
+def upgrade_section(text, version, pattern=UPGRADE_HEAD):
+    """(heading, body) of the section "### Upgrading from A to <version>" (or the one pattern
+    matches, its last group the version) in the text of docs/release.md, or None"""
     lines = text.splitlines()
     for i, head in enumerate(lines):
-        m = UPGRADE_HEAD.match(head)
-        if m and m.group(2) == version:
+        m = pattern.match(head)
+        if m and m.group(m.lastindex) == version:
             body = []
             for line in lines[i + 1:]:
                 if line.startswith("#"):
@@ -78,20 +81,31 @@ def anchor(heading):
 
 
 def upgrade_notes(text, version, ref):
-    """The upgrade instructions at the top of the notes, or SystemExit when docs/release.md has
-    none for this version"""
+    """The upgrade instructions at the end of the notes: the first paragraph of the section and a
+    link to the rest, or SystemExit when docs/release.md has none for this version"""
     found = upgrade_section(text, version)
     if not found:
         sys.exit("release_notes.py: %s has no section \"### Upgrading from <previous> to %s\". Every release "
                  "needs upgrade instructions (docs/release.md, \"Upgrade instructions\")." % (RELEASE_MD, version))
     heading, body = found
+    summary = body.split("\n\n", 1)[0].strip()
     url = "https://github.com/%s/blob/%s/%s" % (REPO, ref, RELEASE_MD)
     return "\n".join([
         "## " + heading, "",
-        absolute_links(body, ref), "",
-        "From an older release: [upgrading over more than one release](%s#upgrading-over-more-than-one-release). "
-        "Every detail: [docs/release.md](%s#%s)." % (url, url, anchor(heading)), "",
+        absolute_links(summary, ref), "",
+        "All details, and what going back costs: [docs/release.md](%s#%s). From an older release: "
+        "[upgrading over more than one release](%s#upgrading-over-more-than-one-release)." % (url, anchor(heading), url), "",
     ])
+
+
+def summary(text, version, ref):
+    """The summary at the top of the notes, or SystemExit when docs/release.md has none for this
+    version"""
+    found = upgrade_section(text, version, SUMMARY_HEAD)
+    if not found or not found[1]:
+        sys.exit("release_notes.py: %s has no section \"### Summary of %s\". Every release needs a summary of "
+                 "a few sentences (docs/release.md, \"Summaries\")." % (RELEASE_MD, version))
+    return absolute_links(found[1], ref) + "\n"
 
 
 def pull_requests(since, until):
@@ -141,11 +155,11 @@ def sort(prs, parts):
     return sections
 
 
-def notes(since, until, versions, upgrade=""):
+def notes(since, until, versions, upgrade="", intro=""):
     parts = fw_version.parts()
     prs = pull_requests(since, until)
     sections = sort(prs, parts)
-    lines = [upgrade] if upgrade else []
+    lines = [intro] if intro else []
     for key, name in SECTIONS:
         head = name
         if key in versions:
@@ -166,6 +180,9 @@ def notes(since, until, versions, upgrade=""):
         lines.append("")
     if not prs:
         lines.append("No pull requests between %s and %s." % (since, until))
+        lines.append("")
+    if upgrade:
+        lines.append(upgrade)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -175,9 +192,10 @@ def main():
         sys.exit(__doc__)
     if args[:1] == ["--check"]:
         version = open(os.path.join(ROOT, "VERSION")).read().strip()
-        heading, _ = upgrade_section(open(os.path.join(ROOT, RELEASE_MD), encoding="utf-8").read(), version) or \
-            upgrade_notes("", version, "")  # exits with the error
-        print("%s: \"%s\"" % (RELEASE_MD, heading))
+        text = open(os.path.join(ROOT, RELEASE_MD), encoding="utf-8").read()
+        summary(text, version, "")  # exits with the error when it is missing
+        heading, _ = upgrade_section(text, version) or upgrade_notes("", version, "")
+        print("%s: \"Summary of %s\", \"%s\"" % (RELEASE_MD, version, heading))
         return
     tags = fw_version.release_tags() or []
     since = args[0] if args else (tags[0] if tags else None)
@@ -189,8 +207,10 @@ def main():
                 for part in ["ap", "tag"] + ["tag-" + m["build"] for m in fw_version.models()]}
     # the upgrade instructions as they were at UNTIL, for the version it carries
     version = git("show", "%s:VERSION" % until).strip()
-    upgrade = upgrade_notes(git("show", "%s:%s" % (until, RELEASE_MD)), version, "v" + version)
-    sys.stdout.write(notes(since, until, versions, upgrade))
+    text = git("show", "%s:%s" % (until, RELEASE_MD))
+    intro = summary(text, version, "v" + version)
+    upgrade = upgrade_notes(text, version, "v" + version)
+    sys.stdout.write(notes(since, until, versions, upgrade, intro))
 
 
 if __name__ == "__main__":
