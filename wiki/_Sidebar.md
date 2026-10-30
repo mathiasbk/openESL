@@ -5,6 +5,7 @@
 - [Getting started](Getting-started)
 - [What you need](What-you-need)
 - [Roadmap](Roadmap)
+- [Glossary](Glossary)
 
 **Access point**
 - [Choosing a board](Access-point-boards)
@@ -24,10 +25,12 @@
 - [The flashing jig](Flashing-jig)
 - [Flashing labels](Flashing-labels)
   - [Label backups](Label-backups)
+
+**Layouts**
 - [Label designer](Label-designer)
-  - [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
-  - [Layout elements and limits](Layout-elements-and-limits)
-  - [Label templates](Label-templates)
+- [Label templates](Label-templates)
+- [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
+- [Layout elements and limits](Layout-elements-and-limits)
 
 **Sending content**
 - [Overview](Sending-content)
