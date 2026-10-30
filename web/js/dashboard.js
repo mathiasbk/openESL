@@ -13,6 +13,7 @@ import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
+import { readKey, keyPanel, isSaved, initKeyCard } from "./radiokey.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -96,11 +97,39 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     },
   });
 
+  // The AP's details for the radio key file and the browser's copy of it
+  const apInfo = () => ({
+    hostname: last?.wifi?.hostname, ip: last?.wifi?.ip, setup_ssid: last?.wifi?.setup_ssid,
+    board: last?.list?.ap?.board_name || last?.list?.ap?.board, fw: last?.list?.ap?.fw,
+  });
+  const keyCard = initKeyCard({ getClient: () => client, apInfo });
+
+  // The radio key above everything else until this browser is told it is saved: an AP makes it
+  // the first time it starts 0.9.0, so this also comes up after an update over the API, and when
+  // a restore gave the AP another key
+  let shownKey = "";
+  function showKey() {
+    const key = last?.radioKey || "";
+    const box = $("dash-key");
+    if (!key || isSaved(key)) {
+      box.hidden = true;
+      box.replaceChildren();
+      shownKey = "";
+      return;
+    }
+    if (key === shownKey) return;   // as it is: the ticks and messages in it stay
+    shownKey = key;
+    box.replaceChildren(keyPanel(key, { ap: apInfo(), onSaved: () => showKey() }));
+    box.hidden = false;
+    keyCard.listKept();
+  }
+
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
     sources.connected(c);
     settings.reset();
+    keyCard.reset();
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
@@ -117,6 +146,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       last = null;
       lastAt = 0;
       failed = false;
+      showKey();
       setStale(false);
     }
     showLive();
@@ -162,12 +192,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const tagfw = await optional("/api/tag-firmware");
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
+      // firmware with radio security (0.9.0) has "radio_secure", and a radio key
+      const radioKey = typeof config?.radio_secure === "boolean" ? await readKey(c).catch(() => last?.radioKey ?? null) : null;
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw, layouts, config };
+      last = { list, health, wifi, ota, tagfw, layouts, config, radioKey };
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
       render();
+      showKey();
       showLive();
       msg("");
       layoutCard.render(last);

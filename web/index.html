@@ -362,6 +362,8 @@
     </section>
 
     <div id="dash-body" hidden>
+      <!-- js/radiokey.js: the AP's radio key, until this browser is told it is saved -->
+      <section id="dash-key" class="card wide rk-card" role="alert" hidden></section>
       <nav id="dash-views" class="views" aria-label="Dashboard">
         <button type="button" data-view="overview" aria-pressed="true">Tags and AP</button>
         <button type="button" data-view="settings" aria-pressed="false">Settings</button>
@@ -667,6 +669,14 @@
             <progress id="bk-progress" max="1" value="0" hidden></progress>
             <p id="bk-msg" class="hint" role="status"></p>
             <details id="bk-log-box" class="help" hidden><summary>What was done</summary><ul id="bk-log" class="hint"></ul></details>
+            <h3>Radio key</h3>
+            <p class="muted">Paired tags only talk to an AP with this key. Without it, a new or erased AP cannot reach them, and each has to be flashed again in the jig. It is in the backup above; the key file holds only the key, and Restore puts it back.</p>
+            <div class="row"><button id="rk-show" type="button">Show radio key</button><span id="rk-msg" class="hint" role="status"></span></div>
+            <div id="rk-out"></div>
+            <div id="rk-kept-box" hidden>
+              <h3>Radio keys kept in this browser</h3>
+              <ul id="rk-kept" class="rk-kept"></ul>
+            </div>
           </div>
         </div>
       </section>
