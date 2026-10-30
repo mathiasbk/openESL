@@ -1,22 +1,15 @@
 <!-- Release pull request: development -> master, titled "Release X.Y.Z". See docs/release.md. -->
 
-<!-- A few sentences: what this release brings, and what a user must do to upgrade. -->
-
-## Upgrade instructions
-
-<!-- The section "Upgrading from A to X.Y.Z" of docs/release.md, as tools/release_notes.py prints it at the top:
-     the order (AP, C6 radio, tags), what is not backward compatible, and what going back costs. -->
-
-## Changes
-
-<!-- The rest of: python3 tools/release_notes.py v<previous> origin/development -->
+<!-- The output of: python3 tools/release_notes.py v<previous> origin/development
+     A short summary ("Summary of X.Y.Z" in docs/release.md), the changes sorted by part, and last
+     the short upgrade instructions (the first paragraph of "Upgrading from A to X.Y.Z"). -->
 
 ## Checklist
 
 - [ ] CI green on the release pull request
 - [ ] python tools/check.py passes on the development HEAD, ap-fw included
 - [ ] The notes from tools/release_notes.py read right, and say which parts changed
-- [ ] The notes start with the upgrade instructions (docs/release.md, "Upgrading from A to X.Y.Z"): the order, what is not backward compatible, what going back costs
+- [ ] The notes read: a short summary, the changes, then short upgrade instructions (docs/release.md, "Summary of X.Y.Z" and the first paragraph of "Upgrading from A to X.Y.Z": the order and what to watch out for)
 - [ ] One-way changes in this release are listed, and each was tested on hardware
 - [ ] The wiki (wiki/) describes this release: new features, changed steps, upgrade notes
 AP (if the AP firmware changed):
