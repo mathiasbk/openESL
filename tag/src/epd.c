@@ -105,20 +105,10 @@ static bool wait_busy(uint16_t timeout_ms)
     return true;
 }
 
-/* The refresh itself (2.9 s, up to 20 s with red): the core sleeps a second at a time
-   instead of polling BUSY every millisecond, which saves about 4 mA for the whole wait
-   (#261). It ends up to a second after BUSY drops; the panel does nothing meanwhile. */
-static bool wait_refresh(void)
-{
-    uint8_t s;
-
-    for (s = 0; hal_epd_busy(); s++) {
-        if (s >= EPD_BUSY_TIMEOUT_MS / 1000u || !hal_doze_1s())
-            return wait_busy(EPD_BUSY_TIMEOUT_MS - (uint16_t)s * 1000u);
-        hal_wdt_kick();
-    }
-    return true;
-}
+/* The refresh itself (2.9 s, up to 20 s with red) is waited out awake. 0.9.0 slept a second
+   at a time here (#261): the panel then stopped partway and left a grey, washed-out image
+   with the old one showing through, while the tag reported it as shown (1.54" and 2.9",
+   2026-10-30). */
 
 #if EPD_TRANSPOSE
 #define RAM_X_BYTES     ((DRAW_W + 7) / 8)   /* RAM X = layout x, 8 pixels per byte */
@@ -296,7 +286,7 @@ static bool update(draw_scene_t *s)
     cmd(CMD_UPDATE_CTRL2);
     data(EPD_UPDATE_SEQ);
     cmd(CMD_MASTER_ACTIVATE);
-    ok = wait_refresh();
+    ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
 
 #ifdef EPD_SLEEP_CTRL1
     cmd(CMD_UPDATE_CTRL1);

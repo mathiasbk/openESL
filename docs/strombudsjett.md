@@ -4,39 +4,39 @@ T6: a tag must last at least one year on its original batteries with a poll ever
 
 ## Result
 
-With the estimates below, a tag that hears the AP averages about **4.5 µA**. T6 allows 50 µA for one CR2450 (25 µA with the margin) and 99 µA for two in parallel, so the requirement holds with a factor of 5–10 to spare. The 1.54" tags hold one CR2450 and the 2.9" tags two, so the calculated life is 9 years for the small tags and 16 for the large ones (a bit less there, since the larger panel draws more during its daily refresh), which in practice means the shelf life of the cells (about 10 years) sets the limit, not the tag.
+With the estimates below, a tag that hears the AP averages about **4.6 µA**. T6 allows 50 µA for one CR2450 (25 µA with the margin) and 99 µA for two in parallel, so the requirement holds with a factor of 5–10 to spare. The 1.54" tags hold one CR2450 and the 2.9" tags two, so the calculated life is 9 years for the small tags and 16 for the large ones (a bit less there, since the larger panel draws more during its daily refresh), which in practice means the shelf life of the cells (about 10 years) sets the limit, not the tag.
 
 ```
 $ python3 tools/power-budget/power_budget.py --cells 1
 1 x CR2450, 70 % of 620 mAh usable; poll every 60 s, 1 update(s) a day
 case               polls/day    sleep    polls  display  average  years
-AP answers              1440   3.00uA   1.33uA   0.12uA   4.46uA    9.6
+AP answers              1440   3.00uA   1.33uA   0.26uA   4.59uA    9.3
 AP gone all day          148   3.00uA   1.35uA   0.00uA   4.35uA    9.8
 AP gone for days          24   3.00uA   0.22uA   0.00uA   3.22uA   12.6
 T6 budget (1 year): 50 uA average, half of it 25 uA; self-discharge adds 0.7 uA
-Sleep current that still keeps half the budget: 23 uA
+Sleep current that still keeps half the budget: 22 uA
 ```
 
 **Looking for the AP costs a little while it is gone (#258).** A tag that gets no answer looks for the AP on other channels: at the third miss in a row one POLL on each of 15, 20, 26 and 11, and at every later miss on the next channel only, round and round through all of 11–26 (`CFG_SCAN_AFTER`, `CFG_SCAN_FIRST`, `CFG_SCAN_CHANNELS`; `--scan-after`, `--scan-count`). An AP on the last channel of the list is found after at most 16 rounds: about 2.7 hours at the 600 s backoff, about 16 hours once the tag polls hourly. That is one more listening window per missed round, about 0.45 µA while the AP is gone all day and 0.07 µA once it has been gone for days, and nothing while the AP answers. A tag on another channel than the built-in 25 also tries 25 once per missed round (#256).
 
-**Sleep current decides it.** Two thirds of the average is sleep, and a tag that sleeps at 23 µA instead of 3 µA would still just meet T6 with margin on one cell. That is the number to measure first (risk R3): a pin that leaks through a pull-up, a panel that is not put into deep sleep, or the radio left on would each cost far more than all the polls together.
+**Sleep current decides it.** Two thirds of the average is sleep, and a tag that sleeps at 22 µA instead of 3 µA would still just meet T6 with margin on one cell. That is the number to measure first (risk R3): a pin that leaks through a pull-up, a panel that is not put into deep sleep, or the radio left on would each cost far more than all the polls together.
 
 A pessimistic case (sleep 10 µA, radio 20 mA, 15 ms to wake, 10 ms to the reply, panel 6 mA) gives 14.7 µA and 3.2 years on one cell, still inside the margin.
 
 | What changes | Average (1 × CR2450) | Life |
 |---|---|---|
-| The defaults above | 4.5 µA | 9.6 years |
-| Poll every 30 s | 5.8 µA | 7.6 years |
-| Poll every 120 s | 3.8 µA | 11.0 years |
-| Poll every 300 s | 3.4 µA | 12.1 years |
-| Poll every 600 s | 3.3 µA | 12.5 years |
-| 24 display updates a day | 7.3 µA | 6.2 years |
-| 24 updates, core awake during the refresh (before 0.9) | 10.6 µA | 4.4 years |
-| Pessimistic (see above) | 14.6 µA | 3.2 years |
+| The defaults above | 4.6 µA | 9.3 years |
+| Poll every 30 s | 5.9 µA | 7.5 years |
+| Poll every 120 s | 3.9 µA | 10.7 years |
+| Poll every 300 s | 3.5 µA | 11.7 years |
+| Poll every 600 s | 3.4 µA | 12.1 years |
+| 24 display updates a day | 10.6 µA | 4.4 years |
+| 24 updates, core asleep during the refresh (0.9.0, draws half the image) | 7.3 µA | 6.2 years |
+| Pessimistic (see above) | 14.7 µA | 3.2 years |
 
 **A longer interval helps less than it looks.** Going from 60 s to 300 s saves about a quarter, but beyond that the sleep current is nearly all that is left, and with the "AP gone" backoff the floor is about 4.4 µA anyway, 3.2 µA once the AP has been gone for a day. A longer interval also makes a price sent with `PUT /api/tags` take up to that long to show (requirement G1 assumes 60 s); prices scheduled with `at` are not delayed, since the AP tells the tag to wake just after they are due. The interval is set for all tags at once in the dashboard (the Access point card), with `PUT /api/config` (`esl_client.py config --poll-s 300`) or per tag with `PUT /api/tags/{mac}/config`, and reaches each tag at its next poll; no reflash is needed.
 
-Display updates are cheap once a day but add up. Since 0.9 the core sleeps while the panel refreshes, waking once a second to check BUSY (#261), so an update costs about 10 mC instead of 22 mC; before, the core waited awake through the whole 2.9 s. The start screen at power-on is still drawn awake, since the sleep timer is set up with the radio.
+Display updates are cheap once a day but add up: an update costs about 22 mC, with the core awake through the whole 2.9 s. Tag firmware 0.9.0 let the core sleep while the panel refreshed, waking once a second to check BUSY (#261), which brought it to about 10 mC, but the panel then stopped partway and the image came out grey and half drawn on both the 1.54" and the 2.9". From 0.9.1 the core waits awake again.
 
 **When the AP is gone for long**, a tag keeps polling at the backoff's 600 s, which is 148 polls a day that each listen twice. After a day without an answer (`long_after_min`, 1440 min) the tag polls only once an hour (`long_poll_s`, 3600 s) until it hears the AP again (#261). That matters for tags on a shelf or in a store room with the AP switched off: 3.2 µA instead of 4.4 µA, almost three more years on one cell. The cost is that a tag finds a returned AP up to an hour late. Both can be set per tag with `PUT /api/tags/{mac}/config`, like `max_poll_s`, and `long_after_min` 65535 turns it off.
 
@@ -50,9 +50,9 @@ Per day: sleep current for the whole day, plus the charge of each POLL, plus the
 - **POLL, not answered:** wake-up, two full listening windows (the POLL and its one retry) at radio current, and the random pause between them at core current. `5 × 4 + 2 × 20 × 12 + 6 × 4 = 0.52 mC`.
 - **Without an AP** the tag polls 3 times at 60 s, then doubles the interval up to 600 s (T11), so 148 polls a day.
 - **Without an AP for a day** the tag polls once each `long_poll_s` (3600 s), 24 polls a day.
-- **Display update:** init and image transfer at core plus panel current, then the 2.9 s refresh at panel current with the core asleep. `0.3 s × (4 + 3) mA + 2.9 s × 3 mA = 10.8 mC` (`--doze 0` for the core awake: 22 mC).
+- **Display update:** init, image transfer and the 2.9 s refresh at core plus panel current, with the core awake throughout. `0.3 s × (4 + 3) mA + 2.9 s × (4 + 3) mA = 22 mC` (`--doze 1` for the core asleep during the refresh, as in 0.9.0: 10.8 mC).
 - **Battery:** usable capacity is 70 % of nominal, to cover the tag's cut-off voltage above the cell's rated 2.0 V, cold, and the voltage sag when the radio draws its peaks from a coin cell. Self-discharge of 1 % a year is added as a constant current.
-- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "No AP found" screen (drawn once after 2 hours without the AP), retries when the AP is there but a reply is lost, the once-a-second wake-ups to check BUSY during a refresh, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
+- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "No AP found" screen (drawn once after 2 hours without the AP), retries when the AP is there but a reply is lost, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
 
 ## The figures and where they come from
 
