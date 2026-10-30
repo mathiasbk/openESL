@@ -31,7 +31,7 @@ int8_t hal_temp_c(void);
  * hal_store_write erases and rewrites the whole record (max HAL_STORE_MAX bytes);
  * the radio must be off. hal_store_read returns its length, or 0 if there is none
  * or it is damaged. */
-#define HAL_STORE_MAX 16  /* the settings record is 9 bytes */
+#define HAL_STORE_MAX 16  /* the settings record is 15 bytes (app.c) */
 bool hal_store_write(const uint8_t *data, uint8_t len);
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 

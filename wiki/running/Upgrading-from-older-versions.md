@@ -22,7 +22,7 @@ Go straight to the newest release: you do not have to install the ones in betwee
 
 0.9.2 takes pairing and the radio key out again: a paired label that loses its AP's key could only be brought back in the flashing jig, which is too big a risk for a site with many labels. Everything else from 0.9.0 and 0.9.1 stays (channel, signal history, battery saving, date fields, whole-kroner prices).
 
-1. **First unpair every paired label** while the AP still runs 0.9.1 and has its key: turn "Only paired labels" off, tick the labels with a lock in the dashboard and click Unpair, and wait until the lock is gone. A label that is still paired when the AP runs 0.9.2 gets no answer and must be flashed again in the jig.
+1. **First unpair every paired label** while the AP still runs 0.9.1 and has its key: turn "Only paired labels" off, tick the labels with a lock in the dashboard and click Unpair, and wait until the lock is gone. A label that is still paired when the AP runs 0.9.2 gets no answer. The AP keeps the key, so put it back on 0.9.1 over the air (never with "Erase"), unpair the label and update again; only without the key is the flashing jig left.
 2. Update the AP over the air, then the labels to the 0.9.2 label firmware, one of each model first. A label updated from 0.9.0 or 0.9.1 forgets its stored settings once and gets them again at its next check-in.
 
 Labels that were never paired (all labels on 0.8.2 or older) need nothing special. Backups made by 0.9.0 or 0.9.1 restore as before; the radio key in them is ignored.

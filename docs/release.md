@@ -133,7 +133,7 @@ Order: unpair every paired tag first, then the AP, then the tags. 0.9.2 takes ra
 
 The tag image of 0.9.2 keeps its settings in one flash page again, as 0.8.2 did (record format 4). A tag updated from 0.9.0 or 0.9.1 does not read their record (format 5, two pages), so it uses the built-in settings until its next CONFIG, and starts on the built-in channel 25; on another channel it finds the AP again by scanning (#266). A tag slot on the AP is back to 112 bytes, so a C6 next to WiFi holds about 550 tags again. The AP ignores `radio_key` in backups from 0.9.0 and 0.9.1, and `cfg/radio_key` stays unused in its NVS. `/api/radio-key`, `/api/tags/{mac}/pair` and `radio_secure` in `/api/config` are gone.
 
-Going back to 0.9.1 is possible but brings pairing back: do not pair tags with it.
+Going back to 0.9.1 is possible but brings pairing back: do not pair tags with it. It is also the way out for a tag that was missed and is still paired: the AP on 0.9.2 leaves its key in NVS, so put the AP back on 0.9.1 over the air (not with "Erase"), unpair the tag, and update the AP again. An AP flashed with "Erase" gets the key back from a 0.9.0 or 0.9.1 backup restored while it runs 0.9.1; only with the key gone too is the jig left.
 
 ### Upgrading from 0.9.0 to 0.9.1
 

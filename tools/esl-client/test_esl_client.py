@@ -551,6 +551,27 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1)
 
+    def test_restore_backup_from_091(self):
+        # 0.9.0 and 0.9.1 put the radio key (and "only paired tags") in the backup; this AP
+        # has neither, so they are left out and the rest is restored
+        cli = esl_client.Client(self.url, TOKEN)
+        b = {"format": "openesl-backup", "version": 1, "taken": "2026-10-30T12:00:00+00:00",
+             "radio_key": "00112233445566778899AABBCCDDEEFF",
+             "config": {"poll_s": 120, "webhook": None, "radio_secure": True}, "layouts": {},
+             "tags": [{"mac": "00000123456789A8", "layout": "price", "fields": ["Milk", "24.90"]}], "scheduled": []}
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["poll_s"], 120)
+        self.assertIn("00000123456789A8", FakeAp.tags)
+        self.assertNotIn("radio_secure", FakeAp.calls[0][1])
+        # the 0.9.x web page's radio key file has only the key: the AP keeps its own settings
+        self.setUp()
+        FakeAp.config["poll_s"] = 600
+        lines, ok = esl_client.restore(cli, dict(b, config={}, tags=[]))
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["poll_s"], 600)
+        self.assertNotIn("/api/config", [c[0] for c in FakeAp.calls])
+
     def test_backup_and_restore_picture_errors(self):
         self.run_cli("text", "00000123456789A8", "x")
         cli = esl_client.Client(self.url, TOKEN)

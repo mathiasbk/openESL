@@ -1204,7 +1204,8 @@ def restore(cli, b, dry_run=False, now=None):
     lines = []
     ok = True
     cfg = b["config"]
-    want = {"poll_s": cfg.get("poll_s", 0)}
+    # a radio key file from the 0.9.0/0.9.1 web page has an empty config: the AP keeps its own
+    want = {"poll_s": cfg.get("poll_s", 0)} if cfg else {}
     if cfg.get("webhook"):
         want["webhook"] = cfg["webhook"]
     layouts = {m: f for m, f in b["layouts"].items() if m in MODELS}
@@ -1214,8 +1215,9 @@ def restore(cli, b, dry_run=False, now=None):
     due = [e for e in b["scheduled"] if e["at"] > now]
     passed = len(b["scheduled"]) - len(due)
     clock = {k: cfg[k] for k in ("tz", "ntp") if k in cfg}
-    lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
-                 + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
+    if want:
+        lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
+                     + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
     lines.append(f"tags: {len(content)} with content, {len(pictures)} with a picture, "
                  f"{len(settings)} with their own settings")
@@ -1227,7 +1229,8 @@ def restore(cli, b, dry_run=False, now=None):
         return lines, True
 
     try:
-        cli.set_config(**want)
+        if want:
+            cli.set_config(**want)
     except ApiError as e:
         if "webhook" not in want or e.status != 422:
             raise
