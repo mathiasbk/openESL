@@ -120,7 +120,9 @@ static bool state(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, esl_rtag_
     if (!s->next_poll_s)
         s->next_poll_s = ESL_TAG_BUILTIN_POLL_S;
     s->has_cfg = t->cfg_capable;
-    esl_tag_effective_cfg(t, esl_store_get_next_poll(h->st), &s->cfg);
+    esl_tag_cfg_t ap;
+    esl_store_tag_defaults(h->st, &ap);
+    esl_tag_effective_cfg(t, &ap, &s->cfg);
     if (!image_id(h, t, draws, &s->image_id))
         return false;
     esl_tagfw_img_t img;

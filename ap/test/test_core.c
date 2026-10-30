@@ -337,7 +337,7 @@ void test_proto(void)
     CHECK_MEM(buf, longer, ESL_POLL_LEN_CFG);
 
     /* CONFIG: version 0 for all defaults, nonzero and value-derived otherwise */
-    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0, 0}, cfg2;
     CHECK_INT(esl_tag_cfg_version(&cfg), 0);
     cfg.poll_s = 120;
     uint16_t v = esl_tag_cfg_version(&cfg);
@@ -356,17 +356,23 @@ void test_proto(void)
     CHECK(esl_tag_cfg_version(&cfg2) != esl_tag_cfg_version(&cfg));
     /* the version of settings without the long backoff is the one older APs gave them (CRC
        of the first three fields), so an update sends tags no CONFIG they already have */
-    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0};
+    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0, 0};
     uint8_t old_b[6] = {120, 0, 0, 0, 0, 0};
     uint32_t old_crc = esl_crc32(old_b, 6);
     CHECK_INT(esl_tag_cfg_version(&cfg2), (uint16_t)(old_crc ^ (old_crc >> 16)));
-    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60};
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60, 0};
     CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK(esl_tag_cfg_version(&cfg2) != 0);
+    /* the channel is in the version only when it is not the default */
+    v = esl_tag_cfg_version(&cfg);
+    cfg.channel = 20;
+    CHECK(esl_tag_cfg_version(&cfg) != v);
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 0, 20};
+    CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK_INT(esl_config_msg_build(buf, 120, &cfg), ESL_CONFIG_LEN);
     v = esl_tag_cfg_version(&cfg);
     uint8_t expect_cfg[ESL_CONFIG_LEN] = {0x08, 0x01, 0x78, 0x00, (uint8_t)v, (uint8_t)(v >> 8),
-                                          0x78, 0x00, 0x84, 0x03, 0x34, 0x12, 0x10, 0x0E, 0xA0, 0x05};
+                                          0x78, 0x00, 0x84, 0x03, 0x34, 0x12, 0x10, 0x0E, 0xA0, 0x05, 20, 0};
     CHECK_MEM(buf, expect_cfg, ESL_CONFIG_LEN);
     esl_reply_t r;
     CHECK(esl_reply_parse(buf, ESL_CONFIG_LEN, &r));
@@ -378,9 +384,14 @@ void test_proto(void)
     CHECK_INT(r.cfg.lost_ap_s, 0x1234);
     CHECK_INT(r.cfg.long_poll_s, 3600);
     CHECK_INT(r.cfg.long_after_min, 1440);
+    CHECK_INT(r.cfg.channel, 20);
+    CHECK(esl_reply_parse(buf, ESL_CONFIG_OFF_CHANNEL, &r)); /* an AP from before the channel */
+    CHECK_INT(r.cfg.long_poll_s, 3600);
+    CHECK_INT(r.cfg.channel, 0);
     CHECK(esl_reply_parse(buf, ESL_CONFIG_OFF_LONG_POLL, &r)); /* an AP from before the long backoff */
     CHECK_INT(r.cfg.lost_ap_s, 0x1234);
     CHECK_INT(r.cfg.long_poll_s, 0);
+    CHECK_INT(r.cfg.channel, 0);
     CHECK(!esl_reply_parse(buf, ESL_CONFIG_OFF_LONG_POLL - 1, &r));
     buf[ESL_CONFIG_LEN] = 0xEE; /* a newer AP may append settings */
     CHECK(esl_reply_parse(buf, ESL_CONFIG_LEN + 1, &r));
@@ -571,7 +582,7 @@ void test_persist(void)
     blob[10] = 31;
     blob[11] = 'A'; /* not a valid name */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
-    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0, 0}, cfg2;
     n = esl_persist_cfg_encode(0x1122334455667788ull, &cfg, blob);
     CHECK_INT(n, ESL_PERSIST_CFG_LEN);
     CHECK_MEM(blob, "\x02\x88\x77\x66\x55\x44\x33\x22\x11\x78\x00\x84\x03\xFF\xFF\x00\x00\x00\x00", n);

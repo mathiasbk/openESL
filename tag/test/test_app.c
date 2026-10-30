@@ -25,6 +25,14 @@ static void push_config_long(uint16_t ver, uint16_t long_poll, uint16_t long_aft
     fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
 }
 
+/* CONFIG that announces the AP's channel (0 = the default) */
+static void push_config_channel(uint16_t ver, uint16_t channel)
+{
+    uint8_t n = make_config(pl, 0, ver, 0, 0, 0);
+    ESL_PUT_U16(pl + ESL_CONFIG_OFF_CHANNEL, channel);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
+}
+
 /* A reply of the old firmware's kinds (CONTENT, LAYOUT): only its type and length matter */
 static void push_old(uint8_t type)
 {
@@ -44,6 +52,7 @@ static void fresh(void)
 {
     fake_store_clear();       /* a new tag: nothing in flash */
     fake_radio_reset();
+    fake_ap_channel = 0;
     fake_draw_count = 0;
     fake_epd_ok = true;
     app_init();
@@ -417,19 +426,26 @@ static void test_restart_bad_flash(void)
     /* A record with settings: kept over a restart, with the start screen (no image) */
     fresh();
     memset(fake_store, 0, sizeof(fake_store));
-    fake_store[0] = 3;
+    fake_store[0] = 4;
     ESL_PUT_U16(fake_store + 1, 9);
     ESL_PUT_U16(fake_store + 3, 90);
-    fake_store_len = 13;
+    fake_store[14] = 30;                       /* not a channel: the built-in one */
+    fake_store_len = 15;
     fake_draw_count = 0;
     app_init();
     CHECK_EQ(app.cfg.ver, 9);
     CHECK_EQ(app.interval_s, 90);
     CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(app.channel, CFG_CHANNEL);
     CHECK_EQ(fake_draw_count, 1);
 
-    /* the record before the long backoff (format 1, 9 bytes) is ignored: the AP sends
-       CONFIG again. So is the one of the firmware that drew content itself (format 2) */
+    /* the record before the channel (format 3, 13 bytes) and the one before the long backoff
+       (format 1, 9 bytes) are ignored: the AP sends CONFIG again. So is the one of the
+       firmware that drew content itself (format 2) */
+    fake_store[0] = 3;
+    fake_store_len = 13;
+    app_init();
+    CHECK_EQ(app.cfg.ver, 0);
     fake_store[0] = 1;
     fake_store_len = 9;
     app_init();
@@ -439,6 +455,10 @@ static void test_restart_bad_flash(void)
     app_init();
     CHECK_EQ(app.cfg.ver, 0);
     CHECK_EQ(app.interval_s, CFG_POLL_S);
+    fake_store[0] = 1;
+    fake_store_len = 9;
+    app_init();
+    CHECK_EQ(app.cfg.ver, 0);
 
     /* the start screen cannot be drawn: reported in the first POLL */
     fake_store_clear();
@@ -449,6 +469,97 @@ static void test_restart_bad_flash(void)
     push_idle(0);
     app_poll_once();
     CHECK(sent_poll(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_DRAWFAIL);
+}
+
+/* ---- A planned channel move (#256, docs/protokoll.md "Channel") ---- */
+
+static void test_channel_move(void)
+{
+    fresh();
+    CHECK_EQ(fake_channel, CFG_CHANNEL);
+    /* CONFIG announces channel 20: the tag stays where it is and confirms it there */
+    push_config_channel(0x2020, 20);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(app.cfg.channel, 20);
+    CHECK_EQ(app.channel, CFG_CHANNEL);
+    CHECK_EQ(fake_store_writes, 1);
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(fake_tx_channel[0], CFG_CHANNEL);
+    CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 0x2020);
+
+    /* the AP moves: no answer on 25, the POLL on 20 (with its retry) is answered */
+    fake_radio_reset();
+    fake_ap_channel = 20;
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(app.misses, 0);                   /* found in the same round: not a miss */
+    CHECK_EQ(fake_tx_count, 3);                /* 25, its retry, then 20 */
+    CHECK_EQ(fake_tx_channel[1], CFG_CHANNEL);
+    CHECK_EQ(fake_tx_channel[2], 20);
+    CHECK_EQ(app.channel, 20);
+    CHECK_EQ(fake_store_writes, 2);            /* kept for the next start */
+    CHECK(!fake_store_radio_on_write);
+
+    /* from now on it starts on 20 */
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 1);
+    CHECK_EQ(fake_tx_channel[0], 20);
+    fake_radio_reset();
+    app_init();
+    CHECK_EQ(app.channel, 20);
+    CHECK_EQ(fake_channel, 20);
+
+    /* an AP that is just gone: the built-in channel only from the third miss in a row (another
+       AP there would keep a tag that lost one reply to noise) */
+    fake_radio_reset();
+    fake_ap_channel = 11;
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 2);                /* 20 (also announced) twice */
+    CHECK_EQ(app.misses, 1);
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 2);
+    CHECK_EQ(app.misses, 2);
+    fake_radio_reset();
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 4);                /* then 25 twice too */
+    CHECK_EQ(fake_tx_channel[2], CFG_CHANNEL);
+    CHECK_EQ(app.misses, 3);
+    CHECK_EQ(app.channel, 20);
+
+    /* an AP that went back to the built-in channel before the tag heard of it ("channel_now") */
+    fake_radio_reset();
+    fake_ap_channel = CFG_CHANNEL;
+    push_idle(0);
+    CHECK_EQ(app_poll_once(), CFG_POLL_S);
+    CHECK_EQ(app.misses, 0);
+    CHECK_EQ(app.channel, CFG_CHANNEL);
+    CHECK_EQ(fake_channel, CFG_CHANNEL);
+    app_init();
+    CHECK_EQ(app.channel, CFG_CHANNEL);        /* kept */
+    fake_radio_reset();
+    fake_ap_channel = 20;                      /* and back to 20, where it was announced */
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(app.channel, 20);
+    fake_radio_reset();
+    fake_ap_channel = 20;
+    push_config_channel(0x2525, 0);            /* back to the default channel */
+    app_poll_once();
+    CHECK_EQ(app.cfg.channel, 0);
+    CHECK_EQ(app.channel, 20);
+    fake_radio_reset();
+    fake_ap_channel = 11;
+    app_poll_once();
+    CHECK_EQ(fake_tx_count, 4);                /* 20 twice, then 25 twice */
+    CHECK_EQ(fake_tx_channel[3], CFG_CHANNEL);
+    CHECK_EQ(fake_channel, 20);                /* the next round starts on 20 again */
+    CHECK_EQ(app.channel, 20);
+    fake_ap_channel = 0;
 }
 
 void test_app(void)
@@ -466,4 +577,5 @@ void test_app(void)
     RUN(test_restart_bad_flash);
     RUN(test_link_block);
     RUN(test_long_backoff);
+    RUN(test_channel_move);
 }

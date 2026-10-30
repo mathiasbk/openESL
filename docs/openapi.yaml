@@ -49,7 +49,7 @@ info:
     | `413` | the body is too large |
     | `422` | the JSON is valid but a value is not (the message says which) |
     | `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
-    | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`) |
+    | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`); `channel_now` to a channel that was not announced |
     | `408` | over the USB port: a body that stops arriving |
     | `429` | five wrong tokens in a row: every request (also with the right token, also the `/setup` form) is refused for 60 s; not on the USB port |
     | `501` | OTA on a build or partition table without it |
@@ -730,17 +730,22 @@ paths:
     put:
       tags: [Settings]
       operationId: setApConfig
-      summary: Change the AP-wide default poll interval, the webhook, the transmit power or the clock settings
+      summary: Change the AP-wide default poll interval, the webhook, the transmit power, the radio channel or the clock settings
       description: |
         `poll_s` is the interval for tags without their own `poll_s`; the tags get it in the
         reply to their next poll, so all of them have it within one old interval. Content
         scheduled with `at` still shows on time with a long interval. `webhook` is where the
         AP posts the health report (`GET /api/health`) when it changes. `tx_power` is the
         radio's 802.15.4 transmit power, used from its next reply (a radio over WiFi gets it
-        at its next sync). `ntp` and `tz` set the AP's clock (NTP server and time zone).
-        `radio_secure` makes the AP answer only paired tags. A key left out keeps its value; at
-        least one must be there. All are stored in NVS (`cfg/poll_s`, `cfg/webhook`,
-        `cfg/tx_dbm`, `cfg/ntp`, `cfg/tz`, `cfg/radio_req`).
+        at its next sync). `channel` moves the AP and its tags to another 802.15.4 channel: the
+        AP tells every tag in its next reply and moves once the tags heard lately have
+        confirmed it (or at once with `channel_now`, for a move already announced); `channel_next` in the reply shows a move
+        that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone).
+        `radio_secure` makes the AP answer only paired tags. A key
+        left out keeps its value; at least one must be there. All are stored in NVS
+        (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/radio_req`). An AP that restarts during a
+        move comes up on the old channel and waits for the tags again.
       requestBody:
         required: true
         content:
@@ -762,6 +767,12 @@ paths:
               antenna:
                 summary: An external antenna of 5 dBi, so 8 dBm keeps within the EU's ~13 dBm EIRP
                 value: { tx_power: 8 }
+              channel:
+                summary: Move to channel 20, after the tags have been told
+                value: { channel: 20 }
+              channel-now:
+                summary: Move to channel 20 at once, without waiting for the tags that have not confirmed it
+                value: { channel: 20, channel_now: true }
               clock:
                 summary: Norwegian time, from a Norwegian NTP server
                 value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3" }
@@ -779,6 +790,17 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
+        "409":
+          description: |
+            The tags would stay on the old channel: `channel_now` to a channel that was not
+            announced first; tags heard lately with firmware from before 0.9.0 (`channel_old_tags`;
+            `force` moves anyway); tags not heard since the AP started, whose firmware it does not
+            know yet (`channel_unheard_tags`, until they poll or 3 of their intervals and a minute
+            have gone; `force` moves anyway); or a radio on WiFi from before 0.9.0, which does not pass a
+            move on to the tags (`channel_radio_old`). Back to the built-in channel is never refused.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/health:
     get:
@@ -1895,6 +1917,35 @@ components:
             (`ESL_TX_POWER_DBM`, 10). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
             about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, the EU limit is about
             13 − G. Above that only where more is allowed. `422` on an AP without a radio (the stub, the sniffer).
+        channel:
+          type: [integer, "null"]
+          minimum: 11
+          maximum: 26
+          description: |
+            The 802.15.4 channel for the AP and its tags, `null` = back to the one set in
+            menuconfig (`ESL_CHANNEL`, 25). The AP tells each tag in the reply to its next poll
+            (CONFIG), and its radio moves once every tag heard lately has confirmed it at the
+            poll after, or after two of the longest interval and a minute at the latest. A tag
+            that misses its AP tries the announced channel at once, so it is back after one
+            lost poll. A move away from the built-in channel answers `409` while a tag heard
+            lately runs firmware from before 0.9.0, which confirms CONFIG but cannot follow it
+            (see `force`), or while the radio on WiFi is that old. Channel 26 is the furthest from WiFi channels 1, 6 and 11, and 25 and
+            15 are also between them. `422` on an AP without a radio (the stub, the sniffer).
+        channel_now:
+          type: boolean
+          description: |
+            With `channel`: `true` moves the radio at once, without waiting for the tags, to the
+            channel of a move announced before (`channel_next`) or to the built-in one, else
+            `409`. Tags that had not confirmed it look for the AP on the announced channel at
+            once, and on the built-in one after three lost polls.
+        force:
+          type: boolean
+          description: |
+            With `channel`: `true` moves even though tags heard lately run firmware from before
+            0.9.0 (`channel_old_tags`) or have not polled since the AP started; old ones stay on
+            the old channel and lose the AP until it is back there. Without it, a move off the
+            built-in channel is called off when such a tag shows up during the wait
+            (`channel_stopped`).
         ntp:
           type: [string, "null"]
           maxLength: 63
@@ -1929,6 +1980,15 @@ components:
         webhook: { type: [string, "null"], maxLength: 127, description: "The webhook URL, null when off" }
         tx_power: { type: integer, minimum: -24, maximum: 20, description: "The radio's transmit power in dBm now; left out on an AP without a radio" }
         builtin_tx_power: { type: integer, minimum: -24, maximum: 20, description: The value set in menuconfig }
+        channel: { type: integer, minimum: 11, maximum: 26, description: "The channel the radio is on; left out on an AP without a radio" }
+        builtin_channel: { type: integer, minimum: 11, maximum: 26, description: The channel set in menuconfig }
+        channel_next: { type: [integer, "null"], minimum: 11, maximum: 26, description: "The channel the AP is moving to once the tags have confirmed it; null when no move is waiting" }
+        channel_waiting: { type: integer, minimum: 0, description: "With channel_next: tags heard lately that have not confirmed the move yet" }
+        channel_due_s: { type: integer, minimum: 0, description: "With channel_next: the move happens in at most this many seconds" }
+        channel_old_tags: { type: integer, minimum: 0, description: "With channel: tags heard lately whose firmware (before 0.9.0) cannot follow a channel change" }
+        channel_unheard_tags: { type: integer, minimum: 0, description: "With channel: tags in the table not heard since the AP started that may still poll; a move off the built-in channel waits for them (409) unless forced" }
+        channel_stopped: { type: integer, minimum: 0, description: "With channel: the last move was called off because this many tags with old firmware showed up during the wait (1 also for an old radio); 0 = not" }
+        channel_radio_old: { type: boolean, description: "With channel: the radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel" }
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }

@@ -64,6 +64,7 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
     r->cfg_lost_ap_s = 0;
     r->cfg_long_poll_s = 0;
     r->cfg_long_after_min = 0;
+    r->cfg_channel = 0;
 
     if (len < ESL_IDLE_LEN)
         return PROTO_E_SHORT;
@@ -118,9 +119,14 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
         r->cfg_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_POLL);
         r->cfg_max_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_MAX_POLL);
         r->cfg_lost_ap_s = ESL_GET_U16(p + ESL_CONFIG_OFF_LOST_AP);
-        if (len >= ESL_CONFIG_LEN) {      /* an AP from before the long backoff sends 12 bytes */
+        if (len >= ESL_CONFIG_OFF_CHANNEL) {      /* an AP from before the long backoff sends 12 bytes */
             r->cfg_long_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_LONG_POLL);
             r->cfg_long_after_min = ESL_GET_U16(p + ESL_CONFIG_OFF_LONG_AFTER);
+        }
+        if (len >= ESL_CONFIG_LEN) {      /* and one from before the channel 16 */
+            uint16_t ch = ESL_GET_U16(p + ESL_CONFIG_OFF_CHANNEL);
+            if (ch >= ESL_CHANNEL_MIN && ch <= ESL_CHANNEL_MAX)
+                r->cfg_channel = (uint8_t)ch;
         }
         return PROTO_OK;
     }

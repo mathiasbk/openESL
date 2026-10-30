@@ -31,6 +31,7 @@ uint8_t make_config_long(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint1
     ESL_PUT_U16(out + ESL_CONFIG_OFF_LOST_AP, lost_ap_s);
     ESL_PUT_U16(out + ESL_CONFIG_OFF_LONG_POLL, long_poll_s);
     ESL_PUT_U16(out + ESL_CONFIG_OFF_LONG_AFTER, long_after_min);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_CHANNEL, 0);
     return ESL_CONFIG_LEN;
 }
 

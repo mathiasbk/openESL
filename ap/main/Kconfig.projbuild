@@ -102,6 +102,10 @@ menu "OpenESL AP"
         int "802.15.4 channel"
         range 11 26
         default 25
+        help
+            The built-in channel. PUT /api/config "channel" (the dashboard's
+            Settings page) moves the AP and its tags to another one at run
+            time and keeps it in NVS (cfg/channel); "null" comes back here.
 
     config ESL_PAN_ID
         hex "802.15.4 PAN ID"

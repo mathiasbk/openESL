@@ -74,3 +74,12 @@ test("the transmit power is a setting only on an AP with a radio", () => {
   assert.deepEqual(configBody({ radio_secure: false }, last.config), { radio_secure: false });
   assert.deepEqual(configBody({ tx_power: 13 }, last.config), { tx_power: 13 });
 });
+
+test("the channel: the one the AP moves to while a move waits, built-in as a reset", () => {
+  const last = { list: { ap: { poll_s: 0 } }, config: { poll_s: 0, webhook: null, channel: 25, builtin_channel: 25, channel_next: null } };
+  assert.equal(currentSettings(last).channel, 25);
+  assert.equal(currentSettings({ ...last, config: { ...last.config, channel_next: 20, channel_waiting: 2, channel_due_s: 300 } }).channel, 20);
+  assert.ok(!("channel" in currentSettings({ ...last, config: { poll_s: 0, webhook: null } })));
+  assert.deepEqual(configBody({ channel: 25 }, last.config), { channel: null });
+  assert.deepEqual(configBody({ channel: 20 }, last.config), { channel: 20 });
+});

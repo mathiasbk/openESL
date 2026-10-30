@@ -35,6 +35,8 @@ typedef struct {
                           * ESL_CFG_LOST_AP_NEVER = never) */
     uint16_t long_poll_s;    /* interval once the AP has been gone for long_after_min (ESL_CFG_LONG_POLL_MIN_S..) */
     uint16_t long_after_min; /* (ESL_CFG_LONG_AFTER_MIN_MIN.., ESL_CFG_LONG_NEVER = never) */
+    uint16_t channel;    /* the AP's channel (ESL_CHANNEL_MIN..MAX), 0 = ESL_DEFAULT_CHANNEL. AP-wide, not
+                          * set per tag: 0 in the store, filled in by esl_tag_effective_cfg() */
 } esl_tag_cfg_t;
 
 /* Version of a set of settings as sent in CONFIG and echoed in POLL: 0 when

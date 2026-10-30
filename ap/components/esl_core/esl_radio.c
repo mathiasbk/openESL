@@ -320,7 +320,8 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_IMG_2D;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
-    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver, !t->legacy, 0, 0, 0, 0};
+    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver, !t->legacy && !t->no_link,
+                    0, 0, 0, 0};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);

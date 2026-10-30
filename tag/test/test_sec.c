@@ -216,16 +216,16 @@ static void test_restart_new_range(void)
     CHECK_EQ(sec.has_key, 1);
     CHECK_EQ(sec.boots, 2);
     CHECK(next_ctr() > before);
-    CHECK_EQ(ESL_GET_U16(fake_store + 30), 1);
+    CHECK_EQ(ESL_GET_U16(fake_store + 32), 1);
     push_sec(key, next_ctr(), make_idle(pl, 33));
     CHECK_EQ(app_poll_once(), 33);
-    CHECK_EQ(ESL_GET_U16(fake_store + 30), 2);
+    CHECK_EQ(ESL_GET_U16(fake_store + 32), 2);
     CHECK_EQ(fake_store_radio_on_write, false);
     /* also when the first round gets no answer */
     fake_radio_reset();
     app_init();
     app_poll_once();
-    CHECK_EQ(ESL_GET_U16(fake_store + 30), 3);
+    CHECK_EQ(ESL_GET_U16(fake_store + 32), 3);
     CHECK_EQ(fake_store_radio_on_write, false);
 }
 
@@ -241,7 +241,7 @@ static void test_counter_roll(void)
     CHECK_EQ(sec.boots, 2);
     CHECK_EQ(sec.n, 0);
     CHECK_EQ(fake_store_writes, writes + 1);
-    CHECK_EQ(ESL_GET_U16(fake_store + 30), 2);
+    CHECK_EQ(ESL_GET_U16(fake_store + 32), 2);
 }
 
 static void test_rekey_and_forget(void)

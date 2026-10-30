@@ -555,7 +555,7 @@
         <nav class="set-nav" role="tablist" aria-label="Settings">
           <button type="button" role="tab" id="set-tab-general" data-set="general" aria-selected="true">General<small>Name, time zone, tag interval</small></button>
           <button type="button" role="tab" id="set-tab-network" data-set="network" aria-selected="false">Network<small>WiFi, webhook, time server</small></button>
-          <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Transmit power, paired tags</small></button>
+          <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Channel, transmit power, paired tags</small></button>
           <button type="button" role="tab" id="set-tab-security" data-set="security" aria-selected="false">Security<small>API token</small></button>
           <button type="button" role="tab" id="set-tab-backup" data-set="backup" aria-selected="false">Backup<small>Download, restore</small></button>
         </nav>
@@ -614,6 +614,11 @@
 
         <form id="set-radio" class="set-pane" role="tabpanel" aria-labelledby="set-tab-radio" hidden novalidate>
           <div class="set-fields">
+            <label class="field" id="set-ch-field" hidden><span>Channel</span>
+              <span class="row"><select id="set-ch-sel" aria-label="The radio's channel"></select></span>
+              <small id="set-ch-note"></small>
+            </label>
+            <div id="set-ch-move-box" class="field-note" hidden><span id="set-ch-move" role="status"></span> <button type="button" id="set-ch-now" class="link">Move now</button></div>
             <div class="field" id="set-tx-field"><span>Transmit power</span>
               <div class="row">
                 <select id="set-tx-sel" aria-label="The radio's transmit power"></select>
@@ -726,7 +731,7 @@
         <li>The saved network and the token are kept in flash across restarts and firmware updates over the API (<code>POST /api/ota</code>). Erasing the flash clears them.</li>
         <li>If the saved network gives no IP for 180 seconds (<code>ESL_WIFI_SETUP_AFTER_S</code>), the AP opens the setup network again next to it, so a changed WiFi password can be fixed from a phone without a cable. It keeps retrying the saved network every 20 seconds meanwhile, and closes the setup network a minute after it has joined.</li>
         <li><code>GET /api/wifi</code> shows the state and the last scan; <code>PUT /api/wifi</code>, or <code>esl-client wifi SSID --password ...</code>, changes the network (<code>wifi ""</code> forgets it and opens the setup network). Over WiFi the AP drops the old network at once, so do that over USB or on the setup form.</li>
-        <li>The tags do not use WiFi: they talk to the AP over 802.15.4 radio on channel 25 (<code>ESL_CHANNEL</code>), which WiFi 2.4 GHz and Zigbee networks share. The AP's WiFi and radio coexist on the same chip.</li>
+        <li>The tags do not use WiFi: they talk to the AP over 802.15.4 radio, on channel 25 unless you pick another under Settings → Radio on the Dashboard, which WiFi 2.4 GHz and Zigbee networks share. The AP's WiFi and radio coexist on the same chip.</li>
       </ul>
     </section>
 

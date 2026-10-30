@@ -30,6 +30,11 @@ typedef struct {
     uint8_t cfg[CAP][ESL_PERSIST_CFG_LEN];
     bool has_next_poll;
     uint16_t next_poll_s;
+    uint8_t channel; /* cfg/channel, 0 = not stored */
+    uint8_t ch_next; /* cfg/ch_next */
+    bool seen_used[CAP];
+    uint64_t seen_mac[CAP];
+    esl_seen_t seen[CAP];
     uint8_t img[CAP][ESL_IMAGE_STORED_MAX(5000)]; /* pictures (ops.persist_image) */
     size_t img_len[CAP];
     int img_writes;
@@ -72,6 +77,22 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     n->next_poll_s = next_poll_s ? *next_poll_s : 0;
 }
 
+static void nvs_seen(void *ctx, unsigned slot, uint64_t mac, const esl_seen_t *rec)
+{
+    nvs_t *n = ctx;
+    n->seen_used[slot] = rec != NULL;
+    n->seen_mac[slot] = mac;
+    if (rec)
+        n->seen[slot] = *rec;
+}
+
+static void nvs_channel(void *ctx, uint8_t channel, uint8_t next)
+{
+    nvs_t *n = ctx;
+    n->channel = channel;
+    n->ch_next = next;
+}
+
 static bool nvs_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
 {
     nvs_t *n = ctx;
@@ -96,7 +117,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -118,7 +139,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -131,7 +152,10 @@ static void ap_boot(void)
             esl_store_restore(&st, s, mac, &c);
         if (nvs.cfg_used[s] && esl_persist_cfg_decode(nvs.cfg[s], ESL_PERSIST_CFG_LEN, &mac, &cfg))
             esl_store_restore_cfg(&st, s, mac, &cfg);
+        if (nvs.seen_used[s])
+            esl_store_restore_seen(&st, s, nvs.seen_mac[s], &nvs.seen[s]);
     }
+    esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0); /* after the tags, as store_nvs_init() */
 }
 
 /* One wake-up of the tag (POLL, then IMG_REQ or FW_REQ until done), or with lose_reply
@@ -423,6 +447,170 @@ static void test_config(void)
     for (unsigned i = 0; i < CAP; i++)
         any |= nvs.cfg_used[i];
     CHECK(!any);
+}
+
+static int config_at(const char *body, uint64_t now_ms)
+{
+    return esl_api_handle(&api, body ? "PUT" : "GET", "/api/config", AUTH, body, body ? strlen(body) : 0, now_ms, &out);
+}
+
+static int config(const char *body)
+{
+    return config_at(body, 0);
+}
+
+/* A planned channel move (#256): announced in CONFIG, the radio moves once the tags
+ * heard lately have confirmed it, or at the deadline, or at once with channel_now. */
+static void test_channel(void)
+{
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    api.channel_settable = true;
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0xA1, 2, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0xB2, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&a, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(a.cfg_ver, 0); /* the default channel: no CONFIG for it */
+
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK_INT(config("{\"channel\":27}"), 422);
+    CHECK_INT(config("{\"channel\":10}"), 422);
+    CHECK_INT(config("{\"channel_now\":true}"), 422);
+    CHECK_INT(config("{\"channel\":20,\"channel_now\":1}"), 422);
+    CHECK(!nvs.channel && !nvs.ch_next);
+
+    /* announced: the move is stored, the radio stays until both have confirmed it */
+    CHECK_INT(config("{\"channel\":20}"), 200);
+    CHECK(!nvs.channel && nvs.ch_next == 20);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":20,\"channel_waiting\":2,"));
+    /* waits at most 2 x the longest interval (60 s) + 1 min */
+    CHECK_INT(json_u32(resp, "\"channel_due_s\":"), 180);
+    CHECK_INT(esl_store_channel_step(&st, 2000), 0);
+    CHECK_INT(air(&a, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 20);
+    CHECK_INT(air(&b, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 62000), 0); /* not confirmed yet */
+    CHECK_INT(air(&a, 121000, false), ESL_MSG_IDLE);   /* a confirms */
+    esl_channel_state_t cs;
+    esl_store_channel_state(&st, 121000, &cs);
+    CHECK_INT(cs.waiting, 1);
+    CHECK_INT(esl_store_channel_step(&st, 121500), 0);
+    CHECK_INT(air(&b, 122000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 122500), 20);
+    CHECK(nvs.channel == 20 && !nvs.ch_next); /* stored once the radio is there */
+    CHECK_INT(esl_store_channel_step(&st, 123000), 0); /* once */
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":20,\"builtin_channel\":25,\"channel_next\":null"));
+    /* on the new channel: the same settings, so no new CONFIG */
+    CHECK_INT(air(&a, 181000, false), ESL_MSG_IDLE);
+
+    /* a tag that stops answering holds the move up only until the deadline */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"channel\":null}", 16, 200000, &out), 200);
+    CHECK(nvs.channel == 20 && nvs.ch_next == 25); /* back to the built-in one, planned */
+    CHECK_INT(air(&a, 241000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 0);
+    CHECK_INT(air(&a, 301000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 301500), 0); /* b, heard at 122 s, has not confirmed */
+    CHECK_INT(esl_store_channel_step(&st, 200000 + 180000), 25);
+    CHECK(!nvs.channel && !nvs.ch_next);
+
+    /* channel_now; and the channel the radio is on cancels a planned move */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":25}"), 200);
+    CHECK(strstr(resp, "\"channel_next\":null"));
+    CHECK_INT(esl_store_channel_step(&st, 400000), 0);
+    /* not to a channel the tags were not told of: they would stay where they are */
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 409);
+    CHECK(strstr(resp, "set the channel first"));
+    esl_store_channel_state(&st, 400000, &cs);
+    CHECK_INT(cs.next, 0);
+    CHECK_INT(config("{\"channel\":25,\"channel_now\":true}"), 200);   /* where it is: nothing to do */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 200);
+    CHECK_INT(esl_store_channel_step(&st, 0), 15);
+
+    /* after a restart the AP starts on the stored channel, and tells the tags */
+    ap_boot();
+    esl_store_channel_state(&st, 0, &cs);
+    CHECK_INT(cs.channel, 15);
+    CHECK_INT(cs.next, 0);
+    esl_faketag_t c;
+    esl_faketag_init(&c, 0xC3, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&c, 1000, false), ESL_MSG_CONFIG);
+    CHECK_INT(c.cfg.channel, 15);
+
+    /* right after a restart the AP does not know the firmware of the tags it has not heard
+       yet: no move off the built-in channel until they have polled, or their window is over */
+    CHECK_INT(config_at(NULL, 1000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":0,\"channel_unheard_tags\":2,"));
+    CHECK_INT(config_at("{\"channel\":20}", 1000), 409);
+    CHECK(strstr(resp, "2 tags have not polled since the AP started"));
+    CHECK(strstr(resp, "at most 4 min"));
+
+    /* a restart during a move: the radio comes up where it was, announces the move again
+       and waits for the tags not heard since, up to a new deadline */
+    CHECK_INT(config_at("{\"channel\":20}", 241000), 200);
+    CHECK(nvs.channel == 15 && nvs.ch_next == 20);
+    CHECK_INT(air(&c, 242000, false), ESL_MSG_CONFIG);
+    CHECK_INT(c.cfg.channel, 20);
+    esl_store_save_seen(&st); /* a planned restart (OTA) */
+    ap_boot();
+    esl_store_channel_state(&st, 0, &cs);
+    CHECK_INT(cs.channel, 15);
+    CHECK_INT(cs.next, 20);
+    CHECK_INT(esl_store_channel_step(&st, 1000), 0);
+    CHECK_INT(air(&c, 2000, false), ESL_MSG_IDLE); /* c has it */
+    esl_store_channel_state(&st, 2000, &cs);
+    CHECK_INT(cs.waiting, 2);                      /* a and b, not heard since the restart */
+    CHECK_INT(esl_store_channel_step(&st, 3000), 0);
+    CHECK_INT(esl_store_channel_step(&st, 180000), 20);
+    CHECK(nvs.channel == 20 && !nvs.ch_next);
+
+    /* tags with firmware from before 0.9.0 confirm CONFIG but stay where they are: no move
+       away from the built-in channel while one is heard, unless forced */
+    esl_faketag_t d;
+    esl_faketag_init(&d, 0xD4, 2, 3000, ESL_MODEL_29);
+    d.no_link = true;
+    CHECK_INT(air(&d, 250000, false), ESL_MSG_CONFIG);
+    CHECK_INT(config_at(NULL, 251000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":1,\"channel_unheard_tags\":0,\"channel_radio_old\":false"));
+    CHECK_INT(config_at("{\"channel\":18}", 251000), 409);
+    CHECK(strstr(resp, "1 tag runs firmware that cannot follow a channel change"));
+    CHECK_INT(config_at("{\"channel\":20}", 251000), 200);                    /* where it is */
+    CHECK_INT(config_at("{\"channel\":18,\"force\":1}", 251000), 422);
+    CHECK_INT(config_at("{\"force\":true}", 251000), 422);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 251000), 200);
+    esl_store_channel_state(&st, 251000, &cs);
+    CHECK_INT(cs.next, 18);
+    CHECK_INT(nvs.ch_next, 18 | ESL_CHANNEL_FORCED);                          /* kept forced */
+    CHECK_INT(esl_store_channel_step(&st, 251500), 0);                        /* not stopped */
+    CHECK_INT(config_at("{\"channel\":null,\"channel_now\":true}", 251000), 200); /* back to 25 at once */
+    CHECK_INT(esl_store_channel_step(&st, 252000), 25);
+    /* nor with a radio on WiFi that does not pass the move on (a C6 from before 0.9.0) */
+    esl_store_set_radio_follows(&st, false);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 252000), 409);
+    CHECK(strstr(resp, "update the radio first"));
+    CHECK_INT(config_at("{\"channel\":null}", 252000), 200);
+    esl_store_set_radio_follows(&st, true);
+
+    /* an old tag that shows up during the wait stops the move: it would confirm and stay */
+    CHECK_INT(config_at("{\"channel\":18}", 500000), 200);                    /* d not heard lately */
+    CHECK_INT(air(&d, 501000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 501500), 0);
+    CHECK_INT(config_at(NULL, 501500), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK(strstr(resp, "\"channel_stopped\":1"));
+    CHECK(!nvs.channel && !nvs.ch_next);
+    CHECK_INT(air(&d, 561000, false), ESL_MSG_CONFIG);                        /* told to stay */
+    CHECK_INT(d.cfg.channel, 0);
+
+    api.channel_settable = false;
+    CHECK_INT(config("{\"channel\":20}"), 422);
+    CHECK_INT(config(NULL), 200);
+    CHECK(!strstr(resp, "channel"));
+    memset(&nvs, 0, sizeof(nvs));
 }
 
 static void test_many_tags(void)
@@ -1927,6 +2115,7 @@ void test_radio(void)
     test_fake_tag_filters();
     test_end_to_end();
     test_config();
+    test_channel();
     test_many_tags();
     test_image_send();
     test_image_rle();

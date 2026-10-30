@@ -45,6 +45,7 @@ typedef struct {
     uint16_t cfg_lost_ap_s;
     uint16_t cfg_long_poll_s;
     uint16_t cfg_long_after_min;
+    uint8_t cfg_channel;     /* the AP's channel, 0 = ESL_DEFAULT_CHANNEL (also for one out of range) */
 } proto_reply_t;
 
 /* Writes POLL (ESL_POLL_LEN_LINK bytes: cfg_ver at 12, then the link block) to out, with

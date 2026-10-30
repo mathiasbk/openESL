@@ -32,7 +32,7 @@ int8_t hal_temp_c(void);
  * the last good copy stays until it is done (false: the old record still counts); the
  * radio must be off. hal_store_read returns its length, or 0 if there is none
  * or it is damaged. */
-#define HAL_STORE_MAX 32  /* the settings record is 32 bytes (app.c) */
+#define HAL_STORE_MAX 34  /* the settings record is 34 bytes (app.c) */
 bool hal_store_write(const uint8_t *data, uint8_t len);
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 

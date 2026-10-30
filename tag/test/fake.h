@@ -22,6 +22,9 @@ extern uint8_t fake_rx_rssi, fake_rx_lqi;  /* what radio_rx_rssi/lqi give for th
 /* hal_doze_1s: false = it cannot sleep (the caller waits awake) */
 extern bool fake_doze_ok;
 extern int fake_doze_calls;
+extern uint8_t fake_channel;          /* the last radio_init() */
+extern uint8_t fake_ap_channel;       /* the replies are heard only on this channel; 0 = on any */
+extern uint8_t fake_tx_channel[FAKE_MAX_FRAMES];   /* the channel each frame went out on */
 
 /* Identity and battery */
 extern uint8_t fake_mac[8];
