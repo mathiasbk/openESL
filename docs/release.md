@@ -127,7 +127,7 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 ### Upgrading from 0.8.2 to 0.9.0
 
-Order: the AP, then a few test tags for some days, then the rest of the tags. Take a backup after the AP update: it now holds the radio key, which a paired tag needs. Pair tags and change the radio channel only once every tag runs 0.9.0, if at all. With an S3 and a C6 over WiFi, update the C6 too before you change the channel or set the long backoff per tag.
+Order: the AP, then a few test tags for some days, then the rest of the tags. Take a backup after the AP update: it now holds the radio key, which a paired tag needs, so never flash the AP with "Erase" without restoring it. Pair tags and change the radio channel only once every tag runs 0.9.0, if at all. With an S3 and a C6 over WiFi, update the C6 too before you change the channel or set the long backoff per tag.
 
 Any order works for the update itself: a 0.9.0 tag talks to a 0.8.2 AP and the other way round, and a C6 on a cable next to an S3 needs nothing new for this. **Change the radio channel only after everything runs 0.9.0** (below).
 

@@ -20,7 +20,7 @@ Go straight to the newest release: you do not have to install the ones in betwee
 
 ## From 0.8.2 to 0.9.0
 
-Update the AP, then the labels; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too if you want to change how long a label waits without the AP, or change the radio channel (below). Pair labels and change the channel only after that, when every label runs 0.9.0.
+Update the AP, then a few labels for some days, then the rest; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too if you want to change how long a label waits without the AP, or change the radio channel (below). Pair labels and change the channel only after that, when every label runs 0.9.0.
 
 - Labels can now be paired with the AP, so only your AP can change what they show or give them firmware ([Security on the radio](Security-on-the-radio)). Nothing changes until you pair labels: unpaired labels work as before. Take a backup after the update: it now holds the radio key, so keep the file secret.
 - The dashboard's Signal column shows the last check-ins of each label as bars, with lost check-ins and retries marked ([Dashboard](Dashboard#signal)). Labels need the 0.9.0 label firmware for the lost and retried check-ins; older ones show the signal the AP hears only.
