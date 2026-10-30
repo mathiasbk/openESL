@@ -43,6 +43,7 @@
 - [Updating labels](Updating-labels)
 - [Upgrading from older versions](Upgrading-from-older-versions)
 - [Backup and restore](Backup-and-restore)
+- [Security on the radio](Security-on-the-radio)
 - [Moving to a new AP](Moving-to-a-new-AP)
 
 **Help**

@@ -18,7 +18,7 @@ typedef struct {
     uint64_t mac;
     uint8_t msg_type;   /* ESL_MSG_POLL, ESL_MSG_FW_REQ or ESL_MSG_IMG_REQ */
     esl_poll_t poll;    /* POLL only */
-    uint8_t reply_type; /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_FW or ESL_MSG_IMG */
+    uint8_t reply_type; /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_FW, ESL_MSG_IMG or ESL_MSG_PAIR */
 } esl_radio_event_t;
 
 /* Handles one received PSDU (psdu_len includes the FCS). If it is a POLL, FW_REQ
@@ -35,7 +35,9 @@ typedef struct {
  *                 the AP no longer has firmware for its model
  *   IMG_REQ    -> the IMG block the tag asks for (esl_image_block), IDLE when it
  *                 has no content
- * next_poll_s in every reply is the tag's own interval (esl_store_tag_poll_s). */
+ * next_poll_s in every reply is the tag's own interval (esl_store_tag_poll_s).
+ * With security (esl_radio_set_sec) a message with ESL_PROTO_VER_SEC is checked and
+ * answered with a MIC, and a POLL may get PAIR instead (esl_store_set_pair). */
 size_t esl_radio_handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uint8_t *psdu, size_t psdu_len,
                         int8_t rssi, uint64_t now_ms, uint8_t *tx, esl_radio_event_t *ev);
 
@@ -62,6 +64,30 @@ void esl_radio_set_draw_later(bool on);
 /* After the reply to ev (from esl_radio_handle) has gone out: the work set aside by
  * esl_radio_set_draw_later(). Nothing when that is off or ev is not a POLL or IMG_REQ. */
 void esl_radio_after(esl_store_t *st, esl_layouts_t *ls, const esl_radio_event_t *ev, uint64_t now_ms);
+/* Radio security (docs/protokoll.md part 1, "Security"). key is the installation key
+ * (all zeros: none, so no tag can be paired); a tag's own key is
+ * AES-CMAC(key, ESL_SEC_KDF_LABEL || its MAC), so only this one is kept. A tag with a key
+ * is answered only when its message's MIC is right and its counter new
+ * (esl_store_sec_ok); with require, a tag without one gets no answer at all, except PAIR
+ * while it is being paired (esl_store_set_pair). The AP's glue keeps it (NVS) and the API
+ * changes it (GET/PUT /api/config "radio_secure", /api/radio-key) under the API's mutex;
+ * the radio reads it. Set once at start-up; NULL (the default) = no security, every tag
+ * talks plainly. */
+typedef struct {
+    uint8_t key[ESL_SEC_KEY_LEN];
+    bool require;
+    /* Saves key and require (NVS). May be NULL. */
+    void (*save)(void *ctx);
+    void *ctx;
+} esl_radio_sec_t;
+#define ESL_SEC_KDF_LABEL 0x4B  /* 'K' */
+void esl_radio_set_sec(esl_radio_sec_t *sec);
+esl_radio_sec_t *esl_radio_sec(void);
+/* True if sec has a key (not all zeros). */
+bool esl_radio_sec_has_key(const esl_radio_sec_t *sec);
+/* The tag's own key, from the installation key. */
+void esl_radio_tag_key(const esl_radio_sec_t *sec, uint64_t mac, uint8_t key[ESL_SEC_KEY_LEN]);
+
 /* What was set (for a radio driver that answers the tags elsewhere: esl_rhost). */
 esl_tagfw_t *esl_radio_tagfw(void);
 esl_image_t *esl_radio_image(void);

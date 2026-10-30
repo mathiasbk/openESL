@@ -79,6 +79,7 @@ export function currentSettings(last) {
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
   if (Number.isInteger(c.tx_power)) cur.tx_power = c.tx_power;
+  if (typeof c.radio_secure === "boolean") cur.radio_secure = c.radio_secure;
   if (Number.isInteger(c.channel)) cur.channel = Number.isInteger(c.channel_next) ? c.channel_next : c.channel;
   return cur;
 }
@@ -97,6 +98,7 @@ export function configBody(changes, config = {}) {
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
   if ("tx_power" in changes) body.tx_power = changes.tx_power === config.builtin_tx_power ? null : changes.tx_power;
+  if ("radio_secure" in changes) body.radio_secure = changes.radio_secure;
   if ("channel" in changes) body.channel = changes.channel === config.builtin_channel ? null : changes.channel;
   return body;
 }
@@ -388,7 +390,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     });
   });
 
-  // ---- Radio: the channel and the transmit power, on an AP that has them ----
+  // ---- Radio: the channel and the transmit power, on an AP that has them, and whether it answers only paired tags ----
   const chSel = $("set-ch-sel");
   const showMove = () => {
     const move = channelMove(last?.config);
@@ -425,12 +427,15 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     read() {
       showTx();
       const cur = currentSettings(last), r = {};
+      if ("radio_secure" in cur) r.radio_secure = $("set-secure").checked;
       if ("channel" in cur) r.channel = Number(chSel.value);
       if (!("tx_power" in cur)) return r;
       const c = txSel.value === "other" ? parseTx($("set-tx-db").value) : { dbm: Number(txSel.value) };
       return c.error ? c : { ...r, tx_power: c.dbm };
     },
     fill(cur) {
+      $("set-secure-field").hidden = !("radio_secure" in cur);
+      $("set-secure").checked = !!cur.radio_secure;
       const c = last.config;
       $("set-ch-field").hidden = !("channel" in cur);
       if ("channel" in cur) {
@@ -463,6 +468,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         said.push(c.channel === r?.channel ? `The AP stays on channel ${c.channel}.`
           : `The tags are told at their next poll, and the AP moves to channel ${c.channel} once they have confirmed it.`);
       if ("tx_power" in c) said.push(`The radio sends at ${c.tx_power} dBm from its next reply.`);
+      if ("radio_secure" in c) said.push(c.radio_secure ? "The AP now answers only paired tags." : "The AP answers unpaired tags again.");
       return "Saved. " + said.join(" ");
     },
   });
@@ -587,7 +593,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel);
+      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel) ||
+        typeof last.config?.radio_secure === "boolean";
       $("set-tab-radio").hidden = !radioSet;
       if (!radioSet && !$("set-radio").hidden) showPane("general");
       renderClock();

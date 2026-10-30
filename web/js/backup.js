@@ -2,7 +2,8 @@
 // and `restore` (tools/esl-client), so one made here goes back with esl-client and the other
 // way round. In it: the AP's settings (poll interval, webhook, NTP server, time zone), the
 // layout files, every tag's content (pictures too) and own settings, and the content scheduled
-// for later, read through the API (docs/openapi.yaml). Not in it: the WiFi password and the API
+// for later, read through the API (docs/openapi.yaml), and the radio key that signs the tags'
+// frames: keep the file as secret as the AP itself. Not in it: the WiFi password and the API
 // token, which the AP never gives out, and the tag firmware images, which come from the
 // release (the backup notes which ones the AP offered). A restore can be run again: what is
 // there already is left as it is, so a picture that had to wait for its tag (an AP that has
@@ -11,7 +12,7 @@
 export const BACKUP_FORMAT = "openesl-backup";
 export const BACKUP_VERSION = 1;
 const CONTENT_KEYS = ["layout", "fields", "price_highlight", "frame"];
-const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz"];
+const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz", "radio_secure"];
 const BATCH = 25; // tags per PUT /api/tags: well inside the AP's 50 and its 24 KB body over USB
 const MAC_RE = /^[0-9A-F]{16}$/;
 
@@ -27,6 +28,7 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
   const layouts = await optional("/api/layouts");
   const schedule = await optional("/api/schedule");
   const tagfw = await optional("/api/tag-firmware");
+  const radioKey = await optional("/api/radio-key");
 
   const files = (layouts?.layouts || []).filter((l) => l.version != null);
   const withContent = list.tags.filter((t) => t.content_id);
@@ -72,7 +74,10 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
     // the NTP server set in menuconfig is kept as null, so another AP keeps its own
     config: { poll_s: config.poll_s ?? 0, webhook: config.webhook ?? null,
       ...("ntp" in config ? { ntp: config.ntp === config.builtin_ntp ? null : config.ntp } : {}),
-      ...("tz" in config ? { tz: config.tz ?? null } : {}) },
+      ...("tz" in config ? { tz: config.tz ?? null } : {}),
+      ...(typeof config.radio_secure === "boolean" ? { radio_secure: config.radio_secure } : {}) },
+    // the paired tags sign with keys made from it: another AP needs it to take their frames
+    ...(radioKey?.key ? { radio_key: radioKey.key } : {}),
     layouts: files_,
     tags,
     scheduled,
@@ -96,6 +101,7 @@ export function parseBackup(text) {
   }
   if (b?.format !== BACKUP_FORMAT) throw new Error("the file is not an OpenESL backup");
   if (b.version !== BACKUP_VERSION) throw new Error(`the backup is version ${b.version}, this page knows ${BACKUP_VERSION}`);
+  if ("radio_key" in b && !/^[0-9A-Fa-f]{32}$/.test(String(b.radio_key))) throw new Error("the radio key in the backup is not 32 hex digits");
   const obj = (v) => v && typeof v === "object" && !Array.isArray(v);
   for (const k of ["config", "layouts"]) if (!obj(b[k])) throw new Error(`"${k}" is missing in the backup`);
   for (const k of ["tags", "scheduled"]) if (!Array.isArray(b[k])) throw new Error(`"${k}" is missing in the backup`);
@@ -156,7 +162,7 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
   let n = 0;
   for (const [kind, arg] of steps) {
     try {
-      if (kind === "settings") await putSettings(client, b.config, note);
+      if (kind === "settings") await putSettings(client, b, note);
       else if (kind === "layout") {
         await client.call("PUT", "/api/layouts/" + encodeURIComponent(arg), b.layouts[arg]);
         note(true, `Layout file for the ${arg}"`);
@@ -192,8 +198,17 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
 }
 
 // The settings this AP has (an older one has no ntp or tz) that differ from what it has now,
-// so an AP without a webhook is not asked to turn one off
-async function putSettings(client, config, note) {
+// so an AP without a webhook is not asked to turn one off. The radio key goes first: with
+// radio_secure on, the AP answers only tags paired with it.
+async function putSettings(client, b, note) {
+  const config = b.config;
+  if (b.radio_key) {
+    const k = await client.call("GET", "/api/radio-key").catch(() => null);
+    if (k?.key && k.key !== b.radio_key.toUpperCase()) {
+      await client.call("PUT", "/api/radio-key", { key: b.radio_key });
+      note(true, "Radio key: the paired tags' frames are taken again");
+    }
+  }
   const cur = await client.call("GET", "/api/config");
   const same = (k, v) => v === cur[k] || ((v === null || v === "") && (cur[k] == null || cur[k] === cur["builtin_" + k]));
   const body = Object.fromEntries(CONFIG_KEYS.filter((k) => k in config && k in cur && !same(k, config[k])).map((k) => [k, config[k]]));

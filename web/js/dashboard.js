@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, pairText, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -404,6 +404,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const b = document.createElement("b");
       b.textContent = tag.mac.slice(-6);
       mac.append(pre, b);
+      const lock = pairMark(tag);
+      if (lock) mac.append(" ", lock);
       const seen = lastCheckin(tag);
       const lateCls = next?.late ? (state.level === "bad" ? "state-bad" : "state-busy") : "";
       const battery = fmtBattery(tag.battery_mv);
@@ -632,6 +634,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return b;
   }));
 
+  // The lock next to a tag's MAC: paired, being paired or unpaired
+  function pairMark(tag) {
+    const p = pairText(tag);
+    if (!p) return null;
+    const s = document.createElement("span");
+    s.className = "pair";
+    s.textContent = p[0];
+    s.title = p[1];
+    s.setAttribute("aria-label", p[1]);
+    return s;
+  }
+
   // Called after the tag table is drawn
   function renderSendTags() {
     // Ticked tags bring up the bar and the form; none, only a hint
@@ -639,6 +653,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
     $("st-forget").disabled = !client || sending || stBusy;
+    // pairing, on an AP with signed radio frames
+    $("st-pair").hidden = $("st-unpair").hidden = !(last?.list.tags || []).some((t) => "secure" in t);
+    $("st-pair").disabled = $("st-unpair").disabled = !client || sending || stBusy;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
     // the text goes to every ticked tag, also those Find or a filter hides now
     const hidden = stHidden(n, rows);
@@ -1120,6 +1137,40 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (client === c) refresh();
     }
   };
+
+  // Pair or unpair the ticked tags: the AP sends or takes back the radio key at their next poll
+  async function pairTags(on) {
+    const tags = stTags();
+    if (!client || !tags.length || sending || stBusy) return;
+    const what = tags.length === 1 ? tags[0].mac : `${tags.length} tags`;
+    if (on && !confirm(`Pair ${what}? At ${tags.length === 1 ? "its" : "their"} next poll the AP sends ${tags.length === 1 ? "it" : "each"} a radio key, ` +
+      `unsigned if the tag has none yet: pair where nobody listens in. From then on the AP only takes signed frames from ${tags.length === 1 ? "it" : "them"}.`)) return;
+    if (!on && !confirm(`Unpair ${what}? At the next poll ${tags.length === 1 ? "it forgets its" : "they forget their"} radio key and send unsigned frames again.`)) return;
+    const c = client;
+    sending = true;
+    clearTimeout(timer);
+    forgetMsg("");
+    $("st-pair").disabled = $("st-unpair").disabled = $("st-forget").disabled = $("st-send").disabled = true;
+    let n = 0;
+    try {
+      for (const t of tags) {
+        await c.call(on ? "PUT" : "DELETE", "/api/tags/" + encodeURIComponent(t.mac) + "/pair");
+        n++;
+      }
+      const verb = on ? "pairs" : "unpairs";
+      forgetMsg(n === 1 ? `${tags[0].mac} ${verb} at its next poll.` : `${n} tags ${verb.slice(0, -1)} at their next poll.`, "ok");
+    } catch (e) {
+      const why = e.message.startsWith("409") ? "this AP cannot pair tags (no radio key, or the radio is on the network)" : e.message;
+      forgetMsg((n ? `Only ${n} of ${tags.length} tags: ` : "Not done: ") + why, "error");
+    } finally {
+      sending = false;
+      stSave();
+      if (client === c) refresh();
+      else renderSendTags();
+    }
+  }
+  $("st-pair").onclick = () => pairTags(true);
+  $("st-unpair").onclick = () => pairTags(false);
 
   // ---- Firmware card ----
 

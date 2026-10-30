@@ -105,6 +105,13 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
             return PROTO_E_FIELD;
         return PROTO_OK;
     }
+    if (r->type == ESL_MSG_PAIR) {
+        if (len < ESL_PAIR_LEN)
+            return PROTO_E_SHORT;
+        r->data_off = ESL_PAIR_OFF_KEY;
+        r->data_len = ESL_SEC_KEY_LEN;
+        return PROTO_OK;
+    }
     if (r->type == ESL_MSG_CONFIG) {
         if (len < ESL_CONFIG_OFF_LONG_POLL)
             return PROTO_E_SHORT;
