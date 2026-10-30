@@ -112,6 +112,19 @@ for (const model of Object.keys(MODELS)) {
     assert.match(wide.refused, /a number in layout pr does not fit in its box, not even in its smallest font/);
   });
 
+  test(`a price rounded to whole kroner with ,- draws as 200,-, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const el = { type: "text", field: "price", x: 0, y: 0, w: 120, h: 40, fonts: ["mid"] };
+    const file = (decimals) => JSON.stringify({ format: "esl-layouts", version: 1, model,
+      layouts: [{ name: "pr", fields: ["price"], elements: [{ ...el, decimals }] }] });
+    assert.ok(r.loadLayouts(file("0-dash")).ok);
+    const got = r.render(0x10, 0, ["199.90"]);
+    assert.ok(got.ok && !got.refused);
+    assert.ok(r.loadLayouts(file("keep")).ok);
+    assert.deepEqual(got.pixels, r.render(0x10, 0, ["200,-"]).pixels);
+    assert.notDeepEqual(got.pixels, r.render(0x10, 0, ["199,90"]).pixels);
+  });
+
   test(`lines, round and open boxes and icons, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width, height } = MODELS[model];
