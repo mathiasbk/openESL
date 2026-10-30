@@ -49,7 +49,7 @@ FONTS = sorted(os.path.relpath(p, TAG) for p in glob.glob(os.path.join(TAG, "fon
 FW_FONTS = ["fonts/font_small.c", "fonts/font_medium.c"]
 
 HOST_TARGETS = {
-    "test_all": CORE + FONTS + ["src/app.c", "src/sec.c", "src/cmac.c", "test/test_sec.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
+    "test_all": CORE + FONTS + ["src/app.c", "src/sec.c", "src/cmac.c", "src/store_ab.c", "test/test_sec.c", "test/test_store_ab.c", "src/ota.c", "src/image.c", "boot/boot_core.c", "test/fake_xflash.c",
                                 "test/test_ota.c", "test/test_image.c", "test/test_main.c", "test/test_proto.c",
                                 "test/test_font.c", "test/test_draw.c", "test/test_status.c",
                                 "test/test_app.c", "test/fake_hal.c", "test/fake_epd.c", "test/fake_epd_image.c",
@@ -104,7 +104,7 @@ def host_model():
 #             src/ota.c and the AP (esl_tagfw.c) use for every chip (cmd_fw checks it)
 CHIPS = {
     "zbs243": {
-        "hal": ["src/hal/zbs243/hal_zbs243.c", "src/hal/zbs243/radio_zbs243.c"],
+        "hal": ["src/hal/zbs243/hal_zbs243.c", "src/store_ab.c", "src/hal/zbs243/radio_zbs243.c"],
         "hal_fw": ["src/hal/zbs243/xflash_zbs243.c"],
         "boot": ["boot/zbs243/boot_zbs243.c", "boot/boot_core.c"],
         "hwtest": "src/hal/zbs243/hwtest.c",

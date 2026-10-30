@@ -21,7 +21,8 @@ The AP makes its radio key the first time it starts with 0.9.0. Every label's ke
 ## What it does not protect
 
 - Nothing is encrypted: anyone in range can read the prices.
-- A label that is not paired is as open as before.
+- A label that is not paired is as open as before, and someone else in range can pair it with their own key; it then has to be flashed again in the jig. Pair your labels soon after they go up.
+- Until "Only paired labels" is on, someone can make a paired label look unpaired in the dashboard for a while (they still cannot change what it shows).
 - Someone with the AP in their hands, or the API token, can do anything, including reading the key.
 
 More detail for developers: [docs/protokoll.md](https://github.com/mathiasbk/openESL/blob/master/docs/protokoll.md), "Security", and [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md).
