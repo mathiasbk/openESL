@@ -31,6 +31,7 @@ Update the AP, then the labels; any order works, and old and new talk to each ot
 - Layouts can show today's date or week number with date fields in a fixed text, such as "Week {week}" ([Layout elements and limits](Layout-elements-and-limits)). Use them only once the AP runs 0.9.0: an older AP shows `{week}` as written.
 - Going back to 0.8.2: the AP answers every label unsigned again, and paired labels get no answer until it is back on 0.9.0. A label that goes back to older firmware forgets its key; turn "Only paired labels" off first.
 - An S3 with a wireless C6 cannot pair labels yet.
+- **Many labels?** Updating the AP is safe: it keeps every label, and labels on older firmware work as before. Three later steps can leave a label that only the flasher brings back, so take them slowly or not at all: pairing (a paired label answers only an AP with its key, so keep the backup and never flash the AP with "Erase" without restoring it), changing the channel, and the new label firmware (give it to a few labels for some days first).
 
 Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-082-to-090).
 
