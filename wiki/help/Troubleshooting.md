@@ -17,7 +17,7 @@ See also the [FAQ](FAQ).
 
 **The web page cannot reach my AP over WiFi.** That is on purpose in browsers: a page on https may not call a plain http address on your network. Open the dashboard on the AP itself (`http://openesl.local/dashboard`), or connect over USB. To send a layout, use **WiFi → Open my AP** in the designer's Send dialog: it opens the AP's own page with the file ([Getting layouts onto the AP](Getting-layouts-onto-the-AP)). Developers can also run the bridge (`esl_client.py serve`).
 
-**Open my AP opens the dashboard, but no layout file shows up.** The AP's firmware is older than this feature (0.8.2 and older): update it from the Dashboard's Firmware card, or send over USB. Also check that the tab really is your AP (the address), and that the browser did not block the new tab.
+**Open my AP opens the dashboard, but no layout file shows up.** The AP's firmware is older than this feature (before 0.9.0): update it from the Dashboard's Firmware card, or send over USB. Also check that the tab really is your AP (the address), and that the browser did not block the new tab.
 
 **I flashed the AP and everything is gone.** It was flashed with **Erase and flash as new** on the Flash AP tab, or with the single `.bin` at 0x0. Restore from your backup (`esl_client.py restore ap.json`). See [Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything).
 **The S3 + C6 AP is on the network, but no label shows up.** The C6 radio does not hear the S3, or the S3 does not hear the C6. Read the C6's log on its USB port: [Checking the link](ESP32-S3-and-C6#checking-the-link) tells which wire is wrong from what it says. The usual faults are TX and RX not crossed, a loose GND, and the C6's TX in the S3's GPIO16 instead of GPIO18.
