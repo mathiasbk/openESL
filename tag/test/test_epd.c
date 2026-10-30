@@ -307,35 +307,25 @@ static void test_epd_init_table(void)
     CHECK_EQ(i, sizeof(init));
 }
 
-/* #261: the core sleeps while the panel refreshes, a second at a time; without the
-   doze (start screen before the radio was on) it waits awake as before */
-static void test_epd_doze(void)
+/* The core waits awake through the refresh, polling BUSY every millisecond: 0.9.0 slept a
+   second at a time there (#261) and the panel stopped partway, leaving a half-drawn image */
+static void test_epd_awake(void)
 {
     static draw_scene_t sc;
     draw_clear(&sc);
     reset_model();
     fake_doze_calls = 0;
-    fake_delay_ms_total = 0;
-    CHECK(epd_draw(&sc));
-    CHECK_EQ(fake_doze_calls, 3);                 /* 2.9 s: awake again after 3 */
-    CHECK(busy_polls_in_refresh <= 4);
-    CHECK(asleep);                                /* and to deep sleep after it */
-
-    reset_model();
-    fake_doze_ok = false;
-    fake_doze_calls = 0;
     CHECK(epd_draw(&sc));
     CHECK_EQ(fake_doze_calls, 0);
     CHECK(busy_polls_in_refresh >= 2900);         /* awake, every millisecond */
-    CHECK(asleep);
-    fake_doze_ok = true;
+    CHECK(asleep);                                /* and to deep sleep after it */
 
     /* a refresh that never ends: gives up after EPD_BUSY_TIMEOUT_MS, still to deep sleep */
     reset_model();
     refresh_stuck = true;
     fake_doze_calls = 0;
     CHECK(!epd_draw(&sc));
-    CHECK_EQ(fake_doze_calls, 30);
+    CHECK_EQ(fake_doze_calls, 0);
     CHECK(asleep);
     refresh_stuck = false;
     refreshing = false;
@@ -360,7 +350,7 @@ int main(int argc, char **argv)
     test_epd_stream(argc > 1 ? argv[1] : NULL);
     RUN(test_epd_image);
     RUN(test_epd_init_table);
-    RUN(test_epd_doze);
+    RUN(test_epd_awake);
     RUN(test_epd_no_busy);
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;

@@ -39,7 +39,7 @@ def defaults():
         "epd_busy_s": 2.9,     # measured: BUSY high ~2.9 s per refresh (kildelogg.md)
         "epd_init_s": 0.3,     # reset, init, writing 5 KB of image (estimate)
         "updates": 1,          # display updates per day (T6: one)
-        "doze": 1,             # the core sleeps while the panel refreshes (since #261); 0 = it waits awake
+        "doze": 0,             # 1 = the core sleeps while the panel refreshes (0.9.0, #261: half-drawn images); 0 = it waits awake
         # currents: estimates until phase 6
         "sleep_ua": 3.0,       # ZBS243 sleep timer + retained RAM + panel in deep sleep
         "cpu_ma": 4.0,         # 8051 core running at 16 MHz, radio off
