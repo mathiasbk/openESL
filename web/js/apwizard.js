@@ -333,15 +333,16 @@ export function initApWizard(info, store) {
   async function flash(i, erase) {
     const p = st.parts.flash[i];
     const s = st.flash[i];
-    // an AP erased loses its radio key: tags paired with it need it back from a backup
-    if ((erase || s.erase) && p.role !== "radio" && !confirm("Erase the AP? Its WiFi, token, tags, layouts and radio key are lost. " +
-      "Tags paired with it only answer it again if you restore its backup or key file; without one they must be flashed again in the jig.")) return;
     let port;
     try {
       port = await navigator.serial.requestPort();
     } catch {
       return;   // no port picked
     }
+    // An AP erased loses its radio key: tags paired with it need it back from a backup. Asked
+    // after the port is picked, as the picker needs the click, which a dialog read for a while uses up
+    if ((erase || s.erase) && p.role !== "radio" && !confirm("Erase the AP? Its WiFi, token, tags, layouts and radio key are lost. " +
+      "Tags paired with it only answer it again if you restore its backup or key file; without one they must be flashed again in the jig.")) return;
     // a port open on the dashboard, the Set up tab or step 3 of an AP before this one
     if (serialPort() === port) await disconnectSerial().catch(() => {});
     // the radio on a cable is always erased (its partition table is not the AP's); the radio over
