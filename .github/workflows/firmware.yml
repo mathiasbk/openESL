@@ -15,8 +15,8 @@
 # previous ones again for the other; the "Versions" step shows what this run built.
 # The AP is built one job per board and per radio (ap/build.py --jobs), side by side, and
 # collected into the ap-firmware artifact. ccache keeps the compiled objects between runs
-# (most of them are ESP-IDF's own, which do not change), so a build takes about a third of
-# the time it takes from scratch. web.yml asks for fewer AP builds on pull requests that
+# (most of them are ESP-IDF's own, which do not change), so a build need not compile them
+# again. web.yml asks for fewer AP builds on pull requests that
 # cannot change the AP (inputs.ap); release.yml always builds them all.
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
@@ -25,7 +25,7 @@ on:
   workflow_call:
     inputs:
       ap:
-        description: "Which AP builds: all (every board and radio), one (c6-supermini) or none"
+        description: "Which AP builds: all (every board and radio), web (c6-supermini and s3-n16r8-c6, which pack the web page) or none"
         type: string
         default: all
 
@@ -102,7 +102,8 @@ jobs:
           AP: ${{ inputs.ap }}
         run: |
           jobs=$(python3 ap/build.py --jobs)
-          if [ "$AP" = one ]; then jobs=$(echo "$jobs" | jq -c '[.[] | select(.name == "c6-supermini")]'); fi
+          # web: the smallest flash (C6) and a board with the Design tab (ESL_WEB_DESIGNER)
+          if [ "$AP" = web ]; then jobs=$(echo "$jobs" | jq -c '[.[] | select(.name == "c6-supermini" or .name == "s3-n16r8-c6")]'); fi
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
   ap-build:
@@ -134,8 +135,9 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .ccache
-          key: ccache-${{ matrix.job.name }}-${{ github.sha }}
-          restore-keys: ccache-${{ matrix.job.name }}-
+          # "@" ends the name: radio-c6 must not take radio-c6-lcd's cache
+          key: ccache-${{ matrix.job.name }}@${{ github.sha }}
+          restore-keys: ccache-${{ matrix.job.name }}@
       - name: Build ${{ matrix.job.name }} (ESP-IDF v5.5.5), merged into one image
         uses: espressif/esp-idf-ci-action@v1
         with:

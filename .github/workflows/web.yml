@@ -33,9 +33,13 @@ jobs:
   # release. A pull request builds only what its files can break (the largest of):
   #   docs/, wiki/, templates/, *.md, LICENSE   no firmware (templates/ is published by the page)
   #   VERSION, tag/, sim/, tools/               the firmware tests and the tag firmware, no AP
-  #                                             (tools/fw_version.py names the AP's version: all)
-  #   web/                                      one AP board (c6-supermini packs the renderer)
-  #   anything else (ap/, shared/, .github/)    every AP board and radio
+  #   web/, tag/designs/, templates/home/weather.json
+  #                                             the AP boards that pack them (ap/main/webui.py):
+  #                                             c6-supermini (the smallest flash) and s3-n16r8-c6
+  #                                             (the Design tab, ESL_WEB_DESIGNER)
+  #   anything else (ap/, shared/, .github/, tag/src/ and tag/fonts/, which esl_core compiles,
+  #   tools/fw_version.py, which names the AP's version)    every AP board and radio
+  # A file moved counts by its old path too.
   # The page takes the latest release's firmware unless every AP board was built.
   source:
     runs-on: ubuntu-24.04
@@ -49,18 +53,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           latest() { gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true; }
-          level=3   # 0 no firmware, 1 no AP, 2 one AP board, 3 every AP board
+          level=3   # 0 no firmware, 1 no AP, 2 the AP boards with the web page, 3 every AP board
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             rel=$(latest)
           else
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[] | .filename, (.previous_filename // empty)')
             if [ -n "$files" ]; then level=0; fi
             for f in $files; do
               case "$f" in
+                templates/home/weather.json|tag/designs/*|web/*) l=2 ;;
                 docs/*|wiki/*|templates/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) l=0 ;;
-                tools/fw_version.py) l=3 ;;
+                tools/fw_version.py|tag/src/*|tag/fonts/*) l=3 ;;
                 VERSION|tag/*|sim/*|tools/*) l=1 ;;
-                web/*) l=2 ;;
                 *) l=3 ;;
               esac
               if [ "$l" -gt "$level" ]; then level=$l; echo "Level $l: $f"; fi
@@ -71,7 +75,7 @@ jobs:
             if [ -z "$rel" ]; then level=3; fi
           fi
           firmware=yes; ap=all
-          case "$level" in 0) firmware=no ;; 1) ap=none ;; 2) ap=one ;; esac
+          case "$level" in 0) firmware=no ;; 1) ap=none ;; 2) ap=web ;; esac
           # on master (and by hand) the firmware is only built when there is no release
           if [ "${{ github.event_name }}" != "pull_request" ] && [ -n "$rel" ]; then firmware=no; fi
           echo "Firmware: $firmware, AP boards: $ap, the page takes: ${rel:-this build}"
