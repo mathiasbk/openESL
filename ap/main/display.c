@@ -31,7 +31,9 @@ static void gather(esl_screen_info_t *in)
     memset(in, 0, sizeof(*in));
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
     in->fw = api->fw_version;
-    in->channel = api->channel;
+    esl_channel_state_t ch;
+    esl_store_channel_state(api->store, now_ms, &ch);
+    in->channel = ch.channel;
     in->tags_max = api->store->max;
     in->table_full = esl_store_full(api->store);
     in->uptime_s = now_ms / 1000;

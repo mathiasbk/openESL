@@ -171,7 +171,9 @@ class Client:
 
     def set_config(self, **kw):
         """poll_s=None resets the interval, webhook=None or "" turns the webhook off,
-        tx_power=None goes back to the built-in transmit power."""
+        tx_power=None goes back to the built-in transmit power, channel=None to the built-in
+        channel (the AP moves once its tags have it; channel_now=True moves at once; force=True
+        moves although tags with firmware from before 0.9.0 cannot follow)."""
         return self._request("PUT", "/api/config", kw)
 
     def wifi(self):
@@ -697,6 +699,19 @@ def print_config(c):
     line = f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
     if "tx_power" in c:
         line += f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})"
+    if "channel" in c:
+        line += f", channel {c['channel']} (menuconfig {c.get('builtin_channel')})"
+        if c.get("channel_next") is not None:
+            line += (f", moving to {c['channel_next']}: {c.get('channel_waiting', 0)} tags have not confirmed it,"
+                     f" at the latest in {c.get('channel_due_s', 0)} s")
+        if c.get("channel_radio_old"):
+            line += ", the radio on WiFi is too old to change the channel"
+        elif c.get("channel_old_tags"):
+            line += f", {c['channel_old_tags']} tags cannot follow a channel change (firmware before 0.9.0)"
+        elif c.get("channel_unheard_tags"):
+            line += f", {c['channel_unheard_tags']} tags not heard since the AP started (no channel change until they are)"
+        if c.get("channel_stopped") and c.get("channel_next") is None:
+            line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
     print(line)
@@ -1349,6 +1364,11 @@ def main(argv=None):
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
     s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
                                       "about 13 - G in the EU), \"null\" = menuconfig value")
+    s.add_argument("--channel", help="the radio's channel (11 to 26); the AP tells its tags and moves once they "
+                                     "have it, \"null\" = menuconfig value")
+    s.add_argument("--channel-now", action="store_true", help="with --channel: move at once to a channel announced before, without waiting for the tags")
+    s.add_argument("--force", action="store_true", help="with --channel: move although tags with firmware from before 0.9.0 "
+                                                       "cannot follow and are left behind")
     s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
     s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
 
@@ -1462,6 +1482,14 @@ def main(argv=None):
                 kw["webhook"] = args.webhook or None
             if args.tx_power is not None:
                 kw["tx_power"] = None if args.tx_power == "null" else int(args.tx_power)
+            if args.channel is not None:
+                kw["channel"] = None if args.channel == "null" else int(args.channel)
+                if args.channel_now:
+                    kw["channel_now"] = True
+                if args.force:
+                    kw["force"] = True
+            elif args.channel_now or args.force:
+                p.error("--channel-now and --force need --channel")
             for k in ("tz", "ntp"):
                 if getattr(args, k) is not None:
                     kw[k] = getattr(args, k) or None

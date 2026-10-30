@@ -97,14 +97,14 @@ static uint16_t long_poll_s(void)
  * Flash (requirement T12): a restarted tag uses the AP's settings before it reaches the AP.
  * One record through hal_store_* (hal.h):
  *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
- *   9-10 long_poll_s   11-12 long_after_min
+ *   9-10 long_poll_s   11-12 long_after_min   13 cfg channel   14 the channel the tag last heard the AP on
  * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
  * stale or missing copy only costs one extra CONFIG from the AP. The screen itself comes
  * back from the image slot (image.h).
  * Written only when something changes, and with the radio off.
  */
-#define STORE_FORMAT     3        /* 1: without the long backoff; 2 was the firmware that drew content */
-#define STORE_LEN        13
+#define STORE_FORMAT     4        /* 3: without the channel, 1: without the long backoff; 2 was the firmware that drew content */
+#define STORE_LEN        15
 
 static uint8_t __xdata store_rec[STORE_LEN];
 
@@ -119,6 +119,8 @@ static void app_store_load(void)
         app.cfg.lost_ap_s = ESL_GET_U16(store_rec + 7);
         app.cfg.long_poll_s = ESL_GET_U16(store_rec + 9);
         app.cfg.long_after_min = ESL_GET_U16(store_rec + 11);
+        app.cfg.channel = store_rec[13];
+        app.channel = store_rec[14];
     } else {
         app.cfg.ver = 0;
         app.cfg.poll_s = 0;
@@ -126,7 +128,13 @@ static void app_store_load(void)
         app.cfg.lost_ap_s = 0;
         app.cfg.long_poll_s = 0;
         app.cfg.long_after_min = 0;
+        app.cfg.channel = 0;
+        app.channel = 0;
     }
+    if (app.cfg.channel < ESL_CHANNEL_MIN || app.cfg.channel > ESL_CHANNEL_MAX)
+        app.cfg.channel = 0;
+    if (app.channel < ESL_CHANNEL_MIN || app.channel > ESL_CHANNEL_MAX)
+        app.channel = CFG_CHANNEL;
 }
 
 static void app_store_save(void)
@@ -138,6 +146,8 @@ static void app_store_save(void)
     ESL_PUT_U16(store_rec + 7, app.cfg.lost_ap_s);
     ESL_PUT_U16(store_rec + 9, app.cfg.long_poll_s);
     ESL_PUT_U16(store_rec + 11, app.cfg.long_after_min);
+    store_rec[13] = app.cfg.channel;
+    store_rec[14] = app.channel;
     /* a failed write only costs a CONFIG after a restart */
     hal_store_write(store_rec, STORE_LEN);
 }
@@ -157,7 +167,8 @@ static void apply_config(void)
     uint16_t lafter = at_least(reply.cfg_long_after_min, ESL_CFG_LONG_AFTER_MIN_MIN);
     bool changed = app.cfg.ver != reply.cfg_ver || app.cfg.poll_s != poll ||
                    app.cfg.max_poll_s != max || app.cfg.lost_ap_s != lost ||
-                   app.cfg.long_poll_s != lpoll || app.cfg.long_after_min != lafter;
+                   app.cfg.long_poll_s != lpoll || app.cfg.long_after_min != lafter ||
+                   app.cfg.channel != reply.cfg_channel;
 
     app.cfg.ver = reply.cfg_ver;
     app.cfg.poll_s = poll;
@@ -165,8 +176,9 @@ static void apply_config(void)
     app.cfg.lost_ap_s = lost;
     app.cfg.long_poll_s = lpoll;
     app.cfg.long_after_min = lafter;
+    app.cfg.channel = reply.cfg_channel;
     app.interval_s = base_poll_s();
-    if (changed)
+    if (changed || app.channel_moved)
         app_store_save();
 }
 
@@ -346,6 +358,48 @@ static uint16_t on_miss(void)
     return sleep;
 }
 
+/* The channel the AP says it is on, or moves to (CONFIG) */
+static uint8_t announced_channel(void)
+{
+    return app.cfg.channel ? app.cfg.channel : CFG_CHANNEL;
+}
+
+/* One POLL, with its retry, on another channel; true = answered there (reply is filled in) */
+static bool try_channel(uint8_t ch)
+{
+    radio_off();
+    radio_init(ch);
+    radio_on();
+    return exchange_retry(build_poll_frame());
+}
+
+/*
+ * No answer on the tag's channel (radio on): one POLL, with its retry, on the channel
+ * the AP announced, then on the built-in one from the CFG_BUILTIN_AFTER-th miss in a row,
+ * each when it is another (docs/protokoll.md, "Changing the channel"). An AP that moved is
+ * found at the first miss; the built-in channel finds one that went back to it before the
+ * tag heard. True = reply is filled in
+ * and the tag stays there.
+ */
+static bool try_announced(void)
+{
+    uint8_t ch = announced_channel();
+
+    if (ch == app.channel || !try_channel(ch)) {
+        ch = CFG_CHANNEL;
+        /* the built-in channel only after a few misses: another AP there (every AP answers
+           every tag) would keep a tag that only lost one reply to noise */
+        if (app.misses + 1 < CFG_BUILTIN_AFTER || ch == app.channel || ch == announced_channel() ||
+            !try_channel(ch)) {
+            radio_init(app.channel); /* the next round starts where the tag was */
+            return false;
+        }
+    }
+    app.channel = ch;
+    app.channel_moved = 1;
+    return true;
+}
+
 /* ---- Public ---- */
 
 void app_init(void)
@@ -354,6 +408,7 @@ void app_init(void)
 
     hal_mac_read(app.mac);
     app_store_load();
+    app.channel_moved = 0;
     app.shown_id = 0;
     app.interval_s = base_poll_s();
     app.misses = 0;
@@ -373,7 +428,7 @@ void app_init(void)
     ota_init();
     image_init(ota.present);
 
-    radio_init(CFG_CHANNEL);
+    radio_init(app.channel);
     /* The last image if flash has it, else the start screen (T9) */
     if (!(image.slot_id && show_image()) && !draw_status(msg_waiting))
         app.poll_flags |= ESL_POLL_F_DRAWFAIL;
@@ -386,7 +441,7 @@ static uint16_t poll_round(void)
 
     hal_wdt_kick();
     radio_on();
-    got = exchange_retry(build_poll_frame());
+    got = exchange_retry(build_poll_frame()) || try_announced();
     if (got)                         /* the next POLL tells the AP this one needed its retry */
         app.link_flags = retried ? ESL_POLL_LF_RETRY : 0;
     if (got && reply.type == ESL_MSG_FW) {
@@ -412,6 +467,9 @@ static uint16_t poll_round(void)
     app.poll_flags &= (uint8_t)~ESL_POLL_F_BOOTED;
     if (reply.type == ESL_MSG_CONFIG)
         apply_config();              /* new base settings first, next_poll_s below as for any reply */
+    else if (app.channel_moved)
+        app_store_save();            /* the new channel, for the next start */
+    app.channel_moved = 0;
     if (reply.next_poll_s)
         app.interval_s = reply.next_poll_s;
 

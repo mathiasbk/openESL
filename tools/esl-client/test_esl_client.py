@@ -178,6 +178,11 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["webhook"] = body["webhook"] or None
             if "tx_power" in body:
                 FakeAp.config.update(tx_power=10 if body["tx_power"] is None else body["tx_power"], builtin_tx_power=10)
+            if "channel" in body:
+                ch = body["channel"] or 25
+                now = body.get("channel_now") or ch == FakeAp.config.get("channel", 25)
+                FakeAp.config.update(channel=ch if now else FakeAp.config.get("channel", 25), builtin_channel=25,
+                                     channel_next=None if now else ch, channel_waiting=0 if now else 2, channel_due_s=780)
             if ("tz" in body or "ntp" in body) and "tz" not in FakeAp.config:
                 return self._send(422, {"error": "this AP has no clock settings"})
             if "tz" in body:
@@ -321,6 +326,15 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("config", "--tx-power", "null")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tx_power": None}))
         self.assertIn("tx_power 10 dBm", out)
+        rc, out = self.run_cli("config", "--channel", "20")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"channel": 20}))
+        self.assertIn("channel 25 (menuconfig 25), moving to 20: 2 tags have not confirmed it, at the latest in 780 s", out)
+        rc, out = self.run_cli("config", "--channel", "20", "--channel-now")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"channel": 20, "channel_now": True}))
+        self.assertIn("channel 20 (menuconfig 25)", out)
+        self.assertNotIn("moving", out)
+        rc, out = self.run_cli("config", "--channel", "15", "--force")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"channel": 15, "force": True}))
 
     def test_clock_config(self):
         FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})

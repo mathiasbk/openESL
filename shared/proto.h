@@ -77,17 +77,21 @@
 #define ESL_IDLE_LEN         4
 #define ESL_OFF_NEXT_POLL    2      /* u16 sekunder til neste POLL (0 = behold), også i CONFIG, FW og IMG */
 
-/* CONFIG, 16 byte (12 before the long backoff; a tag reads those as 0): taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
+/* CONFIG, 18 byte (12 before the long backoff, 16 before the channel; a tag reads missing fields as 0): taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
  * Hver innstilling er u16, 0 = tagens innebygde standardverdi (tag/src/config.h).
  * Nye innstillinger legges bare til på slutten: tagen leser feltene den kjenner
  * og hopper over resten, og et felt som mangler i en kortere melding er 0. */
-#define ESL_CONFIG_LEN       16
+#define ESL_CONFIG_LEN       18
 #define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; tagen sender den tilbake i POLL som kvittering */
 #define ESL_CONFIG_OFF_POLL  6      /* u16 vanlig intervall i sekunder (krav T4) */
 #define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 lengste intervall uten svar fra AP-en (krav T11) */
 #define ESL_CONFIG_OFF_LOST_AP 10   /* u16 sekunder uten svar før "No AP found" (krav T9) */
 #define ESL_CONFIG_OFF_LONG_POLL 12 /* u16 interval in seconds once the AP has been gone for long_after_min */
 #define ESL_CONFIG_OFF_LONG_AFTER 14 /* u16 minutes without an answer before long_poll_s, ESL_CFG_LONG_NEVER = never */
+#define ESL_CONFIG_OFF_CHANNEL 16   /* u16 the AP's channel, now or after a planned move (#256);
+                                     * 0 = ESL_DEFAULT_CHANNEL. The tag stays where it hears the
+                                     * AP, and tries this channel first when the AP stops answering
+                                     * (docs/protokoll.md, "Changing the channel") */
 
 #define ESL_CFG_POLL_MIN_S   10     /* grenser for poll_s og max_poll_s */
 #define ESL_CFG_POLL_MAX_S   3600
@@ -427,6 +431,8 @@
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
 
 #define ESL_DEFAULT_CHANNEL  25
+#define ESL_CHANNEL_MIN      11     /* the 2.4 GHz channels of 802.15.4 */
+#define ESL_CHANNEL_MAX      26
 #define ESL_DEFAULT_PAN_ID   0x4553u   /* "ES" */
 #define ESL_AP_SHORT_ADDR    0x0000u
 

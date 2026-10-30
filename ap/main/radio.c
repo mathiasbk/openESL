@@ -125,6 +125,18 @@ static void hop(int64_t *next_hop_us, int64_t last_frame_us)
 }
 #endif
 
+#if !SNIFFER
+/* A planned channel move (esl_store_move_channel), once the tags have it or the time is up */
+static void move_channel(void)
+{
+    uint8_t ch = esl_store_channel_step(store, (uint64_t)esp_timer_get_time() / 1000);
+    if (!ch)
+        return;
+    int err = radio_link.set_channel ? radio_link.set_channel(&radio_link, ch) : ESP_ERR_NOT_SUPPORTED;
+    ESP_LOGI(TAG, "moved to channel %u: %s", ch, esp_err_to_name(err));
+}
+#endif
+
 static void radio_task(void *arg)
 {
     (void)arg;
@@ -152,6 +164,9 @@ static void radio_task(void *arg)
         }
 #if HOP_MS
         hop(&next_hop_us, last_frame_us);
+#endif
+#if !SNIFFER
+        move_channel();
 #endif
         if (esp_timer_get_time() - last_stats > 60 * 1000000LL) {
             const esl_link_stats_t *s = &radio_link.stats;

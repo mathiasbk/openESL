@@ -48,8 +48,7 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     const char *version = esp_app_get_description()->version;
-    ESP_LOGI(TAG, "OpenESL AP %s, channel %d, PAN 0x%04X, max %d tags",
-             version, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID, CONFIG_ESL_MAX_TAGS);
+    ESP_LOGI(TAG, "OpenESL AP %s, PAN 0x%04X, max %d tags", version, CONFIG_ESL_PAN_ID, CONFIG_ESL_MAX_TAGS);
     const char *why = reset_reason_name(esp_reset_reason());
     if (!strcmp(why, "poweron") || !strcmp(why, "sw") || !strcmp(why, "usb") || !strcmp(why, "ext"))
         ESP_LOGI(TAG, "reset reason: %s", why);
@@ -98,7 +97,6 @@ void app_main(void)
     static esl_api_lock_t lock;
     api.lock = &lock;
     api.fw_version = version;
-    api.channel = CONFIG_ESL_CHANNEL;
     api.reset_reason = why;
 #if CONFIG_ESL_RADIO_DRIVER_NET
     api.link = radio_net_link();
@@ -107,6 +105,7 @@ void app_main(void)
 #endif
 #if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
     api.tx_power = radio_tx_power();
+    api.channel_settable = true; /* radio.c and radio_net.c move it (esl_store_channel_step) */
 #endif
 #if CONFIG_ESL_WEB_DASHBOARD
     api.dashboard = true;
@@ -156,7 +155,9 @@ void app_main(void)
         ESP_LOGE(TAG, "display: %s", esp_err_to_name(err)); /* the AP works without it */
 #endif
 
-    ESP_ERROR_CHECK(radio_start(&store, api.layouts, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    esl_channel_state_t ch;
+    esl_store_channel_state(&store, 0, &ch);
+    ESP_ERROR_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
     /* The tag table is the one thing that grows with the number of tags (store_nvs.c
        stops it before WiFi and HTTP run short); this shows how much
        room is left for it. */

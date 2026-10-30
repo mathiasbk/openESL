@@ -662,6 +662,69 @@ int e2e_run(const char *out, const char *root)
         free(pix);
     }
 
+    /* ------------------------------------------------------------------ */
+    step("14. The AP moves to another channel (PUT /api/config \"channel\")");
+    {
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 25, "on channel 25");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":20}", &resp) == 200 && sim_json_num("channel") == 25 &&
+                  sim_json_num("channel_next") == 20 && sim_json_num("channel_waiting") == 1,
+              "announced, waits for the tag: %.160s", resp);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        draws = sim_tag_draws();
+        /* the tag gets CONFIG at its next poll and confirms it at the one after; the AP
+           moves then (here at the next frame it hears, as its radio task would within a
+           second), and the tag, which hears nothing on 25, finds it on 20 in the same round */
+        while (sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") != 20 &&
+               sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_json_num("channel") == 20 && sim_json_num("channel_next") == -1, "the AP moved: %.160s", resp);
+        note("the AP moved after %.0f s", (sim_now_ms - t0) / 1000.0);
+        CHECK(sim_stats.config == s0.config + 1, "one CONFIG");
+        CHECK(sim_tag_channel() == 20 && sim_tag_misses() == 0, "the tag found it on 20 in the same round");
+        CHECK(sim_stats.unanswered == s0.unanswered + 2, "after its POLL and the retry on 25 (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        run_for(301);
+        CHECK(sim_stats.unanswered == s0.unanswered + 2, "then straight on 20");
+        CHECK(sim_tag_draws() == draws, "nothing redrawn");
+        get_tag();
+        CHECK(sim_json_bool("config_pending") == 0 && sim_json_bool("pending") == 0, "nothing pending");
+        t0 = sim_now_ms;
+        put_content(PRICE_3, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 20");
+        /* a restart of the AP keeps the channel; so does one of the tag */
+        sim_ap_boot();
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 20, "AP restarted on 20");
+        sim_tag_boot();
+        CHECK(sim_tag_channel() == 20, "tag restarted on 20");
+        run_for(301);
+        CHECK(sim_tag_misses() == 0, "and they hear each other");
+    }
+
+    step("15. Back to the built-in channel at once (\"Move now\" before the tag has heard)");
+    {
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":15,\"channel_now\":true}", &resp) == 409,
+              "not to a channel the tags were not told of");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":null}", &resp) == 200 && sim_json_num("channel_next") == 25,
+              "25 announced");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":null,\"channel_now\":true}", &resp) == 200 &&
+                  sim_json_num("channel_due_s") == 0,
+              "and the AP moves at once (its radio task within a second): %.160s", resp);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        /* the tag polls on 20, where it was told, and from its third miss in a row also on the
+           built-in channel (not at once: another AP there would keep a tag that lost one reply) */
+        while (sim_tag_channel() != 25 && sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 25, "the AP is on 25");
+        CHECK(sim_tag_channel() == 25 && sim_tag_misses() == 0, "the tag found it on 25 in its third round (%.0f s)",
+              (sim_now_ms - t0) / 1000.0);
+        CHECK(sim_stats.unanswered == s0.unanswered + 6, "after its POLL and the retry on 20, three times (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        run_for(301);
+        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 6, "then straight on 25");
+    }
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

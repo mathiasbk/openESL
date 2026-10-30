@@ -194,3 +194,23 @@ test("parseTx and txWarning", () => {
   assert.equal(txWarning(13), "");
   assert.match(txWarning(14), /above the EU limit/);
 });
+
+test("radio channels and a waiting move", async () => {
+  const { channelOptions, channelMove, channelBlock } = await import("../js/dashdata.js");
+  assert.equal(channelBlock({ channel_old_tags: 0, channel_radio_old: false }), "");
+  assert.match(channelBlock({ channel_old_tags: 3 }), /^3 tags run firmware from before 0\.9\.0 .* update them first/);
+  assert.match(channelBlock({ channel_old_tags: 1 }), /^1 tag runs .* it is left on the old channel\.$/);
+  assert.match(channelBlock({ channel_old_tags: 3, channel_radio_old: true }), /update the radio/);
+  assert.match(channelBlock({ channel_old_tags: 0, channel_unheard_tags: 5 }), /^5 tags have not polled since the AP started/);
+  assert.match(channelBlock({ channel_old_tags: 1, channel_stopped: 1, channel_next: null }), /^The last channel change was called off: a tag .* 1 tag runs/);
+  assert.equal(channelBlock({ channel_stopped: 2, channel_next: 20 }), "");
+  const o = channelOptions(25);
+  assert.equal(o.length, 16);
+  assert.deepEqual(o[0], [11, "Channel 11"]);
+  assert.deepEqual(o[14], [25, "Channel 25 (clear of WiFi 1, 6, 11, built-in)"]);
+  assert.equal(channelMove({ channel: 25, channel_next: null }), "");
+  assert.equal(channelMove({ channel: 25, channel_next: 20, channel_waiting: 2, channel_due_s: 290 }),
+    "Moving from channel 25 to 20: 2 tags have not confirmed it yet. The AP moves once they all have it, at the latest in 5 min.");
+  assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 1, channel_due_s: 10 }), /1 tag has .* in 1 min\.$/);
+  assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 0, channel_due_s: 10 }), /every tag has it, so the AP moves now\.$/);
+});

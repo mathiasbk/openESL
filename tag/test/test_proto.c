@@ -115,16 +115,29 @@ static void test_parse_config(void)
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
     CHECK_EQ(r.cfg_long_poll_s, 7200);
     CHECK_EQ(r.cfg_long_after_min, ESL_CFG_LONG_NEVER);
+    CHECK_EQ(r.cfg_channel, 0);
+
+    /* the channel; one 802.15.4 does not have reads as the default */
+    ESL_PUT_U16(p + ESL_CONFIG_OFF_CHANNEL, 15);
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK_EQ(r.cfg_channel, 15);
+    ESL_PUT_U16(p + ESL_CONFIG_OFF_CHANNEL, 27);
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK_EQ(r.cfg_channel, 0);
+    ESL_PUT_U16(p + ESL_CONFIG_OFF_CHANNEL, 15);
 
     /* settings a newer AP appends are skipped; a cut message is not accepted */
     memset(p + n, 0xEE, 6);
     CHECK_EQ(proto_parse_reply(p, (uint8_t)(n + 6), &r), PROTO_OK);
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
-    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_OK);   /* without long_after_min ... */
-    CHECK_EQ(r.cfg_long_poll_s, 0);                                     /* ... an older AP's 12 bytes */
-    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL, &r), PROTO_OK);
+    CHECK_EQ(r.cfg_channel, 15);
+    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_OK);   /* without the channel ... */
+    CHECK_EQ(r.cfg_long_poll_s, 7200);                                  /* ... an older AP's 16 bytes */
+    CHECK_EQ(r.cfg_channel, 0);
+    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL, &r), PROTO_OK); /* and before the long backoff, 12 */
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
     CHECK_EQ(r.cfg_long_after_min, 0);
+    CHECK_EQ(r.cfg_channel, 0);
     CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL - 1, &r), PROTO_E_SHORT);
     CHECK_EQ(proto_parse_reply(p, ESL_MAX_PAYLOAD + 1, &r), PROTO_E_LONG);
 

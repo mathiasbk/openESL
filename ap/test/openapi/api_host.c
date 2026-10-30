@@ -142,7 +142,7 @@ static size_t img_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 }
 
 static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                          NULL, NULL, NULL, NULL, img_save, img_load};
+                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL};
 
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
@@ -162,7 +162,7 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
