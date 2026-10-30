@@ -30,6 +30,8 @@ See also the [FAQ](FAQ).
 
 **The label does not show what I sent.** Look it up on the dashboard: it says what the label is waiting for or what is wrong. A label shows new content at its next poll, so allow a minute or so. A label on firmware 0.4.x cannot show screens from a 0.5.0 AP; update it ([Firmware updates](Updating-labels)).
 
-**The battery shows 0.** The 1.54" cannot measure its battery voltage yet, so it reports 0 (unknown).
+**The dashboard says "drawing failed", or the screen stays blank.** The label hears the AP, but its display did not finish drawing. On the few labels this has happened to, the cause was hardware: the display's cable or the display itself. Take the label apart and reseat the display cable; if it still fails, the display is likely broken. Its page under [Supported labels](Supported-labels) lists what is known for that model.
+
+**The battery shows 0.** The [1.54"](SoluM-1.54-ST-GM16XX2#known-issues) cannot measure its battery voltage yet, so it reports 0 (unknown).
 
 Still stuck? [Open an issue](https://github.com/mathiasbk/openESL/issues) with what you tried and what the dashboard says.

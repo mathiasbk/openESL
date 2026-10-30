@@ -19,6 +19,8 @@
 
 **Labels**
 - [Supported labels](Supported-labels)
+  - [SoluM 2.9"](SoluM-2.9-ST-GM29XX2)
+  - [SoluM 1.54"](SoluM-1.54-ST-GM16XX2)
 - [The flashing jig](Flashing-jig)
 - [Flashing labels](Flashing-labels)
   - [Label backups](Label-backups)
