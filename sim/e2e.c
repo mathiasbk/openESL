@@ -725,7 +725,53 @@ int e2e_run(const char *out, const char *root)
         CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 6, "then straight on 25");
     }
 
-    step("16. The AP comes up on a channel the tag was never told of (#258)");
+    step("16. Radio security: pair the tag, then only signed frames");
+    {
+        CHECK(!sim_tag_has_key(), "the tag has no key yet");
+        get_tag();
+        CHECK(sim_json_bool("secure") == 0, "the AP has not heard it sign anything");
+        t0 = sim_now_ms;
+        CHECK(api("PUT", "/pair", NULL) == 200, "PUT /api/tags/%s/pair: %.80s", mac, resp);
+        run_for(sim_tag_interval_s() + 1.0);
+        CHECK(sim_tag_has_key(), "the tag took its key at its next POLL");
+        run_for(10);
+        get_tag();
+        CHECK(sim_json_bool("secure") == 1 && strstr(resp, "\"pairing\":null") != NULL,
+              "the AP heard it sign, and the pairing is done: %.400s", resp);
+        CHECK(sim_api("PUT", "/api/config", "{\"radio_secure\":true}", &resp) == 200, "radio_secure on");
+        /* new content goes over signed frames, image and all */
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        cid = put_content(PRICE_2, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content drawn over signed frames");
+        note("drawn %.1f s after the PUT, %u IMG_REQ, all signed", (sim_tag_last_draw_ms() - t0) / 1000.0,
+             sim_stats.img_reqs - s0.img_reqs);
+        /* both sides restart: the key stays on both, the tag's counter moves on */
+        draws = sim_tag_draws();
+        sim_ap_boot();
+        sim_tag_boot();
+        run_for(130);
+        get_tag();
+        CHECK(sim_json_bool("secure") == 1 && sim_json_num("sec_rejected") == 0, "signed after both restarted: %.300s", resp);
+        CHECK(shows_image(), "still shows its content");
+        t0 = sim_now_ms;
+        put_content(PRICE_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "and takes new content");
+        /* forget: the tag talks plainly again, and the AP, which wants signed frames, stops answering */
+        CHECK(api("DELETE", "/pair", NULL) == 200, "DELETE /api/tags/%s/pair", mac);
+        run_for(sim_tag_interval_s() + 1.0 + 6);  /* the order, and its next POLL 5 s later */
+        CHECK(!sim_tag_has_key(), "the tag forgot its key");
+        get_tag();
+        CHECK(sim_json_bool("secure") == 0, "the AP saw it talk plainly");
+        unsigned before = sim_stats.unanswered;
+        run_for(sim_tag_interval_s() + 1.0);
+        CHECK(sim_stats.unanswered > before, "no answers to a plain tag with radio_secure on");
+        CHECK(sim_api("PUT", "/api/config", "{\"radio_secure\":false}", &resp) == 200, "radio_secure off");
+        run_for(700);
+        CHECK(sim_tag_misses() == 0, "answered again with radio_secure off");
+    }
+
+    step("17. The AP comes up on a channel the tag was never told of (#258)");
     {
         /* as an AP restored on another channel, or one that moved while the tag was away */
         sim_ap_set_nvs_channel(26);
@@ -746,7 +792,7 @@ int e2e_run(const char *out, const char *root)
         sim_tag_boot();
         CHECK(sim_tag_channel() == 26, "and starts there after a restart");
         t0 = sim_now_ms;
-        put_content(PRICE_1, 1);
+        put_content(PRICE_2, 1);
         CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 26");
     }
 

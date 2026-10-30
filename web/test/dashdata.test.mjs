@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, pairText } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -193,6 +193,16 @@ test("parseTx and txWarning", () => {
   for (const bad of ["", "21", "-25", "1.5", "x"]) assert.ok(parseTx(bad).error, bad);
   assert.equal(txWarning(13), "");
   assert.match(txWarning(14), /above the EU limit/);
+});
+
+test("the pairing lock next to the MAC", () => {
+  assert.equal(pairText(tag("A")), null, "an AP without radio security");
+  assert.equal(pairText(tag("A", { secure: false, pairing: null, sec_rejected: 0 })), null);
+  assert.equal(pairText(tag("A", { secure: true, pairing: null, sec_rejected: 0 }))[1], "Paired: the tag signs its radio frames.");
+  assert.match(pairText(tag("A", { secure: false, pairing: "pair", sec_rejected: 0 }))[1], /^Pairing/);
+  assert.match(pairText(tag("A", { secure: true, pairing: "forget", sec_rejected: 0 }))[1], /^Unpairing/);
+  assert.equal(pairText(tag("A", { secure: false, pairing: null, sec_rejected: 1 }))[1],
+    "Not paired. The AP dropped 1 frame with a wrong signature or an old counter.");
 });
 
 test("radio channels and a waiting move", async () => {

@@ -12,8 +12,13 @@ Only the newest release gets fixes. Update the AP and the tags to it before repo
 
 These are known and documented, not secrets:
 
-- **The radio has no security yet.** Frames between the AP and the tags are not authenticated or encrypted (requirement T16 is planned for later). Anyone in radio range who speaks the protocol can send content to a tag.
-- **Tag firmware over the radio is not signed.** For the same reason, anyone in radio range can install firmware on a tag ([docs/tag-ota.md](docs/tag-ota.md), "Security"). This was chosen on purpose, to have OTA now.
+- **The radio is signed only for paired tags, and not encrypted.** A paired tag signs its messages and takes only answers signed with its key (AES-CMAC, [docs/protokoll.md](docs/protokoll.md), "Security"); tags that are not paired work as before, and with "Only paired tags" off the AP still answers them. Anyone in range can read what is sent.
+- **Pairing sends the key once in the clear.** A tag without a key gets it unsigned at its next poll. Pair where nobody listens in.
+- **A tag that is not paired takes a key from anyone.** Someone in range can pair your unpaired tags with their own key; such a tag then answers only them and must be flashed again in the jig. Pair every tag, early.
+- **Replays.** The AP keeps each tag's last counter in RAM only: after an AP restart, recorded signed frames can be sent to it once more (in order), and the last frame of a tag can be repeated, since a retry has the same counter. Either makes a tag look alive and can repeat its last report; neither changes what a tag shows.
+- **With "Only paired tags" off**, a forged unsigned POLL in a paired tag's name is answered and clears its lock in the dashboard until the tag is heard signed again. Turn it on once every tag is paired.
+- **Tag firmware is checked per block, not signed as an image.** A paired tag takes firmware only from its AP, block by block; a tag that is not paired takes it from anyone in radio range ([docs/tag-ota.md](docs/tag-ota.md), "Security").
+- **The radio key is in the backup.** Keep backup files as secret as the AP.
 - **The HTTP API is plain HTTP** on the local network, with a bearer token. Keep the AP on a network you trust, or behind a VPN. Five wrong tokens lock the API for 60 seconds.
 - **The USB port needs no token.** Anyone with the AP in their hands can change it.
 

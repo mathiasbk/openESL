@@ -11,6 +11,7 @@
 #include "esl_health.h"
 #include "esl_tagfw.h"
 #include "esl_source.h"
+#include "esl_radio.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -100,6 +101,8 @@ typedef struct {
     bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
                                false: GET leaves it out, PUT answers 422 */
     esl_api_changes_t *changes; /* GET /api/tags?since= (above); NULL: since is ignored, the whole list */
+    esl_radio_sec_t *sec;   /* radio security (esl_radio_set_sec): "radio_secure" in /api/config, /api/radio-key,
+                               /api/tags/{mac}/pair and "secure" per tag; NULL: none of them */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

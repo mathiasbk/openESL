@@ -90,6 +90,8 @@ typedef struct {
     bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
                                  RAM only): ESL_CERR_UNFIT */
     bool content_check : 1;   /* its content or model changed since that was last checked (esl_store_check_tag) */
+    bool pair_send : 1;       /* send it its key in a PAIR at its next POLL (ESL_PAIR_OP_PAIR, RAM only; */
+    bool forget_send : 1;     /* ... or tell it to forget it (ESL_PAIR_OP_FORGET); bools, so the flags stay in two bytes) */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
@@ -127,7 +129,27 @@ typedef struct {
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
+    uint16_t sec_bad : 15;    /* messages with a wrong MIC or an old counter since boot (saturates) */
+    uint16_t sec_plain : 1;   /* its last message was not authenticated (sec_ctr is kept, so a plain
+                                 frame in its name does not reopen old counters) */
+    uint32_t sec_ctr;         /* the counter of its last authenticated message, 0 = none since boot or
+                                 since PAIR/FORGET was sent (RAM only) */
 } esl_tag_t;
+
+/* Pairing (radio security, esl_radio.c): what a tag gets at its next POLL (esl_tag_pair_op) */
+#define ESL_PAIR_OP_NONE   0
+#define ESL_PAIR_OP_PAIR   1  /* its key in a plain PAIR, while it has none */
+#define ESL_PAIR_OP_FORGET 2  /* an authenticated PAIR of zeros: it forgets its key */
+/* Its last message was authenticated: it has our key. A counter is never 0 (sec.h: boots
+   starts at 1), so no flag of its own is needed, and the flags stay in two bytes. */
+static inline bool esl_tag_secure(const esl_tag_t *t)
+{
+    return t->sec_ctr != 0 && !t->sec_plain;
+}
+static inline uint8_t esl_tag_pair_op(const esl_tag_t *t)
+{
+    return t->pair_send ? ESL_PAIR_OP_PAIR : t->forget_send ? ESL_PAIR_OP_FORGET : ESL_PAIR_OP_NONE;
+}
 
 /* Milliseconds since the tag was last heard. A POLL handled after the caller read
    now_ms leaves last_seen_ms ahead of it; that is 0, not an unsigned wrap. */
@@ -280,6 +302,21 @@ unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t mode
  * (esl_radio_after once the reply is out, with esl_radio_set_draw_later),
  * and esl_image before it draws (with a radio coprocessor, esl_rhost draws before the POLL). True if the content fits (or nothing was to be checked). */
 bool esl_store_check_tag(esl_store_t *st, esl_layouts_t *ls, uint64_t mac);
+
+/* Radio security (esl_radio.c, docs/protokoll.md "Security"). esl_store_sec_ok: an
+ * authenticated message with counter ctr from the tag may be answered: its counter is not
+ * below the last one taken (the same one again is a message sent twice). Notes ctr; a
+ * tag not in the table yet is fine. esl_store_sec_bad counts one that was turned away.
+ * esl_store_sec_heard: after a message from the tag, secure or not; ends the pairing
+ * operation it finished (a secure message ends PAIR, a plain one FORGET). */
+bool esl_store_sec_ok(esl_store_t *st, uint64_t mac, uint32_t ctr);
+void esl_store_sec_bad(esl_store_t *st, uint64_t mac);
+void esl_store_sec_heard(esl_store_t *st, uint64_t mac, bool secure);
+/* Sets the tag's pairing operation (ESL_PAIR_OP_*). False when the tag is not in the table. */
+bool esl_store_set_pair(esl_store_t *st, uint64_t mac, uint8_t op);
+/* Its pairing operation; and with sent, the counter is forgotten (a new key starts it
+ * again), as when the PAIR goes out. */
+uint8_t esl_store_pair_op(esl_store_t *st, uint64_t mac, bool sent);
 
 bool esl_store_delete(esl_store_t *st, uint64_t mac);
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out);
