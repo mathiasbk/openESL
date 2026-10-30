@@ -19,7 +19,7 @@ The AP firmware runs on several ESP32 boards. All of them do the same job: the H
 | Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
 | Pictures on the labels (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses |
 
-Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from the firmware after 0.8.2. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every label, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([limits](ESP32-S3-with-wireless-C6)).
+Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from firmware 0.9.0. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every label, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([limits](ESP32-S3-with-wireless-C6)).
 
 ## Which one?
 
@@ -39,10 +39,10 @@ Changing board later is a backup and a restore: the labels follow without being 
 |---|---|---|---|---|
 | Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
 | Settings page: poll interval, webhook, name, WiFi, API token | yes | yes | yes | yes |
-| Settings page: time zone and NTP server | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 |
+| Settings page: time zone and NTP server | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer |
 | Backup and restore from the dashboard | yes | yes | yes | yes |
 | Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes |
 
-The dashboard, with its [Settings page](Dashboard#settings) and backup, also works from the web page's Dashboard tab over USB, for every board. The time zone and NTP server need AP firmware newer than 0.8.2; on older firmware the Settings page says so, and the rest works.
+The dashboard, with its [Settings page](Dashboard#settings) and backup, also works from the web page's Dashboard tab over USB, for every board. The time zone and NTP server need AP firmware 0.9.0 or newer; on older firmware the Settings page says so, and the rest works.
 
 The full comparison with antennas: [docs/access-points.md](https://github.com/mathiasbk/openESL/blob/master/docs/access-points.md). Each board's files: [ap/boards](https://github.com/mathiasbk/openESL/blob/master/ap/boards/README.md).

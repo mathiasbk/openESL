@@ -58,7 +58,7 @@ Tick labels in the table to:
 - **Security:** a new API token. This page uses it at once; other apps that call the AP need it too.
 - **Backup:** download a backup file, or put one back ([Backup and restore](Backup-and-restore)).
 
-Every AP board has the Settings page, on the AP's own dashboard and over USB. The time zone and NTP server need AP firmware newer than 0.8.2; the rest works on older firmware too ([What each board has](Access-point-boards#what-each-board-has)).
+Every AP board has the Settings page, on the AP's own dashboard and over USB. The time zone and NTP server need AP firmware 0.9.0 or newer; the rest works on older firmware too ([What each board has](Access-point-boards#what-each-board-has)).
 
 ## Health and webhook
 

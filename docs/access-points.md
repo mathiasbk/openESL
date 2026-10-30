@@ -20,7 +20,7 @@ The AP firmware is built for several boards. This page compares them; how to fla
 | Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
 | Pictures on the tags (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses |
 
-Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from the firmware after 0.8.2. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
+Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from firmware 0.9.0. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
 
 **ESP32-C6.** One small board does WiFi and the tag radio. It is cheap, flashed from the web page, and the board OpenESL is tested on. The C6 has no PSRAM, so its 512 KB of RAM limits it to about 700 tags next to WiFi (not measured on hardware yet, see [ap/README.md](../ap/README.md)), and WiFi and the tag radio take turns on one radio (so API replies can wait a little, and a tag's poll can be missed while WiFi is busy).
 
@@ -44,8 +44,8 @@ How the S3 and the C6 talk, and how to flash the C6: [ap-radio-link.md](ap-radio
 |---|---|---|---|---|
 | Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
 | Settings page: poll interval, webhook, name, WiFi, API token | yes | yes | yes | yes |
-| Settings page: time zone and NTP server | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 | yes, firmware after 0.8.2 |
+| Settings page: time zone and NTP server | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer |
 | Backup and restore from the dashboard | yes | yes | yes | yes |
 | Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes |
 
-The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware newer than 0.8.2 (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.
+The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware 0.9.0 or newer (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.

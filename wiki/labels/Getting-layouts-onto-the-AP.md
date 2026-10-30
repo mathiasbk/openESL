@@ -34,4 +34,4 @@ The [ESP32-S3 + C6](ESP32-S3-and-C6) and the [ESP32-C5](ESP32-C5) have the desig
 - **A file:** save it from the designer's File menu and upload it yourself: `esl_client.py layout-put 2.9 layouts.json`, or `PUT /api/layouts/{model}` (see [HTTP API](HTTP-API)).
 - **The bridge (for developers):** `python3 tools/esl-client/esl_client.py --url http://openesl.local --token <token> serve` lets the web page call the AP through your computer. Under **WiFi → Advanced** in the Send dialog, connect to `http://localhost:8080`. See [esl-client](esl-client).
 
-The AP needs firmware newer than 0.8.2 for **Open my AP**. With older firmware, the new tab shows the dashboard but nothing arrives: update the AP from the [Dashboard](Dashboard), or use USB.
+The AP needs firmware 0.9.0 or newer for **Open my AP**. With older firmware, the new tab shows the dashboard but nothing arrives: update the AP from the [Dashboard](Dashboard), or use USB.
