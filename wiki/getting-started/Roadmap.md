@@ -17,7 +17,7 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
 
 - **Labels that find the AP by themselves:** a label that loses the AP tries a few channels and stays on the one that answers ([#258](https://github.com/mathiasbk/openESL/issues/258)).
 - **Several APs in one place:** one AP keeps the labels and the API, and extra radios cover more rooms ([#259](https://github.com/mathiasbk/openESL/issues/259)).
-- **Security on the radio, next steps:** putting the key on a label in the flashing jig instead of over the air, and pairing with an S3 and a wireless C6 ([#260](https://github.com/mathiasbk/openESL/issues/260); pairing itself is done: [Security on the radio](Security-on-the-radio)).
+- **Security on the radio:** content and label firmware that only your AP can send (see [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md) for what is not protected today) ([#260](https://github.com/mathiasbk/openESL/issues/260)).
 - **Better range in practice:** signal history per label on the Dashboard, and measured range per antenna and transmit power ([#261](https://github.com/mathiasbk/openESL/issues/261)).
 - **Home Assistant without polling:** the AP tells the [integration](Home-Assistant) when a label checks in or gets a problem, instead of the integration reading the list of labels every few minutes ([#270](https://github.com/mathiasbk/openESL/issues/270)).
 - **Layouts:** rotated text ([#176](https://github.com/mathiasbk/openESL/issues/176)), fonts without new firmware ([#177](https://github.com/mathiasbk/openESL/issues/177)), more fields and UTF-8 ([#182](https://github.com/mathiasbk/openESL/issues/182)), date and week in layouts ([#183](https://github.com/mathiasbk/openESL/issues/183)).

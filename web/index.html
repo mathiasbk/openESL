@@ -362,8 +362,6 @@
     </section>
 
     <div id="dash-body" hidden>
-      <!-- js/radiokey.js: the AP's radio key, until this browser is told it is saved -->
-      <section id="dash-key" class="card wide rk-card" role="alert" hidden></section>
       <nav id="dash-views" class="views" aria-label="Dashboard">
         <button type="button" data-view="overview" aria-pressed="true">Tags and AP</button>
         <button type="button" data-view="settings" aria-pressed="false">Settings</button>
@@ -382,8 +380,6 @@
             <span id="st-sel-count"></span>
             <button type="button" id="st-goto" class="primary small">Send …</button>
             <button type="button" id="st-forget" class="small" title="DELETE /api/tags/{mac}: the AP forgets the ticked tags, their content, settings and scheduled content">Forget</button>
-            <button type="button" id="st-pair" class="small" title="PUT /api/tags/{mac}/pair: the ticked tags get a radio key at their next poll and sign their frames from then on" hidden>Pair</button>
-            <button type="button" id="st-unpair" class="small" title="DELETE /api/tags/{mac}/pair: the ticked tags forget their radio key at their next poll" hidden>Unpair</button>
             <button type="button" id="st-clear" class="small">Clear</button>
           </div>
         </div>
@@ -557,7 +553,7 @@
         <nav class="set-nav" role="tablist" aria-label="Settings">
           <button type="button" role="tab" id="set-tab-general" data-set="general" aria-selected="true">General<small>Name, time zone, tag interval</small></button>
           <button type="button" role="tab" id="set-tab-network" data-set="network" aria-selected="false">Network<small>WiFi, webhook, time server</small></button>
-          <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Channel, transmit power, paired tags</small></button>
+          <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Channel, transmit power</small></button>
           <button type="button" role="tab" id="set-tab-security" data-set="security" aria-selected="false">Security<small>API token</small></button>
           <button type="button" role="tab" id="set-tab-backup" data-set="backup" aria-selected="false">Backup<small>Download, restore</small></button>
         </nav>
@@ -629,11 +625,6 @@
               </div>
               <small id="set-tx-note"></small>
             </div>
-            <div class="field" id="set-secure-field" hidden><span>Paired tags</span>
-              <label class="check"><input type="checkbox" id="set-secure"> Only paired tags</label>
-              <small>The AP drops frames without a valid signature, except a poll from a tag it is pairing.
-                Pair the tags first (tick them in the table, then Pair): a tag that is not paired gets no content.</small>
-            </div>
           </div>
           <div class="savebar"><span id="set-radio-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
         </form>
@@ -650,7 +641,7 @@
 
         <div id="set-backup" class="set-pane" role="tabpanel" aria-labelledby="set-tab-backup" hidden>
           <div class="set-fields">
-            <p class="muted">One file with the AP's settings, layout files, every tag's content (pictures too) and own settings, and the content scheduled for later, and the radio key the paired tags sign with: keep the file secret. Put it back on this AP or on a new one, for example after a full erase. Not in it: the WiFi password, the API token, the radio's transmit power (it depends on the antenna) and tag firmware.</p>
+            <p class="muted">One file with the AP's settings, layout files, every tag's content (pictures too) and own settings, and the content scheduled for later. Put it back on this AP or on a new one, for example after a full erase. Not in it: the WiFi password, the API token, the radio's transmit power (it depends on the antenna) and tag firmware.</p>
             <div class="row">
               <button id="bk-save" type="button">Download backup</button>
               <button id="bk-load" type="button">Restore from a file …</button>
@@ -658,7 +649,6 @@
             </div>
             <div id="bk-ask" class="bk-ask" hidden>
               <p id="bk-what"></p>
-              <p id="bk-key-warn" class="warn" hidden><b>This AP has another radio key.</b> Restoring the settings replaces it, and tags paired with this AP stop getting answers. Save its key first with Show radio key below, unless no tags are paired with it.</p>
               <div class="row">
                 <label class="check"><input type="checkbox" id="bk-p-settings" checked> Settings</label>
                 <label class="check"><input type="checkbox" id="bk-p-layouts" checked> Layout files</label>
@@ -670,14 +660,6 @@
             <progress id="bk-progress" max="1" value="0" hidden></progress>
             <p id="bk-msg" class="hint" role="status"></p>
             <details id="bk-log-box" class="help" hidden><summary>What was done</summary><ul id="bk-log" class="hint"></ul></details>
-            <h3>Radio key</h3>
-            <p class="muted">Paired tags only talk to an AP with this key. Without it, a new or erased AP cannot reach them, and each has to be flashed again in the jig. It is in the backup above; the key file holds only the key, and Restore puts it back.</p>
-            <div class="row"><button id="rk-show" type="button">Show radio key</button><span id="rk-msg" class="hint" role="status"></span></div>
-            <div id="rk-out"></div>
-            <div id="rk-kept-box" hidden>
-              <h3>Radio keys kept in this browser</h3>
-              <ul id="rk-kept" class="rk-kept"></ul>
-            </div>
           </div>
         </div>
       </section>
@@ -752,7 +734,7 @@
         <li><strong>Content.</strong> Your software sends text per tag with <code>PUT /api/tags/{mac}</code>, or many at once with <code>PUT /api/tags</code>; the AP stores it and hands it to the tag at its next poll (about a minute). <code>"at"</code> in the request sets it at a given time, so a price change can be sent the day before. The <a href="#api">API</a> tab has every call, and <code>tools/esl-client</code> is a complete command-line client (<code>price</code>, <code>text</code>, <code>sync prices.csv</code> from an Excel export, <code>--at</code>).</li>
         <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, content the AP cannot draw), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
         <li><strong>Updates.</strong> Each release has an <code>openesl-ap-&lt;board&gt;-&lt;version&gt;-ota.bin</code> per board: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
-        <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook, the schedule and the radio key of paired tags (keep the file secret); <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
+        <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook and the schedule; <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
         <li><strong>Long-term test.</strong> <code>esl-client log week.csv</code> records every tag once a minute, and <code>report week.csv</code> sums up gaps, battery and AP restarts.</li>
       </ul>
       <p class="muted">More detail: <a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md">ap/README.md</a> (WiFi setup, menuconfig, the serial port, how the AP stores things), <a href="https://github.com/mathiasbk/openesl/blob/master/tools/esl-client/README.md">tools/esl-client/README.md</a> (every command) and <a href="https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md">docs/protokoll.md</a> (the radio protocol and the file formats).</p>

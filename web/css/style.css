@@ -374,7 +374,6 @@ button.tile:hover { border-color: var(--accent); }
 .dash-tools input { min-height: 34px; }
 .tag-table .mac { font-size: 13px; }
 .tag-table .mac .pre { color: var(--muted); }
-.tag-table .mac .pair { font-size: 0.85em; cursor: help; }
 .tag-table .mac b { font-weight: 600; }
 .tag-table .st { display: inline-flex; gap: 6px; align-items: center; }
 .tag-table .st::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -502,17 +501,3 @@ details.help > p { max-width: 62ch; }
 .wx-hits li { display: flex; flex-direction: column; padding: 5px 10px; cursor: pointer; }
 .wx-hits li span { font-size: 12px; color: var(--muted); }
 .wx-hits li:hover, .wx-hits li[aria-selected="true"] { background: var(--line); }
-
-/* js/radiokey.js: the radio key, to be saved */
-.rk { display: flex; flex-direction: column; gap: 10px; }
-.rk h2 { margin: 0; color: var(--warn); }
-.rk p { margin: 0; }
-.rk-card { border: 2px solid var(--warn); }
-.rk-key { font-size: 18px; letter-spacing: 0.03em; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 6px; background: var(--bg); user-select: all; overflow-wrap: anywhere; }
-.rk-keep { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.rk-keep > input { width: 18px; height: 18px; margin: 0; }
-.rk-small { font-size: 13px; }
-.rk-kept { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
-.rk-kept button { margin: 4px 6px 0 0; }
-#rk-out:empty { display: none; }
-#rk-out { border: 2px solid var(--warn); border-radius: 8px; padding: 12px; }

@@ -12,7 +12,6 @@
 #include "boot_core.h"
 #include "otaslot.h"
 #include "proto.h"
-#include "sec.h"
 
 uint64_t sim_now_ms;
 uint64_t sim_tag_mac = 0x00000123456789A8ull;
@@ -173,7 +172,6 @@ bool sim_tag_run_until_draw(uint64_t t_ms)
 }
 
 uint32_t sim_tag_shown_id(void) { return app.shown_id; }
-bool sim_tag_has_key(void) { return sec.has_key; }
 uint16_t sim_tag_fw_version(void) { return FW_VERSION; }
 uint8_t sim_tag_model_code(void) { return MODEL_CODE; }
 int sim_tag_restarts(void) { return restarts; }

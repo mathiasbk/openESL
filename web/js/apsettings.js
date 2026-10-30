@@ -79,7 +79,6 @@ export function currentSettings(last) {
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
   if (Number.isInteger(c.tx_power)) cur.tx_power = c.tx_power;
-  if (typeof c.radio_secure === "boolean") cur.radio_secure = c.radio_secure;
   if (Number.isInteger(c.channel)) cur.channel = Number.isInteger(c.channel_next) ? c.channel_next : c.channel;
   return cur;
 }
@@ -98,7 +97,6 @@ export function configBody(changes, config = {}) {
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
   if ("tx_power" in changes) body.tx_power = changes.tx_power === config.builtin_tx_power ? null : changes.tx_power;
-  if ("radio_secure" in changes) body.radio_secure = changes.radio_secure;
   if ("channel" in changes) body.channel = changes.channel === config.builtin_channel ? null : changes.channel;
   return body;
 }
@@ -390,7 +388,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     });
   });
 
-  // ---- Radio: the channel and the transmit power, on an AP that has them, and whether it answers only paired tags ----
+  // ---- Radio: the channel and the transmit power, on an AP that has them ----
   const chSel = $("set-ch-sel");
   const showMove = () => {
     const move = channelMove(last?.config);
@@ -428,15 +426,12 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     read() {
       showTx();
       const cur = currentSettings(last), r = {};
-      if ("radio_secure" in cur) r.radio_secure = $("set-secure").checked;
       if ("channel" in cur) r.channel = Number(chSel.value);
       if (!("tx_power" in cur)) return r;
       const c = txSel.value === "other" ? parseTx($("set-tx-db").value) : { dbm: Number(txSel.value) };
       return c.error ? c : { ...r, tx_power: c.dbm };
     },
     fill(cur) {
-      $("set-secure-field").hidden = !("radio_secure" in cur);
-      $("set-secure").checked = !!cur.radio_secure;
       const c = last.config;
       $("set-ch-field").hidden = !("channel" in cur);
       if ("channel" in cur) {
@@ -469,7 +464,6 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         said.push(c.channel === r?.channel ? `The AP stays on channel ${c.channel}.`
           : `The tags are told at their next poll, and the AP moves to channel ${c.channel} once they have confirmed it.`);
       if ("tx_power" in c) said.push(`The radio sends at ${c.tx_power} dBm from its next reply.`);
-      if ("radio_secure" in c) said.push(c.radio_secure ? "The AP now answers only paired tags." : "The AP answers unpaired tags again.");
       return "Saved. " + said.join(" ");
     },
   });
@@ -501,7 +495,6 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
 
   // ---- backup ----
   let loaded = null; // the backup read from a file, waiting for Restore
-  let replacesKey = false; // and it would give this AP another radio key
   const bar = $("bk-progress");
   const showProgress = ({ done, total }) => {
     bar.hidden = false;
@@ -557,17 +550,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     $("bk-what").textContent = `${f.name}, made ${new Date(loaded.taken).toLocaleString()}${from ? ` on ${from}` : ""}: ` +
       `${s.tags + s.pictures} tags with content (${s.pictures} pictures), ${s.configs} with their own settings, ` +
       `layout files for ${s.layouts.map((m) => m + '"').join(", ") || "no model"}, ${s.scheduled} scheduled. ` +
-      "What is on the AP for the same tags and models is replaced; other tags are left as they are." +
-      (loaded.radio_key ? " It has the radio key of the paired tags: Settings puts it on this AP." : "");
-    replacesKey = false;
-    $("bk-key-warn").hidden = true;
-    // a key file for another AP would cut this AP off from the tags paired with it: say so first
-    const client = getClient();
-    const cur = loaded.radio_key && client ? await client.call("GET", "/api/radio-key").catch(() => null) : null;
-    if (cur?.key && cur.key.toUpperCase() !== loaded.radio_key.toUpperCase()) {
-      replacesKey = true;
-      $("bk-key-warn").hidden = false;
-    }
+      "What is on the AP for the same tags and models is replaced; other tags are left as they are.";
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;
     say("bk-msg", "");
@@ -580,8 +563,6 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const client = getClient();
     if (!client || !loaded) return;
     const parts = Object.fromEntries(["settings", "layouts", "tags", "scheduled"].map((k) => [k, $("bk-p-" + k).checked]));
-    if (replacesKey && parts.settings && !confirm("Replace this AP's radio key with the one in the file? Tags paired with this AP's " +
-      "key stop getting answers. Save its key first (Show radio key) if any tags are paired with it.")) return;
     say("bk-msg", "Restoring …");
     try {
       const r = await restoreBackup(client, loaded, { parts, progress: showProgress });
@@ -591,7 +572,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         r.failed.length ? "error" : "ok");
       if (!r.waiting.length) $("bk-ask").hidden = true;
       if (r.notes.length && !r.failed.length) say("bk-msg", $("bk-msg").textContent + " See the notes below.", "ok");
-      refresh({ key: true });   // the AP may have another radio key now
+      refresh();
     } catch (e) {
       say("bk-msg", "Not restored: " + e.message, "error");
     } finally {
@@ -607,8 +588,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel) ||
-        typeof last.config?.radio_secure === "boolean";
+      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel);
       $("set-tab-radio").hidden = !radioSet;
       if (!radioSet && !$("set-radio").hidden) showPane("general");
       renderClock();

@@ -31,8 +31,6 @@ class FakeAp(BaseHTTPRequestHandler):
     ota_rollback = False
     tagfw = {}
     images = {}
-    radio_key = None  # an AP with radio security has one
-    pairing = {}
 
     def log_message(self, *a):
         pass
@@ -91,25 +89,10 @@ class FakeAp(BaseHTTPRequestHandler):
         c = FakeAp.tag_cfg.get(mac, {})
         return {k: c.get(k) for k in ("poll_s", "max_poll_s", "lost_ap_s", "long_poll_s", "long_after_min")}
 
-    def do_DELETE(self, put=False):
-        if not put and not self._auth():
-            return
-        if not put:
-            self.calls.append((self.path, None))
-        mac = self.path.split("/")[3]
-        if not self.path.endswith("/pair") or mac not in self.tags:
-            return self._send(404, {"error": "not found"})
-        if not FakeAp.radio_key:
-            return self._send(409, {"error": "no radio key"})
-        FakeAp.pairing[mac] = "pair" if put else "forget"
-        self._send(200, {"mac": mac, "pairing": FakeAp.pairing[mac]})
-
     def do_GET(self):
         if not self._auth():
             return
-        if self.path == "/api/radio-key":
-            self._send(200 if FakeAp.radio_key else 404, {"key": FakeAp.radio_key} if FakeAp.radio_key else {"error": "not found"})
-        elif self.path == "/api/layouts":
+        if self.path == "/api/layouts":
             self._send(200, {"max_size": 8192, "max_binary_size": 2048,
                              "layouts": [{"model": m, "version": 1, "size": 1, "binary_size": 1,
                                           "layouts": [x["name"] for x in f["layouts"]]}
@@ -185,12 +168,7 @@ class FakeAp(BaseHTTPRequestHandler):
             return self._send(200, r)
         body = self._body()
         self.calls.append((self.path, body))
-        if self.path == "/api/radio-key":
-            FakeAp.radio_key = body["key"].upper()
-            self._send(200, {"key": FakeAp.radio_key})
-        elif self.path.endswith("/pair"):
-            self.do_DELETE(True)
-        elif self.path == "/api/time":
+        if self.path == "/api/time":
             FakeAp.time = body["time"]
             self._send(200, {"time": FakeAp.time, "source": "api"})
         elif self.path == "/api/config":
@@ -200,10 +178,6 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["webhook"] = body["webhook"] or None
             if "tx_power" in body:
                 FakeAp.config.update(tx_power=10 if body["tx_power"] is None else body["tx_power"], builtin_tx_power=10)
-            if "radio_secure" in body:
-                if "radio_secure" not in FakeAp.config:
-                    return self._send(422, {"error": "poll_s, webhook, tx_power, ntp or tz is required"})
-                FakeAp.config["radio_secure"] = body["radio_secure"]
             if "channel" in body:
                 ch = body["channel"] or 25
                 now = body.get("channel_now") or ch == FakeAp.config.get("channel", 25)
@@ -303,8 +277,6 @@ class ClientTest(unittest.TestCase):
         FakeAp.images = {}
         FakeAp.wifi = {}
         FakeAp.tagfw = {}
-        FakeAp.radio_key = None
-        FakeAp.pairing = {}
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -395,72 +367,6 @@ class ClientTest(unittest.TestCase):
         # the AP's own NTP server is kept as None
         FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
         self.assertEqual(esl_client.backup(cli)["config"], {"poll_s": 0, "webhook": None, "tz": None, "ntp": None})
-
-    def test_radio_security(self):
-        cli = esl_client.Client(self.url, TOKEN)
-        self.run_cli("price", "00000123456789A8", "Milk", "24.90")
-        # an AP without radio security: nothing about it in the backup, pairing refused
-        b = esl_client.backup(cli)
-        self.assertNotIn("radio_key", b)
-        self.assertNotIn("radio_secure", b["config"])
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(self.run_cli("pair", "00000123456789A8")[0], 2)  # HTTP 409
-        # with it: the key and the setting go into the backup
-        FakeAp.radio_key = "00112233445566778899AABBCCDDEEFF"
-        FakeAp.config["radio_secure"] = True
-        rc, out = self.run_cli("pair", "00000123456789A8")
-        self.assertEqual((rc, out), (0, "00000123456789A8 gets its radio key at its next poll\n"))
-        rc, out = self.run_cli("unpair", "00000123456789A8")
-        self.assertEqual(FakeAp.pairing["00000123456789A8"], "forget")
-        self.assertIn("only paired tags", self.run_cli("config")[1])
-        self.run_cli("config", "--radio-secure", "off")
-        self.assertIs(FakeAp.config["radio_secure"], False)
-        FakeAp.config["radio_secure"] = True
-        b = esl_client.backup(cli)
-        self.assertEqual(b["radio_key"], "00112233445566778899AABBCCDDEEFF")
-        self.assertIs(b["config"]["radio_secure"], True)
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump(dict(b, radio_key="xyz"), f)
-        with self.assertRaisesRegex(esl_client.BackupError, "radio key"):
-            esl_client.read_backup(f.name)
-        os.unlink(f.name)
-        # onto a new AP with its own key: the key first, then "only paired tags"
-        self.setUp()
-        FakeAp.radio_key = "FFEEDDCCBBAA99887766554433221100"
-        FakeAp.config["radio_secure"] = False
-        lines, ok = esl_client.restore(cli, b)
-        self.assertTrue(ok, lines)
-        self.assertEqual(FakeAp.radio_key, "00112233445566778899AABBCCDDEEFF")
-        self.assertIs(FakeAp.config["radio_secure"], True)
-        puts = [c[0] for c in FakeAp.calls if c[0] in ("/api/radio-key", "/api/config")]
-        self.assertEqual(puts[:2], ["/api/radio-key", "/api/config"])
-        # onto an AP without it: a warning, the rest is restored
-        self.setUp()
-        lines, ok = esl_client.restore(cli, b)
-        self.assertFalse(ok)
-        self.assertIn("warning: the radio key was not restored; this AP has no radio security: pair the tags again", lines)
-        self.assertEqual(len(FakeAp.tags), 1)
-        # the web page's radio key file (js/radiokey.js): a backup with only the key, which leaves
-        # the AP's own settings as they are
-        self.setUp()
-        FakeAp.radio_key = "FFEEDDCCBBAA99887766554433221100"
-        FakeAp.config["poll_s"] = 600
-        key_file = {"format": "openesl-backup", "version": 1, "taken": "2026-10-30T12:00:00+00:00",
-                    "ap": {"hostname": "openesl"}, "radio_key": "00112233445566778899AABBCCDDEEFF",
-                    "config": {}, "layouts": {}, "tags": [], "scheduled": []}
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump(key_file, f)
-        kf = esl_client.read_backup(f.name)
-        os.unlink(f.name)
-        # the AP has another key: the dry run warns before anything is sent
-        lines, ok = esl_client.restore(cli, kf, dry_run=True)
-        self.assertTrue(any(l.startswith("warning: this AP has another radio key") for l in lines), lines)
-        self.assertEqual(FakeAp.radio_key, "FFEEDDCCBBAA99887766554433221100")
-        lines, ok = esl_client.restore(cli, kf)
-        self.assertTrue(ok, lines)
-        self.assertEqual(FakeAp.radio_key, "00112233445566778899AABBCCDDEEFF")
-        self.assertEqual(FakeAp.config["poll_s"], 600)
-        self.assertNotIn("/api/config", [c[0] for c in FakeAp.calls])
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")

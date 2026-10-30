@@ -131,17 +131,6 @@ export function tagRows(list, health, now = Date.now()) {
   return rows.sort((a, b) => rank[a.state.level] - rank[b.state.level] || a.tag.mac.localeCompare(b.tag.mac));
 }
 
-// The tag's pairing as [mark, title] for the lock next to its MAC, or null on an AP without
-// signed radio frames and for a tag that is neither paired nor being paired
-export function pairText(tag) {
-  if (!tag || !("secure" in tag)) return null;
-  const bad = tag.sec_rejected ? ` The AP dropped ${tag.sec_rejected} frame${tag.sec_rejected === 1 ? "" : "s"} with a wrong signature or an old counter.` : "";
-  if (tag.pairing === "pair") return ["\u{1F511}", "Pairing: the tag gets its radio key at its next poll." + bad];
-  if (tag.pairing === "forget") return ["\u{1F513}", "Unpairing: the tag forgets its radio key at its next poll." + bad];
-  if (tag.secure) return ["\u{1F512}", "Paired: the tag signs its radio frames." + bad];
-  return bad ? ["\u26A0", "Not paired." + bad] : null;
-}
-
 // How many rows each filter of the tag table shows: { all, bad, busy, models: { "2.9": n } }
 export function rowCounts(rows) {
   const c = { all: rows.length, bad: 0, busy: 0, models: {} };
