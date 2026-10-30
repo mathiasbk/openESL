@@ -28,6 +28,7 @@ Update the AP, then the labels; any order works, and old and new talk to each ot
 - A C6 access point holds about 510 labels instead of 700, since each label's signal history and radio security take memory.
 - A label updated to 0.9.0 uses the built-in settings until its next check-in, then gets its own again.
 - The radio channel can be changed under **Settings → Radio** ([Access point settings](Access-point-settings)). Only labels on 0.9.0 follow the AP to a new channel, so update every label (and a C6 over WiFi) first: the AP refuses to move while it hears an older label. Before going back to 0.8.2, set the channel back to 25.
+- Prices can be shown in whole kroner with `,-` (`199,-`) in the designer. Use it only once the AP will stay on 0.9.0: an older AP refuses such a layout file.
 - Layouts can show today's date or week number with date fields in a fixed text, such as "Week {week}" ([Layout elements and limits](Layout-elements-and-limits)). Use them only once the AP runs 0.9.0: an older AP shows `{week}` as written.
 - Going back to 0.8.2: the AP answers every label unsigned again, and paired labels get no answer until it is back on 0.9.0. A label that goes back to older firmware forgets its key; turn "Only paired labels" off first.
 - An S3 with a wireless C6 cannot pair labels yet.
