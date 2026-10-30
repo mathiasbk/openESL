@@ -394,13 +394,20 @@ static uint8_t announced_channel(void)
     return app.cfg.channel ? app.cfg.channel : CFG_CHANNEL;
 }
 
-/* One POLL, with its retry, on another channel; true = answered there (reply is filled in) */
-static bool try_channel(uint8_t ch)
+/* The round's POLL (flen, still in txbuf) again on channel ch: the same frame as its retry,
+   so every channel tried costs one more send and listening window, nothing more */
+static void tune(uint8_t ch)
 {
     radio_off();
     radio_init(ch);
     radio_on();
-    return exchange_retry(build_poll_frame());
+}
+
+/* One POLL, with its retry, on another channel; true = answered there (reply is filled in) */
+static bool try_channel(uint8_t ch, uint8_t flen)
+{
+    tune(ch);
+    return exchange_retry(flen);
 }
 
 /*
@@ -408,19 +415,18 @@ static bool try_channel(uint8_t ch)
  * the AP announced, then on the built-in one from the CFG_BUILTIN_AFTER-th miss in a row,
  * each when it is another (docs/protokoll.md, "Changing the channel"). An AP that moved is
  * found at the first miss; the built-in channel finds one that went back to it before the
- * tag heard. True = reply is filled in
- * and the tag stays there.
+ * tag heard. True = reply is filled in and the tag stays there.
  */
-static bool try_announced(void)
+static bool try_announced(uint8_t flen)
 {
     uint8_t ch = announced_channel();
 
-    if (ch == app.channel || !try_channel(ch)) {
+    if (ch == app.channel || !try_channel(ch, flen)) {
         ch = CFG_CHANNEL;
         /* the built-in channel only after a few misses: another AP there (every AP answers
            every tag) would keep a tag that only lost one reply to noise */
         if (app.misses + 1 < CFG_BUILTIN_AFTER || ch == app.channel || ch == announced_channel() ||
-            !try_channel(ch)) {
+            !try_channel(ch, flen)) {
             radio_init(app.channel); /* the next round starts where the tag was */
             return false;
         }
@@ -428,6 +434,44 @@ static bool try_announced(void)
     app.channel = ch;
     app.channel_moved = 1;
     return true;
+}
+
+static const uint8_t __code scan_list[CFG_SCAN_COUNT] = { CFG_SCAN_CHANNELS };
+
+/*
+ * The AP is not on the tag's, the announced or the built-in channel (#258): the third
+ * round in a row without an answer looks once on each of the first CFG_SCAN_FIRST channels
+ * of CFG_SCAN_CHANNELS, every later one on the next channel of the list only, round and
+ * round through all of 11-26, so a long outage costs one listening window more per round.
+ * The round's POLL once on each, without the retry. True = reply is filled in and the tag
+ * stays on that channel.
+ */
+static bool scan(uint8_t flen)
+{
+    uint8_t steps = CFG_SCAN_COUNT, tries = 1, ch;
+
+    if (app.misses + 1 < CFG_SCAN_AFTER)
+        return false;
+    if (app.misses + 1 == CFG_SCAN_AFTER) {
+        app.scan_next = 0;
+        tries = CFG_SCAN_FIRST;
+    }
+    while (tries && steps--) {
+        ch = scan_list[app.scan_next];
+        if (++app.scan_next == CFG_SCAN_COUNT)
+            app.scan_next = 0;
+        if (ch == app.channel || ch == announced_channel() || ch == CFG_CHANNEL)
+            continue;                /* tried this round already */
+        tries--;
+        tune(ch);
+        if (exchange(flen)) {
+            app.channel = ch;
+            app.channel_moved = 1;
+            return true;
+        }
+    }
+    radio_init(app.channel);
+    return false;
 }
 
 /* ---- Public ---- */
@@ -443,6 +487,7 @@ void app_init(void)
        like every other save, not right after hal_mac_read's flash DMA, which changes
        SETTINGS: with the save here, a tag lost its key at a battery change (2026-10-29) */
     sec_boot();
+    app.scan_next = 0;
     app.shown_id = 0;
     app.interval_s = base_poll_s();
     app.misses = 0;
@@ -472,10 +517,12 @@ static uint16_t poll_round(void)
 {
     bool got, fw_done = false;
     uint8_t img = IMAGE_MORE;        /* nothing to show */
+    uint8_t flen;
 
     hal_wdt_kick();
     radio_on();
-    got = exchange_retry(build_poll_frame()) || try_announced();
+    flen = build_poll_frame();
+    got = exchange_retry(flen) || try_announced(flen) || scan(flen);
     if (got)                         /* the next POLL tells the AP this one needed its retry */
         app.link_flags = retried ? ESL_POLL_LF_RETRY : 0;
     if (got && reply.type == ESL_MSG_FW) {

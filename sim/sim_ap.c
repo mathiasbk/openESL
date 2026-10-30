@@ -290,6 +290,11 @@ void sim_ap_off(void)
 
 bool sim_ap_up(void) { return ap_up; }
 
+void sim_ap_set_nvs_channel(uint8_t channel)
+{
+    nvs.channel = channel;
+}
+
 /* As the radio task: a planned channel move happens when the store says (esl_store_channel_step) */
 uint8_t sim_ap_channel(void)
 {

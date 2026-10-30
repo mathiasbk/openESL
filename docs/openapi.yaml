@@ -1937,7 +1937,7 @@ components:
             With `channel`: `true` moves the radio at once, without waiting for the tags, to the
             channel of a move announced before (`channel_next`) or to the built-in one, else
             `409`. Tags that had not confirmed it look for the AP on the announced channel at
-            once, and on the built-in one after three lost polls.
+            once, and on the built-in one and the others after three missed polls.
         force:
           type: boolean
           description: |
