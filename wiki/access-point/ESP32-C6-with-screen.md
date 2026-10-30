@@ -1,6 +1,6 @@
 # ESP32-C6 with screen
 
-**Status:** supported. **Labels:** about 700. **Release file:** `openesl-ap-esp32c6-lcd-<version>.bin`
+**Status:** supported. **Labels:** about 500. **Release file:** `openesl-ap-esp32c6-lcd-<version>.bin`
 
 The same as the [ESP32-C6](ESP32-C6), on a board with a 0.96" 160 × 80 colour screen (sold as "ESP32-C6 LCD 0.96 inch ST7789 160x80", often with an SD slot that is not used). It costs about 10 $. Same limits as the plain C6, and like it no [weather](Weather) by itself.
 
