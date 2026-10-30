@@ -336,6 +336,7 @@
 #define ESL_LE_NUM_2         0x30   /* alltid to desimaler */
 #define ESL_LE_NUM_AUTO      0x40   /* to desimaler, ingen når de er ,00 */
 #define ESL_LE_NUM_DASH      0x50   /* to desimaler, ",-" når de er ,00 */
+#define ESL_LE_NUM_0_DASH    0x60   /* ingen desimaler, avrundet, med ",-" */
 #define ESL_LE_NUM_THOUSANDS 0x80   /* mellomrom mellom hver tredje siffer: 1 299,90 */
 #define ESL_LE_NUM_MAX_LEN   24     /* lengste formaterte tall: -, 12 siffer, 3 mellomrom, komma, 6 desimaler */
 #define ESL_DRAW_MAX_NUMS    8      /* tekstelementer med tallformat per layout (esl_render.c) */

@@ -127,6 +127,10 @@
 .el-bar .menu-list .row > span:first-child { width: 78px; color: var(--muted); }
 .el-bar .menu-list button, .el-bar .menu-list select { color: var(--text); background: var(--panel); border: 1px solid var(--line); padding: 3px 8px; }
 .el-bar .menu-list button:hover { background: var(--soft); }
+.el-bar .menu-list .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.el-bar .menu-list .check.sub { margin-left: 22px; }
+.el-bar .menu-list .check input { margin: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+.el-bar .menu-list .check:has(input:disabled) { color: var(--muted); cursor: default; }
 .el-bar .menu-list button[aria-checked="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .el-bar .menu-list .hint { margin: 0; }
 .el-bar .del:hover { background: #7a1f1a !important; }

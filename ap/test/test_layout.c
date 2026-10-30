@@ -185,6 +185,8 @@ static void test_binary(void)
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_AUTO);
     CHECK(compile_el(TEXT_A ",\"decimals\":\"dash\"}"));
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_DASH);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"0-dash\",\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_0_DASH | ESL_LE_NUM_THOUSANDS);
     CHECK(compile_el(TEXT_A ",\"decimals\":\"keep\"}"));
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP);
     CHECK(compile_el(TEXT_A ",\"thousands\":true}"));

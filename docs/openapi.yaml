@@ -2530,11 +2530,12 @@ components:
         decimals:
           oneOf:
             - { type: integer, enum: [0, 2] }
-            - { type: string, enum: [auto, dash, keep] }
+            - { type: string, enum: [auto, dash, 0-dash, keep] }
           description: |
             text only: draws a number such as a price the same way whatever the client sends
             (`1299.9`, `1299,90`, `1 299,90`, `199,-`). `2`: `1299,90`; `0`: `1300` (rounded);
-            `auto`: `199` or `199,90`; `dash`: `199,-` or `199,90`; `keep`: the decimals as sent,
+            `auto`: `199` or `199,90`; `dash`: `199,-` or `199,90`; `0-dash`: `200,-` (rounded);
+            `keep`: the decimals as sent,
             with a decimal comma. One dot and no comma is the decimal sign (`1.299` is 1,299).
             Text that is not a number is drawn as sent. A formatted number is drawn on one line.
             At most 8 elements per layout with a number format. Left out: no format.
