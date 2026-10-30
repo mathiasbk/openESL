@@ -129,9 +129,11 @@ typedef struct {
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
-    uint16_t sec_bad;         /* messages with a wrong MIC or an old counter since boot */
-    uint32_t sec_ctr;         /* the counter of its last authenticated message, 0 while its last one was
-                                 not (RAM only; esl_tag_secure) */
+    uint16_t sec_bad : 15;    /* messages with a wrong MIC or an old counter since boot (saturates) */
+    uint16_t sec_plain : 1;   /* its last message was not authenticated (sec_ctr is kept, so a plain
+                                 frame in its name does not reopen old counters) */
+    uint32_t sec_ctr;         /* the counter of its last authenticated message, 0 = none since boot or
+                                 since PAIR/FORGET was sent (RAM only) */
 } esl_tag_t;
 
 /* Pairing (radio security, esl_radio.c): what a tag gets at its next POLL (esl_tag_pair_op) */
@@ -139,10 +141,10 @@ typedef struct {
 #define ESL_PAIR_OP_PAIR   1  /* its key in a plain PAIR, while it has none */
 #define ESL_PAIR_OP_FORGET 2  /* an authenticated PAIR of zeros: it forgets its key */
 /* Its last message was authenticated: it has our key. A counter is never 0 (sec.h: boots
-   starts at 1), so no flag is needed for it, and the flags stay in two bytes. */
+   starts at 1), so no flag of its own is needed, and the flags stay in two bytes. */
 static inline bool esl_tag_secure(const esl_tag_t *t)
 {
-    return t->sec_ctr != 0;
+    return t->sec_ctr != 0 && !t->sec_plain;
 }
 static inline uint8_t esl_tag_pair_op(const esl_tag_t *t)
 {

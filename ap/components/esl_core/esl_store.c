@@ -697,7 +697,7 @@ bool esl_store_sec_ok(esl_store_t *st, uint64_t mac, uint32_t ctr)
     bool ok = !t || ctr >= t->sec_ctr;
     if (t && ok)
         t->sec_ctr = ctr;
-    else if (t && t->sec_bad < UINT16_MAX)
+    else if (t && t->sec_bad < 0x7FFF)
         t->sec_bad++;
     unlock(st);
     return ok;
@@ -707,7 +707,7 @@ void esl_store_sec_bad(esl_store_t *st, uint64_t mac)
 {
     lock(st);
     int idx = find(st, mac);
-    if (idx >= 0 && at(st, (unsigned)idx)->sec_bad < UINT16_MAX)
+    if (idx >= 0 && at(st, (unsigned)idx)->sec_bad < 0x7FFF)
         at(st, (unsigned)idx)->sec_bad++;
     unlock(st);
 }
@@ -718,12 +718,11 @@ void esl_store_sec_heard(esl_store_t *st, uint64_t mac, bool secure)
     int idx = find(st, mac);
     if (idx >= 0) {
         esl_tag_t *t = at(st, (unsigned)idx);
-        if (secure) {
+        t->sec_plain = !secure;
+        if (secure)
             t->pair_send = false;
-        } else {
-            t->sec_ctr = 0;
+        else
             t->forget_send = false;
-        }
     }
     unlock(st);
 }

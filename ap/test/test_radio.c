@@ -2054,6 +2054,16 @@ static void test_security(void)
     CHECK(HAS(resp, "\"sec_rejected\":2"));
     CHECK_INT(sec_poll(mac, key, 0x10006, r), ESL_IDLE_LEN);
 
+    /* require off: a plain frame in its name is answered and takes the lock away, but the
+       counter stays, so recorded frames are still turned away */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_IDLE_LEN);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false"));
+    CHECK_INT(sec_poll(mac, key, 0x10005, r), 0);
+    CHECK_INT(sec_poll(mac, key, 0x10006, r), ESL_IDLE_LEN);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true"));
+
     /* require: a plain tag gets nothing, the paired one goes on */
     CHECK_INT(sec_poll(other, NULL, 0, r), ESL_IDLE_LEN);
     int saves = sec_saves;

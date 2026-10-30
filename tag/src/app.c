@@ -123,7 +123,7 @@ static void app_store_load(void)
 
     sec.has_key = 0;
     sec.boots = 0;
-    if (now || (n >= STORE_LEN_4 && store_rec[0] == STORE_FORMAT_4)) {
+    if (now || (n == STORE_LEN_4 && store_rec[0] == STORE_FORMAT_4)) {
         app.cfg.ver = ESL_GET_U16(store_rec + 1);
         app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
         app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
