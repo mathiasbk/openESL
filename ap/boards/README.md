@@ -39,8 +39,10 @@ Each folder has:
     are the AP's RAM, not the tag's. `CMakeLists.txt` passes them to the compiler, `GET
     /api/layouts` reports them with the board's `id`, and the designer shows the connected AP's.
     `web/build.py` gives the web renderer room for the largest value of any board. The boards with
-    8 MB PSRAM set `runs` 64, `rects` 40, `lines` 32 and `icons` 16; `jsonBytes` stays 8192 on
-    every board, since the layout files share NVS with the tags.
+    8 MB PSRAM set `runs` 64, `rects` 40, `lines` 32 and `icons` 16. The ESP32-S3 and ESP32-C5 boards also set
+    `fileBytes` 8192 and `jsonBytes` 16384, room for a set of icons such as the weather template's
+    next to the layouts a file already has; the layout files share NVS with the tags, so two full
+    files take 16 KB more of it than on the C6 (about 40 tags' worth of its 468 KB).
   - `radio_fw` (`uart` and `net`): the radio boards in `ap/radio/boards/` (or `ap/netradio/boards/`) the radio can be
     (a name or a list: `["c6", "c6-lcd"]`). `build.py` builds each one too, once, and the
     release has it as `<release in its radio.json>-<version>.bin`.

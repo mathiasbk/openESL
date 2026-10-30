@@ -1,5 +1,6 @@
 #include "tinytest.h"
 #include "esl_api.h"
+#include "esl_clock.h"
 #include "esl_persist.h"
 #include "esl_image.h"
 #include "esl_img2d.h"
@@ -9,6 +10,7 @@
 #include "esl_render.h"
 #include "esl_png.h"
 #include "png_fixtures.h"
+#include "cmac.h"
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
@@ -28,6 +30,11 @@ typedef struct {
     uint8_t cfg[CAP][ESL_PERSIST_CFG_LEN];
     bool has_next_poll;
     uint16_t next_poll_s;
+    uint8_t channel; /* cfg/channel, 0 = not stored */
+    uint8_t ch_next; /* cfg/ch_next */
+    bool seen_used[CAP];
+    uint64_t seen_mac[CAP];
+    esl_seen_t seen[CAP];
     uint8_t img[CAP][ESL_IMAGE_STORED_MAX(5000)]; /* pictures (ops.persist_image) */
     size_t img_len[CAP];
     int img_writes;
@@ -70,6 +77,22 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     n->next_poll_s = next_poll_s ? *next_poll_s : 0;
 }
 
+static void nvs_seen(void *ctx, unsigned slot, uint64_t mac, const esl_seen_t *rec)
+{
+    nvs_t *n = ctx;
+    n->seen_used[slot] = rec != NULL;
+    n->seen_mac[slot] = mac;
+    if (rec)
+        n->seen[slot] = *rec;
+}
+
+static void nvs_channel(void *ctx, uint8_t channel, uint8_t next)
+{
+    nvs_t *n = ctx;
+    n->channel = channel;
+    n->ch_next = next;
+}
+
 static bool nvs_image(void *ctx, unsigned slot, const uint8_t *data, size_t len)
 {
     nvs_t *n = ctx;
@@ -94,7 +117,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", 25, &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -116,7 +139,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -129,7 +152,10 @@ static void ap_boot(void)
             esl_store_restore(&st, s, mac, &c);
         if (nvs.cfg_used[s] && esl_persist_cfg_decode(nvs.cfg[s], ESL_PERSIST_CFG_LEN, &mac, &cfg))
             esl_store_restore_cfg(&st, s, mac, &cfg);
+        if (nvs.seen_used[s])
+            esl_store_restore_seen(&st, s, nvs.seen_mac[s], &nvs.seen[s]);
     }
+    esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0); /* after the tags, as store_nvs_init() */
 }
 
 /* One wake-up of the tag (POLL, then IMG_REQ or FW_REQ until done), or with lose_reply
@@ -162,7 +188,7 @@ static int put(const char *mac, const char *body)
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -340,12 +366,12 @@ static void test_config(void)
     CHECK_INT(air(&old, 1000, false), ESL_MSG_IDLE);
     CHECK_INT(t.interval_s, ESL_FAKETAG_POLL_S);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000C0FFEE01", AUTH, NULL, 0, 2000, &out), 200);
-    CHECK(HAS(resp, "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+    CHECK(HAS(resp, "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},"
                     "\"config_pending\":false"));
 
     /* per-tag settings: the tag gets CONFIG, uses the new interval and confirms */
     CHECK_INT(put_cfg("00000000C0FFEE01", "{\"poll_s\":120,\"lost_ap_s\":65535}"), 200);
-    CHECK(HAS(resp, "\"poll_s\":120,\"config\":{\"poll_s\":120,\"max_poll_s\":null,\"lost_ap_s\":65535}"));
+    CHECK(HAS(resp, "\"poll_s\":120,\"config\":{\"poll_s\":120,\"max_poll_s\":null,\"lost_ap_s\":65535,\"long_poll_s\":null,\"long_after_min\":null}"));
     CHECK(HAS(resp, "\"config_pending\":true,\"changed\":true"));
     CHECK_INT(air(&t, 61000, false), ESL_MSG_CONFIG);
     CHECK_INT(t.interval_s, 120);
@@ -421,6 +447,170 @@ static void test_config(void)
     for (unsigned i = 0; i < CAP; i++)
         any |= nvs.cfg_used[i];
     CHECK(!any);
+}
+
+static int config_at(const char *body, uint64_t now_ms)
+{
+    return esl_api_handle(&api, body ? "PUT" : "GET", "/api/config", AUTH, body, body ? strlen(body) : 0, now_ms, &out);
+}
+
+static int config(const char *body)
+{
+    return config_at(body, 0);
+}
+
+/* A planned channel move (#256): announced in CONFIG, the radio moves once the tags
+ * heard lately have confirmed it, or at the deadline, or at once with channel_now. */
+static void test_channel(void)
+{
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    api.channel_settable = true;
+    esl_faketag_t a, b;
+    esl_faketag_init(&a, 0xA1, 2, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0xB2, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&a, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 1000, false), ESL_MSG_IDLE);
+    CHECK_INT(a.cfg_ver, 0); /* the default channel: no CONFIG for it */
+
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK_INT(config("{\"channel\":27}"), 422);
+    CHECK_INT(config("{\"channel\":10}"), 422);
+    CHECK_INT(config("{\"channel_now\":true}"), 422);
+    CHECK_INT(config("{\"channel\":20,\"channel_now\":1}"), 422);
+    CHECK(!nvs.channel && !nvs.ch_next);
+
+    /* announced: the move is stored, the radio stays until both have confirmed it */
+    CHECK_INT(config("{\"channel\":20}"), 200);
+    CHECK(!nvs.channel && nvs.ch_next == 20);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":20,\"channel_waiting\":2,"));
+    /* waits at most 2 x the longest interval (60 s) + 1 min */
+    CHECK_INT(json_u32(resp, "\"channel_due_s\":"), 180);
+    CHECK_INT(esl_store_channel_step(&st, 2000), 0);
+    CHECK_INT(air(&a, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 20);
+    CHECK_INT(air(&b, 61000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 62000), 0); /* not confirmed yet */
+    CHECK_INT(air(&a, 121000, false), ESL_MSG_IDLE);   /* a confirms */
+    esl_channel_state_t cs;
+    esl_store_channel_state(&st, 121000, &cs);
+    CHECK_INT(cs.waiting, 1);
+    CHECK_INT(esl_store_channel_step(&st, 121500), 0);
+    CHECK_INT(air(&b, 122000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 122500), 20);
+    CHECK(nvs.channel == 20 && !nvs.ch_next); /* stored once the radio is there */
+    CHECK_INT(esl_store_channel_step(&st, 123000), 0); /* once */
+    CHECK_INT(config(NULL), 200);
+    CHECK(strstr(resp, "\"channel\":20,\"builtin_channel\":25,\"channel_next\":null"));
+    /* on the new channel: the same settings, so no new CONFIG */
+    CHECK_INT(air(&a, 181000, false), ESL_MSG_IDLE);
+
+    /* a tag that stops answering holds the move up only until the deadline */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"channel\":null}", 16, 200000, &out), 200);
+    CHECK(nvs.channel == 20 && nvs.ch_next == 25); /* back to the built-in one, planned */
+    CHECK_INT(air(&a, 241000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 0);
+    CHECK_INT(air(&a, 301000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_store_channel_step(&st, 301500), 0); /* b, heard at 122 s, has not confirmed */
+    CHECK_INT(esl_store_channel_step(&st, 200000 + 180000), 25);
+    CHECK(!nvs.channel && !nvs.ch_next);
+
+    /* channel_now; and the channel the radio is on cancels a planned move */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":25}"), 200);
+    CHECK(strstr(resp, "\"channel_next\":null"));
+    CHECK_INT(esl_store_channel_step(&st, 400000), 0);
+    /* not to a channel the tags were not told of: they would stay where they are */
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 409);
+    CHECK(strstr(resp, "set the channel first"));
+    esl_store_channel_state(&st, 400000, &cs);
+    CHECK_INT(cs.next, 0);
+    CHECK_INT(config("{\"channel\":25,\"channel_now\":true}"), 200);   /* where it is: nothing to do */
+    CHECK_INT(config("{\"channel\":15}"), 200);
+    CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 200);
+    CHECK_INT(esl_store_channel_step(&st, 0), 15);
+
+    /* after a restart the AP starts on the stored channel, and tells the tags */
+    ap_boot();
+    esl_store_channel_state(&st, 0, &cs);
+    CHECK_INT(cs.channel, 15);
+    CHECK_INT(cs.next, 0);
+    esl_faketag_t c;
+    esl_faketag_init(&c, 0xC3, 2, 3000, ESL_MODEL_29);
+    CHECK_INT(air(&c, 1000, false), ESL_MSG_CONFIG);
+    CHECK_INT(c.cfg.channel, 15);
+
+    /* right after a restart the AP does not know the firmware of the tags it has not heard
+       yet: no move off the built-in channel until they have polled, or their window is over */
+    CHECK_INT(config_at(NULL, 1000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":0,\"channel_unheard_tags\":2,"));
+    CHECK_INT(config_at("{\"channel\":20}", 1000), 409);
+    CHECK(strstr(resp, "2 tags have not polled since the AP started"));
+    CHECK(strstr(resp, "at most 4 min"));
+
+    /* a restart during a move: the radio comes up where it was, announces the move again
+       and waits for the tags not heard since, up to a new deadline */
+    CHECK_INT(config_at("{\"channel\":20}", 241000), 200);
+    CHECK(nvs.channel == 15 && nvs.ch_next == 20);
+    CHECK_INT(air(&c, 242000, false), ESL_MSG_CONFIG);
+    CHECK_INT(c.cfg.channel, 20);
+    esl_store_save_seen(&st); /* a planned restart (OTA) */
+    ap_boot();
+    esl_store_channel_state(&st, 0, &cs);
+    CHECK_INT(cs.channel, 15);
+    CHECK_INT(cs.next, 20);
+    CHECK_INT(esl_store_channel_step(&st, 1000), 0);
+    CHECK_INT(air(&c, 2000, false), ESL_MSG_IDLE); /* c has it */
+    esl_store_channel_state(&st, 2000, &cs);
+    CHECK_INT(cs.waiting, 2);                      /* a and b, not heard since the restart */
+    CHECK_INT(esl_store_channel_step(&st, 3000), 0);
+    CHECK_INT(esl_store_channel_step(&st, 180000), 20);
+    CHECK(nvs.channel == 20 && !nvs.ch_next);
+
+    /* tags with firmware from before 0.9.0 confirm CONFIG but stay where they are: no move
+       away from the built-in channel while one is heard, unless forced */
+    esl_faketag_t d;
+    esl_faketag_init(&d, 0xD4, 2, 3000, ESL_MODEL_29);
+    d.no_link = true;
+    CHECK_INT(air(&d, 250000, false), ESL_MSG_CONFIG);
+    CHECK_INT(config_at(NULL, 251000), 200);
+    CHECK(strstr(resp, "\"channel_old_tags\":1,\"channel_unheard_tags\":0,\"channel_radio_old\":false"));
+    CHECK_INT(config_at("{\"channel\":18}", 251000), 409);
+    CHECK(strstr(resp, "1 tag runs firmware that cannot follow a channel change"));
+    CHECK_INT(config_at("{\"channel\":20}", 251000), 200);                    /* where it is */
+    CHECK_INT(config_at("{\"channel\":18,\"force\":1}", 251000), 422);
+    CHECK_INT(config_at("{\"force\":true}", 251000), 422);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 251000), 200);
+    esl_store_channel_state(&st, 251000, &cs);
+    CHECK_INT(cs.next, 18);
+    CHECK_INT(nvs.ch_next, 18 | ESL_CHANNEL_FORCED);                          /* kept forced */
+    CHECK_INT(esl_store_channel_step(&st, 251500), 0);                        /* not stopped */
+    CHECK_INT(config_at("{\"channel\":null,\"channel_now\":true}", 251000), 200); /* back to 25 at once */
+    CHECK_INT(esl_store_channel_step(&st, 252000), 25);
+    /* nor with a radio on WiFi that does not pass the move on (a C6 from before 0.9.0) */
+    esl_store_set_radio_follows(&st, false);
+    CHECK_INT(config_at("{\"channel\":18,\"force\":true}", 252000), 409);
+    CHECK(strstr(resp, "update the radio first"));
+    CHECK_INT(config_at("{\"channel\":null}", 252000), 200);
+    esl_store_set_radio_follows(&st, true);
+
+    /* an old tag that shows up during the wait stops the move: it would confirm and stay */
+    CHECK_INT(config_at("{\"channel\":18}", 500000), 200);                    /* d not heard lately */
+    CHECK_INT(air(&d, 501000, false), ESL_MSG_CONFIG);
+    CHECK_INT(esl_store_channel_step(&st, 501500), 0);
+    CHECK_INT(config_at(NULL, 501500), 200);
+    CHECK(strstr(resp, "\"channel\":25,\"builtin_channel\":25,\"channel_next\":null"));
+    CHECK(strstr(resp, "\"channel_stopped\":1"));
+    CHECK(!nvs.channel && !nvs.ch_next);
+    CHECK_INT(air(&d, 561000, false), ESL_MSG_CONFIG);                        /* told to stay */
+    CHECK_INT(d.cfg.channel, 0);
+
+    api.channel_settable = false;
+    CHECK_INT(config("{\"channel\":20}"), 422);
+    CHECK_INT(config(NULL), 200);
+    CHECK(!strstr(resp, "channel"));
+    memset(&nvs, 0, sizeof(nvs));
 }
 
 static void test_many_tags(void)
@@ -1689,6 +1879,245 @@ static void test_link(void)
     CHECK_INT(l.stats.tx_failed, 2);
 }
 
+/* Date fields in a layout (#183): the AP fills them in when it draws, and draws a tag
+   again when the day (or for {week} alone, the week) changes; a tag whose layout has
+   none is not drawn again */
+static void test_image_clock(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+        "{\"name\":\"day\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]},"
+        "{\"type\":\"text\",\"text\":\"{weekday} {date}\",\"x\":0,\"y\":60,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]},"
+        "{\"name\":\"week\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]},"
+        "{\"type\":\"text\",\"text\":\"Week {week}\",\"x\":0,\"y\":60,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]},"
+        "{\"name\":\"plain\",\"fields\":[\"name\"],\"elements\":["
+        "{\"type\":\"text\",\"field\":\"name\",\"x\":0,\"y\":0,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]}]}";
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_clock_set_today(-1);
+    CHECK_INT(put_layout("2.9", file, strlen(file)), 200);
+    esl_faketag_t d, w, p;
+    esl_faketag_init(&d, 0xDA1, 1, 3000, ESL_MODEL_29);
+    d.img_rle = d.img_2d = false; /* raw: GET .../image gives the same id */
+    esl_faketag_init(&w, 0xDA2, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&p, 0xDA3, 1, 3000, ESL_MODEL_29);
+    CHECK_INT(put("0000000000000DA1", "{\"layout\":\"day\",\"fields\":[\"Menu\"]}"), 200);
+    CHECK_INT(put("0000000000000DA2", "{\"layout\":\"week\",\"fields\":[\"Menu\"]}"), 200);
+    CHECK_INT(put("0000000000000DA3", "{\"layout\":\"plain\",\"fields\":[\"Menu\"]}"), 200);
+
+    /* the time not known yet (after a restart, before NTP): the date layouts are not drawn,
+       and their tags keep what they show; the plain one is */
+    uint64_t t = 1000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK(d.shown == 0 && w.shown == 0);
+    CHECK_INT(images.drawn, 1);
+    uint32_t p0 = p.shown;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000DA1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
+
+    /* then known (Thursday 29 October 2026, week 44): both date layouts get their image */
+    esl_clock_set_today(20755);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(d.shown != 0 && w.shown != 0 && d.shown != w.shown && p.shown == p0);
+    uint32_t d1 = d.shown, w1 = w.shown;
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    unsigned drawn = images.drawn;
+
+    /* Sunday 1 November: a new day, the same week; the plain one is not even drawn */
+    esl_clock_set_today(20758);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(d.shown != d1 && w.shown == w1);
+    CHECK_INT(images.drawn, drawn + 1);
+
+    /* Monday 2 November: week 45 */
+    esl_clock_set_today(20759);
+    t += 10000;
+    CHECK_INT(esl_faketag_round(&d, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&w, &st, &layouts, PAN, -60, t), ESL_MSG_IMG);
+    CHECK_INT(esl_faketag_round(&p, &st, &layouts, PAN, -60, t), ESL_MSG_IDLE);
+    CHECK(w.shown != w1 && p.shown == p0);
+
+    /* GET .../image draws what the tag is sent */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/0000000000000DA1/image", AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT((int)json_u32(resp, "\"image_id\":"), (int)d.shown);
+    esl_clock_set_today(-1);
+}
+
+/* ---- Radio security (docs/protokoll.md "Security") ---- */
+
+static int sec_saves;
+static void sec_save(void *ctx)
+{
+    (void)ctx;
+    sec_saves++;
+}
+
+/* A POLL from mac, plain (key NULL) or with key and counter ctr; the reply's payload (MIC
+   checked and taken off for a secure one) into r, its length, 0 for none, -1 for a bad MIC */
+static int sec_poll(uint64_t mac, const uint8_t *key, uint32_t ctr, uint8_t *r)
+{
+    uint8_t pl[ESL_MAX_PAYLOAD], rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], mic[ESL_SEC_MIC_LEN];
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    size_t n = esl_poll_build(pl, &p);
+    if (key) {
+        pl[ESL_OFF_VER] = ESL_PROTO_VER_SEC;
+        pl[n] = (uint8_t)ctr;
+        pl[n + 1] = (uint8_t)(ctr >> 8);
+        pl[n + 2] = (uint8_t)(ctr >> 16);
+        pl[n + 3] = (uint8_t)(ctr >> 24);
+        sec_mic(key, ESL_SEC_DIR_TAG, ctr, pl, (uint8_t)n, pl + n + ESL_SEC_CTR_LEN);
+        n += ESL_SEC_TRAILER_TAG;
+    }
+    n = esl_frame_build_from_tag(rx, 7, PAN, ESL_AP_SHORT_ADDR, mac, pl, n);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -50, 1000, tx, NULL);
+    if (!m)
+        return 0;
+    esl_ap_frame_t f;
+    CHECK(esl_frame_parse_to_tag(tx, m, &f));
+    memcpy(r, f.payload, f.payload_len);
+    if (!key) {
+        CHECK_INT(r[ESL_OFF_VER], ESL_PROTO_VER);
+        return (int)f.payload_len;
+    }
+    CHECK_INT(r[ESL_OFF_VER], ESL_PROTO_VER_SEC);
+    size_t len = f.payload_len - ESL_SEC_TRAILER_AP;
+    sec_mic(key, ESL_SEC_DIR_AP, ctr, r, (uint8_t)len, mic);
+    if (memcmp(mic, r + len, ESL_SEC_MIC_LEN) != 0)
+        return -1;
+    r[ESL_OFF_VER] = ESL_PROTO_VER;
+    return (int)len;
+}
+
+static void test_security(void)
+{
+    static esl_radio_sec_t sec = {{0}, false, sec_save, NULL};
+    const uint64_t mac = 0x00000123456789A8ull, other = 0x00000123456789A9ull;
+    uint8_t r[ESL_MAX_PAYLOAD], key[ESL_SEC_KEY_LEN], bad[ESL_SEC_KEY_LEN];
+    char uri[64];
+
+    ap_boot();
+    for (int i = 0; i < ESL_SEC_KEY_LEN; i++)
+        sec.key[i] = (uint8_t)(0xA0 + i);
+    sec.require = false;
+    esl_radio_set_sec(&sec);
+    api.sec = &sec;
+
+    /* without pairing a tag talks plainly, as before */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_IDLE_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"radio_secure\":false"));
+
+    /* pairing: an unknown tag 404, then the key in a plain PAIR at its next POLL */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)other);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 404);
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)mac);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false,\"pairing\":\"pair\""));
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_PAIR_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_PAIR);
+    CHECK_INT(r[ESL_OFF_NEXT_POLL], ESL_BLOCKS_POLL_S);
+    esl_radio_tag_key(&sec, mac, key);
+    CHECK(memcmp(r + ESL_PAIR_OFF_KEY, key, ESL_SEC_KEY_LEN) == 0);
+    /* lost: sent again; then the tag's first message with the key ends the pairing */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_PAIR_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10000, r), ESL_IDLE_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true,\"pairing\":null,\"sec_rejected\":0"));
+
+    /* the same counter again (a retry) is answered; an older one, a wrong MIC or another
+       key are not, and are counted */
+    CHECK_INT(sec_poll(mac, key, 0x10000, r), ESL_IDLE_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10005, r), ESL_IDLE_LEN);
+    CHECK_INT(sec_poll(mac, key, 0x10004, r), 0);
+    memcpy(bad, key, sizeof(bad));
+    bad[3] ^= 1;
+    CHECK_INT(sec_poll(mac, bad, 0x10006, r), 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"sec_rejected\":2"));
+    CHECK_INT(sec_poll(mac, key, 0x10006, r), ESL_IDLE_LEN);
+
+    /* require off: a plain frame in its name is answered and takes the lock away, but the
+       counter stays, so recorded frames are still turned away */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), ESL_IDLE_LEN);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false"));
+    CHECK_INT(sec_poll(mac, key, 0x10005, r), 0);
+    CHECK_INT(sec_poll(mac, key, 0x10006, r), ESL_IDLE_LEN);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true"));
+
+    /* require: a plain tag gets nothing, the paired one goes on */
+    CHECK_INT(sec_poll(other, NULL, 0, r), ESL_IDLE_LEN);
+    int saves = sec_saves;
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"radio_secure\":true}", 21, 0, &out), 200);
+    CHECK(HAS(resp, "\"radio_secure\":true"));
+    CHECK_INT(sec_saves, saves + 1);
+    CHECK(sec.require);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/config", AUTH, "{\"radio_secure\":1}", 18, 0, &out), 422);
+    CHECK_INT(sec_poll(other, NULL, 0, r), 0);
+    CHECK_INT(sec_poll(mac, key, 0x10007, r), ESL_IDLE_LEN);
+    /* a plain frame in its name is dropped and does not make it look unpaired */
+    CHECK_INT(sec_poll(mac, NULL, 0, r), 0);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":true"));
+    /* ... except to pair it */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)other);
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK_INT(sec_poll(other, NULL, 0, r), ESL_PAIR_LEN);
+
+    /* forget: an authenticated PAIR of zeros, until the tag talks plainly */
+    snprintf(uri, sizeof(uri), "/api/tags/%016llX/pair", (unsigned long long)mac);
+    CHECK_INT(esl_api_handle(&api, "DELETE", uri, AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"pairing\":\"forget\""));
+    CHECK_INT(sec_poll(mac, key, 0x10008, r), ESL_PAIR_LEN);
+    CHECK_INT(r[ESL_OFF_TYPE], ESL_MSG_PAIR);
+    memset(bad, 0, sizeof(bad));
+    CHECK(memcmp(r + ESL_PAIR_OFF_KEY, bad, ESL_SEC_KEY_LEN) == 0);
+    CHECK_INT(sec_poll(mac, NULL, 0, r), 0);  /* plain, with require: no answer */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000123456789A8", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"secure\":false,\"pairing\":null"));
+
+    /* the key for the backup, and back */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/radio-key", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "{\"key\":\"A0A1A2A3A4A5A6A7A8A9AAABACADAEAF\"}"));
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, "{\"key\":\"00\"}", 12, 0, &out), 422);
+    const char *zero = "{\"key\":\"00000000000000000000000000000000\"}";
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, zero, strlen(zero), 0, &out), 422);
+    const char *nk = "{\"key\":\"00112233445566778899aabbccddeeff\"}";
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/radio-key", AUTH, nk, strlen(nk), 0, &out), 200);
+    CHECK(HAS(resp, "00112233445566778899AABBCCDDEEFF"));
+    CHECK_INT(sec.key[15], 0xFF);
+    CHECK_INT(sec_poll(other, key, 0x20000, r), 0);  /* a key from before: no answer */
+
+    /* a network radio answers the tags itself and has no keys */
+    esl_radio_link_t link = {0};
+    api.link = &link;
+    CHECK_INT(esl_api_handle(&api, "PUT", uri, AUTH, NULL, 0, 0, &out), 409);
+    api.link = NULL;
+
+    esl_radio_set_sec(NULL);
+    api.sec = NULL;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/radio-key", AUTH, NULL, 0, 0, &out), 404);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1696,12 +2125,15 @@ void test_radio(void)
     test_fake_tag_filters();
     test_end_to_end();
     test_config();
+    test_channel();
     test_many_tags();
     test_image_send();
     test_image_rle();
     test_picture();
     test_image_choice();
     test_image_2d();
+    test_image_clock();
     test_draw_later();
     test_link();
+    test_security();
 }

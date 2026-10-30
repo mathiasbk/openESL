@@ -11,12 +11,25 @@
 #endif
 
 #define CFG_CHANNEL         ESL_DEFAULT_CHANNEL
+#define CFG_BUILTIN_AFTER   3        /* the built-in channel is tried from this miss in a row on */
 #define CFG_PAN_ID          ESL_DEFAULT_PAN_ID
 
 #define CFG_POLL_S          60       /* default interval (requirement T4) */
 #define CFG_MAX_POLL_S      600      /* longest interval when the AP does not answer (requirement T11) */
 #define CFG_BACKOFF_AFTER   3        /* misses in a row before the interval starts doubling */
 #define CFG_LOST_AP_S       7200     /* seconds without an answer before "No AP found" is shown (requirement T9) */
+#define CFG_LONG_POLL_S     3600     /* interval once the AP has been gone for CFG_LONG_AFTER_MIN */
+#define CFG_LONG_AFTER_MIN  1440     /* minutes without an answer (a day) before CFG_LONG_POLL_S */
+
+/* Where a tag that has lost its AP looks for it (#258, docs/protokoll.md "Finding the AP"):
+   after CFG_SCAN_AFTER misses in a row once on each of the first CFG_SCAN_FIRST channels,
+   then on the next one per missed round, through every channel the AP can be set to.
+   15, 20 and 26 are clear of WiFi channels 1, 6 and 11, like the built-in 25 (CFG_CHANNEL),
+   which those rounds try already; 11 is the lowest. */
+#define CFG_SCAN_CHANNELS   15, 20, 26, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 24, 25
+#define CFG_SCAN_COUNT      16
+#define CFG_SCAN_FIRST      4
+#define CFG_SCAN_AFTER      3
 
 #define CFG_RX_TIMEOUT_MS   20       /* listening window after POLL (protokoll.md) */
 #define CFG_RETRY_MIN_MS    2        /* random pause before one retry */

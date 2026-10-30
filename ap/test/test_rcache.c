@@ -68,7 +68,9 @@ static void host_push(uint64_t mac, uint64_t now_ms, uint16_t fw_ver)
     esl_rtag_state_t s = {mac, esl_store_tag_poll_s(&st, mac), false, {0}, 0, fw_ver, 0, 0};
     if (esl_store_get(&st, mac, &t)) {
         s.has_cfg = t.seen && t.cfg_capable;
-        esl_tag_effective_cfg(&t, esl_store_get_next_poll(&st), &s.cfg);
+        esl_tag_cfg_t ap;
+        esl_store_tag_defaults(&st, &ap);
+        esl_tag_effective_cfg(&t, &ap, &s.cfg);
         bool busy;
         s.image_id = t.image_capable ? esl_image_prepare(&images, &st, NULL, mac, 0, now_ms, &busy) : 0;
         for (unsigned i = 0; i < ESL_IMAGE_BUFS; i++) {
@@ -220,7 +222,7 @@ static void test_rcache_config(void)
     CHECK_INT(round_rc(&a, 5000), ESL_MSG_IDLE);
 
     /* new settings on the host: CONFIG from the cache, then IDLE once the tag reports them */
-    esl_tag_cfg_t cfg = {300, 0, 0};
+    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, 0x0C, &cfg, &cr), ESL_STORE_OK);
     host_push(0x0C, 6000, 0);
     CHECK_INT(round_rc(&a, 10000), ESL_MSG_CONFIG);
@@ -228,7 +230,9 @@ static void test_rcache_config(void)
     CHECK_INT(round_rc(&a, 310000), ESL_MSG_IDLE);
     host_sync(310100, 0);
     esl_tag_t t;
-    CHECK(esl_store_get(&st, 0x0C, &t) && !esl_tag_cfg_pending(&t, esl_store_get_next_poll(&st)));
+    esl_tag_cfg_t ap;
+    esl_store_tag_defaults(&st, &ap);
+    CHECK(esl_store_get(&st, 0x0C, &t) && !esl_tag_cfg_pending(&t, &ap));
 
     /* a tag with old firmware (no cfg_ver) never gets CONFIG */
     esl_faketag_t b;
@@ -389,7 +393,7 @@ static void test_rcache_waits(void)
 static void test_rcache_bits(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN_CFG];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     boot();
 
     /* frames to another PAN or address: no reply, not in the log */

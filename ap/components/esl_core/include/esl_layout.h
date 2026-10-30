@@ -62,6 +62,8 @@ typedef struct {
     int8_t qr_field[ESL_LAYOUT_FILE_MAX];
     uint8_t qr_ecc[ESL_LAYOUT_FILE_MAX];
     uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
+    /* ESL_CLOCK_* of each layout: whether its fixed texts have date fields (esl_clock.h) */
+    uint8_t clock[ESL_LAYOUT_FILE_MAX];
     /* Last, so a stored file (esl_layout_t) is allocated only up to bin[size]: the
      * compiler writes into a whole one, the store keeps ESL_LAYOUT_BIN_BYTES(size). */
     uint8_t bin[ESL_LBIN_CAP];
@@ -166,6 +168,15 @@ bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_conte
  * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when
  * cap is too small. ls may be NULL (no file). */
 size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap);
+
+/* The version a tag's image is drawn with (esl_store image_layout_ver): the model's file's
+ * version, with the day or the week mixed in when the tag's layout (layout_hash, as
+ * esl_tag_t has it) has date fields (esl_clock.h), so a new day draws it again. 0 when the
+ * model has no file. */
+uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
+
+/* ESL_CLOCK_* of the tag's layout (layout_hash as esl_tag_t has it): whether it has date fields */
+uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
 
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);

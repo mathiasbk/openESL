@@ -26,7 +26,8 @@ test("every template in templates/ passes the check", async () => {
   for (const c of index.categories) assert.ok(index.templates.filter((t) => t.category === c.id).length >= 3, c.id);
   for (const t of index.templates) {
     assert.ok(t.models["2.9"], `${t.id} has a 2.9" variant`);
-    assert.ok(t.models["2.9"].bytes > 0 && t.models["2.9"].bytes <= 1024, `${t.id} fits well within one file`);
+    const m = t.models["2.9"];
+    assert.ok(m.bytes > 0 && m.bytes - m.icon_bytes <= 1024 && m.icon_bytes <= 2048, `${t.id} fits well within one file`);
   }
   assert.deepEqual(missingVariants(index)["2.9"], []);
 });
@@ -74,7 +75,7 @@ test("the check refuses a broken catalog", async () => {
   // the starting file's layouts and the catalog's stay the same
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9").layout.elements[0].h = 25; }, /tag\/designs\/layouts\/2\.9\.json has a layout "vare"/);
   // a sample text the AP would refuse (too long for the QR code)
-  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[3] = "x".repeat(90); }, /refuse the sample text/);
+  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[2] = "x".repeat(90); }, /refuse the sample text/);
 });
 
 test("same_as reuses another model's variant", () => {

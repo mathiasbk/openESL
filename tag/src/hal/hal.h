@@ -28,10 +28,11 @@ uint16_t battery_read_mv(void);
 int8_t hal_temp_c(void);
 
 /* ---- Persistent store: one small record in flash (requirement T12, settings) ----
- * hal_store_write erases and rewrites the whole record (max HAL_STORE_MAX bytes);
- * the radio must be off. hal_store_read returns its length, or 0 if there is none
+ * hal_store_write writes the whole record (max HAL_STORE_MAX bytes) as a new copy, and
+ * the last good copy stays until it is done (false: the old record still counts); the
+ * radio must be off. hal_store_read returns its length, or 0 if there is none
  * or it is damaged. */
-#define HAL_STORE_MAX 16  /* the settings record is 9 bytes */
+#define HAL_STORE_MAX 34  /* the settings record is 34 bytes (app.c) */
 bool hal_store_write(const uint8_t *data, uint8_t len);
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen);
 
@@ -63,9 +64,16 @@ void radio_off(void);
 bool radio_tx(const uint8_t *frame, uint8_t len);
 /* Waits up to timeout_ms for a frame with a correct FCS. Returns length without FCS, or -1. */
 int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms);
+/* The radio's RSSI byte and LQI (0..127) of the last frame radio_rx returned (0 before the first). */
+uint8_t radio_rx_rssi(void);
+uint8_t radio_rx_lqi(void);
 
 /* ---- Power ---- */
 /* Deep sleep for s seconds. Radio and display must be off. */
 void power_sleep_s(uint16_t s);
+/* About a second of deep sleep while the display refreshes (its pins keep their idle
+   levels, BUSY is read again after it). The radio must be off. False when it cannot be
+   done now; the caller then waits awake. */
+bool hal_doze_1s(void);
 
 #endif /* HAL_H */

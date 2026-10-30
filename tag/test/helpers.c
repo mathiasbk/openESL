@@ -15,6 +15,13 @@ uint8_t make_idle(uint8_t *out, uint16_t next_poll_s)
 uint8_t make_config(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t poll_s,
                     uint16_t max_poll_s, uint16_t lost_ap_s)
 {
+    return make_config_long(out, next_poll_s, ver, poll_s, max_poll_s, lost_ap_s, 0, 0);
+}
+
+uint8_t make_config_long(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t poll_s,
+                         uint16_t max_poll_s, uint16_t lost_ap_s, uint16_t long_poll_s,
+                         uint16_t long_after_min)
+{
     out[0] = ESL_MSG_CONFIG;
     out[1] = ESL_PROTO_VER;
     ESL_PUT_U16(out + ESL_OFF_NEXT_POLL, next_poll_s);
@@ -22,6 +29,9 @@ uint8_t make_config(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t p
     ESL_PUT_U16(out + ESL_CONFIG_OFF_POLL, poll_s);
     ESL_PUT_U16(out + ESL_CONFIG_OFF_MAX_POLL, max_poll_s);
     ESL_PUT_U16(out + ESL_CONFIG_OFF_LOST_AP, lost_ap_s);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_LONG_POLL, long_poll_s);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_LONG_AFTER, long_after_min);
+    ESL_PUT_U16(out + ESL_CONFIG_OFF_CHANNEL, 0);
     return ESL_CONFIG_LEN;
 }
 

@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, pairText } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -20,6 +20,28 @@ test("formats", () => {
   assert.equal(fmtTagFw(null), "–");
   assert.equal(fmtBattery(2950), "2.95 V");
   assert.equal(fmtBattery(0), "–");
+});
+
+test("signal history (#261)", () => {
+  assert.equal(signalSummary(tag("A")), null); // an AP from before the history
+  assert.equal(signalSummary(tag("A", { signal: null })), null);
+  const s = (rssi, lost = rssi.map(() => 0), retry = rssi.map(() => 0), more = {}) =>
+    signalSummary(tag("A", { signal: { rssi, lost, retry, polls: 40, lost_total: 3, retries: 1, tag_rssi: 200, tag_lqi: 110, ...more } }));
+  const ok = s([-60, -62, -61]);
+  assert.deepEqual([ok.rssi, ok.min, ok.avg, ok.lost, ok.retries, ok.weak, ok.text], [-61, -62, -61, 0, 0, false, "-61 dBm"]);
+  assert.match(ok.title, /^The last 3 polls: -62 to -60 dBm, -61 on average\. The tag hears the AP at link quality 110 of 127\. Since the AP started: 40 polls, 3 lost, 1 retried\.$/);
+  // lost polls, retries on a quarter of them or a low average make it weak; one retry now and then does not
+  const lost = s([-70, -72], [0, 2]);
+  assert.equal(lost.weak, true);
+  assert.equal(lost.text, "-72 dBm · weak");
+  assert.match(lost.title, /2 polls got no answer\./);
+  assert.match(s([-70], [0], [1]).title, /^The last poll: -70 dBm\. 1 answer needed the tag's second try\./);
+  const z8 = [0, 0, 0, 0, 0, 0, 0, 0], r8 = [-70, -70, -70, -70, -70, -70, -70, -70];
+  assert.equal(s(r8, z8, [0, 0, 0, 1, 0, 0, 0, 0]).weak, false);
+  assert.equal(s(r8, z8, [0, 1, 0, 1, 0, 0, 0, 0]).weak, true);
+  assert.equal(s([-86, -88]).weak, true);
+  assert.equal(s([-84, -85]).weak, false);
+  assert.doesNotMatch(s([-60], [0], [0], { tag_lqi: null }).title, /link quality/);
 });
 
 test("tag state: problems first, then what is still on its way", () => {
@@ -171,4 +193,34 @@ test("parseTx and txWarning", () => {
   for (const bad of ["", "21", "-25", "1.5", "x"]) assert.ok(parseTx(bad).error, bad);
   assert.equal(txWarning(13), "");
   assert.match(txWarning(14), /above the EU limit/);
+});
+
+test("the pairing lock next to the MAC", () => {
+  assert.equal(pairText(tag("A")), null, "an AP without radio security");
+  assert.equal(pairText(tag("A", { secure: false, pairing: null, sec_rejected: 0 })), null);
+  assert.equal(pairText(tag("A", { secure: true, pairing: null, sec_rejected: 0 }))[1], "Paired: the tag signs its radio frames.");
+  assert.match(pairText(tag("A", { secure: false, pairing: "pair", sec_rejected: 0 }))[1], /^Pairing/);
+  assert.match(pairText(tag("A", { secure: true, pairing: "forget", sec_rejected: 0 }))[1], /^Unpairing/);
+  assert.equal(pairText(tag("A", { secure: false, pairing: null, sec_rejected: 1 }))[1],
+    "Not paired. The AP dropped 1 frame with a wrong signature or an old counter.");
+});
+
+test("radio channels and a waiting move", async () => {
+  const { channelOptions, channelMove, channelBlock } = await import("../js/dashdata.js");
+  assert.equal(channelBlock({ channel_old_tags: 0, channel_radio_old: false }), "");
+  assert.match(channelBlock({ channel_old_tags: 3 }), /^3 tags run firmware from before 0\.9\.0 .* update them first/);
+  assert.match(channelBlock({ channel_old_tags: 1 }), /^1 tag runs .* it is left on the old channel\.$/);
+  assert.match(channelBlock({ channel_old_tags: 3, channel_radio_old: true }), /update the radio/);
+  assert.match(channelBlock({ channel_old_tags: 0, channel_unheard_tags: 5 }), /^5 tags have not polled since the AP started/);
+  assert.match(channelBlock({ channel_old_tags: 1, channel_stopped: 1, channel_next: null }), /^The last channel change was called off: a tag .* 1 tag runs/);
+  assert.equal(channelBlock({ channel_stopped: 2, channel_next: 20 }), "");
+  const o = channelOptions(25);
+  assert.equal(o.length, 16);
+  assert.deepEqual(o[0], [11, "Channel 11"]);
+  assert.deepEqual(o[14], [25, "Channel 25 (clear of WiFi 1, 6, 11, built-in)"]);
+  assert.equal(channelMove({ channel: 25, channel_next: null }), "");
+  assert.equal(channelMove({ channel: 25, channel_next: 20, channel_waiting: 2, channel_due_s: 290 }),
+    "Moving from channel 25 to 20: 2 tags have not confirmed it yet. The AP moves once they all have it, at the latest in 5 min.");
+  assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 1, channel_due_s: 10 }), /1 tag has .* in 1 min\.$/);
+  assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 0, channel_due_s: 10 }), /every tag has it, so the AP moves now\.$/);
 });

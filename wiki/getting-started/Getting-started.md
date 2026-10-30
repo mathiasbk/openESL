@@ -2,6 +2,8 @@
 
 Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome or Edge on a computer.
 
+Four steps on the web page and one test request take you to the first label. Words you have not seen before are in the [Glossary](Glossary).
+
 ## 1. Flash the access point
 
 On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, follow the three steps: choose your AP, flash it (plug in each board when asked), then give it your WiFi and an API token over the same cable. **Keep a copy of the token**: every API request needs it, and it cannot be read back. The last step shows the AP's address and a button to its dashboard.
@@ -18,9 +20,9 @@ Details: [Flashing labels](Flashing-labels).
 
 ## 3. Pick or design a layout
 
-The AP comes with the layouts `price` and `text`. To make your own, draw it on the [Design](https://mathiasbk.github.io/openESL/#design) tab and send it to the AP.
+The AP comes with the layouts `price` and `text`. To make your own, draw it on the [Design](https://mathiasbk.github.io/openESL/#design) tab and press **Send to your AP…**: choose **USB cable** if the AP is plugged into your computer, or **WiFi** to open the AP's own page and save it there.
 
-Details: [Label designer](Label-designer).
+Details: [Label designer](Label-designer), [Getting layouts onto the AP](Getting-layouts-onto-the-AP).
 
 ## 4. Send content
 
@@ -32,7 +34,9 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The label shows the new content at its next poll, usually within a minute.
+Put in the label's MAC (on its start screen and on the dashboard), your API token, and your AP's name instead of `openesl.local` ([finding the AP](WiFi-and-API-token#finding-the-ap-on-the-network)). The label shows the new content at its next poll, usually within a minute.
+
+No command line? The AP's [Dashboard](Dashboard) can send text to a label from the browser, and [Home Assistant](Home-Assistant) has an integration.
 
 Details: [Sending content](Sending-content).
 

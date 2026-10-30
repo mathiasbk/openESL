@@ -4,7 +4,7 @@ Three things: labels, an access point (AP), and a jig to flash each label once.
 
 | Part | What to get | More |
 |---|---|---|
-| **Labels** | A supported SoluM label. The 1.54" runs on one CR2450 battery, the 2.9" on two. | [Supported labels](Supported-labels) |
+| **Labels** | A supported SoluM label: the [2.9" ST-GM29XX2](SoluM-2.9-ST-GM29XX2) (two CR2450) or the [1.54" ST-GM16XX2](SoluM-1.54-ST-GM16XX2) (one CR2450). Check the product name on the back. | [Supported labels](Supported-labels) |
 | **Access point** | An ESP32-C6 board with USB is enough. Other boards take more labels. | [Choosing a board](Access-point-boards) |
 | **For flashing labels** | A small board running atc1441's [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), and a pogo-pin jig for the test pads behind the battery. Tested with a Wemos D1 mini; ESP32 and Arduino Nano also work. | [The flashing jig](Flashing-jig) |
 | **A browser** | Chrome or Edge on a computer (Web Serial) for flashing. The designer works in any modern browser. | |

@@ -10,9 +10,13 @@
 import { History } from "./history.js";
 import { layoutUsage } from "./limits.js";
 import { snapMove, resizeBox } from "./snap.js";
-import { ApClient, apBase } from "./apclient.js";
+import { ApClient, PortClient, apBase } from "./apclient.js";
+import { hasSerial, serialAp, connectSerial, onSerialChange } from "./apport.js";
+import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
+import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
+import { layoutPanel } from "./layoutapi.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -44,7 +48,7 @@ const BUILTIN = {
   text: { id: LAYOUT_TEXT, fields: ["line1", "line2", "line3", "line4"] },
 };
 const STORE = "openesl.editor.";
-const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to tag
+const DASH_URL = "openesl.dash.url";   // the Dashboard tab's AP address, shared with Send to your AP
 const DASH_TOKEN = "openesl.dash.token"; // and its token, which the AP's own page shares
 
 const $ = (id) => document.getElementById(id);
@@ -89,7 +93,10 @@ const element = () => (layout() && layout().elements[state.el]) || null;
 const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : layout()?.fields || []);
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
 // Text and barcode elements show a field from each update; the rest are part of the layout
-const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr";
+const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr" ||
+  (e.type === "icon" && e.field !== undefined);
+// An icon element names its picture (fixed size), or takes the picture a field's text names, in a box
+const iconByField = (e) => e.type === "icon" && e.field !== undefined;
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
@@ -117,6 +124,7 @@ function save() {
   store.set("model", state.model);
   store.set("samples", JSON.stringify(state.samples));
   scheduleRecord();
+  if (ap.connected) refreshLayoutList();   // a layout changed here is no longer the AP's
   refreshFileState();
 }
 
@@ -216,7 +224,9 @@ async function loadModel(model) {
   refreshAll();
   $("tpl-offer").hidden = true;
   if (template && from !== model) offerVariant(template);
-  if (onAp && ap.connected && !(model in ap.files)) await apRun("Reading the AP's layout file", () => apOpen(model));
+  if (onAp && ap.connected && !(model in ap.files))
+    await apRun("Reading the AP's layout file", async () => { const r = await apOpen(model); await apReadFile(model); return r; });
+  else if (ap.connected && !(model in ap.files)) await apRun("Reading the AP's layout file", async () => (await apReadFile(model), ["", ""]));
 }
 
 // ---------- templates (tplpicker.js) ----------
@@ -257,6 +267,7 @@ async function offerVariant(id) {
 
 function compileAndDraw() {
   const r = state.renderer;
+  applyLimits();
   const res = r.loadLayouts(JSON.stringify(doc()));
   let layoutId;
   if (isBuiltin()) {
@@ -277,6 +288,7 @@ function compileAndDraw() {
   }
   paint(out.pixels, r.width, r.height);
   refreshMeters(res);
+  if (res.ok) scheduleThumbs();
   if (out.refused) {
     setStatus("The AP would refuse this sample text: " + out.refused, "error");
   } else if (res.ok) {
@@ -310,7 +322,7 @@ function refreshMeters(res) {
     if (u.qrs) meters.push(["QR codes", u.qrs, lim.qrs, "QR codes in this layout"]);
   }
   meters.push(["Compiled file", res.ok ? res.size : null, lim.fileBytes, "Size of the whole compiled layout file the AP draws with, in bytes"]);
-  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to tag uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
+  meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to your AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
   meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
@@ -340,7 +352,7 @@ function refreshMeters(res) {
 // Whose limits the meters show: the connected AP's, or the default board's (the smallest)
 function limitsSource() {
   const dflt = `Those of an ESP32-C6 AP (${DEFAULT_BOARD}, the smallest)`;
-  if (!ap.connected) return dflt + ". Connect to your AP under Send to tag to see its own.";
+  if (!ap.connected) return dflt + ". Connect under Send to your AP to see your AP's own.";
   if (!ap.limits) return dflt + `: the AP does not report its own (firmware older than this page).`;
   if (!state.renderer.canSetLimits) return dflt + ": this page's renderer is too old to take the AP's.";
   const cut = Object.keys(ap.limits).some((k) => typeof state.renderer.limits[k] === "number" && state.renderer.limits[k] < ap.limits[k]);
@@ -349,6 +361,8 @@ function limitsSource() {
 }
 
 // The renderer checks against the connected AP's limits, or the default board's without one
+// The renderer is shared with the dashboard's Layouts card, which sets its own AP's limits:
+// called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
 }
@@ -394,7 +408,7 @@ function drawOverlay() {
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
     b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
-      (e.type === "icon" ? " fixed-size" : "") + (i === state.el ? " sel" : "");
+      (e.type === "icon" && !iconByField(e) ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
       width: (100 * e.w) / width + "%", height: (100 * e.h) / height + "%",
@@ -404,7 +418,7 @@ function drawOverlay() {
     tag.className = "tag";
     tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
     b.append(tag);
-    if (e.type !== "icon") for (const h of HANDLES) {
+    if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
       const g = document.createElement("span");
       g.className = "grip " + h;
       g.dataset.h = h;
@@ -448,7 +462,8 @@ function refreshList() {
 
 function rectName(e) {
   let kind;
-  if (e.type === "icon") kind = "icon " + e.icon;
+  if (iconByField(e)) kind = "icon named by " + e.field;
+  else if (e.type === "icon") kind = "icon " + e.icon;
   else if (e.type === "line") kind = e.h === 1 ? "line" : e.w === 1 ? "vertical line" : "slanted line";
   else kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : e.border ? "frame box" : "box";
   return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
@@ -542,7 +557,7 @@ function initDrag() {
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
-      resize: (element().type !== "icon" && ev.target.dataset.h) || null,
+      resize: ((element().type !== "icon" || iconByField(element())) && ev.target.dataset.h) || null,
       sx: ev.clientX, sy: ev.clientY,
       scale: rect.width / MODELS[state.model].width,
       start: { ...e },
@@ -605,7 +620,7 @@ function onKey(ev) {
   else if (mod && key === "y") undoRedo(true);
   else if (mod && key === "d") duplicateElement();
   else if (mod && key === "c" && e && !window.getSelection()?.toString())
-    state.clip = { ...structuredClone(e), _icon: e.type === "icon" ? structuredClone(doc().icons?.[e.icon]) : undefined };
+    state.clip = { ...structuredClone(e), _icon: e.type === "icon" && !iconByField(e) ? structuredClone(doc().icons?.[e.icon]) : undefined };
   else if (mod && key === "v" && state.clip && layout()) pasteElement();
   else if (mod || ev.altKey) return;
   else if (moves[key] && e) {
@@ -644,44 +659,194 @@ function initMenus() {
   $("tab-design").addEventListener("toggle", (ev) => { if (ev.target.open) closeMenus(ev.target); }, true);
   // A click on a plain item closes its menu (the More menu of the element bar stays open)
   $("tab-design").addEventListener("click", (ev) => {
-    if (ev.target.closest(".dz-head .menu-list .item, .dz-left .menu-list .item")) closeMenus();
+    if (ev.target.closest(".dz-head .menu-list .item")) closeMenus();
   });
 }
 
 // ---------- the layouts and the right column ----------
 
+// The layouts of the file, each with a small picture, its fields and, when an AP is connected,
+// whether the AP has it as it is and how many of its tags show it. The built-in layouts are
+// folded away below.
 function refreshLayoutList() {
-  const ol = $("layout-list");
-  const items = (doc().layouts || []).map((l, i) => ["file:" + i, l.name || "(no name)", false]);
-  items.push(["builtin:price", "price", true], ["builtin:text", "text", true]);
-  ol.replaceChildren(...items.map(([key, name, builtin]) => {
+  const lays = doc().layouts || [];
+  const cmp = ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
+  const counts = cmp ? countByLayout(ap.tags, ap.tagLayouts, state.model) : {};
+  $("layout-count").textContent = `${lays.length} of 16`;
+  $("layout-list").replaceChildren(...lays.map((l, i) => {
+    const key = "file:" + i;
     const li = document.createElement("li");
-    li.className = (key === state.sel ? "sel" : "") + (builtin ? " builtin" : "");
+    li.className = "lay" + (key === state.sel ? " sel" : "");
     li.dataset.sel = key;
-    li.title = builtin ? "Built in to the firmware; it cannot be edited" : doc().layouts[+key.slice(5)]?.description || "";
+    li.title = l.description || "";
+    const pic = document.createElement("canvas");
+    pic.className = "thumb";
+    pic.dataset.i = i;
+    paintThumb(pic, thumbs[state.model]?.[i]);
+    const t = document.createElement("span");
+    t.className = "t";
+    const n = document.createElement("span");
+    n.className = "name";
+    n.textContent = l.name || "(no name)";
+    const f = document.createElement("span");
+    f.className = "dim";
+    const nf = (l.fields || []).length;
+    f.textContent = nf === 1 ? "1 field" : nf + " fields";
+    t.append(n, f);
+    if (cmp) {
+      const st = document.createElement("span");
+      const s = cmp.states[l.name];
+      const c = counts[l.name] || 0;
+      st.className = "st " + s;
+      st.textContent = s === "ap" ? "On the AP" + (c ? ` · ${c} tag${c === 1 ? "" : "s"}` : "")
+        : s === "changed" ? (onAp ? "Changed, not saved" : "Changed, not sent") + (c ? ` · ${c} tag${c === 1 ? "" : "s"}` : "")
+        : onAp ? "Not saved to the AP" : "Only in this browser";
+      t.append(st);
+    }
+    const acts = document.createElement("span");
+    acts.className = "acts";
+    const copy = document.createElement("button");
+    copy.textContent = "⧉";
+    copy.title = copy.ariaLabel = "Copy this layout";
+    copy.dataset.act = "copy";
+    const del = document.createElement("button");
+    del.textContent = "🗑";
+    del.title = del.ariaLabel = lays.length <= 1 ? "The file needs at least one layout" : "Delete this layout";
+    del.disabled = lays.length <= 1;
+    del.dataset.act = "delete";
+    acts.append(infoButton(), copy, del);
+    li.append(pic, t, acts);
+    return li;
+  }));
+  const gone = cmp?.gone || [];
+  $("layout-gone").hidden = !gone.length;
+  $("layout-gone").textContent = gone.length
+    ? `On the AP, not in this file: ${gone.join(", ")}. ${onAp ? "Saving" : "Sending"} this file removes ${gone.length === 1 ? "it" : "them"}.`
+    : "";
+  $("builtin-list").replaceChildren(...Object.keys(BUILTIN).map((name) => {
+    const li = document.createElement("li");
+    li.className = "builtin" + ("builtin:" + name === state.sel ? " sel" : "");
+    li.dataset.sel = "builtin:" + name;
+    li.title = "Built in to the firmware; it cannot be edited";
     const n = document.createElement("span");
     n.className = "name";
     n.textContent = name;
+    const d = document.createElement("span");
+    d.className = "dim";
+    d.textContent = BUILTIN[name].fields.length + " fields";
     const acts = document.createElement("span");
-    if (builtin) {
-      acts.className = "dim";
-      acts.textContent = "built-in";
-    } else {
-      acts.className = "acts";
-      const copy = document.createElement("button");
-      copy.textContent = "⧉";
-      copy.title = copy.ariaLabel = "Copy this layout";
-      copy.dataset.act = "copy";
-      const del = document.createElement("button");
-      del.textContent = "🗑";
-      del.title = del.ariaLabel = doc().layouts.length <= 1 ? "The file needs at least one layout" : "Delete this layout";
-      del.disabled = doc().layouts.length <= 1;
-      del.dataset.act = "delete";
-      acts.append(copy, del);
-    }
-    li.append(n, acts);
+    acts.className = "acts";
+    acts.append(infoButton());
+    li.append(n, d, acts);
     return li;
   }));
+  if (isBuiltin()) $("builtin-box").open = true;
+}
+
+function infoButton() {
+  const b = document.createElement("button");
+  b.textContent = "API";
+  b.className = "info";
+  b.title = b.ariaLabel = "What a tag needs for this layout: send it to a tag, or see the request for curl, esl-client and Home Assistant";
+  b.dataset.act = "info";
+  return b;
+}
+
+// The window with what a client sends for a layout of the file or a built-in one (key as
+// state.sel), the same panel as the Dashboard's Layouts card (js/layoutapi.js)
+let infoPanel = null;
+let infoKey = "";
+async function showLayoutInfo(key = infoKey) {
+  infoKey = key;
+  const dlg = $("lay-api-dlg");
+  infoPanel ||= layoutPanel($("lay-api"), { onClose: () => dlg.close() });
+  const builtin = key.startsWith("builtin:");
+  const l = builtin ? null : doc().layouts?.[+key.slice(5)];
+  if (!builtin && !l) return;
+  const name = builtin ? key.slice(8) : l.name;
+  const fields = builtin ? BUILTIN[name].fields : l.fields || [];
+  const sample = builtin ? fields.map(defaultSample) : samplesOf(l);
+  let what = [];
+  if (l?._template) {
+    const t = (await templateById(l._template))?.t;
+    if (t) what = fields.map((f) => t.fields?.[f] || "");
+  }
+  const cmp = !builtin && ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
+  const st = builtin ? "ap" : cmp?.states[name];
+  const pill = builtin ? "Built in" : !ap.connected ? "In this file"
+    : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
+  const host = onAp ? location.host : "openesl.local";
+  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model)
+    .map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name, shown: t.content_id ? ap.tagLayouts[t.mac] || "?" : "" })) : null;
+  infoPanel.show({
+    key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
+    send: ap.connected && st === "ap" ? async (mac, c) => {
+      const r = await apClient().putContent(mac, c);
+      ap.tagLayouts[mac] = name;
+      refreshLayoutList();
+      showLayoutInfo();
+      return r;
+    } : null,
+    why: !ap.connected ? "Connect to your AP to send to a tag from here."
+      : `The AP does not have this version of "${name}" yet. ${onAp ? "Save the file to the AP" : "Send it to the AP"} first.`,
+    first: { label: !ap.connected ? "Connect to your AP…" : onAp ? "Save to AP" : "Send to your AP…", run: () => {
+      // The Send window and Save to AP work on the selected layout: select this one first
+      $("lay-api-dlg").close();
+      if (state.sel !== key) {
+        state.sel = key;
+        state.el = -1;
+        refreshAll();
+      }
+      $(onAp && ap.connected ? "ap-save" : "send-open").click();
+    } },
+  });
+  if (!dlg.open) dlg.showModal();
+}
+
+// The small pictures of the layouts, by model: the last image data drawn for each
+const thumbs = {};
+let thumbTimer = 0;
+
+function paintThumb(c, img) {
+  if (!img) return;
+  [c.width, c.height] = [img.width, img.height];
+  c.getContext("2d").putImageData(img, 0, 0);
+}
+
+// Draws every layout of the file with its own sample text, a moment after the editing pauses.
+// The renderer has the file loaded (compileAndDraw), so this only renders.
+function scheduleThumbs() {
+  clearTimeout(thumbTimer);
+  thumbTimer = setTimeout(drawThumbs, 250);
+}
+
+function drawThumbs() {
+  const r = state.renderer;
+  if (!r || !doc()) return;
+  applyLimits();
+  const res = r.loadLayouts(JSON.stringify(doc()));
+  if (!res.ok) return;
+  const list = (thumbs[state.model] = []);
+  (doc().layouts || []).forEach((l, i) => {
+    const out = r.render(LAYOUT_FILE + i, 0, samplesOf(l));
+    if (!out.ok) return;
+    const img = new ImageData(r.width, r.height);
+    for (let p = 0; p < r.width * r.height; p++) {
+      const v = out.pixels[p];
+      img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], p * 4);
+    }
+    list[i] = img;
+  });
+  document.querySelectorAll("#layout-list canvas.thumb").forEach((c) => paintThumb(c, list[+c.dataset.i]));
+}
+
+// The sample text of any layout of the file, as samples() keeps it for the one shown
+function samplesOf(l) {
+  const s = [...(state.samples[state.model + "/" + l.name] || l._sample || [])];
+  const names = l.fields || [];
+  while (s.length < names.length) s.push(defaultSample(names[s.length]));
+  s.length = names.length;
+  return s;
 }
 
 function refreshLayoutForm() {
@@ -698,7 +863,7 @@ function refreshLayoutForm() {
 }
 
 // The layout's fields, each with its sample value: the name (what the client sends it as) and
-// what the preview shows and Send to tag sends.
+// what the preview shows and Send to your AP sends.
 function refreshSample() {
   const box = $("sample");
   box.replaceChildren();
@@ -841,7 +1006,7 @@ function refreshElement() {
         $("sel-title").textContent = "Selected: " + elementName(e);
       });
       l.append(inp);
-      box.append(l);
+      box.append(l, dateFieldButtons(inp));
     }
   }
   // position and size
@@ -856,7 +1021,7 @@ function refreshElement() {
     inp.min = k === "w" || k === "h" ? 1 : 0;
     inp.value = e[k];
     inp.dataset.k = k;
-    if (e.type === "icon" && (k === "w" || k === "h")) {
+    if (e.type === "icon" && !iconByField(e) && (k === "w" || k === "h")) {
       inp.disabled = true;
       inp.title = "An icon is drawn at its own size";
     }
@@ -870,6 +1035,48 @@ function refreshElement() {
     xywh.append(l);
   }
   box.append(xywh);
+}
+
+// Date fields the AP fills in when it draws a fixed text (esl_clock.h on the AP): a button for
+// each puts it in at the cursor, with today's value on hover as the preview draws it
+const DATE_FIELDS = [
+  ["{weekday}", "the weekday, Thursday"],
+  ["{date}", "the date, 29 October 2026"],
+  ["{date_short}", "the date, 29.10.2026"],
+  ["{week}", "the week number, 44"],
+];
+
+function dateFieldButtons(inp) {
+  const div = document.createElement("div");
+  div.className = "date-fields";
+  const p = document.createElement("p");
+  p.className = "small muted";
+  p.textContent = "Date fields, filled in by the AP in its time zone (Settings, General; UTC until set): " +
+    "the tag is redrawn once a day ({week} alone: once a week). An AP from before 0.9 shows them as written.";
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  for (const [f, what] of DATE_FIELDS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = f;
+    b.title = "Put in " + what;
+    b.addEventListener("click", () => {
+      const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
+      const v = inp.value.slice(0, at) + f + inp.value.slice(end);
+      if (v.length > inp.maxLength) {
+        setStatus(`${f} does not fit: a fixed text is at most ${inp.maxLength} characters`, "error");
+        return;
+      }
+      inp.value = v;
+      inp.focus();
+      inp.setSelectionRange(at + f.length, at + f.length);
+      inp.dispatchEvent(new Event("input"));
+    });
+    chips.append(b);
+  }
+  div.append(chips, p);
+  return div;
 }
 
 function updatePositionInputs() {
@@ -933,6 +1140,21 @@ function refreshBar() {
     select(bar, "Code", [["code128", "Code 128"], ["ean13", "EAN-13"]], e.symbology, (v) => (e.symbology = v));
     sep();
     alignRow(bar);
+  } else if (e.type === "icon") {
+    // the picture by name, or the one a field names (e.g. a weather symbol: "sun", "rain")
+    const pics = Object.keys(doc().icons || {});
+    const opts = [...pics.map((n) => ["i:" + n, n]), ...layout().fields.map((f) => ["f:" + f, "Named by " + f])];
+    select(bar, "Icon", opts, iconByField(e) ? "f:" + e.field : "i:" + e.icon, (v) => {
+      if (v.startsWith("f:")) {
+        delete e.icon;
+        e.field = v.slice(2);
+      } else {
+        const pic = doc().icons[v.slice(2)];
+        delete e.field;
+        e.icon = v.slice(2);
+        if (pic) Object.assign(e, { w: pic.w, h: pic.h });
+      }
+    });
   } else if (e.type === "qr") {
     select(bar, "Error correction", [["L", "L 7 %"], ["M", "M 15 %"], ["Q", "Q 25 %"], ["H", "H 30 %"]], e.ecc || "M",
       (v) => (v === "M" ? delete e.ecc : (e.ecc = v)));
@@ -958,6 +1180,48 @@ function refreshBar() {
   del.className = "del";
   del.disabled = layout().elements.length <= 1;
   placeBar();
+}
+
+// The number format of a text element as checkboxes; they write "decimals" (0, 2, "auto",
+// "dash", "0-dash", "keep") and "thousands".
+function numberRows(e, row) {
+  const d = e.decimals;
+  const on = d !== undefined || !!e.thousands;
+  const keep = on && (d === "keep" || d === undefined);
+  const dec = keep || d === 2 || d === "auto" || d === "dash";
+  const dash = d === "dash" || d === "0-dash";
+  const hide = d === "auto" || d === "dash";
+  const set = (f) => {
+    const o = { on, dec, keep, dash, hide, thousands: !!e.thousands, ...f };
+    delete e.decimals;
+    delete e.thousands;
+    if (!o.on) return;
+    e.decimals = o.dec && o.keep ? "keep" : o.dec ? (o.dash ? "dash" : o.hide ? "auto" : 2) : o.dash ? "0-dash" : 0;
+    if (o.thousands) e.thousands = true;
+  };
+  const check = (r, label, title, checked, act, disabled, sub) => {
+    const l = document.createElement("label");
+    l.className = "check" + (sub ? " sub" : "");
+    l.title = title;
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = checked;
+    c.disabled = !!disabled;
+    c.addEventListener("change", () => { act(c.checked); changed({}); });
+    l.append(c, " " + label);
+    r.append(l);
+  };
+  check(row("Number"), "Format as number", "Draw a price or other number the same way whatever form it is sent in",
+    on, (v) => set(v ? { on: true, dec: true, keep: false } : { on: false }));
+  if (!on) return false;
+  check(row(""), "With decimals", "On: 199,90. Off: rounded to whole kroner, 199", dec, (v) => set({ dec: v, keep: false }));
+  if (keep)
+    check(row(""), "As sent", "The decimals as sent, with a decimal comma: 199,5 stays 199,5", true, () => set({ keep: false }), false, true);
+  else if (dec)
+    check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
+  check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);
+  check(row(""), "Thousands separator", "A space between every three digits: 1 299", !!e.thousands, (v) => set({ thousands: v }));
+  return true;
 }
 
 // What is used less: vertical alignment, lines, smaller fonts, placing on the screen, order.
@@ -1005,19 +1269,13 @@ function moreMenu(e, btn, select, open) {
     p.className = "hint";
     p.textContent = "The tag uses the first font the text fits in, otherwise the last one with “…”.";
     list.append(p);
-    // A price or other number: decimals and thousands separator (the AP formats it)
-    const nr = row("Number");
-    select(nr, "Decimals", [["", "as sent"], ["2", "199,90"], ["0", "199"], ["auto", "199 or 199,90"],
-      ["dash", "199,- or 199,90"], ["keep", "as sent, comma"]], String(e.decimals ?? ""), (val) => {
-      if (val === "") delete e.decimals;
-      else e.decimals = /^\d$/.test(val) ? +val : val;
-    });
-    btn(nr, "1 000", "Thousands separator: 1 299,90", () => (e.thousands ? delete e.thousands : (e.thousands = true)), !!e.thousands)
-      .setAttribute("role", "switch");
-    const pn = document.createElement("p");
-    pn.className = "hint";
-    pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
-    list.append(pn);
+    // A price or other number: decimals, ",-" and thousands separator (the AP formats it)
+    if (numberRows(e, row)) {
+      const pn = document.createElement("p");
+      pn.className = "hint";
+      pn.textContent = "Sent as 1299.9, 1299,90 or 1 299,90, the number is drawn as chosen, on one line; text that is not a number is drawn as sent. A single dot is the decimal sign: 1.299 is 1,299, so send 1299 for a thousand.";
+      list.append(pn);
+    }
   }
   if (e.type === "barcode") {
     const lim = state.renderer.limits;
@@ -1199,6 +1457,60 @@ function addElement(kind) {
   changed();
 }
 
+// Size an SVG is drawn at, on its longer side: an SVG scales, and the icon sets of the web give
+// theirs at 16 or 24 px, which is too small on a tag (an icon cannot be made bigger later)
+const SVG_SIZE = 64;
+
+// An SVG length in px: a number with px, pt, pc, mm, cm, in or no unit; 0 for anything else (%)
+function svgLength(v) {
+  const m = /^\s*([+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|pt|pc|mm|cm|in)?\s*$/i.exec(v ?? "");
+  const k = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 }[(m?.[2] ?? "px").toLowerCase()];
+  return m ? parseFloat(m[1]) * k : 0;
+}
+
+// A picture file as something drawImage takes, with its width and height. Chromium's
+// createImageBitmap cannot decode an SVG, so an SVG goes through an Image, drawn SVG_SIZE on its
+// longer side with the shape of its viewBox (or of its width and height, or square). linked: it
+// had pictures that are not in the file (<image> with a link), which are left out.
+async function readPicture(file) {
+  const svg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  if (!svg) return createImageBitmap(file);
+  const xml = new DOMParser().parseFromString(await file.text(), "image/svg+xml");
+  const root = xml.documentElement;
+  if (root.localName !== "svg") throw new Error("not an SVG");
+  const ow = svgLength(root.getAttribute("width")), oh = svgLength(root.getAttribute("height"));
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  let [vw, vh] = vb.length === 4 && vb[2] > 0 && vb[3] > 0 ? [vb[2], vb[3]] : [0, 0];
+  if (!vw && ow && oh) {
+    // without a viewBox its content is in px of its own size: keep that, scaled
+    [vw, vh] = [ow, oh];
+    root.setAttribute("viewBox", `0 0 ${ow} ${oh}`);
+  }
+  const r = vw ? vw / vh : 1;
+  const [w, h] = r >= 1 ? [SVG_SIZE, SVG_SIZE / r] : [SVG_SIZE * r, SVG_SIZE];
+  root.setAttribute("width", String(w));
+  root.setAttribute("height", String(h));
+  if (!root.hasAttribute("xmlns")) root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  // a linked picture is not loaded from a blob, and would be drawn as a broken-image sign
+  let linked = false;
+  for (const im of [...xml.getElementsByTagNameNS("http://www.w3.org/2000/svg", "image")]) {
+    const href = im.getAttribute("href") ?? im.getAttributeNS("http://www.w3.org/1999/xlink", "href") ?? "";
+    if (!href.trim().startsWith("data:")) {
+      im.remove();
+      linked = true;
+    }
+  }
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(xml)], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return { img, width: w, height: h, linked };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // An icon from a picture file: drawn at its own size (scaled down to fit ICON_MAX and the
 // screen), dark pixels drawn, light and transparent ones left.
 async function addIcon(file) {
@@ -1211,9 +1523,9 @@ async function addIcon(file) {
   const { width, height } = MODELS[state.model];
   let bmp;
   try {
-    bmp = await createImageBitmap(file);
+    bmp = await readPicture(file);
   } catch {
-    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG or GIF)", "error");
+    setStatus("Could not read " + file.name + " as a picture (PNG, JPEG, GIF or SVG)", "error");
     return;
   }
   const max = Math.min(ICON_MAX, width, height);
@@ -1222,7 +1534,7 @@ async function addIcon(file) {
   const c = document.createElement("canvas");
   [c.width, c.height] = [w, h];
   const ctx = c.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.drawImage(bmp.img ?? bmp, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
   const row = Math.ceil(w / 8);
   const bits = new Uint8Array(row * h);
@@ -1241,13 +1553,14 @@ async function addIcon(file) {
   d.icons[name] = { w, h, data: btoa(String.fromCharCode(...bits)) };
   lay.elements.push({ type: "icon", icon: name, x: Math.floor((width - w) / 2), y: Math.floor((height - h) / 2), w, h });
   state.el = lay.elements.length - 1;
-  changed();
+  changed();  if (bmp.linked) setStatus(file.name + " links pictures that are not in the file; they were left out", "error");
 }
 
-// Icons no element in any layout draws are dropped, so they do not take room in the file
+// Icons no element in any layout draws are dropped, so they do not take room in the file. An icon
+// named by a field may be any of them, so with one of those every icon stays.
 function pruneIcons() {
   const d = doc();
-  if (!d.icons) return;
+  if (!d.icons || d.layouts.some((l) => l.elements.some(iconByField))) return;
   const used = new Set(d.layouts.flatMap((l) => l.elements.filter((e) => e.type === "icon").map((e) => e.icon)));
   for (const k of Object.keys(d.icons)) if (!used.has(k)) delete d.icons[k];
   if (!Object.keys(d.icons).length) delete d.icons;
@@ -1282,7 +1595,7 @@ function pasteElement() {
   const { width, height } = MODELS[state.model];
   const { _icon: pic, ...c } = structuredClone(state.clip);
   if (usesField(c) && !lay.fields.includes(c.field)) c.field = lay.fields[0];
-  if (c.type === "icon") {
+  if (c.type === "icon" && !iconByField(c)) {
     // the picture comes along; under another name if this file has a different one by that name
     if (!pic || pic.w > width || pic.h > height) return;
     const d = doc();
@@ -1382,7 +1695,9 @@ function initActions() {
     const li = ev.target.closest("li");
     if (!li) return;
     const act = ev.target.closest("button")?.dataset.act;
-    if (act === "copy") {
+    if (act === "info") {
+      showLayoutInfo(li.dataset.sel);
+    } else if (act === "copy") {
       const c = structuredClone(layout());
       c.name = uniqueName(c.name);
       addLayout(c);
@@ -1400,10 +1715,15 @@ function initActions() {
       refreshAll();
     }
   });
-  $("layout-from-tpl").addEventListener("click", () => {
-    closeMenus();
-    openTemplatePicker();
+  $("builtin-list").addEventListener("click", (ev) => {
+    const li = ev.target.closest("li");
+    if (li && ev.target.closest("button")?.dataset.act === "info") return showLayoutInfo(li.dataset.sel);
+    if (!li || li.dataset.sel === state.sel) return;
+    state.sel = li.dataset.sel;
+    state.el = -1;
+    refreshAll();
   });
+  $("layout-from-tpl").addEventListener("click", openTemplatePicker);
   $("tpl-offer-no").addEventListener("click", () => ($("tpl-offer").hidden = true));
   initTemplatePicker({
     model: () => state.model,
@@ -1515,7 +1835,10 @@ function initActions() {
 
 // files: on the AP's own page, model -> the layout file the AP has (null: none), once read
 // board and limits: what GET /api/layouts says about the AP (null limits from an older AP)
-const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null };
+// via: on the web page, how the AP is reached: "usb" (its port, js/apport.js) or "wifi" (its
+// own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
+const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
+             tagLayouts: {} };   // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
 // The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
@@ -1527,9 +1850,9 @@ async function apFileVersion() {
   return r.layouts?.find((x) => x.model === state.model)?.version ?? null;
 }
 
-// Upload, send and check only work once Connect has reached the AP (through the bridge)
+// Upload, send and check only work once Connect has reached the AP (over USB or the bridge)
 function apButtons(busy = false) {
-  $("ap-connect").disabled = busy;
+  $("ap-connect").disabled = $("ap-usb-connect").disabled = $("ap-handoff").disabled = busy;
   $("ap-upload").disabled = busy || !ap.connected || isBuiltin();
   if (onAp) $("ap-save").disabled = $("ap-reload").disabled = busy || !ap.connected;
   for (const id of ["ap-send", "ap-refresh"]) $(id).disabled = busy || !ap.connected || !ap.mac;
@@ -1538,17 +1861,27 @@ function apButtons(busy = false) {
 function apShow() {
   if (!doc()) return;    // before the first model is loaded
   $("ap-setup").hidden = ap.connected;
-  $("ap-conn").hidden = $("ap-pick").hidden = !ap.connected;
+  $("ap-conn").hidden = $("ap-pick").hidden = $("ap-buttons").hidden = !ap.connected;
   $("ap-conn-text").textContent = ap.info;
-  $("send-h").textContent = `Send "${layoutName()}" to a tag`;
+  $("send-h").textContent = `Send "${layoutName()}" to your AP`;
+  if (!onAp) {
+    for (const r of document.querySelectorAll('input[name="ap-via"]')) r.checked = r.value === ap.via;
+    $("ap-usb").hidden = ap.via !== "usb";
+    $("ap-wifi").hidden = ap.via !== "wifi";
+    $("ap-usb-missing").hidden = hasSerial();
+  }
   refreshApTags();
   refreshSends();
   apButtons();
+  refreshLayoutList();
 }
 
 function apDisconnected() {
   ap.connected = false;
+  ap.usb = false;
   ap.tags = [];
+  ap.tagLayouts = {};
+  if (!onAp) ap.files = {};
   ap.limits = null;
   ap.board = "";
   limitsChanged();
@@ -1558,6 +1891,10 @@ function apDisconnected() {
 
 function apClient() {
   if (onAp) return new ApClient("", $("ap-token").value.trim());
+  if (ap.usb) {
+    if (!serialAp()) throw new Error("The USB connection to the AP is closed. Connect again.");
+    return new PortClient(serialAp());
+  }
   const { base, error } = apBase($("ap-url").value);
   if (error) throw new Error(error);
   return new ApClient(base, $("ap-token").value.trim());
@@ -1645,13 +1982,38 @@ async function apConnect() {
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
   limitsChanged();
-  const where = onAp ? location.host || "this AP" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
+  ap.tagLayouts = {};
   if (onAp) {
     try { localStorage.setItem(DASH_TOKEN, $("ap-token").value.trim()); } catch { /* private mode */ }
-    if (!(state.model in ap.files)) return apOpen(state.model);
+    const r = state.model in ap.files ? ["", ""] : await apOpen(state.model);
+    await apReadFile(state.model);
+    return r;
   }
+  await apReadFile(state.model);
   return ["", ""];
+}
+
+// What the layout column shows for a connected AP: the AP's own file of a model (to tell
+// which layouts it has as they are) and, in the background, which layout each tag shows.
+// Off the AP's page the editor's file stays as it is.
+async function apReadFile(model) {
+  if (!onAp) {
+    try {
+      ap.files[model] = await apClient().call("GET", "/api/layouts/" + encodeURIComponent(model));
+    } catch (e) {
+      if (!/^404\b/.test(e.message)) throw e;
+      ap.files[model] = null;
+    }
+  }
+  const mine = ap.tags.filter((t) => t.model === model);
+  if (mine.some((t) => !(t.mac in ap.tagLayouts)))
+    tagLayouts(apClient(), mine, ap.tagLayouts).then((m) => {
+      if (!ap.connected) return;
+      ap.tagLayouts = m;
+      refreshLayoutList();
+    }, () => { /* the column shows no counts */ });
 }
 
 // On the AP's own page: open the layout file the AP has for this model. Changes made here
@@ -1664,7 +2026,7 @@ async function apOpen(model, discard = false) {
   } catch (e) {
     if (!/^404\b/.test(e.message)) throw e;
   }
-  ap.files[model] = file;
+  ap.files[model] = structuredClone(file);   // the editor changes its own copy
   if (model !== state.model) return ["", ""];
   const wasClean = store.get("clean." + model) === JSON.stringify(doc());
   if (!file) {
@@ -1689,6 +2051,7 @@ async function apOpen(model, discard = false) {
 }
 
 async function apUpload(skip) {
+  applyLimits();
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
   const r = await apClient().putLayouts(state.model, doc());
@@ -1720,6 +2083,7 @@ async function apSend() {
   if ($("opt-frame").checked) content.frame = true;
   let r, uploaded = false;
   // An AP without this version of the file gets it first, so the tag shows what you see
+  applyLimits();
   const res = state.renderer.loadLayouts(JSON.stringify(doc()));
   let unfit = "";
   if (!isBuiltin() && res.ok && ap.fileVersion !== res.version) {
@@ -1738,6 +2102,7 @@ async function apSend() {
     r = await apClient().putContent(mac, content);
     uploaded = true;
   }
+  ap.tagLayouts[mac] = name;
   const note = uploaded ? " The layout file was uploaded first." : "";
   return [(r.changed ? "Sent. The tag shows it after its next poll." : "The tag already has this content.") + note + unfit,
           unfit ? "error" : "ok"];
@@ -1759,9 +2124,10 @@ async function apCheck() {
 // key, so one entry serves both. Save to AP and Reload from the AP stand for the file menu's
 // file on disk there: the AP's own file is the one the editor opens.
 function initOnAp() {
+  $("ap-web").hidden = true;
+  $("ap-connect").classList.add("primary");
   $("ap-url").closest("label").hidden = true;
-  document.querySelector("#ap-setup .how").hidden = true;
-  document.querySelector("#ap-setup > p.hint").textContent =
+  document.querySelector("#ap-direct > p.hint").textContent =
     "Enter the AP's API token once; this browser keeps it for this address, and the Dashboard tab uses it too.";
   try { $("ap-token").value = localStorage.getItem(DASH_TOKEN) || ""; } catch { /* private mode */ }
   $("ap-token").placeholder = "the AP's API token";
@@ -1787,7 +2153,7 @@ function initOnAp() {
 
 // On the AP's own page, once the first model is loaded and whenever the tab is shown while not
 // connected: connect with the kept token (the Dashboard may have stored it meanwhile) and open
-// the AP's file, or ask for the token where Send to tag does. Not while the tab is hidden: its
+// the AP's file, or ask for the token where Send to your AP does. Not while the tab is hidden: its
 // dialog is modal, and would leave the Dashboard tab unclickable behind it.
 let apStarting = false;
 let apReady = false;      // the first model is loaded (initEditor)
@@ -1804,7 +2170,10 @@ async function apStart() {
   }
 }
 
-// The web page's Send to tag: the bridge's address (the Dashboard's) and a token for this session
+// The web page's Send to your AP: over USB (the port the Dashboard tab shares, no token), or
+// over WiFi by handing the file to the AP's own page (js/handoff.js). The bridge in
+// tools/esl-client, at the Dashboard's address and with a token for this session, is under
+// Advanced.
 function initOnWeb() {
   const sess = {
     get(k) { try { return sessionStorage.getItem(STORE + k) || ""; } catch { return ""; } },
@@ -1814,12 +2183,41 @@ function initOnWeb() {
   try { url = localStorage.getItem(DASH_URL) || store.get("ap.url") || ""; } catch { /* private mode */ }
   $("ap-url").value = url;
   $("ap-token").value = sess.get("ap.token");
+  $("ap-addr").value = store.get("ap.addr") || "";
+  $("ap-bridge").append($("ap-direct"));
+  $("ap-bridge").open = store.get("ap.bridge") === "1";
+  ap.via = store.get("ap.via") || (hasSerial() ? "usb" : "wifi");
   $("ap-url").addEventListener("change", () => {
     try { localStorage.setItem(DASH_URL, $("ap-url").value.trim()); } catch { /* private mode */ }
     apDisconnected();
   });
   $("ap-token").addEventListener("change", () => { sess.set("ap.token", $("ap-token").value.trim()); apDisconnected(); });
+  $("ap-addr").addEventListener("change", () => store.set("ap.addr", $("ap-addr").value.trim()));
+  $("ap-bridge").addEventListener("toggle", () => store.set("ap.bridge", $("ap-bridge").open ? "1" : ""));
+  for (const r of document.querySelectorAll('input[name="ap-via"]'))
+    r.addEventListener("change", () => {
+      ap.via = r.value;
+      store.set("ap.via", ap.via);
+      apShow();
+      apStatus("");
+    });
+  $("ap-usb-connect").addEventListener("click", () => apRun("Connecting over USB", async () => {
+    try {
+      await connectSerial();
+    } catch (e) {
+      if (e.name === "NotFoundError") return ["", ""];   // no port picked: nothing to say
+      throw e;
+    }
+    ap.usb = true;
+    return apConnect();
+  }));
+  $("ap-handoff").addEventListener("click", () => apRun("Opening the AP's page", apHandoff));
+  window.addEventListener("message", handoffMessage);
+  // The port closed (unplugged, or the Dashboard tab disconnected it)
+  onSerialChange((port) => { if (!port && ap.usb) apDisconnected(); });
   return () => {
+    if (ap.via === "usb") return serialAp() ? "usb" : "";
+    if (!$("ap-bridge").open) return "";
     // The Dashboard's address may have changed since
     try {
       const u = localStorage.getItem(DASH_URL);
@@ -1829,10 +2227,59 @@ function initOnWeb() {
   };
 }
 
+// ---------- over WiFi: the AP's own page takes the file (js/handoff.js) ----------
+
+let handoff = null;   // { win, msg, host, timer } while the AP's page is opened
+
+async function apHandoff() {
+  const { url, error } = apPageUrl($("ap-addr").value);
+  if (error) throw new Error(error);
+  store.set("ap.addr", $("ap-addr").value.trim());
+  applyLimits();
+  const res = state.renderer.loadLayouts(JSON.stringify(doc()));
+  if (!res.ok) throw new Error("Fix the layout file first: " + res.error);
+  const content = { layout: layoutName(), fields: samples().slice() };
+  if ($("opt-highlight").checked) content.price_highlight = true;
+  if ($("opt-frame").checked) content.frame = true;
+  const msg = layoutsMessage({ model: state.model, file: structuredClone(doc()), layout: layoutName(), content, preview: $("screen").toDataURL("image/png") });
+  clearTimeout(handoff?.timer);
+  // A name, so a second press uses the same tab
+  const win = window.open(url, "openesl-ap");
+  const host = new URL(url).host;
+  if (!win) throw new Error(`The browser blocked the new tab. Allow pop-ups for this page, or open ${url.replace(/\?.*/, "")} yourself.`);
+  handoff = { win, msg, host };
+  handoff.timer = setTimeout(() => {
+    if (handoff?.win === win)
+      apStatus(`No answer from the page at ${host}. Either that is not the AP's address (its IP address works too), or the AP's ` +
+        "firmware is 0.8.2 or older, which cannot take layouts from here: update it on the Dashboard tab, or use the USB cable.", "error");
+  }, 10000);
+  return [`Opening ${host} in a new tab. Its page shows the layout file at the top when the AP's firmware is new enough.`, ""];
+}
+
+function handoffMessage(ev) {
+  if (!handoff || ev.source !== handoff.win) return;
+  const type = ev.data?.type;
+  if (type === READY) {
+    clearTimeout(handoff.timer);
+    ev.source.postMessage(handoff.msg, ev.origin);
+    apStatus(`Sent to the page on ${handoff.host}. Check it there and press Save.`, "ok");
+  } else if (type === SAVED) {
+    const text = typeof ev.data.text === "string" ? ev.data.text : "";
+    apStatus(text || (ev.data.ok ? "Saved on the AP." : "The AP did not save it."), ev.data.ok ? "ok" : "error");
+    if (ev.data.ok && ev.data.model === handoff.msg.model) {
+      store.set("clean." + handoff.msg.model, JSON.stringify(handoff.msg.file));
+      refreshFileState();
+    }
+  }
+}
+
 function initAp() {
-  // what Connect needs (the token on the AP, the address on the web), "" before it is entered
+  // what Connect needs (the token on the AP, the port or the bridge's address on the web), "" before there is one
   const canConnect = onAp ? initOnAp() : initOnWeb();
-  $("ap-connect").addEventListener("click", () => apRun("Connecting", apConnect));
+  $("ap-connect").addEventListener("click", () => {
+    ap.usb = false;
+    apRun("Connecting", apConnect);
+  });
   $("ap-change").addEventListener("click", apDisconnected);
   $("ap-upload").addEventListener("click", () => apRun("Uploading", apUpload));
   $("ap-send").addEventListener("click", () => apRun("Sending", apSend));
@@ -1841,8 +2288,11 @@ function initAp() {
     apStatus("");
     apShow();
     $("send-dlg").showModal();
-    if (canConnect() && !ap.connected) apRun("Connecting", apConnect);
-    else if (ap.connected) apRun("Reading the tags", async () => {
+    const how = canConnect();
+    if (how && !ap.connected) {
+      ap.usb = how === "usb";
+      apRun("Connecting", apConnect);
+    } else if (ap.connected) apRun("Reading the tags", async () => {
       ap.tags = (await apClient().tags()).tags || [];
       return ["", ""];
     });
@@ -1851,6 +2301,29 @@ function initAp() {
 }
 
 // sameOrigin: on the AP's own page (js/apdesign.js)
+// Edit on the dashboard's Layouts card (js/aplayouts.js): the AP's file of that model, with the
+// layout picked. Changes the editor has to its file and nowhere else are only dropped when the
+// user says so.
+async function openFromAp({ model, file, name }) {
+  if (!MODELS[model] || !file?.layouts) return;
+  location.hash = "#design";
+  // Load the model first: its file (with unsaved changes) may only be in the browser's storage yet
+  if (model !== state.model) await loadModel(model);
+  if (state.docs[model] && JSON.stringify(state.docs[model]) !== JSON.stringify(file) &&
+      store.get("clean." + model) !== JSON.stringify(state.docs[model]) &&
+      !confirm(`The designer has changes to its ${model}" layout file that are not saved anywhere. Open the AP's file instead?`)) return;
+  setDoc(structuredClone(file));
+  state.history[model].reset(JSON.stringify(file));
+  ap.files[model] = structuredClone(file);
+  const i = file.layouts.findIndex((l) => l.name === name);
+  state.sel = "file:" + Math.max(0, i);
+  state.el = -1;
+  refreshAll();
+  save();
+  markClean();
+  refreshUndo();
+}
+
 export async function initEditor({ sameOrigin = false } = {}) {
   onAp = sameOrigin;
   try {
@@ -1863,6 +2336,7 @@ export async function initEditor({ sameOrigin = false } = {}) {
   initDrag();
   initList();
   initAp();
+  window.addEventListener("openesl-edit-layout", (ev) => openFromAp(ev.detail));
   const m = store.get("model");
   await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
   fitHeight();

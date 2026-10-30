@@ -29,7 +29,7 @@
 ## Features
 
 - **Two tag models so far:** SoluM ST-GM29XX2 (2.9", 296 × 128) and ST-GM16XX2 (1.54", 200 × 200), both on the ZBS243 chip. See [Supported tags](#supported-tags); more makers and models are welcome.
-- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md)). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
+- **A plain HTTP API** on the access point, protected by a token. Scripts, web shops and home automation can all be clients (example: [Home Assistant](docs/home-assistant.md), which also has an [integration](https://github.com/mathiasbk/openesl-homeassistant) for HACS). Documented in [OpenAPI](docs/openapi.yaml) and checked against the code in CI.
 - **Your own label layouts**, drawn in the browser: text in four sizes, inverted and highlighted text, lines, boxes and Code 128 or EAN-13 barcodes. The preview is the AP's own drawing code, so what you see is what the tag shows.
 - **Scheduled prices** that switch at a time you choose, and **per-tag settings** such as the poll interval.
 - **Firmware updates without cables (OTA):** the AP updates itself over WiFi, and passes new firmware to the tags over the radio, for one tag or a whole model at once.
@@ -54,7 +54,7 @@ The ESP32-C6 alone is the simple choice and the one tried most. For more tags, t
 
 | Board | Tags | Status |
 |---|---|---|
-| ESP32-C6 Super Mini, with or without a 0.96" screen | about 700 | supported |
+| ESP32-C6 Super Mini, with or without a 0.96" screen | about 500 | supported |
 | ESP32-C5 N16R8 | 1000 | experimental |
 | ESP32-S3 N16R8 + ESP32-C6 as its radio, with or without a screen on the C6 | 1000 | supported (with the screen on the C6: experimental) |
 
@@ -77,7 +77,7 @@ The step-by-step guide is in the [wiki](https://github.com/mathiasbk/openESL/wik
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab: a guide that picks your AP setup, flashes each board in it (also the C6 radio of an S3 setup), gives the AP your WiFi and an API token over the same USB cable, and shows where it is on your network.
 2. **Flash the labels** one at a time in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware, then starts polling the AP.
-3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab and send them to the AP, or start with the built-in `price` and `text` layouts.
+3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab, or start with the built-in `price` and `text` layouts. **Send to your AP…** asks how the AP is connected: over a **USB cable** it sends straight away; over **WiFi** it opens the AP's own page with the layout, and you press Save there ([how](https://github.com/mathiasbk/openESL/wiki/Getting-layouts-onto-the-AP)).
 4. **Send content** from your own software:
 
 ```bash
@@ -86,7 +86,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The label picks the new content up at its next poll. The [Set up](https://mathiasbk.github.io/openESL/#setup) tab covers the first start, WiFi and the token in detail, and the [API](https://mathiasbk.github.io/openESL/#api) tab lets you try every request against your own AP through the bridge in [tools/esl-client](tools/esl-client/README.md).
+The label picks the new content up at its next poll. The [Set up](https://mathiasbk.github.io/openESL/#setup) tab covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
 
 ## How it works
 
@@ -132,6 +132,10 @@ Hardware notes, pinouts and where each fact comes from are in [docs/](docs/READM
 Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-17, both served by the ESP32-C6 AP over USB and WiFi. The features above are tested on a PC and in CI, and most of them on real labels. What is left, and what has not been tried on hardware yet, is in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
 
 Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's images, so every tag needs the new tag firmware: over the radio (`esl-client tag-ota`, or the dashboard) if it has the bootloader (0.3.0 and newer), otherwise in the jig ([tag/README.md](tag/README.md)).
+
+## Roadmap
+
+Next up: more SoluM label models (the 2.9" with red first), choosing the radio channel on the AP's Settings page, measured battery life. Later: labels that find the AP by themselves and several APs in one place. Labels can already be paired with the AP so only it can change them ([wiki](https://github.com/mathiasbk/openESL/wiki/Security-on-the-radio)). Some day: labels with other chips, such as SoluM M3 "Newton" and Hanshow Nebular. The whole list is in the [wiki](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
 ## Folders
 

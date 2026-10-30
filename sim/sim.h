@@ -28,9 +28,14 @@ extern uint64_t sim_now_ms;
 /* Starts (or restarts) the AP: an empty table, then everything "NVS" has, as after a
    power cycle. The first call also clears NVS. */
 void sim_ap_boot(void);
+/* The channel in the AP's NVS (0 = none, menuconfig's), as if set without telling the tags:
+   it is on it from its next boot (#258) */
+void sim_ap_set_nvs_channel(uint8_t channel);
 /* Switches the AP off: frames from the tag get no answer, the API answers 503. */
 void sim_ap_off(void);
 bool sim_ap_up(void);
+/* The channel the AP's radio is on, after a planned move that is due (as its radio task) */
+uint8_t sim_ap_channel(void);
 
 /* One API request through esl_api_handle(), as the HTTP server and the serial port
    pass it on. body may be NULL. Returns the HTTP status; *resp (may be NULL) gets
@@ -57,9 +62,10 @@ size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap);
 
 /* ---- radio link ---- */
 
-/* The tag sends frame (without FCS). Returns the length of the AP's reply in reply
-   (without FCS), or 0 if nothing comes back: AP off, or a loss below. */
-uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply);
+/* The tag sends frame (without FCS) on channel. Returns the length of the AP's reply in
+   reply (without FCS), or 0 if nothing comes back: AP off or on another channel, or a
+   loss below. */
+uint8_t sim_link(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply);
 
 /* Losses: drop the next n frames the tag sends (the AP never sees them), or the next n
    replies of message type (ESL_MSG_*, 0 = any) after the AP has handled the frame,
@@ -92,10 +98,12 @@ void sim_tag_run_until(uint64_t t_ms);
 bool sim_tag_run_until_draw(uint64_t t_ms);
 
 uint32_t sim_tag_shown_id(void); /* content_id on the screen, 0 = none */
+bool sim_tag_has_key(void);      /* paired: it has a radio key (sec.h) */
 int sim_tag_draws(void);         /* times the display was drawn */
 uint16_t sim_tag_interval_s(void);
 uint16_t sim_tag_last_sleep_s(void);
 uint8_t sim_tag_misses(void);
+uint8_t sim_tag_channel(void);   /* the channel its radio is on (radio_init) */
 uint64_t sim_tag_next_wake_ms(void);
 uint64_t sim_tag_last_draw_ms(void);
 /* Firmware update (docs/tag-ota.md): the tag's firmware version and model byte as in

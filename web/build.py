@@ -60,14 +60,14 @@ _spec.loader.exec_module(tag_build)
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
-              "esl_render.c", "esl_qr.c", "esl_barcode.c"]
+              "esl_render.c", "esl_qr.c", "esl_barcode.c", "esl_clock.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
 MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "malloc", "free"]
+           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "malloc", "free"]
 
 
 # The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and

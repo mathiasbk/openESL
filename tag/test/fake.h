@@ -17,6 +17,14 @@ void fake_rx_push(const uint8_t *frame, uint8_t len);   /* the next reply radio_
 void fake_rx_lose(void);                                /* the next radio_rx gets nothing */
 void fake_radio_reset(void);
 extern int fake_radio_on;
+extern uint8_t fake_rx_rssi, fake_rx_lqi;  /* what radio_rx_rssi/lqi give for the frames radio_rx returns */
+
+/* hal_doze_1s: false = it cannot sleep (the caller waits awake) */
+extern bool fake_doze_ok;
+extern int fake_doze_calls;
+extern uint8_t fake_channel;          /* the last radio_init() */
+extern uint8_t fake_ap_channel;       /* the replies are heard only on this channel; 0 = on any */
+extern uint8_t fake_tx_channel[FAKE_MAX_FRAMES];   /* the channel each frame went out on */
 
 /* Identity and battery */
 extern uint8_t fake_mac[8];

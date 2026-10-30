@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -46,7 +46,7 @@ static void drawn(uint64_t mac, uint32_t shown)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     drawn(mac, shown);
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
@@ -102,12 +102,14 @@ static void test_put_one(void)
     CHECK(HAS(resp, "\"changed\":false,\"pending\":false"));
 
     CHECK_INT(req("GET", "/api/tags/" MAC1 "/", AUTH, NULL, 17000), 200);
-    char expect[768];
+    char expect[1024];
     snprintf(expect, sizeof(expect),
              "{\"mac\":\"" MAC1 "\",\"seen_s_ago\":12,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
              "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":%u,\"shown_content_id\":%u,\"pending\":false,"
-             "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},\"config_pending\":false,"
+             "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},\"config_pending\":false,"
              "\"content_error\":null,\"ota\":false,"
+             "\"signal\":{\"rssi\":[-61,-61],\"lost\":[0,0],\"retry\":[0,0],\"polls\":2,\"lost_total\":0,"
+             "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
              "\"image\":true,\"image_id\":%u,\"shown_image_id\":%u,\"fw_update\":null,\"layout\":\"price\",\"fields\":[\"Lettmelk 1 L\",\"24,90\",\"kr/l 24,90\"],"
              "\"price_highlight\":true,\"frame\":false}",
              (unsigned)id, (unsigned)id, (unsigned)id, (unsigned)id);
@@ -135,7 +137,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -350,9 +352,11 @@ static void test_batch_and_list(void)
     api.reset_reason = NULL;
     CHECK(HAS(resp, "{\"mac\":\"0000000000ABCDEF\",\"seen_s_ago\":86399,\"battery_mv\":2950,\"rssi\":-61,\"fw\":2,"
                     "\"model\":\"2.9\",\"draw_failed\":false,\"content_id\":0,\"shown_content_id\":0,\"pending\":false,"
-                    "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null},"
+                    "\"poll_s\":null,\"config\":{\"poll_s\":null,\"max_poll_s\":null,\"lost_ap_s\":null,\"long_poll_s\":null,\"long_after_min\":null},"
                     "\"config_pending\":false,"
                     "\"content_error\":null,\"ota\":false,"
+                    "\"signal\":{\"rssi\":[-61],\"lost\":[0],\"retry\":[0],\"polls\":1,\"lost_total\":0,"
+                    "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
                     "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null}"));
     CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
 
@@ -376,7 +380,7 @@ static void poll_model(uint64_t mac, uint8_t model, bool images)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0};
+    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -709,7 +713,7 @@ static void test_status_page(void)
 
     /* battery 0 = not measured */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0};
+    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     esl_sb_init(&sb, page, sizeof(page));
     CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
@@ -742,7 +746,7 @@ static void test_status_page(void)
         snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                  i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
         CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0};
+        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
         uint8_t reply[ESL_MAX_PAYLOAD];
         esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
     }
@@ -800,16 +804,16 @@ static void test_config_api(void)
     CHECK_INT(req("PUT", "/api/tags/" MAC1 "/config/", AUTH,
                   "{\"poll_s\":10,\"max_poll_s\":3600,\"lost_ap_s\":60,\"other\":1}", 0), 200);
     CHECK_STR(resp, "{\"mac\":\"" MAC1 "\",\"poll_s\":10,\"config\":{\"poll_s\":10,\"max_poll_s\":3600,"
-                    "\"lost_ap_s\":60},\"config_pending\":false,\"changed\":true}");
+                    "\"lost_ap_s\":60,\"long_poll_s\":null,\"long_after_min\":null},\"config_pending\":false,\"changed\":true}");
     CHECK_INT(req("GET", "/api/tags/" MAC1 "/config", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"lost_ap_s\":60}"));
+    CHECK(HAS(resp, "\"lost_ap_s\":60,\"long_poll_s\":null,\"long_after_min\":null}"));
     CHECK_INT(req("GET", "/api/tags/" MAC1, AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_id\":0,"));
     CHECK(HAS(resp, "\"poll_s\":10,"));
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -825,9 +829,11 @@ static void test_config_api(void)
     for (unsigned i = 0; i < CAP; i++) {
         char u[64];
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
-        CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1};
-        esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
+        CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535,"
+                                      "\"long_poll_s\":65535,\"long_after_min\":65535}", 0), 200);
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF};
+        for (unsigned k = 0; k < ESL_LINK_HIST + 1; k++)
+            esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
         esl_set_result_t r;
         esl_content_init(&c, ESL_LAYOUT_TEXT, 0);
@@ -837,6 +843,8 @@ static void test_config_api(void)
     CHECK(!out.overflow);
     CHECK(HAS(resp, "\"draw_failed\":true"));
     CHECK(HAS(resp, "\"config_pending\":true,\"content_error\":null,\"ota\":true,"));
+    CHECK(HAS(resp, "\"lost\":[127,127,"));
+    CHECK(HAS(resp, "\"tag_rssi\":255,\"tag_lqi\":127}"));
 }
 
 /* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
@@ -927,7 +935,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook or tx_power"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, channel or radio_secure"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1022,10 +1030,87 @@ static void test_tx_power_config(void)
     api.notify = &notify;
 }
 
+static int clock_sets;
+static char clock_last_ntp[8], clock_last_tz[8]; /* "-" for NULL (unchanged) */
+
+static void clock_set(void *ctx, const char *ntp, const char *tz)
+{
+    esl_clock_cfg_t *c = ctx;
+    clock_sets++;
+    snprintf(clock_last_ntp, sizeof(clock_last_ntp), "%s", ntp ? ntp : "-");
+    snprintf(clock_last_tz, sizeof(clock_last_tz), "%s", tz ? tz : "-");
+    if (ntp)
+        snprintf(c->ntp, sizeof(c->ntp), "%s", ntp[0] ? ntp : c->builtin_ntp);
+    if (tz)
+        snprintf(c->tz, sizeof(c->tz), "%s", tz);
+}
+
+static void test_clock_config(void)
+{
+    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set};
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    notify.url[0] = '\0';
+
+    /* without clock settings: left out, and PUT says so */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tz\":\"UTC0\"}", 0), 422);
+    CHECK(HAS(resp, "no clock settings"));
+    api.clock = &clock;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, channel or radio_secure"));
+
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
+    CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}");
+    CHECK_INT(clock_sets, 1);
+    /* one key leaves the other alone */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"tz\":\"<+0530>-5:30\"}", 0), 200);
+    CHECK_STR(clock_last_ntp, "-");
+    CHECK_STR(clock.ntp, "no.pool.ntp.org");
+    CHECK(HAS(resp, "\"tz\":\"<+0530>-5:30\"}"));
+    /* poll_s alone does not touch the clock */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"poll_s\":60}", 0), 200);
+    CHECK_INT(clock_sets, 2);
+
+    static const char *const bad[] = {
+        "{\"ntp\":\"-pool\"}", "{\"ntp\":\".pool\"}", "{\"ntp\":\"pool ntp\"}", "{\"ntp\":\"pool_ntp\"}",
+        "{\"ntp\":3}", "{\"ntp\":true}", "{\"tz\":\"1CET\"}", "{\"tz\":\"CET -1\"}", "{\"tz\":\"CET\\\"\"}",
+        "{\"tz\":[]}", "{\"tz\":\"UTC0\",\"ntp\":\"a b\"}", "{\"tz\":\"Europe/Oslo\"}", "{\"tz\":\"CET\"}",
+        "{\"tz\":\"UT0\"}", "{\"tz\":\"<>0\"}", "{\"tz\":\"<+05\"}",
+        "{\"ntp\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}", /* 64 */
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad[i], 0), 422);
+    }
+    CHECK_INT(clock_sets, 2); /* nothing saved by a bad request */
+    CHECK_STR(clock.tz, "<+0530>-5:30");
+
+    /* null and "" go back: ntp to the built-in server, tz to UTC */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":null,\"tz\":\"\"}", 0), 200);
+    CHECK_STR(clock_last_ntp, "");
+    CHECK_STR(clock_last_tz, "");
+    CHECK_STR(resp, "{\"poll_s\":60,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
+                    "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"\",\"tz\":null}", 0), 200);
+    CHECK_INT(clock_sets, 4);
+
+    CHECK(esl_ntp_name_ok("192.168.1.1", 11));
+    CHECK(!esl_ntp_name_ok("", 0));
+    CHECK(esl_tz_ok("UTC0", 4));
+    CHECK(esl_tz_ok("EST5EDT,M3.2.0,M11.1.0", 22));
+    CHECK(esl_tz_ok("<-03>3", 6));
+    CHECK(!esl_tz_ok("Europe/Oslo", 11));
+    CHECK(!esl_tz_ok("", 0));
+    api.clock = NULL;
+}
+
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0};
+    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     drawn(mac, shown);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);
@@ -1161,6 +1246,130 @@ static void test_tag_level(void)
     CHECK_INT(esl_api_tag_level(&api, &t, now), ESL_TAG_OK);
 }
 
+static unsigned count_str(const char *s, const char *what)
+{
+    unsigned n = 0;
+    for (const char *p = strstr(s, what); p; p = strstr(p + 1, what))
+        n++;
+    return n;
+}
+
+/* The "since" token of the last reply, as a query: "?since=<boot>-<seq>" */
+static void since_of(char *q, size_t cap)
+{
+    const char *p = strstr(resp, "\"since\":\"");
+    CHECK(p != NULL);
+    if (!p) {
+        snprintf(q, cap, "?since=");
+        return;
+    }
+    p += 9;
+    snprintf(q, cap, "/api/tags?since=%.*s", (int)strcspn(p, "\""), p);
+}
+
+static void test_since(void)
+{
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    esl_api_changes_t ch = {.boot = 0xabc01234};
+    char q[64];
+
+    /* without changes, or without since: the list as before, no "since" */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 1000), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"b\"]}", 1000), 200);
+    CHECK_INT(req("GET", "/api/tags?since=abc01234-0", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\"") == NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    api.changes = &ch;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\"") == NULL);
+
+    /* a since it cannot use (empty, another boot, ahead, junk): all of them, full */
+    static const char *bad[] = {"", "x", "abc01235-0", "abc01234-99", "abc0123-0", "abc01234-", "abc01234-1x",
+                                "abc01234-99999999999", "ABC01234-1z"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        snprintf(q, sizeof(q), "/api/tags?since=%s", bad[i]);
+        CHECK_INT(req("GET", q, AUTH, NULL, 1000), 200);
+        CHECK(strstr(resp, "\"since\":\"abc01234-1\",\"full\":true,\"tags\":[") != NULL);
+        CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    }
+
+    /* nothing changed: an empty list, the same since (case does not matter in the boot) */
+    CHECK_INT(req("GET", "/api/tags?since=ABC01234-1", AUTH, NULL, 1000), 200);
+    CHECK(strstr(resp, "\"since\":\"abc01234-1\",\"full\":false,\"tags\":[]}") != NULL);
+    /* time passing alone (seen_s_ago) is no change */
+    poll_as_tag(1, 0, 2000);
+    CHECK_INT(req("GET", "/api/tags?since=abc01234-1", AUTH, NULL, 2000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") != NULL);
+    since_of(q, sizeof(q));
+    CHECK_STR(q, "/api/tags?since=abc01234-2");
+    CHECK_INT(req("GET", q, AUTH, NULL, 60000), 200);
+    CHECK(strstr(resp, "\"tags\":[]") != NULL);
+
+    /* a poll, new content, new settings: each is a change for that tag only */
+    poll_as_tag(1, 0, 61000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 61000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000002", AUTH, "{\"layout\":\"text\",\"fields\":[\"c\"]}", 62000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 62000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000002\"") != NULL);
+    char older[64];
+    strcpy(older, q);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000001/config", AUTH, "{\"poll_s\":120}", 63000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 63000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") != NULL);
+    /* an older since gets every change after it: here both */
+    CHECK_INT(req("GET", older, AUTH, NULL, 63000), 200);
+    CHECK(strstr(resp, "\"full\":false") != NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    since_of(q, sizeof(q));
+
+    /* a new tag is a change; a tag gone makes every older since full */
+    poll_as_tag(3, 0, 64000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 64000), 200);
+    CHECK_INT(count_str(resp, "\"mac\":"), 1);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000003\"") != NULL);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000002", AUTH, NULL, 65000), 200);
+    CHECK_INT(req("GET", q, AUTH, NULL, 65000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+    CHECK_INT(count_str(resp, "\"mac\":"), 2);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("GET", q, AUTH, NULL, 65000), 200);
+    CHECK(strstr(resp, "\"full\":false,\"tags\":[]") != NULL);
+
+    /* deleted and its slot taken by a new tag before the next read: still full */
+    since_of(q, sizeof(q));
+    CHECK_INT(req("DELETE", "/api/tags/0000000000000001", AUTH, NULL, 66000), 200);
+    poll_as_tag(4, 0, 66000);
+    CHECK_INT(req("GET", q, AUTH, NULL, 66000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000001\"") == NULL);
+    CHECK(strstr(resp, "\"mac\":\"0000000000000004\"") != NULL);
+
+    /* a full table: a new tag evicts the longest-unseen one without content, in its slot */
+    for (uint64_t m = 5; esl_store_count(&st) < CAP; m++)
+        poll_as_tag(m, 0, 67000);
+    since_of(q, sizeof(q));
+    CHECK_INT(req("GET", q, AUTH, NULL, 67000), 200);
+    since_of(q, sizeof(q));
+    unsigned before = esl_store_count(&st);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000100", AUTH, "{\"layout\":\"text\",\"fields\":[\"x\"]}", 68000), 200);
+    CHECK_INT((int)esl_store_count(&st), (int)before);
+    CHECK_INT(req("GET", q, AUTH, NULL, 68000), 200);
+    CHECK(strstr(resp, "\"full\":true") != NULL);
+
+    api.changes = NULL;
+    esl_api_changes_free(&ch);
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+}
+
 void test_api(void)
 {
     esl_store_free(&st);
@@ -1178,6 +1387,8 @@ void test_api(void)
     test_streaming();
     test_webhook_config();
     test_tx_power_config();
+    test_clock_config();
     test_health();
     test_tag_level();
+    test_since();
 }

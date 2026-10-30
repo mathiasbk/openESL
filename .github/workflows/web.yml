@@ -2,7 +2,8 @@
 # web page (web/), and attaches the finished page to the run as the "web-page" artifact.
 # On master the page is built, tested and published to GitHub Pages; the firmware is not
 # built again there (its pull requests did that), unless there is no release yet. A pull
-# request that changes only documentation (docs/, wiki/, *.md) builds no firmware either.
+# request builds only the firmware its files can change (the source job): one that changes
+# only documentation (docs/, wiki/, *.md) builds none, one that does not touch the AP no AP.
 #
 # The flasher on the published page serves the firmware of the latest GitHub release, so
 # people flash released firmware. Before the first release, and on pull requests, it serves
@@ -26,45 +27,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which firmware the page serves: the latest release, or (pull requests that change more
-  # than documentation, or before the first release) the firmware built in this run. On master the firmware was already built
-  # and tested on its pull requests, so it is only built again when there is no release.
+  # Which firmware the page serves: the latest release, or (pull requests that change the AP,
+  # or before the first release) the firmware built in this run. On master the firmware was
+  # already built and tested on its pull requests, so it is only built again when there is no
+  # release. A pull request builds only what its files can break (the largest of):
+  #   docs/, wiki/, templates/, *.md, LICENSE   no firmware (templates/ is published by the page)
+  #   VERSION, tag/, sim/, tools/               the firmware tests and the tag firmware, no AP
+  #   web/, tag/designs/, templates/home/weather.json
+  #                                             the AP boards that pack them (ap/main/webui.py):
+  #                                             c6-supermini (the smallest flash) and s3-n16r8-c6
+  #                                             (the Design tab, ESL_WEB_DESIGNER)
+  #   anything else (ap/, shared/, .github/, tag/src/ and tag/fonts/, which esl_core compiles,
+  #   tools/fw_version.py, which names the AP's version)    every AP board and radio
+  # A file moved counts by its old path too.
+  # The page takes the latest release's firmware unless every AP board was built.
   source:
     runs-on: ubuntu-24.04
     outputs:
       release: ${{ steps.rel.outputs.release }}
+      firmware: ${{ steps.rel.outputs.firmware }}
+      ap: ${{ steps.rel.outputs.ap }}
     steps:
       - id: rel
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           latest() { gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true; }
-          rel=""
+          level=3   # 0 no firmware, 1 no AP, 2 the AP boards with the web page, 3 every AP board
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             rel=$(latest)
           else
-            # a pull request that changes only documentation (docs/, wiki/, *.md) or layout
-            # templates (templates/, which the page publishes and no firmware holds) builds no
-            # firmware: its page takes the latest release's, as on master
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
-            fw=no
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[] | .filename, (.previous_filename // empty)')
+            if [ -n "$files" ]; then level=0; fi
             for f in $files; do
               case "$f" in
-                docs/*|wiki/*|templates/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
-                *) fw=yes; echo "Firmware is built: $f"; break ;;
+                templates/home/weather.json|tag/designs/*|web/*) l=2 ;;
+                docs/*|wiki/*|templates/*|*.md|LICENSE|.github/ISSUE_TEMPLATE/*) l=0 ;;
+                tools/fw_version.py|tag/src/*|tag/fonts/*) l=3 ;;
+                VERSION|tag/*|sim/*|tools/*) l=1 ;;
+                *) l=3 ;;
               esac
+              if [ "$l" -gt "$level" ]; then level=$l; echo "Level $l: $f"; fi
             done
-            if [ "$fw" = no ] && [ -n "$files" ]; then
-              rel=$(latest)
-              echo "Only documentation or templates changed: no firmware build, the page takes release $rel's"
-            fi
+            rel=""
+            if [ "$level" -lt 3 ]; then rel=$(latest); fi
+            # before the first release the page needs this run's firmware, every board of it
+            if [ -z "$rel" ]; then level=3; fi
           fi
+          firmware=yes; ap=all
+          case "$level" in 0) firmware=no ;; 1) ap=none ;; 2) ap=web ;; esac
+          # on master (and by hand) the firmware is only built when there is no release
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ -n "$rel" ]; then firmware=no; fi
+          echo "Firmware: $firmware, AP boards: $ap, the page takes: ${rel:-this build}"
           echo "release=$rel" >> "$GITHUB_OUTPUT"
+          echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
+          echo "ap=$ap" >> "$GITHUB_OUTPUT"
 
   firmware:
     needs: source
-    if: needs.source.outputs.release == ''
+    if: needs.source.outputs.firmware == 'yes'
     uses: ./.github/workflows/firmware.yml
+    with:
+      ap: ${{ needs.source.outputs.ap }}
 
   page:
     needs: [source, firmware]
@@ -89,6 +113,8 @@ jobs:
           python3 web/build.py --native
       - name: Tests (renderer against the native build, flasher against a simulated ZBS_Flasher)
         run: node --test web/test/*.test.mjs
+      - name: Wiki links (tools/check_wiki.py; here rather than in wiki.yml, which saves a runner)
+        run: python3 tools/check_wiki.py
       - uses: actions/download-artifact@v8
         if: needs.source.outputs.release == ''
         with:

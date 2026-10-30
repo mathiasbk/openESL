@@ -54,6 +54,34 @@ export function fmtBattery(mv) {
   return (mv / 1000).toFixed(2) + " V";
 }
 
+// The signal history in GET /api/tags (signal: the last POLLs, #261): { rssi, min, avg,
+// lost, retries, n, weak, text, title }, null for a tag not heard since the AP started.
+// Weak: a POLL lost or answered only at its retry in the history, or an average below
+// WEAK_RSSI. The radios still hear each other down to about -95 dBm, so a tag that is
+// weak now is the one to move or give a nearer AP before it drops out.
+export const WEAK_RSSI = -85;
+export function signalSummary(tag) {
+  const s = tag.signal;
+  if (!s || !s.rssi?.length) return null;
+  const n = s.rssi.length;
+  const min = Math.min(...s.rssi);
+  const avg = Math.round(s.rssi.reduce((a, b) => a + b, 0) / n);
+  const lost = (s.lost || []).reduce((a, b) => a + b, 0);
+  const retries = (s.retry || []).reduce((a, b) => a + b, 0);
+  // one retry now and then is normal; a lost round, a weak average or retries on a quarter
+  // of the polls are not
+  const weak = lost > 0 || avg < WEAK_RSSI || retries * 4 >= n;
+  const rssi = s.rssi[n - 1];
+  const polls = n === 1 ? "The last poll" : `The last ${n} polls`;
+  const parts = [n === 1 ? `${polls}: ${rssi} dBm.` : `${polls}: ${min} to ${Math.max(...s.rssi)} dBm, ${avg} on average.`];
+  if (lost) parts.push(lost === 1 ? "1 poll got no answer." : `${lost} polls got no answer.`);
+  if (retries) parts.push(retries === 1 ? "1 answer needed the tag's second try." : `${retries} answers needed the tag's second try.`);
+  if (s.tag_lqi != null) parts.push(`The tag hears the AP at link quality ${s.tag_lqi} of 127.`);
+  if (s.polls) parts.push(`Since the AP started: ${s.polls} polls, ${s.lost_total} lost, ${s.retries} retried.`);
+  if (weak) parts.push("Weak: move the tag or the AP closer, or the tag may drop out.");
+  return { rssi, min, avg, lost, retries, n, weak, text: `${rssi} dBm` + (weak ? " · weak" : ""), title: parts.join(" ") };
+}
+
 export const PROBLEM_TEXT = {
   silent: "silent",
   unseen: "not seen since the AP started",
@@ -101,6 +129,17 @@ export function tagRows(list, health, now = Date.now()) {
   });
   const rank = { bad: 0, busy: 1, ok: 2 };
   return rows.sort((a, b) => rank[a.state.level] - rank[b.state.level] || a.tag.mac.localeCompare(b.tag.mac));
+}
+
+// The tag's pairing as [mark, title] for the lock next to its MAC, or null on an AP without
+// signed radio frames and for a tag that is neither paired nor being paired
+export function pairText(tag) {
+  if (!tag || !("secure" in tag)) return null;
+  const bad = tag.sec_rejected ? ` The AP dropped ${tag.sec_rejected} frame${tag.sec_rejected === 1 ? "" : "s"} with a wrong signature or an old counter.` : "";
+  if (tag.pairing === "pair") return ["\u{1F511}", "Pairing: the tag gets its radio key at its next poll." + bad];
+  if (tag.pairing === "forget") return ["\u{1F513}", "Unpairing: the tag forgets its radio key at its next poll." + bad];
+  if (tag.secure) return ["\u{1F512}", "Paired: the tag signs its radio frames." + bad];
+  return bad ? ["\u26A0", "Not paired." + bad] : null;
 }
 
 // How many rows each filter of the tag table shows: { all, bad, busy, models: { "2.9": n } }
@@ -246,6 +285,46 @@ export const txWarning = (dbm) => dbm > TX_EU_MAX
   ? `${dbm} dBm is above the EU limit (about ${TX_EU_MAX} dBm with a chip or PCB antenna); fine outside the EU where more is allowed.` : "";
 export const TX_NOTE = "For this radio the EU allows about 13 dBm including the antenna's gain (EN 300 328: 10 dBm/MHz): with an antenna of G dBi, the limit is about 13 − G. "
   + "More power reaches tags further away, but their answers do not get stronger; for those, a better antenna on the AP helps.";
+
+// The radio channel (PUT /api/config "channel"): 802.15.4 channels 11-26, as [channel, label].
+// 15, 20, 25 and 26 lie between or above WiFi channels 1, 6 and 11, the ones most networks
+// use; the built-in one is marked.
+export const CHANNEL_MIN = 11, CHANNEL_MAX = 26;
+export const CHANNEL_CLEAR = [15, 20, 25, 26];
+export function channelOptions(builtin) {
+  const out = [];
+  for (let c = CHANNEL_MIN; c <= CHANNEL_MAX; c++) {
+    const notes = [CHANNEL_CLEAR.includes(c) ? "clear of WiFi 1, 6, 11" : "", c === builtin ? "built-in" : ""].filter(Boolean);
+    out.push([c, `Channel ${c}` + (notes.length ? ` (${notes.join(", ")})` : "")]);
+  }
+  return out;
+}
+// A move the AP is waiting with (GET /api/config channel_next), as a sentence, or "" for none
+export function channelMove(config) {
+  const c = config || {};
+  if (!Number.isInteger(c.channel_next)) return "";
+  const n = c.channel_waiting || 0;
+  if (!n) return `Moving from channel ${c.channel} to ${c.channel_next}: every tag has it, so the AP moves now.`;
+  const wait = n === 1 ? "1 tag has" : `${n} tags have`;
+  const due = Number.isInteger(c.channel_due_s) ? `, at the latest in ${fmtInterval(Math.max(60, Math.ceil(c.channel_due_s / 60) * 60))}` : "";
+  return `Moving from channel ${c.channel} to ${c.channel_next}: ${wait} not confirmed it yet. The AP moves once they all have it${due}.`;
+}
+// What keeps the AP from moving off its built-in channel (GET /api/config): a radio on WiFi with
+// firmware from before 0.9.0 (it retunes but does not tell the tags), or tags heard lately whose
+// firmware cannot follow a move; "" when nothing does
+export function channelBlock(config) {
+  const c = config || {};
+  if (c.channel_radio_old) return "The radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel: update the radio before you change the channel.";
+  const n = c.channel_old_tags || 0, u = c.channel_unheard_tags || 0, s = c.channel_stopped || 0;
+  const said = [];
+  if (s && !Number.isInteger(c.channel_next)) said.push(`The last channel change was called off: ${s === 1 ? "a tag" : `${s} tags`} with firmware from before 0.9.0 showed up, which would have been left behind.`);
+  if (n) said.push(`${n === 1 ? "1 tag runs" : `${n} tags run`} firmware from before 0.9.0 and cannot follow a channel change: update ${n === 1 ? "it" : "them"} first (Firmware), or ${n === 1 ? "it is" : "they are"} left on the old channel.`);
+  else if (u) said.push(`${u === 1 ? "1 tag has" : `${u} tags have`} not polled since the AP started, so the AP does not know yet whether ${u === 1 ? "it" : "they"} can follow a channel change: wait until ${u === 1 ? "it has" : "they have"}.`);
+  return said.join(" ");
+}
+
+export const CHANNEL_NOTE = "The AP tells every tag at its next poll and moves once they have confirmed it, so no tag is left behind. "
+  + "A tag that misses it tries the new channel as soon as it stops hearing the AP.";
 
 // What the AP's image of a tag depends on: a new key fetches it again (a tag whose model
 // becomes known, new content, a new image id, or a new layout file for its model; the last

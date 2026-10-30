@@ -11,7 +11,7 @@
 static esl_store_t st;
 static esl_sched_entry_t entries[CAP];
 static esl_sched_t sched;
-static esl_api_t api = {&st, "s3cret", "0.1.0", 25, NULL, NULL, NULL, &sched, NULL, NULL, NULL, false, NULL, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", NULL, NULL, NULL, &sched, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -155,7 +155,7 @@ static void test_core(void)
 
 static uint16_t poll_next(uint64_t mac, uint64_t now_ms, uint8_t *type)
 {
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
     uint8_t reply[ESL_MAX_PAYLOAD];
     CHECK(esl_store_on_poll(&st, mac, &p, -61, now_ms, NULL, reply) > 0);
     if (type)

@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/time.h>
+#include <time.h>
 #include "app.h"
+#include "esl_clock.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
@@ -16,7 +19,9 @@
  * ones every second, and the clock from NTP (CONFIG_ESL_NTP_SERVER) once the AP
  * is on WiFi. Without WiFi the time comes from PUT /api/time (esl-client sets
  * it). The schedule has its own mutex: esl_sched_tick() holds it while it sets
- * content in the store, which takes the store's. */
+ * content in the store, which takes the store's. The NTP server and the time zone
+ * can be changed in PUT /api/config (NVS cfg/ntp and cfg/tz, menuconfig and UTC
+ * without them); both are used at once. */
 
 #ifndef CONFIG_ESL_NTP_SERVER
 #define CONFIG_ESL_NTP_SERVER ""
@@ -101,11 +106,78 @@ static void on_ntp(struct timeval *tv)
         ESP_LOGI(TAG, "time from NTP: %lld", (long long)tv->tv_sec);
 }
 
+static esl_clock_cfg_t clock_cfg;
+static bool ntp_running;
+
+/* (Re)starts NTP with clock_cfg.ntp, which SNTP keeps a pointer to: it is only
+   changed while SNTP is stopped. */
+static void ntp_start(const char *server)
+{
+    if (ntp_running) {
+        esp_netif_sntp_deinit();
+        ntp_running = false;
+    }
+    snprintf(clock_cfg.ntp, sizeof(clock_cfg.ntp), "%s", server);
+    if (!clock_cfg.ntp[0])
+        return;
+    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(clock_cfg.ntp);
+    cfg.sync_cb = on_ntp;
+    esp_err_t err = esp_netif_sntp_init(&cfg);
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "NTP: %s; set the time with PUT /api/time", esp_err_to_name(err));
+    else
+        ntp_running = true;
+}
+
+/* localtime() and strftime() in every task follow TZ */
+static void tz_use(const char *tz)
+{
+    snprintf(clock_cfg.tz, sizeof(clock_cfg.tz), "%s", tz);
+    setenv("TZ", clock_cfg.tz[0] ? clock_cfg.tz : "UTC0", 1);
+    tzset();
+}
+
+static void clock_set(void *ctx, const char *ntp, const char *tz)
+{
+    (void)ctx;
+    if (ntp) {
+        cfg_set_str("ntp", ntp);
+        ntp_start(ntp[0] ? ntp : CONFIG_ESL_NTP_SERVER);
+        ESP_LOGI(TAG, "NTP server: %s", clock_cfg.ntp[0] ? clock_cfg.ntp : "none");
+    }
+    if (tz) {
+        cfg_set_str("tz", tz);
+        tz_use(tz);
+        ESP_LOGI(TAG, "time zone: %s", clock_cfg.tz[0] ? clock_cfg.tz : "UTC");
+    }
+}
+
+esl_clock_cfg_t *sched_clock(void)
+{
+    return clock_cfg.set ? &clock_cfg : NULL;
+}
+
+/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown */
+static int32_t local_days(void)
+{
+    uint32_t now = esl_sched_now(&sched, now_ms(), NULL);
+    if (!now)
+        return -1;
+    time_t tt = (time_t)now;
+    struct tm l, g;
+    localtime_r(&tt, &l);
+    gmtime_r(&tt, &g);
+    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
+    int32_t off = days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+    return (int32_t)(((int64_t)now + off) / 86400);
+}
+
 static void tick_task(void *arg)
 {
     esl_store_t *st = arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        esl_clock_set_today(local_days());
         unsigned n = esl_sched_tick(&sched, st, now_ms());
         if (n)
             ESP_LOGI(TAG, "scheduled content applied to %u tag(s)", n);
@@ -142,13 +214,17 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     }
     ESP_LOGI(TAG, "loaded %u scheduled entries from NVS (room for %u)", loaded, cap);
 
-    if (CONFIG_ESL_NTP_SERVER[0]) {
-        esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_ESL_NTP_SERVER);
-        cfg.sync_cb = on_ntp;
-        esp_err_t err = esp_netif_sntp_init(&cfg);
-        if (err != ESP_OK)
-            ESP_LOGW(TAG, "NTP: %s; set the time with PUT /api/time", esp_err_to_name(err));
-    }
+    char ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
+    cfg_get_str("ntp", CONFIG_ESL_NTP_SERVER, ntp, sizeof(ntp));
+    cfg_get_str("tz", "", tz, sizeof(tz));
+    if (!esl_ntp_name_ok(ntp, strlen(ntp)))
+        snprintf(ntp, sizeof(ntp), "%s", CONFIG_ESL_NTP_SERVER);
+    if (tz[0] && !esl_tz_ok(tz, strlen(tz)))
+        tz[0] = '\0';
+    tz_use(tz);
+    ntp_start(ntp);
+    clock_cfg.builtin_ntp = CONFIG_ESL_NTP_SERVER;
+    clock_cfg.set = clock_set;
     if (xTaskCreate(tick_task, "sched", 6144, st, 3, NULL) != pdPASS) {
         ESP_LOGE(TAG, "no task: no scheduled content");
         return NULL;

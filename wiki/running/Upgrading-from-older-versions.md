@@ -11,18 +11,37 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.8.2, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.9.0, for example:
 
-1. Backup, then the AP to 0.8.2 over the air. It keeps `openesl.local`.
+1. Backup, then the AP to 0.9.0 over the air. It keeps `openesl.local`. Take another backup afterwards: it now holds the radio key, so keep it secret.
 2. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.8.2 release (it is version 0.6.0), one of each model first.
-4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files.
+3. The labels to the label firmware of the 0.9.0 release, one of each model first.
+4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Pair labels or change the radio channel only once every label runs 0.9.0.
+
+## From 0.8.2 to 0.9.0
+
+Update the AP, then the labels; any order works, and old and new talk to each other. With an S3 and a C6 over WiFi, flash the C6 too if you want to change how long a label waits without the AP, or change the radio channel (below). Pair labels and change the channel only after that, when every label runs 0.9.0.
+
+- Labels can now be paired with the AP, so only your AP can change what they show or give them firmware ([Security on the radio](Security-on-the-radio)). Nothing changes until you pair labels: unpaired labels work as before. Take a backup after the update: it now holds the radio key, so keep the file secret.
+- The dashboard's Signal column shows the last check-ins of each label as bars, with lost check-ins and retries marked ([Dashboard](Dashboard#signal)). Labels need the 0.9.0 label firmware for the lost and retried check-ins; older ones show the signal the AP hears only.
+- The 0.9.0 label firmware saves battery: it sleeps while the screen changes, measures its battery less often, and after a day without the AP checks only once an hour. Such a label can take up to an hour to show up when the AP comes back. `PUT /api/tags/{mac}/config` takes `long_after_min` and `long_poll_s` ([Access point settings](Access-point-settings)).
+- A C6 access point holds about 510 labels instead of 700, since each label's signal history and radio security take memory.
+- A label updated to 0.9.0 uses the built-in settings until its next check-in, then gets its own again.
+- The radio channel can be changed under **Settings → Radio** ([Access point settings](Access-point-settings)). Only labels on 0.9.0 follow the AP to a new channel, so update every label (and a C6 over WiFi) first: the AP refuses to move while it hears an older label. Before going back to 0.8.2, set the channel back to 25.
+- Prices can be shown in whole kroner with `,-` (`199,-`) in the designer. Use it only once the AP will stay on 0.9.0: an older AP refuses such a layout file.
+- Layouts can show today's date or week number with date fields in a fixed text, such as "Week {week}" ([Layout elements and limits](Layout-elements-and-limits)). Use them only once the AP runs 0.9.0: an older AP shows `{week}` as written.
+- Going back to 0.8.2: the AP answers every label unsigned again, and paired labels get no answer until it is back on 0.9.0. A label that goes back to older firmware forgets its key; turn "Only paired labels" off first.
+- An S3 with a wireless C6 cannot pair labels yet.
+- **Many labels?** Updating the AP is safe: it keeps every label, and labels on older firmware work as before. Three later steps can leave a label that only the flasher brings back, so take them slowly or not at all: pairing (a paired label answers only an AP with its key, so keep the backup and never flash the AP with "Erase" without restoring it), changing the channel, and the new label firmware (give it to a few labels for some days first).
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-082-to-090).
 
 ## From 0.8.1 to 0.8.2
 
-Update the AP. The labels' firmware has not changed, and neither has the C6 over WiFi. Going back to 0.8.1 keeps everything on the AP.
+Update the AP. The labels' firmware has not changed. Going back to 0.8.1 keeps everything on the AP, and the radio sends at the built-in power again (a C6 over WiFi on 0.8.2 only after it restarts).
 
 - S3 with a C6 on a cable: the S3 can now update the C6 radio over the cable, from the dashboard (the **Radio** line under Firmware) or with `esl_client.py ota openesl-ap-radio-esp32c6-<version>-ota.bin --wait`. The C6 needs one more flash over USB first, from the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab; until then it keeps working as before. See [Updating the access point](Updating-the-access-point). Going back to an older radio firmware needs the Flash AP tab over USB.
+- The radio's transmit power can be set in the dashboard's Access point card ("Radio transmit power"), or with `esl_client.py config --tx-power 13`. Nothing changes until you set it. In the EU, stay at 13 dBm or below (less with an antenna that has gain); the dashboard warns above that. With an S3 and a C6 over WiFi, flash the C6 too for it to take the setting: in the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab pick "S3 + C6 over WiFi", skip the S3 and flash the C6 without "Erase".
 - "Last seen" in the API and dashboard no longer jumps to a huge number when a label checks in while the AP answers.
 
 Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-081-to-082).

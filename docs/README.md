@@ -20,7 +20,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 | [risiko.md](risiko.md) | Risks and what to do if they occur |
 | [strombudsjett.md](strombudsjett.md) | Power budget for requirement T6: estimate, model and what to measure |
 | [tag-ota.md](tag-ota.md) | Firmware update over radio for the tags (T15): bootloader, SPI flash slots, rollback, and the SPI flash probe |
-| [home-assistant.md](home-assistant.md) | Home Assistant as a client: 3D printer status on a tag with a `rest_command` and an automation, and a layout with a progress bar |
+| [home-assistant.md](home-assistant.md) | Home Assistant as a client: 3D printer status on a tag with a `rest_command` and an automation, and a layout with a progress bar; a link to the HACS integration |
 | [openapi.yaml](openapi.yaml) | The HTTP API as OpenAPI 3.1, the reference; checked against the AP code in CI and shown in the API tab of the web page |
 | [release.md](release.md) | How a release is made: the pull requests, the hardware checklist, rollout to the tags and what to do when a release is bad |
 | [kildelogg.md](kildelogg.md) | Hardware facts the code uses, and where each one came from |
@@ -33,7 +33,7 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 2. **The tag asks, the AP answers.** The tag wakes every 60 seconds, sends "anything new?", listens for a few milliseconds and goes back to sleep. No synchronisation or fixed time slots.
 3. **One ESP32-C6 is the whole AP.** The C6 has both WiFi and an 802.15.4 radio, so no second chip is needed.
 4. **The AP is only an API.** It has a small HTTP API (`PUT /api/tags/{mac}`, `GET /api/tags`). Clients push content to it. The client must be able to reach the AP: same network, or a VPN.
-5. **OTA for the tags came early.** Tags flashed once with the bootloader (pogo pins) take new firmware over the radio through the AP (`PUT /api/tag-firmware`, `esl-client tag-ota`, [tag-ota.md](tag-ota.md)); it is on without radio security (T16), by decision. The AP itself is updated over the API (`POST /api/ota`, `esl-client ota`).
+5. **OTA for the tags came early.** Tags flashed once with the bootloader (pogo pins) take new firmware over the radio through the AP (`PUT /api/tag-firmware`, `esl-client tag-ota`, [tag-ota.md](tag-ota.md)); a paired tag (T16) takes it only from its AP. The AP itself is updated over the API (`POST /api/ota`, `esl-client ota`).
 
 ## Equipment
 

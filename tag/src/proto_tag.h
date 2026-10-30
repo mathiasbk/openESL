@@ -28,9 +28,9 @@
  * data at data_off (an offset into the buffer that was parsed), data_len bytes long.
  */
 typedef struct {
-    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_IMG or ESL_MSG_FW */
+    uint8_t type;            /* ESL_MSG_IDLE, ESL_MSG_CONFIG, ESL_MSG_IMG, ESL_MSG_FW or ESL_MSG_PAIR */
     uint16_t next_poll_s;    /* 0 = keep the interval */
-    uint8_t data_off;        /* IMG and FW: the block */
+    uint8_t data_off;        /* IMG and FW: the block; PAIR: the key */
     uint8_t data_len;
     uint16_t size;           /* IMG and FW: size of the whole image */
     uint16_t pos;            /* IMG and FW: where in it the block starts */
@@ -43,12 +43,19 @@ typedef struct {
     uint16_t cfg_poll_s;
     uint16_t cfg_max_poll_s;
     uint16_t cfg_lost_ap_s;
+    uint16_t cfg_long_poll_s;
+    uint16_t cfg_long_after_min;
+    uint8_t cfg_channel;     /* the AP's channel, 0 = ESL_DEFAULT_CHANNEL (also for one out of range) */
 } proto_reply_t;
 
-/* Writes POLL (ESL_POLL_LEN_CFG bytes: cfg_ver at 12) to out, with the image_id the tag
-   shows in the content_id field. Returns the length. */
+/* Writes POLL (ESL_POLL_LEN_LINK bytes: cfg_ver at 12, then the link block) to out, with
+   the image_id the tag shows in the content_id field. rx_rssi and rx_lqi are what the
+   radio measured on the AP's last answer, lost the rounds without an answer before this
+   one, link_flags ESL_POLL_LF_RETRY when the last answered round needed its retry.
+   Returns the length. */
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
-                         uint32_t shown_id, uint8_t flags, uint16_t cfg_ver);
+                         uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags);
 
 /* Writes FW_REQ (ESL_FREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max);
@@ -57,7 +64,7 @@ uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t
 uint8_t proto_build_img_req(uint8_t *out, uint32_t img_id, uint16_t pos, uint8_t max);
 
 /*
- * Parses an IDLE, CONFIG, IMG or FW payload; any other type is PROTO_E_TYPE. Bytes after
+ * Parses an IDLE, CONFIG, IMG, FW or PAIR payload (the trailer taken off, sec.h); any other type is PROTO_E_TYPE. Bytes after
  * the settings in CONFIG are ignored (settings a newer AP may add). An IMG or FW block
  * must lie inside the image it belongs to.
  */

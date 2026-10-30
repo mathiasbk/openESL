@@ -75,7 +75,11 @@ typedef struct {
     uint16_t max_tags, n_images;
     uint32_t image_cap;
     uint8_t fw_models;       /* tag firmware it can hold: models 1..fw_models */
+    uint8_t features;        /* ESL_NLINK_F_*; 0 from a radio before 0.9.0, which leaves it out */
 } esl_nlink_hello_t;
+
+/* HELLO features */
+#define ESL_NLINK_F_CHANNEL 0x01 /* passes a planned channel move to the tags (TAG carries it, #256) */
 
 typedef struct {
     void *ctx;

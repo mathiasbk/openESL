@@ -10,6 +10,8 @@
 #include "esl_wifi.h"
 #include "esl_health.h"
 #include "esl_tagfw.h"
+#include "esl_source.h"
+#include "esl_radio.h"
 
 /* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -34,6 +36,46 @@ typedef struct {
     void (*set)(void *ctx, int8_t dbm, bool builtin);
     void *ctx;
 } esl_tx_power_t;
+/* The AP's clock settings, "ntp" and "tz" in GET/PUT /api/config, kept by the glue
+ * (main/sched.c) in NVS. */
+#define ESL_NTP_MAX 63 /* an NTP server's name */
+#define ESL_TZ_MAX  63 /* a POSIX TZ string, "CET-1CEST,M3.5.0,M10.5.0/3" */
+typedef struct {
+    char ntp[ESL_NTP_MAX + 1]; /* the NTP server in use; "" = none */
+    char tz[ESL_TZ_MAX + 1];   /* the time zone for local time; "" = UTC */
+    const char *builtin_ntp;   /* the server set in menuconfig, which ntp "" goes back to */
+    void *ctx;
+    /* Saves and uses them at once. ntp: NULL = unchanged, "" = back to builtin_ntp;
+       tz: NULL = unchanged, "" = UTC. Fills in ntp and tz above. */
+    void (*set)(void *ctx, const char *ntp, const char *tz);
+} esl_clock_cfg_t;
+
+/* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name
+ * or an IPv4 address). A POSIX TZ: up to ESL_TZ_MAX of letters, digits and + - , . / : < >,
+ * starting with a name (3 or more letters, or <...>) and its offset ("CET-1...", "<+0530>-5:30");
+ * a tzdata name such as "Europe/Oslo" is turned down, since the AP would take it as UTC. */
+bool esl_ntp_name_ok(const char *s, size_t len);
+bool esl_tz_ok(const char *s, size_t len);
+
+/* GET /api/tags?since= (#270): which tags changed since a client last read the list.
+ * Each such read takes a fingerprint (CRC) of every tag's row and stamps the rows that
+ * differ from the last read with a new number, seq; the reply gives the client
+ * "<boot>-<seq>" to send next time, and holds only the tags stamped after the one it
+ * sent. One entry per slot of the tag table, allocated a chunk at a time like the table.
+ * boot is set by the glue at start (a random number), so a since from before a restart
+ * gets the whole list. Touched only under the API's mutex. */
+typedef struct {
+    uint32_t crc;  /* the row's fingerprint at the last read; 0 = no tag there */
+    uint32_t seq;  /* the read that saw it change */
+    uint32_t mac;  /* the low 32 bits of that tag's MAC: another tag in a reused slot means one went */
+} esl_api_change_t;
+typedef struct {
+    uint32_t boot;
+    uint32_t seq;
+    uint32_t removed_seq; /* the last read that found a tag gone: an older since gets the whole list */
+    esl_api_change_t *chunk[ESL_STORE_MAX_CHUNKS];
+} esl_api_changes_t;
+void esl_api_changes_free(esl_api_changes_t *ch);
 
 #define ESL_API_MAX_BATCH  50
 #define ESL_API_MAX_BODY   24576
@@ -43,7 +85,6 @@ typedef struct {
     esl_store_t *store;
     const char *token;      /* bearer token; empty or NULL rejects every request */
     const char *fw_version; /* reported in GET /api/tags */
-    uint8_t channel;
     esl_layouts_t *layouts; /* NULL: the /api/layouts endpoints answer 404 */
     const char *reset_reason; /* why the AP last restarted, as "reset" in GET /api/tags; NULL leaves it out */
     const esl_wifi_ops_t *wifi; /* NULL: /api/wifi answers 404 */
@@ -55,6 +96,13 @@ typedef struct {
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
     esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
+    esl_sources_t *sources; /* data sources (esl_source.h); NULL: /api/sources answers 404 */
+    esl_clock_cfg_t *clock; /* NTP server and time zone (GET/PUT /api/config); NULL: left out, and PUT answers 422 */
+    bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
+                               false: GET leaves it out, PUT answers 422 */
+    esl_api_changes_t *changes; /* GET /api/tags?since= (above); NULL: since is ignored, the whole list */
+    esl_radio_sec_t *sec;   /* radio security (esl_radio_set_sec): "radio_secure" in /api/config, /api/radio-key,
+                               /api/tags/{mac}/pair and "secure" per tag; NULL: none of them */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the
@@ -69,10 +117,14 @@ typedef struct esl_api_lock {
 #define ESL_API_AUTH_LOCK_S 60
 
 /* Response buffer that always fits a full GET /api/tags, a batch reply and a
- * layout file. */
+ * layout file. ESL_API_RESP_SIZE_ is n batch replies; a tag in the list takes
+ * ESL_API_LIST_TAG, with its signal history (esl_store.h) at 11 bytes a POLL. */
 #define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
-#define ESL_API_RESP_SIZE(max_tags) \
-    ESL_API_RESP_SIZE_((max_tags) > ESL_API_MAX_BATCH ? (max_tags) : ESL_API_MAX_BATCH)
+#define ESL_API_LIST_TAG (640 + 11 * ESL_LINK_HIST)
+#define ESL_API_LIST_SIZE_(n) (512 + ESL_API_LIST_TAG * (n))
+#define ESL_API_RESP_SIZE(max_tags)                                                        \
+    (ESL_API_LIST_SIZE_(max_tags) > ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH) ? ESL_API_LIST_SIZE_(max_tags) \
+                                                                          : ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH))
 /* Buffer for a glue that streams (esl_sb_set_sink): every reply that is not
  * streamed (a batch reply, a layout file, errors) fits in it, and GET
  * /api/tags and the status page, which grow with the tag table, come through

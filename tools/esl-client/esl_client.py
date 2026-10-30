@@ -125,6 +125,17 @@ class Client:
     def delete_tag(self, mac):
         return self._request("DELETE", f"/api/tags/{mac}")
 
+    def pair_tag(self, mac, on=True):
+        """The tag gets a radio key at its next poll (on), or forgets it (off)"""
+        return self._request("PUT" if on else "DELETE", f"/api/tags/{mac}/pair")
+
+    def radio_key(self):
+        """The key the paired tags' keys are made from, as 32 hex digits"""
+        return self._request("GET", "/api/radio-key")["key"]
+
+    def set_radio_key(self, key):
+        return self._request("PUT", "/api/radio-key", {"key": key})
+
     def tag_image(self, mac):
         """The tag's screen as the AP draws it: width, height, and data (base64)"""
         return self._request("GET", f"/api/tags/{mac}/image")
@@ -143,7 +154,7 @@ class Client:
         return self._request("GET", f"/api/tags/{mac}/config")
 
     def set_tag_config(self, mac, cfg):
-        """cfg: poll_s, max_poll_s, lost_ap_s; a key left out or None means the default."""
+        """cfg: poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min; a key left out or None means the default."""
         return self._request("PUT", f"/api/tags/{mac}/config", cfg)
 
     def layouts(self):
@@ -171,7 +182,10 @@ class Client:
 
     def set_config(self, **kw):
         """poll_s=None resets the interval, webhook=None or "" turns the webhook off,
-        tx_power=None goes back to the built-in transmit power."""
+        tx_power=None goes back to the built-in transmit power, channel=None to the built-in
+        channel (the AP moves once its tags have it; channel_now=True moves at once; force=True
+        moves although tags with firmware from before 0.9.0 cannot follow), radio_secure=True answers
+        only paired tags."""
         return self._request("PUT", "/api/config", kw)
 
     def wifi(self):
@@ -675,6 +689,12 @@ def print_status(st):
             state = "shown"
         if t.get("draw_failed"):
             state += ", DRAW FAILED"
+        if t.get("pairing"):  # an AP with radio security (docs/protokoll.md, "Security")
+            state += ", pairing" if t["pairing"] == "pair" else ", unpairing"
+        elif t.get("secure"):
+            state += ", paired"
+        if t.get("sec_rejected"):
+            state += f", {t['sec_rejected']} rejected frames"
         batt = t.get("battery_mv")
         print(f"{t['mac']:16}  {t.get('model') or '-':5}  {fmt_ago(t.get('seen_s_ago')):>7}  "
               f"{(str(batt) + ' mV') if batt else '-':>6}  "
@@ -694,8 +714,27 @@ def print_health(h):
 
 
 def print_config(c):
-    print(f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
-          + (f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})" if "tx_power" in c else ""))
+    line = f"poll_s {c.get('poll_s')} (menuconfig {c.get('builtin_poll_s')}), webhook {c.get('webhook') or 'off'}"
+    if "tx_power" in c:
+        line += f", tx_power {c['tx_power']} dBm (menuconfig {c.get('builtin_tx_power')})"
+    if "channel" in c:
+        line += f", channel {c['channel']} (menuconfig {c.get('builtin_channel')})"
+        if c.get("channel_next") is not None:
+            line += (f", moving to {c['channel_next']}: {c.get('channel_waiting', 0)} tags have not confirmed it,"
+                     f" at the latest in {c.get('channel_due_s', 0)} s")
+        if c.get("channel_radio_old"):
+            line += ", the radio on WiFi is too old to change the channel"
+        elif c.get("channel_old_tags"):
+            line += f", {c['channel_old_tags']} tags cannot follow a channel change (firmware before 0.9.0)"
+        elif c.get("channel_unheard_tags"):
+            line += f", {c['channel_unheard_tags']} tags not heard since the AP started (no channel change until they are)"
+        if c.get("channel_stopped") and c.get("channel_next") is None:
+            line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
+    if "tz" in c:  # an AP with clock settings
+        line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
+    if "radio_secure" in c:
+        line += ", only paired tags" if c["radio_secure"] else ", unpaired tags too"
+    print(line)
 
 
 def print_ota(o):
@@ -1015,8 +1054,8 @@ CONTENT_KEYS = ("layout", "fields", "price_highlight", "frame")
 
 def backup(cli, now=None, warn=None):
     """Everything the AP keeps in NVS that the API can read back: the default poll
-    interval and the webhook, the layout files, each tag's content and settings, and
-    the scheduled content. Not the WiFi (its password cannot be read) or the token.
+    interval and the webhook, the layout files, each tag's content and settings, the
+    scheduled content and the radio key of paired tags (so keep the file secret). Not the WiFi (its password cannot be read) or the token.
     Also the AP's name on the network and which tag firmware it offers, so restore can
     say what to set again on a new AP.
     A picture the AP cannot give back is left out, with a line to warn()."""
@@ -1063,8 +1102,32 @@ def backup(cli, now=None, warn=None):
             "taken": datetime.datetime.fromtimestamp(now or time.time(), datetime.timezone.utc)
             .isoformat(timespec="seconds"),
             "ap": ap,
-            "config": {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")},
+            "config": backup_config(cfg), **backup_radio_key(cli),
             "layouts": layouts, "tags": tags, "scheduled": sched, "tag_firmware": tag_firmware_offered(cli)}
+
+
+def backup_radio_key(cli):
+    """{"radio_key": ...} from an AP with signed radio frames: the paired tags sign with keys
+    made from it, so another AP needs it to take their frames"""
+    try:
+        return {"radio_key": cli.radio_key()}
+    except ApiError as e:
+        if e.status != 404:  # an AP without radio security
+            raise
+        return {}
+
+
+def backup_config(cfg):
+    """The AP's settings for a backup: the poll interval and the webhook, and the time zone and
+    NTP server from an AP that has them (the NTP server set in menuconfig as None, so another
+    AP keeps its own)."""
+    out = {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")}
+    if "tz" in cfg:
+        out["tz"] = cfg.get("tz")
+        out["ntp"] = None if cfg.get("ntp") == cfg.get("builtin_ntp") else cfg.get("ntp")
+    if isinstance(cfg.get("radio_secure"), bool):
+        out["radio_secure"] = cfg["radio_secure"]
+    return out
 
 
 def tag_firmware_offered(cli):
@@ -1122,6 +1185,14 @@ def restore_notes(cli, b):
                          + ", ".join(f"{i.get('model')} {i.get('version')}" for i in fw if isinstance(i, dict)))
         else:
             lines.extend(x for x in (tag_firmware_note(i, new) for i in fw) if x)
+    if b.get("radio_key"):
+        try:
+            cur = cli.radio_key()
+        except ApiError:
+            cur = None  # no radio security, or no answer: restore says so itself
+        if cur and cur.upper() != b["radio_key"].upper():
+            lines.append("warning: this AP has another radio key, and restore puts the backup's in its place: tags "
+                         "paired with the AP's own key stop getting answers (--dry-run shows this before anything is sent)")
     name = (b.get("ap") or {}).get("hostname")
     if name:
         try:
@@ -1152,6 +1223,8 @@ def read_backup(path):
     for key, kind in (("ap", dict), ("tag_firmware", list)):  # not in older backups
         if key in b and not isinstance(b[key], kind):
             raise BackupError(f"{path}: \"{key}\" is not a {kind.__name__}")
+    if "radio_key" in b and not re.fullmatch(r"[0-9A-Fa-f]{32}", str(b["radio_key"])):
+        raise BackupError(f"{path}: the radio key is not 32 hex digits")
     for i, t in enumerate(b["tags"] + b["scheduled"]):
         if not isinstance(t, dict) or not MAC_RE.match(str(t.get("mac", ""))):
             raise BackupError(f"{path}: entry {i} has no valid mac")
@@ -1174,7 +1247,8 @@ def restore(cli, b, dry_run=False, now=None):
     lines = []
     ok = True
     cfg = b["config"]
-    want = {"poll_s": cfg.get("poll_s", 0)}
+    # a radio key file from the web page (js/radiokey.js) has an empty config: the AP keeps its own
+    want = {"poll_s": cfg.get("poll_s", 0)} if cfg else {}
     if cfg.get("webhook"):
         want["webhook"] = cfg["webhook"]
     layouts = {m: f for m, f in b["layouts"].items() if m in MODELS}
@@ -1183,7 +1257,12 @@ def restore(cli, b, dry_run=False, now=None):
     pictures = [(t["mac"], base64.b64decode(t["image"])) for t in b["tags"] if "image" in t]
     due = [e for e in b["scheduled"] if e["at"] > now]
     passed = len(b["scheduled"]) - len(due)
-    lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}")
+    clock = {k: cfg[k] for k in ("tz", "ntp") if k in cfg}
+    if want:
+        lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
+                     + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
+    if "radio_key" in b or "radio_secure" in cfg:
+        lines.append("radio: the key of the paired tags" + (", only paired tags" if cfg.get("radio_secure") else ""))
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
     lines.append(f"tags: {len(content)} with content, {len(pictures)} with a picture, "
                  f"{len(settings)} with their own settings")
@@ -1194,14 +1273,41 @@ def restore(cli, b, dry_run=False, now=None):
         lines.append("nothing sent (dry run)")
         return lines, True
 
+    # the key before radio_secure: with it on, the AP answers only tags paired with its key
+    if "radio_key" in b:
+        try:
+            if cli.radio_key().upper() != b["radio_key"].upper():
+                cli.set_radio_key(b["radio_key"])
+        except ApiError as e:
+            if e.status not in (404, 409):
+                raise
+            lines.append("warning: the radio key was not restored; this AP has no radio security: pair the tags again")
+            ok = False
+    if "radio_secure" in cfg:
+        try:
+            cli.set_config(radio_secure=cfg["radio_secure"])
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            if cfg["radio_secure"]:
+                lines.append("warning: \"only paired tags\" was not restored; this AP's firmware has no radio security")
+                ok = False
     try:
-        cli.set_config(**want)
+        if want:
+            cli.set_config(**want)
     except ApiError as e:
         if "webhook" not in want or e.status != 422:
             raise
         lines.append(f"warning: the webhook was not restored ({e.body.strip()}); this AP has no webhook")
         cli.set_config(poll_s=want["poll_s"])
         ok = False
+    if clock:
+        try:
+            cli.set_config(**clock)
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings")
     for m, f in layouts.items():
         cli.put_layout(m, json.dumps(f).encode("utf-8"))
     for mac, c in settings:
@@ -1308,6 +1414,11 @@ def main(argv=None):
     s.add_argument("--set", action="store_true")
     s = sub.add_parser("delete", help="remove a tag from the AP")
     s.add_argument("mac", type=norm_mac)
+    s = sub.add_parser("pair", help="give a tag a radio key at its next poll, so its frames are signed "
+                                    "(the key goes unsigned to a tag that has none: pair where nobody listens in)")
+    s.add_argument("mac", type=norm_mac)
+    s = sub.add_parser("unpair", help="the tag forgets its radio key at its next poll")
+    s.add_argument("mac", type=norm_mac)
     sub.add_parser("layouts", help="list layout files per model")
     s = sub.add_parser("layout-put", help="upload a layout file for a model")
     s.add_argument("model", choices=MODELS)
@@ -1320,11 +1431,19 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook and transmit power")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone and NTP server")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
     s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
                                       "about 13 - G in the EU), \"null\" = menuconfig value")
+    s.add_argument("--channel", help="the radio's channel (11 to 26); the AP tells its tags and moves once they "
+                                     "have it, \"null\" = menuconfig value")
+    s.add_argument("--channel-now", action="store_true", help="with --channel: move at once to a channel announced before, without waiting for the tags")
+    s.add_argument("--force", action="store_true", help="with --channel: move although tags with firmware from before 0.9.0 "
+                                                       "cannot follow and are left behind")
+    s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
+    s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
+    s.add_argument("--radio-secure", choices=("on", "off"), help="on: the AP answers only paired tags (see \"pair\")")
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
@@ -1426,6 +1545,9 @@ def main(argv=None):
         elif args.cmd == "delete":
             cli.delete_tag(args.mac)
             print(f"{args.mac} deleted")
+        elif args.cmd in ("pair", "unpair"):
+            cli.pair_tag(args.mac, args.cmd == "pair")
+            print(f"{args.mac} {'gets' if args.cmd == 'pair' else 'forgets'} its radio key at its next poll")
         elif args.cmd == "health":
             return print_health(cli.health(args.silent_s, args.battery_mv))
         elif args.cmd == "config":
@@ -1436,6 +1558,19 @@ def main(argv=None):
                 kw["webhook"] = args.webhook or None
             if args.tx_power is not None:
                 kw["tx_power"] = None if args.tx_power == "null" else int(args.tx_power)
+            if args.channel is not None:
+                kw["channel"] = None if args.channel == "null" else int(args.channel)
+                if args.channel_now:
+                    kw["channel_now"] = True
+                if args.force:
+                    kw["force"] = True
+            elif args.channel_now or args.force:
+                p.error("--channel-now and --force need --channel")
+            for k in ("tz", "ntp"):
+                if getattr(args, k) is not None:
+                    kw[k] = getattr(args, k) or None
+            if args.radio_secure is not None:
+                kw["radio_secure"] = args.radio_secure == "on"
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)

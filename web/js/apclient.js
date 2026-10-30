@@ -80,3 +80,16 @@ export class ApClient {
 
   tag(mac) { return this.call("GET", "/api/tags/" + encodeURIComponent(mac)); }
 }
+
+// The same calls over the AP's USB port: a SerialAp (js/apserial.js, through js/apport.js),
+// which needs no token and throws "<status>: <error>" as ApClient does
+export class PortClient extends ApClient {
+  constructor(serialAp) {
+    super("");
+    this.port = serialAp;
+  }
+
+  call(method, path, body) { return this.port.call(method, path, body); }
+
+  send(method, path, bytes) { return this.port.send(method, path, bytes); }
+}

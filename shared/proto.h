@@ -53,8 +53,18 @@
 #define ESL_POLL_OFF_CFG_VER 12     /* u16 cfg_ver tagen bruker nå (0 = innebygde standardverdier) */
 #define ESL_POLL_LEN_CFG     14     /* POLL med cfg_ver */
 
-/* Tag firmware that downloaded layout files sent 18 bytes (the layout file version at
- * 14-17). The AP reads the first 14 and ignores the rest. */
+/* The link block after cfg_ver: how the tag hears the AP (docs/protokoll.md, "Signal").
+ * The AP keeps it with its own RSSI of the POLL as the tag's signal history. Firmware
+ * that downloaded layout files sent 18 bytes with a layout file version at 14-17; no
+ * tag runs that any more. */
+#define ESL_POLL_OFF_RX_RSSI 14     /* u8 the radio's raw RSSI byte for the AP's last answer the tag took
+                                     * (scale not measured yet; higher = stronger), 0 = none since start */
+#define ESL_POLL_OFF_RX_LQI  15     /* u8 LQI of that answer (0..127), 0 = none */
+#define ESL_POLL_OFF_LOST    16     /* u8 poll rounds in a row with no answer before this one (255 = 255 or more) */
+#define ESL_POLL_OFF_LINKF   17     /* u8 ESL_POLL_LF_* */
+#define ESL_POLL_LEN_LINK    18     /* POLL with cfg_ver and the link block */
+
+#define ESL_POLL_LF_RETRY    0x01   /* the round before this one was answered only on its second try (the retry itself is sent unchanged) */
 
 /* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
  * så AP-en leser den som "ukjent" og alt virker som før. De kjente modellene
@@ -67,23 +77,69 @@
 #define ESL_IDLE_LEN         4
 #define ESL_OFF_NEXT_POLL    2      /* u16 sekunder til neste POLL (0 = behold), også i CONFIG, FW og IMG */
 
-/* CONFIG, 12 byte: taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
+/* CONFIG, 18 byte (12 before the long backoff, 16 before the channel; a tag reads missing fields as 0): taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
  * Hver innstilling er u16, 0 = tagens innebygde standardverdi (tag/src/config.h).
  * Nye innstillinger legges bare til på slutten: tagen leser feltene den kjenner
  * og hopper over resten, og et felt som mangler i en kortere melding er 0. */
-#define ESL_CONFIG_LEN       12
+#define ESL_CONFIG_LEN       18
 #define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; tagen sender den tilbake i POLL som kvittering */
 #define ESL_CONFIG_OFF_POLL  6      /* u16 vanlig intervall i sekunder (krav T4) */
 #define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 lengste intervall uten svar fra AP-en (krav T11) */
 #define ESL_CONFIG_OFF_LOST_AP 10   /* u16 sekunder uten svar før "No AP found" (krav T9) */
+#define ESL_CONFIG_OFF_LONG_POLL 12 /* u16 interval in seconds once the AP has been gone for long_after_min */
+#define ESL_CONFIG_OFF_LONG_AFTER 14 /* u16 minutes without an answer before long_poll_s, ESL_CFG_LONG_NEVER = never */
+#define ESL_CONFIG_OFF_CHANNEL 16   /* u16 the AP's channel, now or after a planned move (#256);
+                                     * 0 = ESL_DEFAULT_CHANNEL. The tag stays where it hears the
+                                     * AP, and tries this channel first when the AP stops answering
+                                     * (docs/protokoll.md, "Changing the channel") */
 
 #define ESL_CFG_POLL_MIN_S   10     /* grenser for poll_s og max_poll_s */
 #define ESL_CFG_POLL_MAX_S   3600
 #define ESL_CFG_LOST_AP_MIN_S 60    /* grenser for lost_ap_s */
 #define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: vis aldri "No AP found" */
+#define ESL_CFG_LONG_POLL_MIN_S 60  /* lower limit of long_poll_s (no upper one: 65535 s is 18 h) */
+#define ESL_CFG_LONG_AFTER_MIN_MIN 10 /* lower limit of long_after_min */
+#define ESL_CFG_LONG_NEVER   0xFFFFu /* long_after_min: never go to long_poll_s */
 
 #define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */
-#define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
+#define ESL_MIC_RESERVE      4      /* room in IMG and FW for the MIC (ESL_SEC_MIC_LEN) */
+
+/* ---- Security (docs/protokoll.md part 1, "Security"; requirement T16) ----
+ * A tag that has a key (from PAIR) sends every message with ESL_PROTO_VER_SEC in the
+ * version byte and a trailer at the very end: u32 counter + MIC. The AP answers it with
+ * ESL_PROTO_VER_SEC and a MIC at the very end, computed over the counter of the message it
+ * answers (the counter is not sent back). Everything between the header and the trailer is
+ * the message as without security, so its fields keep their offsets: strip the trailer
+ * first, then read the message as version ESL_PROTO_VER.
+ * MIC = the first ESL_SEC_MIC_LEN bytes of AES-CMAC(key, dir || counter || message),
+ * counter little-endian, message without the trailer (tag/src/cmac.c).
+ * The counter only goes up for one key: the high 16 bits count the tag's restarts (kept in
+ * flash), the low 16 bits its messages since. The AP takes a counter only at or above the
+ * last one it took from that tag (the same one again is the tag's retry of a frame that got
+ * no answer). */
+#define ESL_PROTO_VER_SEC    2
+#define ESL_SEC_CTR_LEN      4
+#define ESL_SEC_MIC_LEN      ESL_MIC_RESERVE
+#define ESL_SEC_TRAILER_TAG  (ESL_SEC_CTR_LEN + ESL_SEC_MIC_LEN)   /* tag -> AP: counter + MIC */
+#define ESL_SEC_TRAILER_AP   ESL_SEC_MIC_LEN                       /* AP -> tag: MIC */
+#define ESL_SEC_DIR_TAG      0x54   /* 'T': a message from the tag */
+#define ESL_SEC_DIR_AP       0x41   /* 'A': a message from the AP */
+#define ESL_SEC_KEY_LEN      16
+/* A signed answer is at most ESL_SEC_MAX_REPLY bytes, MIC included: 4 below ESL_MAX_PAYLOAD,
+ * so the frame is at most 123 bytes (PSDU). Signed IMG and FW blocks carry ESL_SEC_CHUNK_CUT
+ * bytes less data than ESL_*_CHUNK_MAX for that. Frames of the full 127 bytes did not reach
+ * the tag on the hardware (S3 + C6 on a cable, 2.9" tag, 2026-10-29), and no frame before
+ * radio security was that long. */
+#define ESL_SEC_CHUNK_CUT    4
+#define ESL_SEC_MAX_REPLY    (ESL_MAX_PAYLOAD - ESL_SEC_CHUNK_CUT)
+
+/* PAIR, 20 byte (AP -> tag): the tag's key. Sent as ESL_PROTO_VER to a tag without a key,
+ * in answer to a POLL, only while pairing is turned on for it on the AP. A tag with a key
+ * takes PAIR only as ESL_PROTO_VER_SEC (with a valid MIC): a new key, or all zeros to
+ * forget its key. next_poll_s at ESL_OFF_NEXT_POLL as in IDLE. */
+#define ESL_MSG_PAIR         0x0B
+#define ESL_PAIR_LEN         20
+#define ESL_PAIR_OFF_KEY     4
 
 /* ---- What a tag shows (the AP's content; not sent on the air as such) ----
  * The AP draws the content into an image (IMG below). These are the built-in layouts,
@@ -280,6 +336,7 @@
 #define ESL_LE_NUM_2         0x30   /* alltid to desimaler */
 #define ESL_LE_NUM_AUTO      0x40   /* to desimaler, ingen når de er ,00 */
 #define ESL_LE_NUM_DASH      0x50   /* to desimaler, ",-" når de er ,00 */
+#define ESL_LE_NUM_0_DASH    0x60   /* ingen desimaler, avrundet, med ",-" */
 #define ESL_LE_NUM_THOUSANDS 0x80   /* mellomrom mellom hver tredje siffer: 1 299,90 */
 #define ESL_LE_NUM_MAX_LEN   24     /* lengste formaterte tall: -, 12 siffer, 3 mellomrom, komma, 6 desimaler */
 #define ESL_DRAW_MAX_NUMS    8      /* tekstelementer med tallformat per layout (esl_render.c) */
@@ -302,12 +359,18 @@
  *   of them above or left of the box, with square ends. A slanted line is every pixel whose
  *   centre is at most width / 2 from it, so it reaches width / 2 past the box, with round ends
  * An icon element:
- *   ESL_LE_OFF_FIELD   the icon's number in the file
+ *   ESL_LE_OFF_FIELD   the icon's number in the file, or ESL_LE_ICON_FIELD | a text field: the
+ *                      icon whose name is that field's text, centred in the box (an unknown name,
+ *                      or an icon bigger than the box, draws nothing)
+ *   ESL_LE_OFF_NAMES   with ESL_LE_ICON_FIELD: the fixed text that holds the name of icon 0;
+ *                      icon i's name is the fixed text after it by i
  *   ESL_LE_OFF_COLOR   black, white or red: the icon's 1 bits are drawn, 0 bits left as they are */
 #define ESL_LE_OFF_RADIUS    ESL_LE_OFF_LINES
 #define ESL_LE_OFF_BORDER    ESL_LE_OFF_OPTS
 #define ESL_LE_OFF_WIDTH     ESL_LE_OFF_LINES
 #define ESL_LE_RISING        0x01
+#define ESL_LE_ICON_FIELD    0x40
+#define ESL_LE_OFF_NAMES     ESL_LE_OFF_FONT
 #define ESL_LINE_W_MAX       16
 
 /* A QR element uses the text element's bytes like this (the rest as for text):
@@ -406,6 +469,8 @@
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
 
 #define ESL_DEFAULT_CHANNEL  25
+#define ESL_CHANNEL_MIN      11     /* the 2.4 GHz channels of 802.15.4 */
+#define ESL_CHANNEL_MAX      26
 #define ESL_DEFAULT_PAN_ID   0x4553u   /* "ES" */
 #define ESL_AP_SHORT_ADDR    0x0000u
 

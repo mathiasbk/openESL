@@ -13,6 +13,8 @@ OpenESL is meant to grow to more label models, other makers than SoluM, and othe
 
 **Want to add it yourself?** A label model is described in one place, [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json): its maker, chip, radio, screen, colours and the image format the AP draws for it. Adding a model is an entry there and a few files next to it; see [shared/README.md](https://github.com/mathiasbk/openESL/blob/master/shared/README.md). A label on the ZBS243 then needs its display driver settings in the label firmware ([tag/README.md](https://github.com/mathiasbk/openESL/blob/master/tag/README.md)). A label with another chip needs its own firmware.
 
+**Give it a wiki page.** Copy a page in [wiki/labels/models](https://github.com/mathiasbk/openESL/tree/master/wiki/labels/models) (for example [SoluM 2.9"](SoluM-2.9-ST-GM29XX2)), name it `<Maker>-<size>-<product>.md`, fill in what you know and add it to [Supported labels](Supported-labels) and `wiki/_Sidebar.md`. Photos go in `docs/images/`, no wider than about 900 pixels and without location data. `tools/check_wiki.py` fails while a model in `shared/models.json` has no page.
+
 ## A new access point board
 
 Each board is a folder in [ap/boards](https://github.com/mathiasbk/openESL/blob/master/ap/boards/README.md):

@@ -1,5 +1,7 @@
 # Home Assistant: 3D printer status on a tag
 
+The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields`. This page shows the way without it; the layouts, limits and battery advice hold for both.
+
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
 Replace these before you paste:
@@ -90,7 +92,7 @@ Layout files have no bar element, so the bar is an inverted text field of spaces
 
 The AP takes at most 90 bytes of text in all for the six fields, and a full bar uses 31 of them (20 on the 1.54"). The rest is enough for `left`, `done` and a short `printer` and `name`; a longer text makes the AP refuse the update, and the tag keeps its old screen. So cut a file name short, as in the Moonraker example below.
 
-To put it on the AP, open the [Design](https://mathiasbk.github.io/openESL/#design) tab, pick the tag's model, choose **+ New → From template…**, then **3D printer** and **3D printer status**, and add it. The designer checks that your layout file still fits the AP with it, and **Send to tag…** (or **Save to AP** on the AP's own designer) uploads the file. It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so delete example layouts no tag uses if it does not fit. Without the designer: copy the variant's `layout` from the template file into the AP's file for the model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`).
+To put it on the AP, open the [Design](https://mathiasbk.github.io/openESL/#design) tab, pick the tag's model, choose **+ From template**, then **3D printer** and **3D printer status**, and add it. The designer checks that your layout file still fits the AP with it, and **Send to your AP…** (or **Save to AP** on the AP's own designer) uploads the file. It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so delete example layouts no tag uses if it does not fit. Without the designer: copy the variant's `layout` from the template file into the AP's file for the model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`).
 
 Already use the layout `prusa` from an earlier version of this page? It keeps working as it is. To change to `3d-printer`, add it as above, then change the automation: `layout: 3d-printer`, and the printer's name as the first field.
 
@@ -201,7 +203,7 @@ To show the file name in the band, put `states('sensor.snapmaker_filename')[:15]
 
 ## A picture instead of text
 
-For what four lines cannot show (a chart, a camera snapshot, a dashboard drawn elsewhere), the AP takes a PNG with `PUT /api/tags/{mac}/image` ([openapi.yaml](openapi.yaml)) and sends it to the tag as it is. The PNG must be exactly the tag's screen size: 296 x 128 for the 2.9", 200 x 200 for the 1.54". The AP turns each pixel into black or white (the nearest), or with `?dither=true` mixes them for shades of grey, which suits photos. The tag must have polled the AP once.
+For what four lines cannot show (a chart, a camera snapshot, a dashboard drawn elsewhere), the AP takes a PNG with `PUT /api/tags/{mac}/image` ([openapi.yaml](openapi.yaml)) and sends it to the tag as it is. The PNG must be exactly the tag's screen size: 296 x 128 for the 2.9", 200 x 200 for the 1.54". The AP turns each pixel into black or white (the nearest), or with `?dither=true` mixes them for shades of grey, which suits photos. The tag must have polled the AP once. To send a picture by hand, tick the tag on the Dashboard and pick "A picture" under Send: any PNG or JPG is cropped or fitted to the screen and turned into black and white in the browser (dithered for photos, or not), with a preview of exactly what the tag will show. Which APs take pictures: [access-points.md](access-points.md#what-each-board-has).
 
 `rest_command` sends text only, so the file goes with `curl` from a `shell_command`. Put the whole command in `secrets.yaml`, since the token is in it:
 

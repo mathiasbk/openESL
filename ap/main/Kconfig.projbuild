@@ -102,6 +102,10 @@ menu "OpenESL AP"
         int "802.15.4 channel"
         range 11 26
         default 25
+        help
+            The built-in channel. PUT /api/config "channel" (the dashboard's
+            Settings page) moves the AP and its tags to another one at run
+            time and keeps it in NVS (cfg/channel); "null" comes back here.
 
     config ESL_PAN_ID
         hex "802.15.4 PAN ID"
@@ -150,6 +154,19 @@ menu "OpenESL AP"
         help
             Where the AP gets the time once it is on WiFi. Empty: no NTP;
             the time then only comes from PUT /api/time.
+    config ESL_DATASOURCES
+        bool "Data sources: the AP fetches content itself (weather from MET Norway)"
+        depends on ESL_MAX_SCHEDULED > 0
+        default n
+        help
+            GET/PUT /api/sources: sources the AP reads every so often over
+            HTTPS, such as the forecast for a place from api.met.no, and
+            turns into the content of the tags given to each source, in a
+            layout from the layout files ("{temp}°" in a field). Content
+            that comes out the same is not sent again. Needs the clock
+            (NTP) and about 40 KB of RAM for TLS while it fetches, so it is
+            on for the boards with PSRAM.
+
     config ESL_WEBHOOK
         bool "Webhook: post the health report when it changes"
         default y

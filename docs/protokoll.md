@@ -6,7 +6,7 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 ### Basic setup
 - Standard 802.15.4 data frame (frame type 001), 250 kbit/s O-QPSK. Both radios do this in hardware.
-- Fixed channel (proposal: **channel 25**, 2475 MHz, sits between WiFi channels 11 and 13 and is the least disturbed). Configurable.
+- One channel per AP, **channel 25** by default (2475 MHz, sits between WiFi channels 11 and 13 and is the least disturbed). The built-in one is set in menuconfig; the Settings page changes it while the AP runs and the tags follow (see "Changing the channel" below).
 - Own PAN ID (proposal `0x4553`, "ES"). Choose one that is not used by nearby Zigbee/Thread.
 - The tag sends from its 64-bit MAC (extended) to the AP's short address `0x0000`.
 - The AP replies from `0x0000` to the tag's 64-bit MAC.
@@ -16,9 +16,9 @@ Two interfaces: **radio** between tag and AP, and **HTTP** from any client to th
 
 ### Messages
 
-All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
+All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1). A paired tag and the AP's answers to it have `proto_ver` = 2 and a signature at the end (see "Security" below); between the two the message is the same, so the tables here hold for both.
 
-**POLL** (tag → AP), `type = 0x01`, 14 bytes (12 or 18 from older firmware, see below)
+**POLL** (tag → AP), `type = 0x01`, 18 bytes (12 or 14 from older firmware, see below)
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x01, 0x01 |
@@ -28,15 +28,20 @@ All messages start with `type` (1 byte) and `proto_ver` (1 byte, = 1).
 | flags | 1 | bit0 = just started, bit1 = previous drawing failed, bit3 = the tag takes firmware over the air, bit4 = it rejected a firmware image, or went back to its old firmware (see "Firmware transfer"). Bit4 stays on until the tag starts downloading another version, so the AP counts it against the version it offered only once the tag has asked for a block of it: before that, the offer may have been lost. bit5 = the tag shows images drawn by the AP (see "Image transfer"); the tag sets it when it has its SPI flash. bit6 = it also takes run-length coded images (IMG `fmt` 1), bit7 = it also takes images coded column against column (IMG `fmt` 2). bit2 is not used (firmware that drew content itself set it for a rejected layout file) |
 | model | 1 | tag model (requirement T18): 1 = 2.9" (296×128), 2 = 1.54" (200×200), 0 = unknown. Was `reserved` (always 0), so old firmware reads as "unknown" |
 | cfg_ver | 2 | bytes 12–13: version of the settings the tag uses now (0 = its built-in ones), see CONFIG. Sent only by firmware that understands CONFIG |
+| rx_rssi | 1 | byte 14, the link block (see "Signal"): the tag radio's raw RSSI byte for the AP's last answer it took, 0 = none since it started. Not dBm: the scale is not measured yet, higher is stronger |
+| rx_lqi | 1 | byte 15: the link quality (0–127) of that answer, 0 = none |
+| lost | 1 | byte 16: poll rounds in a row without an answer before this one (255 = 255 or more) |
+| link_flags | 1 | byte 17: bit0 = the tag's last answered round needed its second try. The retry itself is the same frame, byte for byte, so the flag goes in the next round's POLL |
 
 The AP accepts a POLL of 12 bytes or more, and the length says what the firmware can take:
 
 | Length | Firmware | The AP may send |
 |---|---|---|
 | 12–13 | old | IDLE, and IMG and FW when its flags say it takes them |
-| 14 or more | current (`tag/src`) | also CONFIG |
+| 14–17 | 0.6 to 0.8 | also CONFIG |
+| 18 or more | current (`tag/src`) | the same; the AP keeps its link block as the tag's signal history |
 
-So older tags never get a message type they do not know. Firmware that drew content itself sent 18 bytes (bytes 14–17 were its layout file version); the AP reads such a POLL as 14 bytes. Fields added later go after byte 14, and the AP ignores bytes it does not know. CONFIG adds no flag.
+So older tags never get a message type they do not know. Firmware that drew content itself sent 18 bytes with its layout file version at 14–17; no tag runs it any more, and the AP would read those bytes as a link block. Fields added later go after byte 18, and the AP ignores bytes it does not know. CONFIG adds no flag.
 
 **IDLE** (AP → tag), `type = 0x02`, 4 bytes: "nothing new"
 | Field | Bytes | Description |
@@ -46,7 +51,7 @@ So older tags never get a message type they do not know. Firmware that drew cont
 
 Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fields and the layout file to tags that drew their screens themselves, before the AP drew them. They are retired and not used again: the AP never sends them, and it does not answer them.
 
-**CONFIG** (AP → tag), `type = 0x08`, 12 bytes: settings for this tag
+**CONFIG** (AP → tag), `type = 0x08`, 18 bytes: settings for this tag
 | Field | Bytes | Description |
 |---|---|---|
 | type, proto_ver | 2 | 0x08, 0x01 |
@@ -55,10 +60,13 @@ Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fiel
 | poll_s | 2 | normal interval in seconds (T4) |
 | max_poll_s | 2 | longest interval while the AP does not answer (T11) |
 | lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
+| long_poll_s | 2 | the interval once the AP has been gone for `long_after_min` (#261) |
+| long_after_min | 2 | minutes without an answer before the tag polls only every `long_poll_s`; 65535 = never |
+| channel | 2 | the AP's channel (11–26) the tag follows, 0 = the built-in one (25); see "Changing the channel" |
 
-Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s`) to the minimum. New settings are only ever appended: the tag reads the fields it knows and ignores the rest. A CONFIG shorter than 12 bytes is ignored.
+Every setting is u16, and 0 means the tag's built-in value (`tag/src/config.h`: 60 s, 600 s, 7200 s, 3600 s, 1440 min, channel 25). The tag raises a nonzero value below the minimum (10 s for the intervals, 60 s for `lost_ap_s` and `long_poll_s`, 10 min for `long_after_min`) to the minimum, and ignores a channel outside 11–26. New settings are only ever appended: the tag reads the fields it knows and ignores the rest, and a field a shorter CONFIG does not have is 0 (an AP before 0.9 sends 12 bytes, one with the long backoff but no channel 16). A CONFIG shorter than 12 bytes is ignored.
 
-`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
+`cfg_ver` is 0 when all settings are 0, otherwise a nonzero 16-bit hash of the settings (CRC32 folded to 16 bits; of the first three settings only when neither the long backoff nor the channel is set, of the first five when only the long backoff is, which is what older APs sent, so an update sends no tag a CONFIG it already has). It is derived from the values, so the AP needs no counter and an AP restart sends nothing new. (A different set of settings with the same hash, 1 in 65535, would not be sent; `poll_s` still arrives through `next_poll_s`.)
 
 **FW** (AP → tag), `type = 0x06`, 15 bytes + data. One block of a firmware image (docs/tag-ota.md)
 | Field | Bytes | Description |
@@ -122,7 +130,7 @@ Element, 14 bytes (`ESL_LE_*` in `shared/proto.h`):
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind: 1 = text, 2 = rectangle, 3 = barcode, 4 = line, 5 = icon, 6 = QR code |
-| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file |
+| 1 | 1 | text field 0..5 (text, barcode and QR code), or 0x80 + i for fixed text i of the file. Icon: the icon's number in the file, or 0x40 + f when text field f names the icon (`ESL_LE_ICON_FIELD`); then byte 2 is the fixed text holding icon 0's name, the names of all icons follow it in order, and the icon whose name equals the field's text is drawn centred in the box (nothing when none does or it is larger than the box) |
 | 2 | 3 | fonts to try in order: 0 = small (17 px), 1 = medium (24 px), 2 = large (52 px, digits and ` ,-.:`), 3 = mid (36 px, same characters), 4 = text20 (20 px), 5 = price44 (44 px, same characters as large); 0xFF ends the list. Barcode: the first byte is the symbology (0 = Code 128, 1 = EAN-13), the other two 0xFF. QR code: the first byte is the error correction level (0 = L, 1 = M, 2 = Q, 3 = H), the other two 0xFF |
 | 5 | 1 | alignment: bits 0–1 horizontal (0 left, 1 centre, 2 right), bits 2–3 vertical (0 top, 4 middle, 8 bottom). Rectangle: border width, 0 = filled. Line: bit 0 set = from the bottom-left to the top-right corner of the box, else from the top-left to the bottom-right |
 | 6 | 1 | maximum lines, 0 = as many as the box holds (at most 3). Barcode: module width in pixels 1..4, 0 = the widest that fits. QR code: module size in pixels 1..8, 0 = the largest that fits. Rectangle: corner radius. Line: width 1..16 |
@@ -148,6 +156,13 @@ The largest compiled file is **4096 bytes** (`ESL_LBIN_MAX`). That is about 290 
 
 These limits, and the per-layout ones below, belong to the AP, not the tag: the AP draws the image, and the tag only shows it. They are set per AP board (`"limits"` in `ap/boards/<board>/board.json`); the numbers here are the ESP32-C6's, the default and the smallest. Boards with PSRAM (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) allow 64 text lines, 40 rectangles, 32 lines and 16 icons per layout, so a file such an AP accepts can be refused by a C6. `GET /api/layouts` says which board an AP is and what it allows (`board`, `limits`), and the designer shows the limits of the AP it is connected to.
 
+**PAIR** (AP → tag), `type = 0x0B`, 20 bytes: the tag's radio key (see "Security")
+| Field | Bytes | Description |
+|---|---|---|
+| type, proto_ver | 2 | 0x0B, 0x01 (to a tag without a key) or 0x02 (signed, to a paired tag) |
+| next_poll_s | 2 | as in IDLE |
+| key | 16 | the tag's AES-128 key; all zeros = forget the key |
+
 ### Sequence
 ```
 Tag                                      AP
@@ -161,8 +176,31 @@ Tag                                      AP
 - If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses). After `lost_ap_s` without an answer it shows "No AP found" with its MAC and firmware version (T9); when the AP answers again it shows its image again, or "Waiting for content" if it has none.
 - The tag sends no separate acknowledgement. The next POLL carries the `image_id` it shows, and that is the acknowledgement. If an image does not arrive whole, the AP offers it again at the next POLL, and the tag goes on from where it stopped.
 - Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG first (see "Priority" below). The next POLL with the new `cfg_ver` is the acknowledgement. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
+- When the AP has been gone for `long_after_min` (a day by default), the tag polls only every `long_poll_s` (an hour by default) instead of every `max_poll_s`, until it gets an answer: the first answer brings its normal interval back. The tag then finds a returned AP up to an hour late, but a tag on a shelf with its AP switched off lasts longer (`docs/strombudsjett.md`).
 - `next_poll_s` in every reply is the tag's interval (its own `poll_s`, or the AP default). A tag that does not understand CONFIG still gets its interval this way; the other settings need CONFIG. When scheduled content for the tag is due before that, `next_poll_s` is the time until it is due plus 2 s instead; the next reply brings the normal interval back.
+- Changing the channel: see below.
 - Unknown MAC: the AP replies IDLE and adds the tag to the table with `content_id: 0`, so the client sees it in `GET /api/tags` and can give it content.
+
+### Signal
+
+Each POLL tells the AP how the link has been (#261): the link block at bytes 14–17 has the tag radio's RSSI and LQI of the AP's last answer, the rounds that went unanswered since, and a flag when the last answered round needed its second try. A second try that gets an answer means the AP's answer to the first was lost, or the first POLL never reached it; a round with no answer at all shows up as `lost` in the next POLL that gets through. The AP counts neither for the first POLL it hears from a tag after it started, since those rounds may have been lost while the AP itself restarted. Together with the RSSI the AP measures on each POLL, the AP keeps the last 8 POLLs per tag in RAM (32 on an AP with PSRAM), shown under `signal` in `GET /api/tags` and as small bars in the dashboard's Signal column. A tag that loses POLLs or needs its retry for a quarter of them, or one heard below about −85 dBm on average, is marked weak there before it drops out.
+
+### Changing the channel
+
+`PUT /api/config {"channel": 20}` (the Settings page, Radio) changes the AP's channel without leaving any tag behind. Only the channel changes this way: the PAN ID stays the one built in, since a tag that missed a new PAN could not find the AP again.
+
+1. The AP keeps the planned move in NVS (`cfg/ch_next`) and puts the new channel in the `channel` field of every tag's CONFIG. That changes every tag's `cfg_ver`, so each tag gets a CONFIG at its next POLL, still on the old channel.
+2. The tag keeps the new channel in flash with its other settings and goes on polling on the old channel. Its next POLL with the new `cfg_ver` is the acknowledgement, as for any setting.
+3. The AP moves when every tag it has heard lately has acknowledged (heard within 3 of its intervals plus 60 s), or at the latest after twice the longest interval plus 60 s (at most 2 h 1 min). Only then does it keep the new channel in NVS (`cfg/channel`, and `cfg/ch_next` is erased): an AP that restarts during the wait comes up on the old channel, announces the move again and waits anew, counting every tag not heard since the restart as not acknowledged. `"channel_now": true` moves at once, but only to the channel of a move already announced or to the built-in one (else `409`): a tag that has not heard of a channel cannot follow it. Setting the channel the AP is on cancels a move that waits.
+4. A tag that gets no answer to a POLL and its retry tries once on the channel from its last CONFIG, and from its third miss in a row also once on the built-in channel (25), each if it is another one. When the AP answers there, the tag stays on that channel and keeps it in flash; otherwise it goes back. So a tag that slept through the move, or acked just as the AP moved, finds it in the same round, and one whose AP went back to the built-in channel before the tag heard of it finds it in the third, for the cost of one or two extra POLLs while the AP is not heard. The built-in channel waits for the third miss since every AP answers every tag (one PAN, one short address): another AP on 25 would otherwise keep a tag that lost a single reply to noise.
+
+Tags with firmware from before 0.9.0 store `cfg_ver` from every CONFIG, so they acknowledge a channel they cannot read. The AP tells them apart by the link block in POLL (18 bytes, the same release): while a tag heard lately sends a shorter POLL, a move away from the built-in channel answers `409` (`channel_old_tags` in `GET /api/config`), unless the request has `"force": true`. Since that is known only from a tag's POLL, the AP also answers `409` while tags in its table have not polled since it started (`channel_unheard_tags`, for 3 of their intervals and a minute at most), and a move that waits is called off (`channel_stopped`) when such a tag shows up before it happens. A radio over WiFi (docs/ap-netradio.md) from before 0.9.0 retunes when told but does not pass the channel on to the tags; it leaves out the features byte at the end of HELLO (bit 0 = passes a move on), and the AP refuses a move while it is connected (`channel_radio_old`). Back to the built-in channel is always allowed, since every tag finds it.
+
+A tag that never got the CONFIG (off for longer than the wait) does not know the new channel; it finds the AP by looking on the other channels (below). After a restart the AP comes up on the channel in NVS; `GET /api/config` shows `channel`, `builtin_channel`, and while a move waits `channel_next`, `channel_waiting` (tags that have not acknowledged) and `channel_due_s`.
+
+### Finding the AP
+
+A tag whose AP answers on none of the channels above (it moved while the tag was off, or it came up on a channel the tag was never told of) looks for it (#258). The third round in a row without an answer sends its POLL once more, without the retry, on each of the first four channels of `CFG_SCAN_CHANNELS` (15, 20, 26, 11: with the built-in 25 the ones clear of WiFi 1, 6 and 11, then 11) that the round has not tried yet; every later round without an answer tries the next channel of the list only, which goes on through every channel the AP can be set to (12–14, 16–19, 21–24, 25) and starts over. Every channel of a round gets the same frame (the same sequence number), as a retry does. The tag stays on the first channel where an AP with its PAN ID answers, and keeps it in flash, so it starts there after a restart. The AP needs nothing for this. While the AP answers the tag does not look; while it is gone it costs one listening window more per round (`docs/strombudsjett.md`). Since the PAN ID and the AP's short address are the same for every openESL AP, a tag can find another AP this way; that AP takes it on like a new tag, the tag keeps the channel, and since the new AP answers, it never looks back. On a site with several APs on their own channels, the tags of an AP that is down for three rounds (30 minutes at `poll_s` 600, a power cut) can so end up with a neighbour, which has no content for them. Pairing the tags with their AP (#260) is what fixes this: a tag must move only on an answer its own AP has signed.
 
 ### Firmware transfer (requirement T15)
 The same pattern as the image transfer, with its own messages; the design, the bootloader and the rollback are in [tag-ota.md](tag-ota.md).
@@ -227,6 +265,28 @@ The AP answers each POLL with one message. When several things are waiting for a
 
 The next item goes out at the next POLL. `next_poll_s` in every reply, IMG and FW blocks included, is the tag's own interval (its `poll_s`, or the AP default).
 
+### Security (requirement T16)
+A paired tag signs every message it sends, and takes only signed answers. The messages are not encrypted: anyone in range can still read prices, but nobody without the key can change what a paired tag shows, give it firmware, or answer it in the AP's place.
+
+**Keys.** The AP has one installation key `K_inst` of 16 random bytes, made at its first start and kept in its NVS (`GET`/`PUT /api/radio-key`, in the backup). Each tag's key is `K_tag = AES-CMAC(K_inst, 0x4B || MAC)`, the MAC as 8 bytes little-endian, so the AP keeps no table of keys. The tag keeps its key in its flash record.
+
+**Trailer.** The signature goes at the very end, after every field, so the fields keep their offsets and new fields can still be appended:
+
+| Direction | `proto_ver` | After the message |
+|---|---|---|
+| tag → AP | 2 | `counter` (u32) + `mic` (4 bytes) |
+| AP → tag | 2 | `mic` (4 bytes), over the counter of the message it answers (not sent back) |
+
+`mic` is the first 4 bytes of `AES-CMAC(K_tag, dir || counter || message)`: `dir` is `T` (0x54) from the tag and `A` (0x41) from the AP, `counter` is 4 bytes little-endian, and `message` is everything before the trailer, with `proto_ver` = 2 as sent. A receiver checks the MIC, strips the trailer, and reads the rest as a version 1 message. FW and IMG already leave 4 bytes for the MIC (`ESL_MIC_RESERVE`), and the tag's messages are short enough for 8 more. A signed answer is still at most 106 bytes with its MIC (`ESL_SEC_MAX_REPLY`), so the AP sends signed FW and IMG blocks with 4 bytes less data (87 and 88): full 127-byte frames did not reach the tag on the hardware, and no frame was that long before.
+
+**Counter.** The high 16 bits are the tag's restarts (kept in its flash record and raised at every start), the low 16 bits its messages since. The tag saves the next restart number in time before the low half runs out, so a counter never repeats for one key. The AP takes a counter at or above the last one it took from the tag (the same one again is the tag's retry of a frame that got no answer) and counts the rest as rejected (`sec_rejected` in `GET /api/tags`). An answer is bound to the counter of the request, so an old answer is no good for a new request.
+
+**Pairing.** `PUT /api/tags/{mac}/pair` marks the tag; at its next POLL the AP answers PAIR with `K_tag` instead of the usual answer. To a tag without a key that PAIR goes unsigned, so the key is in the air once: pair where nobody listens in (later a key can be put on in the flashing jig instead). The tag stores the key and signs from its next message; the AP sees that (`secure: true`) and stops sending PAIR. A tag with a key takes PAIR only signed with that key: a new key, or all zeros to forget it (`DELETE /api/tags/{mac}/pair`). A tag never takes an unsigned PAIR while it has a key.
+
+**Only paired tags.** With `radio_secure` on (`PUT /api/config`, the dashboard's Settings → Radio), the AP drops every unsigned message, except a POLL from a tag it is pairing. Off (the default), it answers unsigned tags as before, and paired tags still sign. Turn it on once every tag is paired. A tag left out shows "No AP found" after its `lost_ap_s` and backs off its search; after the switch is turned off again it can take several minutes (about 8 on hardware) before it is heard.
+
+**Limits.** The AP keeps the last counter of each tag in RAM only: after an AP restart, a recorded frame from the tag's current restart is taken once more (it can only repeat what the tag said). A network radio (C6 on WiFi, [ap-netradio.md](ap-netradio.md)) answers the tags itself and has no keys, so pairing is refused there (`409`). Losing the AP's key (a full erase without a backup) leaves paired tags without answers: put the key back from the backup (`PUT /api/radio-key`), or flash the tags again.
+
 ### Listening window and battery
 The tag is awake for about 5–25 ms per round. Adjust the window from measurements in phases 5–6; it is the most important power parameter after sleep current.
 
@@ -253,12 +313,13 @@ In short:
 | `GET /api/tags/{mac}/image` | The screen the AP draws for the tag's content (base64), for previews |
 | `PUT /api/tags/{mac}/image` | A picture as the tag's content, for what a layout cannot show: a PNG of the screen's size (296 x 128 on the 2.9"), which the AP turns into the tag's colours (nearest colour, or `?dither=true` for photos), keeps in NVS and sends like any other screen. The tag must have polled once |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
-| `GET`/`PUT /api/config` | The AP-wide default poll interval, the webhook the AP posts the health report to, and the radio's transmit power (`tx_power`, dBm) |
+| `GET`/`PUT /api/config` | The AP-wide default poll interval, the webhook the AP posts the health report to, the radio's transmit power (`tx_power`, dBm), and the clock (`ntp`, `tz`) |
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, content that cannot be shown), for monitoring |
 | `GET /api/layouts`, `GET`/`PUT`/`DELETE /api/layouts/{model}` | The layout file of each model (part 3) |
 | `GET`/`POST /api/ota` | New firmware for the AP itself: the app image, whole or in parts; the AP restarts into it (`esl-client ota`) |
 | `GET`/`PUT /api/tag-firmware`, `GET`/`DELETE /api/tag-firmware/{model}` | New firmware for the tags of a model, in parts; the AP sends it to them over the radio (part 1, "Firmware transfer"), and shows how far they are (`esl-client tag-ota`) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
+| `GET`/`PUT /api/sources`, `POST /api/sources/refresh` | Data sources (ESP32-S3 APs): content the AP fetches for itself, such as the weather from MET Norway, and gives to its tags ([data-sources.md](data-sources.md)) |
 
 **WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there, and a phone that joins is sent to the form by the captive portal) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".
 
@@ -291,27 +352,27 @@ Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of
 | Key | Rule |
 |---|---|
 | `format`, `version` | `"esl-layouts"`, `1` |
-| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG, JPEG or GIF |
+| `icons` | optional: up to 16 small pictures by name (`a-z 0-9 _`, starting with a letter, at most 16), each `{"w": 32, "h": 32, "data": "<base64>"}`: w and h 1–128 px, data the picture row by row from the top, (w + 7) / 8 bytes per row, bit 7 of a row's first byte its leftmost pixel, 1 = drawn (`\/` for `/` is fine). The Design tab makes them from a PNG, JPEG, GIF or SVG (an SVG is drawn 64 px on its longer side) |
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
 | `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
 | `elements` | 1 or more, drawn in order (all rectangles, then lines, then icons, then the barcode and QR code, then all text, see `esl_render.c`) |
 | `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
-| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon takes only `x` and `y` (or `w` and `h` equal to the icon's). A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
+| `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon with `icon` takes only `x` and `y` (or `w` and `h` equal to the icon's); one with `field` needs all four. A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |
 | `direction` | line only: `down` (default, top-left to bottom-right corner) or `up` (bottom-left to top-right) |
 | `width` | line only: 1–16 px, default 1. A straight line is exactly `width` px thick, (width − 1) / 2 of them above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round |
 | `radius`, `border` | rect only: corner radius, and 0 (default) for a filled box or the width of its border; each at most half the shorter side |
-| `icon` | icon only, required: a name from `icons` |
-| `field` | text, barcode and qr: a name from `fields` (or its index) |
-| `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content |
+| `icon` | icon only: a name from `icons`; give this or `field` |
+| `field` | text, barcode and qr: a name from `fields` (or its index). Icon, instead of `icon`: the field whose text is the name of the icon to draw, so the content picks it (a weather symbol); the icon is centred in the box, and nothing is drawn when the text names no icon or the icon is larger than the box. The names are stored once per file as fixed texts |
+| `text` | text only, instead of `field`: a fixed text such as `"inkl. mva"` or `"kr"`, stored once in the file (at most 64 bytes in Latin-1, 32 different texts per file), so it costs nothing in the content. It may hold the date fields `{weekday}` (Thursday), `{date}` (29 October 2026), `{date_short}` (29.10.2026) and `{week}` (44, ISO 8601), which the AP fills in with its local date when it draws (in the time zone, `tz` in `PUT /api/config`, UTC until one is set; while the AP does not know the time, after a restart until NTP answers, such a layout is not drawn and its tags keep what they show); a tag with such a layout is drawn again when the date changes, once a day, or once a week for `{week}` alone, and gets the new image only when it came out different. At most 4 such texts per layout. Any other word in braces is drawn as written, and so are these on an AP from before 0.9 |
 | `symbology` | barcode only, required: `"code128"` or `"ean13"` |
 | `module` | barcode: module width 1–4 px; qr: module size 1–8 px; 0 (default) = the largest that fits the box |
 | `ecc` | qr only: error correction `L`, `M` (default), `Q` or `H` (about 7, 15, 25 or 30 % of the code can be lost); higher takes more modules for the same text |
 | `fonts` | text only: 1–3 of `small` (17 px), `medium` (24 px), `text20` (20 px), `mid` (36 px), `price44` (44 px), `large` (52 px); `mid`, `price44` and `large` only have digits and ` ,-.:`. Tried in order; the first in which the text fits is used, otherwise the last one with "…" |
 | `align`, `valign` | text and qr (`align` also for barcodes): `left`/`center`/`right` (default `left`), `top`/`middle`/`bottom` (default `top`; `bottom` keeps one baseline for every font in the list) |
 | `lines` | text only: 0–3, 0 (default) = as many as the box holds |
-| `decimals` | text only: draws a number (e.g. a price) the same way whatever the client sends (`1299.9`, `1299,90`, `1 299,90`, `1.299,90`, `199,-`): `2` → `1299,90`, `0` → `1300` (rounded), `"auto"` → `199` or `199,90` (no decimals when they are `,00`), `"dash"` → `199,-` or `199,90`, `"keep"` → the decimals as sent, with a decimal comma. A dot is the decimal sign when there is no comma and only one dot, so `1.299` is 1,299; send `1299` or `1 299` for a thousand. Spaces and dots before the decimal sign must group three digits. Text that is not a number is drawn as sent. A formatted number is drawn on one line (a smaller font from `fonts` if it does not fit), and never cut short: content with a number that fits in none of the fonts is refused with `422`, and the AP leaves such a number out rather than draw part of it (when a newer layout file makes the box smaller). At most 8 elements per layout with `decimals` or `thousands`. Default: no format, the text as sent |
+| `decimals` | text only: draws a number (e.g. a price) the same way whatever the client sends (`1299.9`, `1299,90`, `1 299,90`, `1.299,90`, `199,-`): `2` → `1299,90`, `0` → `1300` (rounded), `"auto"` → `199` or `199,90` (no decimals when they are `,00`), `"dash"` → `199,-` or `199,90`, `"0-dash"` → `200,-` (rounded to the nearest krone, always `,-`; `199.49` shows as `199,-`, so use it when your prices are whole kroner, since the shelf price must match the till; needs an AP on 0.9.0 or newer, an older one refuses the layout file), `"keep"` → the decimals as sent, with a decimal comma. A dot is the decimal sign when there is no comma and only one dot, so `1.299` is 1,299; send `1299` or `1 299` for a thousand. Spaces and dots before the decimal sign must group three digits. Text that is not a number is drawn as sent. A formatted number is drawn on one line (a smaller font from `fonts` if it does not fit), and never cut short: content with a number that fits in none of the fonts is refused with `422`, and the AP leaves such a number out rather than draw part of it (when a newer layout file makes the box smaller). At most 8 elements per layout with `decimals` or `thousands`. Default: no format, the text as sent |
 | `thousands` | text only: `true` puts a space between every three digits, `1 299,90` (with no `decimals`, the decimals as sent). Default `false` |
 | `color` | `black` (default), `white`, `frame` (only drawn with `"frame": true`; not lines and icons); text also `invert` (white text in a black box) and `highlight` (inverted with `"price_highlight": true`, else black). On a model with red: `red` (text, rect, line and icon) and `red_invert` (text: white text in a red box) |
 | keys starting with `_`, `description` | ignored (comments) |

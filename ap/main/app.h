@@ -32,6 +32,8 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
 /* sched.c: scheduled content kept in NVS, applied by its own task, and the
  * clock from NTP. Call after wifi_start(). NULL when there is no memory for it. */
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap);
+/* The NTP server and time zone for api->clock, after sched_start(); NULL before. */
+esl_clock_cfg_t *sched_clock(void);
 
 /* http_api.c. api_handle() is esl_api_handle() under a mutex shared by the
  * HTTP and serial transports; call api_handle_init() before either starts. */
@@ -93,6 +95,11 @@ bool ota_parse_query(const char *uri, size_t *offset, size_t *total);
 void ota_confirm_running(void);
 void ota_watch_running(bool wait);
 
+/* datasrc.c (ESL_DATASOURCES): data sources, such as the weather, fetched by their own task
+ * (esl_source.h), for api->sources. Call once the layout files are loaded; sched is the
+ * clock. NULL when it could not start. */
+esl_sources_t *datasrc_start(esl_store_t *st, esl_layouts_t *ls, esl_sched_t *sched);
+
 /* tagfw.c: the store for tag firmware images (the "tagfw" partition). NULL
  * when the partition table has none. */
 esl_tagfw_t *tagfw_start(void);
@@ -110,6 +117,8 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
  * from NVS on the first call; radio_start() uses it. radio_set_tx_power() (radio.c,
  * radio_net.c) hands a new one to the radio, from any task. */
 esl_tx_power_t *radio_tx_power(void);
+/* Radio security: the key and "radio_secure" from NVS, a new key the first time (radio_sec.c) */
+esl_radio_sec_t *radio_sec(void);
 void radio_set_tx_power(int8_t dbm);
 #if CONFIG_ESL_RADIO_DRIVER_NET
 /* radio_net.c: the link to the network radio, for GET /api/tags ("radio") */

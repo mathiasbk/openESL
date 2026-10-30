@@ -185,6 +185,8 @@ static void test_binary(void)
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_AUTO);
     CHECK(compile_el(TEXT_A ",\"decimals\":\"dash\"}"));
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_DASH);
+    CHECK(compile_el(TEXT_A ",\"decimals\":\"0-dash\",\"thousands\":true}"));
+    CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_0_DASH | ESL_LE_NUM_THOUSANDS);
     CHECK(compile_el(TEXT_A ",\"decimals\":\"keep\"}"));
     CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_OPTS], ESL_LE_NUM_KEEP);
     CHECK(compile_el(TEXT_A ",\"thousands\":true}"));
@@ -457,6 +459,34 @@ static void test_shapes(void)
         CHECK_INT(bin.size, icons + sizeof(expect_data));
         CHECK_MEM(&b[icons], expect_data, sizeof(expect_data));
     }
+    /* an icon named by a field: the field with ESL_LE_ICON_FIELD, and the icon names as fixed
+       texts after the file's own, the first one's number in ESL_LE_OFF_NAMES */
+    CHECK(compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"},\"bar\":{\"w\":9,\"h\":1,\"data\":\"/4A=\"}",
+                        TEXT_XYW ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]},"
+                        "{\"type\":\"icon\",\"field\":\"b\",\"x\":3,\"y\":4,\"w\":20,\"h\":10},"
+                        "{\"type\":\"icon\",\"field\":0,\"x\":30,\"y\":4,\"w\":20,\"h\":10}"));
+    {
+        static const uint8_t expect_icon[] = {ESL_LE_ICON, ESL_LE_ICON_FIELD | 1, 1, 0xFF, 0xFF, 0, 0, ESL_LE_BLACK,
+                                              3, 0, 4, 20, 0, 10};
+        const uint8_t *b = bin.bin;
+        CHECK_MEM(e + ESL_LE_SIZE, expect_icon, sizeof(expect_icon));
+        CHECK_INT(e[2 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], ESL_LE_ICON_FIELD | 0);
+        CHECK_INT(e[2 * ESL_LE_SIZE + ESL_LE_OFF_NAMES], 1); /* the names are added once */
+        CHECK_INT(b[ESL_LBIN_OFF_NTEXT], 3);
+        static const uint8_t texts[] = {2, 'k', 'r', 3, 'd', 'o', 't', 3, 'b', 'a', 'r'};
+        CHECK_MEM(e + 3 * ESL_LE_SIZE, texts, sizeof(texts));
+    }
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA\"}",
+                         "{\"type\":\"icon\",\"field\":\"a\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}"));
+    CHECK(HAS(err, "give either icon or field, not both"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA\"}",
+                         "{\"type\":\"icon\",\"field\":\"c\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}"));
+    CHECK(HAS(err, "field \"c\" is not in the layout's fields"));
+    CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA\"}",
+                         "{\"type\":\"icon\",\"field\":\"a\",\"x\":0,\"y\":0}"));
+    CHECK(HAS(err, "w must be a whole number of pixels"));
+    CHECK(!compile_icons("", "{\"type\":\"icon\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}"));
+    CHECK(HAS(err, "an icon element with a field needs icons in the file"));
     /* w and h of an icon element may be given, and must then be the icon's */
     CHECK(compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA\"}",
                         "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}"));

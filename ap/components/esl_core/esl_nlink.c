@@ -147,6 +147,7 @@ bool esl_nlink_radio_hello(esl_nlink_radio_t *r, const esl_nlink_hello_t *h)
     put16(&w, h->n_images);
     put32(&w, h->image_cap);
     put8(&w, h->fw_models);
+    put8(&w, h->features);
     return send_buf(r->write, r->wctx, ESL_NLINK_HELLO, &w);
 }
 
@@ -251,6 +252,12 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
         s.fw_ver = get16(&g);
         s.image_failed = get32(&g);
         s.fw_failed = get16(&g);
+        if (g.at + 4 <= g.n) { /* the long backoff (#261), after the fields older hosts send */
+            s.cfg.long_poll_s = get16(&g);
+            s.cfg.long_after_min = get16(&g);
+        }
+        if (g.at + 2 <= g.n) /* the channel (#256); an older host's TAG ends before it: the default channel */
+            s.cfg.channel = get16(&g);
         if (g.bad)
             return false;
         esl_rcache_set_tag(rc, &s); /* no room: the host sends it again (it asks, ack) */
@@ -348,6 +355,9 @@ static bool host_tag(void *ctx, const esl_rtag_state_t *s)
     put16(&w, s->fw_ver);
     put32(&w, s->image_failed);
     put16(&w, s->fw_failed);
+    put16(&w, s->cfg.long_poll_s);
+    put16(&w, s->cfg.long_after_min);
+    put16(&w, s->cfg.channel);
     /* sent is not refused: whether the radio had room shows in its next SYNC */
     return out_ok(n, send_buf(n->write, n->wctx, ESL_NLINK_TAG, &w));
 }
@@ -515,6 +525,7 @@ bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size
         n->radio.n_images = get16(&g);
         n->radio.image_cap = get32(&g);
         n->radio.fw_models = get8(&g);
+        n->radio.features = g.at < g.n ? get8(&g) : 0;
         if (g.bad || ver != ESL_NLINK_VERSION)
             return false;
         n->hello = true;

@@ -114,3 +114,7 @@ a.button.primary { color: var(--accent-text); }
 .wz a.button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .wz-part .wz-form { margin-top: 8px; }
 .wz-erase { margin: 8px 0 0; }
+/* the radio key on the done page (js/radiokey.js) */
+.wz-key { text-align: left; max-width: 620px; margin: 18px auto; }
+.wz-key:has(.rk) { border: 2px solid var(--warn); border-radius: 8px; padding: 14px 16px; }
+.wz-key > p { text-align: center; }

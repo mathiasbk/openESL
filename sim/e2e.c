@@ -662,6 +662,140 @@ int e2e_run(const char *out, const char *root)
         free(pix);
     }
 
+    /* ------------------------------------------------------------------ */
+    step("14. The AP moves to another channel (PUT /api/config \"channel\")");
+    {
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 25, "on channel 25");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":20}", &resp) == 200 && sim_json_num("channel") == 25 &&
+                  sim_json_num("channel_next") == 20 && sim_json_num("channel_waiting") == 1,
+              "announced, waits for the tag: %.160s", resp);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        draws = sim_tag_draws();
+        /* the tag gets CONFIG at its next poll and confirms it at the one after; the AP
+           moves then (here at the next frame it hears, as its radio task would within a
+           second), and the tag, which hears nothing on 25, finds it on 20 in the same round */
+        while (sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") != 20 &&
+               sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_json_num("channel") == 20 && sim_json_num("channel_next") == -1, "the AP moved: %.160s", resp);
+        note("the AP moved after %.0f s", (sim_now_ms - t0) / 1000.0);
+        CHECK(sim_stats.config == s0.config + 1, "one CONFIG");
+        CHECK(sim_tag_channel() == 20 && sim_tag_misses() == 0, "the tag found it on 20 in the same round");
+        CHECK(sim_stats.unanswered == s0.unanswered + 2, "after its POLL and the retry on 25 (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        run_for(301);
+        CHECK(sim_stats.unanswered == s0.unanswered + 2, "then straight on 20");
+        CHECK(sim_tag_draws() == draws, "nothing redrawn");
+        get_tag();
+        CHECK(sim_json_bool("config_pending") == 0 && sim_json_bool("pending") == 0, "nothing pending");
+        t0 = sim_now_ms;
+        put_content(PRICE_3, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 20");
+        /* a restart of the AP keeps the channel; so does one of the tag */
+        sim_ap_boot();
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 20, "AP restarted on 20");
+        sim_tag_boot();
+        CHECK(sim_tag_channel() == 20, "tag restarted on 20");
+        run_for(301);
+        CHECK(sim_tag_misses() == 0, "and they hear each other");
+    }
+
+    step("15. Back to the built-in channel at once (\"Move now\" before the tag has heard)");
+    {
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":15,\"channel_now\":true}", &resp) == 409,
+              "not to a channel the tags were not told of");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":null}", &resp) == 200 && sim_json_num("channel_next") == 25,
+              "25 announced");
+        CHECK(sim_api("PUT", "/api/config", "{\"channel\":null,\"channel_now\":true}", &resp) == 200 &&
+                  sim_json_num("channel_due_s") == 0,
+              "and the AP moves at once (its radio task within a second): %.160s", resp);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        /* the tag polls on 20, where it was told, and from its third miss in a row also on the
+           built-in channel (not at once: another AP there would keep a tag that lost one reply) */
+        while (sim_tag_channel() != 25 && sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 25, "the AP is on 25");
+        CHECK(sim_tag_channel() == 25 && sim_tag_misses() == 0, "the tag found it on 25 in its third round (%.0f s)",
+              (sim_now_ms - t0) / 1000.0);
+        CHECK(sim_stats.unanswered == s0.unanswered + 6, "after its POLL and the retry on 20, three times (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        run_for(301);
+        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 6, "then straight on 25");
+    }
+
+    step("16. Radio security: pair the tag, then only signed frames");
+    {
+        CHECK(!sim_tag_has_key(), "the tag has no key yet");
+        get_tag();
+        CHECK(sim_json_bool("secure") == 0, "the AP has not heard it sign anything");
+        t0 = sim_now_ms;
+        CHECK(api("PUT", "/pair", NULL) == 200, "PUT /api/tags/%s/pair: %.80s", mac, resp);
+        run_for(sim_tag_interval_s() + 1.0);
+        CHECK(sim_tag_has_key(), "the tag took its key at its next POLL");
+        run_for(10);
+        get_tag();
+        CHECK(sim_json_bool("secure") == 1 && strstr(resp, "\"pairing\":null") != NULL,
+              "the AP heard it sign, and the pairing is done: %.400s", resp);
+        CHECK(sim_api("PUT", "/api/config", "{\"radio_secure\":true}", &resp) == 200, "radio_secure on");
+        /* new content goes over signed frames, image and all */
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        cid = put_content(PRICE_2, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content drawn over signed frames");
+        note("drawn %.1f s after the PUT, %u IMG_REQ, all signed", (sim_tag_last_draw_ms() - t0) / 1000.0,
+             sim_stats.img_reqs - s0.img_reqs);
+        /* both sides restart: the key stays on both, the tag's counter moves on */
+        draws = sim_tag_draws();
+        sim_ap_boot();
+        sim_tag_boot();
+        run_for(130);
+        get_tag();
+        CHECK(sim_json_bool("secure") == 1 && sim_json_num("sec_rejected") == 0, "signed after both restarted: %.300s", resp);
+        CHECK(shows_image(), "still shows its content");
+        t0 = sim_now_ms;
+        put_content(PRICE_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "and takes new content");
+        /* forget: the tag talks plainly again, and the AP, which wants signed frames, stops answering */
+        CHECK(api("DELETE", "/pair", NULL) == 200, "DELETE /api/tags/%s/pair", mac);
+        run_for(sim_tag_interval_s() + 1.0 + 6);  /* the order, and its next POLL 5 s later */
+        CHECK(!sim_tag_has_key(), "the tag forgot its key");
+        get_tag();
+        CHECK(sim_json_bool("secure") == 0, "the AP saw it talk plainly");
+        unsigned before = sim_stats.unanswered;
+        run_for(sim_tag_interval_s() + 1.0);
+        CHECK(sim_stats.unanswered > before, "no answers to a plain tag with radio_secure on");
+        CHECK(sim_api("PUT", "/api/config", "{\"radio_secure\":false}", &resp) == 200, "radio_secure off");
+        run_for(700);
+        CHECK(sim_tag_misses() == 0, "answered again with radio_secure off");
+    }
+
+    step("17. The AP comes up on a channel the tag was never told of (#258)");
+    {
+        /* as an AP restored on another channel, or one that moved while the tag was away */
+        sim_ap_set_nvs_channel(26);
+        sim_ap_boot();
+        CHECK(sim_api("GET", "/api/config", NULL, &resp) == 200 && sim_json_num("channel") == 26, "AP on 26");
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        while (sim_tag_channel() != 26 && sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_tag_channel() == 26 && sim_tag_misses() == 0, "the tag found it on 26 (%.0f s)",
+              (sim_now_ms - t0) / 1000.0);
+        /* two rounds on 25 (POLL and retry), the third also on 15 and 20, then 26 */
+        CHECK(sim_stats.unanswered == s0.unanswered + 8, "after 8 unanswered POLLs (%u)",
+              sim_stats.unanswered - s0.unanswered);
+        CHECK(sim_now_ms - t0 < 3 * 300000 + 10000, "in its third round (poll_s 300 here)");
+        run_for(301);
+        CHECK(sim_tag_misses() == 0 && sim_stats.unanswered == s0.unanswered + 8, "then straight on 26");
+        sim_tag_boot();
+        CHECK(sim_tag_channel() == 26, "and starts there after a restart");
+        t0 = sim_now_ms;
+        put_content(PRICE_2, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 26");
+    }
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

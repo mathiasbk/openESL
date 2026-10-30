@@ -146,7 +146,11 @@ table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 
 
 The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.
 It also takes the S3's transmit power (`PUT /api/config` `"tx_power"`, in the same CONFIG), but not
-for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies.
+for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies. A new channel from the
+Settings page (`PUT /api/config` `"channel"`) reaches the radio the same way: each tag's state carries the
+channel the S3 announces (u16 at the end of the TAG message, 0 = the built-in one), so the radio's
+CONFIG tells the tags, and once they have it (or the time is up) the S3 sends a new CONFIG with the new
+channel and the radio retunes.
 
 ## On hardware
 

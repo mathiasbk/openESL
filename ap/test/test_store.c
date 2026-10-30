@@ -93,7 +93,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -131,7 +131,7 @@ static void test_store_seen(void)
     enum { CAP = 4 };
     esl_store_t st = {0};
     seenfake_t g = {0};
-    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_tag_t t;
     esl_store_free(&st);
@@ -159,7 +159,7 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
 
     /* other firmware: saved at once */
-    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0};
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
     esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
     CHECK_INT(g.writes, 3);
     CHECK_INT(g.rec.fw, 4);
@@ -193,7 +193,7 @@ static void test_store_seen(void)
     CHECK(!t.has_content);
     /* its first POLL with the same model and firmware writes nothing at once */
     int w = g.writes;
-    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0};
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
     g.clock = 1792003600;
     esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
     CHECK_INT(g.writes, w);
@@ -285,7 +285,7 @@ static void test_store_grow(void)
 
     /* without memory the table stops growing: a new tag is then not added */
     nvsfake_t *n = calloc(1, sizeof(*n));
-    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL, NULL, NULL, NULL};
     n->chunks_left = 1;
     esl_store_init(&st, GROW_MAX, &ops, 0);
     for (unsigned i = 0; i < ESL_STORE_CHUNK; i++)
@@ -323,17 +323,83 @@ static void test_store_grow(void)
     free(n);
 }
 
+/* #261: the last ESL_LINK_HIST POLLs per tag, oldest first, with the tag's link block */
+static void test_store_signal(void)
+{
+    esl_store_t st = {0};
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    int8_t rssi[ESL_LINK_HIST];
+    uint8_t info[ESL_LINK_HIST];
+    esl_tag_t t;
+    const uint64_t A = 0xA1;
+
+    esl_store_init(&st, 4, NULL, 0);
+    /* a POLL without the link block: only the AP's RSSI */
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_store_on_poll(&st, A, &p, -50, 0, NULL, reply);
+    CHECK(esl_store_get(&st, A, &t));
+    CHECK_INT(esl_tag_signal(&t, rssi, info), 1);
+    CHECK_INT(rssi[0], -50);
+    CHECK_INT(info[0], 0);
+    CHECK_INT(t.rx_lqi, 0);
+
+    /* with it: lost rounds, the retry (which marks the POLL before), and the totals */
+    p.has_link = true;
+    p.rx_rssi = 0xB0;
+    p.rx_lqi = 90;
+    p.lost = 3;
+    p.link_flags = ESL_POLL_LF_RETRY;
+    esl_store_on_poll(&st, A, &p, -70, 1000, NULL, reply);
+    p.lost = 200; /* stored as 127, counted in full */
+    p.link_flags = 0;
+    esl_store_on_poll(&st, A, &p, -71, 2000, NULL, reply);
+    CHECK(esl_store_get(&st, A, &t));
+    CHECK_INT(esl_tag_signal(&t, rssi, info), 3);
+    CHECK_INT(rssi[1], -70);
+    CHECK_INT(info[0], ESL_HIST_RETRY);
+    CHECK_INT(info[1], 3);
+    CHECK_INT(info[2], ESL_HIST_LOST);
+    CHECK_INT(t.lost_total, 203);
+    CHECK_INT(t.retries, 1);
+    CHECK_INT(t.rx_rssi, 0xB0);
+    CHECK_INT(t.rx_lqi, 90);
+
+    /* full: the oldest goes; the totals saturate */
+    p.lost = 255;
+    for (int i = 0; i < ESL_LINK_HIST + 300; i++)
+        esl_store_on_poll(&st, A, &p, (int8_t)(-i % 100), 3000, NULL, reply);
+    CHECK(esl_store_get(&st, A, &t));
+    CHECK_INT(esl_tag_signal(&t, rssi, info), ESL_LINK_HIST);
+    CHECK_INT(rssi[ESL_LINK_HIST - 1], -(ESL_LINK_HIST + 299) % 100);
+    CHECK_INT(rssi[0], -300 % 100);
+    CHECK_INT(t.lost_total, 0xFFFF);
+
+    /* the first POLL since the AP started: its lost rounds (and a retry) may be the AP's own
+       restart, so they are not held against the link */
+    const uint64_t B = 0xB2;
+    p.lost = 2;
+    p.link_flags = ESL_POLL_LF_RETRY;
+    esl_store_on_poll(&st, B, &p, -60, 4000, NULL, reply);
+    CHECK(esl_store_get(&st, B, &t));
+    CHECK_INT(esl_tag_signal(&t, rssi, info), 1);
+    CHECK_INT(info[0], 0);
+    CHECK_INT(t.lost_total, 0);
+    CHECK_INT(t.retries, 0);
+    esl_store_free(&st);
+}
+
 void test_store(void)
 {
     enum { CAP = 4 };
     esl_store_t st = {0};
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
     const uint64_t A = 0xA1, B = 0xB2;
 
+    test_store_signal();
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     CHECK_INT(esl_store_count(&st), 0);
@@ -394,7 +460,7 @@ void test_store(void)
     CHECK_INT(t.image_id, 0);
 
     /* a tag without images cannot show content */
-    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0};
+    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     CHECK_INT(esl_store_on_poll(&st, A, &old, -61, 3500, NULL, reply), ESL_IDLE_LEN);
     esl_store_get(&st, A, &t);
     CHECK_INT(t.content_err, ESL_CERR_NO_IMAGE);
@@ -481,11 +547,11 @@ void test_store(void)
 
     /* ---- per-tag settings and the default interval ---- */
     fake_t g = {0};
-    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL};
     esl_cfg_result_t cr;
     esl_store_free(&st);
     esl_store_init(&st, CAP, &cops, 0);
-    esl_tag_cfg_t c120 = {120, 0, 0}, none = {0, 0, 0};
+    esl_tag_cfg_t c120 = {120, 0, 0, 0, 0, 0}, none = {0, 0, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
     CHECK(cr.changed);
     CHECK(!cr.pending); /* not seen yet */
@@ -498,17 +564,17 @@ void test_store(void)
     /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
     n = poll(&st, A, 0, 100, reply);
     CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
-    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0};
+    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
     n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
     CHECK_INT(n, ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     esl_store_get(&st, A, &t);
-    CHECK(esl_tag_cfg_pending(&t, 0));
+    CHECK(esl_tag_cfg_pending(&t, &none));
     np.cfg_ver = esl_tag_cfg_version(&c120);
     n = esl_store_on_poll(&st, A, &np, -61, 300, NULL, reply);
     CHECK_INT(reply[0], ESL_MSG_IDLE);
     esl_store_get(&st, A, &t);
-    CHECK(!esl_tag_cfg_pending(&t, 0));
+    CHECK(!esl_tag_cfg_pending(&t, &none));
 
     /* own poll_s goes into the reply; the default does not override it */
     esl_store_set(&st, A, &milk, &r);

@@ -1,4 +1,5 @@
 #include "esl_barcode.h"
+#include "esl_clock.h"
 #include "esl_crc32.h"
 #include "esl_layout.h"
 #include "esl_qr.h"
@@ -26,6 +27,7 @@ typedef struct {
     uint8_t ntext;
     uint8_t tlen[ESL_LBIN_TEXT_MAX];
     uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
+    int icon_names;       /* the fixed text with the first icon's name, -1 until an icon element names its icon by a field */
     struct cc_icons *ic;  /* malloc'd: the AP compiles at boot on the main task's small stack */
 } cc_t;
 
@@ -176,6 +178,8 @@ typedef struct {
     int8_t qr_field;      /* the QR element, the same */
     uint8_t qr_ecc;
     uint16_t qr_cap;
+    uint8_t clock;        /* ESL_CLOCK_*: the finest date field in its fixed texts */
+    unsigned clocks;      /* text elements with date fields */
 } lay_t;
 
 static bool field_name_ok(const char *s)
@@ -221,8 +225,8 @@ static int fixed_text(cc_t *c, int v)
 /* "decimals" and "thousands": how a text element draws a number (ESL_LE_NUM_* in opts). */
 static bool number_format(cc_t *c, int e, uint8_t *opts)
 {
-    static const char *const modes[] = {"keep", "auto", "dash", NULL};
-    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH};
+    static const char *const modes[] = {"keep", "auto", "dash", "0-dash", NULL};
+    static const uint8_t mode_bits[] = {ESL_LE_NUM_KEEP, ESL_LE_NUM_AUTO, ESL_LE_NUM_DASH, ESL_LE_NUM_0_DASH};
     uint8_t num = 0;
 
     int d = esl_json_obj_get(c->js, c->tok, e, "decimals");
@@ -234,7 +238,7 @@ static bool number_format(cc_t *c, int e, uint8_t *opts)
         else if (get_uint(c, d, &n) && (n == 0 || n == 2))
             num = n ? ESL_LE_NUM_2 : ESL_LE_NUM_0;
         else
-            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00) or \"keep\"");
+            return fail(c, "decimals must be 0, 2, \"auto\" (2, none for ,00), \"dash\" (2, ,- for ,00), \"0-dash\" (none, ,-) or \"keep\"");
     }
     int t = esl_json_obj_get(c->js, c->tok, e, "thousands");
     if (t >= 0) {
@@ -303,7 +307,7 @@ typedef struct {
 static bool only_ok(cc_t *c, int e, char kind)
 {
     static const only_t only[] = {
-        {"field", "tbq", "text, barcode and QR elements"}, {"text", "tbq", "text elements"},
+        {"field", "tbqi", "text, barcode, QR and icon elements"}, {"text", "tbq", "text elements"},
         {"fonts", "t", "text elements"},                  {"valign", "tq", "text and QR elements"},
         {"lines", "t", "text elements"},                  {"align", "tbq", "text, barcode and QR elements"},
         {"symbology", "b", "barcode elements"},           {"module", "bq", "barcode and QR elements"},
@@ -376,6 +380,42 @@ static bool qr_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned fi, un
     return true;
 }
 
+/* "field": a name from the layout's fields, or its index, into *fi; false after fail() */
+static bool field_index(cc_t *c, int f, const lay_t *lay, unsigned *fi)
+{
+    if (T(c, f)->type == ESL_JSON_STRING) {
+        char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
+        str_copy(c, f, name, sizeof(name));
+        for (*fi = 0; *fi < lay->nfields && strcmp(lay->fields[*fi], name) != 0; (*fi)++)
+            ;
+        if (*fi == lay->nfields)
+            return fail(c, "field \"%s\" is not in the layout's fields", name);
+    } else if (!get_uint(c, f, fi) || *fi >= lay->nfields) {
+        return fail(c, "field must be one of the layout's fields (a name, or 0..%u)", (unsigned)lay->nfields - 1);
+    }
+    return true;
+}
+
+/* The names of the file's icons as fixed texts one after the other, for icon elements
+ * that name their icon by a field (ESL_LE_OFF_NAMES); added once, at the first such element. */
+static bool icon_names(cc_t *c)
+{
+    if (c->icon_names >= 0)
+        return true;
+    if (!c->ic->n)
+        return fail(c, "an icon element with a field needs icons in the file: the field names one of them");
+    if (c->ntext + c->ic->n > ESL_LBIN_TEXT_MAX)
+        return fail(c, "at most %d different fixed texts in a file, with the %u icon names an icon by field takes",
+                    ESL_LBIN_TEXT_MAX, (unsigned)c->ic->n);
+    c->icon_names = c->ntext;
+    for (unsigned i = 0; i < c->ic->n; i++) {
+        size_t n = strlen(c->ic->name[i]);
+        memcpy(c->text[c->ntext], c->ic->name[i], n);
+        c->tlen[c->ntext++] = (uint8_t)n;
+    }
+    return true;
+}
+
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
@@ -386,6 +426,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
     int icon = -1;
+    unsigned icon_field = 0;
+    bool by_field = false;
 
     if (T(c, e)->type != ESL_JSON_OBJECT)
         return fail(c, "must be an object");
@@ -400,13 +442,26 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4, qr = kind == 5;
     bool rising = false;
 
-    if (is_icon) {
+    if (is_icon && esl_json_obj_get(c->js, c->tok, e, "field") >= 0) {
+        /* the icon named by a field's text, in a box of its own: x, y, w and h as for a rect */
+        if (esl_json_obj_get(c->js, c->tok, e, "icon") >= 0)
+            return fail(c, "give either icon or field, not both");
+        if (!field_index(c, esl_json_obj_get(c->js, c->tok, e, "field"), lay, &icon_field) || !icon_names(c))
+            return false;
+        by_field = true;
+        for (int i = 0; i < 4; i++) {
+            int t = esl_json_obj_get(c->js, c->tok, e, box[i]);
+            if (t < 0 || !get_uint(c, t, &v[i]))
+                return fail(c, "%s must be a whole number of pixels, 0 or more", box[i]);
+        }
+    } else if (is_icon) {
         int t = esl_json_obj_get(c->js, c->tok, e, "icon");
         if (t >= 0 && T(c, t)->type == ESL_JSON_STRING)
             for (icon = 0; icon < c->ic->n && !esl_json_str_eq(c->js, T(c, t), c->ic->name[icon]); icon++)
                 ;
         if (t < 0 || T(c, t)->type != ESL_JSON_STRING)
-            return fail(c, "an icon element needs icon: the name of an icon in the file's icons");
+            return fail(c, "an icon element needs icon: the name of an icon in the file's icons, or field: a field "
+                           "that names one");
         if (icon == c->ic->n) {
             char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
             str_copy(c, t, name, sizeof(name));
@@ -484,7 +539,11 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
             return fail(c, "a%s can be black, white or red", line ? " line" : "n icon");
         if (is_icon) {
-            out[ESL_LE_OFF_FIELD] = (uint8_t)icon;
+            if (by_field) {
+                out[ESL_LE_OFF_FIELD] = (uint8_t)(ESL_LE_ICON_FIELD | icon_field);
+                out[ESL_LE_OFF_NAMES] = (uint8_t)c->icon_names;
+            } else
+                out[ESL_LE_OFF_FIELD] = (uint8_t)icon;
             if (++lay->icons > esl_limits.icons)
                 return fail(c, "the AP draws at most %d icons per screen", esl_limits.icons);
             return true;
@@ -526,21 +585,22 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         if (fb < 0)
             return false;
         out[ESL_LE_OFF_FIELD] = (uint8_t)fb;
+        unsigned ti = (unsigned)fb & ~ESL_LE_FIELD_FIXED;
+        uint8_t res = esl_clock_res(c->text[ti], c->tlen[ti]);
+        if (res) {
+            if (++lay->clocks > ESL_CLOCK_TEXTS)
+                return fail(c, "at most %d texts with date fields ({date}, {week}, ...) in a layout", ESL_CLOCK_TEXTS);
+            if (res > lay->clock)
+                lay->clock = res;
+        }
     } else if (f < 0)
         return fail(c, barcode ? "a barcode element needs a field"
                        : qr    ? "a QR element needs a field"
                                : "a text element needs a field or a fixed text");
     if (fx >= 0) {
         /* the fixed text is in place */
-    } else if (T(c, f)->type == ESL_JSON_STRING) {
-        char name[ESL_LAYOUT_FIELD_NAME_MAX + 2];
-        str_copy(c, f, name, sizeof(name));
-        for (fi = 0; fi < lay->nfields && strcmp(lay->fields[fi], name) != 0; fi++)
-            ;
-        if (fi == lay->nfields)
-            return fail(c, "field \"%s\" is not in the layout's fields", name);
-    } else if (!get_uint(c, f, &fi) || fi >= lay->nfields) {
-        return fail(c, "field must be one of the layout's fields (a name, or 0..%u)", (unsigned)lay->nfields - 1);
+    } else if (!field_index(c, f, lay, &fi)) {
+        return false;
     }
     if (fx < 0)
         out[ESL_LE_OFF_FIELD] = (uint8_t)fi;
@@ -797,6 +857,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     out->qr_field[c->li] = lay.qr_field;
     out->qr_ecc[c->li] = lay.qr_ecc;
     out->qr_cap[c->li] = lay.qr_cap;
+    out->clock[c->li] = lay.clock;
     return true;
 }
 
@@ -810,6 +871,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     c.err = err;
     c.errlen = errlen;
     c.li = c.ei = -1;
+    c.icon_names = -1;
     bool ok = false;
     esl_jtok_t *tok = NULL;
 

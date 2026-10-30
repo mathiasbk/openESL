@@ -51,7 +51,9 @@ async function offlineCatalog() {
     const t = { id: "example-" + l.name, title: l.name, description: l.description || "", fields: {}, variants: { [model]: { layout: l } } };
     for (const f of l.fields || []) t.fields[f] = "";
     // only the pictures this layout uses: each one costs room in the file
-    const used = (l.elements || []).filter((e) => e.type === "icon" && d.icons?.[e.icon]).map((e) => e.icon);
+    const byField = (l.elements || []).some((e) => e.type === "icon" && e.field !== undefined);
+    const used = byField ? Object.keys(d.icons || {}) /* a field may name any of them */
+      : (l.elements || []).filter((e) => e.type === "icon" && d.icons?.[e.icon]).map((e) => e.icon);
     if (used.length) t.variants[model].icons = Object.fromEntries(used.map((n) => [n, d.icons[n]]));
     t.example = true;      // not a template of the library: no "_template" on the layout
     files[t.id] = t;

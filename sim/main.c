@@ -182,7 +182,8 @@ static int serve(int argc, char **argv)
 
             sim_tag_run_until((uint64_t)((real_s() - start) * speed * 1000));
             const char *resp;
-            int status = sim_api(method, uri, len ? body : NULL, &resp);
+            /* the body as it came: a picture or firmware holds zero bytes */
+            int status = sim_api_bin(method, uri, len ? body : NULL, len, &resp);
             char hdr[64];
             int hn = snprintf(hdr, sizeof(hdr), "@ESL %s %d %u ", seq, status, (unsigned)strlen(resp));
             pty_write(hdr, (size_t)hn, true);

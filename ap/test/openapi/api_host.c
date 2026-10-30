@@ -142,19 +142,41 @@ static size_t img_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 }
 
 static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                          NULL, NULL, NULL, NULL, img_save, img_load};
+                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL};
 
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
+
+/* The clock settings as on the AP (main/sched.c): ntp "" goes back to the built-in server */
+static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL};
+
+static void clock_set(void *ctx, const char *ntp, const char *tz)
+{
+    esl_clock_cfg_t *c = ctx;
+    if (ntp)
+        snprintf(c->ntp, sizeof(c->ntp), "%s", ntp[0] ? ntp : c->builtin_ntp);
+    if (tz)
+        snprintf(c->tz, sizeof(c->tz), "%s", tz);
+}
 
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", 25, &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL};
+    static esl_api_changes_t changes = {.boot = 0x5eed0001};
+    api.changes = &changes; /* GET /api/tags?since= */
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
     api.tx_power = &tx_power; /* "tx_power" in /api/config, as on a C6 */
+    /* radio security, as on a C6 with its key made */
+    static esl_radio_sec_t sec = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, false, NULL, NULL};
+    esl_radio_set_sec(&sec);
+    api.sec = &sec;
+    clock_cfg.set = clock_set;
     static const esl_link_stats_t radio_stats = {.polls = 12, .blocks = 340, .tx_failed = 1, .slow = 2, .worst_us = 6100};
     api.radio_stats = &radio_stats; /* "replies" in GET /api/tags, as on a C6 */
+    static esl_sources_t sources;   /* data sources, as on an S3: kept in RAM, never fetched */
+    esl_sources_init(&sources, NULL);
+    api.sources = &sources;
     uint64_t now_ms = 1000;
     char line[512];
 
@@ -197,7 +219,7 @@ int main(void)
             if (images && shown && esl_store_get(&st, mac, &t) && t.has_content && t.content_id == shown)
                 esl_store_image_known(&st, mac, shown, 0, shown);
             esl_poll_t p = {2, 2950, shown, images ? ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE : 0, (uint8_t)model,
-                            true, 0};
+                            true, 0, true, 0xC4, 108, 1, ESL_POLL_LF_RETRY};
             esl_layouts_env(&layouts, (uint8_t)model, &env);
             esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
             puts("OK");

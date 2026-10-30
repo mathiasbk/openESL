@@ -121,7 +121,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
     bool neg = false, dash = false;
     uint64_t v = 0, p;
 
-    if (mode < ESL_LE_NUM_KEEP || mode > ESL_LE_NUM_DASH || cap < ESL_LE_NUM_MAX_LEN)
+    if (mode < ESL_LE_NUM_KEEP || mode > ESL_LE_NUM_0_DASH || cap < ESL_LE_NUM_MAX_LEN)
         return 0;
     while (a < b && (in[a] == ' ' || in[a] == 0xA0))
         a++;
@@ -177,7 +177,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
     if (!nint && !nfrac)
         return 0;
 
-    nd = mode == ESL_LE_NUM_KEEP ? nfrac : mode == ESL_LE_NUM_0 ? 0 : 2;
+    nd = mode == ESL_LE_NUM_KEEP ? nfrac : mode == ESL_LE_NUM_0 || mode == ESL_LE_NUM_0_DASH ? 0 : 2;
     for (; nfrac > nd; nfrac--)
         v = nfrac == nd + 1 ? (v + 5) / 10 : v / 10; /* rounds half up at the last digit dropped */
     for (; nfrac < nd; nfrac++)
@@ -190,7 +190,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
         nd = 0;
         p = 1;
     } else if (mode != ESL_LE_NUM_KEEP) {
-        dash = false;
+        dash = mode == ESL_LE_NUM_0_DASH;
     }
 
     char digits[24];

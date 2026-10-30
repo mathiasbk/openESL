@@ -11,6 +11,7 @@
 #include "../hal.h"
 #include "../hal_epd.h"
 #include "zbs243.h"
+#include "../../store_ab.h"
 
 #define TICKS_PER_MS    1333u                  /* 16 MHz / 12 */
 #define UART_BRG        138u                   /* 16 MHz / 139 = 115108 baud (115200) */
@@ -159,15 +160,17 @@ static void infopage_read(uint16_t ofs, uint8_t __xdata *dst, uint8_t len)
 
 /*
  * Persistent stores, kept out of the firmware by CODE_SIZE in build.py:
- *   page 0x3E (0xF800-0xFBFF): the record (hal_store_*): 0xA5, length, data, sum of the data bytes
- *   page 0x3D (0xF400-0xF7FF): not used by the firmware (the layout file was kept there;
- *                              the probes in this folder write their logs there)
+ *   pages 0x3E (0xF800-0xFBFF, A) and 0x3D (0xF400-0xF7FF, B): the record (hal_store_*),
+ *     in one and then the other, so the last good copy stays while a new one is written
+ *     (store_ab.c). Firmware before radio security kept one copy in page 0x3E. (Page 0x3D
+ *     was free; the probes in this folder wrote their logs there, which the checks turn away.)
  * Main flash reads directly as code memory.
  */
-#define STORE_PAGE      0x3E
-#define STORE_MAGIC     0xA5
-static __code const uint8_t __at (STORE_PAGE * 0x400u) store_flash[4 + HAL_STORE_MAX];
-static __xdata uint8_t store_buf[3 + HAL_STORE_MAX];
+#define STORE_PAGE_A    0x3E
+#define STORE_PAGE_B    0x3D
+static __code const uint8_t __at (STORE_PAGE_A * 0x400u) store_a[STORE_AB_SIZE];
+static __code const uint8_t __at (STORE_PAGE_B * 0x400u) store_b[STORE_AB_SIZE];
+static __xdata uint8_t store_buf[STORE_AB_SIZE];
 
 /* Erases flash page `page` and writes len (1..1024) bytes from XRAM at src to its start.
    False if the controller did not finish. */
@@ -198,41 +201,19 @@ static bool flash_write_page(uint8_t page, uint16_t src, uint16_t len)
     return t != 0;
 }
 
+bool store_ab_page(bool to_a, const uint8_t *buf, uint8_t len)
+{
+    return flash_write_page(to_a ? STORE_PAGE_A : STORE_PAGE_B, (uint16_t)buf, len);
+}
+
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {
-    uint8_t i, sum = 0;
-
-    if (len > HAL_STORE_MAX)
-        return false;
-    store_buf[0] = STORE_MAGIC;
-    store_buf[1] = len;
-    for (i = 0; i < len; i++) {
-        store_buf[2 + i] = data[i];
-        sum += data[i];
-    }
-    store_buf[2 + len] = sum;
-    return flash_write_page(STORE_PAGE, (uint16_t)store_buf, (uint16_t)len + 3) &&
-           hal_store_read(store_buf, HAL_STORE_MAX) == len;
+    return store_ab_write(store_a, store_b, store_buf, data, len);
 }
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
 {
-    uint8_t i, len, sum = 0;
-
-    if (store_flash[0] != STORE_MAGIC)
-        return 0;
-    len = store_flash[1];
-    if (len > HAL_STORE_MAX)
-        return 0;
-    for (i = 0; i < len; i++)
-        sum += store_flash[2 + i];
-    if (sum != store_flash[2 + len])
-        return 0;
-    if (len > maxlen)
-        return 0;                       /* also maxlen 0: just checks the record */
-    for (i = 0; i < len; i++)
-        data[i] = store_flash[2 + i];
-    return len;
+    return store_ab_read(store_a, store_b, data, maxlen);
 }
 
 void hal_mac_read(uint8_t *mac8)
@@ -361,15 +342,17 @@ static uint16_t measure_battery_mv(void)
     return mv;
 }
 
-/* Measured on the first call and then every BATT_EVERY calls (it wakes the display). */
-#define BATT_EVERY      60
+/* Measured on the first call and then every BATT_EVERY calls (it wakes the display):
+   every 4 hours at the 60 s interval. A coin cell's voltage moves over weeks, and each
+   measurement costs more than an hour of polls (batteri-analyse, 2026-10-18). */
+#define BATT_EVERY      240
 static uint16_t batt_mv;
 static uint8_t batt_age;
 
 uint16_t battery_read_mv(void)
 {
     if (!batt_age-- ) {
-        batt_age = BATT_EVERY - 1;
+        batt_age = (uint8_t)(BATT_EVERY - 1);
         batt_mv = measure_battery_mv();
     }
     return batt_mv;
@@ -520,6 +503,24 @@ void power_sleep_s(uint16_t s)
 }
 
 
+
+/*
+ * Sleep while the display refreshes (#261): the core used to wait awake on BUSY for
+ * the whole 2.9 s. power_sleep_s keeps the display's CS and RESET high and puts its
+ * clock and data pins to inputs with pull-up, which it ignores with CS high. Only
+ * after the radio has been on once since reset: that is how every sleep in the main
+ * loop starts, and the sleep timer is in the radio block. The start screen at boot
+ * waits awake.
+ */
+extern bool radio_ever_on;
+
+bool hal_doze_1s(void)
+{
+    if (!radio_ever_on)
+        return false;
+    power_sleep_s(1);
+    return true;
+}
 
 /* ---- Display pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, SCK P0.0, MOSI P0.1 ---- */
 void hal_epd_power(bool on) { (void)on; }   /* no switchable display supply known */

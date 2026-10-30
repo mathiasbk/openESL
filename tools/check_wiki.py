@@ -2,7 +2,8 @@
 """
 Checks the wiki pages in wiki/ before .github/workflows/wiki.yml publishes them to the
 GitHub wiki: every link to another wiki page, to a file in the repository or to an image
-must point to something that exists, and every #anchor to a heading that exists.
+must point to something that exists, and every #anchor to a heading that exists. Every
+label model in shared/models.json (except planned ones) must have its own page.
 
   python tools/check_wiki.py
 
@@ -50,6 +51,27 @@ def anchors(path):
     return found
 
 
+def model_pages(pages):
+    """Every label model in shared/models.json that is not just planned has a page in
+    wiki/labels/models whose name ends in its product name, linked from Supported-labels."""
+    import json
+    models = json.load(open(os.path.join(ROOT, "shared", "models.json"), encoding="utf-8"))["models"]
+    listed = pages.get("Supported-labels")
+    overview = open(os.path.join(ROOT, listed), encoding="utf-8").read() if listed else ""
+    errors = []
+    for m in models:
+        if m.get("status") == "planned":
+            continue
+        found = [p for p, rel in pages.items()
+                 if p.endswith("-" + m["product"]) and rel.startswith(os.path.join("wiki", "labels", "models"))]
+        if not found:
+            errors.append("shared/models.json: %s (%s) has no page in wiki/labels/models/ named ...-%s.md"
+                          % (m["id"], m["product"], m["product"]))
+        elif "](%s)" % found[0] not in overview:
+            errors.append("wiki/labels/Supported-labels.md: no link to %s" % found[0])
+    return errors
+
+
 def main():
     pages, errors = {}, []
     for dirpath, _, files in os.walk(WIKI):
@@ -62,6 +84,7 @@ def main():
                 pages[page] = os.path.relpath(os.path.join(dirpath, name), ROOT)
     if "Home" not in pages:
         errors.append("wiki/Home.md is missing")
+    errors += model_pages(pages)
 
     for page, rel in sorted(pages.items()):
         text = open(os.path.join(ROOT, rel), encoding="utf-8").read()

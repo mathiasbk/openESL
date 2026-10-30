@@ -15,6 +15,7 @@
 
 #define CAP 8
 
+static esl_api_changes_t changes;
 static esl_store_t st;
 static esl_layouts_t layouts;
 static esl_image_t images;
@@ -25,6 +26,9 @@ static bool ap_up;
 static esl_tagfw_t tagfw;
 static uint8_t tagfw_flash[ESL_MODEL_COUNT - 1][ESL_TAGFW_SLOT];   /* the "tagfw" partition, kept over restarts */
 static uint64_t ap_boot_ms;
+/* Radio security as radio_sec.c keeps it: a key made once ("NVS"), off until the API turns it on */
+static esl_radio_sec_t sec = {{0x5E, 0xC0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E},
+                              false, NULL, NULL};
 
 sim_stats_t sim_stats;
 
@@ -37,6 +41,8 @@ static struct {
     size_t cfg_len[CAP];
     bool has_poll_s;
     uint16_t poll_s;
+    uint8_t channel;    /* 0 = none stored */
+    uint8_t ch_next;    /* a move announced, 0 = none */
     char layout[ESL_MODEL_COUNT][ESL_LAYOUT_MAX_SIZE];
     size_t layout_len[ESL_MODEL_COUNT];
     uint8_t sched[CAP][ESL_SCHED_BLOB_MAX];
@@ -97,6 +103,13 @@ static void nvs_next_poll(void *ctx, const uint16_t *next_poll_s)
     (void)ctx;
     nvs.has_poll_s = next_poll_s != NULL;
     nvs.poll_s = next_poll_s ? *next_poll_s : 0;
+}
+
+static void nvs_channel(void *ctx, uint8_t channel, uint8_t next)
+{
+    (void)ctx;
+    nvs.channel = channel;
+    nvs.ch_next = next;
 }
 
 static void nvs_layout_save(void *ctx, uint8_t model, const char *data, size_t len)
@@ -167,7 +180,7 @@ void sim_ap_boot(void)
     static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
     static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL,
-                                        nvs_image, nvs_load_image};
+                                        nvs_image, nvs_load_image, nvs_channel};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL};
     static bool first = true;
 
@@ -191,6 +204,7 @@ void sim_ap_boot(void)
         if (nvs.cfg_len[slot] && esl_persist_cfg_decode(nvs.cfg[slot], nvs.cfg_len[slot], &mac, &cfg))
             esl_store_restore_cfg(&st, slot, mac, &cfg);
     }
+    esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0);   /* after the tags, as store_nvs_init() */
     esl_sched_init(&sched, sched_entries, CAP, &sops);   /* as sched_start(): the time is unknown again */
     for (unsigned slot = 0; slot < CAP; slot++)
         if (nvs.sched_len[slot])
@@ -207,6 +221,12 @@ void sim_ap_boot(void)
         image_mem = malloc(esl_image_mem_size());
     esl_image_init(&images, image_mem, NULL);
     esl_radio_set_image(&images);
+    /* as app_main: GET /api/tags?since= starts over with a new boot number */
+    static uint32_t boots;
+    esl_api_changes_free(&changes);
+    memset(&changes, 0, sizeof(changes));
+    changes.boot = 0x51a00000u + ++boots;
+    esl_radio_set_sec(&sec);
     ap_boot_ms = sim_now_ms;
     ap_up = true;
     if (sim_verbose)
@@ -270,6 +290,22 @@ void sim_ap_off(void)
 
 bool sim_ap_up(void) { return ap_up; }
 
+void sim_ap_set_nvs_channel(uint8_t channel)
+{
+    nvs.channel = channel;
+}
+
+/* As the radio task: a planned channel move happens when the store says (esl_store_channel_step) */
+uint8_t sim_ap_channel(void)
+{
+    uint8_t ch = esl_store_channel_step(&st, sim_now_ms - ap_boot_ms);
+    esl_channel_state_t cs;
+    if (ch && sim_verbose)
+        printf("  [%7.1f s] AP moves to channel %u\n", sim_now_ms / 1000.0, ch);
+    esl_store_channel_state(&st, sim_now_ms - ap_boot_ms, &cs);
+    return cs.channel;
+}
+
 static uint64_t ap_now_ms(void)
 {
     return sim_now_ms - ap_boot_ms;
@@ -286,7 +322,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", ESL_DEFAULT_CHANNEL, &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL, true, &changes, &sec};
     esl_sb_t out;
     int status;
 
@@ -357,7 +393,7 @@ static const char *msg_name(uint8_t t)
     }
 }
 
-uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
+uint8_t sim_link(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply)
 {
     uint8_t psdu[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
     esl_radio_event_t ev;
@@ -365,13 +401,15 @@ uint8_t sim_link(const uint8_t *frame, uint8_t len, uint8_t *reply)
 
     if (len + ESL_FCS_LEN > ESL_PSDU_MAX)
         return 0;
-    if (!ap_up || drop_up > 0) {
-        if (ap_up)
+    bool other = ap_up && channel != sim_ap_channel();
+    if (!ap_up || other || drop_up > 0) {
+        if (ap_up && !other)
             drop_up--;
         sim_stats.unanswered++;
         if (sim_verbose)
-            printf("  [%7.1f s] tag -> %s: %s\n", sim_now_ms / 1000.0,
-                   msg_name(len > ESL_MHR_LEN ? frame[ESL_MHR_LEN] : 0), ap_up ? "lost" : "no AP");
+            printf("  [%7.1f s] tag -> %s on channel %u: %s\n", sim_now_ms / 1000.0,
+                   msg_name(len > ESL_MHR_LEN ? frame[ESL_MHR_LEN] : 0), channel,
+                   !ap_up ? "no AP" : other ? "the AP is on another channel" : "lost");
         return 0;
     }
     memcpy(psdu, frame, len);

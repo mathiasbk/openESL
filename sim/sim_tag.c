@@ -12,6 +12,7 @@
 #include "boot_core.h"
 #include "otaslot.h"
 #include "proto.h"
+#include "sec.h"
 
 uint64_t sim_now_ms;
 uint64_t sim_tag_mac = 0x00000123456789A8ull;
@@ -48,6 +49,10 @@ void hal_mac_read(uint8_t *mac8)
 uint16_t battery_read_mv(void) { return 2950; }
 int8_t hal_temp_c(void) { return 20; }
 void power_sleep_s(uint16_t s) { sim_now_ms += (uint64_t)s * 1000; }
+bool hal_doze_1s(void) { sim_now_ms += 1000; return true; }
+/* the radio's RSSI byte and LQI for every answer (not a measured scale) */
+uint8_t radio_rx_rssi(void) { return 0xC8; }
+uint8_t radio_rx_lqi(void) { return 0x6E; }
 
 bool hal_store_write(const uint8_t *data, uint8_t len)
 {
@@ -66,7 +71,9 @@ uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
     return flash_rec_len;
 }
 
-void radio_init(uint8_t channel) { (void)channel; }
+static uint8_t radio_channel;
+void radio_init(uint8_t channel) { radio_channel = channel; }
+uint8_t sim_tag_channel(void) { return radio_channel; }
 void radio_on(void) { radio_is_on = true; }
 void radio_off(void) { radio_is_on = false; }
 
@@ -74,7 +81,7 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
 {
     if (!radio_is_on)
         return false;
-    rx_len = sim_link(frame, len, rx_frame);
+    rx_len = sim_link(radio_channel, frame, len, rx_frame);
     return true;
 }
 
@@ -166,6 +173,7 @@ bool sim_tag_run_until_draw(uint64_t t_ms)
 }
 
 uint32_t sim_tag_shown_id(void) { return app.shown_id; }
+bool sim_tag_has_key(void) { return sec.has_key; }
 uint16_t sim_tag_fw_version(void) { return FW_VERSION; }
 uint8_t sim_tag_model_code(void) { return MODEL_CODE; }
 int sim_tag_restarts(void) { return restarts; }

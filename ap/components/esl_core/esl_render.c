@@ -6,6 +6,7 @@
 #include "esl_render.h"
 #include <string.h>
 #include "barcode.h" /* tag/src */
+#include "esl_clock.h"
 #include "esl_qr.h"
 #include "font.h"    /* tag/src */
 #include "esl_text.h"
@@ -131,6 +132,9 @@ typedef struct {
     /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
     uint8_t nnums;
     uint8_t num[RD_MAX_NUMS][ESL_LE_NUM_MAX_LEN];
+    /* Fixed texts with their date fields filled in (esl_clock.h); the runs point into them */
+    uint8_t nclocks;
+    uint8_t clock[ESL_CLOCK_TEXTS][ESL_CLOCK_TEXT_MAX];
     /* place_text is placing a formatted number; one fitted in none of its fonts */
     uint8_t num_now, num_cut;
     rd_qr_t qr;
@@ -142,6 +146,7 @@ static void scene_clear(rd_scene_t *s)
     s->nrects = 0;
     s->nbars = 0;
     s->nnums = 0;
+    s->nclocks = 0;
     s->num_now = 0;
     s->num_cut = 0;
     s->nlines = 0;
@@ -880,6 +885,20 @@ static const uint8_t *fixed_text(const rd_file_t *fl, uint8_t i, uint8_t *len)
     return fl->bin + pos + 1;
 }
 
+/* The icon whose name (fixed text names + i, ESL_LE_OFF_NAMES) is t, or -1 */
+static int icon_by_name(const rd_file_t *fl, uint8_t names, const uint8_t *t, uint8_t len)
+{
+    if (!len || !fl->icon_pos)
+        return -1;
+    for (uint8_t i = 0; i < fl->bin[ESL_LBIN_OFF_NICON] && names + i < fl->bin[ESL_LBIN_OFF_NTEXT]; i++) {
+        uint8_t n;
+        const uint8_t *name = fixed_text(fl, (uint8_t)(names + i), &n);
+        if (n == len && memcmp(name, t, len) == 0)
+            return i;
+    }
+    return -1;
+}
+
 /* Elements of layout n (0-based), or NULL */
 static const uint8_t *file_find(const rd_file_t *fl, uint8_t n, uint8_t *nelem)
 {
@@ -1005,6 +1024,15 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     add_line(s, x0, y1, x1, y0, e->lines ? e->lines : 1, color);
                 else
                     add_line(s, x0, y0, x1, y1, e->lines ? e->lines : 1, color);
+            } else if (e->kind == ESL_LE_ICON && (e->field & ESL_LE_ICON_FIELD)) {
+                uint8_t f = (uint8_t)(e->field & ~ESL_LE_ICON_FIELD);
+                int i = f < nfields ? icon_by_name(fl, e->font[0], text[f], lens[f]) : -1;
+                uint16_t iw;
+                uint8_t ih;
+                const uint8_t *d = i < 0 ? 0 : file_icon(fl, (uint8_t)i, &iw, &ih);
+                if (d && iw <= e->w && ih <= e->h)
+                    add_icon(s, d, (uint16_t)(e->x + (e->w - iw) / 2), (uint16_t)(e->y + (e->h - ih) / 2), iw, ih,
+                             color);
             } else if (e->kind == ESL_LE_ICON) {
                 uint16_t iw;
                 uint8_t ih;
@@ -1016,6 +1044,14 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                 uint8_t len = 0;
                 if (e->field & ESL_LE_FIELD_FIXED) {
                     t = fixed_text(fl, (uint8_t)(e->field & ~ESL_LE_FIELD_FIXED), &len);
+                    if (len && e->kind == ESL_LE_TEXT && s->nclocks < ESL_CLOCK_TEXTS && esl_clock_res(t, len)) {
+                        int32_t days;
+                        uint8_t *buf = s->clock[s->nclocks++];
+                        if (!esl_clock_today(&days))
+                            days = -1;
+                        len = (uint8_t)esl_clock_fill(t, len, days, buf, ESL_CLOCK_TEXT_MAX);
+                        t = buf;
+                    }
                 } else if (e->field < nfields) {
                     t = text[e->field];
                     len = lens[e->field];

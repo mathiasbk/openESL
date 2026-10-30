@@ -2,7 +2,7 @@
 
 **Status:** experimental, and **not secure yet**. It has run on one S3 and one C6 with two labels, and new prices reached both screens, but it is not in a release. The link between the two chips has no password yet: any device on your network could pretend to be the radio or the AP. Use it only on a network you trust until that is done.
 
-A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32-S3 runs the AP, and the ESP32-C6 that talks to the labels sits somewhere else on the same WiFi network, each on its own USB charger, with no wire between them. Useful when the labels are in a room the S3 cannot be in.
+A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32-S3 runs the AP, and the ESP32-C6 that talks to the labels sits somewhere else on the same WiFi network, each on its own USB charger, with no wire between them. Useful when the labels are in a room the S3 cannot be in. The S3 can fetch the [weather](Weather) for labels by itself, as on a cable.
 
 ![The ESP32-S3 AP and the wireless ESP32-C6 radio on the same WiFi network](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/ap-s3-netradio.svg)
 

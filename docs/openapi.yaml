@@ -49,7 +49,7 @@ info:
     | `413` | the body is too large |
     | `422` | the JSON is valid but a value is not (the message says which) |
     | `500` | an error inside the AP (out of memory, a reply too large, a layout file that could not be stored) |
-    | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`) |
+    | `409` | `at` is given but the AP does not know the time yet (`PUT /api/time`); `channel_now` to a channel that was not announced |
     | `408` | over the USB port: a body that stops arriving |
     | `429` | five wrong tokens in a row: every request (also with the right token, also the `/setup` form) is refused for 60 s; not on the USB port |
     | `501` | OTA on a build or partition table without it |
@@ -103,6 +103,14 @@ tags:
       `webhook` set in `PUT /api/config`, the AP checks every 30 s and `POST`s the same
       report (plus `changed`) to that URL whenever any tag's problems change, so nothing
       needs to poll it.
+  - name: Security
+    description: |
+      Radio security: a paired tag signs its messages and takes only signed answers, so
+      nobody else in radio range can change what it shows or install firmware on it
+      ([docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md), "Security").
+      Pair a tag with `PUT /api/tags/{mac}/pair`, then turn on `radio_secure` in
+      `PUT /api/config` so the AP answers only paired tags. Keep the key (`GET /api/radio-key`)
+      in the backup.
   - name: Firmware
     description: |
       New firmware for the AP itself over the API (`esl-client ota esl_ap.bin`). The image
@@ -141,6 +149,18 @@ tags:
       screen with it and sends the tag the image. The format is in the `LayoutFile` schema below and,
       with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
       The built-in layouts `price` and `text` can always be used, with or without a file.
+  - name: Data sources
+    description: |
+      Content the AP fetches for itself, so no client has to run: the weather forecast for a
+      place from MET Norway, every 30 minutes or less often. Each source fills its fields from
+      what it fetched (`{temp}°`, `{wind} m/s`) and gives them to its tags in its layout, as
+      if a client had sent `PUT /api/tags`; a tag only gets new content when the text came out
+      different. Content a client sends to a tag (`PUT /api/tags`, a picture) takes it out of
+      its source, so the source does not overwrite it; a source left without tags goes. ESP32-S3 APs only (`ESL_DATASOURCES`); the others answer `404`. The AP needs
+      to know the time and to reach the internet. How it works, every value and the weather
+      template: [docs/data-sources.md](https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md).
+      MET Norway's data is CC BY 4.0: show "MET Norway" where the forecast is shown (the weather
+      template does).
 
 paths:
   /api/tags:
@@ -152,6 +172,21 @@ paths:
         The AP and every tag it knows: tags with content and tags that have polled. Tags
         that have polled without any content set have `content_id: 0`; this is how a
         client finds new tags. The AP has no clock, so it gives "seconds ago".
+
+        A client that reads the list often (Home Assistant) can ask for only the tags that
+        changed: send `since` with any value the first time, then the `since` of the last
+        reply. With `full: false` the reply holds only the tags whose row changed since
+        then: a poll, new content, settings, a drawing, firmware; `seen_s_ago` going up by
+        itself is no change, so keep counting it on the client. With `full: true` it holds
+        every tag, and the client replaces its list: the first time, after the AP restarted,
+        or when a tag was deleted or pushed out of a full table. An AP firmware without it ignores `since` and sends
+        the whole list, without `since` and `full`.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, example: "5eed0001-17" }
+          description: The `since` of the last reply; any other value gets the whole list
       responses:
         "200":
           description: The AP and its tags
@@ -203,6 +238,50 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "409": { $ref: "#/components/responses/NoTime" }
         "507": { $ref: "#/components/responses/TableFull" }
+
+  /api/tags/{mac}/pair:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    put:
+      tags: [Security]
+      operationId: pairTag
+      summary: Give a tag this AP's key
+      description: |
+        At its next poll the tag gets its key (derived from the AP's key and its MAC) and from
+        then on signs its messages and takes only signed answers. The key goes over the air
+        in plain text at that moment, so pair where nobody is listening. `pairing` in
+        `GET /api/tags` is `pair` until the tag's first signed message, then `secure` is
+        true. Only for a tag the AP has heard.
+      responses:
+        "200":
+          description: The tag gets its key at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PairReply" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409": { $ref: "#/components/responses/NoPairing" }
+    delete:
+      tags: [Security]
+      operationId: unpairTag
+      summary: Make a paired tag forget its key
+      description: |
+        At its next signed poll the tag gets a signed order to forget its key, and talks
+        plainly again (for moving it to another AP). With `radio_secure` this AP then no
+        longer answers it.
+      responses:
+        "200":
+          description: The tag forgets its key at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PairReply" }
+        "400": { $ref: "#/components/responses/BadMac" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409": { $ref: "#/components/responses/NoPairing" }
 
   /api/tags/{mac}:
     parameters:
@@ -590,11 +669,56 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "507": { $ref: "#/components/responses/TableFull" }
 
+  /api/radio-key:
+    get:
+      tags: [Security]
+      operationId: getRadioKey
+      summary: The AP's radio key, for the backup
+      description: |
+        The key every paired tag's key comes from. Anyone with it can sign messages to the
+        tags, so keep the backup safe. The AP makes it the first time it starts.
+      responses:
+        "200":
+          description: The key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioKey" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+    put:
+      tags: [Security]
+      operationId: setRadioKey
+      summary: Put back the radio key from a backup
+      description: |
+        For a new AP that takes over from an old one: with the old AP's key the paired tags
+        keep working. Tags paired with the key it replaces get no answers until they are
+        paired again. Stored in NVS (`cfg/radio_key`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RadioKey" }
+            examples:
+              restore:
+                summary: The key from the old AP's backup
+                value: { key: "00112233445566778899AABBCCDDEEFF" }
+      responses:
+        "200":
+          description: The new key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioKey" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
   /api/config:
     get:
       tags: [Settings]
       operationId: getApConfig
-      summary: The AP-wide default poll interval, the webhook and the transmit power
+      summary: The AP-wide default poll interval, the webhook, the transmit power and the clock settings
       responses:
         "200":
           description: The default
@@ -606,15 +730,22 @@ paths:
     put:
       tags: [Settings]
       operationId: setApConfig
-      summary: Change the AP-wide default poll interval, the webhook or the transmit power
+      summary: Change the AP-wide default poll interval, the webhook, the transmit power, the radio channel or the clock settings
       description: |
         `poll_s` is the interval for tags without their own `poll_s`; the tags get it in the
         reply to their next poll, so all of them have it within one old interval. Content
         scheduled with `at` still shows on time with a long interval. `webhook` is where the
         AP posts the health report (`GET /api/health`) when it changes. `tx_power` is the
         radio's 802.15.4 transmit power, used from its next reply (a radio over WiFi gets it
-        at its next sync). A key left out keeps its value; at least one must be there. All
-        are stored in NVS (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`).
+        at its next sync). `channel` moves the AP and its tags to another 802.15.4 channel: the
+        AP tells every tag in its next reply and moves once the tags heard lately have
+        confirmed it (or at once with `channel_now`, for a move already announced); `channel_next` in the reply shows a move
+        that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone).
+        `radio_secure` makes the AP answer only paired tags. A key
+        left out keeps its value; at least one must be there. All are stored in NVS
+        (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/radio_req`). An AP that restarts during a
+        move comes up on the old channel and waits for the tags again.
       requestBody:
         required: true
         content:
@@ -636,6 +767,18 @@ paths:
               antenna:
                 summary: An external antenna of 5 dBi, so 8 dBm keeps within the EU's ~13 dBm EIRP
                 value: { tx_power: 8 }
+              channel:
+                summary: Move to channel 20, after the tags have been told
+                value: { channel: 20 }
+              channel-now:
+                summary: Move to channel 20 at once, without waiting for the tags that have not confirmed it
+                value: { channel: 20, channel_now: true }
+              clock:
+                summary: Norwegian time, from a Norwegian NTP server
+                value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3" }
+              secure:
+                summary: Answer only paired tags
+                value: { radio_secure: true }
       responses:
         "200":
           description: The new default
@@ -647,6 +790,17 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Invalid" }
+        "409":
+          description: |
+            The tags would stay on the old channel: `channel_now` to a channel that was not
+            announced first; tags heard lately with firmware from before 0.9.0 (`channel_old_tags`;
+            `force` moves anyway); tags not heard since the AP started, whose firmware it does not
+            know yet (`channel_unheard_tags`, until they poll or 3 of their intervals and a minute
+            have gone; `force` moves anyway); or a radio on WiFi from before 0.9.0, which does not pass a
+            move on to the tags (`channel_radio_old`). Back to the built-in channel is never refused.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/health:
     get:
@@ -1079,6 +1233,101 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoLayout" }
 
+  /api/sources:
+    get:
+      tags: [Data sources]
+      operationId: getSources
+      summary: The data sources and how their last fetch went
+      description: |
+        Each source as `PUT` takes it (every key filled in), with its `status`; `types` lists
+        what each type of source gives: its values and the field templates it uses when a
+        source gives none.
+      responses:
+        "200":
+          description: The sources
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcesReply" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+    put:
+      tags: [Data sources]
+      operationId: setSources
+      summary: Replace the data sources
+      description: |
+        The whole list, at most 8 sources of up to 32 tags each (a tag in one source only);
+        `[]` removes them all. Stored in NVS (`cfg/sources`, at most 16,384 bytes as the AP
+        writes it). A new or changed source is fetched at once; a source whose `id`, `type`,
+        `lat` and `lon` stay the same keeps its last answer, and only its tags' content is
+        made again (so changing the layout or the fields does not ask MET again). A source's
+        `status` may be sent back as it came from `GET`; it is ignored. Tags no longer in a
+        source keep what they show until they get other content.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourcesConfig" }
+            examples:
+              oslo:
+                summary: The weather in Oslo on two tags, in the weather layout
+                value:
+                  sources:
+                    - id: home
+                      type: met
+                      lat: 59.9139
+                      lon: 10.7522
+                      place: Oslo
+                      layout: weather
+                      tags: ["00000123456789A8", "00000123456789B2"]
+              own-fields:
+                summary: Hourly, in English, on the built-in text layout (four lines)
+                value:
+                  sources:
+                    - id: cabin
+                      type: met
+                      lat: 61.1153
+                      lon: 10.4662
+                      place: Lillehammer
+                      lang: en
+                      every_min: 60
+                      layout: text
+                      fields: ["{place} {temp}°", "{desc}", "{min}° to {max}°", "Tomorrow {tmin}°/{tmax}°"]
+                      tags: ["00000123456789A8"]
+              none:
+                summary: No data sources
+                value: { sources: [] }
+      responses:
+        "200":
+          description: Saved; the sources as `GET` shows them
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcesReply" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/SourcesInvalid" }
+        "507": { $ref: "#/components/responses/SourcesNoRoom" }
+
+  /api/sources/refresh:
+    post:
+      tags: [Data sources]
+      operationId: refreshSources
+      summary: Fetch every source now
+      description: |
+        Every source is fetched at once, except one whose last answer has not expired yet
+        (MET's `Expires`, which MET's terms ask clients to respect): its tags' content is made
+        again from that answer. The reply comes before the fetches are done; `GET` shows
+        how they went. No body.
+      responses:
+        "202":
+          description: The fetches have started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcesRefresh" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+
 components:
   securitySchemes:
     token:
@@ -1144,6 +1393,12 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: "too many wrong tokens: locked for 42 s" }
+    NoPairing:
+      description: The AP has no radio key yet, or its radio is a network radio, which answers the tags itself and has no keys
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "pairing needs the radio on the AP itself, not a network radio" }
     UnknownTag:
       description: The AP does not know this tag
       content:
@@ -1222,6 +1477,18 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: no OTA on this transport or build }
+    SourcesInvalid:
+      description: A source is not valid; the message says which and why
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "sources[0].fields[1]: {temperature} is not a value of type met" }
+    SourcesNoRoom:
+      description: NVS has no room to save the sources; the old ones stay
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "no room to save it (NVS full)" }
 
   schemas:
     Error:
@@ -1431,17 +1698,19 @@ components:
     TagCfg:
       type: object
       additionalProperties: false
-      required: [poll_s, max_poll_s, lost_ap_s]
+      required: [poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min]
       description: The tag's own settings; `null` = the default
       properties:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Poll interval in seconds }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Longest interval when the tag backs off }
         lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the tag shows "No AP found"; 65535 = never' }
+        long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min (built in: 3600)" }
+        long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before the tag polls only every long_poll_s; 65535 = never (built in: 1440, a day)" }
 
     TagFields:
       type: object
       required: [mac, seen_s_ago, battery_mv, rssi, fw, model, draw_failed, content_id, shown_content_id, pending,
-                 poll_s, config, config_pending, content_error, ota,
+                 poll_s, config, config_pending, content_error, ota, signal,
                  image, image_id, shown_image_id, fw_update]
       properties:
         mac: { $ref: "#/components/schemas/Mac" }
@@ -1466,9 +1735,31 @@ components:
             - a barcode, QR code or number does not fit its box in the layout file for this tag's model
             - null
         ota: { type: boolean, description: "The tag takes new firmware over the radio (its last poll said so; `GET /api/tag-firmware` has the images)" }
+        signal:
+          description: "The tag's last polls, oldest first (8 on an AP without PSRAM, 32 with), and totals since the AP started. RAM only: null for a tag not heard since the AP started"
+          oneOf:
+            - { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [rssi, lost, retry, polls, lost_total, retries, tag_rssi, tag_lqi]
+              properties:
+                rssi: { type: array, items: { type: integer, minimum: -128, maximum: 127 }, description: "The AP's signal strength of each poll, dBm" }
+                lost: { type: array, items: { type: integer, minimum: 0, maximum: 127 }, description: "Polls the tag sent without an answer before each one (127 = 127 or more)" }
+                retry: { type: array, items: { type: integer, enum: [0, 1] }, description: "1: the poll was the tag's second try, so the AP's answer to its first was lost" }
+                polls: { type: integer, minimum: 0, maximum: 4294967295, description: Polls since the AP started }
+                lost_total: { type: integer, minimum: 0, maximum: 65535, description: "Polls without an answer since the AP started, as the tags report them (stops at 65535)" }
+                retries: { type: integer, minimum: 0, maximum: 65535, description: "Polls answered only at the second try since the AP started (stops at 65535)" }
+                tag_rssi: { type: [integer, "null"], minimum: 0, maximum: 255, description: "The tag radio's raw RSSI byte for the AP's last answer; not in dBm (the scale is not measured yet), higher is stronger. null: firmware that does not send it" }
+                tag_lqi: { type: [integer, "null"], minimum: 0, maximum: 127, description: "Link quality of the AP's last answer at the tag; null as tag_rssi" }
         image: { type: boolean, description: "The tag shows images the AP draws (its last poll said so; a tag without SPI flash cannot): `shown_content_id` is `content_id` once it shows that content's image, 0 while it shows another" }
         image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The id (CRC-32) of the image of the tag's content, once the AP has drawn it for a tag; 0 until then, null without content. A tag with `image` shows `content_id` when it reports this id" }
         shown_image_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The image id a tag with `image` reported in its last poll (0 = nothing shown), null for other tags. `shown_content_id` is `content_id` when it is this tag's `image_id`, and 0 otherwise" }
+        secure: { type: boolean, description: "Its last message was authenticated: it has this AP's key (radio security, `PUT /api/tags/{mac}/pair`). Left out by an AP without radio security" }
+        pairing:
+          type: [string, "null"]
+          enum: [pair, forget, null]
+          description: "What the tag gets at its next poll: its key (`pair`), or the order to forget it (`forget`); null when nothing waits. Kept in RAM only"
+        sec_rejected: { type: integer, minimum: 0, maximum: 65535, description: "Messages from this MAC turned away since the AP started: a wrong MIC (another key, or someone else) or a counter already used (a replay)" }
         fw_update:
           description: "The AP's firmware for its model, which the tag takes and is for it: how many bytes it has fetched (the AP has sent up to there). null when it runs it, cannot take it, rejected it, or it is not for it. Kept in RAM only, so 0 again after a restart until its next block"
           oneOf:
@@ -1480,6 +1771,21 @@ components:
                 version: { type: string }
                 received: { type: integer, minimum: 0 }
                 size: { type: integer, minimum: 1024 }
+
+    PairReply:
+      type: object
+      additionalProperties: false
+      required: [mac, pairing]
+      properties:
+        mac: { type: string, pattern: "^[0-9A-F]{16}$" }
+        pairing: { type: string, enum: [pair, forget] }
+
+    RadioKey:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: { type: string, pattern: "^[0-9A-Fa-f]{32}$", description: "16 bytes as hex, not all zero" }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]
@@ -1510,6 +1816,13 @@ components:
       required: [ap, tags]
       properties:
         ap: { $ref: "#/components/schemas/ApInfo" }
+        since:
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9]+$"
+          description: Only with `?since=`. What to send as `since` next time
+        full:
+          type: boolean
+          description: Only with `?since=`. True when `tags` is every tag, false when it is only those changed since `since`
         tags:
           type: array
           items: { $ref: "#/components/schemas/Tag" }
@@ -1527,10 +1840,11 @@ components:
             shown_content_id: 2914470401
             pending: false
             poll_s: 120
-            config: { poll_s: 120, max_poll_s: null, lost_ap_s: null }
+            config: { poll_s: 120, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null }
             config_pending: false
             content_error: null
             ota: true
+            signal: { rssi: [-62, -61, -63, -61], lost: [0, 0, 1, 0], retry: [0, 1, 0, 0], polls: 1440, lost_total: 3, retries: 5, tag_rssi: 196, tag_lqi: 108 }
             image: true
             image_id: 3522432519
             shown_image_id: 3522432519
@@ -1550,6 +1864,8 @@ components:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Poll interval in seconds; null: the AP default" }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Longest interval when the tag backs off; null: built in" }
         lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before "No AP found"; 65535 = never; null: built in' }
+        long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min; null: built in (3600)" }
+        long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before long_poll_s; 65535 = never; null: built in (1440)" }
 
     TagConfigFields:
       type: object
@@ -1601,6 +1917,58 @@ components:
             (`ESL_TX_POWER_DBM`, 10). The EU (EN 300 328) allows 20 dBm EIRP and 10 dBm/MHz,
             about 13 dBm EIRP for 802.15.4: with an antenna of G dBi, the EU limit is about
             13 − G. Above that only where more is allowed. `422` on an AP without a radio (the stub, the sniffer).
+        channel:
+          type: [integer, "null"]
+          minimum: 11
+          maximum: 26
+          description: |
+            The 802.15.4 channel for the AP and its tags, `null` = back to the one set in
+            menuconfig (`ESL_CHANNEL`, 25). The AP tells each tag in the reply to its next poll
+            (CONFIG), and its radio moves once every tag heard lately has confirmed it at the
+            poll after, or after two of the longest interval and a minute at the latest. A tag
+            that misses its AP tries the announced channel at once, so it is back after one
+            lost poll. A move away from the built-in channel answers `409` while a tag heard
+            lately runs firmware from before 0.9.0, which confirms CONFIG but cannot follow it
+            (see `force`), or while the radio on WiFi is that old. Channel 26 is the furthest from WiFi channels 1, 6 and 11, and 25 and
+            15 are also between them. `422` on an AP without a radio (the stub, the sniffer).
+        channel_now:
+          type: boolean
+          description: |
+            With `channel`: `true` moves the radio at once, without waiting for the tags, to the
+            channel of a move announced before (`channel_next`) or to the built-in one, else
+            `409`. Tags that had not confirmed it look for the AP on the announced channel at
+            once, and on the built-in one and the others after three missed polls.
+        force:
+          type: boolean
+          description: |
+            With `channel`: `true` moves even though tags heard lately run firmware from before
+            0.9.0 (`channel_old_tags`) or have not polled since the AP started; old ones stay on
+            the old channel and lose the AP until it is back there. Without it, a move off the
+            built-in channel is called off when such a tag shows up during the wait
+            (`channel_stopped`).
+        ntp:
+          type: [string, "null"]
+          maxLength: 63
+          pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+          description: |
+            The NTP server the AP sets its clock from once it is on WiFi: a host name or IPv4
+            address. `null` or `""` = back to the one set in menuconfig (`ESL_NTP_SERVER`).
+            Used at once, no restart.
+        radio_secure:
+          type: [boolean, "null"]
+          description: |
+            Radio security: `true` = the AP answers only tags paired with its key (and a tag it
+            is pairing), `false` or `null` = tags without a key get answers too (paired tags are
+            authenticated either way). `422` on an AP without radio security.
+        tz:
+          type: [string, "null"]
+          maxLength: 63
+          pattern: "^([A-Za-z]{3,}|<[A-Za-z0-9+-]+>)[+-]?[0-9][A-Za-z0-9+,./:<>-]*$"
+          description: |
+            The time zone for the AP's local time, as a POSIX TZ string (`CET-1CEST,M3.5.0,M10.5.0/3`
+            for Norway; tzdata names such as `Europe/Oslo` are not understood). `null` or
+            `""` = UTC. The clock itself and `at` stay in UTC; local time is for what the AP
+            fills in itself (dates, data sources).
 
     ApConfigReply:
       type: object
@@ -1612,6 +1980,19 @@ components:
         webhook: { type: [string, "null"], maxLength: 127, description: "The webhook URL, null when off" }
         tx_power: { type: integer, minimum: -24, maximum: 20, description: "The radio's transmit power in dBm now; left out on an AP without a radio" }
         builtin_tx_power: { type: integer, minimum: -24, maximum: 20, description: The value set in menuconfig }
+        channel: { type: integer, minimum: 11, maximum: 26, description: "The channel the radio is on; left out on an AP without a radio" }
+        builtin_channel: { type: integer, minimum: 11, maximum: 26, description: The channel set in menuconfig }
+        channel_next: { type: [integer, "null"], minimum: 11, maximum: 26, description: "The channel the AP is moving to once the tags have confirmed it; null when no move is waiting" }
+        channel_waiting: { type: integer, minimum: 0, description: "With channel_next: tags heard lately that have not confirmed the move yet" }
+        channel_due_s: { type: integer, minimum: 0, description: "With channel_next: the move happens in at most this many seconds" }
+        channel_old_tags: { type: integer, minimum: 0, description: "With channel: tags heard lately whose firmware (before 0.9.0) cannot follow a channel change" }
+        channel_unheard_tags: { type: integer, minimum: 0, description: "With channel: tags in the table not heard since the AP started that may still poll; a move off the built-in channel waits for them (409) unless forced" }
+        channel_stopped: { type: integer, minimum: 0, description: "With channel: the last move was called off because this many tags with old firmware showed up during the wait (1 also for an old radio); 0 = not" }
+        channel_radio_old: { type: boolean, description: "With channel: the radio on WiFi runs firmware from before 0.9.0, which does not tell the tags of a new channel" }
+        ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
+        builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
+        tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
+        radio_secure: { type: boolean, description: "Only paired tags get answers. Left out by an AP without radio security" }
 
     Health:
       type: object
@@ -1911,6 +2292,103 @@ components:
         model: { $ref: "#/components/schemas/ModelName" }
         deleted: { const: true }
 
+    SourceConfig:
+      type: object
+      additionalProperties: false
+      patternProperties: { "^_": true }
+      required: [id, type, lat, lon, layout]
+      properties:
+        id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
+        type: { type: string, enum: [met], description: "`met`: the forecast from MET Norway (api.met.no locationforecast 2.0)" }
+        lat: { type: number, minimum: -90, maximum: 90, description: "Degrees north, kept to 4 decimals" }
+        lon: { type: number, minimum: -180, maximum: 180, description: "Degrees east, kept to 4 decimals" }
+        place: { type: string, maxLength: 32, default: "", description: "The place's name, value `{place}` (at most 32 bytes of UTF-8)" }
+        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}`" }
+        every_min: { type: integer, minimum: 30, maximum: 1440, default: 30, description: "Minutes between fetches; never before the last answer's `Expires`" }
+        layout:
+          type: string
+          description: |
+            A layout in the layout file of each tag's model, or `text` (built in, four lines).
+            A tag whose model has no such layout, or whose content does not fit it, is
+            counted in `tags_failed` and keeps what it shows.
+        fields:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items: { type: string, maxLength: 48 }
+          description: |
+            The content's fields, each a template of text and `{value}`s (`types.met.values`
+            in `GET`). Left out: `types.met.fields`, the fields of the weather template.
+        tags:
+          type: array
+          maxItems: 32
+          items: { $ref: "#/components/schemas/Mac" }
+          default: []
+          description: The tags that show this source. A tag can be in one source only.
+        status:
+          $ref: "#/components/schemas/SourceStatus"
+          description: "In GET; PUT ignores it, so a source can be sent back as it came"
+
+    SourcesConfig:
+      type: object
+      additionalProperties: false
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          maxItems: 8
+          items: { $ref: "#/components/schemas/SourceConfig" }
+
+    SourceStatus:
+      type: object
+      additionalProperties: false
+      required: [ok, fetched_at, tried_at, data_at, next_at, http, tags_set, tags_changed, tags_failed, error, values]
+      properties:
+        ok: { type: boolean, description: "There is data, and the last fetch and the content went well" }
+        fetched_at: { type: [integer, "null"], description: "Unix s of the last answer with data (200, or 304 Not Modified); null: none yet" }
+        tried_at: { type: [integer, "null"], description: "Unix s of the last try" }
+        data_at: { type: [integer, "null"], description: "When the source made its data (MET: the forecast's `updated_at`)" }
+        next_at: { type: [integer, "null"], description: "Unix s of the next fetch; 0 or null: as soon as the AP knows the time and is free" }
+        http: { type: integer, description: "The HTTP status of the last try; 0: no answer (no network, DNS, TLS)" }
+        tags_set: { type: integer, minimum: 0, description: "Tags given content by the last run" }
+        tags_changed: { type: integer, minimum: 0, description: "Of them, the ones whose content changed (and are sent it)" }
+        tags_failed: { type: integer, minimum: 0, description: "Tags that could not get it (layout missing for their model, content too long)" }
+        error: { type: [string, "null"], description: "What went wrong in the last run; null when it went well" }
+        values:
+          type: object
+          additionalProperties: { type: string }
+          description: The values of the last answer, as the field templates see them
+
+    Source:
+      allOf:
+        - { $ref: "#/components/schemas/SourceConfig" }
+      required: [id, type, lat, lon, place, lang, every_min, layout, fields, tags, status]
+
+    SourcesReply:
+      type: object
+      additionalProperties: false
+      required: [types, sources]
+      properties:
+        types:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [values, fields]
+            properties:
+              values: { type: array, items: { type: string }, description: "The `{value}`s a field template can use" }
+              fields: { type: array, items: { type: string }, description: "The templates used when a source gives no `fields`" }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/Source" }
+
+    SourcesRefresh:
+      type: object
+      additionalProperties: false
+      required: [refreshing]
+      properties:
+        refreshing: { type: integer, minimum: 0, description: "The number of sources" }
+
     LayoutFile:
       type: object
       description: |
@@ -1984,14 +2462,14 @@ components:
       patternProperties: { "^_": true }
       required: [type, x, y]
       description: |
-        Every element needs `x` and `y`, and all but `icon` (whose size is the icon's) `w` and `h`.
+        Every element needs `x` and `y`, and all but `icon` with `icon` (whose size is the icon's) `w` and `h`.
       properties:
         type:
           type: string
           enum: [text, rect, barcode, line, icon, qr]
           description: |
             `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
-            field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`; `qr`: one
+            field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`, named in the layout or by a field; `qr`: one
             field as a QR code (black, with a white quiet zone of 2 modules inside the box)
         radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
         border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
@@ -2001,8 +2479,14 @@ components:
           default: down
           description: "line only: the line runs from the top-left to the bottom-right corner of its box (`down`) or from the bottom-left to the top-right (`up`); a box 1 px high or wide is a straight line"
         width: { type: integer, minimum: 1, maximum: 16, default: 1, description: "line only: in pixels. A straight line is exactly this thick, (width - 1) / 2 of it above or left of its box, with square ends; a slanted one reaches width / 2 past its box and its ends are round" }
-        icon: { type: string, description: "icon only, required: a name from the file's `icons`" }
-        field: { type: [string, integer], description: "text, barcode and qr: a name from `fields`, or its index" }
+        icon: { type: string, description: "icon only: a name from the file's `icons`; give this or `field`" }
+        field:
+          type: [string, integer]
+          description: |
+            text, barcode and qr: a name from `fields`, or its index. icon, instead of `icon`:
+            the field whose text names the icon (`sun`, `rain`), so the content picks it; the
+            element then needs `w` and `h`, the icon is centred in that box, and nothing is
+            drawn when the text names no icon of the file or the icon is larger than the box
         text:
           type: string
           minLength: 1
@@ -2046,11 +2530,13 @@ components:
         decimals:
           oneOf:
             - { type: integer, enum: [0, 2] }
-            - { type: string, enum: [auto, dash, keep] }
+            - { type: string, enum: [auto, dash, 0-dash, keep] }
           description: |
             text only: draws a number such as a price the same way whatever the client sends
             (`1299.9`, `1299,90`, `1 299,90`, `199,-`). `2`: `1299,90`; `0`: `1300` (rounded);
-            `auto`: `199` or `199,90`; `dash`: `199,-` or `199,90`; `keep`: the decimals as sent,
+            `auto`: `199` or `199,90`; `dash`: `199,-` or `199,90`; `0-dash`: `200,-` (rounded to the nearest krone,
+            so for prices that are whole kroner; an AP on 0.9.0 or newer);
+            `keep`: the decimals as sent,
             with a decimal comma. One dot and no comma is the decimal sign (`1.299` is 1,299).
             Text that is not a number is drawn as sent. A formatted number is drawn on one line.
             At most 8 elements per layout with a number format. Left out: no format.

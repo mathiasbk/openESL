@@ -9,7 +9,7 @@ if(CONFIG_ESL_RADIO_STUB)
 elseif(CONFIG_ESL_RADIO_DRIVER_NET)
     list(APPEND srcs radio_net.c radio_tx.c)
 else()
-    list(APPEND srcs radio.c radio_tx.c)
+    list(APPEND srcs radio.c radio_tx.c radio_sec.c)
     if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)
         list(APPEND srcs radio_ieee802154.c)
     elseif(CONFIG_ESL_RADIO_DRIVER_UART)
@@ -36,6 +36,10 @@ if(CONFIG_ESL_OTA)
     list(APPEND srcs ota.c)
 endif()
 
+if(CONFIG_ESL_DATASOURCES)
+    list(APPEND srcs datasrc.c)
+endif()
+
 if(CONFIG_ESL_WIFI_CAPTIVE)
     list(APPEND srcs captive.c)
 endif()
@@ -57,7 +61,7 @@ if(CONFIG_ESL_WEB_DASHBOARD)
         list(APPEND webui_modules design)
     endif()
     idf_build_get_property(python PYTHON)
-    file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js
+    file(GLOB webui_deps ${web_dir}/index.html ${web_dir}/css/*.css ${web_dir}/js/*.js ${web_dir}/../templates/home/weather.json
          ${CMAKE_CURRENT_LIST_DIR}/../../tag/designs/layouts/*.json ${CMAKE_CURRENT_LIST_DIR}/../../shared/models.json)
     if(CONFIG_ESL_WEB_DESIGNER)
         # the renderer files and what they are built from: a change to either runs webui.py again,
@@ -79,5 +83,5 @@ idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS .
     REQUIRES esl_core esp_wifi esp_netif esp_event esp_http_server esp_timer nvs_flash esp_app_format ieee802154 esl_coproc esl_lcd esp_driver_uart
-             esp_driver_usb_serial_jtag vfs esp_lcd esp_driver_spi esp_driver_gpio esp_http_client app_update lwip esp_partition)
+             esp_driver_usb_serial_jtag vfs esp_lcd esp_driver_spi esp_driver_gpio esp_http_client app_update lwip esp_partition mbedtls)
 # mdns comes from idf_component.yml and is added to this component automatically.

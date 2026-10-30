@@ -6,9 +6,14 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, pairText, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
+import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS } from "./models.js";
+import { initSettings } from "./apsettings.js";
+import { initLayouts } from "./aplayouts.js";
+import { readKey, keyPanel, isSaved, initKeyCard } from "./radiokey.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -37,6 +42,7 @@ const store = {
 
 export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
+  const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
@@ -49,6 +55,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
+  const layoutCard = initLayouts({ client: () => client, refresh: () => refresh(), firmwareBase, sameOrigin });
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -78,9 +85,57 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   const visible = () => !$("tab-dashboard").hidden && !document.hidden;
 
+  // The Settings page (js/apsettings.js): a new token is used from now on, and kept on the AP's own page
+  const settings = initSettings({
+    getClient: () => client,
+    // { key: true } after a restore, which can give the AP another radio key
+    refresh: (o) => {
+      if (o?.key) keyStale = true;
+      refresh();
+    },
+    overUsb: () => src() === "serial",
+    onToken: (token) => {
+      if (client instanceof ApClient) client.token = token;
+      $("dash-token").value = token;
+      if (sameOrigin) store.set("dash.token", token);
+    },
+  });
+
+  // The AP's details for the radio key file and the browser's copy of it
+  const apInfo = () => ({
+    hostname: last?.wifi?.hostname, ip: last?.wifi?.ip, setup_ssid: last?.wifi?.setup_ssid,
+    board: last?.list?.ap?.board_name || last?.list?.ap?.board, fw: last?.list?.ap?.fw,
+  });
+  const keyCard = initKeyCard({ getClient: () => client, apInfo });
+
+  // The radio key above everything else until this browser is told it is saved: an AP makes it
+  // the first time it starts 0.9.0, so this also comes up after an update over the API, and when
+  // a restore gave the AP another key
+  let shownKey = "";
+  let keyStale = true;   // read the key at the next refresh: once per connection, not every 10 s
+  function showKey() {
+    const key = last?.radioKey || "";
+    const box = $("dash-key");
+    if (!key || isSaved(key)) {
+      box.hidden = true;
+      box.replaceChildren();
+      shownKey = "";
+      return;
+    }
+    if (key === shownKey) return;   // as it is: the ticks and messages in it stay
+    shownKey = key;
+    box.replaceChildren(keyPanel(key, { ap: apInfo(), onSaved: () => showKey() }));
+    box.hidden = false;
+    keyCard.listKept();
+  }
+
   // Connected, the setup text and fields give way to one line: where, and how fresh
   function setConnected(c, where = "") {
     client = c;
+    sources.connected(c);
+    settings.reset();
+    keyCard.reset();
+    keyStale = true;
     screens.clear();
     screenQueue.length = 0;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
@@ -90,12 +145,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     connectedTo = c ? "Connected to " + where : "";
     $("dash-where").textContent = connectedTo;
     clearTimeout(timer);
+    layoutCard.reset();
     if (c) refresh();
     else {
       $("dash-body").hidden = true;
       last = null;
       lastAt = 0;
       failed = false;
+      showKey();
       setStale(false);
     }
     showLive();
@@ -141,14 +198,23 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const tagfw = await optional("/api/tag-firmware");
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
+      // firmware with radio security (0.9.0) has "radio_secure", and a radio key
+      // read once per connection, and again after new AP firmware or a restore
+      const secure = typeof config?.radio_secure === "boolean";
+      const fresh = secure && keyStale;
+      let keyRead = false;   // a failed read is tried again at the next refresh
+      const radioKey = !secure ? null : fresh ? await readKey(c).then((k) => ((keyRead = true), k), () => last?.radioKey ?? null) : last?.radioKey ?? null;
       if (c !== client) return;
-      last = { list, health, wifi, ota, tagfw, layouts, config };
+      last = { list, health, wifi, ota, tagfw, layouts, config, radioKey };
+      if (keyRead) keyStale = false;
       lastAt = Date.now();
       stale = failed = false;
       $("dash-body").classList.remove("stale");
       render();
+      showKey();
       showLive();
       msg("");
+      layoutCard.render(last);
     } catch (e) {
       msg(e.message.charAt(0).toUpperCase() + e.message.slice(1), "error");
       if (last) setStale(true); // the line above says since when
@@ -173,148 +239,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     else timer = setTimeout(tick, REFRESH_MS);
   }
 
-  // The poll interval for all tags (PUT /api/config). What the AP has is shown until the
-  // choice is changed here; then it stays as chosen until it is saved
-  let pollDirty = false;
-  let pollSaving = false; // a PUT is under way: a refresh meanwhile leaves Save off
-  const pollMsg = (text, cls = "") => {
-    $("dash-poll-msg").textContent = text;
-    $("dash-poll-msg").className = "hint" + (cls ? " " + cls : "");
-  };
-  // the interval chosen in the form: { poll_s } or { error }
-  const pollChosen = () => {
-    const v = $("dash-poll-sel").value;
-    return v === "other" ? parsePoll($("dash-poll-s").value) : { poll_s: Number(v) };
-  };
-  function showPollNote() {
-    const c = pollChosen();
-    const other = $("dash-poll-sel").value === "other";
-    $("dash-poll-other").hidden = !other;
-    $("dash-poll-s").disabled = !other;
-    $("dash-poll-note").textContent = c.error ? "" : pollNote(c.poll_s, last?.list?.tags);
-  }
-  function renderPoll() {
-    const cur = last.list.ap.poll_s || 0;
-    const sel = $("dash-poll-sel");
-    if (!sel.options.length) {
-      const opt = (value, text) => sel.append(new Option(text, value));
-      opt("0", `${fmtInterval(TAG_BUILTIN_POLL_S)} (tag default)`);
-      for (const s of POLL_PRESETS) opt(String(s), fmtInterval(s));
-      opt("other", "Other …");
-    }
-    if (!pollDirty) {
-      const preset = [...sel.options].some((o) => o.value === String(cur));
-      sel.value = preset ? String(cur) : "other";
-      $("dash-poll-s").value = preset ? "" : cur;
-    }
-    $("dash-poll-save").disabled = pollSaving || !pollDirty;
-    showPollNote();
-  }
-  const pollChanged = () => {
-    pollDirty = true;
-    pollMsg("");
-    if (last) renderPoll();
-  };
-  $("dash-poll-sel").addEventListener("change", () => {
-    if ($("dash-poll-sel").value === "other" && !$("dash-poll-s").value) $("dash-poll-s").value = last?.list?.ap.poll_s || TAG_BUILTIN_POLL_S;
-    pollChanged();
-    if ($("dash-poll-sel").value === "other") $("dash-poll-s").focus();
-  });
-  $("dash-poll-s").addEventListener("input", pollChanged);
-  $("dash-poll").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (!client) return;
-    const c = pollChosen();
-    if (c.error) return pollMsg(c.error, "error");
-    // the AP's built-in value (menuconfig) is a reset, so a later firmware default applies
-    const builtin = last?.config?.builtin_poll_s;
-    const body = { poll_s: c.poll_s === builtin ? null : c.poll_s };
-    $("dash-poll-save").disabled = true;
-    pollSaving = true;
-    try {
-      await client.call("PUT", "/api/config", body);
-      pollDirty = false;
-      pollMsg(c.poll_s
-        ? `Saved. The tags poll every ${fmtInterval(c.poll_s)} from their next poll.`
-        : `Saved. The tags go back to their default ${fmtInterval(TAG_BUILTIN_POLL_S)} from their next poll.`, "ok");
-      refresh();
-    } catch (e) {
-      pollMsg("Not saved: " + e.message, "error");
-    } finally {
-      pollSaving = false;
-      $("dash-poll-save").disabled = !pollDirty;
-    }
-  });
-
-  // The radio's transmit power (PUT /api/config "tx_power"), shown when the AP has one: a
-  // preset, or "Other" with a whole number of dBm. As with the poll interval, a choice stays
-  // until it is saved.
-  let txDirty = false;
-  let txSaving = false;
-  const txMsg = (text, cls = "") => {
-    $("dash-tx-msg").textContent = text;
-    $("dash-tx-msg").className = "hint" + (cls ? " " + cls : "");
-  };
-  // the power chosen in the form: { dbm } or { error }
-  const txChosen = () => {
-    const v = $("dash-tx-sel").value;
-    return v === "other" ? parseTx($("dash-tx-db").value) : { dbm: Number(v) };
-  };
-  function showTxNote() {
-    const other = $("dash-tx-sel").value === "other";
-    $("dash-tx-other").hidden = !other;
-    $("dash-tx-db").disabled = !other;
-    const c = txChosen();
-    $("dash-tx-note").textContent = [c.error ? "" : txWarning(c.dbm), TX_NOTE].filter(Boolean).join(" ");
-  }
-  function renderTx() {
-    const c = last.config;
-    const has = Number.isInteger(c?.tx_power);
-    $("dash-tx").hidden = $("dash-tx-note").hidden = !has;
-    if (!has) return;
-    const sel = $("dash-tx-sel");
-    if (!txDirty) {
-      sel.replaceChildren(...txOptions(c.tx_power, c.builtin_tx_power).map(([v, text]) => new Option(text, String(v))),
-        new Option("Other …", "other"));
-      sel.value = String(c.tx_power);
-      $("dash-tx-db").value = "";
-    }
-    $("dash-tx-save").disabled = txSaving || !txDirty;
-    showTxNote();
-  }
-  const txChanged = () => {
-    txDirty = true;
-    txMsg("");
-    if (last) renderTx();
-  };
-  $("dash-tx-sel").addEventListener("change", () => {
-    if ($("dash-tx-sel").value === "other" && !$("dash-tx-db").value) $("dash-tx-db").value = last?.config?.tx_power ?? "";
-    txChanged();
-    if ($("dash-tx-sel").value === "other") $("dash-tx-db").focus();
-  });
-  $("dash-tx-db").addEventListener("input", txChanged);
-  $("dash-tx").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (!client) return;
-    const c = txChosen();
-    if (c.error) return txMsg(c.error, "error");
-    // the built-in value is a reset, so a later firmware default applies
-    const body = { tx_power: c.dbm === last?.config?.builtin_tx_power ? null : c.dbm };
-    $("dash-tx-save").disabled = true;
-    txSaving = true;
-    try {
-      await client.call("PUT", "/api/config", body);
-      txDirty = false;
-      txMsg(`Saved. The radio sends at ${c.dbm} dBm from its next reply.`, "ok");
-      refresh();
-    } catch (e) {
-      txMsg("Not saved: " + e.message, "error");
-    } finally {
-      txSaving = false;
-      $("dash-tx-save").disabled = !txDirty;
-    }
-  });
-
   // The filter of the tag table: "all", "bad", "busy" or "model:<model>", kept in this browser
   let filter = store.get("dash.filter") || "all";
   const setFilter = (f) => {
@@ -331,6 +255,90 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (title) td.title = title;
     return td;
   };
+
+  // The Signal column: the last RSSI, and the last polls as small bars (higher = stronger,
+  // a red mark where polls were lost before it), with the numbers in the tooltip (#261).
+  // A click on it opens a bigger chart under the row (signalDetail), kept open across refreshes.
+  const SVG = "http://www.w3.org/2000/svg";
+  const openSignal = new Set();
+  const svgEl = (name, attrs, text) => {
+    const e = document.createElementNS(SVG, name);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  function toggleSignal(mac) {
+    if (!openSignal.delete(mac)) openSignal.add(mac);
+    render();
+  }
+  function signalButton(tag, content, title) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sig-btn";
+    b.title = title + " Click for a bigger chart.";
+    b.setAttribute("aria-expanded", String(openSignal.has(tag.mac)));
+    b.append(...content);
+    b.onclick = () => toggleSignal(tag.mac);
+    return b;
+  }
+  function signalCell(tag) {
+    const sig = signalSummary(tag);
+    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num");
+    const td = cell("", "opt num signal" + (sig.weak ? " state-busy" : ""));
+    const W = 5, H = 18, n = tag.signal.rssi.length;
+    const svg = svgEl("svg", { viewBox: `0 0 ${n * W} ${H}`, width: n * W, height: H, "aria-hidden": "true" });
+    tag.signal.rssi.forEach((r, i) => {
+      // -100 dBm and below: 2 px, -40 and above: full height under the marks
+      const h = Math.max(2, Math.min(H - 4, Math.round(((r + 100) / 60) * (H - 4))));
+      svg.append(svgEl("rect", { x: i * W, y: H - h, width: W - 1, height: h, class: "bar" }));
+      if (tag.signal.lost?.[i] || tag.signal.retry?.[i])
+        svg.append(svgEl("rect", { x: i * W, y: 0, width: W - 1, height: 3, class: tag.signal.lost?.[i] ? "lost" : "retry" }));
+    });
+    td.append(signalButton(tag, [svg, " " + sig.text], sig.title));
+    return td;
+  }
+
+  // The bigger chart: one bar per poll from -100 to -40 dBm, the weak line at -85, lost and
+  // retried polls marked above their bar (the numbers stay in the tooltip)
+  function signalDetail(tag) {
+    const sig = signalSummary(tag);
+    const tr = document.createElement("tr");
+    tr.setAttribute("role", "row");
+    tr.className = "sig-detail";
+    const td = cell("", "sig-detail");
+    td.colSpan = 10;
+    const s = tag.signal, n = s.rssi.length;
+    const L = 46, T = 26, PH = 110, step = Math.max(12, Math.min(40, Math.floor(480 / n))), W = L + n * step + 8, H = T + PH + 22;
+    const y = (dbm) => T + PH * (1 - (Math.max(-100, Math.min(-40, dbm)) + 100) / 60);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "sig-chart", role: "img",
+                               "aria-label": sig.title });
+    for (const g of [-40, -60, -85, -100])
+      svg.append(svgEl("line", { x1: L - 4, x2: W - 4, y1: y(g), y2: y(g), class: g === -85 ? "weak" : "grid" }),
+                 svgEl("text", { x: L - 8, y: y(g) + 4, class: "axis", "text-anchor": "end" }, `${g}`));
+    svg.append(svgEl("text", { x: 4, y: 10, class: "axis" }, "dBm"));
+    s.rssi.forEach((r, i) => {
+      const x = L + i * step + 2, bw = step - 4;
+      const bar = svgEl("rect", { x, y: y(r), width: bw, height: Math.max(2, T + PH - y(r)), class: "bar" });
+      const what = s.lost?.[i] ? `, ${s.lost[i]} lost before it` : s.retry?.[i] ? ", on the tag's second try" : "";
+      bar.append(svgEl("title", {}, `${n - 1 - i ? `${n - 1 - i} poll${n - 1 - i === 1 ? "" : "s"} back` : "Last poll"}: ${r} dBm${what}`));
+      svg.append(bar);
+      if (s.lost?.[i] || s.retry?.[i])
+        svg.append(svgEl("rect", { x, y: T - 10, width: bw, height: 5, class: s.lost?.[i] ? "lost" : "retry" }));
+    });
+    svg.append(svgEl("text", { x: L + 2, y: H - 4, class: "axis" }, "older"),
+               svgEl("text", { x: W - 6, y: H - 4, class: "axis", "text-anchor": "end" }, "last poll"));
+    const legend = document.createElement("p");
+    legend.className = "hint sig-legend";
+    legend.innerHTML = '<span class="key lost"></span> no answer before this poll <span class="key retry"></span> answered on the second try <span class="key weak"></span> weak (−85 dBm)';
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "small";
+    close.textContent = "Close";
+    close.onclick = () => toggleSignal(tag.mac);
+    td.append(svg, legend, close);
+    tr.append(td);
+    return tr;
+  }
 
   // A button that sets the filter, pressed while it is the one in use
   function filterButton(f, cls, ...content) {
@@ -351,7 +359,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     if (!a || !$("dash-body").contains(a)) return null;
     if (a.dataset.f) return `[data-f="${a.dataset.f}"]` + (a.classList.contains("tile") ? ".tile" : ".chip");
     const tr = a.closest("#dash-tags tr[data-mac]");
-    if (tr) return `tr[data-mac="${tr.dataset.mac}"] ` + (a.matches("td.sel input") ? "td.sel input" : "button.fw-up");
+    if (tr) return `tr[data-mac="${tr.dataset.mac}"] ` + (a.matches("td.sel input") ? "td.sel input" : a.matches("td.meta .sig-btn") ? "td.meta .sig-btn" : a.matches(".sig-btn") ? "td.signal .sig-btn" : "button.fw-up");
     return null;
   }
 
@@ -377,8 +385,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
-    renderPoll();
-    renderTx();
+    settings.render(last);
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
@@ -422,7 +429,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
     const rows = filterRows(all, filter, $("dash-find").value);
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
-    $("dash-tags").replaceChildren(...rows.map(({ tag, state, next }) => {
+    $("dash-tags").replaceChildren(...rows.flatMap(({ tag, state, next }) => {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
       tr.dataset.mac = tag.mac;
@@ -441,6 +448,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const b = document.createElement("b");
       b.textContent = tag.mac.slice(-6);
       mac.append(pre, b);
+      const lock = pairMark(tag);
+      if (lock) mac.append(" ", lock);
       const seen = lastCheckin(tag);
       const lateCls = next?.late ? (state.level === "bad" ? "state-bad" : "state-busy") : "";
       const battery = fmtBattery(tag.battery_mv);
@@ -449,7 +458,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         cell(tag.model ? tag.model + '"' : "–", "opt"),
         cell(seen.text, "opt", seen.at),
         cell(next ? next.text : "–", "opt " + lateCls, next ? "Expected by " + next.at : ""),
-        cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num"),
+        signalCell(tag),
         cell(battery, "opt num", tag.battery_mv === 0 ? "This model cannot measure its battery" : ""),
         fw);
       // Firmware for it: how far it is, or a button that gives it the page's newer firmware
@@ -478,10 +487,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       }
       // On a phone the columns after the MAC become one line under it
       const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
-        next && !next.late ? "next " + next.text : null, tag.rssi == null ? null : `${tag.rssi} dBm`,
+        next && !next.late ? "next " + next.text : null, signalSummary(tag)?.text ?? (tag.rssi == null ? null : `${tag.rssi} dBm`),
         battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
-      tr.append(screenCell(tag), cell(meta, "meta"));
-      return tr;
+      const metaTd = cell(meta, "meta");
+      const sig = signalSummary(tag);
+      if (sig) {
+        // on a phone the Signal column is hidden: the signal in the line under the MAC opens the chart
+        metaTd.textContent = "";
+        const parts = meta.split(sig.text);
+        metaTd.append(parts[0], signalButton(tag, [sig.text], sig.title), parts.slice(1).join(sig.text));
+      }
+      tr.append(screenCell(tag), metaTd);
+      return openSignal.has(tag.mac) && sig ? [tr, signalDetail(tag)] : [tr];
     }));
     if (!rows.length) {
       const tr = document.createElement("tr");
@@ -517,9 +534,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // retry_ms: a failure that may pass (screenErrorFinal) is tried again after that time.
   const SCREEN_RETRY_MS = 15000;
 
-  function paintScreen(img) {
-    const canvas = document.createElement("canvas");
-    [canvas.width, canvas.height] = [img.width, img.height];
+  function paintScreen(img, canvas = document.createElement("canvas")) {
+    if (canvas.width !== img.width || canvas.height !== img.height) [canvas.width, canvas.height] = [img.width, img.height];
     const ctx = canvas.getContext("2d");
     const data = ctx.createImageData(img.width, img.height);
     const px = new Uint32Array(data.data.buffer);
@@ -596,6 +612,16 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The lines: ready-made for the list's choices, the inputs for "Your own text"
   const stLines = () => (stWhat() === "text" ? stLineInputs.map((el) => el.value) : PRESETS[stWhat()] || PRESETS.clear);
   const stFw = () => stWhat() === "fw";
+  const stPic = () => stWhat() === "pic";
+  // the picture for "A picture" (js/sendpic.js), turned and placed as the previews show it
+  let pic = null;             // { bitmap, name }
+  let picX = 0.5, picY = 0.5, picTurn = 0;
+  const picViews = new Map(); // model -> { fig, canvas, cap, place }: the previews, kept while dragging
+  const picSettings = () => ({
+    fit: $("st-fit").value, dither: $("st-dither").checked,
+    brightness: Number($("st-bright").value), contrast: Number($("st-contrast").value),
+  });
+  const stWeather = () => stWhat() === "weather"; // apsources.js: a dialog chooses the place
   let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
@@ -607,6 +633,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     store.set("st.macs", [...stSel].join(","));
     store.set("st.what", stWhat());
     store.set("st.lines", JSON.stringify(stLineInputs.map((el) => el.value)));
+    store.set("st.pic", JSON.stringify(picSettings()));
   };
   if ([...$("st-what").options].some((o) => !o.disabled && o.value === store.get("st.what"))) $("st-what").value = store.get("st.what");
   try {
@@ -651,6 +678,18 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return b;
   }));
 
+  // The lock next to a tag's MAC: paired, being paired or unpaired
+  function pairMark(tag) {
+    const p = pairText(tag);
+    if (!p) return null;
+    const s = document.createElement("span");
+    s.className = "pair";
+    s.textContent = p[0];
+    s.title = p[1];
+    s.setAttribute("aria-label", p[1]);
+    return s;
+  }
+
   // Called after the tag table is drawn
   function renderSendTags() {
     // Ticked tags bring up the bar and the form; none, only a hint
@@ -658,6 +697,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("st-bar").hidden = $("st-form").hidden = !n;
     $("st-hint").hidden = !!n;
     $("st-forget").disabled = !client || sending || stBusy;
+    // pairing, on an AP with signed radio frames
+    $("st-pair").hidden = $("st-unpair").hidden = !(last?.list.tags || []).some((t) => "secure" in t);
+    $("st-pair").disabled = $("st-unpair").disabled = !client || sending || stBusy;
     const rows = [...$("dash-tags").querySelectorAll("td.sel input")];
     // the text goes to every ticked tag, also those Find or a filter hides now
     const hidden = stHidden(n, rows);
@@ -684,8 +726,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = stFw() || !usesDate(lines);
-    $("st-frame-label").hidden = stFw();
+    $("st-days-label").hidden = stFw() || stPic() || stWeather() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw() || stPic() || stWeather();
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
@@ -702,6 +744,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return tr;
     };
 
+    // The weather: the place each tag shows now; the dialog chooses the new one
+    if (stWeather()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const where = sources.placeOf();
+      $("st-count").textContent = "";
+      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? "The weather for " + where.get(t.mac) : "No weather yet", where.has(t.mac) ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = "Choose the place …";
+      return;
+    }
+
     // Firmware: what each tag gets, or why it gets nothing
     if (stFw()) {
       ++stSeq;
@@ -716,12 +769,29 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return;
     }
 
+    // A picture: which ticked tags can take one; the dialog chooses it (picOpen)
+    if (stPic()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const plan = picturePlan(tags, TAG_MODELS);
+      const n = plan.filter((p) => p.ok).length;
+      $("st-count").textContent = `${n} of ${tags.length} ${tags.length === 1 ? "tag takes" : "tags take"} a picture`;
+      $("st-count").className = "count";
+      $("st-list").replaceChildren(...plan.map((p) => listRow(p.mac, p.ok ? p.text.replace("the picture", "a picture") : p.text, p.ok ? "" : "muted")));
+      if (tags.length) $("st-send").textContent = "Choose the picture …";
+      if (!n) $("st-send").disabled = true;
+      if ($("pic-dlg").open) picDialog(plan);
+      return;
+    }
+
     // What each tag gets today
     const rows = stRows(tags).filter((r) => !r.at);
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / "), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+    const where = sources.placeOf();
+    $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -798,26 +868,247 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const tags = stTags();
     if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
+    if (stPic()) return picOpen();
+    if (stWeather()) {
+      return sources.open(tags, (text, err) => {
+        stMsg(err ? "Not done: " + err.message : text, err ? "error" : "ok");
+        refresh();
+      });
+    }
     const rows = stRows(tags);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
     stBusy = true;
     $("st-send").disabled = $("st-forget").disabled = true;
     try {
+      // the AP takes a tag that shows the weather out of its place, so the forecast leaves this be
+      const where = sources.placeOf();
+      const left = [...new Set(tags.filter((t) => where.has(t.mac)).map((t) => where.get(t.mac)))];
       const { replies, note } = await sendRows(client, rows);
+      if (left.length) sources.reload();
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
       const waiting = now.filter((r) => r.pending !== false).length;
       const who = tags.length === 1 ? "The tag shows" : `${tags.length} tags show`;
       stMsg((waiting ? `Sent. ${who} it at the next poll.` : "Sent; the tags already show this.") +
         (later ? ` ${later} more ${later === 1 ? "day is" : "days are"} scheduled on the AP for midnight.` : "") +
-        (note ? " " + note : ""), "ok");
+        (note ? " " + note : "") +
+        (left.length ? ` No more weather for ${left.length === 1 && tags.length === 1 ? "it" : "them"} (${left.join(", ")}).` : ""), "ok");
     } catch (e) {
       stMsg("Not sent: " + e.message, "error");
     } finally {
       stBusy = false;
       $("st-send").disabled = false;
       $("st-forget").disabled = !client;
+      refresh();
+    }
+  }
+
+  // ---- A picture to the ticked tags (js/sendpic.js) ----
+
+  try {
+    const p = JSON.parse(store.get("st.pic") || "null");
+    if (p && FITS.includes(p.fit)) $("st-fit").value = p.fit;
+    if (p && typeof p.dither === "boolean") $("st-dither").checked = p.dither;
+    if (p && Number.isFinite(p.brightness)) $("st-bright").value = p.brightness;
+    if (p && Number.isFinite(p.contrast)) $("st-contrast").value = p.contrast;
+  } catch { /* nothing saved */ }
+
+  // The picture on a model's screen: { w, h, red, place, pixels } (pixel values as sendpic.js)
+  function picScreen(model) {
+    const { width: w, height: h, colors } = TAG_MODELS[model];
+    const c = document.createElement("canvas");
+    [c.width, c.height] = [w, h];
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    const b = pic.bitmap; // drawn on a transparent canvas: tone() makes the rest white
+    const [iw, ih] = turnedSize(b.width, b.height, picTurn);
+    const set = picSettings();
+    const place = placement(iw, ih, w, h, { fit: set.fit, zoom: Number($("st-zoom").value), x: picX, y: picY });
+    ctx.imageSmoothingQuality = "high";
+    ctx.translate(place.dx + place.dw / 2, place.dy + place.dh / 2);
+    ctx.rotate((picTurn * Math.PI) / 180);
+    const [rw, rh] = picTurn % 180 ? [place.dh, place.dw] : [place.dw, place.dh];
+    ctx.drawImage(b, -rw / 2, -rh / 2, rw, rh);
+    const data = tone(ctx.getImageData(0, 0, w, h).data, set);
+    const red = colors.includes("red");
+    return { w, h, red, place, pixels: quantize(data, w, h, { red, dither: set.dither }) };
+  }
+
+  // The previews of the models in plan (picturePlan), drawn again in the same canvases
+  function picDraw(plan = picturePlan(stTags(), TAG_MODELS)) {
+    const models = pic ? [...new Set(plan.filter((p) => p.ok).map((p) => p.model))] : [];
+    $("st-zoom").disabled = $("st-fit").value === "stretch";
+    for (const m of [...picViews.keys()]) if (!models.includes(m)) picViews.delete(m);
+    for (const m of models) {
+      let v = picViews.get(m);
+      if (!v) {
+        v = { fig: document.createElement("figure"), canvas: document.createElement("canvas"), cap: document.createElement("figcaption"), place: null };
+        v.canvas.tabIndex = 0;
+        v.canvas.setAttribute("role", "img");
+        picDragging(v, m);
+        v.fig.append(v.canvas, v.cap);
+        picViews.set(m, v);
+      }
+      const s = picScreen(m);
+      v.place = s.place;
+      paintScreen({ width: s.w, height: s.h, pixels: s.pixels }, v.canvas);
+      v.canvas.style.maxWidth = 2 * s.w + "px"; // at most two screen pixels per pixel
+      v.canvas.setAttribute("aria-label", `The picture on a ${m}" tag`);
+      const fill = $("st-fit").value !== "stretch";
+      v.cap.textContent = `${m}" (${s.w} x ${s.h})` + (fill ? ": drag the picture, or use the arrow keys, to move it" : "");
+    }
+    const box = $("st-pics");
+    const figs = models.map((m) => picViews.get(m).fig);
+    if (figs.length !== box.children.length || figs.some((f, i) => box.children[i] !== f)) box.replaceChildren(...figs);
+    box.hidden = !figs.length;
+  }
+
+  // Dragging a preview, or its arrow keys, moves the picture on every model's screen
+  function picDragging(v, model) {
+    const { width: w, height: h } = TAG_MODELS[model];
+    let start = null;
+    v.canvas.addEventListener("pointerdown", (e) => {
+      if (!pic || $("st-fit").value === "stretch") return;
+      const r = v.canvas.getBoundingClientRect();
+      start = { cx: e.clientX, cy: e.clientY, x: picX, y: picY, k: w / r.width, place: v.place };
+      v.canvas.setPointerCapture(e.pointerId);
+      v.canvas.classList.add("drag");
+    });
+    v.canvas.addEventListener("pointermove", (e) => {
+      if (!start) return;
+      picX = dragTo(start.x, (e.clientX - start.cx) * start.k, w, start.place.dw);
+      picY = dragTo(start.y, (e.clientY - start.cy) * start.k, h, start.place.dh);
+      picDraw();
+    });
+    const end = () => {
+      start = null;
+      v.canvas.classList.remove("drag");
+    };
+    v.canvas.addEventListener("pointerup", end);
+    v.canvas.addEventListener("pointercancel", end);
+    v.canvas.addEventListener("keydown", (e) => {
+      const d = { ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, -4], ArrowDown: [0, 4] }[e.key];
+      if (!d || !pic || !v.place || $("st-fit").value === "stretch") return;
+      e.preventDefault();
+      picX = dragTo(picX, d[0], w, v.place.dw);
+      picY = dragTo(picY, d[1], h, v.place.dh);
+      picDraw();
+    });
+  }
+
+  async function picLoad(file) {
+    if (!file) return;
+    if (file.type && !file.type.startsWith("image/"))
+      return picMsg(`${file.name} is not a picture: choose a PNG or JPG.`, "error");
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      pic?.bitmap.close?.();
+      pic = { bitmap, name: file.name || "the pasted picture" };
+      picX = picY = 0.5;
+      picTurn = 0;
+      $("st-zoom").value = 1;
+      $("st-drop-text").textContent = `${pic.name} (${bitmap.width} x ${bitmap.height}). Drop or paste another to change it.`;
+      picMsg("");
+    } catch {
+      picMsg(`${file.name || "That"} could not be read as a picture: choose a PNG or JPG.`, "error");
+    }
+    picDialog();
+  }
+
+  $("st-file").addEventListener("change", (e) => {
+    e.stopPropagation(); // the picture is read first; picLoad() redraws
+    picLoad($("st-file").files[0]);
+    $("st-file").value = "";
+  });
+  const drop = $("st-drop");
+  drop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    drop.classList.add("over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    picLoad(e.dataTransfer?.files?.[0]);
+  });
+  // A picture pasted anywhere while the dialog is open
+  document.addEventListener("paste", (e) => {
+    if (!$("pic-dlg").open) return;
+    const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+    if (!f) return;
+    e.preventDefault();
+    picLoad(f);
+  });
+  $("st-turn").onclick = () => {
+    picTurn = (picTurn + 90) % 360;
+    picDialog();
+  };
+  $("st-pic-reset").onclick = () => {
+    picX = picY = 0.5;
+    picTurn = 0;
+    $("st-zoom").value = 1;
+    $("st-bright").value = 0;
+    $("st-contrast").value = 0;
+    picChanged();
+  };
+
+  // The dialog: the picture, how it sits on each model's screen, and the button that sends it
+  const picMsg = (text, cls = "") => {
+    $("pic-msg").textContent = text;
+    $("pic-msg").className = "hint" + (cls ? " " + cls : "");
+  };
+  function picDialog(plan = picturePlan(stTags(), TAG_MODELS)) {
+    const n = plan.filter((p) => p.ok).length;
+    $("pic-n").textContent = n === 1 ? plan.find((p) => p.ok).mac : `${n} tags`;
+    picDraw(plan);
+    $("pic-send").textContent = n === 1 ? "Send to 1 tag" : `Send to ${n} tags`;
+    $("pic-send").disabled = !client || !pic || !n || sending || stBusy;
+  }
+  function picChanged() {
+    stSave();
+    picDialog();
+  }
+  function picOpen() {
+    picMsg("");
+    stMsg("");
+    $("pic-dlg").showModal();
+    picDialog();
+    if (!pic) $("st-file").focus();
+  }
+  $("pic-dlg").addEventListener("input", picChanged);
+  $("pic-dlg").addEventListener("change", picChanged);
+  $("pic-cancel").onclick = () => $("pic-dlg").close();
+  $("pic-send").onclick = () => sendPic(stTags());
+
+  // The picture to every ticked tag that can take it, as its model's raw screen image
+  async function sendPic(tags) {
+    if (!client || !pic || sending || stBusy) return;
+    const plan = picturePlan(tags, TAG_MODELS);
+    const ok = plan.filter((p) => p.ok);
+    if (!ok.length) return picMsg("None of the ticked tags can take it.", "error");
+    const images = {};
+    for (const m of new Set(ok.map((p) => p.model))) {
+      const s = picScreen(m);
+      images[m] = packRaw(s.pixels, s.w, s.h, s.red);
+    }
+    stBusy = true;
+    $("pic-send").disabled = $("st-send").disabled = $("st-forget").disabled = true;
+    picMsg("Sending the picture ...");
+    try {
+      const replies = await sendPictures(client, plan, images, (d, n) => n > 1 && picMsg(`Sending the picture: ${d} of ${n} tags ...`));
+      const waiting = replies.filter((r) => r.pending !== false).length;
+      const who = ok.length === 1 ? "The tag shows" : `${ok.length} tags show`;
+      const left = plan.length - ok.length;
+      $("pic-dlg").close();
+      stMsg((waiting ? `Picture sent. ${who} it at the next poll.` : "Sent; the tags already show this picture.") +
+        (left ? ` ${left} ticked ${left === 1 ? "tag gets" : "tags get"} nothing (see the list).` : ""), "ok");
+    } catch (e) {
+      picMsg((e.sent ? `Only ${e.sent} of ${ok.length} tags got it: ` : "Not sent: ") + e.message, "error");
+    } finally {
+      stBusy = false;
+      $("st-send").disabled = false;
+      $("st-forget").disabled = !client;
+      if ($("pic-dlg").open) picDialog();
       refresh();
     }
   }
@@ -890,6 +1181,40 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (client === c) refresh();
     }
   };
+
+  // Pair or unpair the ticked tags: the AP sends or takes back the radio key at their next poll
+  async function pairTags(on) {
+    const tags = stTags();
+    if (!client || !tags.length || sending || stBusy) return;
+    const what = tags.length === 1 ? tags[0].mac : `${tags.length} tags`;
+    if (on && !confirm(`Pair ${what}? At ${tags.length === 1 ? "its" : "their"} next poll the AP sends ${tags.length === 1 ? "it" : "each"} a radio key, ` +
+      `unsigned if the tag has none yet: pair where nobody listens in. From then on the AP only takes signed frames from ${tags.length === 1 ? "it" : "them"}.`)) return;
+    if (!on && !confirm(`Unpair ${what}? At the next poll ${tags.length === 1 ? "it forgets its" : "they forget their"} radio key and send unsigned frames again.`)) return;
+    const c = client;
+    sending = true;
+    clearTimeout(timer);
+    forgetMsg("");
+    $("st-pair").disabled = $("st-unpair").disabled = $("st-forget").disabled = $("st-send").disabled = true;
+    let n = 0;
+    try {
+      for (const t of tags) {
+        await c.call(on ? "PUT" : "DELETE", "/api/tags/" + encodeURIComponent(t.mac) + "/pair");
+        n++;
+      }
+      const verb = on ? "pairs" : "unpairs";
+      forgetMsg(n === 1 ? `${tags[0].mac} ${verb} at its next poll.` : `${n} tags ${verb.slice(0, -1)} at their next poll.`, "ok");
+    } catch (e) {
+      const why = e.message.startsWith("409") ? "this AP cannot pair tags (no radio key, or the radio is on the network)" : e.message;
+      forgetMsg((n ? `Only ${n} of ${tags.length} tags: ` : "Not done: ") + why, "error");
+    } finally {
+      sending = false;
+      stSave();
+      if (client === c) refresh();
+      else renderSendTags();
+    }
+  }
+  $("st-pair").onclick = () => pairTags(true);
+  $("st-unpair").onclick = () => pairTags(false);
 
   // ---- Firmware card ----
 
@@ -1189,6 +1514,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         const r = await sendApFirmware(c, data, progress);
         fwMsg(`Written to ${r.slot}: version ${r.version}. The AP is restarting ...`);
         const back = await waitApBack(c, r.slot, r.version, { alive: () => client === c });
+        keyStale = true;   // firmware with radio security makes its key at its first start
         fwMsg(back.text, back.ok ? "ok" : "error");
       }
     } catch (e) {
@@ -1216,8 +1542,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   $("dash-find").addEventListener("input", render);
   // The folded cards stay as they were left
-  for (const id of ["dash-ap-box", "dash-fw-box"]) {
-    $(id).open = store.get(id) === "open";
+  for (const id of ["lay-card", "dash-ap-box", "dash-fw-box"]) {
+    $(id).open = store.get(id) ? store.get(id) === "open" : id === "lay-card";
     $(id).addEventListener("toggle", () => store.set(id, $(id).open ? "open" : "closed"));
   }
   $("dash-auto").addEventListener("change", () => (client && $("dash-auto").checked ? refresh() : clearTimeout(timer)));

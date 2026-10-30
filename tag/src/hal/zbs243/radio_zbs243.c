@@ -24,6 +24,8 @@ static __xdata uint8_t rxbuf[1 + FRAME_MAX + 2];
 static uint8_t cur_channel = 11;
 static uint16_t cur_pan = CFG_PAN_ID;
 static bool radio_up;
+bool radio_ever_on;              /* radio_on() has run since reset (hal_doze_1s) */
+static __xdata uint8_t rx_rssi, rx_lqi;
 
 /* Up to max_ms milliseconds measured with timer 0 (16 MHz / 12): ms_start, then ms_tick. */
 static void ms_start(void)
@@ -186,6 +188,7 @@ void radio_on(void)
 
     RADIO_TX_POWER = 7;          /* highest setting, +8 dBm */
     radio_up = true;
+    radio_ever_on = true;
     set_filter();
     set_channel(cur_channel);
     RADIO_IRQ_PENDING = 0;
@@ -305,6 +308,8 @@ static int8_t fetch_frame(uint8_t *buf, uint8_t maxlen)
     n = rx_len - 2;
     if (n > maxlen)
         return -1;
+    rx_rssi = rxbuf[rx_len - 1];
+    rx_lqi = rxbuf[rx_len] & 0x7F;
     for (i = 0; i < n; i++)
         buf[i] = rxbuf[1 + i];
     return (int8_t)n;
@@ -337,3 +342,6 @@ int8_t radio_rx(uint8_t *buf, uint8_t maxlen, uint8_t timeout_ms)
     TCON &= (uint8_t)~0x30;
     return -1;
 }
+
+uint8_t radio_rx_rssi(void) { return rx_rssi; }
+uint8_t radio_rx_lqi(void) { return rx_lqi; }
