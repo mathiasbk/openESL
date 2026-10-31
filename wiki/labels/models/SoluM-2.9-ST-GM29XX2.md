@@ -35,7 +35,7 @@ The larger of the two labels: a wide screen with room for a product name, a big 
 - **ST-GM29XX2** on the sticker on the back. The barcode number is not the MAC; the flasher works the MAC out for you.
 - Two CR2450 cells behind the cover on the back.
 
-Other 2.9" SoluM labels look much the same but are not supported yet, for example the black/white/red ones. If the back says something else, see [Supported labels](Supported-labels#not-supported-yet).
+Other 2.9" SoluM labels look much the same. The black/white/red one (ST-GR29000) has [its own page](SoluM-2.9-red-ST-GR29000) and is experimental. If the back says something else, see [Supported labels](Supported-labels#not-supported-yet).
 
 ## Flashing
 

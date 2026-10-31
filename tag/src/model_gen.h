@@ -31,8 +31,20 @@
 #define MODEL_ESL_CODE   ESL_MODEL_154
 #define MODEL_ESL_W      ESL_MODEL_154_W
 #define MODEL_ESL_H      ESL_MODEL_154_H
+#elif MODEL == 293
+/* SoluM 2.9" black/white/red (ST-GR29000) */
+#define MODEL_CODE       3
+#define MODEL_NAME       "2.9-bwr"
+#define MODEL_HAS_RED    1
+#define DRAW_W           296
+#define DRAW_H           128
+#define MODEL_PANEL_H    "panels/ssd16xx-29-bwr.h"
+/* the same model in shared/models_gen.h, for the checks in proto.c */
+#define MODEL_ESL_CODE   ESL_MODEL_293
+#define MODEL_ESL_W      ESL_MODEL_293_W
+#define MODEL_ESL_H      ESL_MODEL_293_H
 #else
-#error "unknown MODEL (shared/models.json has 29, 154)"
+#error "unknown MODEL (shared/models.json has 29, 154, 293)"
 #endif
 
 #endif

@@ -65,16 +65,22 @@ static void make_crc_zero(void)
     img_id = 1;
 }
 
-/* fake_fb shows img (black plane) */
+/* fake_fb shows img: the black plane, and on a model with red the red plane over it
+   (red wins where both are set, as in fake_epd.c) */
 static bool screen_is_picture(void)
 {
     uint16_t x;
-    uint8_t y;
+    uint8_t y, want;
 
     for (x = 0; x < DRAW_W; x++)
         for (y = 0; y < DRAW_H; y++) {
-            uint8_t b = img[x * DRAW_COL_BYTES + (y >> 3)] & (uint8_t)(0x80 >> (y & 7));
-            if ((fake_fb[y][x] == 1) != (b != 0))
+            uint8_t m = (uint8_t)(0x80 >> (y & 7));
+            want = (img[x * DRAW_COL_BYTES + (y >> 3)] & m) ? 1 : 0;
+#if MODEL_HAS_RED
+            if (img[(uint16_t)DRAW_W * DRAW_COL_BYTES + x * DRAW_COL_BYTES + (y >> 3)] & m)
+                want = 2;
+#endif
+            if (fake_fb[y][x] != want)
                 return false;
         }
     return true;

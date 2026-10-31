@@ -44,7 +44,10 @@
    stopping at the first miss made some rounds end after 2-9 blocks. */
 #define CFG_FW_MAX_MISS     8
 /* IMG_REQ per wake-up during an image download: a whole screen is 52 (2.9") or 55
-   (1.54") blocks of 92 bytes; the rest is room for repeats. Lost answers as for FW. */
-#define CFG_IMG_MAX_REQ     64
+   (1.54") blocks of 92 bytes; the rest is room for repeats. Lost answers as for FW.
+   With red the raw image is twice that (103 blocks on the 2.9" with red, #255), so a model
+   with red asks for twice as many and a whole screen still goes in one wake-up. An
+   expression, since MODEL_HAS_RED (model.h) is known where it is used, not here. */
+#define CFG_IMG_MAX_REQ     (64 * (1 + MODEL_HAS_RED))
 
 #endif /* CONFIG_H */

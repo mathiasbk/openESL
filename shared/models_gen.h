@@ -5,20 +5,24 @@
 /* Model byte in POLL (requirement T18); 0 = ESL_MODEL_UNKNOWN (older firmware). */
 #define ESL_MODEL_29       1   /* SoluM 2.9" black/white (ST-GM29XX2) */
 #define ESL_MODEL_154      2   /* SoluM 1.54" black/white (ST-GM16XX2) */
+#define ESL_MODEL_293      3   /* SoluM 2.9" black/white/red (ST-GR29000) */
 
 /* Codes run 1 .. ESL_MODEL_COUNT - 1; tables indexed by code - 1 have ESL_MODEL_COUNT - 1 rows. */
-#define ESL_MODEL_COUNT    3
+#define ESL_MODEL_COUNT    4
 
 /* Screen size per model (= DRAW_W/DRAW_H on the tag) */
 #define ESL_MODEL_29_W 296
 #define ESL_MODEL_29_H 128
 #define ESL_MODEL_154_W 200
 #define ESL_MODEL_154_H 200
+#define ESL_MODEL_293_W 296
+#define ESL_MODEL_293_H 128
 
 /* X(code, name in the API, id, width, height, has_red) for each model, in code order */
 #define ESL_MODEL_LIST(X) \
     X(1, "2.9", "solum-m2-29-bw", 296, 128, 0) \
     X(2, "1.54", "solum-m2-154-bw", 200, 200, 0) \
+    X(3, "2.9-bwr", "solum-29-bwr", 296, 128, 1) \
 
 /* X(code, code of the model whose layout file it uses) for each model with same_as: a tag of
  * that model is drawn with the other model's file (esl_model_layout_model) */

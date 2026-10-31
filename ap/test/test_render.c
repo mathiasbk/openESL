@@ -242,6 +242,61 @@ static void test_rotate(void)
     CHECK(low && !high);
 }
 
+/* The 2.9" with red (#255): two planes, black then red, and no pixel in both */
+static void test_red(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9-bwr\",\"layouts\":[{\"name\":\"r\","
+        "\"fields\":[\"a\",\"b\"],\"elements\":["
+        "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":296,\"h\":20,\"color\":\"red\"},"
+        "{\"type\":\"text\",\"field\":\"a\",\"x\":0,\"y\":30,\"w\":296,\"h\":40,\"fonts\":[\"medium\"],\"color\":\"red_invert\"},"
+        "{\"type\":\"text\",\"field\":\"b\",\"x\":0,\"y\":80,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]}]}";
+    enum { PLANE = 296 * 16 };
+    static uint8_t img[2 * PLANE];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    uint16_t w, h;
+    bool red;
+
+    CHECK(esl_render_model(ESL_MODEL_293, &w, &h, &red) && w == 296 && h == 128 && red);
+    CHECK(esl_render_size(ESL_MODEL_293) == 2 * PLANE);
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_293, &bin, err, sizeof(err)));
+    /* the black/white 2.9" has the same screen but refuses the red */
+    static esl_layout_bin_t bin29;
+    CHECK(!esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin29, err, sizeof(err)));
+
+    esl_content_init_named(&c, "r", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"Tilbud", 6);
+    esl_content_add_field(&c, (const uint8_t *)"49,90", 5);
+    CHECK(esl_render(ESL_MODEL_293, &bin, &c, img, sizeof(img)) == 2 * PLANE);
+    CHECK(esl_render(ESL_MODEL_293, &bin, &c, img, 2 * PLANE - 1) == 0);
+    const uint8_t *blk = img, *rd = img + PLANE;
+    bool both = false, band = true, black_top = false, red_bottom = false;
+    for (size_t i = 0; i < PLANE; i++)
+        both |= (blk[i] & rd[i]) != 0;
+    CHECK(!both);
+    for (unsigned x = 0; x < 296; x++)
+        for (unsigned y = 0; y < 128; y++) {
+            bool b = px(blk, x, y), r = px(rd, x, y);
+            if (y < 20 && (!r || b))
+                band = false;                /* the red band */
+            if (y < 72 && b)
+                black_top = true;            /* nothing black above the black text */
+            if (y >= 72 && r)
+                red_bottom = true;           /* nothing red below the red_invert box */
+        }
+    CHECK(band && !black_top && !red_bottom);
+    /* the red_invert text: a red box with white text in it, so mostly red but not all */
+    size_t box = 0;
+    for (unsigned x = 0; x < 296; x++)
+        for (unsigned y = 30; y < 70; y++)
+            box += px(rd, x, y);
+    CHECK(box > 0 && box < 296u * 40u);
+    /* the black text below */
+    CHECK(ink(blk, PLANE) > 50);
+}
+
 void test_render(void)
 {
     test_icon_field();
@@ -328,4 +383,5 @@ void test_render(void)
     CHECK(n && esl_render(ESL_MODEL_29, &bin, &c, img2, sizeof(img2)) == n && memcmp(img, img2, n) == 0);
 
     test_shapes();
+    test_red();
 }

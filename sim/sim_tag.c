@@ -215,9 +215,11 @@ size_t sim_tag_screen(uint8_t *out, size_t cap)
 bool sim_tag_save_png(const char *path)
 {
     enum { S = 2 };   /* scale: the 1.54" is only 200 x 200 */
+    /* fake_fb: 0 white, 1 black, 2 red */
+    static const uint8_t pal[] = {0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xC8, 0x1E, 0x1E};
     static uint8_t pix[DRAW_H * S][DRAW_W * S];
     for (int y = 0; y < DRAW_H * S; y++)
         for (int x = 0; x < DRAW_W * S; x++)
-            pix[y][x] = fake_fb[y / S][x / S] == 1 ? 0 : fake_fb[y / S][x / S] == 2 ? 128 : 255;
-    return png_write_gray(path, &pix[0][0], DRAW_W * S, DRAW_H * S);
+            pix[y][x] = fake_fb[y / S][x / S] <= 2 ? fake_fb[y / S][x / S] : 0;
+    return png_write_indexed(path, &pix[0][0], DRAW_W * S, DRAW_H * S, pal, 3);
 }

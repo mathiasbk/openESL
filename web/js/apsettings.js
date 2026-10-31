@@ -8,6 +8,7 @@ import { checkToken, newToken, checkHostname, checkWifi, describeWifi } from "./
 import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE,
   channelOptions, channelMove, channelBlock, CHANNEL_NOTE } from "./dashdata.js";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName } from "./backup.js";
+import { modelName } from "./models.js";
 
 // Time zones as POSIX TZ strings, which is what the AP understands (it has no tz database):
 // [tz, label, the browser's zone names that use it]
@@ -549,7 +550,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const from = [loaded.ap?.hostname, loaded.ap?.board].filter(Boolean).join(", ");
     $("bk-what").textContent = `${f.name}, made ${new Date(loaded.taken).toLocaleString()}${from ? ` on ${from}` : ""}: ` +
       `${s.tags + s.pictures} tags with content (${s.pictures} pictures), ${s.configs} with their own settings, ` +
-      `layout files for ${s.layouts.map((m) => m + '"').join(", ") || "no model"}, ${s.scheduled} scheduled. ` +
+      `layout files for ${s.layouts.map(modelName).join(", ") || "no model"}, ${s.scheduled} scheduled. ` +
       "What is on the AP for the same tags and models is replaced; other tags are left as they are.";
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;

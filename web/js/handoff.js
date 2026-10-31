@@ -10,6 +10,7 @@
 // The AP's page shows what came (js/apreceive.js) and stores nothing until the user presses
 // Save there, with the token that page already has. It takes messages only from the
 // published web page, or from a page on this computer (a local build).
+import { modelName } from "./models.js";
 
 export const READY = "openesl-ready";
 export const LAYOUTS = "openesl-layouts";
@@ -59,7 +60,7 @@ export function readLayoutsMessage(data) {
   if (typeof model !== "string" || !model) return { error: "no tag model" };
   if (!file || typeof file !== "object" || file.format !== "esl-layouts" || !Array.isArray(file.layouts))
     return { error: "not a layout file" };
-  if (file.model !== undefined && file.model !== model) return { error: `a file for ${file.model}", sent for ${model}"` };
+  if (file.model !== undefined && file.model !== model) return { error: `a file for ${modelName(file.model)}, sent for ${modelName(model)}` };
   const pic = typeof preview === "string" && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(preview) ? preview : "";
   const c = content && typeof content === "object" && typeof content.layout === "string" && Array.isArray(content.fields)
     ? content : null;

@@ -4,6 +4,7 @@
 // every day after today goes to the AP as scheduled content for local midnight ("at" in
 // PUT /api/tags), so the tag changes date by itself (as `esl_client.py date` in tools/esl-client).
 import { fmtAgo, fmtTagFw } from "./dashdata.js";
+import { modelLabel } from "./models.js";
 
 export const MAX_DAYS = 31;      // one PUT /api/tags (at most 50 rows), well inside the schedule
 export const MAX_ROWS = 50;      // rows in one PUT /api/tags
@@ -129,7 +130,7 @@ export function infoValues(tag, { ap = null, wifi = null, tags = null, day = new
     channel: dash(ap?.channel),
     tags: dash(tags),
     mac: dash(tag?.mac),
-    model: tag?.model ? tag.model + '"' : "-",
+    model: tag?.model ? modelLabel(tag.model) : "-",
     battery: tag?.battery_mv ? (tag.battery_mv / 1000).toFixed(2) + " V" : "-",
     rssi: tag?.rssi == null ? "-" : tag.rssi + " dBm",
     fw: tag?.fw == null ? "-" : fmtTagFw(tag.fw),

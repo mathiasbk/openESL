@@ -71,6 +71,8 @@ def validate(ms):
             continue
         if not re.fullmatch(r"[a-z0-9-]+", m["id"]):
             errors.append("%s: id must be lower case letters, digits and -" % where)
+        if "short" in m and not (isinstance(m["short"], str) and m["short"].strip()):
+            errors.append("%s: short is the model as people read it (\"2.9\\\" red\")" % where)
         if not m["vendor"].strip():
             errors.append("%s: vendor is the maker's name (\"SoluM\")" % where)
         if m["status"] not in STATUSES:
@@ -244,6 +246,7 @@ def gen_js(ms):
            "//   macCode   byte 6 of the MAC on a tag of this model",
            "//   photo     a picture of the tag under web/ for the flasher's model picker, or null",
            "//   sameAs    the model whose layout file this one uses (same screen), or null",
+           "//   short     the model as the page shows it to people (2.9\", 2.9\" red); see modelName()",
            "",
            "export const MODELS = {"]
     for m in ms:
@@ -254,7 +257,8 @@ def gen_js(ms):
             c_str(m["vendor"]), c_str(m["chip"]), c_str(m["radio"]), c_str(m["protocol"]), c_str(m["image"])))
         out.append("    width: %d, height: %d, colors: %s, macCode: 0x%02x, status: %s," % (
             m["width"], m["height"], json.dumps(m["colors"]), m["mac_code"], c_str(m["status"])))
-        out.append("    sameAs: %s," % (c_str(m["same_as"]) if "same_as" in m else "null"))
+        out.append("    sameAs: %s, short: %s," % (c_str(m["same_as"]) if "same_as" in m else "null",
+                                               c_str(m.get("short", m["name"] + '"'))))
         p = m.get("photo")
         out.append("    photo: %s," % ("{ file: %s, width: %d, height: %d }" % (c_str(p["file"]), p["width"], p["height"])
                                        if p else "null"))
@@ -269,6 +273,15 @@ def gen_js(ms):
             "",
             "// The models that use a model's layout file, in code order, e.g. [\"2.9\"]",
             "export const layoutUsers = (name) => Object.keys(MODELS).filter((n) => layoutModel(n) === name);",
+            "",
+            "// A model as people read it, e.g. 2.9\" or 2.9\" red (a name the page does not know: the name and a \")",
+            "export const modelName = (name) => MODELS[name]?.short ?? `${name}\"`;",
+            "",
+            "// Not tried on a real tag yet (status experimental): the page says so wherever the model is picked or listed",
+            "export const isExperimental = (name) => MODELS[name]?.status === \"experimental\";",
+            "",
+            "// modelName with \" (experimental)\" after it for such a model",
+            "export const modelLabel = (name) => modelName(name) + (isExperimental(name) ? \" (experimental)\" : \"\");",
             ""]
     return "\n".join(out)
 
@@ -281,6 +294,9 @@ def gen_client_block(ms):
         "MODEL_BY_CODE = {%s}" % ", ".join("%d: %s" % (m["code"], c_str(m["name"])) for m in ms),
         "# Model code in byte 6 of the MAC",
         "MODEL_MAC_CODE = {%s}" % ", ".join("%s: 0x%02X" % (c_str(m["name"]), m["mac_code"]) for m in ms),
+        "# Not tried on a real tag yet (status experimental)",
+        "MODEL_EXPERIMENTAL = {%s}" % ", ".join(c_str(m["name"]) for m in ms if m["status"] == "experimental")
+        if any(m["status"] == "experimental" for m in ms) else "MODEL_EXPERIMENTAL = set()",
         "# END models",
     ])
 

@@ -42,7 +42,8 @@ static void chunk(FILE *f, const char *type, const uint8_t *data, size_t n)
     fwrite(b, 1, 4, f);
 }
 
-bool png_write_gray(const char *path, const uint8_t *pix, int w, int h)
+/* pal = NULL: greyscale; else n RGB triples and pix holds indexes into them */
+static bool png_write(const char *path, const uint8_t *pix, int w, int h, const uint8_t *pal, int n_pal)
 {
     size_t raw_len = (size_t)(w + 1) * (size_t)h;          /* a filter byte (0) before each row */
     size_t blocks = (raw_len + 65534) / 65535;
@@ -84,12 +85,14 @@ bool png_write_gray(const char *path, const uint8_t *pix, int w, int h)
     put32(ihdr, (uint32_t)w);
     put32(ihdr + 4, (uint32_t)h);
     ihdr[8] = 8;    /* bit depth */
-    ihdr[9] = 0;    /* greyscale */
+    ihdr[9] = pal ? 3 : 0;    /* indexed colour or greyscale */
     ihdr[10] = ihdr[11] = ihdr[12] = 0;
     f = fopen(path, "wb");
     if (f) {
         fwrite("\x89PNG\r\n\x1a\n", 1, 8, f);
         chunk(f, "IHDR", ihdr, sizeof(ihdr));
+        if (pal)
+            chunk(f, "PLTE", pal, (size_t)n_pal * 3);
         chunk(f, "IDAT", z, (size_t)(q - z));
         chunk(f, "IEND", NULL, 0);
         fclose(f);
@@ -97,4 +100,14 @@ bool png_write_gray(const char *path, const uint8_t *pix, int w, int h)
     free(raw);
     free(z);
     return f != NULL;
+}
+
+bool png_write_gray(const char *path, const uint8_t *pix, int w, int h)
+{
+    return png_write(path, pix, w, h, NULL, 0);
+}
+
+bool png_write_indexed(const char *path, const uint8_t *pix, int w, int h, const uint8_t *pal, int n_pal)
+{
+    return png_write(path, pix, w, h, pal, n_pal);
 }

@@ -1,6 +1,6 @@
 # Tag firmware (ZBS243 / SEM9110)
 
-Own firmware for the SoluM ST-GM29XX2 (2.9", 296×128, black/white) and the ST-GM16XX2 (1.54", 200×200, black/white), one build per model (`src/model.h`). The tag asks the AP for news, downloads the screen the AP has drawn (a 1-bit image, IMG blocks) into its SPI flash and streams it to the display. It draws only its own status screens (start-up, "No AP found") with built-in fonts.
+Own firmware for the SoluM ST-GM29XX2 (2.9", 296×128, black/white) and the ST-GM16XX2 (1.54", 200×200, black/white), and experimental for the ST-GR29000 (2.9", black/white/red, not tried on a label yet), one build per model (`src/model.h`). The tag asks the AP for news, downloads the screen the AP has drawn (a 1-bit image, IMG blocks) into its SPI flash and streams it to the display. It draws only its own status screens (start-up, "No AP found") with built-in fonts.
 
 Background and requirements: [docs/tag-firmware.md](../docs/tag-firmware.md), [docs/protokoll.md](../docs/protokoll.md), [docs/krav.md](../docs/krav.md). All code here is written for this project; the hardware facts it relies on are listed with their sources in [docs/kildelogg.md](../docs/kildelogg.md).
 

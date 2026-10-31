@@ -19,6 +19,7 @@ const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o?.[k] != null).
 const b64decode = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 // The backup as an object (saved as JSON). progress({ done, total }) says how far.
+import { modelName } from "./models.js";
 export async function makeBackup(client, { progress = () => {}, now = () => new Date() } = {}) {
   const optional = (p) => client.call("GET", p).catch(() => null);
   const list = await client.call("GET", "/api/tags");
@@ -160,7 +161,7 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
       if (kind === "settings") await putSettings(client, b.config, note);
       else if (kind === "layout") {
         await client.call("PUT", "/api/layouts/" + encodeURIComponent(arg), b.layouts[arg]);
-        note(true, `Layout file for the ${arg}"`);
+        note(true, `Layout file for the ${modelName(arg)}`);
       } else if (kind === "config") {
         await client.call("PUT", `/api/tags/${arg.mac}/config`, arg.config);
         note(true, `Own settings for ${arg.mac}`);
@@ -179,8 +180,8 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
       }
     } catch (e) {
       // a backup from before its model got same_as: this AP draws it with the other model's file
-      if (kind === "layout" && /^409\b/.test(e.message)) notes.push(`The ${arg}" layout file was skipped: ${e.message.replace(/^409:?\s*/, "")}`);
-      else note(false, `${kind === "layout" ? `Layout file for the ${arg}"` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
+      if (kind === "layout" && /^409\b/.test(e.message)) notes.push(`The ${modelName(arg)} layout file was skipped: ${e.message.replace(/^409:?\s*/, "")}`);
+      else note(false, `${kind === "layout" ? `Layout file for the ${modelName(arg)}` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
     }
     progress({ done: ++n, total: steps.length });
   }
@@ -190,7 +191,7 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
     if (now && now !== name) notes.push(`The old AP was called ${name} (${name}.local), this one ${now}: set the name under Settings, General to keep the old one.`);
   }
   for (const f of b.tag_firmware || [])
-    if (f?.waiting) notes.push(`The old AP offered ${f.model}" tag firmware ${f.version}, ${f.waiting} tags had not taken it yet: send it again under Firmware.`);
+    if (f?.waiting) notes.push(`The old AP offered ${modelName(f.model)} tag firmware ${f.version}, ${f.waiting} tags had not taken it yet: send it again under Firmware.`);
   return { done, failed, waiting, notes };
 }
 

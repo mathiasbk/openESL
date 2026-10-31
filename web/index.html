@@ -31,7 +31,7 @@
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
       <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
       <p id="home-fw" class="muted"></p>
     </section>
     <div class="cards">
@@ -76,6 +76,7 @@
   <main id="tab-design" class="tab designer" role="tabpanel" hidden>
     <div class="dz-head">
       <select id="model-pick" class="model-pick" aria-label="Tag"><!-- one entry per tag in js/models.js (editor.js) --></select>
+      <span id="model-exp" class="warn" hidden title="This tag model has not been tried on a real tag yet. The drawing here is what the AP sends; how the tag shows it is not checked.">Experimental tag</span>
       <span id="file-state" class="muted"></span>
       <span class="sep"></span>
       <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>

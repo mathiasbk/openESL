@@ -12,6 +12,7 @@
 
 import { loadRenderer, MODELS, LAYOUT_FILE } from "./renderer.js";
 import { PAGES, variantFor, soloFile, addTemplate, search } from "./catalog.js";
+import { modelName } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 const ISSUES = "https://github.com/mathiasbk/openESL/issues/new";
@@ -32,7 +33,6 @@ function el(tag, cls, text) {
   return e;
 }
 
-const modelName = (m) => m + '"';
 
 // ---------- the catalog ----------
 
@@ -310,7 +310,7 @@ async function openDetail(entry) {
   buttons.append(backButton(), el("span", "sep"));
   if (!v) {
     const a = el("a", "button", `Ask for a ${modelName(model)} version`);
-    a.href = `${ISSUES}?title=${encodeURIComponent(`Template ${t.id}: a ${model}" version`)}&labels=enhancement`;
+    a.href = `${ISSUES}?title=${encodeURIComponent(`Template ${t.id}: a ${modelName(model)} version`)}&labels=enhancement`;
     a.target = "_blank";
     a.rel = "noopener";
     buttons.append(a);

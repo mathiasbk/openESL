@@ -29,6 +29,22 @@
         ]
       }
     },
+    "2.9-bwr": {
+      "layout": {
+        "name": "vare-mva",
+        "description": "Product label with two prices: brand band, name, a small note (e.g. the price inc. VAT) and the highlighted price",
+        "fields": ["brand", "name", "note", "price"],
+        "_sample": ["Brand", "Product name", "inkl. mva 3910,36", "3128,29"],
+        "elements": [
+          { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
+          { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+          { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 96, "fonts": ["medium", "small"], "valign": "middle", "lines": 3 },
+          { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+          { "type": "text", "field": "note", "x": 166, "y": 28, "w": 126, "h": 36, "fonts": ["small"], "align": "right", "lines": 2 },
+          { "type": "text", "field": "price", "x": 166, "y": 66, "w": 126, "h": 58, "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1, "color": "highlight" }
+        ]
+      }
+    },
     "1.54": {
       "layout": {
         "name": "vare-mva",
