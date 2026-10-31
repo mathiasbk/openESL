@@ -19,16 +19,16 @@ const char *web_error(void);
 unsigned char *web_fb(void);
 int web_load_layouts(const char *json, int len);
 void web_set_today(int days);
-int web_render(int layout, int flags, int n, const char *f0, const char *f1, const char *f2, const char *f3,
-               const char *f4, const char *f5);
+int web_render(int layout, int flags, int n, const char *fields);
 
 int main(int argc, char **argv)
 {
     static char js[ESL_LAYOUT_MAX_SIZE + 1];
-    const char *f[6] = { "", "", "", "", "", "" };
+    static char fields[ESL_MAX_FIELDS * 1024];
+    size_t at = 0;
     int i, x, y, n;
 
-    if (argc < 4 || argc > 10) {
+    if (argc < 4 || argc > 4 + ESL_MAX_FIELDS) {
         fprintf(stderr, "usage: web_render <layouts.json | -> <layout> <flags> [field ...]\n");
         return 2;
     }
@@ -48,9 +48,17 @@ int main(int argc, char **argv)
     }
     web_set_today(getenv("ESL_TODAY") && *getenv("ESL_TODAY") ? atoi(getenv("ESL_TODAY")) : -1);
     n = argc - 4;
-    for (i = 0; i < n; i++)
-        f[i] = argv[4 + i];
-    if (!web_render(atoi(argv[2]), (int)strtol(argv[3], NULL, 0), n, f[0], f[1], f[2], f[3], f[4], f[5])) {
+    /* the fields back to back, each NUL-terminated, as the page passes them */
+    for (i = 0; i < n; i++) {
+        size_t l = strlen(argv[4 + i]);
+        if (at + l + 1 > sizeof(fields)) {
+            printf("error field %d is too long\n", i + 1);
+            return 1;
+        }
+        memcpy(fields + at, argv[4 + i], l + 1);
+        at += l + 1;
+    }
+    if (!web_render(atoi(argv[2]), (int)strtol(argv[3], NULL, 0), n, fields)) {
         printf("error %s\n", web_error());
         return 1;
     }

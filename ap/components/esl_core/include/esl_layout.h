@@ -67,6 +67,11 @@ typedef struct {
     uint8_t clock[ESL_LAYOUT_FILE_MAX];
     /* Bit n: a layout draws with font file n (esl_font.h). Its version is part of the file's. */
     uint8_t user_fonts;
+    /* Where each layout's "fields" list (the JSON array) is in the JSON file that was
+     * compiled, so a client can name the fields (esl_layouts_field_index) without the AP
+     * keeping the names twice. Not part of the compiled bytes or the version. */
+    uint16_t fields_at[ESL_LAYOUT_FILE_MAX];
+    uint16_t fields_len[ESL_LAYOUT_FILE_MAX];
     /* Last, so a stored file (esl_layout_t) is allocated only up to bin[size]: the
      * compiler writes into a whole one, the store keeps ESL_LAYOUT_BIN_BYTES(size). */
     uint8_t bin[ESL_LBIN_CAP];
@@ -172,6 +177,12 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
 /* Index of layout name in a model's file, -1 if the model has no such layout.
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
+
+/* The index of the field called field in the layout called name in model's file (as its
+ * "fields" list has them), -1 when the layout has no such field, -2 when the file has no
+ * such layout. */
+int esl_layouts_field_index(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, const char *field,
+                            size_t flen);
 
 /* esl_layout_check_fields for content c (a named layout) and the layout of that name in
  * model's file, under the lock. True if the file has no such layout. */

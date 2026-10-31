@@ -60,9 +60,9 @@ LAYOUT_FILE_FORMAT = "esl-layouts"
 LAYOUT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,30}$")    # esl_layout_name_valid on the AP
 FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
 MODELS = tuple(m["name"] for m in models.load())   # as in the API and the layout files
-MAX_FIELDS = 6             # ESL_MAX_FIELDS in shared/proto.h
-FIELD_SPACE = 96           # ESL_CONTENT_FIELD_SPACE: text + one length byte per field sent
-MAX_FIELD_BYTES = 255      # the length is one byte in the packet
+MAX_FIELDS = 16            # ESL_MAX_FIELDS in shared/proto.h (6 up to 0.9.2)
+FIELD_SPACE = 256          # ESL_CONTENT_FIELD_SPACE: text + one length byte per field sent (96 up to 0.9.2)
+MAX_FIELD_BYTES = 255      # the length is one byte in the stored content
 PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 

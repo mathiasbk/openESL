@@ -55,11 +55,14 @@ info:
     | `501` | OTA on a build or partition table without it |
     | `507` | the tag table or the schedule is full, or NVS has no room for the content |
 
-    **Text** is sent as UTF-8. The AP converts it to Latin-1 (unknown characters become
-    `?`) and rejects text that is too long with `422`: the fields share 96 bytes, one length
-    byte per field plus the text after the conversion, so at most 92 bytes of text with four
-    fields and 90 with six (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`). Empty fields at
-    the end are dropped first and cost nothing.
+    **Text** is sent as UTF-8. The AP draws what its fonts have: they are Latin-1, so æøå,
+    `°`, `½` and the like work, dashes and curly quotes become their plain forms, and other
+    characters (`€`, emoji) become `?`. Text that is too long gives `422`: the fields share
+    256 bytes, one length byte per field plus the text after the conversion to Latin-1 (one
+    byte per character), so at most 255 bytes in one field, 250 with six fields and 240 with
+    sixteen (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`; `textBytes` in `GET
+    /api/layouts`). An AP with 0.9.2 or older took 6 fields and 96 bytes, and reports no
+    `textBytes`. Empty fields at the end are dropped first and cost nothing.
 
     **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
     `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, the 2.9" black/white/red, experimental: not tried on a real tag yet; from its poll). The 12 hex digits under the barcode on the
@@ -292,6 +295,9 @@ paths:
               named:
                 summary: A layout from the layout file
                 value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
+              by_name:
+                summary: The fields by name, so a new field order in the layout file does not move them
+                value: { layout: vare-priser, fields: { price: "192,25", price_ex: "153,80", name: "Lower ball joint, cat. 3/2", brand: "Kramp" } }
               two_prices:
                 summary: Price inc. and ex. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
                 value: { layout: vare-priser, fields: ["Kramp", "Lower ball joint, cat. 3/2", "1626-160602/439", "192,25", "153,80"], price_highlight: true }
@@ -1546,7 +1552,7 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: "text too long: the fields share 96 bytes, one per field plus the text after Latin-1 conversion (92 bytes of text with four fields, 90 with six)" }
+          example: { error: "text too long: the fields share 256 bytes, one per field plus the text after Latin-1 conversion (255 bytes of text with one field, 250 with six), at most 255 in one field" }
     BatchInvalid:
       description: A row is not valid; `index` is the row, and no tag was changed
       content:
@@ -1630,14 +1636,26 @@ components:
             used in both models' files, so one body works for every tag.
           examples: [price, text, shelf]
         fields:
-          type: array
-          items: { type: [string, "null"] }
+          oneOf:
+            - type: array
+              items: { type: [string, "null"] }
+            - type: object
+              additionalProperties: { type: [string, "null"] }
+          examples:
+            - ["Lettmelk 1 L", "24,90", "kr/l 24,90"]
+            - { name: "Lettmelk 1 L", price: "24,90" }
           description: |
-            The text, in the layout's field order; `null` counts as `""`. `price` takes at
-            most 3 fields, `text` at most 4, a named layout as many as its `fields` (up to 6).
-            The fields share 96 bytes: the text after the conversion to Latin-1 plus one byte
-            per field (92 bytes of text with four fields, 90 with six). Empty fields at the end
-            are dropped, so `["a",""]` and `["a"]` are the same content. The AP sends the text
+            The text, either as a list in the layout's field order, or as an object keyed by
+            the layout's field names (its `fields` in the layout file; `name`, `price`,
+            `subtitle` for `price`; `line1` to `line4` for `text`). By name, a field that is
+            not given is empty, and a field order that changes in the layout file does not
+            move the text; a name the layout does not have gives `422`. While the tag's model
+            is not known yet, a name must be in the same place in every model's file that has
+            the layout. `null` counts as `""`. `price` takes at most 3 fields, `text` at most
+            4, a named layout as many as its `fields` (up to 16). The fields share 256 bytes:
+            the text after the conversion to Latin-1 plus one byte per field (at most 255 in
+            one field, 240 with sixteen). Empty fields at the end are dropped, so `["a",""]`,
+            `["a"]` and `{"name": "a"}` for `price` are the same content. The AP sends the text
             as it is and works nothing out: for the price with and without VAT, use a layout
             with a field for each (e.g. `vare-priser`) and send both.
             A number formatted by the layout (`decimals`, `thousands`) that fits in none of
@@ -2327,7 +2345,7 @@ components:
         ap/boards/<board>/board.json; boards with PSRAM allow more), so a file one AP accepts can be
         too big for another. The designer shows these for the AP it is connected to.
       additionalProperties: false
-      required: [runs, rects, lines, icons, barcodes, qrs, fileBytes, jsonBytes, fields, fixedTextBytes]
+      required: [runs, rects, lines, icons, barcodes, qrs, fileBytes, jsonBytes, fields, fixedTextBytes, textBytes]
       properties:
         runs: { type: integer, minimum: 1, description: "Lines of text per screen (each text element counts the most lines it can use); 32 on the ESP32-C6" }
         rects: { type: integer, minimum: 1, description: "rect elements plus invert/highlight/red_invert text per screen; 20 on the ESP32-C6" }
@@ -2337,8 +2355,9 @@ components:
         qrs: { type: integer, const: 1, description: QR elements per layout }
         fileBytes: { type: integer, minimum: 1, description: "Bytes of the compiled file; 4096 on the ESP32-C6" }
         jsonBytes: { type: integer, minimum: 1, description: "Bytes of the JSON file; 8192 on the ESP32-C6" }
-        fields: { type: integer, const: 6, description: Fields per layout }
+        fields: { type: integer, const: 16, description: "Fields per layout (6 on an AP with 0.9.2 or older)" }
         fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
+        textBytes: { type: integer, const: 256, description: "Bytes the fields of one update share: the text in Latin-1 plus one per field (missing on an AP with 0.9.2 or older, which took 96)" }
 
     FontFile:
       type: object

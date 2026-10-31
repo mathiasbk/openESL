@@ -80,11 +80,39 @@ for (const model of Object.keys(MODELS)) {
   test(`too much text, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     r.clearLayouts();
-    // the fields share 96 bytes with one length byte each; the empty one at the end is not sent
-    const res = r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(20), ""]);
+    // the fields share 256 bytes with one length byte each; the empty one at the end is not sent
+    const res = r.render(2, 0, ["x".repeat(120), "y".repeat(120), "z".repeat(20), ""]);
     assert.equal(res.ok, false);
-    assert.match(res.error, /at most 93 with 3 fields/);
-    assert.ok(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(13), ""]).ok);
+    assert.match(res.error, /at most 253 with 3 fields/);
+    assert.ok(r.render(2, 0, ["x".repeat(120), "y".repeat(120), "z".repeat(13), ""]).ok);
+    assert.equal(r.fieldSpace, 256);
+    assert.equal(r.limits.textBytes, 256);
+    // an AP with 0.9.2 or older reports no textBytes, and took 96 bytes and 6 fields
+    r.setLimits({ fields: 6 });
+    assert.equal(r.fieldSpace, 96);
+    assert.equal(r.limits.fields, 6);
+    assert.match(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(20)]).error, /at most 93 with 3 fields/);
+    r.setLimits(null);
+    assert.equal(r.fieldSpace, 256);
+    assert.equal(r.limits.fields, 16);
+  });
+
+  test(`sixteen fields, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const fields = Array.from({ length: 16 }, (_, i) => "f" + i);
+    const file = { format: "esl-layouts", version: 1, model, layouts: [{ name: "many", fields,
+      elements: fields.map((f, i) => ({ type: "text", field: f, x: (i % 4) * 30, y: Math.floor(i / 4) * 20, w: 28, h: 17, fonts: ["small"] })) }] };
+    assert.ok(r.loadLayouts(JSON.stringify(file)).ok);
+    const text = fields.map((_, i) => String.fromCharCode(65 + i));
+    const res = r.render(0x10, 0, text);
+    assert.ok(res.ok, res.error);
+    const fp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "many.json");
+    writeFileSync(fp, JSON.stringify(file));
+    const nat = native(model, fp, 0x10, 0, text);
+    assert.ok(nat.ok, nat.error);
+    assert.deepEqual(res.pixels, nat.pixels);
+    assert.match(r.render(0x10, 0, [...text, "Q"]).error, /at most 16 fields/);
+    r.clearLayouts();
   });
 
   test(`a QR field too long for its box is drawn, with the AP's reason, ${model}`, async () => {

@@ -188,26 +188,26 @@ static void test_put_errors(void)
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", 0), 422);
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\"],\"price_highlight\":\"yes\"}", 0), 422);
 
-    /* text and one byte per field share 96 bytes: 95 bytes of Latin-1 in one field;
+    /* text and one byte per field share 256 bytes: 255 bytes of Latin-1 in one field;
        each Latin-1 character (e.g. æ) is one byte */
-    char body[512];
-    char text[200];
-    memset(text, 'x', 95);
-    text[95] = '\0';
+    char body[1024];
+    char text[300];
+    memset(text, 'x', 255);
+    text[255] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
     /* empty fields at the end cost nothing */
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\",\"\",null,\"\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-    text[95] = 'x';
-    text[96] = '\0';
+    text[255] = 'x';
+    text[256] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     CHECK(HAS(resp, "too long"));
-    /* three fields: 93 bytes */
-    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.45s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
+    /* three fields: 253 bytes */
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.125s\",\"%.127s\",\"\xC3\xA6\"]}", text, text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.46s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.126s\",\"%.127s\",\"\xC3\xA6\"]}", text, text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     /* very long UTF-8 input does not overflow anything */
     char huge[2048];
@@ -489,7 +489,7 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
                     "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
-                    "\"jsonBytes\":8192,\"fields\":6,\"fixedTextBytes\":64},\"layouts\":["
+                    "\"jsonBytes\":8192,\"fields\":16,\"fixedTextBytes\":64,\"textBytes\":256},\"layouts\":["
                     "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":null,\"size\":0,"
                     "\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
@@ -593,6 +593,111 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
                   "{\"layout\":\"six\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\"]}", 0), 422);
     CHECK(HAS(resp, "at most 6 fields"));
+
+    /* fields by name (#182): the same content as by position */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":[\"Kramp\",\"Spann\",\"\",\"192,25\"]}", 0), 200);
+    uint32_t by_pos = json_u32(resp, "\"content_id\":");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"price\":\"192,25\",\"brand\":\"Kramp\",\"name\":\"Spann\","
+                  "\"unit\":null}}", 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_id\":"), by_pos);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"Kramp\",\"Spann\",\"\",\"192,25\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":{\"pris\":\"1\"}}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"layout six for model 2.9 has no field \\\"pris\\\"\"}");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"unit\":\"stk\",\"unit\":\"m\"}}", 0), 422);
+    CHECK(HAS(resp, "given twice"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"unit\":1}}", 0), 422);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"a-very-long-name-of-a-field-that-is-not-there\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "has no field"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":\"x\"}", 0), 422);
+    CHECK(HAS(resp, "an object of strings by field name"));
+    /* an empty object is no text, as [] */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":{}}", 0), 200);
+    /* the built-in layouts' fields have names too */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}", 0), 200);
+    by_pos = json_u32(resp, "\"content_id\":");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"price\",\"fields\":{\"price\":\"24,90\",\"name\":\"Melk\"}}", 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_id\":"), by_pos);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"text\",\"fields\":{\"line3\":\"c\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"\",\"\",\"c\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"text\",\"fields\":{\"line5\":\"c\"}}", 0), 422);
+    CHECK(HAS(resp, "line1, line2, line3, line4"));
+
+    /* sixteen fields, 255 bytes in one of them */
+    static char f16[4096], b16[2048];
+    {
+        esl_sb_t l;
+        esl_sb_init(&l, f16, sizeof(f16));
+        esl_sb_puts(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"many\",\"fields\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&l, "%s\"f%d\"", i ? "," : "", i);
+        esl_sb_puts(&l, "],\"elements\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&l, "%s{\"type\":\"text\",\"field\":\"f%d\",\"x\":%d,\"y\":%d,\"w\":70,\"h\":17,\"fonts\":[\"small\"]}",
+                          i ? "," : "", i, (i % 4) * 74, (i / 4) * 30);
+        esl_sb_puts(&l, "]},{\"name\":\"link\",\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\","
+                        "\"x\":0,\"y\":0,\"w\":128,\"h\":128}]}]}");
+        CHECK(!l.overflow);
+    }
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f16, 0), 200);
+    {
+        esl_sb_t b;
+        esl_sb_init(&b, b16, sizeof(b16));
+        esl_sb_puts(&b, "{\"layout\":\"many\",\"fields\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&b, "%s\"%c%.13s\"", i ? "," : "", 'A' + i, "0123456789abcdef"); /* 14 bytes each */
+        esl_sb_puts(&b, "]}");
+    }
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, b16, 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"P0123456789abc\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"many\",\"fields\":{\"f15\":\"last\",\"f0\":\"first\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"first\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"last\"]"));
+    /* a link of 200 bytes for the QR code (it did not fit in 96) */
+    {
+        char url[201];
+        memset(url, 'a', 200);
+        memcpy(url, "https://example.com/", 20);
+        url[200] = '\0';
+        snprintf(b16, sizeof(b16), "{\"layout\":\"link\",\"fields\":{\"url\":\"%s\"}}", url);
+    }
+    /* the model not known yet: by name only where every file with the layout agrees */
+    const char *link154 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"1.54\",\"layouts\":[{\"name\":\"link\","
+                          "\"fields\":[\"title\",\"url\"],\"elements\":[{\"type\":\"text\",\"field\":\"title\",\"x\":0,"
+                          "\"y\":0,\"w\":100,\"h\":20,\"fonts\":[\"small\"]}]},{\"name\":\"many\",\"fields\":[\"f0\",\"f1\"],"
+                          "\"elements\":[{\"type\":\"text\",\"field\":\"f1\",\"x\":0,\"y\":0,\"w\":100,\"h\":20,"
+                          "\"fonts\":[\"small\"]}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, link154, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"url\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "not in the same place in layout link for every model"));
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"title\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "layout link for model 2.9 has no field \\\"title\\\""));
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"many\",\"fields\":{\"f1\":\"x\"}}", 0), 200);
+    /* ... and once it is known, its own file counts */
+    poll_model(0xBC, ESL_MODEL_154, true);
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"url\":\"x\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/00000000000000BC", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"\",\"x\"]"));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, b16, 0), 200);
+    {
+        static uint8_t img[16384];
+        esl_content_t lc;
+        CHECK(esl_store_get_content(&st, 0x290, &lc));
+        CHECK_INT(lc.len[0], 200);
+        CHECK(esl_layouts_render(&layouts, ESL_MODEL_29, &lc, img, sizeof(img)) > 0);
+        CHECK(esl_layouts_check_content(&layouts, ESL_MODEL_29, &lc, (char[192]){0}, 192));
+    }
 
     /* a barcode field must be one the tag can draw */
     const char *bc29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"bc\","
@@ -826,7 +931,7 @@ static void test_status_page(void)
         snprintf(u, sizeof(u), "/api/layouts/%s", esl_model_name(m));
         CHECK_INT(req("PUT", u, AUTH, lf, 0), 200);
     }
-    char body[512], text[ESL_MAX_TEXT + 1];
+    char body[1200], text[ESL_MAX_TEXT + 1];
     memset(text, '&', ESL_MAX_TEXT / 4);
     text[ESL_MAX_TEXT / 4] = '\0';
     esl_store_free(&st);

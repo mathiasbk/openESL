@@ -75,6 +75,13 @@ static void test_store_and_draw(const char *f29, size_t len29)
     CHECK_INT(v29b, v);
     CHECK(esl_layouts_find(&layouts, M29B, "shelf", 5, NULL) >= 0);
     CHECK(esl_layouts_find(&layouts, MBAD, "shelf", 5, NULL) < 0);
+    /* field names (#182) follow the same file */
+    CHECK_INT(esl_layouts_field_index(&layouts, M29B, "shelf", 5, "unit", 4), 2);
+    CHECK_INT(esl_layouts_field_index(&layouts, ESL_MODEL_29, "shelf", 5, "info", 4), 3);
+    CHECK_INT(esl_layouts_field_index(&layouts, ESL_MODEL_29, "shelf", 5, "inf", 3), -1);
+    CHECK_INT(esl_layouts_field_index(&layouts, ESL_MODEL_29, "sign", 4, "body", 4), 1);
+    CHECK_INT(esl_layouts_field_index(&layouts, ESL_MODEL_29, "nope", 4, "body", 4), -2);
+    CHECK_INT(esl_layouts_field_index(&layouts, MBAD, "shelf", 5, "unit", 4), -2);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, M29B, &env);
     CHECK_INT(env.version, v);

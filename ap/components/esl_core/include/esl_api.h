@@ -141,7 +141,7 @@ typedef struct esl_api_lock {
  * layout file. ESL_API_RESP_SIZE_ is n batch replies; a tag in the list takes
  * ESL_API_LIST_TAG, with its signal history (esl_store.h) at 11 bytes a POLL. */
 #define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
-#define ESL_API_LIST_TAG (640 + 11 * ESL_LINK_HIST)
+#define ESL_API_LIST_TAG (960 + 11 * ESL_LINK_HIST) /* fields up to 2 x ESL_CONTENT_FIELD_SPACE in JSON */
 #define ESL_API_LIST_SIZE_(n) (512 + ESL_API_LIST_TAG * (n))
 #define ESL_API_RESP_SIZE(max_tags)                                                        \
     (ESL_API_LIST_SIZE_(max_tags) > ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH) ? ESL_API_LIST_SIZE_(max_tags) \
@@ -225,7 +225,7 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
 /* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1024 * (max_tags))
+#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1856 * (max_tags)) /* fields up to 5 x ESL_CONTENT_FIELD_SPACE escaped */
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);

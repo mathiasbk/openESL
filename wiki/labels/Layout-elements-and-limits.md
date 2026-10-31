@@ -17,7 +17,7 @@ The AP does not calculate anything, such as VAT: send both prices as fields.
 ## Limits
 
 - Up to **16 layouts** per label model, in one layout file. The built-in `price` and `text` can always be used as well.
-- The text in the fields: about 90 characters in all per label, after æøå and the like are converted to Latin-1.
+- Up to **16 fields** per layout, and about 250 characters of text in all per label (one field can hold 255, enough for a long link in a QR code), after æøå and the like are converted to Latin-1. An AP with 0.9.2 or older takes 6 fields and about 90 characters.
 - The AP limits how many lines of text, boxes, lines and icons one layout can draw, and how big it is when compiled. These are limits of the AP, not of the label: the AP draws the picture, and the label only shows it. The status bar under the preview in the designer shows how much of each the layout uses, counted the same way as the AP does.
 - The limits depend on the AP. An [ESP32-C6](ESP32-C6) AP allows 32 lines of text, 20 boxes (inverted and highlighted text count as boxes), 16 lines and 8 icons per layout. An AP with PSRAM ([ESP32-S3](ESP32-S3-and-C6), [ESP32-C5](ESP32-C5)) allows twice as many, so a layout made for one can be too big for a C6. Once the designer is connected to your AP (Send to your AP), it shows that AP's limits; before that it shows the C6's, and says so.
 

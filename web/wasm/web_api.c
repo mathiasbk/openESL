@@ -16,8 +16,9 @@
  *                                "slot" in GET /api/fonts; -1 = the first free). 1 = ok, 0 = rejected
  *                                (web_error). Load the fonts before the layouts that use them.
  *   web_clear_fonts()            back to only the built-in fonts
- *   web_render(layout, flags, n, f0, ..., f5)
- *                                draws content with fields in UTF-8 (converted to Latin-1 as
+ *   web_render(layout, flags, n, fields)
+ *                                draws content with n fields in UTF-8 (fields: n
+ *                                NUL-terminated strings back to back) (converted to Latin-1 as
  *                                the AP does) into the frame buffer. layout 1 = price,
  *                                2 = text, 16 + n = layout n of the file. 1 = ok, 0 = error,
  *                                2 = drawn, but the AP would refuse the content (web_error)
@@ -49,8 +50,12 @@ EMSCRIPTEN_KEEPALIVE int web_height(void) { return DRAW_H; }
 EMSCRIPTEN_KEEPALIVE int web_model_code(void) { return MODEL_CODE; }
 EMSCRIPTEN_KEEPALIVE const char *web_error(void) { return err; }
 EMSCRIPTEN_KEEPALIVE uint8_t *web_fb(void) { return &fb[0][0]; }
-/* Text and one length byte per field sent share this many bytes in CONTENT */
-EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_CONTENT_FIELD_SPACE; }
+/* The AP's content limits (#182): fields per layout and the bytes the fields share (text and
+ * one length byte per field). This renderer's own until web_set_limit sets an AP's: 6 and 96
+ * on an AP with 0.9.2 or older. */
+static int max_fields = ESL_MAX_FIELDS;
+static int field_space = ESL_CONTENT_FIELD_SPACE;
+EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return field_space; }
 
 /* The limits the compiler checks, so the page can show how close a layout is to them:
  * 0 lines of text per screen, 1 rectangles per screen, 2 bytes in the file, 3 border of an
@@ -58,20 +63,21 @@ EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return ESL_CONTENT_FIELD_SPACE; }
  * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text,
  * 13 fields per layout, 14 bytes of JSON in the file, 15 height of text20, 16 height of price44,
  * 17 lines per screen, 18 icons per screen, 19 widest line, 20 QR codes per screen, 21 largest
- * QR module. 0, 1, 2, 14, 17 and 18 are the AP board's (esl_limits): the default board's until
- * web_set_limit() sets those of the AP the page talks to. */
+ * QR module, 22 bytes the fields of one update share. 0, 1, 2, 14, 17 and 18 are the AP board's
+ * (esl_limits), 13 and 22 the AP firmware's: this renderer's until web_set_limit() sets those of
+ * the AP the page talks to. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
 {
     const int v[] = { esl_limits.runs, esl_limits.rects, esl_limits.file_bytes, ESL_INVERT_PAD,
                       ESL_LE_MAX_LINES, ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_MID_H,
                       ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
-                      ESL_LBIN_TEXT_LEN_MAX, ESL_MAX_FIELDS, esl_limits.json_bytes,
+                      ESL_LBIN_TEXT_LEN_MAX, max_fields, esl_limits.json_bytes,
                       ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H, esl_limits.lines, esl_limits.icons,
-                      ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX };
+                      ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX, field_space };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
 }
 
-/* Sets one of the AP board's limits (what as in web_limit: 0, 1, 2, 14, 17 or 18) to an AP's,
+/* Sets one of the AP's limits (what as in web_limit: 0, 1, 2, 13, 14, 17, 18 or 22) to an AP's,
  * as GET /api/layouts reports them. A value larger than this renderer has room for (built for
  * the boards in ap/boards/) is cut to that room, so the page is then stricter than the AP.
  * Returns the limit now set, 0 for a what it cannot set. */
@@ -81,6 +87,14 @@ EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
                                        ESL_DRAW_CAP_ICONS, ESL_LBIN_CAP, 65535 };
     uint16_t *l;
     int max;
+    if (what == 13 || what == 22) {
+        int *v = what == 13 ? &max_fields : &field_space;
+        max = what == 13 ? ESL_MAX_FIELDS : ESL_CONTENT_FIELD_SPACE;
+        if (value < 1)
+            return 0;
+        *v = value < max ? value : max;
+        return *v;
+    }
     switch (what) {
     case 0: l = &esl_limits.runs; max = room.runs; break;
     case 1: l = &esl_limits.rects; max = room.rects; break;
@@ -156,22 +170,20 @@ EMSCRIPTEN_KEEPALIVE void web_clear_fonts(void)
     bin_ver = 0;
 }
 
-/* Latin-1 bytes of one UTF-8 field as the AP sends it (255 if it is too long to count). */
+/* Latin-1 bytes of one UTF-8 field as the AP sends it (ESL_MAX_TEXT + 1 if it is longer than
+ * one field can be). */
 EMSCRIPTEN_KEEPALIVE int web_text_bytes(const char *utf8)
 {
-    static uint8_t tmp[255];
+    static uint8_t tmp[ESL_MAX_TEXT];
     bool overflow = false;
     size_t n = esl_utf8_to_latin1(utf8, strlen(utf8), tmp, sizeof(tmp), &overflow);
-    return overflow ? 255 : (int)n;
+    return overflow ? ESL_MAX_TEXT + 1 : (int)n;
 }
 
-_Static_assert(ESL_MAX_FIELDS == 6, "web_render takes six fields");
-
-EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0, const char *f1,
-                                    const char *f2, const char *f3, const char *f4, const char *f5)
+EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *fields)
 {
-    static uint8_t text[255];
-    const char *const f[] = { f0, f1, f2, f3, f4, f5 };
+    static uint8_t text[ESL_MAX_TEXT];
+    const char *f[ESL_MAX_FIELDS];
     esl_content_t c;
     uint16_t w, h;
     bool red;
@@ -179,13 +191,17 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
     int i, total = 0;
 
     err[0] = 0;
-    if (n < 0 || n > ESL_MAX_FIELDS) {
-        snprintf(err, sizeof(err), "at most %d fields", ESL_MAX_FIELDS);
+    if (n < 0 || n > max_fields) {
+        snprintf(err, sizeof(err), "at most %d fields", max_fields);
         return 0;
     }
     for (i = 0; i < n; i++) {
+        f[i] = fields;
+        fields += strlen(fields) + 1;
+    }
+    for (i = 0; i < n; i++) {
         int b = web_text_bytes(f[i]);
-        if (b > 255 - 3) {
+        if (b > ESL_MAX_TEXT) {
             snprintf(err, sizeof(err), "field %d is too long", i + 1);
             return 0;
         }
@@ -193,9 +209,9 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *f0
     }
     while (n > 0 && !f[n - 1][0])
         n--; /* the AP drops empty fields at the end */
-    if (total > ESL_MAX_TEXT_FOR(n)) {
+    if (total > field_space - n) {
         snprintf(err, sizeof(err), "%d bytes of text, the AP takes at most %d with %d fields", total,
-                 ESL_MAX_TEXT_FOR(n), n);
+                 field_space - n, n);
         return 0;
     }
     if (layout < 0 || layout > 255 || esl_content_init(&c, (uint8_t)layout, (uint8_t)flags) != ESL_CONTENT_OK) {

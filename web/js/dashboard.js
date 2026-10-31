@@ -7,7 +7,7 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
-import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
@@ -742,6 +742,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     // What each tag gets today
     const rows = stRows(tags).filter((r) => !r.at);
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
+    const TEXT_BYTES = textLimit(last?.layouts?.limits);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
     const where = sources.placeOf();
@@ -831,6 +832,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       });
     }
     const rows = stRows(tags);
+    const TEXT_BYTES = textLimit(last?.layouts?.limits);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
     stBusy = true;

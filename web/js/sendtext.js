@@ -8,7 +8,12 @@ import { modelLabel } from "./models.js";
 
 export const MAX_DAYS = 31;      // one PUT /api/tags (at most 50 rows), well inside the schedule
 export const MAX_ROWS = 50;      // rows in one PUT /api/tags
-export const TEXT_BYTES = 96;    // the fields share 96 bytes: Latin-1 text plus one per field
+// The bytes the fields of one update share (Latin-1 text plus one per field): the AP's
+// limits.textBytes from GET /api/layouts, 96 on an AP with 0.9.2 or older (it reports none)
+export const OLD_TEXT_BYTES = 96;
+export function textLimit(limits) {
+  return limits?.textBytes ?? OLD_TEXT_BYTES;
+}
 
 const WEEKDAYS = ["søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag"];
 const MONTHS = ["januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",

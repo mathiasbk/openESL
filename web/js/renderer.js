@@ -28,8 +28,11 @@ export const FLAG_FRAME = 0x02;
 
 const cache = {};
 
-// The limits an AP board sets (esl_limits in esl_layout.h), by their web_limit number
-const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, jsonBytes: 14, lines: 17, icons: 18 };
+// The limits an AP board sets (esl_limits in esl_layout.h), and the AP firmware's content limits
+// (fields per layout, bytes the fields of one update share), by their web_limit number
+const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22 };
+// An AP with 0.9.2 or older reports no textBytes: its fields share 96 bytes (and it reports 6 fields)
+const OLD_AP_TEXT_BYTES = 96;
 
 // Days since 1970-01-01 of d's local date (web_set_today)
 export function localDays(d) {
@@ -75,6 +78,7 @@ async function create(model, base) {
     lineWidthMax: limit(19),
     qrs: limit(20),
     qrModuleMax: limit(21),
+    textBytes: limit(22),
   });
   // the default board's, for setLimits(null)
   const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));
@@ -83,8 +87,8 @@ async function create(model, base) {
     model,
     width,
     height,
-    // Text and one length byte per field sent share this many bytes in an update.
-    fieldSpace: call("web_max_text", "number", [], []),
+    // Text and one length byte per field sent share this many bytes in an update (limits.textBytes).
+    get fieldSpace() { return call("web_max_text", "number", [], []); },
     // The compiler's limits (web_limit in web_api.c): the default AP board's until setLimits.
     // The same object throughout, so a reference to it sees the AP's limits once they are set.
     limits: readLimits({}),
@@ -94,7 +98,8 @@ async function create(model, base) {
     setLimits(apLimits) {
       if (!this.canSetLimits) return;
       for (const [key, what] of Object.entries(SETTABLE))
-        call("web_set_limit", "number", ["number", "number"], [what, apLimits?.[key] ?? defaults[key]]);
+        call("web_set_limit", "number", ["number", "number"],
+          [what, apLimits?.[key] ?? (apLimits && key === "textBytes" ? OLD_AP_TEXT_BYTES : defaults[key])]);
       readLimits(this.limits);
     },
 
@@ -156,12 +161,18 @@ async function create(model, base) {
       // a renderer from before them has no web_set_today and draws them as written
       if (typeof M._web_set_today === "function")
         call("web_set_today", null, ["number"], [localDays(today)]);
-      const f = fields.slice(0, 6).map((s) => String(s ?? ""));
-      const n = f.length;
-      while (f.length < 6) f.push("");
-      const res = call("web_render", "number",
-        ["number", "number", "number", "string", "string", "string", "string", "string", "string"],
-        [layout, flags, n, ...f]);
+      // the fields back to back, each NUL-terminated (web_render in web_api.c)
+      const f = fields.map((x) => String(x ?? ""));
+      const bytes = f.reduce((n, x) => n + M.lengthBytesUTF8(x) + 1, 0);
+      const p = M._malloc(bytes || 1);
+      let q = p;
+      for (const x of f) {
+        const l = M.lengthBytesUTF8(x);
+        M.stringToUTF8(x, q, l + 1);
+        q += l + 1;
+      }
+      const res = call("web_render", "number", ["number", "number", "number", "number"], [layout, flags, f.length, p]);
+      M._free(p);
       if (!res) return { ok: false, error: error() };
       const at = call("web_fb", "number", [], []);
       const out = { ok: true, pixels: M.HEAPU8.slice(at, at + width * height) };

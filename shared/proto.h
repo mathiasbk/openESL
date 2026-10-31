@@ -106,9 +106,10 @@
 
 /* ---- What a tag shows (the AP's content; not sent on the air as such) ----
  * The AP draws the content into an image (IMG below). These are the built-in layouts,
- * the flags and the text limits of a tag's content. The limits are those of the
- * CONTENT message the tag used to get, so stored content and its content_id stay the
- * same. */
+ * the flags and the text limits of a tag's content. Content is only kept on the AP (NVS),
+ * so the limits are the AP's: up to 0.9.2 they were those of the CONTENT message the tag
+ * used to get (6 fields, 96 bytes). Content within those is stored, and gets its
+ * content_id, exactly as before (#182). */
 #define ESL_LAYOUT_PRICE     1      /* felt: navn, pris, undertekst */
 #define ESL_LAYOUT_TEXT      2      /* felt: linje1..linje4 */
 #define ESL_LAYOUT_FILE      0x10   /* 0x10 + n = layout nr. n i layoutfila for modellen */
@@ -117,13 +118,13 @@
 #define ESL_CF_PRICE_HIGHLIGHT 0x01 /* framhevet pris: hvite siffer i svart felt (invertert) */
 #define ESL_CF_FRAME         0x02   /* svart ramme rundt skjermen */
 
-#define ESL_MAX_FIELDS       6      /* tekstfelt */
-/* Plass til feltene: tekst + én lengdebyte per felt, 96.
- * Altså 92 byte tekst med fire felt og 90 med seks. */
-#define ESL_CONTENT_FIELD_SPACE 96
+#define ESL_MAX_FIELDS       16     /* tekstfelt (6 til og med 0.9.2) */
+/* Plass til feltene: tekst + én lengdebyte per felt, 256 (96 til og med 0.9.2).
+ * Ett felt har høyst 255 byte tekst. */
+#define ESL_CONTENT_FIELD_SPACE 256
 /* Største sum av tekstbytes med n felt */
 #define ESL_MAX_TEXT_FOR(n)  (ESL_CONTENT_FIELD_SPACE - (n))
-/* Største sum av tekstbytes når alle felt er med: 90 */
+/* Største sum av tekstbytes når alle felt er med: 240 */
 #define ESL_MAX_TEXT_BYTES   ESL_MAX_TEXT_FOR(ESL_MAX_FIELDS)
 
 /* ---- Firmware transfer (docs/protokoll.md part 1, "Firmware transfer"; docs/tag-ota.md) ----
@@ -279,7 +280,7 @@
 /* Ett element, 14 byte, slik esl_render.c leser det */
 #define ESL_LE_SIZE          14
 #define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
-#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..5, eller ESL_LE_FIELD_FIXED | fast tekst */
+#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..ESL_MAX_FIELDS-1, eller ESL_LE_FIELD_FIXED | fast tekst */
 #define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
 #define ESL_LE_OFF_OPTS      5      /* u8 justering */
 #define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3); tekst: bit 6-7 = ESL_LE_ROT */
