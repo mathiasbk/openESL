@@ -477,7 +477,7 @@ void esl_layouts_font_list(esl_layouts_t *ls, esl_sb_t *out)
             continue;
         esl_sb_puts(out, n++ ? "," : "");
         esl_font_write_info(f, out, true);
-        esl_sb_puts(out, ",\"used_by\":[");
+        esl_sb_printf(out, ",\"slot\":%u,\"used_by\":[", s);
         unsigned u = 0;
         for (unsigned m = 0; ls && m < ESL_MODEL_COUNT - 1; m++) {
             const esl_layout_t *l = ls->models[m];

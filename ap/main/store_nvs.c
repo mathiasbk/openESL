@@ -376,19 +376,24 @@ static void fonts_restore(esl_layouts_t *ls)
     nvs_handle_t h;
     if (nvs_open(NS_FONTS, NVS_READONLY, &h) != ESP_OK)
         return;
-    uint8_t *buf = malloc(ESL_FONT_MAX_BYTES);
-    for (unsigned slot = 0; buf && slot < ESL_FONT_USER_MAX; slot++) {
+    /* one font at a time, its own size: one 32 KB block may not be free on a C6 */
+    for (unsigned slot = 0; slot < ESL_FONT_USER_MAX; slot++) {
         char key[8];
-        size_t len = ESL_FONT_MAX_BYTES;
+        size_t len = 0;
         font_key(slot, key);
-        if (nvs_get_blob(h, key, buf, &len) != ESP_OK)
+        if (nvs_get_blob(h, key, NULL, &len) != ESP_OK || !len)
             continue;
-        if (esl_layouts_font_restore(ls, slot, buf, len))
+        uint8_t *buf = malloc(len);
+        if (!buf) {
+            ESP_LOGE(TAG, "no memory for font file %u (%u bytes): layouts that use it are skipped", slot, (unsigned)len);
+            continue;
+        }
+        if (nvs_get_blob(h, key, buf, &len) == ESP_OK && esl_layouts_font_restore(ls, slot, buf, len))
             ESP_LOGI(TAG, "font file %u loaded (%u bytes)", slot, (unsigned)len);
         else
             ESP_LOGW(TAG, "ignoring bad stored font file %u", slot);
+        free(buf);
     }
-    free(buf);
     nvs_close(h);
 }
 

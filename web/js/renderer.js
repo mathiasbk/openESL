@@ -7,8 +7,10 @@
 //                                       refused (why the AP would refuse these fields, if it would) }
 //   r.setLimits(apLimits)    the limits of the AP the page talks to ("limits" from GET /api/layouts),
 //                            or null for the default board's; r.limits then has them
-//   r.setFonts({name: text}) the font files layouts may name (GET /api/fonts/{name}, js/apfonts.js),
-//                            as on the AP: the ones loaded before are dropped. -> { errors }
+//   r.setFonts({name: text}, {name: slot}) the font files layouts may name (GET /api/fonts/{name},
+//                            js/apfonts.js), as on the AP and in its slots (GET /api/fonts), so
+//                            a layout file compiles to the AP's version: the ones loaded before
+//                            are dropped. -> { errors }
 //                            r.limits.fontHeight then has their heights next to the built-in fonts'
 
 import { MODELS as REGISTRY } from "./models.js";
@@ -121,11 +123,12 @@ async function create(model, base) {
     canLoadFonts: typeof M._web_load_font === "function",
     fontKey: "",
 
-    setFonts(files = {}) {
+    setFonts(files = {}, slots = {}) {
       const errors = [];
       if (!this.canLoadFonts) return { errors };
-      const names = Object.keys(files).sort();
-      const key = JSON.stringify(names.map((n) => [n, files[n]]));
+      const at = (n) => (Number.isInteger(slots[n]) ? slots[n] : 99);
+      const names = Object.keys(files).sort((a, b) => at(a) - at(b) || (a < b ? -1 : a > b ? 1 : 0));
+      const key = JSON.stringify(names.map((n) => [n, at(n), files[n]]));
       if (key === this.fontKey) return { errors };
       call("web_clear_fonts", null, [], []);
       for (const n of Object.keys(fileHeights)) delete fileHeights[n];
@@ -134,7 +137,7 @@ async function create(model, base) {
         const len = M.lengthBytesUTF8(text);
         const p = M._malloc(len + 1);
         M.stringToUTF8(text, p, len + 1);
-        const ok = call("web_load_font", "number", ["number", "number"], [p, len]) === 1;
+        const ok = call("web_load_font", "number", ["number", "number", "number"], [p, len, at(n) < 99 ? at(n) : -1]) === 1;
         M._free(p);
         if (ok) fileHeights[n] = JSON.parse(text).height;
         else errors.push(`${n}: ${error()}`);

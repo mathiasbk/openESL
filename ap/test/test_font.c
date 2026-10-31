@@ -217,7 +217,7 @@ static void test_api_and_layouts(void)
     CHECK(HAS(resp, "\"format\":\"esl-font\"") && HAS(resp, "\"bitmap\":\"" A4 "\""));
     CHECK_INT(req("GET", "/api/fonts/blk/", NULL), 200);
     CHECK_INT(req("GET", "/api/fonts", NULL), 200);
-    CHECK(HAS(resp, "\"bytes\":24") && HAS(resp, "\"used_by\":[]"));
+    CHECK(HAS(resp, "\"bytes\":24") && HAS(resp, "\"slot\":0,\"used_by\":[]"));
 
     /* a layout draws with it like with a built-in font */
     CHECK_INT(req("PUT", "/api/layouts/2.9", layout29), 200);
@@ -399,19 +399,25 @@ static void test_same_as_builtin(void)
     esl_font_swap(0, f);
     static const char *const fonts[] = {"mid", "mid2"};
     uint8_t *img[] = {a, b};
-    for (unsigned k = 0; k < 2; k++) {
-        snprintf(lay, sizeof(lay),
-                 "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"p\",\"fields\":[\"price\"],"
-                 "\"elements\":[{\"type\":\"text\",\"field\":\"price\",\"x\":4,\"y\":20,\"w\":280,\"h\":40,\"fonts\":[\"%s\"],"
-                 "\"align\":\"right\",\"decimals\":\"dash\",\"thousands\":true}]}]}", fonts[k]);
-        CHECK(esl_layout_compile(lay, strlen(lay), ESL_MODEL_29, &bin, err, sizeof(err)));
-        esl_content_t c;
-        esl_content_init_named(&c, "p", 1, 0);
-        esl_content_add_field(&c, (const uint8_t *)"12499.00", 8);
-        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img[k], sizeof(a)) > 0);
+    /* turned text too (#295): a font file is drawn by its own tables in every direction */
+    for (unsigned rot = 0; rot < 4; rot++) {
+        for (unsigned k = 0; k < 2; k++) {
+            unsigned w = rot & 1 ? 40 : 280, h = rot & 1 ? 120 : 40;
+            snprintf(lay, sizeof(lay),
+                     "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"p\",\"fields\":[\"price\"],"
+                     "\"elements\":[{\"type\":\"text\",\"field\":\"price\",\"x\":4,\"y\":4,\"w\":%u,\"h\":%u,\"fonts\":[\"%s\"],"
+                     "\"align\":\"right\",\"decimals\":\"dash\",\"thousands\":true,\"rotate\":%u}]}]}",
+                     w, h, fonts[k], rot * 90);
+            CHECK(esl_layout_compile(lay, strlen(lay), ESL_MODEL_29, &bin, err, sizeof(err)));
+            esl_content_t c;
+            esl_content_init_named(&c, "p", 1, 0);
+            esl_content_add_field(&c, (const uint8_t *)(rot & 1 ? "99.00" : "12499.00"), rot & 1 ? 5 : 8);
+            memset(img[k], 0, sizeof(a));
+            CHECK(esl_render(ESL_MODEL_29, &bin, &c, img[k], sizeof(a)) > 0);
+        }
+        CHECK(ink(a, 296 * 16) > 100);
+        CHECK_MEM(a, b, sizeof(a));
     }
-    CHECK(ink(a, 296 * 16) > 200);
-    CHECK_MEM(a, b, sizeof(a));
     esl_font_clear();
 }
 

@@ -506,10 +506,44 @@
         </div>
         <div id="lay-fonts" class="lay-fonts" hidden>
           <h3 class="lay-h">Font files <span id="lay-fonts-space" class="muted small"></span></h3>
-          <p class="hint">Fonts the AP draws with besides its built-in ones: a size or a set of characters it does not have. Make one with <code>tag/tools/gen_font.py --file</code>; a layout then names it in its fonts. A new version of a font redraws the tags that use it.</p>
+          <p class="hint">Fonts the AP draws with besides its built-in ones: a size or a set of characters it does not have. Make one here from a font on your computer or a font file; a layout then names it in its fonts, and the designer lists it. A new version of a font redraws the tags that use it.</p>
           <ul id="lay-font-list" class="lay-font-list"></ul>
+          <button id="lay-font-make" type="button" class="small primary">Make a font…</button>
           <button id="lay-font-add" type="button" class="small">Add a font file…</button>
           <input id="lay-font-file" type="file" accept=".json,application/json" hidden>
+          <div id="lay-fm" class="lay-fm" hidden>
+            <div class="lay-fm-grid">
+              <label>Name <input id="fm-name" type="text" maxlength="15" value="text28" spellcheck="false" autocapitalize="off"></label>
+              <label>Font <select id="fm-family">
+                <option value="sans-serif">Sans serif</option>
+                <option value="serif">Serif</option>
+                <option value="monospace">Monospace</option>
+                <option value="file">From a font file (.ttf, .otf, .woff)…</option>
+                <option value="other">Another font on this computer…</option>
+              </select></label>
+              <label id="fm-other-l" hidden>Font name <input id="fm-other" type="text" placeholder="e.g. Arial" spellcheck="false"></label>
+              <label id="fm-file-l" hidden>Font file <button id="fm-pick" type="button" class="small">Pick a font file…</button></label>
+              <input id="fm-file" type="file" accept=".ttf,.otf,.woff,.woff2,font/*" hidden>
+              <label>Weight <select id="fm-weight"><option value="normal">Normal</option><option value="600">Semibold</option><option value="bold" selected>Bold</option></select></label>
+              <label>Height (px) <input id="fm-height" type="number" min="6" max="64" value="28"></label>
+              <label>Letter size <input id="fm-size" type="number" min="4" max="128" placeholder="auto"></label>
+              <label>Characters <select id="fm-chars">
+                <option value="latin1">All letters (Latin-1: æøå, é, ü …)</option>
+                <option value="price">Prices only (0-9 , - . :)</option>
+                <option value="custom">These characters…</option>
+              </select></label>
+              <label id="fm-custom-l" hidden>Characters <input id="fm-custom" type="text" value="0123456789,-kr " spellcheck="false"></label>
+              <label class="lay-fm-wide">Sample text <input id="fm-sample" type="text" value="Kaffe Ærlig 1 299,-"></label>
+            </div>
+            <div class="lay-fm-prev"><canvas id="fm-canvas" aria-label="What the tag shows with this font"></canvas></div>
+            <p id="fm-info" class="hint" role="status"></p>
+            <p class="hint">Use a font whose licence lets you do this; fonts from Google Fonts (such as Inter) are under the SIL Open Font License.</p>
+            <div class="lay-b">
+              <button id="fm-send" type="button" class="small primary">Send to the AP</button>
+              <button id="fm-save" type="button" class="small">Save the font file</button>
+              <button id="fm-close" type="button" class="small">Close</button>
+            </div>
+          </div>
         </div>
         <p id="lay-msg" class="hint" role="status"></p>
       </details>

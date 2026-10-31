@@ -388,7 +388,7 @@ function limitsSource() {
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
   // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
-  if (ap.connected) state.renderer?.setFonts?.(ap.fonts);
+  if (ap.connected) state.renderer?.setFonts?.(ap.fonts, ap.fontSlots);
 }
 
 // After connecting or disconnecting: check and draw again with the limits that now apply
@@ -1895,7 +1895,7 @@ function initActions() {
 // own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
 const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
              tagLayouts: {},     // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
-             fonts: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
+             fonts: {}, fontSlots: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
 const apFontFiles = apFonts();
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
@@ -1943,6 +1943,7 @@ function apDisconnected() {
   ap.limits = null;
   ap.board = "";
   ap.fonts = {};
+  ap.fontSlots = {};
   limitsChanged();
   apShow();
   apStatus("");
@@ -2040,7 +2041,14 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
-  ap.fonts = (await apFontFiles.read(apClient())).files;
+  try {
+    ({ files: ap.fonts, slots: ap.fontSlots } = await apFontFiles.read(apClient()));
+  } catch (e) {
+    // the AP's font files are not needed to connect: layouts that name one show it as unknown
+    console.warn("could not read the AP's font files:", e);
+    ap.fonts = {};
+    ap.fontSlots = {};
+  }
   limitsChanged();
   const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;

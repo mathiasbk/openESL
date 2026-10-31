@@ -50,13 +50,32 @@ test("a layout draws with a font file the renderer has", async () => {
   r.setFonts({});
 });
 
+test("font files go into the AP's slots, so a layout file compiles to the AP's version", async () => {
+  const r = await loadRenderer("2.9", WASM);
+  const two = JSON.stringify({
+    format: "esl-layouts", version: 1, model: "2.9",
+    layouts: [{ name: "f", fields: ["a"], elements: [{ type: "text", field: "a", x: 10, y: 10, w: 50, h: 12, fonts: ["bb", "aa"] }] }],
+  });
+  const files = { aa: block("aa"), bb: block("bb", 3) };
+  r.setFonts(files, { aa: 1, bb: 0 });
+  const v1 = r.loadLayouts(two);
+  r.setFonts(files, { aa: 0, bb: 1 });
+  const v2 = r.loadLayouts(two);
+  r.setFonts(files, { aa: 1, bb: 0 });
+  const v3 = r.loadLayouts(two);
+  assert.ok(v1.ok && v2.ok && v3.ok);
+  assert.notEqual(v1.version, v2.version);   // the slot is in the compiled file
+  assert.equal(v1.version, v3.version);
+  r.setFonts({});
+});
+
 test("apFonts reads each font file once per version, and an older AP has none", async () => {
   const calls = [];
   let version = 1;
   const client = {
     async call(method, path) {
       calls.push(method + " " + path);
-      if (path === "/api/fonts") return { max_fonts: 8, max_bytes: 32768, bytes: 24, builtin: [], fonts: [{ name: "blk", version }] };
+      if (path === "/api/fonts") return { max_fonts: 8, max_bytes: 32768, bytes: 24, builtin: [], fonts: [{ name: "blk", version, slot: 2 }] };
       return JSON.parse(block("blk"));
     },
   };
@@ -64,6 +83,7 @@ test("apFonts reads each font file once per version, and an older AP has none", 
   const a = await f.read(client);
   assert.equal(a.supported, true);
   assert.deepEqual(Object.keys(a.files), ["blk"]);
+  assert.deepEqual(a.slots, { blk: 2 });
   await f.read(client);
   assert.equal(calls.filter((c) => c === "GET /api/fonts/blk").length, 1);
   version = 2;
@@ -71,7 +91,7 @@ test("apFonts reads each font file once per version, and an older AP has none", 
   assert.equal(calls.filter((c) => c === "GET /api/fonts/blk").length, 2);
 
   const old = { async call() { throw new Error("404: not found"); } };
-  assert.deepEqual(await f.read(old), { supported: false, info: null, files: {} });
+  assert.deepEqual(await f.read(old), { supported: false, info: null, files: {}, slots: {} });
 
   assert.equal(checkFontFile(JSON.parse(block("blk"))), null);
   assert.match(checkFontFile({ format: "esl-layouts" }), /not a font file/);

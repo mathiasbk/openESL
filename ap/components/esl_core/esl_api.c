@@ -1753,9 +1753,12 @@ static int put_font(const esl_api_t *api, const char *name, const char *body, si
 {
     char err[ESL_LAYOUT_ERR_MAX + 64];
     if (!body || len == 0)
-        return api_error(out, 400, "missing font file (JSON, tag/tools/gen_font.py --file)");
-    if (len > ESL_API_MAX_BODY)
-        return api_error(out, 413, "font file too large (max 24576 bytes)");
+        return api_error(out, 400, "missing font file (JSON: Make a font in the dashboard, or tag/tools/gen_font.py --file)");
+    if (len > ESL_API_MAX_BODY) {
+        snprintf(err, sizeof(err), "font file too large (max %u bytes: fewer characters or a smaller height)",
+                 (unsigned)ESL_API_MAX_BODY);
+        return api_error(out, 413, err);
+    }
     /* Not JSON or not an object: 400, as for the other endpoints (a file with more values
        than a font has is left to esl_font_from_json, which says so) */
     esl_jtok_t *tok = malloc(sizeof(*tok) * 320);

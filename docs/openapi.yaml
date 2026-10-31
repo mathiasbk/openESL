@@ -2298,8 +2298,9 @@ components:
             allOf:
               - $ref: "#/components/schemas/FontInfoFields"
               - type: object
-                required: [used_by]
+                required: [slot, used_by]
                 properties:
+                  slot: { type: integer, minimum: 0, maximum: 7, description: "Where the AP keeps it; a layout file names it as font 0x10 + slot. A renderer that loads it into the same slot compiles layout files to the AP's version" }
                   used_by: { type: array, items: { $ref: "#/components/schemas/ModelName" }, description: The models whose layout file draws with it }
             unevaluatedProperties: false
 

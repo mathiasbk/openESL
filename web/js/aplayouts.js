@@ -12,6 +12,7 @@ import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { apFonts, checkFontFile } from "./apfonts.js";
+import { makeFont, loadFontFile, previewFont } from "./fontmaker.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
@@ -55,7 +56,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
   const fonts = apFonts();
-  let fontState = { supported: false, info: null, files: {} };   // the AP's font files (js/apfonts.js)
+  let fontState = { supported: false, info: null, files: {}, slots: {} };   // the AP's font files (js/apfonts.js)
   const host = sameOrigin ? location.host : "openesl.local";
   const canEdit = !!$("tab-design");
 
@@ -81,7 +82,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     if (file) {
       // The renderer is shared with the designer: check with this AP's limits each time
       r.setLimits?.(last?.layouts?.limits || null);
-      r.setFonts?.(fontState.files);   // and with its font files, which the file may name
+      r.setFonts?.(fontState.files, fontState.slots);   // and with its font files, which the file may name
       const res = r.loadLayouts(JSON.stringify(file));
       if (!res.ok) return null;
     }
@@ -473,15 +474,19 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     if (!rows.length) rows.push(el("li", "muted", "None yet: the AP draws with its built-in fonts only."));
     $("lay-font-list").replaceChildren(...rows);
     $("lay-font-add").disabled = busy;
+    $("lay-font-make").disabled = busy;
+    if ($("fm-send")) $("fm-send").disabled = busy || !made;
   }
 
   function addFont(text) {
     return run("Sending the font file", async () => {
-      let file;
-      try {
-        file = JSON.parse(text);
-      } catch {
-        throw new Error("The file is not JSON: pick a font file made by tag/tools/gen_font.py --file.");
+      let file = text;
+      if (typeof text === "string") {
+        try {
+          file = JSON.parse(text);
+        } catch {
+          throw new Error("The file is not JSON: pick a font file made here (Make a font…) or by tag/tools/gen_font.py --file.");
+        }
       }
       const bad = checkFontFile(file);
       if (bad) throw new Error("The file is " + bad + ".");
@@ -509,6 +514,111 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     };
   }
 
+  // Make a font (js/fontmaker.js): the browser draws a font on this computer, or a font file,
+  // into a font file, with a preview of what the tag shows, and sends it to the AP
+  let made = null;          // the font file made from the form, null when the form has an error
+  let picked = null;        // { family, file } of a font file picked in the form
+  let makeTimer = 0;
+  const fm = (id) => $("fm-" + id);
+  function makeNow() {
+    made = null;
+    const info = fm("info");
+    try {
+      const sel = fm("family").value;
+      fm("other-l").hidden = sel !== "other";
+      fm("file-l").hidden = sel !== "file";
+      fm("custom-l").hidden = fm("chars").value !== "custom";
+      let family = sel, source = "";
+      if (sel === "file") {
+        if (!picked) throw new Error("Pick a font file.");
+        family = picked.family;
+        source = picked.file;
+      } else if (sel === "other") {
+        family = fm("other").value.trim();
+        if (!family) throw new Error("Write the name of a font on this computer.");
+        if (!document.fonts.check(`12px "${family}"`, "A")) throw new Error(`This browser has no font called "${family}".`);
+        source = family;
+      } else source = "browser " + sel;
+      const name = fm("name").value.trim();
+      const bad = checkFontFile({ format: "esl-font", name });
+      if (bad) throw new Error("The name: " + bad.replace(/^its name /, "") + ".");
+      const weight = fm("weight").value;
+      const file = makeFont({
+        name, family, weight, height: +fm("height").value, size: +fm("size").value || 0,
+        chars: fm("chars").value === "custom" ? fm("custom").value : fm("chars").value,
+      });
+      file.source = `${source}, ${weight}, ${file._made.size} px`.replace(/[^\x20-\x7e]/g, "?").slice(0, 63);
+      const p = previewFont(fm("canvas"), file, fm("sample").value || "Aa", file.height > 36 ? 1 : 2);
+      if (!fm("size").value) fm("size").placeholder = `auto (${file._made.size})`;
+      const n = file.widths.filter((w) => w).length;
+      const kb = (p.bytes / 1024).toFixed(1);
+      const list = (a) => a.slice(0, 12).join(" ") + (a.length > 12 ? " …" : "");
+      const { clipped, accents } = file._made;
+      const clip = (clipped.length ? ` The tops or bottoms of ${list(clipped)} are cut off: make it taller or the letters smaller.` : "") +
+        (accents.length && !clipped.length ? ` Tall accents (${list(accents)}) reach a little out of it at the top, as in the built-in fonts.` : "");
+      const room = fontState.info ? fontState.info.max_bytes - fontState.info.bytes + ((fontState.info.fonts || []).find((f) => f.name === name)?.bytes || 0) : Infinity;
+      const full = p.bytes > room ? ` That is more than the ${(room / 1024).toFixed(1)} KB the AP has left: fewer characters or a smaller height.` : "";
+      info.textContent = `"${name}": ${file.height} px high, ${n} characters, ${kb} KB.` + clip + full;
+      info.className = "hint" + (full ? " error" : "");
+      made = full ? null : file;
+    } catch (e) {
+      info.textContent = e.message;
+      info.className = "hint error";
+      const c = fm("canvas");
+      c.width = c.height = 0;
+    }
+    fm("send").disabled = busy || !made;
+    fm("save").disabled = !made;
+  }
+  const makeSoon = () => {
+    clearTimeout(makeTimer);
+    makeTimer = setTimeout(makeNow, 150);
+  };
+  if ($("lay-fm")) {
+    $("lay-font-make").onclick = () => {
+      $("lay-fm").hidden = !$("lay-fm").hidden;
+      if (!$("lay-fm").hidden) {
+        makeNow();
+        fm("name").focus();
+      }
+    };
+    for (const id of ["name", "other", "height", "size", "custom", "sample"]) fm(id).oninput = makeSoon;
+    for (const id of ["weight", "chars"]) fm(id).onchange = makeNow;
+    fm("family").onchange = () => {
+      if (fm("family").value === "file" && !picked) fm("file").click();
+      makeNow();
+    };
+    fm("file").onchange = async (ev) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (!f) return;
+      try {
+        picked = { family: await loadFontFile(f), file: f.name };
+        fm("family").value = "file";
+        fm("pick").textContent = f.name;
+      } catch (e) {
+        picked = null;
+        say(e.message, "error");
+      }
+      makeNow();
+    };
+    fm("pick").onclick = () => fm("file").click();
+    fm("send").onclick = async () => {
+      makeNow();
+      if (made) await addFont(made);
+    };
+    fm("save").onclick = () => {
+      makeNow();
+      if (!made) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(made)], { type: "application/json" }));
+      a.download = made.name + ".json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+    fm("close").onclick = () => ($("lay-fm").hidden = true);
+  }
+
   // The designer of this page opens the AP's file with this layout picked (js/editor.js)
   function edit(name) {
     const file = files[model]?.file;
@@ -523,7 +633,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     for (const k of Object.keys(files)) delete files[k];
     for (const k of Object.keys(shown)) delete shown[k];
     if ($("lay-card")) $("lay-card").hidden = true;
-    fontState = { supported: false, info: null, files: {} };
+    fontState = { supported: false, info: null, files: {}, slots: {} };
     if ($("lay-fonts")) $("lay-fonts").hidden = true;
     say("");
   }
