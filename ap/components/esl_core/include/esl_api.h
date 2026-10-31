@@ -225,7 +225,7 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
  * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
 int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
 /* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1856 * (max_tags)) /* fields up to 5 x ESL_CONTENT_FIELD_SPACE escaped */
+#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1856 * (max_tags)) /* fields up to 5 x ESL_CONTENT_FIELD_SPACE escaped; for a buffer that does not stream (tests) */
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);

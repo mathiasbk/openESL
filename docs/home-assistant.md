@@ -1,6 +1,6 @@
 # Home Assistant: 3D printer status on a tag
 
-The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields`. This page shows the way without it; the layouts, limits and battery advice hold for both.
+The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields` (as a list; fields by name need the `rest_command` for now). This page shows the way without it; the layouts, limits and battery advice hold for both.
 
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
@@ -102,7 +102,7 @@ On an AP newer than 0.9.2, `fields` can also name the fields, so the automation 
         bar: "{{ ' ' * (pct | int * 31 // 100) }}"
 ```
 
-A name the layout does not have gives `422` with the name in the message.
+A name the layout does not have gives `422` with the name in the message. For now this works with the `rest_command` only: the integration's `openesl.send` still takes `fields` as a list.
 
 To put it on the AP, open the [Design](https://mathiasbk.github.io/openESL/#design) tab, pick the tag's model, choose **+ From template**, then **3D printer** and **3D printer status**, and add it. The designer checks that your layout file still fits the AP with it, and **Send to your AP…** (or **Save to AP** on the AP's own designer) uploads the file. It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so delete example layouts no tag uses if it does not fit. Without the designer: copy the variant's `layout` from the template file into the AP's file for the model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`).
 

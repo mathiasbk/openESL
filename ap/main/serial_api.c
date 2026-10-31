@@ -278,7 +278,9 @@ esp_err_t serial_api_start(const esl_api_t *api)
     serial_api = *api;
     serial_api.token = SERIAL_TOKEN;
     serial_api.lock = NULL; /* whoever has the cable has the device: no token, no lockout */
-    if (xTaskCreate(serial_task, "serial_api", 6144, NULL, 5, NULL) != pdPASS)
+    /* the whole API, the layout compiler and setting content (a tag's old and new content and
+       its NVS blob, about 0.5 KB more since #182) on this stack */
+    if (xTaskCreate(serial_task, "serial_api", 7168, NULL, 5, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     ESP_LOGI(TAG, "API on the USB serial port");
     return ESP_OK;
