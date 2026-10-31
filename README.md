@@ -1,4 +1,6 @@
-<h1 align="center">OpenESL</h1>
+<h1 align="center">
+  <img src="web/img/favicon.svg" alt="" width="48" height="48" align="top"> OpenESL
+</h1>
 
 <p align="center">
   Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
