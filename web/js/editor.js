@@ -1658,6 +1658,8 @@ function download(name, text, type = "application/json") {
 }
 
 function setDoc(d) {
+  // a file for a model whose sameAs names another is that model's file (the AP takes it under that name)
+  if (d.model && MODELS[d.model] && layoutModel(d.model) !== d.model) d = { ...d, model: layoutModel(d.model) };
   if (d.model && MODELS[d.model] && d.model !== state.model) {
     state.docs[d.model] = d;
     loadModel(d.model).then(save);
