@@ -178,7 +178,9 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
         await putContent(client, arg.map((e) => ({ mac: e.mac, at: e.at, ...pick(e, CONTENT_KEYS) })), note, "Scheduled");
       }
     } catch (e) {
-      note(false, `${kind === "layout" ? `Layout file for the ${arg}"` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
+      // a backup from before its model got same_as: this AP draws it with the other model's file
+      if (kind === "layout" && /^409\b/.test(e.message)) notes.push(`The ${arg}" layout file was skipped: ${e.message.replace(/^409:?\s*/, "")}`);
+      else note(false, `${kind === "layout" ? `Layout file for the ${arg}"` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
     }
     progress({ done: ++n, total: steps.length });
   }
