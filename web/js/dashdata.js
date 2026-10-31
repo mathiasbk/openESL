@@ -174,8 +174,19 @@ export function apFacts(ap, ota) {
   ];
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
-  if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio)]);
+  if (ap.radios?.length > 1) {
+    // several radios over WiFi: one line each, with its channel and the tags it serves
+    for (const r of ap.radios)
+      facts.push([`Radio ${r.radio} (C6, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`]);
+  } else if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio)]);
   return facts;
+}
+
+// Which radio over WiFi serves the tag: "radio 1 (channel 15)", or null with one radio or none
+export function tagRadio(tag, radios) {
+  if (tag?.radio == null || !(radios?.length > 1)) return null;
+  const r = radios.find((x) => x.radio === tag.radio);
+  return r ? `radio ${r.radio} (channel ${r.channel})` : `radio ${tag.radio}`;
 }
 
 // The network radio's line in the AP facts: "192.168.3.249, last seen 3 s ago", or "not connected"

@@ -27,6 +27,7 @@
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
 #define PATH_SOURCES "/api/sources"
+#define PATH_RADIOS "/api/radios"
 
 _Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
@@ -583,12 +584,85 @@ static void write_signal(esl_sb_t *out, const esl_tag_t *t)
         esl_sb_puts(out, "\"tag_rssi\":null,\"tag_lqi\":null}");
 }
 
+/* "[{radio, id, channel, tags, connected, ...}]": every network radio the AP knows, the one
+   on its channel (0) and those with their own; channel is the AP's for radio 0 */
+static void write_radios(const esl_api_t *api, esl_sb_t *out, uint8_t ap_channel, uint64_t now_ms)
+{
+    esl_sb_putc(out, '[');
+    bool first = true;
+    for (unsigned i = 0; i < api->n_links; i++) {
+        const esl_radio_link_t *l = &api->links[i];
+        if (!l->id)
+            continue;
+        char id[17];
+        esl_mac_format(l->id, id);
+        esl_sb_printf(out, "%s{\"radio\":%u,\"id\":\"%s\",\"channel\":%u,\"tags\":%u,\"connected\":%s",
+                      first ? "" : ",", i, id, (unsigned)(l->channel ? l->channel : ap_channel), l->tags,
+                      l->up ? "true" : "false");
+        first = false;
+        if (l->up) {
+            /* written by the radio's task without the API's lock, as "radio" */
+            uint64_t ago = l->seen_ms < now_ms ? now_ms - l->seen_ms : 0;
+            esl_sb_printf(out, ",\"ip\":\"%u.%u.%u.%u\",\"seen_s\":%" PRIu64 ",\"fw\":%u",
+                          (unsigned)(l->ip >> 24), (unsigned)((l->ip >> 16) & 0xff), (unsigned)((l->ip >> 8) & 0xff),
+                          (unsigned)(l->ip & 0xff), ago / 1000, (unsigned)l->ver);
+        }
+        esl_sb_putc(out, '}');
+    }
+    esl_sb_putc(out, ']');
+}
+
+/* GET /api/radios: the network radios; DELETE /api/radios/{id}: forget one that is not connected */
+static int handle_radios(const esl_api_t *api, const char *method, const char *uri, size_t plen, uint64_t now_ms,
+                         esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_RADIOS) - 1;
+    size_t il = plen > base ? plen - base - 1 : 0;
+    if (il && uri[base + il] == '/')
+        il--;
+    if (!il) {
+        if (strcmp(method, "GET") != 0)
+            return api_error(out, 405, "method not allowed");
+        esl_channel_state_t ch;
+        esl_store_channel_state(api->store, now_ms, &ch);
+        esl_sb_puts(out, "{\"radios\":");
+        write_radios(api, out, ch.channel, now_ms);
+        esl_sb_putc(out, '}');
+        return 200;
+    }
+    uint64_t id;
+    if (il != 16 || !esl_mac_parse(&uri[base + 1], 16, &id) || !id)
+        return api_error(out, 400, "the radio id must be 16 hex digits");
+    if (strcmp(method, "DELETE") != 0 || !api->radio_ops)
+        return api_error(out, 405, "method not allowed");
+    int r = api->radio_ops->forget(api->radio_ops->ctx, id);
+    if (r == 404)
+        return api_error(out, 404, "unknown radio");
+    if (r == 409)
+        return api_error(out, 409, "the radio is connected: turn it off first, then forget it");
+    char m[17];
+    esl_mac_format(id, m);
+    esl_sb_printf(out, "{\"forgotten\":\"%s\"}", m);
+    return 200;
+}
+
+/* More than one network radio is known: each tag says which one serves it */
+static bool several_radios(const esl_api_t *api)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; api->links && i < api->n_links; i++)
+        n += api->links[i].id != 0;
+    return n > 1;
+}
+
 /* fingerprint: for the change fingerprint (esl_api_changes_t), when the tag was last
    heard instead of how long ago, which changes every second */
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
-                      const esl_tag_cfg_t *ap, bool with_content, bool fingerprint)
+                      const esl_tag_cfg_t *ap_all, bool with_content, bool fingerprint)
 {
     char m[17];
+    esl_tag_cfg_t tap = esl_store_tag_ap(api->store, t, ap_all); /* its radio's channel */
+    const esl_tag_cfg_t *ap = &tap;
     esl_mac_format(t->mac, m);
     esl_sb_printf(out, "{\"mac\":\"%s\",", m);
     /* A tag not heard since this boot, from NVS: what it said last, and when
@@ -626,6 +700,8 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     } else
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
+    if (several_radios(api))
+        esl_sb_printf(out, "\"radio\":%u,", (unsigned)t->radio);
     write_tag_cfg(out, t, ap);
 
     esl_sb_puts(out, ",\"content_error\":");
@@ -967,6 +1043,10 @@ static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_s
         }
         esl_sb_puts(out, "}");
     }
+    if (api->links && api->n_links) {
+        esl_sb_puts(out, ",\"radios\":");
+        write_radios(api, out, ch.channel, now_ms);
+    }
     if (api->radio_stats) {
         /* written by the radio task without the API's lock: a counter may be one behind */
         const esl_link_stats_t *r = api->radio_stats;
@@ -1101,6 +1181,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
         esl_store_tag_defaults(api->store, &ap);
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
+        ap = esl_store_tag_ap(api->store, &t, &ap);
         esl_sb_printf(out, "{\"mac\":\"%s\",", m);
         write_tag_cfg(out, &t, &ap);
         esl_sb_putc(out, '}');
@@ -1125,6 +1206,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
             status = api_error(out, 500, "tag vanished");
         else {
             esl_store_tag_defaults(api->store, &ap);
+            ap = esl_store_tag_ap(api->store, &t, &ap);
             esl_sb_printf(out, "{\"mac\":\"%s\",", m);
             write_tag_cfg(out, &t, &ap);
             esl_sb_printf(out, ",\"changed\":%s}", r.changed ? "true" : "false");
@@ -1224,6 +1306,8 @@ static bool channel_now_ok(const esl_channel_state_t *cs, uint8_t channel)
    the 409 with why ("force" moves past tags with old firmware, not past an old radio) */
 static int channel_move_ok(const esl_channel_state_t *cs, uint8_t channel, bool force, esl_sb_t *out)
 {
+    if (channel != cs->channel && (cs->taken >> channel & 1))
+        return api_error(out, 409, "another radio of this AP is on that channel: pick another one");
     if (channel == cs->builtin || channel == cs->channel)
         return 0;
     if (cs->radio_old)
@@ -1467,6 +1551,7 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
         return ESL_TAG_BAD;
     esl_tag_cfg_t ap, eff;
     esl_store_tag_defaults(api->store, &ap);
+    ap = esl_store_tag_ap(api->store, t, &ap);
     esl_tag_effective_cfg(t, &ap, &eff); /* "poll_s" in GET /api/tags */
     uint64_t poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
     uint64_t ago; /* "seen_s_ago": late also for a tag from NVS not heard since this boot */
@@ -2338,6 +2423,13 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
                 return status;
         }
         int status = api->sources->api(api->sources, method, uri, plen, body, body_len, now, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t rbase = sizeof(PATH_RADIOS) - 1;
+    if (api->links && api->n_links && plen >= rbase && memcmp(uri, PATH_RADIOS, rbase) == 0 &&
+        (plen == rbase || uri[rbase] == '/')) {
+        int status = handle_radios(api, method, uri, plen, now_ms, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 

@@ -7,6 +7,10 @@
 #include "esl_rhost.h"
 #include "esl_render.h"
 #include <stdlib.h>
+/* tag/src/config.h: CFG_SCAN_CHANNELS (it wants a version from tools/build.py) */
+#define FW_VERSION 1
+#define FW_VERSION_STR "0"
+#include "config.h"
 
 /* A network radio end to end (docs/ap-netradio.md): the host (store, images, tag
  * firmware and esl_rhost, as on the S3) and the radio (esl_rcache, as on the C6), with
@@ -527,8 +531,209 @@ static void test_rhost_clock_unknown(void)
     esl_layouts_free(&ls);
 }
 
+/* ---- several radios (docs/ap-netradio.md, "Several radios") ---- */
+
+static esl_rhost_t host2;
+static esl_rtag_state_t sent2[TAGS];
+static esl_rcache_t rc2;
+static esl_rtag_t rtags2[TAGS];
+static esl_rimage_t rimages2[IMAGES];
+static esl_rlog_t rlog2[LOG];
+static esl_rowners_t owners;
+static esl_rowner_t owner_slots[TAGS];
+static const esl_rhost_out_t out2 = {&rc2, out_clear, out_tag, out_drop, out_image, out_fw, out_default, out_end};
+
+static const esl_rtag_state_t *rfind(const esl_rcache_t *c, uint64_t mac)
+{
+    for (unsigned i = 0; i < c->n_tags; i++)
+        if (c->tags[i].s.mac == mac)
+            return &c->tags[i].s;
+    return NULL;
+}
+
+/* A sync of radio 2 at host time now_ms */
+static void sync2_at(uint64_t now_ms)
+{
+    esl_rsync_t req;
+    esl_rcache_sync_req(&rc2, now_ms + RADIO_CLOCK, &req);
+    esl_rhost_begin(&host2, &req);
+    for (unsigned i = 0; i < req.log_n; i++)
+        esl_rhost_replay(&host2, &req, esl_rcache_log_at(&rc2, i), now_ms);
+    esl_rhost_answer(&host2, &req, &out2);
+}
+
+/* One wake-up of a fake tag against radio 2 */
+static uint8_t wake2(esl_faketag_t *t, uint64_t now_ms)
+{
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    uint64_t at = now_ms + RADIO_CLOCK;
+    size_t n = esl_faketag_poll(t, PAN, rx);
+    size_t m = esl_rcache_handle(&rc2, rx, n, -70, at, tx);
+    uint8_t type = m ? esl_faketag_receive(t, tx, m) : 0;
+    for (int req = 0; type == ESL_MSG_IMG && req < ESL_FAKETAG_IMG_REQS; req++) {
+        n = esl_faketag_img_request(t, PAN, rx);
+        if (!n || !(m = esl_rcache_handle(&rc2, rx, n, -70, at, tx)) || esl_faketag_receive(t, tx, m) != type)
+            break;
+    }
+    return type;
+}
+
+static void boot_two(void)
+{
+    static uint8_t *idata, *img;
+    static const esl_rcache_ops_t ops = {NULL, radio_read_fw};
+    size_t cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
+    boot();
+    if (!idata)
+        idata = malloc(IMAGES * cap);
+    if (!img)
+        img = malloc(cap);
+    for (unsigned i = 0; i < IMAGES; i++)
+        rimages2[i].data = idata + i * cap;
+    esl_rcache_init(&rc2, PAN, rtags2, TAGS, rimages2, IMAGES, cap, rlog2, LOG, &ops);
+    rc2.boot = 0x2222;
+    esl_rhost_init(&host2, &st, NULL, &images, &fw, PAN, sent2, TAGS, img, cap);
+    esl_rowners_init(&owners, owner_slots, TAGS);
+    owners.radios = 2;
+    esl_rhost_share(&host, &owners, 0);
+    esl_rhost_share(&host2, &owners, 1);
+    esl_store_set_radio_channel(&st, 1, 20);
+}
+
+static void test_rhost_two_radios(void)
+{
+    esl_faketag_t a, b, c;
+    esl_tag_t t;
+    esl_channel_state_t cs;
+    boot_two();
+    esl_faketag_init(&a, 0xA1, 1, 2900, ESL_MODEL_29);
+    esl_faketag_init(&b, 0xB1, 1, 2900, ESL_MODEL_29);
+
+    /* A polls radio 1 (the AP's channel), B radio 2: each radio gets only its own tag */
+    CHECK_INT(wake(&a, 1000), ESL_MSG_IDLE);
+    CHECK_INT(wake2(&b, 1000), ESL_MSG_IDLE);
+    sync_at(2000);
+    sync2_at(2000);
+    sync_at(3000); /* B is in the store now, and not radio 1's */
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xA1), 0);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xB1), 1);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xC1), ESL_RHOST_NONE);
+    CHECK_INT(esl_rowners_count(&owners, 1), 1);
+    CHECK(rfind(&rc, 0xA1) && !rfind(&rc, 0xB1));
+    CHECK(rfind(&rc2, 0xB1) && !rfind(&rc2, 0xA1));
+    CHECK(esl_store_get(&st, 0xB1, &t) && t.radio == 1);
+
+    /* B is told radio 2's channel in CONFIG, A the AP's (0, the built-in one) */
+    CHECK_INT(rfind(&rc2, 0xB1)->cfg.channel, 20);
+    CHECK_INT(rfind(&rc, 0xA1)->cfg.channel, 0);
+    CHECK_INT(wake2(&b, 61000), ESL_MSG_CONFIG);
+    CHECK_INT(b.cfg.channel, 20);
+    CHECK_INT(wake2(&b, 121000), ESL_MSG_IDLE);
+    sync2_at(122000);
+    CHECK(esl_store_get(&st, 0xB1, &t));
+    {
+        esl_tag_cfg_t ap;
+        esl_store_tag_defaults(&st, &ap);
+        ap = esl_store_tag_ap(&st, &t, &ap);
+        CHECK_INT(ap.channel, 20);
+        CHECK(!esl_tag_cfg_pending(&t, &ap));
+    }
+    CHECK(!esl_tag_cfg_pending(&t, &(esl_tag_cfg_t){0, 0, 0, 0, 0, 20}));
+
+    /* the AP's channel cannot move onto radio 2's */
+    esl_store_channel_state(&st, 122000, &cs);
+    CHECK_INT((long long)cs.taken, 1 << 20);
+
+    /* content: each image goes to the radio of its tag only */
+    unsigned i1 = host.stats.images, i2 = host2.stats.images;
+    set_price(0xA1, "Melk", "24,90");
+    set_price(0xB1, "Brød", "39,90");
+    sync_at(130000);
+    sync2_at(130000);
+    CHECK_INT(host.stats.images, i1 + 1);
+    CHECK_INT(host2.stats.images, i2 + 1);
+    CHECK_INT(wake(&a, 190000), ESL_MSG_IMG);
+    CHECK_INT(wake2(&b, 190000), ESL_MSG_IMG);
+    CHECK(a.img_shown == 1 && b.img_shown == 1);
+
+    /* radio 1 goes quiet; A finds radio 2 (channel scan) and moves there: radio 2 asks for it,
+       owns it from then on and tells it its channel; radio 1 drops it at its next sync */
+    CHECK_INT(wake2(&a, 300000), ESL_MSG_IDLE);
+    CHECK_INT(a.interval_s, ESL_RCACHE_WAIT_S);
+    sync2_at(301000);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xA1), 1);
+    CHECK(rfind(&rc2, 0xA1) && rfind(&rc2, 0xA1)->cfg.channel == 20);
+    CHECK_INT(rfind(&rc2, 0xA1)->image_id, a.shown); /* it shows its image: nothing to send */
+    CHECK_INT(wake2(&a, 306000), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 20);
+    sync_at(307000);
+    CHECK(!rfind(&rc, 0xA1));
+    CHECK_INT(esl_rowners_count(&owners, 0), 0);
+
+    /* a log that comes late from radio 1 (a frame from before the move) does not take it back */
+    CHECK_INT(wake(&a, 299000), ESL_MSG_IDLE);
+    sync_at(308000);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xA1), 1);
+
+    /* a new price for A now goes through radio 2 */
+    i1 = host.stats.images;
+    i2 = host2.stats.images;
+    set_price(0xA1, "Melk", "19,90");
+    sync_at(310000);
+    sync2_at(310000);
+    CHECK_INT(host.stats.images, i1);
+    CHECK_INT(host2.stats.images, i2 + 1);
+    CHECK_INT(wake2(&a, 366000), ESL_MSG_IMG);
+    CHECK_INT(a.img_shown, 2);
+
+    /* a tag no radio has heard since the host started (here: heard, then forgotten as by a
+       restart): both radios get its state, but its image goes ahead to neither while two
+       are connected */
+    esl_faketag_init(&c, 0xC1, 1, 2900, ESL_MODEL_29);
+    CHECK_INT(wake(&c, 390000), ESL_MSG_IDLE);
+    sync_at(391000);
+    memset(&owner_slots[esl_store_slot_of(&st, 0xC1)], 0, sizeof(owner_slots[0]));
+    set_price(0xC1, "Ost", "89,90");
+    i1 = host.stats.images;
+    i2 = host2.stats.images;
+    sync_at(400000);
+    sync2_at(400000);
+    CHECK(rfind(&rc, 0xC1) && rfind(&rc2, 0xC1));
+    CHECK_INT(host.stats.images, i1);
+    CHECK_INT(host2.stats.images, i2);
+    /* with one radio left, it goes ahead as before */
+    owners.radios = 1;
+    sync2_at(401000);
+    CHECK_INT(host2.stats.images, i2 + 1);
+    owners.radios = 2;
+
+    /* radio 2 forgotten: its tags count as radio 1's again, and the channel is free */
+    esl_rowners_forget(&owners, 1);
+    esl_store_set_radio_channel(&st, 1, 0);
+    CHECK(esl_store_get(&st, 0xA1, &t) && t.radio == 0);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xA1), ESL_RHOST_NONE);
+    esl_store_channel_state(&st, 402000, &cs);
+    CHECK_INT((long long)cs.taken, 0);
+    esl_rhost_share(&host, NULL, 0);
+}
+
+/* A new radio's channel: the first free one in the order a tag that lost its radio looks */
+static void test_rhost_pick_channel(void)
+{
+    static const uint8_t tag_order[] = {CFG_SCAN_CHANNELS};
+    uint32_t taken = 0;
+    for (unsigned i = 0; i < sizeof(tag_order); i++) {
+        uint8_t c = esl_rhost_pick_channel(taken);
+        CHECK_INT(c, tag_order[i]);
+        taken |= 1u << c;
+    }
+    CHECK_INT(esl_rhost_pick_channel(taken), 0);
+    CHECK_INT(esl_rhost_pick_channel(1u << 25 | 1u << 15), 20); /* the AP on 25, a radio on 15 */
+}
+
 void test_rhost(void)
 {
+    test_rhost_pick_channel();
     test_rhost_clock_unknown();
     test_rhost_content();
     test_rhost_unfit();
@@ -536,4 +741,5 @@ void test_rhost(void)
     test_rhost_refused_fw();
     test_rhost_slots();
     test_rhost_link();
+    test_rhost_two_radios();
 }

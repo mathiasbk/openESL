@@ -401,9 +401,53 @@ static void test_nlink_broken(void)
     CHECK(!esl_nlink_host_on(&hl, ESL_NLINK_LOG, syncmsg, 1));
 }
 
+/* Several radios: the host picks the radio's esl_rhost_t and channel by the id in HELLO */
+static uint64_t hello_id;
+static bool pick(void *ctx, esl_nlink_host_t *n)
+{
+    hello_id = n->radio.id;
+    if (n->radio.id == 0xBAD)
+        return false;
+    n->h = ctx;
+    n->channel = 15;
+    return true;
+}
+
+static void test_nlink_on_hello(void)
+{
+    boot();
+    to_host.n = to_radio.n = 0;
+    esl_nlink_rx_init(&hrx, hrx_buf, sizeof(hrx_buf));
+    esl_nlink_rx_init(&rrx, rrx_buf, sizeof(rrx_buf));
+    esl_nlink_host_init(&hl, NULL, &fw, 20, PAN, pipe_write, &to_radio, host_now);
+    hl.on_hello = pick;
+    hl.hello_ctx = &host;
+    esl_nlink_hello_t h = {rc.boot, 10000, 0xC6C6C6C6C7ull, TAGS, IMAGES, (uint32_t)rc.image_cap,
+                           ESL_MODEL_COUNT - 1, ESL_NLINK_F_CHANNEL};
+    CHECK(esl_nlink_radio_hello(&rl, &h));
+    pump();
+    CHECK(hl.hello && hl.h == &host);
+    CHECK((long long)hello_id == (long long)0xC6C6C6C6C7ull);
+    CHECK_INT(radio_channel, 15);
+
+    /* a radio the host turns away, and a host that sets no esl_rhost_t: closed */
+    esl_nlink_host_t n2;
+    esl_nlink_host_init(&n2, NULL, &fw, 20, PAN, pipe_write, &to_radio, host_now);
+    n2.on_hello = pick;
+    n2.hello_ctx = &host;
+    to_host.n = 0;
+    h.id = 0xBAD;
+    CHECK(esl_nlink_radio_hello(&rl, &h));
+    CHECK(!esl_nlink_host_on(&n2, ESL_NLINK_HELLO, to_host.b + ESL_NLINK_HDR, to_host.n - ESL_NLINK_HDR));
+    esl_nlink_host_init(&n2, NULL, &fw, 20, PAN, pipe_write, &to_radio, host_now);
+    CHECK(!esl_nlink_host_on(&n2, ESL_NLINK_HELLO, to_host.b + ESL_NLINK_HDR, to_host.n - ESL_NLINK_HDR));
+    to_host.n = to_radio.n = 0;
+}
+
 void test_nlink(void)
 {
     test_nlink_flow();
     test_nlink_old_hello();
     test_nlink_broken();
+    test_nlink_on_hello();
 }

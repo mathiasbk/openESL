@@ -1,5 +1,6 @@
 #include "esl_rhost.h"
 #include "esl_clock.h"
+#include "esl_proto.h"
 #include "esl_radio.h"
 #include <string.h>
 
@@ -19,6 +20,92 @@ void esl_rhost_init(esl_rhost_t *h, esl_store_t *st, esl_layouts_t *ls, esl_imag
     h->max_draws = ESL_RHOST_DRAWS;
     h->max_images = ESL_RHOST_IMAGES;
     memset(sent, 0, max_sent * sizeof(sent[0]));
+}
+
+void esl_rowners_init(esl_rowners_t *o, esl_rowner_t *by_slot, unsigned n)
+{
+    o->by_slot = by_slot;
+    o->n = n;
+    o->radios = 0;
+    memset(by_slot, 0, n * sizeof(by_slot[0]));
+}
+
+uint8_t esl_rowners_get(const esl_rowners_t *o, esl_store_t *st, uint64_t mac)
+{
+    int slot = esl_store_slot_of(st, mac);
+    if (!o || slot < 0 || (unsigned)slot >= o->n || o->by_slot[slot].mac != mac)
+        return ESL_RHOST_NONE;
+    return o->by_slot[slot].radio;
+}
+
+unsigned esl_rowners_count(const esl_rowners_t *o, uint8_t radio)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; i < o->n; i++)
+        n += o->by_slot[i].mac && o->by_slot[i].radio == radio;
+    return n;
+}
+
+void esl_rowners_forget(esl_rowners_t *o, uint8_t radio)
+{
+    /* the store's side (esl_tag_t.radio) goes with esl_store_set_radio_channel(radio, 0) */
+    for (unsigned i = 0; i < o->n; i++)
+        if (o->by_slot[i].radio == radio)
+            memset(&o->by_slot[i], 0, sizeof(o->by_slot[i]));
+}
+
+/* = CFG_SCAN_CHANNELS (tag/src/config.h; test_rhost.c checks they match) */
+static const uint8_t scan_order[] = {15, 20, 26, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 24, 25};
+
+uint8_t esl_rhost_pick_channel(uint32_t taken)
+{
+    for (unsigned i = 0; i < sizeof(scan_order); i++)
+        if (!(taken >> scan_order[i] & 1))
+            return scan_order[i];
+    return 0;
+}
+
+void esl_rhost_share(esl_rhost_t *h, esl_rowners_t *owners, uint8_t index)
+{
+    h->owners = owners;
+    h->index = index;
+}
+
+/* The tag in the frame was heard by this radio at at: it owns the tag, unless another
+   radio heard it later (their logs come in at their own syncs). */
+static void own(esl_rhost_t *h, const uint8_t *psdu, size_t len, uint64_t at)
+{
+    esl_rx_frame_t f;
+    if (!h->owners || !esl_frame_parse_from_tag(psdu, len, &f) || f.dst_pan != h->pan)
+        return;
+    int slot = esl_store_slot_of(h->st, f.src_mac);
+    if (slot < 0 || (unsigned)slot >= h->owners->n)
+        return;
+    esl_rowner_t *o = &h->owners->by_slot[slot];
+    if (o->mac == f.src_mac && o->radio != h->index && o->at_ms > at)
+        return;
+    o->mac = f.src_mac;
+    o->at_ms = at;
+    o->radio = h->index;
+    esl_store_set_tag_radio(h->st, f.src_mac, h->index);
+}
+
+/* Whether this radio serves the tag: it owns it, nobody does yet, or it asked for it. */
+static bool serves(const esl_rhost_t *h, const esl_rsync_t *req, unsigned slot, uint64_t mac, bool *owned)
+{
+    *owned = !h->owners;
+    if (!h->owners || slot >= h->owners->n)
+        return true;
+    const esl_rowner_t *o = &h->owners->by_slot[slot];
+    if (o->mac != mac)
+        return true; /* nobody's yet */
+    *owned = o->radio == h->index;
+    if (*owned || mac == req->want_mac)
+        return true;
+    for (unsigned i = 0; i < ESL_RCACHE_WANTS; i++)
+        if (req->wants[i] == mac)
+            return true;
+    return false;
 }
 
 void esl_rhost_begin(esl_rhost_t *h, const esl_rsync_t *req)
@@ -58,6 +145,7 @@ void esl_rhost_replay(esl_rhost_t *h, const esl_rsync_t *req, const esl_rlog_t *
     uint32_t age = req->now_ms - e->t_ms; /* the radio's clock, wrapping at 32 bits */
     uint64_t at = age < now_ms ? now_ms - age : 0;
     esl_radio_replay(h->st, h->ls, h->pan, e->psdu, e->len, e->rssi, at);
+    own(h, e->psdu, e->len, at); /* after the replay: a new tag has a slot now */
     h->stats.replayed++;
 }
 
@@ -122,6 +210,7 @@ static bool state(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, esl_rtag_
     s->has_cfg = t->cfg_capable;
     esl_tag_cfg_t ap;
     esl_store_tag_defaults(h->st, &ap);
+    ap = esl_store_tag_ap(h->st, t, &ap); /* the channel of the radio that serves it */
     esl_tag_effective_cfg(t, &ap, &s->cfg);
     if (!image_id(h, t, draws, &s->image_id))
         return false;
@@ -230,6 +319,16 @@ void esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, const esl_rhost_ou
         }
         if (!used)
             continue;
+        bool owned;
+        if (!serves(h, req, slot, t.mac, &owned)) {
+            /* another radio has it now */
+            if (prev->mac) {
+                out->drop(out->ctx, prev->mac);
+                h->stats.drops++;
+                memset(prev, 0, sizeof(*prev));
+            }
+            continue;
+        }
         if (!state(h, &t, &a.draws, &s)) {
             a.more = true;
             continue;
@@ -237,7 +336,7 @@ void esl_rhost_answer(esl_rhost_t *h, const esl_rsync_t *req, const esl_rhost_ou
         if (s.fw_ver && t.model <= ESL_RCACHE_MODELS)
             fw_needed[t.model - 1] = true;
         /* its image ahead of the tag, while the radio has a slot to spare for it */
-        if (needs_image(&a, &t, s.image_id) && a.free)
+        if (needs_image(&a, &t, s.image_id) && a.free && (owned || h->owners->radios <= 1))
             send_image(h, &a, t.mac, &s.image_id);
         /* the tag the radio asked for is sent again even if it seems to have it */
         if (!same(prev, &s) || t.mac == req->want_mac) {

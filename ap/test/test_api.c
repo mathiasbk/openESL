@@ -19,8 +19,20 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
+static uint64_t forgot;
+static int forget_radio(void *ctx, uint64_t id)
+{
+    (void)ctx;
+    if (id == 0xC6000001)
+        return 409;
+    if (id != 0xC6000002)
+        return 404;
+    forgot = id;
+    return 0;
+}
+static const esl_radio_ops_t radio_ops = {NULL, forget_radio};
 static esl_sb_t out;
 
 static int req(const char *method, const char *uri, const char *auth, const char *body, uint64_t now_ms)
@@ -345,6 +357,42 @@ static void test_batch_and_list(void)
     link.seen_ms = 86400001;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
+    /* several radios: each with its channel and tags, and each tag says which serves it */
+    esl_radio_link_t links[3] = {link, {0}, {.up = false, .id = 0xC6000002, .channel = 20, .tags = 0}};
+    links[0].id = 0xC6000001;
+    links[0].tags = 1;
+    api.links = links;
+    api.n_links = 3;
+    esl_store_set_radio_channel(&st, 2, 20);
+    esl_store_set_tag_radio(&st, 0xABCDEF, 2);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, ",\"radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"channel\":25,\"tags\":1,"
+                    "\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3},"
+                    "{\"radio\":2,\"id\":\"00000000C6000002\",\"channel\":20,\"tags\":0,\"connected\":false}]"));
+    CHECK(HAS(resp, "\"mac\":\"0000000000ABCDEF\""));
+    CHECK(HAS(resp, "\"pending\":false,\"radio\":2,\"poll_s\""));
+    /* GET /api/radios lists the same; DELETE forgets one that is not connected */
+    CHECK_INT(req("GET", "/api/radios", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "{\"radios\":[{\"radio\":0,"));
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000002", AUTH, NULL, 0), 405); /* no radio_ops */
+    api.radio_ops = &radio_ops;
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000002", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "{\"forgotten\":\"00000000C6000002\"}"));
+    CHECK((long long)forgot == (long long)0xC6000002);
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000001", AUTH, NULL, 0), 409);
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000009", AUTH, NULL, 0), 404);
+    CHECK_INT(req("DELETE", "/api/radios/C6", AUTH, NULL, 0), 400);
+    CHECK_INT(req("PUT", "/api/radios", AUTH, "{}", 0), 405);
+    CHECK_INT(req("GET", "/api/radios", NULL, NULL, 0), 401);
+    api.radio_ops = NULL;
+    /* one radio known: no "radio" per tag */
+    links[2].id = 0;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(!HAS(resp, "\"radio\":2"));
+    esl_store_set_radio_channel(&st, 2, 0);
+    api.links = NULL;
+    api.n_links = 0;
+    CHECK_INT(req("GET", "/api/radios", AUTH, NULL, 0), 404); /* not a network radio AP */
     api.link = NULL;
     api.reset_reason = "task_wdt";
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);

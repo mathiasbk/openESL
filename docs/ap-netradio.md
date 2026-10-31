@@ -152,6 +152,58 @@ channel the S3 announces (u16 at the end of the TAG message, 0 = the built-in on
 CONFIG tells the tags, and once they have it (or the time is up) the S3 sends a new CONFIG with the new
 channel and the radio retunes.
 
+## Several radios
+
+One S3 can have up to **4 radios** (#259), each a C6 on the same WiFi network, each on a channel
+of its own, to cover a shop or a house that one radio cannot reach. Not tried on hardware yet:
+everything below is tested on the PC (`ap/test/test_rhost.c`, `test_nlink.c`, `test_api.c`), not
+with several C6 boards.
+
+- **Places.** The S3 knows each radio by the MAC in its HELLO and gives it a place, 0 to 3. Place 0
+  is on the AP's channel and follows its moves (Settings, Radio), exactly as the one radio does;
+  a lone radio is always in place 0, so one radio works as before. A radio in place 1–3 gets a
+  channel of its own when it first connects: the first one that the AP, a move it plans and the
+  other radios leave free, in the order a tag that lost its radio looks (15, 20, 26, 11, then
+  12–25, `esl_rhost_pick_channel`), so tags find it within their first rounds without an answer.
+  The places and their channels are kept in NVS (`cfg/radios`), so a radio gets its place and
+  channel back after a restart of either side. The AP's channel cannot be moved onto another
+  radio's (`409`).
+- **Which radio serves a tag.** The radio that last heard it (`esl_rowners_t`, from the frames in
+  the radios' logs). Only that radio is told the tag's state and gets its images; the others drop
+  it. A tag's CONFIG carries its radio's channel, so the channel the tag keeps in flash (and
+  tries first when it misses an answer) is the one of the radio that serves it. A tag no radio has heard since the S3 started is told to every radio, but
+  its image goes ahead only when one radio is connected (each image costs a radio tag replies).
+- **Roaming.** A tag whose radio stops answering finds another the way it finds a moved AP
+  (docs/protokoll.md, "Finding the AP"): after three rounds without an answer it looks on the
+  other channels, and the first radio that answers asks the S3 for it (as for a new tag: one or
+  two wake-ups of 5 s), owns it from then on and tells it its channel. Nothing changes in the tag
+  firmware; tags from before 0.9.0 cannot look on other channels and stay with the radio on the
+  channel they know.
+- **API and dashboard.** `GET /api/radios` (and `radios` under `ap` in `GET /api/tags`) lists the
+  radios: place, id, channel, how many tags each serves, connected or not. With more than one
+  radio each tag has `radio`, and the dashboard shows a line per radio in the AP facts and which
+  radio serves a tag next to its signal. `DELETE /api/radios/{id}` forgets a radio that is not
+  connected (a broken C6), so its place and channel go to the next new one; a fifth radio is
+  turned away until one is forgotten.
+
+Limits on top of the ones above:
+
+- **Every radio costs the S3 memory and time.** Each has its own copy of what it was told (40 bytes
+  per tag, 40 KB for 1000 tags) and an image buffer, and the S3 keeps which radio serves each tag
+  (24 bytes per tag), all in PSRAM. The S3 serves the radios one after another in
+  one task, so a sync that draws images for one radio holds up the others' syncs for that time.
+- **A channel move of the AP waits for tags on other radios.** They are told their own radio's
+  channel, so they never confirm the AP's new one: the move goes when the AP's own tags have it or
+  at the deadline (at most 2 h 1 min).
+- **A tag switches radio only when it loses its own**, not because another one hears it better:
+  a tag at the edge of two radios stays with the first until that one stops answering for three
+  rounds. Choosing by signal is a later step.
+- **Two radios on the same channel would both answer the tags**, so the S3 never gives two the
+  same one; another openESL AP nearby on one of these channels still answers them (same PAN ID),
+  as before.
+- **Not secure**, as one radio is not: any device on the network can connect as a radio, and
+  takes a place.
+
 ## On hardware
 
 One ESP32-S3 N16R8 and one ESP32-C6 on the same WiFi network (RSSI −72 to −79 dBm at the C6),
@@ -198,7 +250,8 @@ WiFi RSSI −74 to −77 dBm, coex at the default, power save MIN (MAX made no d
 | 3b–c | Firmware for both ends: the S3 a TCP server announced on mDNS (`_openesl-ap._tcp`), the C6 joins WiFi, connects and syncs; set-up on the radio's USB console | done, tried on one S3 + C6 with two tags |
 | 3d | Security: pairing with a code from the dashboard, TLS-PSK, a "Radios" tab | |
 | 4 | Tag firmware kept in the radio's flash, so the S3 does not send it for every tag | |
-| 5 | Several radios per S3: each tag owned by the radio that hears it best, never switched mid-image | |
+| 5 | Several radios per S3 (#259): up to 4, each on its own channel, each tag served by the radio that last heard it ("Several radios" above) | done on the PC, not tried on hardware |
+| 5b | Pick the radio that hears a tag best (by RSSI), never switched mid-image | |
 
 Release files will have their own names so they are not mixed up with the cabled radio:
 `openesl-ap-esp32s3-n16r8-netradio-<version>.bin` and `openesl-ap-netradio-esp32c6-<version>.bin`.

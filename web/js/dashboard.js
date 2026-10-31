@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -239,7 +239,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   }
   function signalCell(tag) {
     const sig = signalSummary(tag);
-    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num");
+    const via = tagRadio(tag, last?.list?.ap?.radios);
+    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num", via ? "Through " + via : "");
     const td = cell("", "opt num signal" + (sig.weak ? " state-busy" : ""));
     const W = 5, H = 18, n = tag.signal.rssi.length;
     const svg = svgEl("svg", { viewBox: `0 0 ${n * W} ${H}`, width: n * W, height: H, "aria-hidden": "true" });
@@ -250,7 +251,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (tag.signal.lost?.[i] || tag.signal.retry?.[i])
         svg.append(svgEl("rect", { x: i * W, y: 0, width: W - 1, height: 3, class: tag.signal.lost?.[i] ? "lost" : "retry" }));
     });
-    td.append(signalButton(tag, [svg, " " + sig.text], sig.title));
+    td.append(signalButton(tag, [svg, " " + sig.text], via ? `${sig.title}\nThrough ${via}` : sig.title));
     return td;
   }
 
@@ -442,7 +443,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       // On a phone the columns after the MAC become one line under it
       const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
         next && !next.late ? "next " + next.text : null, signalSummary(tag)?.text ?? (tag.rssi == null ? null : `${tag.rssi} dBm`),
-        battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
+        battery === "–" ? null : battery, tag.fw == null ? null : fwText,
+        tagRadio(tag, list.ap?.radios)].filter(Boolean).join(" · ");
       const metaTd = cell(meta, "meta");
       const sig = signalSummary(tag);
       if (sig) {

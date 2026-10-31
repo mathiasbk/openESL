@@ -42,6 +42,42 @@
  * 1000 tags of an S3, every 10 s. */
 
 #define ESL_RHOST_DRAWS  8   /* images drawn per sync */
+#define ESL_RHOST_NONE   0xFF /* esl_rowner_t.radio: no radio */
+
+/* Several radios on one host (docs/ap-netradio.md, "Several radios"), each on its own
+ * channel with its own esl_rhost_t. A tag talks to one radio at a time: the one on the
+ * channel it found an answer on. The radio that last heard a tag owns it: only that
+ * radio is told its state and gets its images, and a radio that loses a tag to another
+ * is told to drop it. A tag no radio has heard since the host started is told to every
+ * radio, as with one radio, but its image goes ahead only when one radio is connected.
+ * A tag that turns up at a radio that dropped it is a tag that radio lacks: it asks,
+ * the log shows the tag there, and it owns the tag from then on. */
+typedef struct {
+    uint64_t mac;      /* the tag in that slot when it was heard, 0 = none */
+    uint64_t at_ms;    /* when, on the host's clock */
+    uint8_t radio;     /* esl_rhost_t.index of the radio that heard it */
+} esl_rowner_t;
+
+typedef struct {
+    esl_rowner_t *by_slot;   /* by store slot, n entries */
+    unsigned n;
+    uint8_t radios;          /* radios connected now (set by the transport) */
+} esl_rowners_t;
+
+/* by_slot holds n entries (the store's max). */
+void esl_rowners_init(esl_rowners_t *o, esl_rowner_t *by_slot, unsigned n);
+/* The radio that last heard the tag (esl_rhost_t.index), ESL_RHOST_NONE when none has. */
+uint8_t esl_rowners_get(const esl_rowners_t *o, esl_store_t *st, uint64_t mac);
+/* Tags the radio owns now. */
+unsigned esl_rowners_count(const esl_rowners_t *o, uint8_t radio);
+/* The radio is gone for good (forgotten on the host): its tags are nobody's. */
+void esl_rowners_forget(esl_rowners_t *o, uint8_t radio);
+
+/* The channel for a new radio with a channel of its own: the first that taken (bit c for
+ * channel c: the AP's, a move it plans, the other radios') leaves free, in the order a
+ * tag that lost its radio looks (CFG_SCAN_CHANNELS in tag/src/config.h: 15, 20, 26, 11
+ * first, so it finds the radio within its first rounds, then 12..25). 0 when all are taken. */
+uint8_t esl_rhost_pick_channel(uint32_t taken);
 #define ESL_RHOST_IMAGES 4   /* images sent per sync */
 
 typedef struct {
@@ -87,6 +123,9 @@ typedef struct {
     uint16_t default_sent;    /* 0 = not sent */
     unsigned max_draws, max_images;
     uint8_t fw_models;        /* the radio holds tag firmware for models 1..fw_models only (0: any) */
+    esl_rowners_t *owners;    /* several radios: who owns which tag (NULL: one radio, it serves every tag) */
+    uint8_t index;            /* this radio's number in owners and the store (esl_tag_t.radio): 0 is on the
+                                 AP's channel, 1.. on esl_store_set_radio_channel()'s */
 
     bool have_radio;          /* radio_boot is the radio's */
     uint32_t radio_boot;
@@ -102,6 +141,11 @@ typedef struct {
  * AP's images, so ids match what it draws) and fw may be NULL. */
 void esl_rhost_init(esl_rhost_t *h, esl_store_t *st, esl_layouts_t *ls, esl_image_t *im, esl_tagfw_t *fw,
                     uint16_t pan, esl_rtag_state_t *sent, unsigned max_sent, uint8_t *img, size_t img_cap);
+
+/* With several radios: this one is radio index (below ESL_STORE_RADIOS) in owners and
+ * the store. Radio 0 is on the AP's channel; the channel of another is set with
+ * esl_store_set_radio_channel(), and its tags are told it in CONFIG. */
+void esl_rhost_share(esl_rhost_t *h, esl_rowners_t *owners, uint8_t index);
 
 /* The start of a sync, before its log: whether the radio is to be told everything again. */
 void esl_rhost_begin(esl_rhost_t *h, const esl_rsync_t *req);
