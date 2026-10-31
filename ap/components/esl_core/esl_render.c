@@ -445,7 +445,7 @@ static void ink_px(const rd_model_t *mo, uint8_t *black, uint8_t *red, int32_t y
 static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, uint8_t *black, uint8_t *red)
 {
     const font_t *f = font_get(r->font);
-    uint8_t n = (uint8_t)(r->len + r->ellipsis), i, ch, w, c;
+    uint8_t n = (uint8_t)(r->len + r->ellipsis), i, ch = 0, w = 0, c;
     int32_t u = 0;
 
     if (r->rot == 2) {
