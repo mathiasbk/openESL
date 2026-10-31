@@ -59,7 +59,7 @@ Types `0x03` (CONTENT), `0x04` (LAYOUT) and `0x05` (LAYOUT_REQ) carried the fiel
 | cfg_ver | 2 | version of these settings; the tag sends it back in every POLL |
 | poll_s | 2 | normal interval in seconds (T4) |
 | max_poll_s | 2 | longest interval while the AP does not answer (T11) |
-| lost_ap_s | 2 | seconds without an answer before "No AP found" (T9); 65535 = never |
+| lost_ap_s | 2 | seconds without an answer before the "no AP" mark, or "No AP found" (T9, #98); 65535 = never |
 | long_poll_s | 2 | the interval once the AP has been gone for `long_after_min` (#261) |
 | long_after_min | 2 | minutes without an answer before the tag polls only every `long_poll_s`; 65535 = never |
 | channel | 2 | the AP's channel (11–26) the tag follows, 0 = the built-in one (25); see "Changing the channel" |
@@ -166,7 +166,7 @@ Tag                                      AP
  | IMG or FW: asks for the rest (below)  |
  | radio off, sleeps                     |
 ```
-- If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses). After `lost_ap_s` without an answer it shows "No AP found" with its MAC and firmware version (T9); when the AP answers again it shows its image again, or "Waiting for content" if it has none.
+- If the tag gets no reply, it tries once more after a random pause of 2–10 ms. Then it sleeps until the next interval (requirement T11: longer interval after several misses). After `lost_ap_s` without an answer it draws its image again from the slot with a small "no AP" mark (signal bars with a cross) in the top right corner, so the content stays up (#98); a tag with no image, or whose slot holds only part of a new one, shows "No AP found" with its MAC and firmware version instead (T9), as tag firmware before the mark always did. That is one refresh when the AP goes and one when it is back, none per miss. When the AP answers again the tag shows its image again without the mark (from the slot, no download, and it keeps reporting the image's id throughout), the new image if the AP sends one, or "Waiting for content" if it has none.
 - The tag sends no separate acknowledgement. The next POLL carries the `image_id` it shows, and that is the acknowledgement. If an image does not arrive whole, the AP offers it again at the next POLL, and the tag goes on from where it stopped.
 - Settings: when a tag sends a `cfg_ver` that differs from the version of the settings the AP has for it, the AP replies CONFIG first (see "Priority" below). The next POLL with the new `cfg_ver` is the acknowledgement. The tag keeps the settings in flash (T12), so after a restart it reports the same `cfg_ver` and needs no new CONFIG; a tag without a stored copy reports `cfg_ver = 0` and gets them again.
 - When the AP has been gone for `long_after_min` (a day by default), the tag polls only every `long_poll_s` (an hour by default) instead of every `max_poll_s`, until it gets an answer: the first answer brings its normal interval back. The tag then finds a returned AP up to an hour late, but a tag on a shelf with its AP switched off lasts longer (`docs/strombudsjett.md`).

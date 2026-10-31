@@ -24,7 +24,7 @@ See also the [FAQ](FAQ).
 
 ## The labels
 
-**The label shows "No AP found".** It cannot hear the AP. Check that the AP runs OpenESL firmware and is in range. The label tries again less often to save battery, so give it a few minutes after the AP is back, and up to an hour if the AP was gone for more than a day.
+**The label shows a small crossed-out signal mark in the top right corner, or "No AP found".** It has not heard the AP for two hours (by default). The mark goes over what the label shows, so the price stays up; a label with nothing to show (or on firmware from before the mark) shows "No AP found" instead. It cannot hear the AP. Check that the AP runs OpenESL firmware and is in range. The label tries again less often to save battery, so give it a few minutes after the AP is back, and up to an hour if the AP was gone for more than a day.
 
 **The dashboard says the signal is weak.** The AP hears the label below about −85 dBm on average, or some of its check-ins were lost, or a quarter of them needed a second try (the bars in the Signal column show which; see [Dashboard](Dashboard#signal)). The label still works, but it is near the edge of the range and may drop out. Move the AP or the label closer, put the AP higher with a clear view of the labels, or away from metal shelves and the WiFi router. A higher transmit power ([Access point settings](Access-point-settings)) only helps the AP's answers reach the label, not the label's check-ins reach the AP.
 

@@ -332,6 +332,25 @@ static bool show_image(void)
     return true;
 }
 
+/*
+ * The AP has been gone for lost_ap_s (#98): the picture on the screen stays, with the
+ * "no AP" mark in its corner (status.h), drawn again from the slot. True when it is up;
+ * false when there is no picture, the slot no longer holds it (a new one was half
+ * downloaded when the AP went) or the panel did not answer: then the "No AP found"
+ * screen is drawn instead. One refresh now and one when the AP is back, none per miss.
+ */
+static bool show_marked(void)
+{
+    image.mark = 0;
+    if (!app.shown_id || app.shown_id != image.slot_id)
+        return false;
+    image.mark = 1;
+    if (image_show())
+        return true;
+    image.mark = 0;
+    return false;
+}
+
 static uint16_t on_miss(void)
 {
     uint16_t sleep, longer;
@@ -349,8 +368,10 @@ static uint16_t on_miss(void)
     if (lost == ESL_CFG_LOST_AP_NEVER || app.lost_shown)
         return sleep;
     if (app.lost_s >= lost) {
-        draw_status(msg_lost);
-        app.shown_id = 0;     /* the AP offers the image again when it is back */
+        if (!show_marked()) {
+            draw_status(msg_lost);
+            app.shown_id = 0; /* the AP offers the image again when it is back */
+        }
         app.lost_shown = 1;
     } else if (sleep > lost - app.lost_s) {
         sleep = (uint16_t)(lost - app.lost_s);   /* wake up when the time is up (T9) */
@@ -520,12 +541,24 @@ static uint16_t poll_round(void)
     if (reply.next_poll_s)
         app.interval_s = reply.next_poll_s;
 
-    if (img == IMAGE_DONE)
+    if (img == IMAGE_DONE) {
+        image.mark = 0;              /* the new picture (or the same one again) without the mark */
         show_image();
-    else if (img == IMAGE_STOP)
-        app.poll_flags |= ESL_POLL_F_DRAWFAIL;   /* refused: the AP sees it and stops offering it */
-    else if (app.lost_shown && app.shown_id == 0)
-        draw_status(msg_waiting);    /* the AP is back but has no content for us */
+    } else {
+        if (img == IMAGE_STOP)
+            app.poll_flags |= ESL_POLL_F_DRAWFAIL;   /* refused: the AP sees it and stops offering it */
+        if (image.mark && !(reply.type == ESL_MSG_IMG && img == IMAGE_MORE)) {
+            /* The AP is back with nothing new to send: the picture again, without the mark.
+               While a new one is coming in, the marked one stays until it is whole. */
+            image.mark = 0;
+            if (app.shown_id != image.slot_id || !show_image()) {
+                draw_status(msg_waiting);
+                app.shown_id = 0;
+            }
+        } else if (app.lost_shown && app.shown_id == 0) {
+            draw_status(msg_waiting);    /* the AP is back but has no content for us */
+        }
+    }
     app.lost_shown = 0;
     hal_wdt_kick();
     return app.interval_s;

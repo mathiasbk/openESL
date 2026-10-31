@@ -98,6 +98,7 @@ void sim_tag_run_until(uint64_t t_ms);
 bool sim_tag_run_until_draw(uint64_t t_ms);
 
 uint32_t sim_tag_shown_id(void); /* content_id on the screen, 0 = none */
+bool sim_tag_marked(void);       /* the "no AP" mark is drawn over it (#98) */
 int sim_tag_draws(void);         /* times the display was drawn */
 uint16_t sim_tag_interval_s(void);
 uint16_t sim_tag_last_sleep_s(void);

@@ -17,7 +17,8 @@
 #define CFG_POLL_S          60       /* default interval (requirement T4) */
 #define CFG_MAX_POLL_S      600      /* longest interval when the AP does not answer (requirement T11) */
 #define CFG_BACKOFF_AFTER   3        /* misses in a row before the interval starts doubling */
-#define CFG_LOST_AP_S       7200     /* seconds without an answer before "No AP found" is shown (requirement T9) */
+#define CFG_LOST_AP_S       7200     /* seconds without an answer before the "no AP" mark is drawn over the picture,
+                                        or "No AP found" when there is none (requirement T9, #98) */
 #define CFG_LONG_POLL_S     3600     /* interval once the AP has been gone for CFG_LONG_AFTER_MIN */
 #define CFG_LONG_AFTER_MIN  1440     /* minutes without an answer (a day) before CFG_LONG_POLL_S */
 

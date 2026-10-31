@@ -71,7 +71,7 @@ static void png(const char *name)
     snprintf(path, sizeof(path), "%s/%s.png", outdir, name);
     CHECK(sim_tag_save_png(path), "could not write %s", path);
     note("screen -> %s", path);
-    if (sim_tag_shown_id()) {
+    if (sim_tag_shown_id() && !sim_tag_marked()) {   /* the "no AP" mark is the tag's own (#98) */
         size_t nt = sim_tag_screen(img_tag, sizeof(img_tag)), na = sim_ap_render_tag(sim_tag_mac, img_ap, sizeof(img_ap));
         CHECK(nt && nt == na && first_diff(nt) < 0, "the AP draws the same screen (%s): %zu/%zu bytes, first difference at %d",
               name, nt, na, nt == na ? first_diff(nt) : -1);
@@ -490,24 +490,32 @@ int e2e_run(const char *out, const char *root)
     png("08-after-hour");
 
     /* ------------------------------------------------------------------ */
-    step("9. The AP gone for more than 2 h: \"No AP found\" (T9), then back");
+    step("9. The AP gone for more than 2 h: the \"no AP\" mark over the content (T9, #98), then back");
     run_for(61);
+    cid2 = sim_tag_shown_id();
+    CHECK(cid2 && shows_image(), "shows its content before the AP goes");
     sim_ap_off();
     t0 = sim_now_ms;
-    CHECK(sim_tag_run_until_draw(t0 + 7200000 + 601000), "drew the no-AP screen");
-    CHECK(sim_tag_shown_id() == 0, "no content id while showing it");
+    CHECK(sim_tag_run_until_draw(t0 + 7200000 + 601000), "drew the no-AP mark");
+    CHECK(sim_tag_marked(), "the mark is over the picture");
+    CHECK(sim_tag_shown_id() == cid2, "the content stays, with its id");
     /* 2 h after the last answer, which came at most one interval (60 s) before t0 */
     CHECK(sim_tag_last_draw_ms() >= t0 + 7140000 && sim_tag_last_draw_ms() <= t0 + 7201000,
-          "\"No AP found\" 2 h after the last answer (T9), got %.0f s after the AP went",
+          "the mark 2 h after the last answer (T9), got %.0f s after the AP went",
           (sim_tag_last_draw_ms() - t0) / 1000.0);
-    note("\"No AP found\" %.0f s after the AP went", (sim_tag_last_draw_ms() - t0) / 1000.0);
+    note("the mark %.0f s after the AP went", (sim_tag_last_draw_ms() - t0) / 1000.0);
     png("09-no-ap");
+    draws = sim_tag_draws();
+    run_for(3600);
+    CHECK(sim_tag_draws() == draws, "no more refreshes while the AP stays away");
     s0 = sim_stats;
     sim_ap_boot();
     w = sim_now_ms;
     CHECK(sim_tag_run_until_draw(w + 601000), "content again when the AP is back");
-    CHECK(shows_image(), "shows the image of %u again, got %u", cid, sim_tag_shown_id());
+    CHECK(shows_image() && !sim_tag_marked(), "shows the image of %u again, without the mark, got %u", cid,
+          sim_tag_shown_id());
     CHECK(sim_stats.img_reqs == s0.img_reqs, "drawn from the tag's own flash, no download");
+    png("09b-ap-back");
     note("drawn %.1f s after the AP came back", (sim_tag_last_draw_ms() - w) / 1000.0);
 
     /* ------------------------------------------------------------------ */
