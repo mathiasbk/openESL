@@ -282,7 +282,7 @@
 #define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..5, eller ESL_LE_FIELD_FIXED | fast tekst */
 #define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
 #define ESL_LE_OFF_OPTS      5      /* u8 justering */
-#define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3) */
+#define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3); tekst: bit 6-7 = ESL_LE_ROT */
 #define ESL_LE_OFF_COLOR     7      /* u8 */
 #define ESL_LE_OFF_X         8      /* u16 */
 #define ESL_LE_OFF_Y         10     /* u8 */
@@ -428,6 +428,14 @@
 #endif
 #define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
+/* A text element turned clockwise by 90 degrees times bits 6-7 of ESL_LE_OFF_LINES (0 in older
+ * files, so they compile and draw the same). The box keeps its screen coordinates; the text is
+ * laid out in the box turned with it: at 90 and 270 degrees the lines run along h and are
+ * stacked across w, so "lines", the fonts and the alignment work along the turned box. At 90
+ * the text reads top to bottom, at 270 bottom to top, at 180 upside down. */
+#define ESL_LE_ROT_SHIFT     6
+#define ESL_LE_ROT_MASK      0xC0
+#define ESL_LE_LINES_MASK    0x3F
 
 /* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
 

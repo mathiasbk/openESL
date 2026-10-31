@@ -77,6 +77,11 @@ typedef struct {
     uint16_t w;
     uint8_t ci;
     uint16_t cx;
+    /* A turned run (ESL_LE_ROT): rot 1..3 = 90, 180, 270 degrees clockwise, x and y are in the
+     * element's box turned with it (its top-left corner is 0, 0), and bx0..by1 is the box on
+     * the screen. 0 = not turned: x and y are on the screen. */
+    uint8_t rot;
+    uint16_t bx0, by0, bx1, by1;
 } rd_run_t;
 
 typedef struct {
@@ -170,6 +175,7 @@ static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uin
     r->color = color;
     r->x = x;
     r->y = y;
+    r->rot = 0;
     r->w = font_text_width(f, text, len);
     if (r->ellipsis)
         r->w += font_char_width(f, FONT_ELLIPSIS);
@@ -427,6 +433,62 @@ static void draw_run(const rd_model_t *mo, rd_run_t *r, uint16_t x, uint8_t *bla
     blit_column(mo, black, red, font_column(f, ch, (uint8_t)(x - r->cx)), f->bytes_per_col, r->y, r->color);
 }
 
+/* Pixel y of a column, if it is on the screen */
+static void ink_px(const rd_model_t *mo, uint8_t *black, uint8_t *red, int32_t y, uint8_t color)
+{
+    if (y >= 0 && y < mo->h)
+        ink(black, red, (uint16_t)(y >> 3), (uint8_t)(0x80 >> (y & 7)), color);
+}
+
+/* Column x of a turned run. At 90 and 270 degrees a screen column is one row of every glyph,
+ * at 180 one glyph column upside down. */
+static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, uint8_t *black, uint8_t *red)
+{
+    const font_t *f = font_get(r->font);
+    uint8_t n = (uint8_t)(r->len + r->ellipsis), i, ch, w, c;
+    int32_t u = 0;
+
+    if (r->rot == 2) {
+        int32_t at = (int32_t)r->bx1 - x - r->x; /* along the run */
+        uint8_t row;
+        const uint8_t *col;
+        if (at < 0 || at >= r->w)
+            return;
+        for (i = 0; i < n; i++, u += w) {
+            ch = font_map(f, run_char(r, i));
+            w = ch ? f->widths[ch - f->first] : 0;
+            if (at < u + w)
+                break;
+        }
+        if (i == n)
+            return;
+        col = font_column(f, ch, (uint8_t)(at - u));
+        for (row = 0; row < f->height; row++)
+            if (col[row >> 3] & (0x80 >> (row & 7)))
+                ink_px(mo, black, red, (int32_t)r->by1 - r->y - row, r->color);
+        return;
+    }
+
+    {
+        /* the row of the glyphs in this column */
+        int32_t v = r->rot == 1 ? (int32_t)r->bx1 - x - r->y : (int32_t)x - r->bx0 - r->y;
+        uint8_t b, m;
+        if (v < 0 || v >= f->height)
+            return;
+        b = (uint8_t)(v >> 3);
+        m = (uint8_t)(0x80 >> (v & 7));
+        for (i = 0; i < n; i++, u += w) {
+            ch = font_map(f, run_char(r, i));
+            w = ch ? f->widths[ch - f->first] : 0;
+            for (c = 0; c < w; c++) {
+                int32_t at = (int32_t)r->x + u + c;
+                if (font_column(f, ch, c)[b] & m)
+                    ink_px(mo, black, red, r->rot == 1 ? (int32_t)r->by0 + at : (int32_t)r->by1 - at, r->color);
+            }
+        }
+    }
+}
+
 static void draw_begin(rd_scene_t *s)
 {
     uint8_t i;
@@ -483,8 +545,12 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         }
     }
 
-    for (i = 0; i < s->nruns; i++)
-        draw_run(mo, &s->run[i], x, black, red);
+    for (i = 0; i < s->nruns; i++) {
+        if (s->run[i].rot)
+            draw_run_rot(mo, &s->run[i], x, black, red);
+        else
+            draw_run(mo, &s->run[i], x, black, red);
+    }
 
     if (mo->h % 8) {
         black[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
@@ -509,6 +575,7 @@ typedef struct {
     uint8_t lines;
     uint8_t color;
     uint16_t x, y, w, h;
+    uint8_t rot;   /* text: ESL_LE_ROT, 0..3 quarter turns clockwise */
 } rd_elem_t;
 
 /* ---- fitting text ---- */
@@ -658,15 +725,72 @@ static uint8_t resolve_color(uint8_t c, uint8_t flags)
     }
 }
 
-static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint8_t len, uint8_t color)
+/* A run of a turned element e (on the screen), at x, y in its turned box */
+static bool add_text_rot(rd_scene_t *s, const rd_elem_t *e, uint8_t font, uint8_t color, uint16_t x, uint16_t y,
+                         const uint8_t *text, uint8_t len, uint8_t ellipsis)
+{
+    rd_run_t *r;
+    if (!add_text(s, font, color, x, y, text, len, ellipsis))
+        return false;
+    r = &s->run[s->nruns - 1];
+    r->rot = e->rot;
+    r->bx0 = e->x;
+    r->by0 = e->y;
+    r->bx1 = (uint16_t)(e->x + e->w - 1);
+    r->by1 = (uint16_t)(e->y + e->h - 1);
+    return true;
+}
+
+static uint16_t clamp_px(int32_t v, uint16_t n)
+{
+    return (uint16_t)(v < 0 ? 0 : v >= n ? n - 1 : v);
+}
+
+/* The box behind an inverted turned element e: u0..u1 along its lines, v0..v1 across them */
+static void add_rect_rot(rd_scene_t *s, const rd_elem_t *e, int32_t u0, int32_t v0, int32_t u1, int32_t v1,
+                         uint8_t color)
 {
     const rd_model_t *mo = &s->m;
+    int32_t bx1 = e->x + e->w - 1, by1 = e->y + e->h - 1, x0, x1, y0, y1;
+
+    if (e->rot == 1) {
+        x0 = bx1 - v1, x1 = bx1 - v0, y0 = e->y + u0, y1 = e->y + u1;
+    } else if (e->rot == 3) {
+        x0 = e->x + v0, x1 = e->x + v1, y0 = by1 - u1, y1 = by1 - u0;
+    } else {
+        x0 = bx1 - u1, x1 = bx1 - u0, y0 = by1 - v1, y1 = by1 - v0;
+    }
+    if (x1 < 0 || y1 < 0 || x0 >= mo->w || y0 >= mo->h)
+        return;
+    add_rect(s, clamp_px(x0, mo->w), clamp_px(y0, mo->h), clamp_px(x1, mo->w), clamp_px(y1, mo->h), color);
+}
+
+static void place_text(rd_scene_t *s, const rd_elem_t *se, const uint8_t *t, uint8_t len, uint8_t color)
+{
+    const rd_model_t *mo = &s->m;
+    /* A turned element is laid out in its box turned with it, from 0, 0; vmax is where the
+       screen ends across its lines */
+    rd_elem_t turned;
+    const rd_elem_t *e = se;
+    int32_t vmax = mo->h;
     const font_t *f;
     rd_lines_t ln;
     uint8_t i, font = ESL_FONT_MEDIUM, found = 0, ell, pad = 0, n, box = RD_BLACK;
     int32_t y, y0 = -1, y1 = 0;
     uint16_t lw, x, w, bx0 = 0xFFFF, bx1 = 0;
     uint16_t ey, eh;
+
+    if (se->rot) {
+        turned = *se;
+        turned.x = 0;
+        turned.y = 0;
+        if (se->rot & 1) {
+            turned.w = se->h;
+            turned.h = se->w;
+        }
+        vmax = se->rot == 1 ? se->x + se->w : se->rot == 3 ? mo->w - se->x : se->y + se->h;
+        e = &turned;
+    }
 
     if (color == COLOR_INVERT || color == COLOR_RED_INVERT) {
         pad = RD_INVERT_PAD;
@@ -733,10 +857,11 @@ static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint
             else if ((e->opts & 0x03) == ESL_LE_CENTER)
                 lx += (w - lw) / 2;
         }
-        if (y + f->height > mo->h)
+        if (y + f->height > vmax)
             break;
         if (pad) {
-            if (!add_text(s, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell))
+            if (se->rot ? !add_text_rot(s, se, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell)
+                        : !add_text(s, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell))
                 break;
             if (y0 < 0)
                 y0 = y;
@@ -747,10 +872,15 @@ static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint
                 bx1 = (uint16_t)(lx + lw);
             continue;
         }
-        add_text(s, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell);
+        if (se->rot)
+            add_text_rot(s, se, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell);
+        else
+            add_text(s, font, color, lx, (uint16_t)y, t + ln.start[i], ln.len[i], ell);
     }
 
-    if (pad && y0 >= 0)
+    if (pad && y0 >= 0 && se->rot)
+        add_rect_rot(s, se, bx0 - pad, y0 - pad, bx1 - 1 + pad, y1 + pad, box);
+    else if (pad && y0 >= 0)
         add_rect(s, (uint16_t)(bx0 - pad), (uint16_t)(y0 - pad), (uint16_t)(bx1 - 1 + pad), (uint16_t)(y1 + pad), box);
 }
 
@@ -923,6 +1053,11 @@ static void decode(rd_elem_t *e, const uint8_t *p)
     e->font[2] = p[ESL_LE_OFF_FONT + 2];
     e->opts = p[ESL_LE_OFF_OPTS];
     e->lines = p[ESL_LE_OFF_LINES];
+    e->rot = 0;
+    if (e->kind == ESL_LE_TEXT) {
+        e->rot = (uint8_t)(e->lines >> ESL_LE_ROT_SHIFT);
+        e->lines &= ESL_LE_LINES_MASK;
+    }
     e->color = p[ESL_LE_OFF_COLOR];
     e->x = ESL_GET_U16(p + ESL_LE_OFF_X);
     e->y = p[ESL_LE_OFF_Y];
@@ -942,13 +1077,13 @@ typedef struct {
 static rd_elem_t T(uint8_t field, uint8_t f0, uint8_t f1, uint8_t f2, uint8_t opts, uint8_t lines, uint8_t color,
                    uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
-    rd_elem_t e = { ESL_LE_TEXT, field, { f0, f1, f2 }, opts, lines, color, x, y, w, h };
+    rd_elem_t e = { ESL_LE_TEXT, field, { f0, f1, f2 }, opts, lines, color, x, y, w, h, 0 };
     return e;
 }
 
 static rd_elem_t R(uint8_t color, uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
-    rd_elem_t e = { ESL_LE_RECT, 0, { ESL_FONT_NONE, ESL_FONT_NONE, ESL_FONT_NONE }, 0, 0, color, x, y, w, h };
+    rd_elem_t e = { ESL_LE_RECT, 0, { ESL_FONT_NONE, ESL_FONT_NONE, ESL_FONT_NONE }, 0, 0, color, x, y, w, h, 0 };
     return e;
 }
 

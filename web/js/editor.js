@@ -416,7 +416,8 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
+    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e)) +
+      (e.type === "text" && e.rotate ? " ↻" + e.rotate + "°" : "");
     b.append(tag);
     if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
       const g = document.createElement("span");
@@ -452,7 +453,7 @@ function refreshList() {
     name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
-    dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
+    dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.rotate ? e.rotate + "°" : "", e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
       : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
@@ -1224,6 +1225,21 @@ function numberRows(e, row) {
   return true;
 }
 
+// Turns text element e to deg (0, 90, 180, 270). From across to up and down, or back, the box
+// swaps width and height round its middle, kept on the screen.
+function setRotate(e, deg) {
+  const { width, height } = MODELS[state.model];
+  const upright = (d) => d === 90 || d === 270;
+  if (upright(deg) !== upright(e.rotate || 0)) {
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+    [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
+    e.x = clamp(Math.round(cx - e.w / 2), 0, width - e.w);
+    e.y = clamp(Math.round(cy - e.h / 2), 0, height - e.h);
+  }
+  if (deg) e.rotate = deg;
+  else delete e.rotate;
+}
+
 // What is used less: vertical alignment, lines, smaller fonts, placing on the screen, order.
 function moreMenu(e, btn, select, open) {
   const { width, height } = MODELS[state.model];
@@ -1252,6 +1268,12 @@ function moreMenu(e, btn, select, open) {
       if (+val) e.lines = +val;
       else delete e.lines;
     });
+    // Turned text (clockwise). The box stays where it is on the screen; going between
+    // across and up-and-down swaps its width and height round its middle.
+    const turn = row("Turn");
+    for (const [deg, icon, name] of [[0, "A", "Not turned"], [90, "90°", "90° clockwise, reads top to bottom"],
+      [180, "180°", "Upside down"], [270, "270°", "90° anticlockwise, reads bottom to top"]])
+      btn(turn, icon, "Turn: " + name.toLowerCase(), () => setRotate(e, deg), (e.rotate || 0) === deg);
     // Up to two smaller fonts, tried in order when the text does not fit the first
     const fonts = e.fonts || ["small"];
     const f = row("If too long");
