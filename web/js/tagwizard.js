@@ -94,7 +94,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         const m = MODELS[n];
         const pic = m.photo
           ? `<img src="${esc(m.photo.file)}" width="${m.photo.width}" height="${m.photo.height}" alt="Photo of the ${esc(modelName(n))} tag">`
-          : `<canvas width="${m.width}" height="${m.height}"></canvas>`;
+          : `<canvas width="${m.width}" height="${m.height}" data-sketch="${esc(n)}" role="img" aria-label="Drawing of the ${esc(modelName(n))} tag (no photo yet)"></canvas>`;
         const v = hasFw(n) ? fwVersion(n) : "";
         return `
         <button type="button" class="wz-card" data-model="${esc(n)}" aria-pressed="${n === st.model}" ${st.busy ? "disabled" : ""}>
@@ -194,7 +194,33 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
 
   // ---------- actions ----------
 
+  // A tag with no photo yet: a drawing of its screen at its own size, in its own colours
+  function sketch(c, name) {
+    const m = MODELS[name];
+    const g = c.getContext?.("2d");
+    if (!g) return;
+    const w = c.width, h = c.height, band = Math.round(h * 0.24);
+    const ink = m.colors.includes("red") ? "#c81e1e" : "#000";
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = ink;
+    g.fillRect(0, 0, w, band);
+    g.textBaseline = "middle";
+    g.font = `bold ${Math.round(band * 0.55)}px system-ui, sans-serif`;
+    g.fillStyle = "#fff";
+    g.fillText("OpenESL", Math.round(w * 0.04), band / 2);
+    g.fillStyle = "#000";
+    g.font = `${Math.round(h * 0.11)}px system-ui, sans-serif`;
+    g.fillText(m.product, Math.round(w * 0.04), band + h * 0.14);
+    g.fillText(`${m.width} × ${m.height}`, Math.round(w * 0.04), band + h * 0.28);
+    g.textAlign = "right";
+    g.font = `bold ${Math.round(h * 0.36)}px system-ui, sans-serif`;
+    g.fillStyle = ink;
+    g.fillText("49,90", w - Math.round(w * 0.04), h - h * 0.24);
+  }
+
   function wire() {
+    body.querySelectorAll("canvas[data-sketch]").forEach((c) => sketch(c, c.dataset.sketch));
     body.querySelectorAll("[data-model]").forEach((b) => b.addEventListener("click", () => {
       st.model = b.dataset.model;
       store.set("tag.model", st.model);
