@@ -19,9 +19,20 @@ import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { MODELS as TAGS, layoutModel, layoutUsers, modelName, modelLabel, isExperimental } from "./models.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
+import { apFonts } from "./apfonts.js";
 
-const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
+const BUILTIN_FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
 const FONT_PX = { small: 17, medium: 24, text20: 20, mid: 36, price44: 44, large: 52 };
+// The fonts to pick from: the built-in ones, then the font files the renderer has (the connected
+// AP's, #177), and a font a layout names that neither has (so the choice shows what the file says)
+function fontChoices(e) {
+  const files = Object.keys(state.renderer?.limits.fontHeight || {}).filter((f) => !BUILTIN_FONTS.includes(f)).sort();
+  const named = (e?.fonts || []).filter((f) => !BUILTIN_FONTS.includes(f) && !files.includes(f));
+  return [...BUILTIN_FONTS, ...files, ...named];
+}
+const fontPx = (f) => state.renderer?.limits.fontHeight[f] ?? FONT_PX[f];
+const fontLabel = (f) => (BUILTIN_FONTS.includes(f) ? f[0].toUpperCase() + f.slice(1) : f) +
+  (fontPx(f) ? ` ${fontPx(f)} px` : " (not on the AP)");
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
 const LINE_COLORS = ["black", "white"];      // lines and icons
@@ -376,6 +387,8 @@ function limitsSource() {
 // called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
+  // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
+  if (ap.connected) state.renderer?.setFonts?.(ap.fonts);
 }
 
 // After connecting or disconnecting: check and draw again with the limits that now apply
@@ -1143,7 +1156,7 @@ function refreshBar() {
   };
   if (e.type === "text") {
     const fonts = e.fonts || ["small"];
-    select(bar, "Font", FONTS.map((f) => [f, `${f[0].toUpperCase() + f.slice(1)} ${FONT_PX[f]} px`]), fonts[0], (v) => {
+    select(bar, "Font", fontChoices(e).map((f) => [f, fontLabel(f)]), fonts[0], (v) => {
       e.fonts = [v, ...fonts.slice(1).filter((f) => f !== v)];
     });
     sep();
@@ -1290,7 +1303,7 @@ function moreMenu(e, btn, select, open) {
     const f = row("If too long");
     for (let i = 1; i < 3; i++) {
       const sel = select(f, i === 1 ? "Next font if the text does not fit" : "Last font if the text does not fit",
-        [["", "–"], ...FONTS.map((x) => [x, x])], fonts[i] || "", (val) => {
+        [["", "–"], ...fontChoices(e).map((x) => [x, x])], fonts[i] || "", (val) => {
           const a = fonts.slice();
           if (!val) a.length = Math.min(a.length, i);
           else a[i] = val;
@@ -1881,7 +1894,9 @@ function initActions() {
 // via: on the web page, how the AP is reached: "usb" (its port, js/apport.js) or "wifi" (its
 // own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
 const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
-             tagLayouts: {} };   // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
+             tagLayouts: {},     // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
+             fonts: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
+const apFontFiles = apFonts();
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
 // The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
@@ -1927,6 +1942,7 @@ function apDisconnected() {
   if (!onAp) ap.files = {};
   ap.limits = null;
   ap.board = "";
+  ap.fonts = {};
   limitsChanged();
   apShow();
   apStatus("");
@@ -2024,6 +2040,7 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
+  ap.fonts = (await apFontFiles.read(apClient())).files;
   limitsChanged();
   const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;

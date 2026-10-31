@@ -7,6 +7,9 @@
 //                                       refused (why the AP would refuse these fields, if it would) }
 //   r.setLimits(apLimits)    the limits of the AP the page talks to ("limits" from GET /api/layouts),
 //                            or null for the default board's; r.limits then has them
+//   r.setFonts({name: text}) the font files layouts may name (GET /api/fonts/{name}, js/apfonts.js),
+//                            as on the AP: the ones loaded before are dropped. -> { errors }
+//                            r.limits.fontHeight then has their heights next to the built-in fonts'
 
 import { MODELS as REGISTRY } from "./models.js";
 
@@ -50,13 +53,15 @@ async function create(model, base) {
   const height = call("web_height", "number", [], []);
   const error = () => M.UTF8ToString(call("web_error", "number", [], []));
   const limit = (what) => call("web_limit", "number", ["number"], [what]);
+  const fileHeights = {};   // the font files' heights, by name (setFonts)
   const readLimits = (l) => Object.assign(l, {
     runs: limit(0),
     rects: limit(1),
     fileBytes: limit(2),
     invertPad: limit(3),
     linesPerText: limit(4),
-    fontHeight: { small: limit(5), medium: limit(6), mid: limit(7), large: limit(8), text20: limit(15), price44: limit(16) },
+    fontHeight: { small: limit(5), medium: limit(6), mid: limit(7), large: limit(8), text20: limit(15), price44: limit(16),
+                  ...fileHeights },
     barcodes: limit(9),
     barcodeMinH: limit(10),
     barcodeModuleMax: limit(11),
@@ -110,6 +115,33 @@ async function create(model, base) {
 
     clearLayouts() {
       call("web_clear_layouts", null, [], []);
+    },
+
+    // A renderer from before font files (the published one on an older AP's page) has none
+    canLoadFonts: typeof M._web_load_font === "function",
+    fontKey: "",
+
+    setFonts(files = {}) {
+      const errors = [];
+      if (!this.canLoadFonts) return { errors };
+      const names = Object.keys(files).sort();
+      const key = JSON.stringify(names.map((n) => [n, files[n]]));
+      if (key === this.fontKey) return { errors };
+      call("web_clear_fonts", null, [], []);
+      for (const n of Object.keys(fileHeights)) delete fileHeights[n];
+      for (const n of names) {
+        const text = files[n];
+        const len = M.lengthBytesUTF8(text);
+        const p = M._malloc(len + 1);
+        M.stringToUTF8(text, p, len + 1);
+        const ok = call("web_load_font", "number", ["number", "number"], [p, len]) === 1;
+        M._free(p);
+        if (ok) fileHeights[n] = JSON.parse(text).height;
+        else errors.push(`${n}: ${error()}`);
+      }
+      this.fontKey = key;
+      readLimits(this.limits);
+      return { errors };
     },
 
     textBytes(s) {

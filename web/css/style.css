@@ -444,6 +444,9 @@ details.help > p { max-width: 62ch; }
 .lay-body { display: flex; gap: 16px; align-items: flex-start; }
 .lay-main { flex: 1; min-width: 0; }
 .lay-h { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 8px; }
+.lay-font-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.lay-font-list li { padding: 4px 0; overflow-wrap: anywhere; }
+.lay-h .small { text-transform: none; letter-spacing: 0; }
 .lay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .lay-card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; display: grid; gap: 4px; align-content: start; background: var(--panel); }
 .lay-card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }

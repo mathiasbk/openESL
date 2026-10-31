@@ -1,6 +1,7 @@
 #include "esl_barcode.h"
 #include "esl_clock.h"
 #include "esl_crc32.h"
+#include "esl_font.h"
 #include "esl_layout.h"
 #include "esl_qr.h"
 #include "esl_text.h"
@@ -29,6 +30,7 @@ typedef struct {
     uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
     int icon_names;       /* the fixed text with the first icon's name, -1 until an icon element names its icon by a field */
     struct cc_icons *ic;  /* malloc'd: the AP compiles at boot on the main task's small stack */
+    uint8_t user_fonts;   /* bit n: the file uses font file n (esl_font.h) */
 } cc_t;
 
 esl_limits_t esl_limits = {
@@ -152,12 +154,6 @@ static bool keys_ok(cc_t *c, int obj, const char *const *allowed)
     }
     return true;
 }
-
-static const char *const font_names[] = {"small", "medium", "large", "mid", "text20", "price44", NULL};
-static const uint8_t font_height[] = {ESL_FONT_SMALL_H, ESL_FONT_MEDIUM_H, ESL_FONT_LARGE_H, ESL_FONT_MID_H,
-                                      ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H};
-_Static_assert(ESL_FONT_SMALL == 0 && ESL_FONT_MEDIUM == 1 && ESL_FONT_LARGE == 2 && ESL_FONT_MID == 3 &&
-               ESL_FONT_TEXT20 == 4 && ESL_FONT_PRICE44 == 5, "font_names order");
 
 static const char *const align_names[] = {"left", "center", "right", NULL};
 static const uint8_t align_opts[] = {ESL_LE_LEFT, ESL_LE_CENTER, ESL_LE_RIGHT};
@@ -613,16 +609,25 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 
     int fo = esl_json_obj_get(c->js, c->tok, e, "fonts");
     if (fo < 0 || T(c, fo)->type != ESL_JSON_ARRAY || T(c, fo)->size < 1 || T(c, fo)->size > 3)
-        return fail(c, "fonts must be a list of 1 to 3 fonts (small, medium, mid, large, text20, price44), tried in order");
+        return fail(c, "fonts must be a list of 1 to 3 fonts (small, medium, mid, large, text20, price44 or a "
+                       "font file's name), tried in order");
     unsigned min_h = 255;
     int k = fo + 1;
     for (unsigned i = 0; i < T(c, fo)->size; i++, k = T(c, k)->next) {
-        int font = pick(c, k, font_names);
-        if (font < 0)
-            return fail(c, "unknown font in fonts (use small, medium, mid, large, text20 or price44)");
+        int font = T(c, k)->type == ESL_JSON_STRING
+                       ? esl_font_find(&c->js[T(c, k)->start], (size_t)(T(c, k)->end - T(c, k)->start))
+                       : -1;
+        if (font < 0) {
+            char name[ESL_FONT_NAME_MAX + 2];
+            str_copy(c, k, name, sizeof(name));
+            return fail(c, "unknown font \"%s\" in fonts (use small, medium, mid, large, text20, price44 or a "
+                           "font file on the AP, GET /api/fonts)", name);
+        }
         out[ESL_LE_OFF_FONT + i] = (uint8_t)font;
-        if (font_height[font] < min_h)
-            min_h = font_height[font];
+        if (font >= ESL_FONT_USER_BASE)
+            c->user_fonts |= (uint8_t)(1u << (font - ESL_FONT_USER_BASE));
+        if (esl_font_height((uint8_t)font) < min_h)
+            min_h = esl_font_height((uint8_t)font);
     }
 
     int a = esl_json_obj_get(c->js, c->tok, e, "align");
@@ -669,7 +674,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
      * as many lines as the box holds (1..3), limited by "lines". */
     unsigned most = 1;
     for (int i = 0; i < 3 && out[ESL_LE_OFF_FONT + i] != ESL_FONT_NONE; i++) {
-        unsigned n = h / font_height[out[ESL_LE_OFF_FONT + i]];
+        unsigned n = h / esl_font_height(out[ESL_LE_OFF_FONT + i]);
         if (lines && lines < n)
             n = lines;
         if (n > ESL_LE_MAX_LINES)
@@ -980,6 +985,14 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
     out->count = (uint8_t)tok[ls].size;
     out->size = (uint16_t)pos;
     out->version = esl_crc32(out->bin, pos);
+    /* The font files it draws with are part of what the tags show: a new version of one
+       gives the file a new version too, so its tags are drawn again (esl_layouts_font_put) */
+    out->user_fonts = c.user_fonts;
+    for (unsigned i = 0; i < ESL_FONT_USER_MAX; i++)
+        if (c.user_fonts & (1u << i)) {
+            uint32_t fv = esl_font_version((uint8_t)(ESL_FONT_USER_BASE + i));
+            out->version = esl_crc32_update(out->version, &fv, sizeof(fv));
+        }
     if (!out->version)
         out->version = 1;
     ok = true;

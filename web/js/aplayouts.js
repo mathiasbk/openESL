@@ -11,6 +11,7 @@ import { MODELS, layoutModel, layoutUsers, modelName, modelLabel } from "./model
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
+import { apFonts, checkFontFile } from "./apfonts.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
@@ -53,6 +54,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   let busy = false;
   let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
+  const fonts = apFonts();
+  let fontState = { supported: false, info: null, files: {} };   // the AP's font files (js/apfonts.js)
   const host = sameOrigin ? location.host : "openesl.local";
   const canEdit = !!$("tab-design");
 
@@ -78,6 +81,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     if (file) {
       // The renderer is shared with the designer: check with this AP's limits each time
       r.setLimits?.(last?.layouts?.limits || null);
+      r.setFonts?.(fontState.files);   // and with its font files, which the file may name
       const res = r.loadLayouts(JSON.stringify(file));
       if (!res.ok) return null;
     }
@@ -196,8 +200,14 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       say("Could not read the AP's layouts: " + e.message, "error");
       return;
     }
+    try {
+      fontState = await fonts.read(client());
+    } catch (e) {
+      say("Could not read the AP's font files: " + e.message, "error");
+    }
+    drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -441,6 +451,64 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     });
   }
 
+  // The font files on the AP (#177): which layout files draw with each, and a way to add one
+  function drawFonts() {
+    const box = $("lay-fonts");
+    if (!box) return;
+    box.hidden = !fontState.supported;
+    if (!fontState.supported) return;
+    const i = fontState.info;
+    $("lay-fonts-space").textContent = `${(i.fonts || []).length} of ${i.max_fonts} · ${(i.bytes / 1024).toFixed(1)} of ${(i.max_bytes / 1024).toFixed(0)} KB`;
+    const rows = (i.fonts || []).map((f) => {
+      const li = el("li");
+      li.append(el("b", "", f.name), " ", el("span", "muted small",
+        `${f.height} px · ${f.characters} characters` + (f.source ? " · " + f.source : "") +
+        (f.used_by?.length ? ` · used by the ${f.used_by.map((m) => m + '"').join(", ")} layouts` : " · not used yet")));
+      const del = button("Delete", () => removeFont(f.name),
+        f.used_by?.length ? "A layout file draws with it: change those layouts first" : "Delete the font file from the AP");
+      del.disabled = busy || !!f.used_by?.length;
+      li.append(" ", del);
+      return li;
+    });
+    if (!rows.length) rows.push(el("li", "muted", "None yet: the AP draws with its built-in fonts only."));
+    $("lay-font-list").replaceChildren(...rows);
+    $("lay-font-add").disabled = busy;
+  }
+
+  function addFont(text) {
+    return run("Sending the font file", async () => {
+      let file;
+      try {
+        file = JSON.parse(text);
+      } catch {
+        throw new Error("The file is not JSON: pick a font file made by tag/tools/gen_font.py --file.");
+      }
+      const bad = checkFontFile(file);
+      if (bad) throw new Error("The file is " + bad + ".");
+      const r = await fonts.put(client(), file);
+      const again = r.redrawn?.length ? ` The ${r.redrawn.map((m) => m + '"').join(", ")} layouts that use it are drawn again with it.` : "";
+      return [`"${file.name}" is on the AP${r.replaced ? " in place of the old one" : ""}: layouts can name it in their fonts.` +
+        again + unfit(r), unfit(r) ? "error" : "ok"];
+    });
+  }
+
+  function removeFont(name) {
+    if (!confirm(`Delete the font file "${name}" from the AP?`)) return;
+    return run(`Deleting "${name}"`, async () => {
+      await fonts.remove(client(), name);
+      return [`Deleted the font file "${name}".`, "ok"];
+    });
+  }
+
+  if ($("lay-font-add")) {
+    $("lay-font-add").onclick = () => $("lay-font-file").click();
+    $("lay-font-file").onchange = async (ev) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (f) await addFont(await f.text());
+    };
+  }
+
   // The designer of this page opens the AP's file with this layout picked (js/editor.js)
   function edit(name) {
     const file = files[model]?.file;
@@ -455,6 +523,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     for (const k of Object.keys(files)) delete files[k];
     for (const k of Object.keys(shown)) delete shown[k];
     if ($("lay-card")) $("lay-card").hidden = true;
+    fontState = { supported: false, info: null, files: {} };
+    if ($("lay-fonts")) $("lay-fonts").hidden = true;
     say("");
   }
 
