@@ -15,6 +15,25 @@
 export const ELLIPSIS = 0x7f;   // "…", which the AP draws when it shortens a text (tag/src/font.h)
 const THRESHOLD = 110;          // alpha from which a pixel is black, as gen_font.py
 export const MIN_H = 6, MAX_H = 64;
+export const MAX_FILE = 24576;  // the AP takes a font file of at most this many bytes of JSON (ESL_API_MAX_BODY)
+
+// Bytes of a font file as sent (its JSON) and as the AP keeps it (its blob, esl_font.h)
+export function fontSize(file) {
+  const bits = Math.floor((file.bitmap.length * 3) / 4) - (file.bitmap.match(/=*$/)[0].length);
+  return { json: new TextEncoder().encode(JSON.stringify(file)).length,
+           blob: 7 + file.name.length + (file.source || "").length + file.widths.length + bits };
+}
+
+// true when the browser has a font called family (document.fonts.check says true for any name)
+export function hasFont(family) {
+  const ctx = canvasFor(8, 8), s = "mmmmmmmmmmlli1WQ@", q = JSON.stringify(family);
+  return ["monospace", "serif", "sans-serif"].some((fb) => {
+    ctx.font = `40px ${fb}`;
+    const w = ctx.measureText(s).width;
+    ctx.font = `40px ${q}, ${fb}`;
+    return ctx.measureText(s).width !== w;
+  });
+}
 
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 export const CHARSETS = {
@@ -191,5 +210,5 @@ export function previewFont(canvas, file, text, scale = 2) {
         if (bytes[off + cx * bpc + (y >> 3)] & (0x80 >> (y & 7))) ctx.fillRect((x + cx) * scale, y * scale, scale, scale);
     x += gw;
   }
-  return { width: w, bytes: bytes.length + file.widths.length };
+  return { width: w, ...fontSize(file) };
 }

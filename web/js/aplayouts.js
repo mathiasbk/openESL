@@ -12,7 +12,7 @@ import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { apFonts, checkFontFile } from "./apfonts.js";
-import { makeFont, loadFontFile, previewFont } from "./fontmaker.js";
+import { makeFont, loadFontFile, previewFont, hasFont, MAX_FILE } from "./fontmaker.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
@@ -536,7 +536,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       } else if (sel === "other") {
         family = fm("other").value.trim();
         if (!family) throw new Error("Write the name of a font on this computer.");
-        if (!document.fonts.check(`12px "${family}"`, "A")) throw new Error(`This browser has no font called "${family}".`);
+        if (!hasFont(family)) throw new Error(`This computer has no font called "${family}" (or the browser may not use it).`);
         source = family;
       } else source = "browser " + sel;
       const name = fm("name").value.trim();
@@ -551,13 +551,14 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const p = previewFont(fm("canvas"), file, fm("sample").value || "Aa", file.height > 36 ? 1 : 2);
       if (!fm("size").value) fm("size").placeholder = `auto (${file._made.size})`;
       const n = file.widths.filter((w) => w).length;
-      const kb = (p.bytes / 1024).toFixed(1);
+      const kb = (p.blob / 1024).toFixed(1);
       const list = (a) => a.slice(0, 12).join(" ") + (a.length > 12 ? " …" : "");
       const { clipped, accents } = file._made;
       const clip = (clipped.length ? ` The tops or bottoms of ${list(clipped)} are cut off: make it taller or the letters smaller.` : "") +
         (accents.length && !clipped.length ? ` Tall accents (${list(accents)}) reach a little out of it at the top, as in the built-in fonts.` : "");
       const room = fontState.info ? fontState.info.max_bytes - fontState.info.bytes + ((fontState.info.fonts || []).find((f) => f.name === name)?.bytes || 0) : Infinity;
-      const full = p.bytes > room ? ` That is more than the ${(room / 1024).toFixed(1)} KB the AP has left: fewer characters or a smaller height.` : "";
+      const full = p.json > MAX_FILE ? ` The file is ${(p.json / 1024).toFixed(1)} KB, more than the ${MAX_FILE / 1024} KB the AP takes in one font file: fewer characters or a smaller height.`
+        : p.blob > room ? ` That is more than the ${(room / 1024).toFixed(1)} KB the AP has left: fewer characters or a smaller height.` : "";
       info.textContent = `"${name}": ${file.height} px high, ${n} characters, ${kb} KB.` + clip + full;
       info.className = "hint" + (full ? " error" : "");
       made = full ? null : file;

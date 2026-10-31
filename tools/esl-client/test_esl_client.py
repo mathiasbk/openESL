@@ -205,6 +205,8 @@ class FakeAp(BaseHTTPRequestHandler):
                            "networks": []}
             self._send(200, FakeAp.wifi)
         elif self.path.startswith("/api/fonts/") and FakeAp.fonts is not None:
+            if body.get("name") == "full":
+                return self._send(507, {"error": "no room for the font file"})
             FakeAp.fonts[self.path.rsplit("/", 1)[1]] = body
             self._send(200, {"font": {"name": body["name"]}, "replaced": False, "redrawn": [],
                              "content_errors": [], "content_errors_total": 0})
@@ -592,6 +594,16 @@ class ClientTest(unittest.TestCase):
             self.assertEqual((FakeAp.fonts, FakeAp.layouts), ({"text28": font}, {"2.9": layout}))
             paths = [c[0] for c in FakeAp.calls]
             self.assertLess(paths.index("/api/fonts/text28"), paths.index("/api/layouts/2.9"))
+            # a font the AP turns down is a warning; the rest is still restored
+            b["fonts"] = {"full": dict(font, name="full"), **b["fonts"]}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(b, f)
+            self.setUp()
+            FakeAp.fonts = {}
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("warning: font file full was not restored (HTTP 507", out)
+            self.assertEqual(FakeAp.layouts, {"2.9": layout})
             # an AP without font files has no "fonts" in its backup, as before
             self.setUp()
             FakeAp.layouts["2.9"] = dict(layout, layouts=[])

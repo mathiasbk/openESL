@@ -1271,11 +1271,12 @@ def restore(cli, b, dry_run=False, now=None):
         try:
             cli.put_font(name, json.dumps(f).encode("utf-8"))
         except ApiError as e:
-            if e.status != 404:
-                raise
-            lines.append("warning: the font files were not restored; this AP's firmware has no font files")
             ok = False
-            break
+            if e.status == 404:
+                lines.append("warning: the font files were not restored; this AP's firmware has no font files")
+                break
+            # as the dashboard: the rest goes on, and a layout file that needs it says so
+            lines.append(f"warning: font file {name} was not restored (HTTP {e.status}: {e.body.strip()})")
     for m, f in layouts.items():
         cli.put_layout(m, json.dumps(f).encode("utf-8"))
     for mac, c in settings:

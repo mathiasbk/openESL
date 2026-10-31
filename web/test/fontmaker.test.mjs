@@ -5,7 +5,7 @@
 //   python web/build.py && node --test web/test/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { packFont, codesFor, CHARSETS, ELLIPSIS } from "../js/fontmaker.js";
+import { packFont, codesFor, CHARSETS, ELLIPSIS, fontSize, MAX_FILE } from "../js/fontmaker.js";
 import { loadRenderer, LAYOUT_FILE } from "../js/renderer.js";
 
 const WASM = new URL("../dist/wasm/", import.meta.url);
@@ -49,4 +49,14 @@ test("the renderer draws a made font as packed", async () => {
   // two strokes of 12 rows: a 1 is 3 wide with its middle column black, a space 4 wide
   assert.equal(out.pixels.reduce((n, v) => n + (v ? 1 : 0), 0), 24);
   r.setFonts({});
+});
+
+test("fontSize gives the JSON the AP takes and the blob it keeps", () => {
+  const f = packFont({ name: "big", height: 40, baseline: 30, codes: CHARSETS.latin1, source: "x",
+    glyph: () => ({ width: 22, ink: (x, y) => (x + y) % 3 === 0 }) });
+  const s = fontSize(f);
+  assert.equal(s.json, JSON.stringify(f).length);
+  // the blob: 7 bytes of header, the name, the source, the widths and the bitmap
+  assert.equal(s.blob, 7 + 3 + 1 + f.widths.length + Buffer.from(f.bitmap, "base64").length);
+  assert.ok(s.json > MAX_FILE, "a 40 px Latin-1 font this wide is too big for one PUT");
 });
