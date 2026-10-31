@@ -121,7 +121,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         ${on ? `<p class="ok">● ZBS_Flasher ${esc(st.version)}</p>
           <p class="buttons tight"><button type="button" class="ghost" id="tw-disconnect">Disconnect</button></p>`
         : `<p class="buttons tight"><button type="button" class="primary" id="tw-connect" ${hasSerial() ? "" : "disabled"}>Connect flasher</button>
-          <span class="hint ${modelName(st.connectMsg.startsWith("No") ? "error" : "")} role="status">${esc(st.connectMsg)}</span></p>
+          <span class="hint ${st.connectMsg.startsWith("No") ? "error" : ""}" role="status">${esc(st.connectMsg)}</span></p>
           <p class="muted">Pick the D1 mini's port (CH340 or CP210x).</p>`}
       </div></div></div></div></div>
       <p class="wz-hint">ⓘ No answer? The D1 mini must run the ZBS_Flasher, and no other program (such as <code>tools/flash-tui</code>) may have its port.</p>`;
@@ -184,7 +184,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
       ${saved ? `<p>Export the backups and keep them somewhere safe: they are the only copy of the tags' own firmware.</p>` : ""}
       <p class="buttons wz-center">
         ${saved ? `<button type="button" class="primary" id="tw-export">Export backups (ZIP)</button>` : ""}
-        <a class="button${modelName(saved ? "" : " primary")} href="#dashboard">Dashboard</a>
+        <a class="button${saved ? "" : " primary"}" href="#dashboard">Dashboard</a>
         <a class="button" href="#ap">Flash an AP</a>
       </p>
       <p><button type="button" class="ghost" id="tw-more">Flash more tags</button></p>

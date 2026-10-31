@@ -42,7 +42,7 @@ What to check on the first label:
 
 - The example layouts for `2.9-bwr` are the 2.9" ones with the bands in red.
 - Your own layouts from the [Label designer](Label-designer), 296 × 128 pixels, with the colours `red` and `red_invert` (white text in a red box) as well. See [Layout elements and limits](Layout-elements-and-limits).
-- The [templates](Label-templates) do not have a version for this model yet.
+- Every [template](Label-templates): the retail ones with a red band, like the example layouts, the others as on the black/white 2.9".
 
 ## Technical notes
 

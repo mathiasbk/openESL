@@ -74,7 +74,7 @@ test("the check refuses a broken catalog", async () => {
   // same_as only between models with the same screen
   await refuses((c) => { find(c, "notice").t.variants["1.54"] = { same_as: "2.9" }; }, /same_as "2\.9" needs the same screen/);
   // a model with red may use a black/white variant of its size (#255), not the other way round
-  await refuses((c) => { const t = find(c, "vare").t; t.variants["2.9"] = { same_as: "2.9-bwr" }; }, /variant 2\.9: same_as "2\.9-bwr" needs the same screen size .* only colours the 2\.9" has/);
+  await refuses((c) => { const t = find(c, "vare").t; t.variants["2.9"] = { same_as: "2.9-bwr" }; }, /variant 2\.9: same_as "2\.9-bwr" needs the same screen size .* only colours model 2\.9 has/);
   // the starting file's layouts and the catalog's stay the same
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9").layout.elements[0].h = 25; }, /tag\/designs\/layouts\/2\.9\.json has a layout "vare"/);
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9-bwr").layout.elements[0].color = "black"; }, /tag\/designs\/layouts\/2\.9-bwr\.json has a layout "vare"/);

@@ -8,7 +8,7 @@ OpenESL runs on these labels. Each has its own page with photos, specifications,
 | [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | one CR2450 | no (shows 0) | supported | <a href="SoluM-1.54-ST-GM16XX2"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-154-front.jpg" alt="The 1.54-inch label" width="70"></a> |
 | [SoluM 2.9" red](SoluM-2.9-red-ST-GR29000) (**experimental**) | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | not checked | not tried | experimental | |
 
-All talk 802.15.4 to the AP, are flashed once in the [jig](Flashing-jig) and then take new firmware over the air. Every [template](Label-templates) has a version for the two black/white ones. One AP serves every kind at the same time.
+All talk 802.15.4 to the AP, are flashed once in the [jig](Flashing-jig) and then take new firmware over the air. Every [template](Label-templates) has a version for each. One AP serves every kind at the same time.
 
 The list is made from [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json), the one place a label model is described; the [README](https://github.com/mathiasbk/openESL/blob/master/README.md#supported-tags) shows the same list.
 
