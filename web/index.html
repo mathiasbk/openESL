@@ -503,6 +503,13 @@
           </div>
           <aside id="lay-panel" class="lay-panel" hidden></aside>
         </div>
+        <div id="lay-fonts" class="lay-fonts" hidden>
+          <h3 class="lay-h">Font files <span id="lay-fonts-space" class="muted small"></span></h3>
+          <p class="hint">Fonts the AP draws with besides its built-in ones: a size or a set of characters it does not have. Make one with <code>tag/tools/gen_font.py --file</code>; a layout then names it in its fonts. A new version of a font redraws the tags that use it.</p>
+          <ul id="lay-font-list" class="lay-font-list"></ul>
+          <button id="lay-font-add" type="button" class="small">Add a font file…</button>
+          <input id="lay-font-file" type="file" accept=".json,application/json" hidden>
+        </div>
         <p id="lay-msg" class="hint" role="status"></p>
       </details>
       <details id="dash-ap-box" class="card wide fold">

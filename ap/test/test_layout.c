@@ -606,7 +606,7 @@ static void test_storage(void)
 {
     static esl_layouts_t ls;
     fake_t f = {0};
-    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL};
     char buf[512];
     esl_sb_t sb;
     bool changed;

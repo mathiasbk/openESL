@@ -12,6 +12,9 @@
 #include "esl_text.h"
 #include "models_gen.h"
 
+/* The fonts it draws with: the built-in ones (tag/fonts) and the font files (esl_font.c) */
+const font_t *esl_font_get(uint8_t id);
+
 /* ---- the model ------------------------------------------------------------- */
 
 typedef struct {
@@ -157,7 +160,7 @@ static void scene_clear(rd_scene_t *s)
 static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uint16_t y, const uint8_t *text,
                      uint8_t len, uint8_t ellipsis)
 {
-    const font_t *f = font_get(font);
+    const font_t *f = esl_font_get(font);
     rd_run_t *r;
 
     if (s->nruns >= RD_MAX_RUNS)
@@ -413,7 +416,7 @@ static void draw_run(const rd_model_t *mo, rd_run_t *r, uint16_t x, uint8_t *bla
 
     if (x < r->x || x >= r->x + r->w)
         return;
-    f = font_get(r->font);
+    f = esl_font_get(r->font);
     for (;;) {
         if (r->ci >= n)
             return;
@@ -515,7 +518,7 @@ typedef struct {
 
 static uint8_t layout_fit(uint8_t font, const uint8_t *s, uint8_t len, uint16_t maxw, uint8_t *ellipsis)
 {
-    const font_t *f = font_get(font);
+    const font_t *f = esl_font_get(font);
     uint16_t w = 0, ew;
     uint8_t i, cw;
 
@@ -542,7 +545,7 @@ static uint8_t layout_fit(uint8_t font, const uint8_t *s, uint8_t len, uint16_t 
 
 static uint8_t layout_wrap(uint8_t font, const uint8_t *s, uint8_t len, uint16_t maxw, uint8_t *next)
 {
-    const font_t *f = font_get(font);
+    const font_t *f = esl_font_get(font);
     uint16_t w = 0;
     uint8_t n, k, cw, end;
 
@@ -634,7 +637,7 @@ static uint8_t max_descent(const rd_elem_t *e)
     const font_t *f;
     uint8_t i, d = 0;
     for (i = 0; i < RD_MAX_FONTS && e->font[i] != ESL_FONT_NONE; i++) {
-        f = font_get(e->font[i]);
+        f = esl_font_get(e->font[i]);
         if (f->height - f->baseline > d)
             d = (uint8_t)(f->height - f->baseline);
     }
@@ -685,7 +688,7 @@ static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint
     ln.ell = 0;
     for (i = 0; i < RD_MAX_FONTS && e->font[i] != ESL_FONT_NONE; i++) {
         font = e->font[i];
-        f = font_get(font);
+        f = esl_font_get(font);
         n = max_lines(e, f);
         if (pad && n * f->height > eh)
             n = (uint8_t)(eh / f->height);
@@ -694,7 +697,7 @@ static void place_text(rd_scene_t *s, const rd_elem_t *e, const uint8_t *t, uint
             break;
         }
     }
-    f = font_get(font);
+    f = esl_font_get(font);
     if (!found && s->num_now) {
         /* a number cut short is a wrong price: it is not drawn at all, and the API
            refuses such content (esl_render_number_cut) */
