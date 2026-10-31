@@ -803,7 +803,8 @@ unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t mode
     for (unsigned slot = 0; slot < slots; slot++) {
         esl_tag_t t;
         char msg[ESL_LAYOUT_ERR_MAX];
-        if (!esl_store_get_slot(st, slot, &t) || t.model != model || !t.has_content)
+        /* the tags drawn with model's file: its own, and those of models whose same_as names it */
+        if (!esl_store_get_slot(st, slot, &t) || !t.has_content || esl_model_layout_model(t.model) != model)
             continue;
         if (!check_one(st, ls, &t, msg, sizeof(msg))) {
             bad++;

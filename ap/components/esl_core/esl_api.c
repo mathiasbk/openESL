@@ -1575,11 +1575,37 @@ static int ap_wifi(const esl_api_t *api, const char *method, const char *body, s
 
 /* ---- layouts ------------------------------------------------------------------- */
 
+/* "same_as": the model whose file a model uses (#181), null for its own; "used_by": the
+   models whose tags are drawn with the file a model uses, in code order */
+static void write_layout_sharing(esl_sb_t *out, uint8_t model)
+{
+    uint8_t file = esl_model_layout_model(model);
+    if (file != model)
+        esl_sb_printf(out, "\"same_as\":\"%s\",\"used_by\":[", esl_model_name(file));
+    else
+        esl_sb_puts(out, "\"same_as\":null,\"used_by\":[");
+    for (uint8_t m = 1, n = 0; m < ESL_MODEL_COUNT; m++)
+        if (esl_model_layout_model(m) == file)
+            esl_sb_printf(out, "%s\"%s\"", n++ ? "," : "", esl_model_name(m));
+    esl_sb_puts(out, "],");
+}
+
+/* 409 for a model whose same_as names another: its file is that model's */
+static int shared_file_error(esl_sb_t *out, uint8_t model, const char *what)
+{
+    char msg[MSG_MAX];
+    const char *file = esl_model_name(esl_model_layout_model(model));
+    snprintf(msg, sizeof(msg), "model %s uses the layout file of model %s (same_as): %s /api/layouts/%s",
+             esl_model_name(model), file, what, file);
+    return api_error(out, 409, msg);
+}
+
 static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
 {
     uint32_t version;
     size_t len, bin;
     esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
+    write_layout_sharing(out, model);
     if (esl_layouts_info(ls, model, &version, &len, &bin))
         esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u,\"binary_size\":%u,\"layouts\":", version,
                       (unsigned)len, (unsigned)bin);
@@ -1611,6 +1637,8 @@ static void unfit_tag(void *ctx, uint64_t mac, const char *msg)
 
 static int put_layout(const esl_api_t *api, uint8_t model, const char *body, size_t len, esl_sb_t *out)
 {
+    if (esl_model_layout_model(model) != model)
+        return shared_file_error(out, model, "upload it with PUT");
     if (!body || len == 0)
         return api_error(out, 400, "missing JSON body");
     if (len > ESL_LAYOUT_MAX_SIZE)
@@ -1645,8 +1673,9 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     free(bin);
     if (!version)
         return api_error(out, 500, "could not store layout");
-    esl_sb_printf(out, "{\"model\":\"%s\",\"version\":%" PRIu32 ",\"size\":%u,", esl_model_name(model), version,
-                  (unsigned)len);
+    esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
+    write_layout_sharing(out, model);
+    esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u,", version, (unsigned)len);
     size_t bsize;
     esl_layouts_info(api->layouts, model, NULL, NULL, &bsize);
     esl_sb_printf(out, "\"binary_size\":%u,\"layouts\":", (unsigned)bsize);
@@ -1706,6 +1735,8 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
         return 200;
     }
     if (strcmp(method, "DELETE") == 0) {
+        if (esl_model_layout_model(model) != model)
+            return shared_file_error(out, model, "delete it with DELETE");
         if (!esl_layouts_delete(ls, model))
             return api_error(out, 404, "no layout for this model");
         esl_store_check_layout(api->store, ls, model, NULL, NULL); /* no file: nothing is unfit */
@@ -2152,7 +2183,9 @@ int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
             uint32_t v;
             size_t bin;
             esl_sb_printf(out, "%s %s ", m > 1 ? ";" : "", esl_model_name(m));
-            if (esl_layouts_info(api->layouts, m, &v, NULL, &bin)) {
+            if (esl_model_layout_model(m) != m)
+                esl_sb_printf(out, "the file of %s", esl_model_name(esl_model_layout_model(m)));
+            else if (esl_layouts_info(api->layouts, m, &v, NULL, &bin)) {
                 esl_sb_printf(out, "version %" PRIu32 " (%u bytes compiled): ", v, (unsigned)bin);
                 esl_layouts_write_names(api->layouts, m, out); /* plain ASCII names */
             } else {

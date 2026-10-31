@@ -149,11 +149,15 @@ export function weatherPlan(sources, macs, to) {
 
 // The models of the tags whose layout file on the AP has no layout called "weather", from
 // GET /api/layouts
+// (a model whose same_as names another stands for that model: it is that model's file)
 export function missingModels(tags, layouts) {
   const has = new Set();
-  for (const m of layouts?.layouts || [])
+  const fileOf = {};
+  for (const m of layouts?.layouts || []) {
+    if (m.same_as) fileOf[m.model] = m.same_as;
     if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
-  return [...new Set(tags.map((t) => t.model).filter((m) => m && !has.has(m)))];
+  }
+  return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
 
 // The place each tag is in now, by MAC

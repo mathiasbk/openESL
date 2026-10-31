@@ -7,7 +7,7 @@
 // The same on the web page (over USB or the bridge) and on the AP's own page, where the
 // renderer and the templates come from the published web page (firmwareBase).
 
-import { MODELS } from "./models.js";
+import { MODELS, layoutModel, layoutUsers } from "./models.js";
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
@@ -146,11 +146,12 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
 
   const layoutsOf = () => Object.fromEntries(Object.entries(shown).map(([mac, s]) => [mac, s.layout]));
 
-  // The models to pick from: those with tags first
+  // The models to pick from, those with tags first: one per layout file, so a model whose
+  // sameAs names another (same screen, #181) is counted with that one
   function models() {
     const n = {};
-    for (const t of last.list.tags) if (t.model) n[t.model] = (n[t.model] || 0) + 1;
-    const all = Object.keys(MODELS);
+    for (const t of last.list.tags) if (t.model) n[layoutModel(t.model)] = (n[layoutModel(t.model)] || 0) + 1;
+    const all = Object.keys(MODELS).filter((m) => layoutModel(m) === m);
     return all.map((m) => [m, n[m] || 0]).sort((a, b) => b[1] - a[1]);
   }
 
@@ -166,9 +167,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     if (!last?.list || !$("lay-card")) return;
     $("lay-card").hidden = false;
     const ms = models();
-    if (!model || !MODELS[model]) model = ms[0][0];
+    if (!model || !ms.some(([m]) => m === model)) model = ms[0][0];
     $("lay-models").replaceChildren(...ms.map(([m, n]) => {
       const b = el("button", m === model ? "on" : "", `${m}" · ${n} tag${n === 1 ? "" : "s"}`);
+      if (layoutUsers(m).length > 1) b.title = `One layout file for ${layoutUsers(m).join('", ')}"`;
       b.type = "button";
       b.setAttribute("aria-pressed", String(m === model));
       b.onclick = () => {
@@ -185,7 +187,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-space").textContent = info?.version ? `Space on the AP for ${model}": ${(info.size / 1024).toFixed(1)} of ${(max / 1024).toFixed(0)} KB` : `No ${model}" layout file on the AP yet`;
     $("lay-meter").hidden = !info?.version;
     $("lay-meter").firstElementChild.style.width = info?.version ? Math.min(100, (100 * info.size) / max).toFixed(0) + "%" : "0";
-    const tags = last.list.tags.filter((t) => t.model === model);
+    const tags = last.list.tags.filter((t) => layoutModel(t.model) === model);
     let file;
     try {
       file = await apFile(model, info?.version || null);

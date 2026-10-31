@@ -17,6 +17,7 @@ import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
+import { MODELS as TAGS, layoutModel, layoutUsers } from "./models.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -122,6 +123,7 @@ function samples() {
 function save() {
   store.set("doc." + state.model, JSON.stringify(doc()));
   store.set("model", state.model);
+  store.set("tag", state.tag);
   store.set("samples", JSON.stringify(state.samples));
   scheduleRecord();
   if (ap.connected) refreshLayoutList();   // a layout changed here is no longer the AP's
@@ -139,7 +141,11 @@ function markClean() {
 function refreshFileState() {
   const clean = store.get("clean." + state.model);
   const fs = $("file-state");
-  fs.replaceChildren(`Layout file for ${state.model}"`);
+  const users = layoutUsers(state.model);
+  const also = users.filter((u) => u !== state.model);
+  fs.replaceChildren(`Layout file for ${state.model}"` + (also.length ? ` (also used by ${also.join('", ')}")` : ""));
+  if (users.length > 1) fs.title = `The ${users.join('", ')}" tags have the same screen and use this one file`;
+  else fs.removeAttribute("title");
   if (clean !== JSON.stringify(doc())) {
     const d = document.createElement("span");
     d.className = "dirty";
@@ -196,7 +202,12 @@ async function exampleDoc(model) {
   return r.json();
 }
 
+// model: the tag picked in the list; its layout file is edited (a model whose sameAs names
+// another is edited as that one's file, #181)
 async function loadModel(model) {
+  state.tag = model in TAGS ? model : layoutModel(model);
+  $("model-pick").value = state.tag;
+  model = layoutModel(model);
   const from = state.model;
   const template = state.docs[from] && layout()?._template;
   state.model = model;
@@ -215,7 +226,6 @@ async function loadModel(model) {
   }
   state.renderer = await loadRenderer(model);
   applyLimits();
-  document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
@@ -777,7 +787,7 @@ async function showLayoutInfo(key = infoKey) {
   const pill = builtin ? "Built in" : !ap.connected ? "In this file"
     : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
   const host = onAp ? location.host : "openesl.local";
-  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model)
+  const tags = ap.connected ? ap.tags.filter((t) => layoutModel(t.model) === state.model)
     .map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name, shown: t.content_id ? ap.tagLayouts[t.mac] || "?" : "" })) : null;
   infoPanel.show({
     key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
@@ -1670,6 +1680,8 @@ function download(name, text, type = "application/json") {
 }
 
 function setDoc(d) {
+  // a file for a model whose sameAs names another is that model's file (the AP takes it under that name)
+  if (d.model && MODELS[d.model] && layoutModel(d.model) !== d.model) d = { ...d, model: layoutModel(d.model) };
   if (d.model && MODELS[d.model] && d.model !== state.model) {
     state.docs[d.model] = d;
     loadModel(d.model).then(save);
@@ -1698,16 +1710,22 @@ function fitHeight() {
 }
 
 function initActions() {
-  for (const [name, m] of Object.entries(MODELS)) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = name + '"';
-    b.title = `${m.width} × ${m.height}`;
-    b.dataset.model = name;
-    b.setAttribute("role", "radio");
-    b.addEventListener("click", () => { if (name !== state.model) loadModel(name).then(save); });
-    $("model-tabs").append(b);
+  // One entry per supported tag, by maker and name; tags with the same screen open the same file
+  for (const [name, t] of Object.entries(TAGS)) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = `${t.label} · ${t.width} × ${t.height}` + (t.status === "experimental" ? " (experimental)" : "");
+    $("model-pick").append(o);
   }
+  $("model-pick").addEventListener("change", () => {
+    const name = $("model-pick").value;
+    if (layoutModel(name) === state.model) {
+      state.tag = name; // the same file: nothing to load
+      store.set("tag", name);
+      return;
+    }
+    loadModel(name).then(save);
+  });
   $("zoom").value = store.get("zoom") || "fit";
   $("zoom").addEventListener("change", () => {
     store.set("zoom", $("zoom").value);
@@ -1938,7 +1956,7 @@ function ago(s) {
 // The AP's tags of this model, one to pick; the last six digits of the MAC tell them apart
 function refreshApTags() {
   const box = $("ap-tags");
-  const mine = ap.tags.filter((t) => t.model === state.model || t.model === null);
+  const mine = ap.tags.filter((t) => layoutModel(t.model) === state.model || t.model === null);
   $("ap-tags-h").textContent = `Tag (${state.model}" tags on this AP)`;
   if (!mine.some((t) => t.mac === ap.mac)) ap.mac = mine.length === 1 ? mine[0].mac : "";
   if (!mine.length) {
@@ -2029,7 +2047,7 @@ async function apReadFile(model) {
       ap.files[model] = null;
     }
   }
-  const mine = ap.tags.filter((t) => t.model === model);
+  const mine = ap.tags.filter((t) => layoutModel(t.model) === model);
   if (mine.some((t) => !(t.mac in ap.tagLayouts)))
     tagLayouts(apClient(), mine, ap.tagLayouts).then((m) => {
       if (!ap.connected) return;
@@ -2359,8 +2377,8 @@ export async function initEditor({ sameOrigin = false } = {}) {
   initList();
   initAp();
   window.addEventListener("openesl-edit-layout", (ev) => openFromAp(ev.detail));
-  const m = store.get("model");
-  await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
+  const m = store.get("tag") || store.get("model");
+  await loadModel(TAGS[m] ? m : Object.keys(TAGS)[0]);
   fitHeight();
   if (onAp) {
     apReady = true;

@@ -1,6 +1,8 @@
 // layoutinfo.js - how the layouts in a layout file compare with the AP's, and which of the
 // AP's tags use each one. Used by the designer's layout column and the dashboard's Layouts page.
 
+import { layoutModel } from "./models.js";
+
 // JSON with the keys sorted, so two layouts that differ only in key order compare equal
 export function canon(v) {
   if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
@@ -47,7 +49,7 @@ export async function tagLayouts(client, tags, known = {}, { max = 200, parallel
 export function countByLayout(tags, layouts, model) {
   const n = {};
   for (const t of tags) {
-    if (t.model !== model) continue;
+    if (layoutModel(t.model) !== model) continue; // also the models whose sameAs names it
     const l = layouts[t.mac];
     if (l) n[l] = (n[l] || 0) + 1;
   }
