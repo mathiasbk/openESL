@@ -35,6 +35,6 @@ python tools/flash-tui/flash_tui.py
 
 ## After flashing
 
-The label looks for the AP and polls it about once a minute. It turns up on the [Dashboard](Dashboard) at its first poll. If it finds no AP it shows "No AP found" and tries again less often to save battery.
+The label looks for the AP and polls it about once a minute. It turns up on the [Dashboard](Dashboard) at its first poll. If it finds no AP it shows "No AP found" after two hours and tries again less often to save battery. A label that already shows content keeps it, with a small crossed-out signal mark in the top right corner instead.
 
 Labels flashed with very old firmware (before 0.3.0) have no bootloader for updates over the air and need one more pass in the jig.

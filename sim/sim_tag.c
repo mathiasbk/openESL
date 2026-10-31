@@ -11,6 +11,7 @@
 #include "sim.h"
 #include "boot_core.h"
 #include "otaslot.h"
+#include "image.h"
 #include "proto.h"
 
 uint64_t sim_now_ms;
@@ -172,6 +173,7 @@ bool sim_tag_run_until_draw(uint64_t t_ms)
 }
 
 uint32_t sim_tag_shown_id(void) { return app.shown_id; }
+bool sim_tag_marked(void) { return image.mark != 0; }
 uint16_t sim_tag_fw_version(void) { return FW_VERSION; }
 uint8_t sim_tag_model_code(void) { return MODEL_CODE; }
 int sim_tag_restarts(void) { return restarts; }

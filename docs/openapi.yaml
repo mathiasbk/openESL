@@ -1596,7 +1596,7 @@ components:
       properties:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Poll interval in seconds }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: Longest interval when the tag backs off }
-        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the tag shows "No AP found"; 65535 = never' }
+        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the tag draws the small "no AP" mark over its content ("No AP found" when it has none, or on tag firmware before the mark); 65535 = never' }
         long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min (built in: 3600)" }
         long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before the tag polls only every long_poll_s; 65535 = never (built in: 1440, a day)" }
 
@@ -1735,7 +1735,7 @@ components:
       properties:
         poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Poll interval in seconds; null: the AP default" }
         max_poll_s: { type: [integer, "null"], minimum: 10, maximum: 3600, description: "Longest interval when the tag backs off; null: built in" }
-        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before "No AP found"; 65535 = never; null: built in' }
+        lost_ap_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: 'Seconds without the AP before the "no AP" mark (or "No AP found"); 65535 = never; null: built in' }
         long_poll_s: { type: [integer, "null"], minimum: 60, maximum: 65535, description: "Interval once the AP has been gone for long_after_min; null: built in (3600)" }
         long_after_min: { type: [integer, "null"], minimum: 10, maximum: 65535, description: "Minutes without the AP before long_poll_s; 65535 = never; null: built in (1440)" }
 

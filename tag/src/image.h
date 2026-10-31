@@ -50,6 +50,7 @@ typedef struct {
     uint16_t dl_got;
     uint8_t dl_fmt;
     uint8_t slot_fmt;       /* ESL_IMG_FMT_* of the image in the slot */
+    uint8_t mark;           /* image_show() draws the "no AP" mark over it (#98, status.h); set by app.c */
 } image_state_t;
 
 extern image_state_t __xdata image;
@@ -65,12 +66,12 @@ void image_close(void);
 /* One IMG block, parsed into r, with its data at d. Returns IMAGE_MORE, IMAGE_DONE or IMAGE_STOP. */
 uint8_t image_block(const proto_reply_t *r, const uint8_t *d);
 
-/* Radio off: streams the image in the slot to the panel. False if there is none, or
-   the panel did not answer. */
+/* Radio off: streams the image in the slot to the panel, with the "no AP" mark when
+   image.mark is set. False if there is none, or the panel did not answer. */
 bool image_show(void);
 
 /* Column x of the image in the slot, for epd.c (the flash must be open). On a model
-   without red, red is cleared. */
+   without red, red is cleared. With image.mark, the mark is drawn over it. */
 void image_column(uint16_t x, uint8_t __xdata *black, uint8_t __xdata *red);
 
 #endif /* IMAGE_H */

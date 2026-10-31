@@ -52,7 +52,7 @@ Per day: sleep current for the whole day, plus the charge of each POLL, plus the
 - **Without an AP for a day** the tag polls once each `long_poll_s` (3600 s), 24 polls a day.
 - **Display update:** init, image transfer and the 2.9 s refresh at core plus panel current, with the core awake throughout. `0.3 s × (4 + 3) mA + 2.9 s × (4 + 3) mA = 22 mC` (`--doze 1` for the core asleep during the refresh, as in 0.9.0: 10.8 mC).
 - **Battery:** usable capacity is 70 % of nominal, to cover the tag's cut-off voltage above the cell's rated 2.0 V, cold, and the voltage sag when the radio draws its peaks from a coin cell. Self-discharge of 1 % a year is added as a constant current.
-- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "No AP found" screen (drawn once after 2 hours without the AP), retries when the AP is there but a reply is lost, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
+- Not counted: layout downloads (about 80 ms of radio once per file), CONFIG messages, the "no AP" mark or "No AP found" screen (drawn once after 2 hours without the AP, and the mark once more to take it away when the AP is back), retries when the AP is there but a reply is lost, and the battery reading, which wakes the panel's analog part every 240th POLL, 4 hours at 60 s (up to ~0.8 s; on the 1.54" it stops after the first step because the reading is 0; once an hour before 0.9). All of them are rare.
 
 ## The figures and where they come from
 

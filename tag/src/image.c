@@ -1,5 +1,6 @@
 #include "image.h"
 #include "epd.h"
+#include "status.h"
 #include "hal/hal.h"
 
 image_state_t __xdata image;
@@ -430,4 +431,6 @@ void image_column(uint16_t x, uint8_t __xdata *black, uint8_t __xdata *red)
     for (i = 0; i < DRAW_COL_BYTES; i++)
         red[i] = 0;
 #endif
+    if (image.mark)
+        status_mark_column(x, black, red);
 }

@@ -21,7 +21,7 @@ typedef struct {
     uint16_t ver;             /* cfg_ver from CONFIG, sent back in every POLL */
     uint16_t poll_s;          /* normal interval (CFG_POLL_S) */
     uint16_t max_poll_s;      /* longest interval without an answer (CFG_MAX_POLL_S) */
-    uint16_t lost_ap_s;       /* "No AP found" after this long (CFG_LOST_AP_S), ESL_CFG_LOST_AP_NEVER = never */
+    uint16_t lost_ap_s;       /* the "no AP" mark, or "No AP found", after this long (CFG_LOST_AP_S), ESL_CFG_LOST_AP_NEVER = never */
     uint16_t long_poll_s;     /* interval once the AP has been gone for long_after_min (CFG_LONG_POLL_S) */
     uint16_t long_after_min;  /* (CFG_LONG_AFTER_MIN), ESL_CFG_LONG_NEVER = never */
     uint8_t channel;          /* the AP's channel, now or after a planned move; 0 = CFG_CHANNEL */
@@ -34,7 +34,7 @@ typedef struct {
     uint8_t misses;           /* rounds in a row without an answer */
     uint32_t lost_s;          /* seconds slept since the last answer */
     uint16_t slept_s;         /* the sleep the last round asked for, counted into lost_s at the next miss */
-    uint8_t lost_shown;       /* "No AP found" is drawn */
+    uint8_t lost_shown;       /* the AP is gone and it shows: the "no AP" mark (image.mark) or "No AP found" */
     uint8_t poll_flags;       /* ESL_POLL_F_* for the next POLL */
     uint8_t rx_rssi;          /* the radio's RSSI and LQI of the AP's last answer, sent in POLL (0 = none yet) */
     uint8_t rx_lqi;

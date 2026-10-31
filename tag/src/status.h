@@ -1,6 +1,7 @@
 /*
  * status.h - the screens the tag draws itself (requirement T9): the start screen and
- * "Waiting for content" / "No AP found", with the tag's name, MAC and firmware version.
+ * "Waiting for content" / "No AP found", with the tag's name, MAC and firmware version,
+ * and the small "no AP" mark drawn over a picture.
  * Everything else on the screen is an image the AP draws (image.h).
  *
  * Up to STATUS_LINES lines of text, one per box of equal height down the screen, each in
@@ -19,6 +20,16 @@
 
 /* Clears the scene and adds up to STATUS_LINES lines of Latin-1 text. */
 void status_build(draw_scene_t *s, const uint8_t *const *lines, const uint8_t *lens, uint8_t n);
+
+/*
+ * The "no AP" mark (#98): signal bars with a cross on a white square in the top right
+ * corner, drawn over the picture while the tag hears no AP, so the content stays up.
+ * status_mark_column() puts it into column x of a picture (black and red as from
+ * image_column); columns left of the square are left as they are.
+ */
+#define STATUS_MARK_W    19
+#define STATUS_MARK_H    20
+void status_mark_column(uint16_t x, uint8_t *black, uint8_t *red);
 
 /*
  * Helpers, exported for the tests.

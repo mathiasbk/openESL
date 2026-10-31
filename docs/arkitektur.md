@@ -30,7 +30,7 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 - Now the AP draws the whole screen (`ap/components/esl_core/esl_render.c`, with the code the tag used) and sends it as a 1-bit image in IMG blocks, coded when that is shorter (column against column, as fax machines code a page, or run-length coded). The tag stores it in its SPI flash (the same chip as the OTA slots) and streams it to the display controller a column at a time, so it never needs the whole image in RAM.
 - The cost is radio time: about 50 blocks per new screen instead of one packet. Not measured yet; the estimate is a few mC per new screen, next to 22 mC for the display refresh ([strombudsjett.md](strombudsjett.md)).
 - The image id is the CRC-32 of the image, so the same content gives the same image and is never sent twice, also after an AP restart. The AP keeps no images: it draws one when a tag needs it.
-- The tag draws only its start-up and "No AP found" screens itself.
+- The tag draws only its start-up and "No AP found" screens, and the small "no AP" mark over the AP's image, itself.
 
 ### Layout from the design tool (requirement G7)
 - A designer makes the screen design in the label designer on the web page (`web/`, the Design tab), which can also send the file straight to the AP. It is one JSON layout file per tag model with up to 16 named layouts: up to 6 fields, positions, fonts, colours, alignment, fixed texts and one barcode, with up to 32 text lines and 20 boxes per screen ([protokoll.md](protokoll.md) part 3).

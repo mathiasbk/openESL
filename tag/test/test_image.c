@@ -10,6 +10,7 @@
 #include "model.h"
 #include "ota.h"
 #include "image.h"
+#include "status.h"
 #include "esl_img2d.h"
 
 static uint8_t img[IMG_RAW_SIZE];
@@ -607,6 +608,157 @@ static void test_app_download(void)
     fake_xflash_clear(false);                               /* the other tests run without */
 }
 
+/* The picture with the "no AP" mark in its top right corner, and nothing else changed */
+static bool screen_is_marked(void)
+{
+    uint8_t black[DRAW_COL_BYTES], red[DRAW_COL_BYTES];
+    uint16_t x;
+    uint8_t y;
+    int ink = 0;
+
+    for (x = 0; x < DRAW_W; x++) {
+        memcpy(black, img + x * DRAW_COL_BYTES, DRAW_COL_BYTES);
+        memset(red, 0, sizeof(red));
+        status_mark_column(x, black, red);
+        for (y = 0; y < DRAW_H; y++) {
+            uint8_t b = black[y >> 3] & (uint8_t)(0x80 >> (y & 7));
+            if ((fake_fb[y][x] == 1) != (b != 0))
+                return false;
+            if (x >= DRAW_W - STATUS_MARK_W && y < STATUS_MARK_H && b)
+                ink++;
+        }
+    }
+    return ink > 20 && !screen_is_picture();
+}
+
+static void lose_rounds_until_draw(void)
+{
+    int draws = fake_draw_count, rounds = 0;
+
+    while (fake_draw_count == draws && rounds++ < 1000) {
+        fake_radio_reset();
+        app_poll_once();
+    }
+}
+
+static void push_idle(void)
+{
+    uint8_t n = make_idle(pl, 0);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
+}
+
+/* #98: the AP gone for lost_ap_s keeps the picture up, with the "no AP" mark */
+static void test_app_lost_mark(void)
+{
+    int draws, i;
+
+    fake_store_clear();
+    fake_radio_reset();
+    fake_draw_count = 0;
+    fake_epd_ok = true;
+    fake_xflash_clear(true);
+    app_init();
+    make_picture(11);
+    push_img_blocks();
+    app_poll_once();
+    CHECK(screen_is_picture());
+
+    /* Gone: one refresh, the picture with the mark, the id still reported */
+    draws = fake_draw_count;
+    lose_rounds_until_draw();
+    CHECK_EQ(fake_draw_count, draws + 1);
+    CHECK_EQ(app.lost_s, CFG_LOST_AP_S);
+    CHECK(screen_is_marked());
+    CHECK(app.shown_id == img_id);
+    CHECK_EQ(app.lost_shown, 1);
+    for (i = 0; i < 20; i++) {                              /* no refresh per miss */
+        fake_radio_reset();
+        app_poll_once();
+    }
+    CHECK_EQ(fake_draw_count, draws + 1);
+
+    /* Back with nothing new: the picture again from the slot, no download, one refresh */
+    fake_radio_reset();
+    push_idle();
+    app_poll_once();
+    CHECK(ESL_GET_U32(sent(0) + ESL_POLL_OFF_CID) == img_id);
+    CHECK_EQ(fake_tx_count, 1);
+    CHECK_EQ(fake_draw_count, draws + 2);
+    CHECK(screen_is_picture());
+    CHECK(app.shown_id == img_id);
+    CHECK_EQ(image.mark, 0);
+    CHECK_EQ(app.lost_shown, 0);
+    fake_radio_reset();
+    push_idle();
+    app_poll_once();
+    CHECK_EQ(fake_draw_count, draws + 2);
+
+    /* Gone again, then back with a new picture: drawn once, without the mark */
+    lose_rounds_until_draw();
+    CHECK(screen_is_marked());
+    draws = fake_draw_count;
+    make_picture(12);
+    fake_radio_reset();
+    push_img_blocks();
+    app_poll_once();
+    CHECK_EQ(fake_draw_count, draws + 1);
+    CHECK(screen_is_picture());
+    CHECK(app.shown_id == img_id);
+    CHECK_EQ(image.mark, 0);
+
+    /* Gone, then back with only the first block of a new picture: the marked one stays
+       while it comes in ... */
+    lose_rounds_until_draw();
+    CHECK(screen_is_marked());
+    draws = fake_draw_count;
+    make_picture(13);
+    fake_radio_reset();
+    i = make_img_block(pl, 0, img_id, IMG_RAW_SIZE, 0, MODEL_CODE, ESL_IMG_FMT_RAW, img, ESL_IMG_CHUNK_MAX);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, (uint8_t)i));
+    app_poll_once();
+    CHECK_EQ(fake_draw_count, draws);
+    CHECK_EQ(image.mark, 1);
+    CHECK_EQ(app.lost_shown, 0);
+    /* ... and the AP then sends nothing more: the old picture left the slot, so the
+       waiting screen, and no id, so the AP offers its picture again */
+    fake_radio_reset();
+    push_idle();
+    app_poll_once();
+    CHECK_EQ(fake_draw_count, draws + 1);
+    CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(image.mark, 0);
+    CHECK(!screen_is_picture());
+
+    /* Gone with a half-downloaded picture: "No AP found", as without a picture */
+    lose_rounds_until_draw();
+    CHECK_EQ(app.shown_id, 0);
+    CHECK_EQ(image.mark, 0);
+    CHECK_EQ(app.lost_shown, 1);
+
+    /* A restart while marked shows the picture without the mark */
+    make_picture(14);
+    fake_radio_reset();
+    push_img_blocks();
+    app_poll_once();
+    lose_rounds_until_draw();
+    CHECK(screen_is_marked());
+    fake_radio_reset();
+    app_init();
+    CHECK(screen_is_picture());
+    CHECK_EQ(image.mark, 0);
+
+    /* The panel does not answer when the mark is drawn: "No AP found" is tried, no id */
+    fake_epd_ok = false;
+    lose_rounds_until_draw();
+    CHECK_EQ(image.mark, 0);
+    CHECK_EQ(app.shown_id, 0);
+    fake_epd_ok = true;
+
+    CHECK_EQ(fake_xflash_misuse, 0);
+    CHECK(!fake_store_radio_on_write);
+    fake_xflash_clear(false);
+}
+
 void test_image(void)
 {
     RUN(test_refused);
@@ -616,4 +768,5 @@ void test_image(void)
     RUN(test_rle);
     RUN(test_2d);
     RUN(test_app_download);
+    RUN(test_app_lost_mark);
 }
