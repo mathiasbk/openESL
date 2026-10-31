@@ -141,7 +141,8 @@ function refreshFileState() {
   const clean = store.get("clean." + state.model);
   const fs = $("file-state");
   const users = layoutUsers(state.model);
-  fs.replaceChildren(`Layout file for ${users.join('" and ')}"`);
+  const also = users.filter((u) => u !== state.model);
+  fs.replaceChildren(`Layout file for ${state.model}"` + (also.length ? ` (also used by ${also.join('", ')}")` : ""));
   if (users.length > 1) fs.title = `The ${users.join('", ')}" tags have the same screen and use this one file`;
   else fs.removeAttribute("title");
   if (clean !== JSON.stringify(doc())) {
@@ -1686,7 +1687,7 @@ function initActions() {
     const users = layoutUsers(name);
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = users.join('" + ') + '"';
+    b.textContent = name + '"'; // the other models that use this file are named in the file line and the tooltip
     b.title = `${m.width} × ${m.height}` + (users.length > 1 ? `, one layout file for ${users.join('", ')}"` : "");
     b.dataset.model = name;
     b.setAttribute("role", "radio");

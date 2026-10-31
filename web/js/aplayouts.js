@@ -169,7 +169,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     const ms = models();
     if (!model || !ms.some(([m]) => m === model)) model = ms[0][0];
     $("lay-models").replaceChildren(...ms.map(([m, n]) => {
-      const b = el("button", m === model ? "on" : "", `${layoutUsers(m).join('" + ')}" · ${n} tag${n === 1 ? "" : "s"}`);
+      const b = el("button", m === model ? "on" : "", `${m}" · ${n} tag${n === 1 ? "" : "s"}`);
+      if (layoutUsers(m).length > 1) b.title = `One layout file for ${layoutUsers(m).join('", ')}"`;
       b.type = "button";
       b.setAttribute("aria-pressed", String(m === model));
       b.onclick = () => {
