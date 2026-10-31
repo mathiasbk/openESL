@@ -141,6 +141,14 @@ tags:
       screen with it and sends the tag the image. The format is in the `LayoutFile` schema below and,
       with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
       The built-in layouts `price` and `text` can always be used, with or without a file.
+  - name: Font files
+    description: |
+      Fonts the AP draws with besides its six built-in ones (`small`, `text20`, `medium`, `mid`,
+      `price44`, `large`): another size, or a set of characters a built-in font does not have,
+      without new AP firmware. `tag/tools/gen_font.py --file` makes one from a TrueType font; a
+      layout then names it in `fonts` like a built-in font. Only the AP draws with them (the tags
+      get the image), so nothing changes on the tags. The designer loads the same files, so its
+      preview is what the tag gets. Kept in NVS; at most 8 font files of 32,768 bytes together.
   - name: Data sources
     description: |
       Content the AP fetches for itself, so no client has to run: the weather forecast for a
@@ -1132,6 +1140,97 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoLayout" }
 
+  /api/fonts:
+    get:
+      tags: [Font files]
+      operationId: listFonts
+      summary: The built-in fonts and the font files on the AP
+      responses:
+        "200":
+          description: The fonts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FontList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+
+  /api/fonts/{name}:
+    parameters:
+      - $ref: "#/components/parameters/font"
+    get:
+      tags: [Font files]
+      operationId: getFontFile
+      summary: A font file, as the AP has it
+      responses:
+        "200":
+          description: The file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FontFile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/NoFont" }
+    put:
+      tags: [Font files]
+      operationId: putFontFile
+      summary: Add a font file, or replace the one with this name
+      description: |
+        The file is checked and stored in NVS. A layout file can name the font from then on.
+        Replacing a font that layout files draw with compiles those files again with the new
+        one: their version changes (`redrawn`), and their tags get the new image at their next
+        poll. A new font those files no longer compile with (taller than a box it is in) is
+        turned down with 422, and nothing changes. Content that no longer fits is listed as for
+        `PUT /api/layouts/{model}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FontFile" }
+            examples:
+              digits:
+                summary: A tiny font with "0" and "1" (made by gen_font.py --file in practice)
+                value:
+                  format: esl-font
+                  version: 1
+                  name: digits10
+                  height: 10
+                  baseline: 8
+                  first: 48
+                  last: 49
+                  widths: [4, 2]
+                  bitmap: "/8D/wP/A/8CAAP/A"
+                  source: "hand drawn"
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FontStored" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/BuiltinFont" }
+        "404": { $ref: "#/components/responses/NoFont" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/FontInvalid" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "507": { $ref: "#/components/responses/NoRoomForFont" }
+    delete:
+      tags: [Font files]
+      operationId: deleteFontFile
+      summary: Delete a font file
+      description: Not while a layout file draws with it (409); change those layouts first.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FontDeleted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoFont" }
+        "409": { $ref: "#/components/responses/FontInUse" }
+        "429": { $ref: "#/components/responses/Locked" }
+
   /api/sources:
     get:
       tags: [Data sources]
@@ -1264,6 +1363,14 @@ components:
       schema: { type: string, enum: ["2.9", "1.54"] }
       example: "2.9"
 
+    font:
+      name: name
+      in: path
+      required: true
+      description: The font file's name, as layouts name it
+      schema: { type: string, pattern: "^[a-z0-9_-]{1,15}$" }
+      example: digits10
+
   responses:
     BadRequest:
       description: No body, invalid JSON, the body is not an object, or a bad string escape
@@ -1316,6 +1423,36 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: no layout for this model }
+    NoFont:
+      description: No font file by that name (or not a font file name)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: no font file by that name }
+    BuiltinFont:
+      description: The name of a built-in font, which is part of the firmware
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: a built-in font is part of the firmware }
+    FontInvalid:
+      description: Not a font file the AP takes, or one a layout file that uses it no longer compiles with; the message says why
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "bitmap must be base64 of 12 bytes (the widths times 2 bytes a column)" }
+    FontInUse:
+      description: A layout file draws with the font
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "the layout file for 2.9 draws with this font: change it first" }
+    NoRoomForFont:
+      description: All 8 slots are taken, the font files would take more than 32,768 bytes together, or NVS has no room
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "the AP holds at most 8 font files: delete one first" }
     TooLarge:
       description: The body is too large (24,576 bytes, a layout file 8,192)
       content:
@@ -2069,6 +2206,107 @@ components:
         fields: { type: integer, const: 6, description: Fields per layout }
         fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
 
+    FontFile:
+      type: object
+      required: [format, version, height, baseline, first, last, widths, bitmap]
+      description: |
+        A font in the format of the built-in ones (tag/src/font.h): one height, a baseline, a
+        width per character (Latin-1, `first` to `last`, 0 = not in the font) and the glyphs
+        column by column, ceil(height / 8) bytes a column with the MSB of the first byte at the
+        top, one character after the other. Keys starting with _ are ignored.
+      properties:
+        format: { type: string, const: esl-font }
+        version: { type: integer, const: 1 }
+        name: { type: string, pattern: "^[a-z0-9_-]{1,15}$", description: "The name in the URL; may be left out in PUT. Not a built-in font's" }
+        height: { type: integer, minimum: 6, maximum: 64 }
+        baseline: { type: integer, minimum: 0, maximum: 64, description: Rows above the baseline }
+        first: { type: integer, minimum: 32, maximum: 255 }
+        last: { type: integer, minimum: 32, maximum: 255 }
+        widths: { type: array, minItems: 1, maxItems: 224, items: { type: integer, minimum: 0, maximum: 255 } }
+        bitmap: { type: string, contentEncoding: base64, description: "The widths added up, times ceil(height / 8) bytes" }
+        source: { type: string, maxLength: 63, description: Where the glyphs come from (font and licence) }
+      patternProperties:
+        "^_": {}
+      additionalProperties: false
+
+    FontInfo:
+      allOf:
+        - $ref: "#/components/schemas/FontInfoFields"
+      unevaluatedProperties: false
+
+    FontInfoFields:
+      type: object
+      required: [name, height, baseline, first, last, characters, bytes, version, source]
+      properties:
+        name: { type: string }
+        height: { type: integer }
+        baseline: { type: integer }
+        first: { type: integer }
+        last: { type: integer }
+        characters: { type: integer, minimum: 1, description: Characters with a glyph }
+        bytes: { type: integer, description: What it takes on the AP }
+        version: { type: integer, description: "CRC-32 of the font; part of the version of the layout files that use it" }
+        source: { type: string }
+
+    FontList:
+      type: object
+      additionalProperties: false
+      required: [max_fonts, max_bytes, bytes, builtin, fonts]
+      properties:
+        max_fonts: { type: integer }
+        max_bytes: { type: integer, description: What all font files may take together }
+        bytes: { type: integer, description: What they take now }
+        builtin:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, height, baseline, first, last]
+            properties:
+              name: { type: string }
+              height: { type: integer }
+              baseline: { type: integer }
+              first: { type: integer }
+              last: { type: integer }
+        fonts:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/FontInfoFields"
+              - type: object
+                required: [used_by]
+                properties:
+                  used_by: { type: array, items: { $ref: "#/components/schemas/ModelName" }, description: The models whose layout file draws with it }
+            unevaluatedProperties: false
+
+    FontStored:
+      type: object
+      additionalProperties: false
+      required: [font, replaced, redrawn, content_errors, content_errors_total]
+      properties:
+        font: { $ref: "#/components/schemas/FontInfo" }
+        replaced: { type: boolean, description: "true: it took the place of a font file with the same name" }
+        redrawn: { type: array, items: { $ref: "#/components/schemas/ModelName" }, description: The models whose layout file was compiled again with it }
+        content_errors:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [mac, error]
+            properties:
+              mac: { type: string, pattern: "^[0-9A-F]{16}$" }
+              error: { type: string }
+        content_errors_total: { type: integer, minimum: 0 }
+
+    FontDeleted:
+      type: object
+      additionalProperties: false
+      required: [name, deleted]
+      properties:
+        name: { type: string }
+        deleted: { type: boolean, const: true }
+
     LayoutStored:
       allOf:
         - $ref: "#/components/schemas/LayoutInfoFields"
@@ -2385,10 +2623,12 @@ components:
           type: array
           minItems: 1
           maxItems: 3
-          items: { type: string, enum: [small, medium, mid, large] }
+          items: { type: string, pattern: "^[a-z0-9_-]{1,15}$" }
           description: |
-            text only: tried in order, the first the text fits in is used. `small` 17 px,
-            `medium` 24 px, `mid` 36 px, `large` 52 px; `mid` and `large` only have digits and ` ,-.:`.
+            text only: tried in order, the first the text fits in is used. The built-in fonts:
+            `small` 17 px, `text20` 20 px, `medium` 24 px, `mid` 36 px, `price44` 44 px, `large`
+            52 px; `mid`, `price44` and `large` only have digits and ` ,-.:`. Or the name of a
+            font file on the AP (`GET /api/fonts`).
         align: { type: string, enum: [left, center, right], default: left }
         valign: { type: string, enum: [top, middle, bottom], default: top }
         lines: { type: integer, minimum: 0, maximum: 3, default: 0, description: "0: as many as the box holds" }
