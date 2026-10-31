@@ -125,5 +125,7 @@ extern void (*sim_on_draw)(void);
 /* ---- PNG (png.c) ---- */
 /* Grey image, 1 byte per pixel, written as an 8-bit greyscale PNG. */
 bool png_write_gray(const char *path, const uint8_t *pix, int w, int h);
+/* pix holds indexes into pal, n_pal RGB triples (the screen of a tag with red) */
+bool png_write_indexed(const char *path, const uint8_t *pix, int w, int h, const uint8_t *pal, int n_pal);
 
 #endif

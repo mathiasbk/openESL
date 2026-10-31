@@ -138,8 +138,10 @@ export async function checkCatalog({ categories, templates }, { root = ROOT, was
         const base = REGISTRY[v.same_as];
         if (v.layout || v.icons) err(`${vat}: same_as takes no layout or icons of its own`);
         if (!t.variants[v.same_as]?.layout) err(`${vat}: same_as "${v.same_as}" is not a variant with a layout here`);
-        else if (!base || base.width !== m.width || base.height !== m.height || !same(base.colors, m.colors))
-          err(`${vat}: same_as "${v.same_as}" needs the same screen (${m.width}x${m.height}, ${m.colors.join("/")})`);
+        // the same size, and colours this model has too: a black/white layout draws the same on a
+        // model with red (#255), but a layout with red does not on a black/white one
+        else if (!base || base.width !== m.width || base.height !== m.height || !base.colors.every((c) => m.colors.includes(c)))
+          err(`${vat}: same_as "${v.same_as}" needs the same screen size (${m.width}x${m.height}) and only colours the ${model}" has (${m.colors.join("/")})`);
         else models[model] = { ...models[v.same_as], same_as: v.same_as };
         continue;
       }

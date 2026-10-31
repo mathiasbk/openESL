@@ -1,0 +1,126 @@
+{
+  "format": "esl-layouts",
+  "version": 1,
+  "model": "2.9-bwr",
+  "description": "Example layouts for the SoluM 2.9\" black/white/red (296 x 128): the 2.9\" ones with the bands in red. Upload with PUT /api/layouts/2.9-bwr.",
+  "layouts": [
+    {
+      "name": "shelf",
+      "description": "Name in a red band, highlighted price, a note and the unit price",
+      "fields": ["name", "price", "unit", "info"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "red" },
+        { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "info", "x": 5, "y": 34, "w": 112, "h": 51,
+          "fonts": ["small"], "lines": 3 },
+        { "type": "text", "field": "price", "x": 120, "y": 32, "w": 171, "h": 74,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" },
+        { "type": "text", "field": "unit", "x": 5, "y": 108, "w": 286, "h": 17,
+          "fonts": ["small"], "lines": 1 }
+      ]
+    },
+    {
+      "name": "sign",
+      "description": "A heading over a rule, up to three centred lines, optional frame",
+      "fields": ["title", "body"],
+      "elements": [
+        { "type": "text", "field": "title", "x": 8, "y": 6, "w": 280, "h": 30,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1 },
+        { "type": "rect", "x": 8, "y": 38, "w": 280, "h": 2 },
+        { "type": "text", "field": "body", "x": 8, "y": 44, "w": 280, "h": 78,
+          "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 3 },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 125, "w": 296, "h": 3, "color": "frame" },
+        { "type": "rect", "x": 0, "y": 0, "w": 3, "h": 128, "color": "frame" },
+        { "type": "rect", "x": 293, "y": 0, "w": 3, "h": 128, "color": "frame" }
+      ]
+    },
+    {
+      "name": "vare",
+      "description": "Product label: brand in a red band, name, article number and EAN, price inc. VAT",
+      "fields": ["brand", "name", "info", "price"],
+      "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 52,
+          "fonts": ["medium", "small"], "lines": 2 },
+        { "type": "text", "field": "info", "x": 5, "y": 86, "w": 150, "h": 38,
+          "fonts": ["small"], "lines": 2 },
+        { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+        { "type": "text", "field": "price", "x": 166, "y": 28, "w": 126, "h": 96,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" }
+      ]
+    },
+    {
+      "name": "vare-mva",
+      "description": "Product label with two prices: brand band, name, a small note (e.g. the price inc. VAT) and the highlighted price",
+      "fields": ["brand", "name", "note", "price"],
+      "_sample": ["Kärcher", "Lakkstål 16 ltr", "inkl. mva 3910,36", "3128,29"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 96,
+          "fonts": ["medium", "small"], "valign": "middle", "lines": 3 },
+        { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+        { "type": "text", "field": "note", "x": 166, "y": 28, "w": 126, "h": 36,
+          "fonts": ["small"], "align": "right", "lines": 2 },
+        { "type": "text", "field": "price", "x": 166, "y": 66, "w": 126, "h": 58,
+          "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" }
+      ]
+    },
+    {
+      "name": "vare-ean",
+      "description": "Product label with an EAN-13 barcode: brand band with the fixed text \"inkl. mva\", name, price, the code with its digits under it",
+      "fields": ["brand", "name", "ean", "price"],
+      "_sample": ["Kramp", "Spann sort 12 l", "8713331002910", "17,25"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 20, "color": "red" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 190, "h": 20,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "text": "inkl. mva", "x": 200, "y": 0, "w": 90, "h": 20,
+          "fonts": ["small"], "align": "right", "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 23, "w": 168, "h": 48,
+          "fonts": ["medium", "small"], "lines": 2 },
+        { "type": "text", "field": "price", "x": 176, "y": 23, "w": 115, "h": 48,
+          "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" },
+        { "type": "barcode", "field": "ean", "symbology": "ean13", "module": 2,
+          "x": 35, "y": 76, "w": 226, "h": 34, "align": "center" },
+        { "type": "text", "field": "ean", "x": 5, "y": 110, "w": 286, "h": 17,
+          "fonts": ["small"], "align": "center", "lines": 1 }
+      ]
+    },
+    {
+      "name": "vare-priser",
+      "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
+      "fields": ["brand", "name", "info", "price", "price_ex"],
+      "_sample": ["Kärcher", "Lakkstål 16 ltr", "1.512-404.0", "3910,36", "3128,29"],
+      "elements": [
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
+        { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
+          "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
+        { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 72,
+          "fonts": ["medium", "small"], "valign": "middle", "lines": 3 },
+        { "type": "text", "field": "info", "x": 5, "y": 104, "w": 150, "h": 20,
+          "fonts": ["small"], "valign": "middle", "lines": 1 },
+        { "type": "rect", "x": 160, "y": 24, "w": 2, "h": 104 },
+        { "type": "text", "text": "eks. mva", "x": 166, "y": 26, "w": 126, "h": 17,
+          "fonts": ["small"], "align": "right", "lines": 1 },
+        { "type": "text", "field": "price_ex", "x": 166, "y": 42, "w": 126, "h": 26,
+          "fonts": ["medium", "small"], "align": "right", "valign": "middle", "lines": 1 },
+        { "type": "text", "text": "inkl. mva", "x": 166, "y": 68, "w": 126, "h": 17,
+          "fonts": ["small"], "align": "right", "lines": 1 },
+        { "type": "text", "field": "price", "x": 166, "y": 84, "w": 126, "h": 44,
+          "fonts": ["mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
+          "color": "highlight" }
+      ]
+    }
+  ]
+}

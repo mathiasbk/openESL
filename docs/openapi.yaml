@@ -62,9 +62,9 @@ info:
     the end are dropped first and cost nothing.
 
     **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
-    `model` (`"2.9"` or `"1.54"`, from its poll). The 12 hex digits under the barcode on the
+    `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, from its poll). The 12 hex digits under the barcode on the
     label (e.g. `020663461013`) give the MAC without the AP: `0000`, the first 8 digits, the
-    model code (`3B` for 2.9", `34` for 1.54"), then `1` and a check digit: the XOR of the
+    model code (`3B` for 2.9", `34` for 1.54", `3C` for the 2.9" with red), then `1` and a check digit: the XOR of the
     11 hex digits between `0000` and it (so `0000020663463415`). The last 4
     digits of the label are not part of the MAC. A client that only knows the label can
     work out both candidates and use the one the AP knows. `esl_client.py mac 020663461013`
@@ -1268,7 +1268,7 @@ components:
       in: path
       required: true
       description: The tag model
-      schema: { type: string, enum: ["2.9", "1.54"] }
+      schema: { type: string, enum: ["2.9", "1.54", "2.9-bwr"] }
       example: "2.9"
 
   responses:
@@ -1627,7 +1627,7 @@ components:
         battery_mv: { type: [integer, "null"], minimum: 0, description: "Battery voltage; 0 = the tag cannot measure it (the 1.54\")" }
         rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
         fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
-        model: { type: [string, "null"], enum: ["2.9", "1.54", null], description: "null until the tag has polled, and for firmware that does not send it" }
+        model: { type: [string, "null"], enum: ["2.9", "1.54", "2.9-bwr", null], description: "null until the tag has polled, and for firmware that does not send it" }
         draw_failed: { type: boolean, description: The tag said in its last poll that its last drawing failed }
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
         shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
@@ -2034,7 +2034,7 @@ components:
 
     ModelName:
       type: string
-      enum: ["2.9", "1.54"]
+      enum: ["2.9", "1.54", "2.9-bwr"]
 
     LayoutInfoFields:
       type: object
@@ -2443,8 +2443,10 @@ components:
           description: "text only: a space between every three digits, `1 299,90`"
         color:
           type: string
-          enum: [black, white, frame, invert, highlight]
+          enum: [black, white, frame, invert, highlight, red, red_invert]
           default: black
           description: |
             `frame` is only drawn with `"frame": true`; text also `invert` (white text in a
-            black box) and `highlight` (inverted with `"price_highlight": true`, else black)
+            black box) and `highlight` (inverted with `"price_highlight": true`, else black).
+            `red` and `red_invert` (white text in a red box, text only) only on a model with red
+            (`2.9-bwr`); a black/white model refuses them

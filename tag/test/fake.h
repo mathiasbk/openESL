@@ -6,7 +6,7 @@
 #include "draw.h"
 #include "hal/hal.h"
 
-#define FAKE_MAX_FRAMES 80      /* a whole screen image is 52-55 blocks */
+#define FAKE_MAX_FRAMES 128     /* a whole screen image is 52-55 blocks, 103 with red */
 
 /* Radio */
 extern uint8_t fake_tx[FAKE_MAX_FRAMES][128];

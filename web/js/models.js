@@ -22,6 +22,13 @@ export const MODELS = {
     sameAs: null,
     photo: { file: "img/tag-154.jpg", width: 245, height: 280 },
   },
+  "2.9-bwr": {
+    code: 3, build: "293", id: "solum-29-bwr", label: "SoluM 2.9\" black/white/red", product: "ST-GR29000",
+    vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
+    width: 296, height: 128, colors: ["black", "white", "red"], macCode: 0x3c, status: "experimental",
+    sameAs: null,
+    photo: null,
+  },
 };
 
 // Name in the API by model code, e.g. MODEL_BY_CODE[2] === "1.54"

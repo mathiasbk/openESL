@@ -123,7 +123,7 @@ typedef struct {
 } esl_faketag_t;
 
 #define ESL_FAKETAG_FW_REQS 128  /* FW_REQ per wake-up, = CFG_FW_MAX_REQ in tag/src/config.h */
-#define ESL_FAKETAG_IMG_REQS 64  /* IMG_REQ per wake-up, = CFG_IMG_MAX_REQ in tag/src/config.h */
+#define ESL_FAKETAG_IMG_REQS 64  /* IMG_REQ per wake-up, = CFG_IMG_MAX_REQ in tag/src/config.h (128 with red) */
 
 void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t battery_mv, uint8_t model);
 /* Builds the next POLL frame into psdu (ESL_PSDU_MAX bytes). Returns its length. */

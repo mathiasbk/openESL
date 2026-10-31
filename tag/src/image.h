@@ -39,7 +39,14 @@
    (ESL_IMG_FMT_RLE or ESL_IMG_FMT_2D) is shorter; it is decoded once it is whole and checked, to
    IMG_RAW_OFF, before the header is written, and shown from there. */
 #define IMG_RAW_SIZE        ((uint16_t)DRAW_W * DRAW_COL_BYTES * (1 + MODEL_HAS_RED))
-#define IMG_RAW_OFF         0x2000u       /* a 4 KB sector past the largest download */
+/* A 4 KB sector past the largest download. 0x2000 on the black/white models (4736 bytes),
+   and it stays there: the slot is kept over an OTA. The red plane doubles the image
+   (9472 bytes on the 2.9" with red, #255), so a model with red decodes to 0x3000. */
+#if MODEL_HAS_RED
+#define IMG_RAW_OFF         0x3000u
+#else
+#define IMG_RAW_OFF         0x2000u
+#endif
 
 typedef struct {
     uint8_t present;        /* the SPI flash is there (ota.present) */

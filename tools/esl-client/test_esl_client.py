@@ -247,7 +247,7 @@ class BarcodeTest(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(esl_client.main(["mac", "020663461013"]), 0)
-        self.assertEqual(len(out.getvalue().splitlines()), 2)
+        self.assertEqual(len(out.getvalue().splitlines()), len(esl_client.MODEL_MAC_CODE))  # one per model
         with redirect_stderr(io.StringIO()):
             self.assertEqual(esl_client.main(["mac", "xyz"]), 2)
 

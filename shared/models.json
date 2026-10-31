@@ -40,6 +40,25 @@
       "panel": "ssd16xx-154",
       "photo": {"file": "img/tag-154.jpg", "width": 245, "height": 280},
       "status": "supported"
+    },
+    {
+      "code": 3,
+      "build": "293",
+      "name": "2.9-bwr",
+      "id": "solum-29-bwr",
+      "vendor": "SoluM",
+      "label": "SoluM 2.9\" black/white/red",
+      "product": "ST-GR29000",
+      "chip": "zbs243",
+      "radio": "802.15.4",
+      "protocol": "openesl",
+      "image": "openesl-raw",
+      "width": 296,
+      "height": 128,
+      "colors": ["black", "white", "red"],
+      "mac_code": "0x3C",
+      "panel": "ssd16xx-29-bwr",
+      "status": "experimental"
     }
   ]
 }

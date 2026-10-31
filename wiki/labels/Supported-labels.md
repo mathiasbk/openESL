@@ -6,8 +6,9 @@ OpenESL runs on these labels. Each has its own page with photos, specifications,
 |---|---|---|---|---|---|---|---|---|
 | [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | two CR2450 | yes | supported | <a href="SoluM-2.9-ST-GM29XX2"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-front.jpg" alt="The 2.9-inch label" width="140"></a> |
 | [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | one CR2450 | no (shows 0) | supported | <a href="SoluM-1.54-ST-GM16XX2"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-154-front.jpg" alt="The 1.54-inch label" width="70"></a> |
+| [SoluM 2.9" red](SoluM-2.9-red-ST-GR29000) | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | not checked | not tried | experimental | |
 
-Both talk 802.15.4 to the AP, are flashed once in the [jig](Flashing-jig) and then take new firmware over the air, and every [template](Label-templates) has a version for each. One AP serves both kinds at the same time.
+All talk 802.15.4 to the AP, are flashed once in the [jig](Flashing-jig) and then take new firmware over the air. Every [template](Label-templates) has a version for the two black/white ones. One AP serves every kind at the same time.
 
 The list is made from [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json), the one place a label model is described; the [README](https://github.com/mathiasbk/openESL/blob/master/README.md#supported-tags) shows the same list.
 
@@ -33,7 +34,6 @@ Labels that look like the ones above but are not the same inside do not work wit
 | Label | Why it does not work yet |
 |---|---|
 | SoluM 1.54" ST-GR16000 | Older label with a 152 × 152 screen and another display |
-| SoluM 2.9" with red (black/white/red) | Not added yet: it needs red in the label firmware and its own display settings |
 
 ## Have a label that is not on the list?
 
