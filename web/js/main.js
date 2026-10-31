@@ -6,7 +6,7 @@ import { makeZip } from "./zip.js";
 import { initWifiSetup } from "./wifisetup.js";
 import { initApWizard } from "./apwizard.js";
 import { initDashboard } from "./dashboard.js";
-import { MODELS } from "./models.js";
+import { MODELS, modelName, modelLabel } from "./models.js";
 
 // The board picked on the Flash AP tab and the like, kept between visits
 const store = {
@@ -69,7 +69,7 @@ firmwareInfo().then((info) => {
   const nameOf = (build) => Object.entries(MODELS).find(([, m]) => m.build === build)?.[0] ?? build;
   const tagVersions = Object.entries(info?.tag_versions || {}).filter(([, v]) => v);
   const tagText = new Set(tagVersions.map(([, v]) => v)).size > 1
-    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${nameOf(b)}")`).join(", ")
+    ? tagVersions.map(([b, v]) => `tag firmware ${v} (${modelName(nameOf(b))})`).join(", ")
     : info?.tag_version ? `tag firmware ${info.tag_version}` : "";
   const allSame = new Set([info?.ap_version, ...tagVersions.map(([, v]) => v)]).size <= 1;
   const parts = info?.ap_version && tagText && !allSame ? ` AP firmware ${info.ap_version}, ${tagText}.` : "";
@@ -107,7 +107,7 @@ async function refreshBackups() {
       const td = (t) => { const c = document.createElement("td"); c.textContent = t; tr.append(c); return c; };
       td(b.mac).className = "mono";
       const m = backupModel(b);
-      td(m ? TAG_MODELS[m].name : "?");
+      td(m ? modelLabel(m) : "?");
       td(new Date(b.time).toLocaleString());
       const inp = document.createElement("input");
       inp.value = b.barcode || "";

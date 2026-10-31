@@ -289,7 +289,7 @@ int e2e_run(const char *out, const char *root)
 
     outdir = out;
     snprintf(mac, sizeof(mac), "%016llX", (unsigned long long)sim_tag_mac);
-    printf("End-to-end simulation: tag %s (%s\"), tag firmware tag/src + AP core ap/components/esl_core\n", mac,
+    printf("End-to-end simulation: tag %s (model %s), tag firmware tag/src + AP core ap/components/esl_core\n", mac,
            sim_tag_model);
 
     render_compare(root);

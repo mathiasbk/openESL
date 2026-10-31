@@ -12,7 +12,7 @@ export const PART = 16384;
 export const TAGFW_PART = 8192;
 
 const TAGFW_MAGIC = [0x4f, 0x53, 0x46, 0x57]; // "OSFW" (shared/proto.h ESL_FWF_MAGIC)
-import { MODEL_BY_CODE as TAG_MODELS } from "./models.js";
+import { MODEL_BY_CODE as TAG_MODELS, modelName } from "./models.js";
 const dec = new TextDecoder();
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -254,7 +254,7 @@ export function tagFirmwarePlan(tags, pageImgs, tagfw) {
     if (up?.update) return row(from + up.update, "upload");
     if (up?.choose) return row(from + up.choose, "choose");
     if (up?.text) return row(up.text);
-    if (!img) return row(tag.model ? `no ${tag.model}" firmware on this page` : "model not known yet");
+    if (!img) return row(tag.model ? `no ${modelName(tag.model)} firmware on this page` : "model not known yet");
     if (!tag.ota) return row("cannot update over the radio");
     if (tag.fw == null) return row("firmware not known yet");
     return row(`has ${fmtVer(tag.fw)} already`);

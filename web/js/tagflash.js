@@ -22,7 +22,7 @@ import * as zp from "./zbs.js";
 import { MODELS as REGISTRY } from "./models.js";
 
 export const MODELS = Object.fromEntries(
-  Object.entries(REGISTRY).map(([n, m]) => [n, { name: n + '"', macCode: m.macCode, firmware: `firmware/tag-${m.build}.bin` }]),
+  Object.entries(REGISTRY).map(([n, m]) => [n, { name: m.short, macCode: m.macCode, firmware: `firmware/tag-${m.build}.bin` }]),
 );
 
 // tag/tools/build.py CODE_SIZE: 0xF400 is a free page, the tag keeps its settings at 0xF800,

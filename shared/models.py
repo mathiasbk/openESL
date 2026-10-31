@@ -8,6 +8,7 @@ The tag model registry (shared/models.json) for the Python tools in this reposit
   models.by_name("1.54")             -> the model the API calls "1.54"
   models.fw_dir(m)                   -> the build folder under tag/build/ ("fw", "fw154")
   models.layout_name(m)              -> the model whose layout file m uses ("2.9"): same_as, or its own name
+  models.label(m)                    -> the model as people read it: '2.9"', '2.9" red (experimental)'
   python shared/models.py builds     -> "29 154" (for Makefiles and CI)
   python shared/models.py names      -> "29 2.9" and "154 1.54", one line each (CI)
 
@@ -54,6 +55,13 @@ def layout_name(m):
     # A model with same_as uses that model's layout file, on the AP and for the example file
     # (tag/designs/layouts/<name>.json)
     return m.get("same_as", m["name"])
+
+
+def label(m):
+    # "short" in models.json, else the name and a ", with "(experimental)" for a model not
+    # tried on a real tag yet (as modelLabel in web/js/models.js)
+    s = m.get("short", m["name"] + '"')
+    return s + " (experimental)" if m["status"] == "experimental" else s
 
 
 if __name__ == "__main__":

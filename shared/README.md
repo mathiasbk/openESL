@@ -17,6 +17,7 @@ screen a model has already), a panel header
 | `name` | the name in the API, layout files and release files (`/api/layouts/2.9`, `openesl-tag-2.9-v1.0.0.bin`) |
 | `id` | a stable id for the model (`solum-m2-29-bw`), for when two models share a size |
 | `vendor` | the maker, for people (`SoluM`); the README's list of supported tags shows it |
+| `short` | optional: the model as the web page and tools show it to people (`2.9" red`); left out it is the `name` and a `"` (`2.9"`). A model with status `experimental` is shown with "(experimental)" after it |
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
 | `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`); a chip the firmware is built for is in `CHIPS` in `tag/tools/build.py` (see "Another chip" in `tag/README.md`) |
 | `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); a tag with its maker's firmware would be another |

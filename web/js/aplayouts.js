@@ -7,7 +7,7 @@
 // The same on the web page (over USB or the bridge) and on the AP's own page, where the
 // renderer and the templates come from the published web page (firmwareBase).
 
-import { MODELS, layoutModel, layoutUsers } from "./models.js";
+import { MODELS, layoutModel, layoutUsers, modelName, modelLabel } from "./models.js";
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
@@ -169,8 +169,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     const ms = models();
     if (!model || !ms.some(([m]) => m === model)) model = ms[0][0];
     $("lay-models").replaceChildren(...ms.map(([m, n]) => {
-      const b = el("button", m === model ? "on" : "", `${m}" · ${n} tag${n === 1 ? "" : "s"}`);
-      if (layoutUsers(m).length > 1) b.title = `One layout file for ${layoutUsers(m).join('", ')}"`;
+      const b = el("button", m === model ? "on" : "", `${modelLabel(m)} · ${n} tag${n === 1 ? "" : "s"}`);
+      if (layoutUsers(m).length > 1) b.title = `One layout file for ${layoutUsers(m).map(modelName).join(", ")}`;
       b.type = "button";
       b.setAttribute("aria-pressed", String(m === model));
       b.onclick = () => {
@@ -184,7 +184,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     }));
     const info = (last.layouts?.layouts || []).find((l) => l.model === model);
     const max = last.layouts?.max_size || 8192;
-    $("lay-space").textContent = info?.version ? `Space on the AP for ${model}": ${(info.size / 1024).toFixed(1)} of ${(max / 1024).toFixed(0)} KB` : `No ${model}" layout file on the AP yet`;
+    $("lay-space").textContent = info?.version ? `Space on the AP for ${modelName(model)}: ${(info.size / 1024).toFixed(1)} of ${(max / 1024).toFixed(0)} KB` : `No ${modelName(model)} layout file on the AP yet`;
     $("lay-meter").hidden = !info?.version;
     $("lay-meter").firstElementChild.style.width = info?.version ? Math.min(100, (100 * info.size) / max).toFixed(0) + "%" : "0";
     const tags = last.list.tags.filter((t) => layoutModel(t.model) === model);
@@ -292,7 +292,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-can-none").textContent = cat ? "Every layout of the template library is on the AP already."
       : "The template library is on the web page; this browser could not reach it.";
     const nMissing = Object.values(missing).flat().length;
-    $("lay-sum").textContent = `${m}": ${onAp.length + Object.keys(BUILTIN).length} on the AP` +
+    $("lay-sum").textContent = `${modelName(m)}: ${onAp.length + Object.keys(BUILTIN).length} on the AP` +
       (can.length ? ` · ${can.length} more can be sent` : "") +
       (nMissing ? ` · ⚠ ${nMissing} tag${nMissing === 1 ? " uses a layout" : "s use layouts"} the AP lacks` : "");
     if (!r && !$("lay-msg").textContent) say("No pictures: the drawing code could not be loaded (it comes from the web page).", "");
@@ -418,7 +418,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const t = await templateFile(entry);
       const cur = await fresh(m);
       const added = addTemplate(cur || { format: "esl-layouts", version: 1, model: m, layouts: [] }, t, m);
-      if (!added) throw new Error(`"${entry.title}" has no layout for the ${m}".`);
+      if (!added) throw new Error(`"${entry.title}" has no layout for the ${modelName(m)}.`);
       if (added.doc.layouts.length > MAX_LAYOUTS) throw new Error(`The AP's file has ${MAX_LAYOUTS} layouts already. Remove one first.`);
       const r = await client().call("PUT", "/api/layouts/" + encodeURIComponent(m), added.doc);
       sel = { kind: "ap", name: added.name };
@@ -428,7 +428,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
 
   function remove(name) {
     const m = model;
-    if (!confirm(`Take the layout "${name}" out of the AP's ${m}" layout file?`)) return;
+    if (!confirm(`Take the layout "${name}" out of the AP's ${modelName(m)} layout file?`)) return;
     return run(`Removing "${name}"`, async () => {
       const cur = await fresh(m);
       if (!cur?.layouts?.some((l) => l.name === name)) return [`The AP has no "${name}" any more.`, ""];

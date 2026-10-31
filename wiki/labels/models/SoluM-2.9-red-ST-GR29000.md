@@ -1,6 +1,8 @@
 # SoluM 2.9" black/white/red (ST-GR29000)
 
-**Status:** experimental, not yet tried on a label. **Model in OpenESL:** `2.9-bwr` (id `solum-29-bwr`).
+> **Experimental.** Nobody has run OpenESL on this label yet. It may draw wrong, mirrored or not at all. Flash one label first and check it before you flash more; the flasher backs up the original firmware so you can go back.
+
+**Status:** experimental, not yet tried on a label. **Model in OpenESL:** `2.9-bwr` (id `solum-29-bwr`), shown as "2.9" red (experimental)" on the web page.
 
 The 2.9" with a third colour: the same size and chip as the black/white [2.9"](SoluM-2.9-ST-GM29XX2), with a screen that can also show red. Labels with red are common second hand.
 

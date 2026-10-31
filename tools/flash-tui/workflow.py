@@ -44,7 +44,7 @@ import models  # noqa: E402  (the model registry, shared/models.json)
 
 # By build ("29", "154"): name, size, the MAC code in byte 6 and the firmware tag/tools/build.py makes
 MODELS = {
-    m["build"]: {"name": m["name"] + '"', "size": "%dx%d" % (m["width"], m["height"]), "mac_code": m["mac_code"],
+    m["build"]: {"name": models.label(m), "size": "%dx%d" % (m["width"], m["height"]), "mac_code": m["mac_code"],
                  "firmware": os.path.join(ROOT, "tag", "build", models.fw_dir(m), "openesl.bin")}
     for m in models.load()
 }

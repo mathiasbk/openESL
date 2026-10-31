@@ -12,7 +12,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 
 The [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab is a guide in steps, like the one for the AP:
 
-1. **Choose tag.** Pick the label model from the photos. The firmware is the page's own, or a `.bin` file.
+1. **Choose tag.** Pick the label model from the photos. The firmware is the page's own, or a `.bin` file. A model marked **experimental** (the [2.9" red](SoluM-2.9-red-ST-GR29000)) has not been tried on a real label: flash one and check it first.
 2. **Connect flasher.** Press **Connect flasher** and pick the D1 mini's port.
 3. **Flash.** Put the label in the jig and press **Flash tag**. The page reads the label's MAC, **backs up the whole original firmware** in the browser ([Label backups](Label-backups)), writes the MAC to the info page if needed, then writes OpenESL and reads it back to check it. Each label gets a row with its MAC, barcode and result.
 4. **Done.** How many were flashed, and a button to export the new backups. Keep them somewhere safe.

@@ -5,7 +5,7 @@
 // the other, and step 4 sums up, with the backups to export.
 import * as zp from "./zbs.js";
 import { flashTag, checkFirmware, BackupStore, macFromEntry, MODELS as TAG_MODELS } from "./tagflash.js";
-import { MODELS } from "./models.js";
+import { MODELS, modelName, modelLabel, isExperimental } from "./models.js";
 import { flasherPicture } from "./appics.js";
 
 const STEPS = ["Choose tag", "Connect flasher", "Flash", "Done"];
@@ -56,7 +56,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     const ok = st.results.filter((r) => r.ok).length;
     const label = (i) => {
       if (i >= st.step || i === 3) return STEPS[i];
-      if (i === 0) return `${st.model}" tag`;
+      if (i === 0) return `${modelName(st.model)} tag`;
       if (i === 1) return "ZBS_Flasher";
       return `${ok} flashed`;
     };
@@ -93,14 +93,15 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
       <div class="wz-cards">${names.map((n) => {
         const m = MODELS[n];
         const pic = m.photo
-          ? `<img src="${esc(m.photo.file)}" width="${m.photo.width}" height="${m.photo.height}" alt="Photo of the ${esc(n)}&quot; tag">`
+          ? `<img src="${esc(m.photo.file)}" width="${m.photo.width}" height="${m.photo.height}" alt="Photo of the ${esc(modelName(n))} tag">`
           : `<canvas width="${m.width}" height="${m.height}"></canvas>`;
         const v = hasFw(n) ? fwVersion(n) : "";
         return `
         <button type="button" class="wz-card" data-model="${esc(n)}" aria-pressed="${n === st.model}" ${st.busy ? "disabled" : ""}>
           <span class="wz-pic wz-photo">${pic}</span>
-          <b>${esc(n)}" ${esc(m.label.replace(/^\S+ [\d.]+" ?/, ""))}</b>
+          <b>${esc(m.label.replace(/^\S+ /, ""))}</b>
           <span class="wz-chips"><span class="wz-chip">${esc(m.product)}</span><span class="wz-chip">${m.width} × ${m.height}</span></span>
+          ${isExperimental(n) ? `<span class="wz-badge warn" title="Not tried on a real tag yet: flash one first and check it">experimental</span>` : ""}
           ${hasFw(n) ? `<span class="wz-badge ok">OpenESL${v ? " " + esc(v) : ""}</span>` : info?.tag ? `<span class="wz-badge">no firmware on this page</span>` : ""}
         </button>`;
       }).join("")}
@@ -120,7 +121,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
         ${on ? `<p class="ok">● ZBS_Flasher ${esc(st.version)}</p>
           <p class="buttons tight"><button type="button" class="ghost" id="tw-disconnect">Disconnect</button></p>`
         : `<p class="buttons tight"><button type="button" class="primary" id="tw-connect" ${hasSerial() ? "" : "disabled"}>Connect flasher</button>
-          <span class="hint ${st.connectMsg.startsWith("No") ? "error" : ""}" role="status">${esc(st.connectMsg)}</span></p>
+          <span class="hint ${modelName(st.connectMsg.startsWith("No") ? "error" : "")} role="status">${esc(st.connectMsg)}</span></p>
           <p class="muted">Pick the D1 mini's port (CH340 or CP210x).</p>`}
       </div></div></div></div></div>
       <p class="wz-hint">ⓘ No answer? The D1 mini must run the ZBS_Flasher, and no other program (such as <code>tools/flash-tui</code>) may have its port.</p>`;
@@ -133,7 +134,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
   }
 
   function jobPart() {
-    const head = `<b>Tag in the jig</b> <span class="muted">· ${esc(st.model)}" · ${esc(fwText())}</span>`;
+    const head = `<b>Tag in the jig</b> <span class="muted">· ${esc(modelLabel(st.model))} · ${esc(fwText())}</span>`;
     let inner;
     if (st.busy && st.job?.waiting) {
       inner = `<p class="tw-wait"><span class="tw-spin" aria-hidden="true"></span>${esc(st.job.waiting)}</p>
@@ -179,11 +180,11 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     return `<div class="wz-panel wz-done">
       <div class="wz-big ${ok ? "ok" : "error"}">${ok ? "✓" : "✗"}</div>
       <h2>${ok} ${ok === 1 ? "tag" : "tags"} flashed${bad ? `, ${bad} not` : ""}</h2>
-      <p class="muted">${esc([...new Set(st.results.map((r) => `${r.model}" · ${r.fw}`))].join(", "))}${saved ? ` · ${saved} new ${saved === 1 ? "backup" : "backups"} in this browser` : ""}</p>
+      <p class="muted">${esc([...new Set(st.results.map((r) => `${modelName(r.model)} · ${r.fw}`))].join(", "))}${saved ? ` · ${saved} new ${saved === 1 ? "backup" : "backups"} in this browser` : ""}</p>
       ${saved ? `<p>Export the backups and keep them somewhere safe: they are the only copy of the tags' own firmware.</p>` : ""}
       <p class="buttons wz-center">
         ${saved ? `<button type="button" class="primary" id="tw-export">Export backups (ZIP)</button>` : ""}
-        <a class="button${saved ? "" : " primary"}" href="#dashboard">Dashboard</a>
+        <a class="button${modelName(saved ? "" : " primary")} href="#dashboard">Dashboard</a>
         <a class="button" href="#ap">Flash an AP</a>
       </p>
       <p><button type="button" class="ghost" id="tw-more">Flash more tags</button></p>

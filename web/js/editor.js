@@ -17,7 +17,7 @@ import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
-import { MODELS as TAGS, layoutModel, layoutUsers } from "./models.js";
+import { MODELS as TAGS, layoutModel, layoutUsers, modelName, modelLabel, isExperimental } from "./models.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -143,8 +143,8 @@ function refreshFileState() {
   const fs = $("file-state");
   const users = layoutUsers(state.model);
   const also = users.filter((u) => u !== state.model);
-  fs.replaceChildren(`Layout file for ${state.model}"` + (also.length ? ` (also used by ${also.join('", ')}")` : ""));
-  if (users.length > 1) fs.title = `The ${users.join('", ')}" tags have the same screen and use this one file`;
+  fs.replaceChildren(`Layout file for ${modelName(state.model)}` + (also.length ? ` (also used by ${also.map(modelName).join(", ")})` : ""));
+  if (users.length > 1) fs.title = `The ${users.map(modelName).join(", ")} tags have the same screen and use this one file`;
   else fs.removeAttribute("title");
   if (clean !== JSON.stringify(doc())) {
     const d = document.createElement("span");
@@ -207,6 +207,7 @@ async function exampleDoc(model) {
 async function loadModel(model) {
   state.tag = model in TAGS ? model : layoutModel(model);
   $("model-pick").value = state.tag;
+  $("model-exp").hidden = !isExperimental(state.tag);
   model = layoutModel(model);
   const from = state.model;
   const template = state.docs[from] && layout()?._template;
@@ -264,8 +265,8 @@ async function offerVariant(id) {
   // a layout of the same name without "_template" (from the example file, or added by hand) is
   // most likely the same one
   if (doc().layouts?.some((l) => l.name === found.entry.layout && !l._template)) return;
-  $("tpl-offer-text").textContent = `The ${model}" file has no “${found.t.title}” yet.`;
-  $("tpl-offer-add").textContent = `Add its ${model}" version`;
+  $("tpl-offer-text").textContent = `The ${modelName(model)} file has no “${found.t.title}” yet.`;
+  $("tpl-offer-add").textContent = `Add its ${modelName(model)} version`;
   $("tpl-offer-add").onclick = () => {
     bar.hidden = true;
     openTemplatePicker(id);
@@ -865,7 +866,7 @@ function refreshLayoutForm() {
   const bi = isBuiltin();
   $("lay-name").value = layoutName() || "";
   $("lay-name").disabled = bi;
-  $("lay-sub").textContent = bi ? `built-in · ${state.model}"` : `${state.model}"`;
+  $("lay-sub").textContent = bi ? `built-in · ${modelName(state.model)}` : `${modelName(state.model)}`;
   $("builtin-note").hidden = !bi;
   $("desc-sec").hidden = bi;
   $("add-group").hidden = bi;
@@ -1714,7 +1715,7 @@ function initActions() {
   for (const [name, t] of Object.entries(TAGS)) {
     const o = document.createElement("option");
     o.value = name;
-    o.textContent = `${t.vendor} ${t.product} · ${name}" · ${t.width} × ${t.height} px` + (t.status === "experimental" ? " (experimental)" : "");
+    o.textContent = `${t.vendor} ${t.product} · ${modelLabel(name)} · ${t.width} × ${t.height} px`;
     o.title = t.label;
     $("model-pick").append(o);
   }
@@ -1722,6 +1723,7 @@ function initActions() {
     const name = $("model-pick").value;
     if (layoutModel(name) === state.model) {
       state.tag = name; // the same file: nothing to load
+      $("model-exp").hidden = !isExperimental(name);
       store.set("tag", name);
       return;
     }
@@ -1781,7 +1783,7 @@ function initActions() {
     addLayout(d);
   });
   $("file-example").addEventListener("click", async () => {
-    if (!confirm(`Replace the ${state.model}" layout file in the editor with the example from the repository?`)) return;
+    if (!confirm(`Replace the ${modelName(state.model)} layout file in the editor with the example from the repository?`)) return;
     try {
       setDoc(await exampleDoc(state.model));
       state.sel = "file:0";
@@ -1963,7 +1965,7 @@ function refreshApTags() {
   if (!mine.length) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = ap.tags.length ? `The AP has no ${state.model}" tags.` : "The AP has no tags yet.";
+    p.textContent = ap.tags.length ? `The AP has no ${modelName(state.model)} tags.` : "The AP has no tags yet.";
     box.replaceChildren(p);
     return;
   }
@@ -2074,7 +2076,7 @@ async function apOpen(model, discard = false) {
     // nothing on the AP: whatever the editor has is not saved there
     store.set("clean." + model, "");
     refreshFileState();
-    return [`The AP has no ${model}" layout file yet. Save to AP stores this one.`, ""];
+    return [`The AP has no ${modelName(model)} layout file yet. Save to AP stores this one.`, ""];
   }
   if (!discard && !wasClean && JSON.stringify(file) !== JSON.stringify(doc())) {
     store.set("clean." + model, JSON.stringify(file));
@@ -2088,7 +2090,7 @@ async function apOpen(model, discard = false) {
   save();
   markClean();
   refreshUndo();
-  return [`Opened the ${model}" layout file stored on the AP.`, "ok"];
+  return [`Opened the ${modelName(model)} layout file stored on the AP.`, "ok"];
 }
 
 async function apUpload(skip) {
@@ -2101,7 +2103,7 @@ async function apUpload(skip) {
   markClean();
   const unfit = unfitNote(r, skip);
   if (unfit) return [`Stored on the AP, but ${unfit}`, "error"];
-  return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
+  return [r.changed ? `Stored on the AP. It draws the ${modelName(state.model)} tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
 
 // The tags whose content no longer fits the uploaded file (their content is held back), "" for none.
@@ -2185,7 +2187,7 @@ function initOnAp() {
   $("ap-reload").addEventListener("click", async () => {
     closeMenus();
     if (store.get("clean." + state.model) !== JSON.stringify(doc()) &&
-      !confirm(`Drop the changes to the ${state.model}" layout file and open the one stored on the AP?`)) return;
+      !confirm(`Drop the changes to the ${modelName(state.model)} layout file and open the one stored on the AP?`)) return;
     await apRun("Reading the AP's layout file", () => apOpen(state.model, true));
     toStatus();
   });
@@ -2352,7 +2354,7 @@ async function openFromAp({ model, file, name }) {
   if (model !== state.model) await loadModel(model);
   if (state.docs[model] && JSON.stringify(state.docs[model]) !== JSON.stringify(file) &&
       store.get("clean." + model) !== JSON.stringify(state.docs[model]) &&
-      !confirm(`The designer has changes to its ${model}" layout file that are not saved anywhere. Open the AP's file instead?`)) return;
+      !confirm(`The designer has changes to its ${modelName(model)} layout file that are not saved anywhere. Open the AP's file instead?`)) return;
   setDoc(structuredClone(file));
   state.history[model].reset(JSON.stringify(file));
   ap.files[model] = structuredClone(file);

@@ -62,7 +62,7 @@ info:
     the end are dropped first and cost nothing.
 
     **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
-    `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, from its poll). The 12 hex digits under the barcode on the
+    `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, the 2.9" black/white/red, experimental: not tried on a real tag yet; from its poll). The 12 hex digits under the barcode on the
     label (e.g. `020663461013`) give the MAC without the AP: `0000`, the first 8 digits, the
     model code (`3B` for 2.9", `34` for 1.54", `3C` for the 2.9" with red), then `1` and a check digit: the XOR of the
     11 hex digits between `0000` and it (so `0000020663463415`). The last 4

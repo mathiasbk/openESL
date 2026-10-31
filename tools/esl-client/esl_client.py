@@ -57,6 +57,8 @@ MODELS = ("2.9", "1.54", "2.9-bwr")
 MODEL_BY_CODE = {1: "2.9", 2: "1.54", 3: "2.9-bwr"}
 # Model code in byte 6 of the MAC
 MODEL_MAC_CODE = {"2.9": 0x3B, "1.54": 0x34, "2.9-bwr": 0x3C}
+# Not tried on a real tag yet (status experimental)
+MODEL_EXPERIMENTAL = {"2.9-bwr"}
 # END models
 
 
@@ -1417,7 +1419,7 @@ def main(argv=None):
     if args.cmd == "mac":
         try:
             for m in [args.model] if args.model else sorted(MODEL_MAC_CODE, reverse=True):
-                print(f'{mac_from_barcode(args.barcode, m)}  {m}"')
+                print(f'{mac_from_barcode(args.barcode, m)}  {m}' + (" (experimental)" if m in MODEL_EXPERIMENTAL else ""))
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
