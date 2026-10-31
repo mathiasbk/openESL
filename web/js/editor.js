@@ -1692,7 +1692,7 @@ function initActions() {
   for (const [name, t] of Object.entries(TAGS)) {
     const o = document.createElement("option");
     o.value = name;
-    o.textContent = `${name}" · ${t.vendor} ${t.product} · ${t.width} × ${t.height} px` + (t.status === "experimental" ? " (experimental)" : "");
+    o.textContent = `${t.vendor} ${t.product} · ${name}" · ${t.width} × ${t.height} px` + (t.status === "experimental" ? " (experimental)" : "");
     o.title = t.label;
     $("model-pick").append(o);
   }
