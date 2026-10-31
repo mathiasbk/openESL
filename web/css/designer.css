@@ -10,12 +10,7 @@
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
 }
-.model-tabs { display: inline-flex; }
-.model-tabs button { border-radius: 0; }
-.model-tabs button + button { border-left-width: 0; }
-.model-tabs button:first-child { border-radius: 6px 0 0 6px; }
-.model-tabs button:last-child { border-radius: 0 6px 6px 0; }
-.model-tabs button[aria-checked="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.model-pick { max-width: 100%; font-weight: 600; }
 .dirty { color: var(--warn); }
 
 /* Menus: a <details> whose list drops down over the page */

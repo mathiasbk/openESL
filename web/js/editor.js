@@ -17,7 +17,7 @@ import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
 import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
 import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
-import { layoutModel, layoutUsers } from "./models.js";
+import { MODELS as TAGS, layoutModel, layoutUsers } from "./models.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
 
 const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
@@ -123,6 +123,7 @@ function samples() {
 function save() {
   store.set("doc." + state.model, JSON.stringify(doc()));
   store.set("model", state.model);
+  store.set("tag", state.tag);
   store.set("samples", JSON.stringify(state.samples));
   scheduleRecord();
   if (ap.connected) refreshLayoutList();   // a layout changed here is no longer the AP's
@@ -201,8 +202,12 @@ async function exampleDoc(model) {
   return r.json();
 }
 
+// model: the tag picked in the list; its layout file is edited (a model whose sameAs names
+// another is edited as that one's file, #181)
 async function loadModel(model) {
-  model = layoutModel(model); // a model whose sameAs names another is edited as that one's file (#181)
+  state.tag = model in TAGS ? model : layoutModel(model);
+  $("model-pick").value = state.tag;
+  model = layoutModel(model);
   const from = state.model;
   const template = state.docs[from] && layout()?._template;
   state.model = model;
@@ -221,7 +226,6 @@ async function loadModel(model) {
   }
   state.renderer = await loadRenderer(model);
   applyLimits();
-  document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
@@ -1682,18 +1686,22 @@ function fitHeight() {
 }
 
 function initActions() {
-  for (const [name, m] of Object.entries(MODELS)) {
-    if (layoutModel(name) !== name) continue; // it has the tab of the model whose file it uses
-    const users = layoutUsers(name);
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = name + '"'; // the other models that use this file are named in the file line and the tooltip
-    b.title = `${m.width} × ${m.height}` + (users.length > 1 ? `, one layout file for ${users.join('", ')}"` : "");
-    b.dataset.model = name;
-    b.setAttribute("role", "radio");
-    b.addEventListener("click", () => { if (name !== state.model) loadModel(name).then(save); });
-    $("model-tabs").append(b);
+  // One entry per supported tag, by maker and name; tags with the same screen open the same file
+  for (const [name, t] of Object.entries(TAGS)) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = `${t.label} · ${t.width} × ${t.height}` + (t.status === "experimental" ? " (experimental)" : "");
+    $("model-pick").append(o);
   }
+  $("model-pick").addEventListener("change", () => {
+    const name = $("model-pick").value;
+    if (layoutModel(name) === state.model) {
+      state.tag = name; // the same file: nothing to load
+      store.set("tag", name);
+      return;
+    }
+    loadModel(name).then(save);
+  });
   $("zoom").value = store.get("zoom") || "fit";
   $("zoom").addEventListener("change", () => {
     store.set("zoom", $("zoom").value);
@@ -2345,8 +2353,8 @@ export async function initEditor({ sameOrigin = false } = {}) {
   initList();
   initAp();
   window.addEventListener("openesl-edit-layout", (ev) => openFromAp(ev.detail));
-  const m = store.get("model");
-  await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
+  const m = store.get("tag") || store.get("model");
+  await loadModel(TAGS[m] ? m : Object.keys(TAGS)[0]);
   fitHeight();
   if (onAp) {
     apReady = true;
