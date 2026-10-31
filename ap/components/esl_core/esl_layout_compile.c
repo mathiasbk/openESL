@@ -316,6 +316,7 @@ static bool only_ok(cc_t *c, int e, char kind)
         {"direction", "l", "line elements"},              {"width", "l", "line elements"},
         {"icon", "i", "icon elements"},
         {"decimals", "t", "text elements"},               {"thousands", "t", "text elements"},
+        {"rotate", "t", "text elements"},
     };
     for (size_t i = 0; i < sizeof(only) / sizeof(only[0]); i++)
         if (!strchr(only[i].kinds, kind) && esl_json_obj_get(c->js, c->tok, e, only[i].key) >= 0)
@@ -420,7 +421,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
                                        "valign", "lines", "color",  "symbology", "module", "text", "radius",
-                                       "border", "direction", "width", "icon", "ecc", "decimals", "thousands", NULL};
+                                       "border", "direction", "width", "icon", "ecc", "decimals", "thousands", "rotate", NULL};
     static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", NULL};
     static const char kinds[] = "trbliq";
     static const char *const box[] = {"x", "y", "w", "h"};
@@ -644,10 +645,24 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         return fail(c, "lines must be 0 (as many as fit) to %d", ESL_LE_MAX_LINES);
     out[ESL_LE_OFF_LINES] = (uint8_t)lines;
 
+    /* rotate: the text turned clockwise; at 90 and 270 its lines run along h (ESL_LE_ROT) */
+    unsigned rot = 0;
+    int ro = esl_json_obj_get(c->js, c->tok, e, "rotate");
+    if (ro >= 0 && (!get_uint(c, ro, &rot) || rot % 90 || rot > 270))
+        return fail(c, "rotate must be 0, 90, 180 or 270 (degrees clockwise)");
+    rot /= 90;
+    out[ESL_LE_OFF_LINES] |= (uint8_t)(rot << ESL_LE_ROT_SHIFT);
+    if (rot & 1) {
+        unsigned t = w;
+        w = h;
+        h = t;
+    }
+
     bool inverted = color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT;
     unsigned pad = inverted ? 2 * ESL_INVERT_PAD : 0;
     if (h < min_h + pad || w <= pad)
-        return fail(c, "the box (%ux%u) is too small for its smallest font (%u px high%s)", w, h, min_h,
+        return fail(c, "the box (%ux%u%s) is too small for its smallest font (%u px high%s)", rot & 1 ? h : w,
+                    rot & 1 ? w : h, rot & 1 ? ", turned" : "", min_h,
                     inverted ? " plus the border of an inverted field" : "");
 
     /* Lines this element can draw at most: the tag tries each font and uses

@@ -125,6 +125,41 @@ for (const model of Object.keys(MODELS)) {
     assert.notDeepEqual(got.pixels, r.render(0x10, 0, ["199,90"]).pixels);
   });
 
+  test(`turned text draws as the AP draws it, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const { height } = MODELS[model];
+    const file = {
+      format: "esl-layouts", version: 1, model,
+      layouts: [{
+        name: "turn", fields: ["a"],
+        elements: [
+          { type: "text", field: "a", x: 0, y: 0, w: 26, h: height, fonts: ["medium", "small"], rotate: 270 },
+          { type: "text", field: "a", x: 30, y: 0, w: 52, h: height, fonts: ["medium"], valign: "middle", rotate: 90 },
+          { type: "text", field: "a", x: 90, y: 4, w: 100, h: 50, fonts: ["small"], align: "right", rotate: 180,
+            color: "invert" },
+        ],
+      }],
+    };
+    const text = JSON.stringify(file);
+    const res = r.loadLayouts(text);
+    assert.ok(res.ok, res.error);
+    // turned, the lines are stacked across w: 52 px holds two lines of medium
+    const u = layoutUsage(file.layouts[0], r.limits);
+    assert.deepEqual([u.runs, u.rects], [1 + 2 + 2, 1]);
+    const tmp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "turn.json");
+    writeFileSync(tmp, text);
+    for (const t of ["Tilbud", "Turned text over two lines"]) {
+      const a = r.render(0x10, 0, [t]);
+      const b = native(model, tmp, 0x10, 0, [t]);
+      assert.ok(a.ok && b.ok, a.error || b.error);
+      assert.deepEqual(a.pixels, b.pixels, t);
+      assert.ok(a.pixels.some((p) => p));
+    }
+    // only text turns
+    file.layouts[0].elements.push({ type: "rect", x: 0, y: 0, w: 4, h: 4, rotate: 90 });
+    assert.match(r.loadLayouts(JSON.stringify(file)).error, /rotate is only for text elements/);
+  });
+
   test(`lines, round and open boxes and icons, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     const { width, height } = MODELS[model];

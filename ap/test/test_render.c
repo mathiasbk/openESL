@@ -1,6 +1,7 @@
 /* test_render.c - esl_render: the AP draws a tag's screen. The drawing itself is checked
  * against the tag's own code in sim/ (every layout of the example files, both models);
  * here only the entry points. */
+#include <stdio.h>
 #include <string.h>
 #include "esl_render.h"
 #include "esl_text.h"
@@ -181,9 +182,70 @@ static void test_icon_field(void)
     }
 }
 
+/* Turned text (ESL_LE_ROT): in a square box each turn draws exactly the plain text turned
+ * round the box, inverted fields with their box too */
+static void test_rotate(void)
+{
+    static const char *const colors[] = {"black", "invert"};
+    static uint8_t plain[296 * 16], turned[296 * 16];
+    static esl_layout_bin_t bin;
+    static char file[600];
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    const unsigned X = 30, Y = 10, S = 100;
+
+    for (int k = 0; k < 2; k++)
+        for (unsigned rot = 0; rot < 4; rot++) {
+            snprintf(file, sizeof(file),
+                     "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"r\","
+                     "\"fields\":[\"t\"],\"elements\":[{\"type\":\"text\",\"field\":\"t\",\"x\":%u,\"y\":%u,"
+                     "\"w\":%u,\"h\":%u,\"fonts\":[\"medium\"],\"align\":\"center\",\"color\":\"%s\",\"rotate\":%u}]}]}",
+                     X, Y, S, S, colors[k], rot * 90);
+            CHECK(esl_layout_compile(file, strlen(file), ESL_MODEL_29, &bin, err, sizeof(err)));
+            CHECK_INT(bin.bin[ESL_LBIN_HDR_LEN + 1 + ESL_LE_OFF_LINES], rot << ESL_LE_ROT_SHIFT);
+            named(&c, "r", "Turned text, two lines");
+            CHECK(esl_render(ESL_MODEL_29, &bin, &c, rot ? turned : plain, sizeof(plain)) == sizeof(plain));
+            if (!rot) {
+                CHECK(ink(plain, sizeof(plain)) > 100);
+                continue;
+            }
+            unsigned bad = 0;
+            for (unsigned u = 0; u < S; u++)
+                for (unsigned v = 0; v < S; v++) {
+                    unsigned tx = rot == 1 ? X + S - 1 - v : rot == 2 ? X + S - 1 - u : X + v;
+                    unsigned ty = rot == 1 ? Y + u : rot == 2 ? Y + S - 1 - v : Y + S - 1 - u;
+                    bad += px(plain, X + u, Y + v) != px(turned, tx, ty);
+                }
+            CHECK_INT(bad, 0);
+            CHECK_INT(ink(turned, sizeof(turned)), ink(plain, sizeof(plain)));
+        }
+
+    /* a tall narrow box along the left edge of the 2.9": the text runs bottom to top */
+    static const char side[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"s\","
+        "\"fields\":[\"t\"],\"elements\":[{\"type\":\"text\",\"field\":\"t\",\"x\":0,\"y\":0,"
+        "\"w\":24,\"h\":128,\"fonts\":[\"medium\"],\"rotate\":270}]}]}";
+    CHECK(esl_layout_compile(side, sizeof(side) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    named(&c, "s", "SALE");
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, turned, sizeof(turned)) == sizeof(turned));
+    size_t in = 0;
+    for (unsigned x = 0; x < 24; x++)
+        for (unsigned y = 0; y < 128; y++)
+            in += px(turned, x, y);
+    CHECK(in > 50 && in == ink(turned, sizeof(turned)));
+    /* left-aligned along the turned box: the text starts at the bottom */
+    bool low = false, high = false;
+    for (unsigned x = 0; x < 24; x++) {
+        low |= px(turned, x, 120);
+        high |= px(turned, x, 10);
+    }
+    CHECK(low && !high);
+}
+
 void test_render(void)
 {
     test_icon_field();
+    test_rotate();
     static uint8_t img[8192], img2[8192];
     static esl_layout_bin_t bin;
     char err[ESL_LAYOUT_ERR_MAX];

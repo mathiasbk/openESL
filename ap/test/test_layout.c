@@ -318,6 +318,13 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"align\":\"justify\"}", "align must be");
     bad_el(TEXT_A ",\"valign\":\"center\"}", "valign must be");
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
+    bad_el(TEXT_A ",\"rotate\":45}", "rotate must be 0, 90, 180 or 270");
+    bad_el(TEXT_A ",\"rotate\":360}", "rotate must be 0, 90, 180 or 270");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"rotate\":90}", "rotate is only for text");
+    /* turned, the lines are stacked across w: 60 px high fits the font, 10 px wide does not */
+    CHECK(compile_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":10,\"h\":60,\"field\":\"a\",\"fonts\":[\"medium\"]}"));
+    bad_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":10,\"h\":60,\"field\":\"a\",\"fonts\":[\"medium\"],\"rotate\":90}",
+           "the box (10x60, turned) is too small for its smallest font (24 px");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
     bad_el(TEXT_A ",\"color\":\"invert\"}", "border of an inverted field");
     /* the AP's scene: 32 text lines and 20 rectangles per screen (esl_render.c) */

@@ -2392,6 +2392,14 @@ components:
         align: { type: string, enum: [left, center, right], default: left }
         valign: { type: string, enum: [top, middle, bottom], default: top }
         lines: { type: integer, minimum: 0, maximum: 3, default: 0, description: "0: as many as the box holds" }
+        rotate:
+          type: integer
+          enum: [0, 90, 180, 270]
+          default: 0
+          description: |
+            text only: the text turned clockwise in its box, which keeps its place on the screen. At 90
+            (reads top to bottom) and 270 (bottom to top) the lines run along `h` and are stacked
+            across `w`, and align, valign and lines work along the turned box.
         decimals:
           oneOf:
             - { type: integer, enum: [0, 2] }
