@@ -28,7 +28,8 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
   const schedule = await optional("/api/schedule");
   const tagfw = await optional("/api/tag-firmware");
 
-  const files = (layouts?.layouts || []).filter((l) => l.version != null);
+  // A model whose same_as names another uses that model's file: it is saved (and restored) once
+  const files = (layouts?.layouts || []).filter((l) => l.version != null && !l.same_as);
   const withContent = list.tags.filter((t) => t.content_id);
   const total = files.length + withContent.length;
   let done = 0;

@@ -1085,6 +1085,11 @@ paths:
         fits or a file that fits it is uploaded. The AP does the same check at boot, and at a
         tag's next poll (or before its image is drawn) for content it did not check against this file yet (scheduled content
         that takes effect later, or content set before the tag's model was known).
+
+        Models with the same screen can share one file (`same_as` in shared/models.json, #181):
+        the file of a model is then also the file of every model in its `used_by`, and their
+        tags are checked against it too. A model whose `same_as` names another has no file of
+        its own, and this gives 409.
       requestBody:
         required: true
         content:
@@ -1114,6 +1119,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/UnknownModel" }
+        "409": { $ref: "#/components/responses/SharedLayout" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/LayoutInvalid" }
         "500": { $ref: "#/components/responses/ServerError" }
@@ -1131,6 +1137,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoLayout" }
+        "409": { $ref: "#/components/responses/SharedLayout" }
 
   /api/sources:
     get:
@@ -1310,6 +1317,15 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: no tag firmware for this model }
+    SharedLayout:
+      description: >-
+        The model has no layout file of its own: its entry in shared/models.json names another
+        model with the same screen in `same_as`, and its tags are drawn with that model's file.
+        Upload or delete that one (the message names it).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "model 2.9b uses the layout file of model 2.9 (same_as): upload it with PUT /api/layouts/2.9" }
     NoLayout:
       description: Not a tag model, or no layout file for it
       content:
@@ -2025,6 +2041,14 @@ components:
       required: [model, version, size, binary_size, layouts]
       properties:
         model: { $ref: "#/components/schemas/ModelName" }
+        same_as:
+          oneOf: [{ $ref: "#/components/schemas/ModelName" }, { type: "null" }]
+          description: "The model whose file this model's tags are drawn with (same screen, `same_as` in shared/models.json); null: its own. The other keys then describe that model's file. Not sent by firmware 0.9.2 and older"
+        used_by:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ModelName" }
+          description: "The models whose tags are drawn with this file, in model code order (itself, and those whose same_as names it). Not sent by firmware 0.9.2 and older"
         version: { type: [integer, "null"], minimum: 1, maximum: 4294967295, description: "The version of the file the AP draws with (CRC-32 of the compiled file); null: no file" }
         size: { type: integer, minimum: 0, maximum: 8192, description: Bytes of JSON }
         binary_size: { type: integer, minimum: 0, maximum: 4096, description: Bytes of the compiled file }
@@ -2080,7 +2104,7 @@ components:
             content_errors:
               type: array
               maxItems: 16
-              description: "Tags of this model whose content no longer fits the file (the first 16): a barcode, QR code or number too big for its box. The file is stored all the same; their content is held back (`content_error` in `GET /api/tags`) until they get new content or a file it fits"
+              description: "Tags drawn with this file (of this model, and of the models in used_by) whose content no longer fits the file (the first 16): a barcode, QR code or number too big for its box. The file is stored all the same; their content is held back (`content_error` in `GET /api/tags`) until they get new content or a file it fits"
               items:
                 type: object
                 additionalProperties: false

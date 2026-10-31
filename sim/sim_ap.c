@@ -267,14 +267,12 @@ size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
 {
     esl_tag_t t;
     esl_content_t c;
-    const esl_layout_t *f;
     if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT ||
         !esl_store_get_content(&st, mac, &c))
         return 0;
     if (c.layout == ESL_LAYOUT_IMAGE) /* a picture: as the AP keeps it */
         return esl_image_screen(&st, &layouts, mac, t.model, &c, out, cap);
-    f = layouts.models[t.model - 1];
-    return esl_render(t.model, f ? &f->bin : NULL, &c, out, cap);
+    return esl_layouts_render(&layouts, t.model, &c, out, cap); /* with the file the model uses (same_as) */
 }
 
 void sim_ap_off(void)

@@ -106,7 +106,8 @@ def example_layouts():
     sys.path.insert(0, os.path.join(ROOT, "shared"))
     import models
     for m in models.load():
-        yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
+        if "same_as" not in m:  # it uses the file of the model it names (the editor opens that one)
+            yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
 
 
 def web_build():

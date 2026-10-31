@@ -403,8 +403,9 @@ static void test_layouts(void)
     CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
                     "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
                     "\"jsonBytes\":8192,\"fields\":6,\"fixedTextBytes\":64},\"layouts\":["
-                    "{\"model\":\"2.9\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
-                    "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
+                    "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]},"
+                    "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);
     CHECK_INT(req("PUT", "/api/layouts", AUTH, f29, 0), 405);
     CHECK_INT(req("GET", "/api/layouts/2.9", AUTH, NULL, 0), 404);
@@ -418,7 +419,7 @@ static void test_layouts(void)
 
     /* upload, read back, same file again is not a change */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
-    CHECK(HAS(resp, "{\"model\":\"2.9\",\"version\":"));
+    CHECK(HAS(resp, "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":"));
     CHECK(HAS(resp, "\"layouts\":[\"shelf\",\"sign\"],\"changed\":true,\"content_errors\":[],\"content_errors_total\":0}"));
     uint32_t v = json_u32(resp, "\"version\":");
     CHECK(v != 0);
@@ -432,10 +433,11 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     char expect[256];
     snprintf(expect, sizeof(expect),
-             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
+             "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
              (unsigned)v, (unsigned)len29);
     CHECK(HAS(resp, expect));
-    CHECK(HAS(resp, "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}"));
+    CHECK(HAS(resp, "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]}"));
 
     /* the file is checked against the model in the URL (krav A13): 422 with where and why */
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f29, 0), 422);

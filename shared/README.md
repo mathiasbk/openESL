@@ -5,7 +5,8 @@
 ## Tag models: `models.json`
 
 The one list of tag models. Everything else is generated from it or reads it, so a new model
-is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a panel header
+is one entry here, an example layout file (`tag/designs/layouts/<name>.json`, or `same_as` for a
+screen a model has already), a panel header
 (`tag/src/panels/<panel>.h`, unless it drives the screen like one that exists) and
 `python tools/gen_models.py`:
 
@@ -25,6 +26,7 @@ is one entry here, an example layout file (`tag/designs/layouts/<name>.json`), a
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
 | `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |
+| `same_as` | optional: the `name` of a model with the same screen (`width`, `height`, `colors`) whose layout file this model uses (#181), e.g. the same panel sold by another maker. The AP draws its tags with that model's file, `PUT /api/layouts/{model}` takes only that one, and the designer edits it as one file for both. The model then has no example layout file of its own (`tag/designs/layouts/` has only the other's). The generator refuses another screen size or colours, a model that is not built, and a chain (the named model may not have `same_as` itself) |
 | `status` | `supported`, `experimental` or `planned`. A `planned` model is a tag someone has asked for: it needs only `id`, `vendor`, `label`, `product`, `chip`, `radio`, `protocol`, `width`, `height`, `colors` and `status`, shows in the README's list, and nothing is built or generated for it |
 
 `tools/gen_models.py` checks the file and writes `models_gen.h` (here; `ESL_MODEL_*`,

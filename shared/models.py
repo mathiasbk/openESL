@@ -7,6 +7,7 @@ The tag model registry (shared/models.json) for the Python tools in this reposit
   models.by_build("154")             -> the model built with MODEL=154
   models.by_name("1.54")             -> the model the API calls "1.54"
   models.fw_dir(m)                   -> the build folder under tag/build/ ("fw", "fw154")
+  models.layout_name(m)              -> the model whose layout file m uses ("2.9"): same_as, or its own name
   python shared/models.py builds     -> "29 154" (for Makefiles and CI)
   python shared/models.py names      -> "29 2.9" and "154 1.54", one line each (CI)
 
@@ -47,6 +48,12 @@ def by_name(name, ms=None):
 def fw_dir(m):
     # The first model keeps the folder it always had (CI, tools/check.py and the flash-tui use it)
     return "fw" if m["code"] == 1 else "fw" + m["build"]
+
+
+def layout_name(m):
+    # A model with same_as uses that model's layout file, on the AP and for the example file
+    # (tag/designs/layouts/<name>.json)
+    return m.get("same_as", m["name"])
 
 
 if __name__ == "__main__":

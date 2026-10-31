@@ -133,17 +133,24 @@ void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops);
 /* Frees every file (nothing is persisted or erased). */
 void esl_layouts_free(esl_layouts_t *ls);
 
+/* A model with same_as in shared/models.json (#181) has no file of its own: the functions
+ * below that read a model's file (info, write, names, find, check, render, env, image_ver,
+ * clock) give it the file of the model it names (esl_model_layout_model), and restore, set and
+ * delete refuse it (false or 0), so its tags follow that model's file. */
+
 /* Loads a persisted file at boot (compiling it again). Does not call
- * persist_save. False for an unknown model or a file that no longer compiles. */
+ * persist_save. False for an unknown model, a model with same_as, or a file that no longer
+ * compiles. */
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len);
 
 /* Stores a file that esl_layout_compile() accepted as bin for this model.
- * Returns the version (0 for an unknown model, a bad size, or no memory; the model then
+ * Returns the version (0 for an unknown model, a model with same_as, a bad size, or no memory; the model then
  * keeps the file it had). *changed is false (and nothing is persisted) when the model
  * already has exactly this file, or when there was no memory. */
 uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
                          const esl_layout_bin_t *bin, bool *changed);
 
+/* False if the model has no file of its own (none, or same_as) */
 bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model);
 
 /* Version, JSON size and binary size of a model's file; false if it has none.

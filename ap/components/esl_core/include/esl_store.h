@@ -265,7 +265,8 @@ esl_store_err_t esl_store_set_image(esl_store_t *st, uint64_t mac, const uint8_t
 size_t esl_store_get_image(esl_store_t *st, uint64_t mac, uint8_t *buf, size_t cap);
 
 /* After a layout file for model was stored (PUT /api/layouts) or loaded at boot: checks
- * the content of every tag of that model that names one of the file's layouts against
+ * the content of every tag drawn with that model's file (the model's own tags, and those of
+ * models whose same_as names it: esl_model_layout_model) that names one of the file's layouts against
  * it (esl_layouts_check_content), as PUT /api/tags checks new content. A tag whose
  * content does not fit gets ESL_CERR_UNFIT and its content is held back (it keeps what
  * it shows) until it gets new content or another file fits it; the mark is cleared on

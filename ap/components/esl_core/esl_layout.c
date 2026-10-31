@@ -17,11 +17,20 @@ static void unlock(esl_layouts_t *ls)
         ls->ops.unlock(ls->ops.ctx);
 }
 
-/* The model's file, or NULL when it has none (or the model is unknown, or ls is
- * NULL). Call it under the lock: a delete frees the file. */
+/* The file a tag of the model is drawn with (its own, or the one of the model its same_as
+ * names: esl_model_layout_model), or NULL when there is none (or the model is unknown, or ls
+ * is NULL). Call it under the lock: a delete frees the file. */
 static esl_layout_t *slot(esl_layouts_t *ls, uint8_t model)
 {
-    return ls && esl_model_name(model) ? ls->models[model - 1] : NULL;
+    uint8_t file = esl_model_layout_model(model);
+    return ls && file ? ls->models[file - 1] : NULL;
+}
+
+/* A model with same_as has no file of its own: it is stored, restored and deleted only
+ * under the model it names */
+static bool own_file(uint8_t model)
+{
+    return esl_model_name(model) && esl_model_layout_model(model) == model;
 }
 
 static void *alloc(esl_layouts_t *ls, size_t n)
@@ -60,7 +69,7 @@ bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, siz
     bool changed, ok = false;
     if (!bin)
         return false;
-    if (ls && esl_model_name(model) && esl_layout_compile(data, len, model, bin, err, sizeof(err))) {
+    if (ls && own_file(model) && esl_layout_compile(data, len, model, bin, err, sizeof(err))) {
         esl_layout_ops_t ops = ls->ops;
         ls->ops.persist_save = NULL;
         ok = esl_layouts_set(ls, model, data, len, bin, &changed) != 0;
@@ -74,7 +83,7 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
                          const esl_layout_bin_t *bin, bool *changed)
 {
     *changed = false;
-    if (!ls || !esl_model_name(model) || len == 0 || len > ESL_LAYOUT_MAX_SIZE || !bin->version ||
+    if (!ls || !own_file(model) || len == 0 || len > ESL_LAYOUT_MAX_SIZE || !bin->version ||
         bin->size < ESL_LBIN_HDR_LEN || bin->size > ESL_LBIN_CAP || bin->bin[1] != model)
         return 0;
 
@@ -114,7 +123,7 @@ uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, siz
 
 bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model)
 {
-    if (!ls || !esl_model_name(model))
+    if (!ls || !own_file(model))
         return false;
     lock(ls);
     esl_layout_t *l = ls->models[model - 1];
@@ -235,7 +244,7 @@ size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t 
     if (!ls)
         return esl_render(model, NULL, c, out, cap);
     lock(ls);
-    const esl_layout_t *l = esl_model_name(model) ? ls->models[model - 1] : NULL;
+    const esl_layout_t *l = slot(ls, model);
     size_t n = esl_render(model, l ? &l->bin : NULL, c, out, cap);
     unlock(ls);
     return n;
