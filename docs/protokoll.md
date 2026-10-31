@@ -298,6 +298,8 @@ In short:
 
 Requirements G6, G7, T17, T18, A12, A13, A14. The design tool (the Design tab of the web page in `web/`, or the file written by hand) makes **one layout file per tag model**. It holds up to 16 named layouts. A client uploads it with `PUT /api/layouts/{model}` (part 2), chooses a layout per tag by name in `PUT /api/tags` (requirement A14), and the AP draws each tag's screen with it and sends the picture (part 1, "Image transfer"). The file never goes to the tags. The built-in layouts `price` and `text` are in the AP firmware and can always be used, with or without a file. Examples: `tag/designs/layouts/2.9.json` and `1.54.json`; the Design tab previews them with the AP's own drawing code.
 
+Models with the same screen (width, height and colours) can share one file (#181): a model whose entry in `shared/models.json` has `"same_as": "<model>"` is drawn with that model's file and has none of its own. `GET /api/layouts` shows each model's `same_as` (null for its own file) and `used_by` (the models drawn with the file it uses); `PUT` and `DELETE /api/layouts/{model}` give `409` for a model with `same_as`, and a new file is checked against the content of every model in its `used_by`. The designer and the dashboard's Layouts card show such models as one file, named after the model that has it. No model in the registry uses it yet.
+
 ```json
 {
   "format": "esl-layouts",

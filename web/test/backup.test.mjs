@@ -209,3 +209,17 @@ test("files that are not a backup are turned down", () => {
   assert.throws(() => parseBackup(JSON.stringify({ ...ok, tags: [{ mac: "0000000000000001", image: "!!" }] })), /not base64/);
   assert.deepEqual(parseBackup(JSON.stringify(ok)).tags, []);
 });
+
+test("a layout file for a model that now uses another model's file (same_as) is skipped with a note", async () => {
+  const b = await makeBackup(filledAp());
+  b.layouts["2.9b"] = b.layouts["2.9"];
+  const ap = new FakeAp();
+  const call = ap.call.bind(ap);
+  ap.call = (method, path, body) =>
+    method === "PUT" && path === "/api/layouts/2.9b"
+      ? Promise.reject(new Error("409: model 2.9b uses the layout file of model 2.9 (same_as): upload it with PUT /api/layouts/2.9"))
+      : call(method, path, body);
+  const r = await restoreBackup(ap, b, { parts: { scheduled: false } });
+  assert.deepEqual(r.failed, []);
+  assert.ok(r.notes.some((n) => n === 'The 2.9b" layout file was skipped: model 2.9b uses the layout file of model 2.9 (same_as): upload it with PUT /api/layouts/2.9'));
+});

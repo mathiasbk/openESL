@@ -483,6 +483,9 @@ esp_err_t layouts_nvs_init(esl_layouts_t *ls)
             continue;
         if (esl_layouts_restore(ls, model, buf, len))
             ESP_LOGI(TAG, "layout for %s loaded (%u bytes)", esl_model_name(model), (unsigned)len);
+        else if (esl_model_layout_model(model) != model)
+            ESP_LOGW(TAG, "ignoring the stored layout for %s: it uses the file of %s now (same_as)", esl_model_name(model),
+                     esl_model_name(esl_model_layout_model(model)));
         else
             ESP_LOGW(TAG, "ignoring bad stored layout for %s", esl_model_name(model));
     }

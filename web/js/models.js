@@ -5,21 +5,30 @@
 //   build     -DMODEL=<build>; the renderer is wasm/render-<build>.js, the firmware tag-<build>.bin
 //   macCode   byte 6 of the MAC on a tag of this model
 //   photo     a picture of the tag under web/ for the flasher's model picker, or null
+//   sameAs    the model whose layout file this one uses (same screen), or null
 
 export const MODELS = {
   "2.9": {
     code: 1, build: "29", id: "solum-m2-29-bw", label: "SoluM 2.9\" black/white", product: "ST-GM29XX2",
     vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
     width: 296, height: 128, colors: ["black", "white"], macCode: 0x3b, status: "supported",
+    sameAs: null,
     photo: { file: "img/tag-29.jpg", width: 529, height: 280 },
   },
   "1.54": {
     code: 2, build: "154", id: "solum-m2-154-bw", label: "SoluM 1.54\" black/white", product: "ST-GM16XX2",
     vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
     width: 200, height: 200, colors: ["black", "white"], macCode: 0x34, status: "supported",
+    sameAs: null,
     photo: { file: "img/tag-154.jpg", width: 245, height: 280 },
   },
 };
 
 // Name in the API by model code, e.g. MODEL_BY_CODE[2] === "1.54"
 export const MODEL_BY_CODE = Object.fromEntries(Object.entries(MODELS).map(([n, m]) => [m.code, n]));
+
+// The model whose layout file a model uses: itself, or the one its sameAs names
+export const layoutModel = (name) => MODELS[name]?.sameAs ?? name;
+
+// The models that use a model's layout file, in code order, e.g. ["2.9"]
+export const layoutUsers = (name) => Object.keys(MODELS).filter((n) => layoutModel(n) === name);

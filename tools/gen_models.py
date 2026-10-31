@@ -81,6 +81,8 @@ def validate(ms):
             errors.append("%s: bad screen size" % where)
         if planned:
             # A tag someone has asked for: only described, nothing is built or generated for it
+            if "same_as" in m:
+                errors.append("%s: same_as is for a model OpenESL builds, not a planned one" % where)
             continue
         if not re.fullmatch(r"[0-9]+", m["build"]):
             errors.append("%s: build must be digits (it is -DMODEL=<build> and ESL_MODEL_<build>)" % where)
@@ -108,7 +110,13 @@ def validate(ms):
         if "yellow" in m["colors"]:
             errors.append("%s: the firmware does not draw yellow yet (plan-flere-tagtyper 2b)" % where)
         layout = os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
-        if not os.path.exists(layout):
+        if "same_as" in m:
+            # It uses the layout file of the model it names (on the AP and for the example), so
+            # an own example would never be used
+            if os.path.exists(layout):
+                errors.append("%s: has same_as, so it uses the example layout file of %s and not %s" %
+                              (where, m["same_as"], os.path.relpath(layout, ROOT)))
+        elif not os.path.exists(layout):
             errors.append("%s: no example layout file %s (the simulator and web page use it)" %
                           (where, os.path.relpath(layout, ROOT)))
     if errors:
@@ -126,6 +134,33 @@ def validate(ms):
             errors.append("two models have the same %s" % f)
     if len({m["mac_code"] for m in ms}) != len(ms):
         errors.append("two models have the same mac_code")
+    errors += validate_same_as(ms)
+    return errors
+
+
+def validate_same_as(ms):
+    """same_as names the model whose layout file a model uses (#181): one OpenESL builds, with
+    the same screen (width, height, colours), that has no same_as itself (no chains)."""
+    errors = []
+    by_name = {m["name"]: m for m in ms}
+    for m in ms:
+        if "same_as" not in m:
+            continue
+        where = "model %s" % m["id"]
+        t = by_name.get(m["same_as"])
+        if t is None:
+            errors.append("%s: same_as %r is not the name of a model OpenESL builds (%s)" %
+                          (where, m["same_as"], ", ".join(by_name)))
+        elif t is m:
+            errors.append("%s: same_as names the model itself" % where)
+        elif "same_as" in t:
+            errors.append("%s: same_as %s, which has same_as %s itself: name that model instead" %
+                          (where, t["name"], t["same_as"]))
+        elif (m["width"], m["height"]) != (t["width"], t["height"]) or sorted(m["colors"]) != sorted(t["colors"]):
+            errors.append("%s: same_as %s, but the screens differ (%dx%d %s against %dx%d %s): a layout file "
+                          "is drawn for one screen" % (where, t["name"], m["width"], m["height"],
+                                                       "/".join(m["colors"]), t["width"], t["height"],
+                                                       "/".join(t["colors"])))
     return errors
 
 
@@ -155,6 +190,15 @@ def gen_shared_h(ms):
     for m in ms:
         out.append("    X(%d, %s, %s, %d, %d, %d) \\" % (m["code"], c_str(m["name"]), c_str(m["id"]), m["width"],
                                                      m["height"], int(m["has_red"])))
+    out += ["",
+            "/* X(code, code of the model whose layout file it uses) for each model with same_as: a tag of",
+            " * that model is drawn with the other model's file (esl_model_layout_model) */",
+            "#define ESL_MODEL_SAME_AS_LIST(X) \\"]
+    codes = {m["name"]: m["code"] for m in ms}
+    for m in ms:
+        if "same_as" in m:
+            out.append("    X(%d, %d) /* %s uses the file of %s */ \\" % (m["code"], codes[m["same_as"]], m["name"],
+                                                                         m["same_as"]))
     out += ["", "#endif", ""]
     return "\n".join(out)
 
@@ -199,6 +243,7 @@ def gen_js(ms):
            "//   build     -DMODEL=<build>; the renderer is wasm/render-<build>.js, the firmware tag-<build>.bin",
            "//   macCode   byte 6 of the MAC on a tag of this model",
            "//   photo     a picture of the tag under web/ for the flasher's model picker, or null",
+           "//   sameAs    the model whose layout file this one uses (same screen), or null",
            "",
            "export const MODELS = {"]
     for m in ms:
@@ -209,6 +254,7 @@ def gen_js(ms):
             c_str(m["vendor"]), c_str(m["chip"]), c_str(m["radio"]), c_str(m["protocol"]), c_str(m["image"])))
         out.append("    width: %d, height: %d, colors: %s, macCode: 0x%02x, status: %s," % (
             m["width"], m["height"], json.dumps(m["colors"]), m["mac_code"], c_str(m["status"])))
+        out.append("    sameAs: %s," % (c_str(m["same_as"]) if "same_as" in m else "null"))
         p = m.get("photo")
         out.append("    photo: %s," % ("{ file: %s, width: %d, height: %d }" % (c_str(p["file"]), p["width"], p["height"])
                                        if p else "null"))
@@ -217,6 +263,12 @@ def gen_js(ms):
             "",
             "// Name in the API by model code, e.g. MODEL_BY_CODE[2] === \"1.54\"",
             "export const MODEL_BY_CODE = Object.fromEntries(Object.entries(MODELS).map(([n, m]) => [m.code, n]));",
+            "",
+            "// The model whose layout file a model uses: itself, or the one its sameAs names",
+            "export const layoutModel = (name) => MODELS[name]?.sameAs ?? name;",
+            "",
+            "// The models that use a model's layout file, in code order, e.g. [\"2.9\"]",
+            "export const layoutUsers = (name) => Object.keys(MODELS).filter((n) => layoutModel(n) === name);",
             ""]
     return "\n".join(out)
 

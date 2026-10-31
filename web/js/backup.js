@@ -28,7 +28,8 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
   const schedule = await optional("/api/schedule");
   const tagfw = await optional("/api/tag-firmware");
 
-  const files = (layouts?.layouts || []).filter((l) => l.version != null);
+  // A model whose same_as names another uses that model's file: it is saved (and restored) once
+  const files = (layouts?.layouts || []).filter((l) => l.version != null && !l.same_as);
   const withContent = list.tags.filter((t) => t.content_id);
   const total = files.length + withContent.length;
   let done = 0;
@@ -177,7 +178,9 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
         await putContent(client, arg.map((e) => ({ mac: e.mac, at: e.at, ...pick(e, CONTENT_KEYS) })), note, "Scheduled");
       }
     } catch (e) {
-      note(false, `${kind === "layout" ? `Layout file for the ${arg}"` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
+      // a backup from before its model got same_as: this AP draws it with the other model's file
+      if (kind === "layout" && /^409\b/.test(e.message)) notes.push(`The ${arg}" layout file was skipped: ${e.message.replace(/^409:?\s*/, "")}`);
+      else note(false, `${kind === "layout" ? `Layout file for the ${arg}"` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
     }
     progress({ done: ++n, total: steps.length });
   }
