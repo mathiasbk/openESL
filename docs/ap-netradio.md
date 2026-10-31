@@ -161,7 +161,7 @@ with several C6 boards.
 
 - **Places.** The S3 knows each radio by the MAC in its HELLO and gives it a place, 0 to 3. Place 0
   is on the AP's channel and follows its moves (Settings, Radio), exactly as the one radio does;
-  a lone radio is always in place 0, so one radio works as before. A radio in place 1–3 gets a
+  the first radio takes place 0, so one radio works as before. A radio in place 1–3 gets a
   channel of its own when it first connects: the first one that the AP, a move it plans and the
   other radios leave free, in the order a tag that lost its radio looks (15, 20, 26, 11, then
   12–25, `esl_rhost_pick_channel`), so tags find it within their first rounds without an answer.
@@ -183,8 +183,14 @@ with several C6 boards.
   radios: place, id, channel, how many tags each serves, connected or not. With more than one
   radio each tag has `radio`, and the dashboard shows a line per radio in the AP facts and which
   radio serves a tag next to its signal. `DELETE /api/radios/{id}` forgets a radio that is not
-  connected (a broken C6), so its place and channel go to the next new one; a fifth radio is
-  turned away until one is forgotten.
+  connected (a broken C6), so its place and channel go to the next new one; the dashboard has a
+  **Forget** button next to a radio that is not connected. A fifth radio is turned away until one
+  is forgotten.
+- **Replacing a broken C6.** Forget the old one first, then connect the new one: it takes the old
+  one's place (place 0, the AP's channel, for the first radio). A new C6 that connects before the
+  old one is forgotten gets a place and channel of its own, which tags from before 0.9.0 cannot
+  find (they do not look on other channels); once the old one is forgotten and the new one is the
+  only radio left, it moves to place 0 at its next connection.
 
 Limits on top of the ones above:
 
@@ -192,9 +198,9 @@ Limits on top of the ones above:
   per tag, 40 KB for 1000 tags) and an image buffer, and the S3 keeps which radio serves each tag
   (24 bytes per tag), all in PSRAM. The S3 serves the radios one after another in
   one task, so a sync that draws images for one radio holds up the others' syncs for that time.
-- **A channel move of the AP waits for tags on other radios.** They are told their own radio's
-  channel, so they never confirm the AP's new one: the move goes when the AP's own tags have it or
-  at the deadline (at most 2 h 1 min).
+- **A channel move of the AP is only for the tags of radio 0.** Tags on the other radios are told
+  their own radio's channel, so they do not hold the move up, and they do not follow it: a tag
+  that later comes to radio 0 is told its channel then.
 - **A tag switches radio only when it loses its own**, not because another one hears it better:
   a tag at the edge of two radios stays with the first until that one stops answering for three
   rounds. Choosing by signal is a later step.

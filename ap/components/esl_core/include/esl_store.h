@@ -343,7 +343,7 @@ typedef struct {
     uint32_t unheard_s; /* ... the most seconds until they no longer count */
     bool radio_old;     /* the radio cannot pass a move on to the tags (esl_store_set_radio_follows) */
     unsigned stopped;   /* the last move was given up when tags with old firmware showed up (how many) */
-    uint32_t taken;     /* bit c: another radio of this AP is on channel c (esl_store_set_taken_channels) */
+    uint32_t taken;     /* bit c: another radio of this AP is on channel c (esl_store_set_radio_channel) */
 } esl_channel_state_t;
 void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state_t *out);
 /* For a radio over the network (docs/ap-netradio.md): false when the one connected

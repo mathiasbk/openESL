@@ -29,10 +29,11 @@ CONFIG_LWIP_TCP_WND_DEFAULT=5760
 # Room to spare: the AP's page has the Design tab too, for the layout files stored here
 CONFIG_ESL_WEB_DESIGNER=y
 
-# The radio link takes two sockets (its server and the radio's connection). With lwIP's
-# default of 10, the HTTP server (7 clients) ran out once a browser held 5 connections
-# open, and the API stopped answering; the S3 has the RAM for more.
-CONFIG_LWIP_MAX_SOCKETS=16
+# The radio links take up to six sockets (their server and a connection for each of up to
+# 4 radios, plus one spare for a radio that reconnects). With lwIP's default of 10, the HTTP
+# server (7 clients) ran out once a browser held 5 connections open, and the API stopped
+# answering; 16 was enough for one radio. The S3 has the RAM for more.
+CONFIG_LWIP_MAX_SOCKETS=20
 
 # Data sources (weather from MET Norway): the AP fetches over HTTPS, which PSRAM has room for
 CONFIG_ESL_DATASOURCES=y

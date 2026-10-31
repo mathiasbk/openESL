@@ -640,6 +640,28 @@ static void test_rhost_two_radios(void)
     }
     CHECK(!esl_tag_cfg_pending(&t, &(esl_tag_cfg_t){0, 0, 0, 0, 0, 20}));
 
+    /* the host restarts: nobody owns B, and t.radio is 0 again (RAM only); radio 2 still tells
+       it radio 2's channel, not the AP's, so its cache sends B no CONFIG that moves it away */
+    memset(owner_slots, 0, sizeof(owner_slots));
+    esl_store_set_tag_radio(&st, 0xB1, 0);
+    {
+        size_t cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
+        static uint8_t *img2;
+        if (!img2)
+            img2 = malloc(cap);
+        esl_rhost_init(&host2, &st, NULL, &images, &fw, PAN, sent2, TAGS, img2, cap);
+        esl_rhost_share(&host2, &owners, 1);
+    }
+    sync2_at(123000);
+    CHECK_INT(rfind(&rc2, 0xB1)->cfg.channel, 20);
+    CHECK_INT(wake2(&b, 181000), ESL_MSG_IDLE);
+    sync2_at(182000);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xB1), 1);
+    CHECK_INT(esl_rowners_get(&owners, &st, 0xA1), ESL_RHOST_NONE);
+    sync_at(182000); /* A polls radio 1 again before its content */
+    CHECK_INT(wake(&a, 183000), ESL_MSG_IDLE);
+    sync_at(184000);
+
     /* the AP's channel cannot move onto radio 2's */
     esl_store_channel_state(&st, 122000, &cs);
     CHECK_INT((long long)cs.taken, 1 << 20);

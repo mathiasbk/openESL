@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -231,4 +231,10 @@ test("several radios over WiFi: a line each in the AP facts, and which serves a 
   assert.equal(tagRadio({ radio: 3 }, radios), "radio 3");
   assert.equal(tagRadio({ radio: 0 }, [radios[0]]), null);
   assert.equal(tagRadio({}, radios), null);
+  // a radio that is not connected can be forgotten, from its line in the facts
+  const lines = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: radios[0], radios });
+  assert.deepEqual(lines.filter(([, , r]) => radioForgettable(r)).map(([k]) => k), ["Radio 1 (C6, channel 15)"]);
+  const lone = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false }, radios: [radios[1]] });
+  assert.ok(radioForgettable(lone.find(([k]) => k === "Radio (C6)")[2]));
+  assert.ok(!radioForgettable({ connected: false }));
 });

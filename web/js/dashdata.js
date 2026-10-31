@@ -177,9 +177,14 @@ export function apFacts(ap, ota) {
   if (ap.radios?.length > 1) {
     // several radios over WiFi: one line each, with its channel and the tags it serves
     for (const r of ap.radios)
-      facts.push([`Radio ${r.radio} (C6, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`]);
-  } else if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio)]);
+      facts.push([`Radio ${r.radio} (C6, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`, r]);
+  } else if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio), ap.radios?.[0]]);
   return facts;
+}
+
+// A radio over WiFi the dashboard offers to forget: known (it has an id) and not connected now
+export function radioForgettable(r) {
+  return !!(r?.id && !r.connected);
 }
 
 // Which radio over WiFi serves the tag: "radio 1 (channel 15)", or null with one radio or none

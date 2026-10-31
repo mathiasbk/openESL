@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -332,12 +332,22 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-where").textContent = connectedTo + (who ? " · " + who : "");
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v, radio]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
       dt.textContent = k;
       dd.textContent = v;
+      if (radioForgettable(radio)) {
+        // a radio over WiFi that is not connected: forget it, so a new C6 takes its place
+        const b = document.createElement("button");
+        b.className = "small";
+        b.textContent = "Forget";
+        b.title = "Forget this radio, so a new C6 takes its place and channel";
+        b.disabled = sending;
+        b.onclick = () => forgetRadio(radio);
+        dd.append(" ", b);
+      }
       d.append(dt, dd);
       return d;
     }));
@@ -1122,6 +1132,23 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (client === c) refresh();
     }
   };
+
+  // A radio over WiFi that is gone for good (a broken C6): DELETE /api/radios/{id}
+  async function forgetRadio(r) {
+    if (!client || sending) return;
+    if (!confirm(`Forget radio ${r.radio} (${r.id})? A new C6 that connects then takes its place and channel. ` +
+      `If this radio comes back, it is a new radio.`)) return;
+    const c = client;
+    sending = true;
+    try {
+      await c.call("DELETE", "/api/radios/" + encodeURIComponent(r.id));
+    } catch (e) {
+      alert("Not forgotten: " + e.message);
+    } finally {
+      sending = false;
+      if (client === c) refresh();
+    }
+  }
 
   // ---- Firmware card ----
 

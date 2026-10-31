@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "mdns.h"
@@ -42,6 +43,7 @@ static const char *TAG = "netradio";
 #define CONNS    (RADIOS + 1)            /* one more, so a radio that reconnects is not turned away */
 #define RX_BUF   2048                    /* the largest frame from a radio: a SYNC */
 #define IDLE_S   120                     /* a radio silent this long is gone (it syncs every 30 s at most) */
+#define HELLO_S  10                      /* a connection without HELLO this long is not a radio */
 
 typedef struct {
     uint64_t id;             /* the radio's MAC, 0 = a free place */
@@ -77,8 +79,8 @@ static uint16_t pan;
 /* The transmit power for the radios: set by the HTTP task, given to the links by net_task */
 static volatile int8_t tx_dbm;
 static volatile bool tx_due;
-/* A radio to forget (DELETE /api/radios/{id}): set by the HTTP task, done by net_task */
-static volatile uint64_t forget_id;
+/* The places change in net_task (a HELLO) and in the HTTP task (DELETE /api/radios/{id}) */
+static SemaphoreHandle_t places_mu;
 
 static uint64_t now_ms(void)
 {
@@ -206,9 +208,30 @@ static void log_stats(void)
 static int place_for(uint64_t id, bool *is_new)
 {
     *is_new = false;
+    unsigned known = 0;
     for (unsigned i = 0; i < RADIOS; i++)
-        if (places[i].id == id)
-            return (int)i;
+        known += places[i].id != 0;
+    for (unsigned i = 0; i < RADIOS; i++) {
+        if (places[i].id != id)
+            continue;
+        if (i && known == 1 && places[i].conn < 0) {
+            /* the only radio left, and place 0 is free (the radio there was forgotten, say a
+               broken C6 this one replaced): it moves to the AP's channel, where tags from
+               before 0.9.0, which cannot look on other channels, still find it */
+            ESP_LOGI(TAG, "radio %016" PRIX64 " is the only one: it moves from place %u to place 0", id, i);
+            esl_rowners_forget(&owners, (uint8_t)i);
+            esl_store_set_radio_channel(store, (uint8_t)i, 0);
+            places[i].id = 0;
+            places[i].channel = 0;
+            places[i].ready = false;
+            links[i] = (esl_radio_link_t){0};
+            places[0].id = id;
+            places[0].ready = false;
+            *is_new = true;
+            return 0;
+        }
+        return (int)i;
+    }
     for (unsigned i = 0; i < RADIOS; i++) {
         if (places[i].id)
             continue;
@@ -224,12 +247,24 @@ static int place_for(uint64_t id, bool *is_new)
     return -1;
 }
 
+static bool hello_locked(conn_t *c, esl_nlink_host_t *n, bool *is_new_out);
+
 /* HELLO: the radio's place, its esl_rhost_t and its channel */
 static bool on_hello(void *ctx, esl_nlink_host_t *n)
 {
     conn_t *c = ctx;
     bool is_new;
+    xSemaphoreTake(places_mu, portMAX_DELAY);
+    bool ok = hello_locked(c, n, &is_new);
+    xSemaphoreGive(places_mu);
+    return ok;
+}
+
+static bool hello_locked(conn_t *c, esl_nlink_host_t *n, bool *is_new_out)
+{
+    bool is_new;
     int i = place_for(n->radio.id, &is_new);
+    *is_new_out = is_new;
     if (i < 0) {
         ESP_LOGW(TAG, "radio %016" PRIX64 " turned away: all %d places are taken (forget one: "
                  "DELETE /api/radios/{id})", n->radio.id, RADIOS);
@@ -286,11 +321,17 @@ static void take(int s, const struct sockaddr_in *from)
         if (conns[i].fd < 0)
             c = &conns[i];
     if (!c) {
-        /* every slot busy: drop the one silent longest, which is likely gone */
-        c = &conns[0];
-        for (unsigned i = 1; i < CONNS; i++)
-            if (conns[i].last_rx_us < c->last_rx_us)
+        /* every slot busy: drop one that has not said HELLO, else the one silent longest,
+           which is likely gone */
+        for (unsigned i = 0; i < CONNS; i++)
+            if (conns[i].place < 0 && (!c || conns[i].last_rx_us < c->last_rx_us))
                 c = &conns[i];
+        if (!c) {
+            c = &conns[0];
+            for (unsigned i = 1; i < CONNS; i++)
+                if (conns[i].last_rx_us < c->last_rx_us)
+                    c = &conns[i];
+        }
         close_conn(c, "a new connection replaces it");
     }
     int one = 1, zero = 0;
@@ -348,13 +389,15 @@ static void receive(conn_t *c)
     }
 }
 
-/* DELETE /api/radios/{id}, done here so the places change in one task */
-static void forget_now(uint64_t id)
+/* DELETE /api/radios/{id}, under places_mu: 0, 404 or 409 */
+static int forget_locked(uint64_t id)
 {
     for (unsigned i = 0; i < RADIOS; i++) {
         place_t *p = &places[i];
-        if (p->id != id || p->conn >= 0)
+        if (p->id != id)
             continue;
+        if (p->conn >= 0)
+            return 409;
         ESP_LOGI(TAG, "radio %016" PRIX64 " forgotten (place %u)", id, i);
         p->id = 0;
         p->channel = 0;
@@ -364,7 +407,9 @@ static void forget_now(uint64_t id)
         if (i)
             esl_store_set_radio_channel(store, (uint8_t)i, 0);
         save_places();
+        return 0;
     }
+    return 404;
 }
 
 static void net_task(void *arg)
@@ -400,11 +445,6 @@ static void net_task(void *arg)
                 esl_nlink_host_set_config(&conns[places[0].conn].hl, channel, pan);
             ESP_LOGI(TAG, "radio moves to channel %u", ch);
         }
-        uint64_t f = forget_id;
-        if (f) {
-            forget_now(f);
-            forget_id = 0;
-        }
         if (tx_due) {
             /* each radio gets it in the CONFIG with its next answer */
             tx_due = false;
@@ -416,8 +456,9 @@ static void net_task(void *arg)
             if (conns[i].fd >= 0 && FD_ISSET(conns[i].fd, &fds))
                 receive(&conns[i]);
         for (unsigned i = 0; i < CONNS; i++)
-            if (conns[i].fd >= 0 && esp_timer_get_time() - conns[i].last_rx_us > IDLE_S * 1000000LL)
-                close_conn(&conns[i], "silent");
+            if (conns[i].fd >= 0 &&
+                esp_timer_get_time() - conns[i].last_rx_us > (conns[i].place < 0 ? HELLO_S : IDLE_S) * 1000000LL)
+                close_conn(&conns[i], conns[i].place < 0 ? "no HELLO" : "silent");
         if (esp_timer_get_time() - last_stats > 60 * 1000000LL) {
             last_stats = esp_timer_get_time();
             log_stats();
@@ -439,15 +480,12 @@ const esl_radio_link_t *radio_net_links(unsigned *n)
 static int forget(void *ctx, uint64_t id)
 {
     (void)ctx;
-    for (unsigned i = 0; i < RADIOS; i++) {
-        if (links[i].id != id)
-            continue;
-        if (links[i].up)
-            return 409;
-        forget_id = id;
-        return 0;
-    }
-    return 404;
+    if (!places_mu)
+        return 404;
+    xSemaphoreTake(places_mu, portMAX_DELAY);
+    int r = forget_locked(id);
+    xSemaphoreGive(places_mu);
+    return r;
 }
 
 const esl_radio_ops_t *radio_net_ops(void)
@@ -475,6 +513,9 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t ch, uint16_t p
     if (max_tags < CONFIG_ESL_MAX_TAGS)
         max_tags = CONFIG_ESL_MAX_TAGS;
     img_cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
+    places_mu = xSemaphoreCreateMutex();
+    if (!places_mu)
+        return ESP_ERR_NO_MEM;
     esl_rowner_t *by_slot = heap_caps_calloc(max_tags, sizeof(*by_slot), MALLOC_CAP_8BIT);
     if (!by_slot)
         return ESP_ERR_NO_MEM;

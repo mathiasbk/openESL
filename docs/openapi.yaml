@@ -1276,7 +1276,8 @@ paths:
         is not connected: turn it off first. Its tags count as radio 0's until a radio hears
         them; a tag that loses its radio finds another one by looking on the other channels
         (docs/protokoll.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
-        takes its place on the AP's channel.
+        takes its place on the AP's channel, and a radio that is then the only one left moves
+        there at its next connection. Done before the reply.
       responses:
         "200":
           description: Forgotten

@@ -50,7 +50,7 @@ void esl_rowners_forget(esl_rowners_t *o, uint8_t radio)
 {
     /* the store's side (esl_tag_t.radio) goes with esl_store_set_radio_channel(radio, 0) */
     for (unsigned i = 0; i < o->n; i++)
-        if (o->by_slot[i].radio == radio)
+        if (o->by_slot[i].mac && o->by_slot[i].radio == radio)
             memset(&o->by_slot[i], 0, sizeof(o->by_slot[i]));
 }
 
@@ -210,7 +210,13 @@ static bool state(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, esl_rtag_
     s->has_cfg = t->cfg_capable;
     esl_tag_cfg_t ap;
     esl_store_tag_defaults(h->st, &ap);
-    ap = esl_store_tag_ap(h->st, t, &ap); /* the channel of the radio that serves it */
+    /* the channel of the radio that serves it: with several radios this one, since a radio
+       only ever talks to tags on its own channel (t->radio is RAM only, and 0 for every tag
+       after the host restarts, before any radio heard it) */
+    esl_tag_t tt = *t;
+    if (h->owners)
+        tt.radio = h->index;
+    ap = esl_store_tag_ap(h->st, &tt, &ap);
     esl_tag_effective_cfg(t, &ap, &s->cfg);
     if (!image_id(h, t, draws, &s->image_id))
         return false;
