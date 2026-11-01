@@ -46,6 +46,8 @@
 }
 
 * { box-sizing: border-box; }
+/* The hidden attribute always hides, also on elements whose class sets a display (#301) */
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
@@ -461,8 +463,10 @@ details.help > p { max-width: 62ch; }
 .lay-card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; display: grid; gap: 4px; align-content: start; background: var(--panel); }
 .lay-card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .lay-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.lay-thumb { background: #fff; border: 1px solid #333; border-radius: 2px; aspect-ratio: 296 / 128; display: grid; place-items: center; overflow: hidden; }
-.lay-thumb canvas { width: 100%; height: 100%; object-fit: contain; }
+/* The frame has the 2.9" shape for every model so the cards line up; the picture is fitted
+   inside it (a 1.54" square one with white on each side), never cut off (#303) */
+.lay-thumb { background: #fff; border: 1px solid #333; border-radius: 2px; aspect-ratio: 296 / 128; position: relative; overflow: hidden; }
+.lay-thumb canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .lay-n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lay-u { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .lay-b { display: flex; gap: 6px; margin-top: 2px; }
