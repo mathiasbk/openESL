@@ -33,6 +33,8 @@ data:
     - "{{ states('sensor.next_collection') }}"
 ```
 
+Ready-made automations (today's calendar from one or more calendars, bin collection, weather, room climate, low battery alerts) are in the [integration's wiki](https://github.com/mathiasbk/openesl-homeassistant/wiki), and their layouts are in the designer's [template library](Label-templates).
+
 The integration reads the AP every 120 s; change it under the AP's **Configure**. The list of labels is about 600 bytes a label, so with many labels or weak WiFi, read it less often. Reading costs the labels nothing: only the AP answers.
 
 ## Without the integration
