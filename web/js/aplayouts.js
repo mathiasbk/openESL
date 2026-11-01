@@ -464,7 +464,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const li = el("li");
       li.append(el("b", "", f.name), " ", el("span", "muted small",
         `${f.height} px · ${f.characters} characters` + (f.source ? " · " + f.source : "") +
-        (f.used_by?.length ? ` · used by the ${f.used_by.map((m) => m + '"').join(", ")} layouts` : " · not used yet")));
+        (f.used_by?.length ? ` · used by the ${f.used_by.map(modelName).join(", ")} layouts` : " · not used yet")));
       const del = button("Delete", () => removeFont(f.name),
         f.used_by?.length ? "A layout file draws with it: change those layouts first" : "Delete the font file from the AP");
       del.disabled = busy || !!f.used_by?.length;
@@ -491,7 +491,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const bad = checkFontFile(file);
       if (bad) throw new Error("The file is " + bad + ".");
       const r = await fonts.put(client(), file);
-      const again = r.redrawn?.length ? ` The ${r.redrawn.map((m) => m + '"').join(", ")} layouts that use it are drawn again with it.` : "";
+      const again = r.redrawn?.length ? ` The ${r.redrawn.map(modelName).join(", ")} layouts that use it are drawn again with it.` : "";
       return [`"${file.name}" is on the AP${r.replaced ? " in place of the old one" : ""}: layouts can name it in their fonts.` +
         again + unfit(r), unfit(r) ? "error" : "ok"];
     });
