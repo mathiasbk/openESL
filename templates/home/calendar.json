@@ -1,0 +1,57 @@
+{
+  "format": "esl-template",
+  "version": 1,
+  "id": "calendar",
+  "category": "home",
+  "title": "Calendar",
+  "description": "Today's date in a column on the left and the next two events, each with its title large and its time (and place) under it, e.g. from a Home Assistant calendar.",
+  "tags": ["home", "home-assistant", "calendar", "agenda"],
+  "fields": {
+    "day": "Day of the month, digits only, e.g. 1",
+    "month": "Weekday and month, e.g. Sun November",
+    "title1": "First event's title",
+    "time1": "First event's time, and place if any",
+    "title2": "Second event's title",
+    "time2": "Second event's time, or how many more there are"
+  },
+  "variants": {
+    "2.9": {
+      "layout": {
+        "name": "calendar",
+        "description": "Date column on the left, two events on the right, each with a bar before it",
+        "fields": ["day", "month", "title1", "time1", "title2", "time2"],
+        "_sample": ["1", "Sun November", "Dentist", "09:00-10:00  Main St", "Football match", "18:00-19:30  +1 more"],
+        "elements": [
+          { "type": "text", "field": "day", "x": 0, "y": 8, "w": 72, "h": 56, "fonts": ["large", "mid"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "month", "x": 0, "y": 66, "w": 76, "h": 40, "fonts": ["small"], "align": "center", "lines": 2 },
+          { "type": "rect", "x": 80, "y": 8, "w": 4, "h": 50 },
+          { "type": "text", "field": "title1", "x": 92, "y": 8, "w": 200, "h": 28, "fonts": ["medium", "text20", "small"], "lines": 1 },
+          { "type": "text", "field": "time1", "x": 92, "y": 38, "w": 200, "h": 20, "fonts": ["small"], "lines": 1 },
+          { "type": "rect", "x": 80, "y": 70, "w": 4, "h": 50 },
+          { "type": "text", "field": "title2", "x": 92, "y": 70, "w": 200, "h": 28, "fonts": ["medium", "text20", "small"], "lines": 1 },
+          { "type": "text", "field": "time2", "x": 92, "y": 100, "w": 200, "h": 20, "fonts": ["small"], "lines": 1 }
+        ]
+      }
+    },
+    "2.9-bwr": { "same_as": "2.9" },
+    "1.54": {
+      "layout": {
+        "name": "calendar",
+        "description": "Date on top, two events under it, each with a bar before it",
+        "fields": ["day", "month", "title1", "time1", "title2", "time2"],
+        "_sample": ["1", "Sun November", "Dentist", "09:00-10:00  Main St", "Football match", "18:00-19:30  +1 more"],
+        "elements": [
+          { "type": "text", "field": "day", "x": 4, "y": 4, "w": 72, "h": 56, "fonts": ["large", "mid"], "align": "center", "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "month", "x": 82, "y": 4, "w": 114, "h": 56, "fonts": ["text20", "small"], "valign": "middle", "lines": 2 },
+          { "type": "rect", "x": 6, "y": 66, "w": 188, "h": 2 },
+          { "type": "rect", "x": 6, "y": 76, "w": 4, "h": 54 },
+          { "type": "text", "field": "title1", "x": 16, "y": 76, "w": 180, "h": 34, "fonts": ["medium", "text20", "small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "time1", "x": 16, "y": 112, "w": 180, "h": 18, "fonts": ["small"], "lines": 1 },
+          { "type": "rect", "x": 6, "y": 140, "w": 4, "h": 54 },
+          { "type": "text", "field": "title2", "x": 16, "y": 140, "w": 180, "h": 34, "fonts": ["medium", "text20", "small"], "valign": "middle", "lines": 1 },
+          { "type": "text", "field": "time2", "x": 16, "y": 176, "w": 180, "h": 18, "fonts": ["small"], "lines": 1 }
+        ]
+      }
+    }
+  }
+}
