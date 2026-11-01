@@ -1,6 +1,6 @@
 # Home Assistant: 3D printer status on a tag
 
-The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields` (fields by name need integration 0.4.0 or newer). This page shows the way without it; the layouts, limits and battery advice hold for both.
+The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields` (fields by name need integration 0.4.0 or newer and AP firmware newer than 0.9.2). This page shows the way without it; the layouts, limits and battery advice hold for both.
 
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
