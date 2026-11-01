@@ -4,14 +4,11 @@ set -euo pipefail
 DIR="${OPENESL_TOOLS:-$HOME/.cache/openesl}"
 SDCC_VERSION=4.5.0
 EMSCRIPTEN_VERSION=3.1.74
-EMSCRIPTEN_HASH=c2655005234810c7c42e02a18e4696554abe0352   # emscripten-releases-tags.json in emsdk
+EMSCRIPTEN_HASH=c2655005234810c7c42e02a18e4696554abe0352
 NODE_VERSION=22.22.0
 
 mkdir -p "$DIR"
 cd "$DIR"
-
-# ... [previous setup for SDCC, Emscripten, Node remains the same] ...
-# (I will keep the setup.sh mostly the same to minimize diff)
 
 if [ ! -x "sdcc-$SDCC_VERSION/bin/sdcc" ]; then
   echo "Installing SDCC $SDCC_VERSION"
@@ -51,12 +48,15 @@ BINARYEN_ROOT = '$DIR/$EM/install'
 NODE_JS = '$NODE'
 EOM
 
-# Path to requirements-dev.txt relative to the script location
-REQ_FILE="$(dirname "$0")/../../requirements-dev.txt"
+# Logic to find requirements-dev.txt: check same dir as script, then ../../
+if [ -f "$(dirname "$0")/requirements-dev.txt" ]; then
+  REQ_FILE="$(dirname "$0")/requirements-dev.txt"
+else
+  REQ_FILE="$(dirname "$0")/../../requirements-dev.txt"
+fi
 
 if ! python3 -c "import zxingcpp, PIL, yaml, textual, serial, rich" 2> /dev/null; then
   echo "Installing Python dependencies from $REQ_FILE"
-  # --user, except in a virtual environment (such as ESP-IDF's, in the Docker image)
   USER_FLAG=$(python3 -c 'import sys; print("" if sys.prefix != sys.base_prefix else "--user")')
   python3 -m pip install $USER_FLAG --quiet -r "$REQ_FILE" 2> /dev/null ||
     python3 -m pip install $USER_FLAG --quiet --break-system-packages -r "$REQ_FILE"

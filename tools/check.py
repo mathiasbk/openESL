@@ -167,8 +167,7 @@ AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 def designer_boards():
     """The boards in ap/boards/ with the Design tab (CONFIG_ESL_WEB_DESIGNER=y in their
-    sdkconfig.defaults or their base
-'s), which pack the renderer"""
+    sdkconfig.defaults or their base's), which pack the renderer"""
     out = []
     for path in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json")):
         b = json.load(open(path))
@@ -271,7 +270,8 @@ def in_docker(steps, strict):
     if not docker_ok():
         sys.exit("Docker is not running (Docker Desktop on Windows and macOS)")
     try:
-        run(["docker", "build", "-t", DEV_IMAGE, os.path.join(HERE, "dev")])
+        # Build from ROOT so Docker context includes requirements-dev.txt
+        run(["docker", "build", "-t", DEV_IMAGE, "-f", os.path.join(HERE, "dev", "Dockerfile"), ROOT])
         run(docker_args(DEV_IMAGE, "/src") + ["python3", "tools/check.py"] + (["--strict"] if strict else []) + steps)
     except RuntimeError:
         sys.exit(1)
