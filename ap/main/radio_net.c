@@ -179,6 +179,9 @@ static void close_conn(conn_t *c, const char *why)
         ESP_LOGW(TAG, "radio %d (%016" PRIX64 ") connection closed: %s", c->place, p->id, why);
         p->conn = -1;
         links[c->place].up = false;
+        /* gone since it was last heard: "radio_lost" in GET /api/health ESL_RADIO_LOST_S after that,
+           at once when it took IDLE_S to tell */
+        links[c->place].down_ms = links[c->place].seen_ms ? links[c->place].seen_ms : now_ms();
     } else {
         ESP_LOGW(TAG, "radio connection closed before its HELLO: %s", why);
     }
@@ -224,7 +227,7 @@ static int place_for(uint64_t id, bool *is_new)
             places[i].id = 0;
             places[i].channel = 0;
             places[i].ready = false;
-            links[i] = (esl_radio_link_t){0};
+            links[i] = (esl_radio_link_t){.down_ms = now_ms()}; /* lost counts from now, not from boot */
             places[0].id = id;
             places[0].ready = false;
             *is_new = true;
@@ -402,7 +405,7 @@ static int forget_locked(uint64_t id)
         p->id = 0;
         p->channel = 0;
         p->ready = false;
-        links[i] = (esl_radio_link_t){0};
+        links[i] = (esl_radio_link_t){.down_ms = now_ms()}; /* lost counts from now, not from boot */
         esl_rowners_forget(&owners, (uint8_t)i);
         if (i)
             esl_store_set_radio_channel(store, (uint8_t)i, 0);

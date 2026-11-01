@@ -311,6 +311,15 @@ class ClientTest(unittest.TestCase):
         self.assertIn("2380 mV", out)
         self.assertEqual(FakeAp.calls[-1][0], "/api/health?silent_s=600")
 
+        # an S3 AP whose C6 on the cable stopped answering: exit 1, and which radio
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = esl_client.print_health({"problems": [], "ok": False, "tags": 1, "with_problems": 0, "radio_lost": 1,
+                                          "radio_problems": [{"radio": 0, "id": "000098880E7177C8", "via": "uart",
+                                                              "problems": ["radio_lost"], "lost_s": 300}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("  radio 0 (C6 on the cable, 000098880E7177C8) not answering for 5 min\n", buf.getvalue())
+
         rc, out = self.run_cli("config")
         self.assertEqual((rc, out), (0, "poll_s 0 (menuconfig 0), webhook off\n"))
         rc, out = self.run_cli("config", "--webhook", "http://10.0.0.5:8080/esl", "--poll-s", "120")

@@ -153,7 +153,8 @@ export function filterRows(rows, filter = "all", find = "") {
 export function healthLine(h) {
   if (!h) return "";
   if (!h.tags) return "";
-  if (h.ok) return h.tags === 1 ? "The tag is fine." : `All ${h.tags} tags are fine.`;
+  // a lost radio alone makes ok false; radioWarnings() says that
+  if (h.ok || !h.with_problems) return h.tags === 1 ? "The tag is fine." : `All ${h.tags} tags are fine.`;
   const parts = [];
   for (const k of Object.keys(PROBLEM_TEXT)) if (h[k]) parts.push(`${h[k]} ${PROBLEM_TEXT[k]}`);
   const n = h.with_problems;
@@ -194,10 +195,36 @@ export function tagRadio(tag, radios) {
   return r ? `radio ${r.radio} (channel ${r.channel})` : `radio ${tag.radio}`;
 }
 
-// The network radio's line in the AP facts: "192.168.3.249, last seen 3 s ago", or "not connected"
+// The radio's line in the AP facts: "192.168.3.249, last seen 3 s ago" (over WiFi), "answering,
+// last heard 1 s ago" (on the cable), "not connected for 5 min", or "not connected"
 export function radioText(r) {
-  if (!r.connected) return "not connected";
-  return `${r.ip}, last seen ${fmtAgo(r.seen_s)} ago`;
+  if (!r.connected) return r.lost_s != null ? `not connected for ${fmtAgo(r.lost_s)}` : "not connected";
+  return `${r.ip || "answering"}, last ${r.ip ? "seen" : "heard"} ${fmtAgo(r.seen_s)} ago`;
+}
+
+// The radios the AP has lost contact with (the C6 of an S3 AP, on the cable or over WiFi), as one
+// warning each for the top of the dashboard: from GET /api/health "radio_problems", or from "lost" in
+// GET /api/tags. [] when every radio answers, or with firmware that tells neither.
+export function radioWarnings(ap, health) {
+  let lost = health?.radio_problems;
+  if (!lost) {
+    const all = ap?.radios?.length ? ap.radios : ap?.radio ? [{ radio: 0, ...ap.radio }] : [];
+    lost = all.filter((r) => r.lost);
+  }
+  const several = (ap?.radios?.filter((r) => r.id).length || 0) > 1;
+  return lost.map((r) => {
+    const cable = r.via === "uart";
+    const channel = ap?.radios?.find((x) => x.radio === r.radio)?.channel;
+    const which = several
+      ? `radio ${r.radio} (C6 over WiFi${channel ? ", channel " + channel : ""})`
+      : `the radio (C6 ${cable ? "on the cable" : "over WiFi"})`;
+    const since = r.lost_s != null ? ` for ${fmtAgo(r.lost_s)}` : "";
+    const who = several ? "its tags hear nothing" : "no tag hears anything";
+    const fix = cable
+      ? "Check the cable between the S3 and the C6, and that the C6 has power."
+      : "Check that the C6 has power and is on the WiFi.";
+    return `No contact with ${which}${since}: ${who} from the AP until it answers again. ${fix}`;
+  });
 }
 
 // Which AP board this is: its name from GET /api/tags (board_name, in firmware after 0.6.0), or for an
