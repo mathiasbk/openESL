@@ -689,6 +689,11 @@ def print_health(h):
                                                    "content_error") if h.get(k))
     print(f"{'ok' if h.get('ok') else 'PROBLEMS'}: {h.get('with_problems')} of {h.get('tags')} tags"
           + (f" ({counts})" if counts else ""))
+    for r in h.get("radio_problems", []):
+        # the S3 has no contact with its C6: the tags it serves hear nothing from the AP
+        where = "on the cable" if r.get("via") == "uart" else "over WiFi"
+        print(f"  radio {r.get('radio')} (C6 {where}{', ' + r['id'] if r.get('id') else ''}) not answering"
+              f" for {fmt_ago(r.get('lost_s'))}")
     for t in h.get("problems", []):
         print(f"  {t.get('mac')}  {', '.join(t.get('problems', [])):28}  seen {fmt_ago(t.get('seen_s_ago')):>7}"
               + (f"  {t['battery_mv']} mV" if t.get("battery_mv") else ""))

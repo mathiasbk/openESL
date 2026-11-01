@@ -152,6 +152,17 @@ channel the S3 announces (u16 at the end of the TAG message, 0 = the built-in on
 CONFIG tells the tags, and once they have it (or the time is up) the S3 sends a new CONFIG with the new
 channel and the radio retunes.
 
+**When the S3 loses a radio:** a radio that is not connected, and has not been heard for 30 s
+(`ESL_RADIO_LOST_S`), is
+`radio_lost` in `GET /api/health` (`radio_problems`, with its number and id, and `ok` false), and
+`lost` with `lost_s` in `ap.radio` and `ap.radios` of `GET /api/tags`. The webhook posts the report when
+a radio is lost and when it is back, the dashboard shows a red line at the top, and the Home Assistant
+integration a repair. Radio 0 (on the AP's channel) counts even before any radio has connected since the
+S3 started; places 1-3 only once a radio is known there, and not after **Forget**. A radio that drops its
+connection shows at once; one that just goes quiet (no power) only when the S3 gives up on it after
+`IDLE_S` (120 s), since a radio syncs only every 10-30 s. Until the radio is back
+the tags it serves get nothing new (they see the state it had cached, see Limits).
+
 ## Several radios
 
 One S3 can have up to **4 radios** (#259), each a C6 on the same WiFi network, each on a channel

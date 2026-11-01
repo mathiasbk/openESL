@@ -179,6 +179,9 @@ static void close_conn(conn_t *c, const char *why)
         ESP_LOGW(TAG, "radio %d (%016" PRIX64 ") connection closed: %s", c->place, p->id, why);
         p->conn = -1;
         links[c->place].up = false;
+        /* gone since it was last heard: "radio_lost" in GET /api/health ESL_RADIO_LOST_S after that,
+           at once when it took IDLE_S to tell */
+        links[c->place].down_ms = links[c->place].seen_ms ? links[c->place].seen_ms : now_ms();
     } else {
         ESP_LOGW(TAG, "radio connection closed before its HELLO: %s", why);
     }

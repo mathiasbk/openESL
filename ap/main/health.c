@@ -15,12 +15,15 @@
  * api->notify->url (PUT /api/config {"webhook": ...}, kept in NVS cfg/webhook).
  * A POST that fails is logged and tried again with the next change; the
  * report is not queued. The first report after boot goes out when there is
- * anything to report (the previous state is "no problems"). */
+ * anything to report (the previous state is "no problems"). A radio coprocessor
+ * that is lost or back (esl_api_radios_lost: the S3 has no contact with its C6)
+ * sends the report too. */
 
 static const char *TAG = "health";
 
 static const esl_api_t *api;
 static uint8_t *prev;
+static uint32_t prev_lost; /* esl_api_radios_lost() of the last report */
 
 static void persist_webhook(void *ctx, const char *url)
 {
@@ -116,13 +119,15 @@ static void health_task(void *arg)
             ESP_LOGW(TAG, "report not built (%d)", status);
             continue;
         }
-        if (memcmp(next, prev, max) == 0)
+        uint32_t lost = esl_api_radios_lost(api, now_ms);
+        if (memcmp(next, prev, max) == 0 && lost == prev_lost)
             continue;
         char url[ESL_WEBHOOK_URL_MAX + 1];
         strcpy(url, notify.url);
         memcpy(next, prev, max); /* built again, against the same last report */
         post(url, buf, next);
         memcpy(prev, next, max);
+        prev_lost = lost;
     }
 }
 

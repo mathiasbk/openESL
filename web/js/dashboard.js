@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -352,11 +352,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
+    // the S3 has lost its C6: nothing reaches the tags, so it goes above everything else
+    const lostText = radioWarnings(ap, health).join(" ");
+    if ($("dash-radio").textContent !== lostText) $("dash-radio").textContent = lostText;
+    $("dash-radio").hidden = !lostText;
     settings.render(last);
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
-      : [healthLine(health), !health ? "" : health.ok ? "ok" : "bad"];
+      : [healthLine(health), !health ? "" : health.ok || !health.with_problems ? "ok" : "bad"]; // a lost radio: #dash-radio
     // only a change is read out (aria-live)
     if ($("dash-health").textContent !== health_[0]) $("dash-health").textContent = health_[0];
     $("dash-health").className = health_[1];

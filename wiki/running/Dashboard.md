@@ -16,7 +16,8 @@ When the designer sends a layout file with **Open my AP**, it shows up at the to
 
 ## What it shows
 
-- The AP: firmware, uptime, why it last restarted, radio channel, poll interval, time, schedule and WiFi.
+- The AP: firmware, uptime, why it last restarted, radio channel, poll interval, time, schedule and WiFi. On an ESP32-S3 AP also its C6 radio: when the AP last heard it, or how long it has been gone.
+- A red line at the top when an ESP32-S3 AP has lost contact with its C6 radio for 30 seconds, with what to check. Until it is back the labels hear nothing from the AP ([Health and webhook](Health-and-webhook#lost-radio)).
 - Four figures that also filter the table: labels, need attention, busy or late, scheduled.
 - Every label: its screen as the AP draws it, last and next check-in, signal, battery, firmware, and what it is waiting for or what is wrong.
 

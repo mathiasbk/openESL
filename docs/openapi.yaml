@@ -101,8 +101,8 @@ tags:
       started, drawing failed, battery low, layout file rejected, or content that cannot be
       sent. `GET /api/health` is made for monitoring (poll it, and read `ok`). With a
       `webhook` set in `PUT /api/config`, the AP checks every 30 s and `POST`s the same
-      report (plus `changed`) to that URL whenever any tag's problems change, so nothing
-      needs to poll it.
+      report (plus `changed`) to that URL whenever any tag's problems change, or a radio
+      coprocessor (C6) is lost or back, so nothing needs to poll it.
   - name: Firmware
     description: |
       New firmware for the AP itself over the API (`esl-client ota esl_ap.bin`). The image
@@ -711,6 +711,10 @@ paths:
         polled for `silent_s` (default 3 x its interval), `unseen` when it is in the table
         from NVS but has not polled since the AP started for that long, `low_battery` below
         `battery_mv` (a tag that reports 0 cannot measure it, and is never low).
+
+        On an AP with a radio coprocessor (an ESP32-S3 with a C6 on the cable or over WiFi),
+        a radio the AP has had no contact with for 30 s is listed under `radio_problems` as
+        `radio_lost`, and `ok` is false: the tags it serves hear nothing until it is back.
       parameters:
         - name: silent_s
           in: query
@@ -1631,11 +1635,14 @@ components:
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         radio:
           type: object
-          description: "The network radio (ESP32-C6 over WiFi, docs/ap-netradio.md); not sent by an AP that has none"
+          description: "The radio coprocessor: the ESP32-C6 on the cable (docs/ap-radio-link.md) or over WiFi (docs/ap-netradio.md); not sent by an AP whose own chip is the radio"
           required: [connected]
           properties:
             connected: { type: boolean, description: "A radio is connected now" }
-            ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
+            via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+            lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
+            lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
+            ip: { type: string, description: "Its address (only while connected over WiFi)", example: "192.168.3.249" }
             seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
             fw: { type: integer, minimum: 0, description: "Its firmware version as a number, as in its HELLO (0 before HELLO; only while connected)" }
         radios: { $ref: "#/components/schemas/Radios" }
@@ -1752,12 +1759,15 @@ components:
           channel: { type: integer, minimum: 11, maximum: 26, description: "The channel it serves" }
           tags: { type: integer, minimum: 0, description: "Tags it heard last, since the AP started" }
           connected: { type: boolean }
+          via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+          lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
+          lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
           ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
           seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
           fw: { type: integer, minimum: 0, description: "Its firmware version as a number (only while connected)" }
       example:
-        - { radio: 0, id: "0000F0F5BDFFFE01", channel: 25, tags: 41, connected: true, ip: "192.168.3.249", seen_s: 4, fw: 1000 }
-        - { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 12, connected: false }
+        - { radio: 0, id: "0000F0F5BDFFFE01", channel: 25, tags: 41, connected: true, via: wifi, lost: false, ip: "192.168.3.249", seen_s: 4, fw: 1000 }
+        - { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 12, connected: false, via: wifi, lost: true, lost_s: 340 }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]
@@ -1979,9 +1989,23 @@ components:
                 items: { type: string, enum: [silent, unseen, draw_failed, low_battery, content_error] }
               seen_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since its last poll; null: not seen since the AP started" }
               battery_mv: { type: [integer, "null"], minimum: 0, description: "From its last poll; 0: the tag cannot measure it" }
-        ok: { type: boolean, description: No tag has a problem }
+        radio_problems:
+          type: array
+          description: "Every radio coprocessor (a C6 on the cable or over WiFi) the AP has had no contact with for 30 s or more: the tags it serves hear nothing from the AP. Radio 0 counts even when no radio was ever known there; other places only once a radio was known. Not sent by older firmware"
+          items:
+            type: object
+            additionalProperties: false
+            required: [radio, id, via, problems, lost_s]
+            properties:
+              radio: { type: integer, minimum: 0, maximum: 3, description: "Its number, as in `radios` in `GET /api/tags` (0 for the C6 on the cable)" }
+              id: { type: [string, "null"], description: "Its MAC, as its HELLO said; null: never heard since the AP started" }
+              via: { type: string, enum: [uart, wifi] }
+              problems: { type: array, minItems: 1, items: { type: string, enum: [radio_lost] } }
+              lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started" }
+        ok: { type: boolean, description: "No tag has a problem, and no radio is lost" }
         tags: { type: integer, minimum: 0, description: Tags in the table }
         with_problems: { type: integer, minimum: 0, description: Length of `problems` }
+        radio_lost: { type: integer, minimum: 0, description: "Length of `radio_problems`; not sent by older firmware" }
         silent: { type: integer, minimum: 0, description: Tags that have not polled for `silent_s` }
         unseen: { type: integer, minimum: 0, description: Tags from NVS that have not polled since the AP started }
         draw_failed: { type: integer, minimum: 0, description: Tags whose last drawing failed }
@@ -1992,9 +2016,11 @@ components:
         problems:
           - { mac: "00000123456789A8", problems: [silent], seen_s_ago: 1260, battery_mv: 2950 }
           - { mac: "00000123456789A9", problems: [draw_failed, low_battery], seen_s_ago: 12, battery_mv: 2380 }
+        radio_problems: []
         ok: false
         tags: 12
         with_problems: 2
+        radio_lost: 0
         silent: 1
         unseen: 0
         draw_failed: 1

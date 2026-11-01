@@ -104,6 +104,9 @@ void app_main(void)
     api.radio_ops = radio_net_ops();
 #elif !CONFIG_ESL_RADIO_STUB
     api.radio_stats = &radio_link.stats;
+#if CONFIG_ESL_RADIO_DRIVER_UART
+    api.link = radio_uart_link();
+#endif
 #endif
 #if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
     api.tx_power = radio_tx_power();
