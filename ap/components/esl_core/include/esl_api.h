@@ -16,11 +16,15 @@
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
  * host tests call it directly. */
 
-/* The network radio's link as the AP sees it (ap/main/radio_net.c), shown as "radio" in
- * GET /api/tags. The driver keeps it up to date. */
+/* A radio coprocessor's link as the AP sees it: the network radio (ap/main/radio_net.c) or
+ * the C6 on the cable (ap/main/radio_uart.c), shown as "radio" in GET /api/tags, and as
+ * "radio_lost" in GET /api/health when it has been gone for ESL_RADIO_LOST_S. The driver
+ * keeps it up to date. */
 typedef struct {
     bool up;                /* a radio is connected now */
-    uint32_t ip;            /* its address, host order */
+    bool uart;              /* on the cable (no ip): "via":"uart", else "wifi" */
+    uint32_t ip;            /* its address, host order (0 on the cable) */
+    uint64_t down_ms;       /* when it last lost contact (ms since boot); 0: not connected since boot */
     uint64_t seen_ms;       /* when it last sent anything (ms since boot) */
     uint16_t ver;           /* its firmware, as its HELLO says (0 before HELLO) */
     /* several radios (docs/ap-netradio.md, "Several radios"), in "radios" */
@@ -28,6 +32,10 @@ typedef struct {
     uint8_t channel;        /* the channel it serves */
     unsigned tags;          /* tags it heard last (esl_rowners_count) */
 } esl_radio_link_t;
+
+/* A radio that has not been connected for this long is "radio_lost" in GET /api/health
+   (and so in the webhook): longer than a radio takes to restart or reconnect. */
+#define ESL_RADIO_LOST_S 30
 
 /* Several radios over the network: what the API may do to them (DELETE /api/radios/{id}). */
 typedef struct {
@@ -191,12 +199,19 @@ int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, s
                       uint64_t now_ms, esl_sb_t *out);
 
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
- * counts per problem. prev (the store's max bytes, may be NULL) holds the flags of the
+ * counts per problem, and every radio coprocessor that is lost (esl_api_radios_lost)
+ * under "radio_problems", counted as "radio_lost". prev (the store's max bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and
  * every tag's new flags are written back to it. Returns the HTTP status;
  * streams like GET /api/tags. */
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
                    esl_sb_t *out);
+
+/* The radio coprocessors that are lost now, one bit per radio number (bit 0: api->link, or
+ * links[0]): not connected for ESL_RADIO_LOST_S. A radio place with no radio known is not
+ * lost, except place 0, which the AP always needs (its own channel). 0 without radios. The
+ * webhook posts the report when this changes, as when a tag's flags do. */
+uint32_t esl_api_radios_lost(const esl_api_t *api, uint64_t now_ms);
 
 /* What the dashboard shows for a tag (tagState in web/js/dashdata.js): BAD when
  * GET /api/health lists a problem for it, BUSY when its poll is late or it is

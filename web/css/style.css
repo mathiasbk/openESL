@@ -217,6 +217,7 @@ h3.sub { margin-top: 16px; }
 .state-ok { color: var(--ok); }
 #dash-health.bad { color: var(--error); }
 #dash-health.ok { color: var(--ok); }
+.dash-alert { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--error); border-left-width: 4px; border-radius: 8px; color: var(--error); font-weight: 600; }
 #dash-msg.error, #fw-msg.error, #dash-poll-msg.error { color: var(--error); }
 #dash-body.stale #dash-tiles, #dash-body.stale #dash-ap, #dash-body.stale #dash-wifi, #dash-body.stale #dash-tags, #dash-body.stale #dash-tagfw { opacity: 0.45; }
 #fw-msg.ok, #dash-poll-msg.ok { color: var(--ok); }

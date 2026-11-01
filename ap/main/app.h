@@ -73,6 +73,9 @@ int radio_ota_begin(uint32_t size, char *err, size_t errlen);
 int radio_ota_write(const void *data, size_t len, char *err, size_t errlen);
 int radio_ota_end(char *err, size_t errlen);
 void radio_info(esl_sb_t *out);
+/* radio_uart.c: the link to the radio coprocessor, for GET /api/tags ("radio") and
+ * GET /api/health ("radio_lost") */
+const esl_radio_link_t *radio_uart_link(void);
 
 /* health.c (ESL_WEBHOOK): posts the health report (GET /api/health) to the
  * webhook URL whenever it changes. Returns the notify struct for api->notify,

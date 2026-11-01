@@ -348,15 +348,41 @@ static void test_batch_and_list(void)
     esl_radio_link_t link = {.up = true, .ip = 0xC0A803F9, .seen_ms = 86395000, .ver = 3};
     api.link = &link;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":5,\"fw\":3}},\"tags\":["));
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":5,\"fw\":3}},\"tags\":["));
+    /* gone: since when, and lost after ESL_RADIO_LOST_S */
     link.up = false;
+    link.down_ms = 86390000;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false}},\"tags\":["));
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false,\"via\":\"wifi\",\"lost\":false,\"lost_s\":10}},\"tags\":["));
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 0);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86420000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":false,\"via\":\"wifi\",\"lost\":true,\"lost_s\":30}}"));
+    CHECK_INT((int)esl_api_radios_lost(&api, 86420000), 1);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86420000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":null,\"via\":\"wifi\",\"problems\":[\"radio_lost\"],"
+                    "\"lost_s\":30}],\"ok\":false,"));
+    CHECK(HAS(resp, "\"radio_lost\":1,"));
+    /* the C6 on the cable: no address; never connected since boot counts from boot */
+    esl_radio_link_t cable = {.uart = true, .id = 0xC60000000077C8ULL};
+    api.link = &cable;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 20000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":false,\"via\":\"uart\",\"lost\":false,\"lost_s\":20}}"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":\"00C60000000077C8\",\"via\":\"uart\","));
+    cable.up = true;
+    cable.seen_ms = 39000;
+    cable.ver = 0x0101;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"uart\",\"lost\":false,\"seen_s\":1,\"fw\":257}}"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[],\"ok\":true,"));
+    CHECK(HAS(resp, "\"radio_lost\":0,"));
+    api.link = &link;
     /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
     link.up = true;
     link.seen_ms = 86400001;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
+    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
     /* several radios: each with its channel and tags, and each tag says which serves it */
     esl_radio_link_t links[3] = {link, {0}, {.up = false, .id = 0xC6000002, .channel = 20, .tags = 0}};
     links[0].id = 0xC6000001;
@@ -367,10 +393,23 @@ static void test_batch_and_list(void)
     esl_store_set_tag_radio(&st, 0xABCDEF, 2);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, ",\"radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"channel\":25,\"tags\":1,"
-                    "\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3},"
-                    "{\"radio\":2,\"id\":\"00000000C6000002\",\"channel\":20,\"tags\":0,\"connected\":false}]"));
+                    "\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3},"
+                    "{\"radio\":2,\"id\":\"00000000C6000002\",\"channel\":20,\"tags\":0,\"connected\":false,"
+                    "\"via\":\"wifi\",\"lost\":true,\"lost_s\":86400}]"));
     CHECK(HAS(resp, "\"mac\":\"0000000000ABCDEF\""));
     CHECK(HAS(resp, "\"pending\":false,\"radio\":2,\"poll_s\""));
+    /* only known places count: radio 1 has none, radio 2 is gone (bit 2) */
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 4);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":2,\"id\":\"00000000C6000002\",\"via\":\"wifi\","
+                    "\"problems\":[\"radio_lost\"],\"lost_s\":86400}]"));
+    /* place 0 is needed even with no radio known there */
+    esl_radio_link_t empty[2] = {{0}, {0}};
+    api.links = empty;
+    api.n_links = 2;
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 1);
+    api.links = links;
+    api.n_links = 3;
     /* GET /api/radios lists the same; DELETE forgets one that is not connected */
     CHECK_INT(req("GET", "/api/radios", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "{\"radios\":[{\"radio\":0,"));
@@ -1179,7 +1218,7 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"silent\":0,\"unseen\":0,"
+    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
                     "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
@@ -1197,11 +1236,11 @@ static void test_health(void)
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
-                    "],\"ok\":false,\"tags\":4,\"with_problems\":3,\"silent\":1,\"unseen\":1,"
+                    "],\"radio_problems\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
                     "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);
-    CHECK(HAS(resp, "\"with_problems\":2,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
+    CHECK(HAS(resp, "\"with_problems\":2,\"radio_lost\":0,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
     /* a tag with its own interval is silent after 3 x that */
     CHECK_INT(req("PUT", "/api/tags/0000000000000002/config", AUTH, "{\"poll_s\":300}", 0), 200);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
