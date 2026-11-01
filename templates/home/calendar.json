@@ -20,10 +20,10 @@
         "name": "calendar",
         "description": "Date column on the left, two events on the right, each with a bar before it",
         "fields": ["day", "month", "title1", "time1", "title2", "time2"],
-        "_sample": ["1", "Sun November", "Dentist", "09:00 - 10:00  Main Street", "Football training", "18:00 - 19:30  +1 more"],
+        "_sample": ["1", "Sun November", "Dentist", "09:00-10:00  Main St", "Football match", "18:00-19:30  +1 more"],
         "elements": [
           { "type": "text", "field": "day", "x": 0, "y": 8, "w": 72, "h": 56, "fonts": ["large", "mid"], "align": "center", "valign": "middle", "lines": 1 },
-          { "type": "text", "field": "month", "x": 2, "y": 66, "w": 68, "h": 40, "fonts": ["small"], "align": "center", "lines": 2 },
+          { "type": "text", "field": "month", "x": 0, "y": 66, "w": 76, "h": 40, "fonts": ["small"], "align": "center", "lines": 2 },
           { "type": "rect", "x": 80, "y": 8, "w": 4, "h": 50 },
           { "type": "text", "field": "title1", "x": 92, "y": 8, "w": 200, "h": 28, "fonts": ["medium", "text20", "small"], "lines": 1 },
           { "type": "text", "field": "time1", "x": 92, "y": 38, "w": 200, "h": 20, "fonts": ["small"], "lines": 1 },
@@ -39,7 +39,7 @@
         "name": "calendar",
         "description": "Date on top, two events under it, each with a bar before it",
         "fields": ["day", "month", "title1", "time1", "title2", "time2"],
-        "_sample": ["1", "Sun November", "Dentist", "09:00 - 10:00  Main Street", "Football training", "18:00 - 19:30  +1 more"],
+        "_sample": ["1", "Sun November", "Dentist", "09:00-10:00  Main St", "Football match", "18:00-19:30  +1 more"],
         "elements": [
           { "type": "text", "field": "day", "x": 4, "y": 4, "w": 72, "h": 56, "fonts": ["large", "mid"], "align": "center", "valign": "middle", "lines": 1 },
           { "type": "text", "field": "month", "x": 82, "y": 4, "w": 114, "h": 56, "fonts": ["text20", "small"], "valign": "middle", "lines": 2 },
