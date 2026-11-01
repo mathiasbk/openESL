@@ -151,6 +151,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
 
   const layoutsOf = () => Object.fromEntries(Object.entries(shown).map(([mac, s]) => [mac, s.layout]));
 
+  // Tags with content whose layout is not known (their answer did not come): while there are
+  // any, a layout's count is a lower bound and no layout can be called unused (#302)
+  const unchecked = (tags) => tags.filter((t) => t.content_id && shown[t.mac]?.cid !== t.content_id).length;
+
   // The models to pick from, those with tags first: one per layout file, so a model whose
   // sameAs names another (same screen, #181) is counted with that one
   function models() {
@@ -208,7 +212,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     }
     drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -218,6 +222,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     const m = model;
     const r = await renderer(m);
     const counts = countByLayout(tags, layoutsOf(), m);
+    const unk = unchecked(tags);
     const onAp = (file?.layouts || []).map((l) => l.name);
 
     // Tags that show a layout the AP does not have
@@ -262,13 +267,16 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       const buttons = [];
       if (canEdit) buttons.push(button("Edit", () => edit(l.name), "Open it in the designer"));
       if (!c) {
-        const rm = button("Remove", () => remove(l.name), file.layouts.length <= 1 ? "The AP needs at least one layout in the file" : "Take it out of the AP's file");
-        rm.disabled ||= file.layouts.length <= 1;
+        const rm = button("Remove", () => remove(l.name), file.layouts.length <= 1 ? "The AP needs at least one layout in the file"
+          : unk ? `${unk} tag${unk === 1 ? "" : "s"} could not be checked, so this layout may be in use. Try again in a moment.`
+          : "Take it out of the AP's file");
+        rm.disabled ||= file.layouts.length <= 1 || unk > 0;
         buttons.push(rm);
       }
+      const uses = unk ? (c ? `at least ${c} tag${c === 1 ? "" : "s"}` : "Not checked") : c ? `${c} tag${c === 1 ? "" : "s"}` : "Not used";
       cards.push(card({
         key: "ap:" + l.name, name: l.name, pic: r && paint(r, file, 0x10 + i, sampleOf(l)),
-        sub: [el("span", "pill " + (c ? "ok" : "off"), c ? `${c} tag${c === 1 ? "" : "s"}` : "Not used"),
+        sub: [el("span", "pill " + (c ? "ok" : "off"), uses),
               el("span", "", ` ${(l.fields || []).length} field${(l.fields || []).length === 1 ? "" : "s"}`)],
         buttons, sel: { kind: "ap", name: l.name },
       }));
@@ -443,6 +451,14 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     return run(`Removing "${name}"`, async () => {
       const cur = await fresh(m);
       if (!cur?.layouts?.some((l) => l.name === name)) return [`The AP has no "${name}" any more.`, ""];
+      // Ask the tags again right before: a tag may have got content with it since the cards
+      // were drawn, and one that does not answer may use it (#302)
+      const tags = last.list.tags.filter((t) => layoutModel(t.model) === m);
+      await readShown(tags);
+      const unk = unchecked(tags);
+      if (unk) throw new Error(`${unk} tag${unk === 1 ? "" : "s"} could not be checked, so "${name}" may be in use. Try again in a moment.`);
+      const n = countByLayout(tags, layoutsOf(), m)[name] || 0;
+      if (n) throw new Error(`${n} tag${n === 1 ? " shows" : "s show"} "${name}". Give ${n === 1 ? "it" : "them"} other content first.`);
       const next = structuredClone(cur);
       next.layouts = next.layouts.filter((l) => l.name !== name);
       if (!next.layouts.length) throw new Error("The AP needs at least one layout in the file.");
