@@ -212,7 +212,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     }
     drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -455,10 +455,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       // were drawn, and one that does not answer may use it (#302)
       const tags = last.list.tags.filter((t) => layoutModel(t.model) === m);
       await readShown(tags);
-      const n = countByLayout(tags, layoutsOf(), m)[name] || 0;
-      if (n) throw new Error(`${n} tag${n === 1 ? " shows" : "s show"} "${name}". Give ${n === 1 ? "it" : "them"} other content first.`);
       const unk = unchecked(tags);
       if (unk) throw new Error(`${unk} tag${unk === 1 ? "" : "s"} could not be checked, so "${name}" may be in use. Try again in a moment.`);
+      const n = countByLayout(tags, layoutsOf(), m)[name] || 0;
+      if (n) throw new Error(`${n} tag${n === 1 ? " shows" : "s show"} "${name}". Give ${n === 1 ? "it" : "them"} other content first.`);
       const next = structuredClone(cur);
       next.layouts = next.layouts.filter((l) => l.name !== name);
       if (!next.layouts.length) throw new Error("The AP needs at least one layout in the file.");
