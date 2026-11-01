@@ -43,6 +43,8 @@ The power switch:
 
 D2 high switches the label on. R3 holds the PNP off while D2 is low.
 
+The legs, seen from the flat side with the legs pointing down, left to right: 2N3904 is E B C, BC557B is C B E. The middle leg is always B.
+
 ![Wiring of the D1 mini, the power switch and the label's test pads](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/flasher-wiring.png)
 
 The same circuit laid out on a small perfboard:
