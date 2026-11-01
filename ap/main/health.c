@@ -13,8 +13,9 @@
  * tag (esl_api_health, the same as GET /api/health) is computed against the
  * last one, and when any tag's problems changed it is POSTed to the URL in
  * api->notify->url (PUT /api/config {"webhook": ...}, kept in NVS cfg/webhook).
- * A POST that fails is logged and tried again with the next change; the
- * report is not queued. The first report after boot goes out when there is
+ * A POST that fails (or answers other than 2xx) is logged and the report is
+ * built and posted again on the next round, so a lost radio is not missed
+ * because of one bad moment on WiFi; nothing is queued. The first report after boot goes out when there is
  * anything to report (the previous state is "no problems"). A radio coprocessor
  * that is lost or back (esl_api_radios_lost: the S3 has no contact with its C6)
  * sends the report too. */
@@ -58,7 +59,7 @@ static bool chunk(esl_sb_t *sb)
 /* POSTs the report against flags (updated to the tags' new flags). Built
    without the API's mutex (esl_api_health reads only the tag table, which has
    its own lock, taken per tag), so a slow webhook holds up nothing else. */
-static void post(const char *url, char *buf, uint8_t *flags)
+static bool post(const char *url, char *buf, uint8_t *flags)
 {
     esp_http_client_config_t cfg = {
         .url = url,
@@ -68,7 +69,7 @@ static void post(const char *url, char *buf, uint8_t *flags)
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
         ESP_LOGE(TAG, "webhook: bad URL %s", url);
-        return;
+        return false;
     }
     esp_http_client_set_header(c, "Content-Type", "application/json");
     esp_err_t err = esp_http_client_open(c, -1); /* -1: chunked */
@@ -82,14 +83,17 @@ static void post(const char *url, char *buf, uint8_t *flags)
             err = ESP_FAIL;
         else if (esp_http_client_fetch_headers(c) < 0)
             err = ESP_ERR_HTTP_FETCH_HEADER;
+        int code = err == ESP_OK ? esp_http_client_get_status_code(c) : 0;
         if (err == ESP_OK)
-            ESP_LOGI(TAG, "webhook: POST %s -> %d (%u bytes)", url, esp_http_client_get_status_code(c),
-                     (unsigned)out.sent);
+            ESP_LOGI(TAG, "webhook: POST %s -> %d (%u bytes)", url, code, (unsigned)out.sent);
+        if (err == ESP_OK && (code < 200 || code > 299))
+            err = ESP_FAIL;
     }
     if (err != ESP_OK)
         ESP_LOGW(TAG, "webhook: POST %s failed: %s", url, esp_err_to_name(err));
     esp_http_client_close(c);
     esp_http_client_cleanup(c);
+    return err == ESP_OK;
 }
 
 static void health_task(void *arg)
@@ -125,9 +129,10 @@ static void health_task(void *arg)
         char url[ESL_WEBHOOK_URL_MAX + 1];
         strcpy(url, notify.url);
         memcpy(next, prev, max); /* built again, against the same last report */
-        post(url, buf, next);
-        memcpy(prev, next, max);
-        prev_lost = lost;
+        if (post(url, buf, next)) { /* else the same change is posted again next round */
+            memcpy(prev, next, max);
+            prev_lost = lost;
+        }
     }
 }
 

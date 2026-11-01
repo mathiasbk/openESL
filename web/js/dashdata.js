@@ -214,7 +214,7 @@ export function radioWarnings(ap, health) {
   const several = (ap?.radios?.filter((r) => r.id).length || 0) > 1;
   return lost.map((r) => {
     const cable = r.via === "uart";
-    const channel = ap.radios?.find((x) => x.radio === r.radio)?.channel;
+    const channel = ap?.radios?.find((x) => x.radio === r.radio)?.channel;
     const which = several
       ? `radio ${r.radio} (C6 over WiFi${channel ? ", channel " + channel : ""})`
       : `the radio (C6 ${cable ? "on the cable" : "over WiFi"})`;

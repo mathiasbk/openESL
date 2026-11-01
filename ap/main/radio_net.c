@@ -227,7 +227,7 @@ static int place_for(uint64_t id, bool *is_new)
             places[i].id = 0;
             places[i].channel = 0;
             places[i].ready = false;
-            links[i] = (esl_radio_link_t){0};
+            links[i] = (esl_radio_link_t){.down_ms = now_ms()}; /* lost counts from now, not from boot */
             places[0].id = id;
             places[0].ready = false;
             *is_new = true;
@@ -405,7 +405,7 @@ static int forget_locked(uint64_t id)
         p->id = 0;
         p->channel = 0;
         p->ready = false;
-        links[i] = (esl_radio_link_t){0};
+        links[i] = (esl_radio_link_t){.down_ms = now_ms()}; /* lost counts from now, not from boot */
         esl_rowners_forget(&owners, (uint8_t)i);
         if (i)
             esl_store_set_radio_channel(store, (uint8_t)i, 0);
