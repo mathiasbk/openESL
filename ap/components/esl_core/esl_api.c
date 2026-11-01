@@ -262,6 +262,7 @@ static int parse_at(const esl_api_t *api, const json_t *j, int obj, uint32_t *at
 /* Fills cfg from {poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min}; missing or null = default. */
 static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
 {
+    *cfg = (esl_tag_cfg_t){0}; /* channel is not set here, and esl_store_set_cfg() compares the whole struct */
     if (parse_uint(j, obj, "poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->poll_s) < 0 ||
         parse_uint(j, obj, "max_poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->max_poll_s) < 0) {
         *msg = "poll_s and max_poll_s must be null or a whole number of seconds from 10 to 3600";
