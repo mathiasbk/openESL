@@ -347,7 +347,7 @@ function refreshMeters(res) {
   meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to your AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
-  meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
+  meters.push(["Sample text", t.n, t.max, `Bytes of text in one update to the AP (the fields share ${r.fieldSpace} bytes, one per field plus the text)`]);
   $("meters").replaceChildren(...meters.map(([name, n, max, title]) => {
     const m = document.createElement("div");
     m.className = "meter" + (n === null ? "" : n > max ? " over" : n >= max ? " near" : "");

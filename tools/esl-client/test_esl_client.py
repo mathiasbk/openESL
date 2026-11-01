@@ -241,7 +241,7 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, {"tags": [self._set(r["mac"], {k: v for k, v in r.items() if k != "mac"})
                                       for r in body["tags"]]})
         else:
-            f = body["fields"]  # text and one length byte per field share 96 bytes
+            f = body["fields"]  # as an AP with 0.9.2 or older: text and one length byte per field share 96 bytes
             if len("".join(f).encode("latin-1", "replace")) + len(f) > 96:
                 self._send(422, {"error": "text too long"})
                 return

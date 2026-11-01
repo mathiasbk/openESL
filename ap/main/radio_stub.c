@@ -65,5 +65,5 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     stub_pan = pan_id;
     stub_layouts = ls;
     /* esl_faketag_round keeps two frames and esl_radio_handle a layout name list on the stack */
-    return xTaskCreate(stub_task, "radio_stub", 6144, st, 5, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+    return xTaskCreate(stub_task, "radio_stub", 6656, st, 5, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }

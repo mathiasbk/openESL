@@ -4,13 +4,14 @@
 #include <stdint.h>
 
 /* What one tag should show: layout, flags and up to ESL_MAX_FIELDS Latin-1 text fields.
+ * The HTTP API takes and gives UTF-8; esl_text converts it to the fonts' Latin-1.
  * The AP draws it into the tag's image (esl_render, esl_image). */
 
 #include "proto.h" /* shared/proto.h */
 
 /* ESL_LAYOUT_PRICE: [name, price, subtitle]
  * ESL_LAYOUT_TEXT:  [line1, line2, line3, line4]
- * ESL_LAYOUT_FILE + n: layout n of the model's layout file, up to 6 fields
+ * ESL_LAYOUT_FILE + n: layout n of the model's layout file, up to ESL_MAX_FIELDS fields
  * ESL_LAYOUT_NAMED: what the API stores for a layout from the layout file. It
  *   names the layout; esl_render looks it up in the file for the tag's model
  *   (docs/protokoll.md part 3). */
@@ -25,9 +26,11 @@
 #define ESL_CFLAG_PRICE_HIGHLIGHT ESL_CF_PRICE_HIGHLIGHT
 #define ESL_CFLAG_FRAME ESL_CF_FRAME
 
-/* Text and one length byte per field share ESL_CONTENT_FIELD_SPACE (96) bytes,
- * the room the CONTENT message the tags used to get had: 95 bytes of text with one field, 92 with four,
- * 90 with six. ESL_MAX_TEXT is the most text any content can hold. */
+/* Text and one length byte per field share ESL_CONTENT_FIELD_SPACE (256) bytes: 255
+ * bytes of text with one field, 250 with six, 240 with sixteen. Up to 0.9.2 it was 96 bytes
+ * and 6 fields (the CONTENT message the tags used to get); content within those has the
+ * same body and content_id as then (#182). ESL_MAX_TEXT is the most text any content can
+ * hold, and the most one field can (a length byte). */
 #define ESL_MAX_TEXT ESL_MAX_TEXT_FOR(1)
 /* layout + name length + name + flags + (len + text) per field */
 #define ESL_CONTENT_BODY_MAX (2 + 1 + ESL_LAYOUT_NAME_MAX + ESL_MAX_FIELDS + ESL_MAX_TEXT)

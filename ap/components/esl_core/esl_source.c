@@ -239,8 +239,8 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
         for (const char *const *p = ty->fields; *p; p++)
             copy_str(src->fields[src->nfields++], sizeof(src->fields[0]), *p);
     } else {
-        if (tok[t].type != ESL_JSON_ARRAY || tok[t].size < 1 || tok[t].size > ESL_MAX_FIELDS)
-            return fail(c, "fields: a list of 1 to %d templates", ESL_MAX_FIELDS);
+        if (tok[t].type != ESL_JSON_ARRAY || tok[t].size < 1 || tok[t].size > ESL_SOURCE_FIELDS)
+            return fail(c, "fields: a list of 1 to %d templates", ESL_SOURCE_FIELDS);
         for (int k = t + 1, i = 0; i < tok[t].size; i++, k = tok[k].next) {
             if (!get_str(c, k, buf, sizeof(buf)))
                 return fail(c, "fields[%d]: a string of up to %d bytes", i, ESL_SOURCE_TPL_MAX);

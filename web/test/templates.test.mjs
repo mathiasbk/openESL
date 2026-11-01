@@ -79,7 +79,7 @@ test("the check refuses a broken catalog", async () => {
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9").layout.elements[0].h = 25; }, /tag\/designs\/layouts\/2\.9\.json has a layout "vare"/);
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9-bwr").layout.elements[0].color = "black"; }, /tag\/designs\/layouts\/2\.9-bwr\.json has a layout "vare"/);
   // a sample text the AP would refuse (too long for the QR code)
-  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[2] = "x".repeat(90); }, /refuse the sample text/);
+  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[2] = "x".repeat(255); }, /refuse the sample text/);
 });
 
 test("same_as reuses another model's variant", () => {

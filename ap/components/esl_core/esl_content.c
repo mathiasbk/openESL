@@ -129,20 +129,53 @@ size_t esl_content_body(const esl_content_t *c, uint8_t *out)
     return o;
 }
 
+/* The body (esl_content_body) a piece at a time, so no buffer for all of it is needed
+ * (content is up to ESL_CONTENT_BODY_MAX bytes, and this runs on the radio task's stack) */
+typedef void (*body_fn)(void *ctx, const uint8_t *p, size_t n);
+
+static void body_walk(const esl_content_t *c, body_fn fn, void *ctx)
+{
+    uint8_t b[2];
+    size_t off = 0;
+    fn(ctx, &c->layout, 1);
+    if (c->layout == ESL_LAYOUT_NAMED) {
+        size_t nl = 0;
+        while (nl < ESL_LAYOUT_NAME_MAX && c->name[nl])
+            nl++;
+        b[0] = (uint8_t)nl;
+        fn(ctx, b, 1);
+        fn(ctx, (const uint8_t *)c->name, nl);
+    }
+    fn(ctx, &c->flags, 1);
+    for (unsigned i = 0; i < c->nfields; i++) {
+        fn(ctx, &c->len[i], 1);
+        fn(ctx, &c->text[off], c->len[i]);
+        off += c->len[i];
+    }
+}
+
+static void crc_fn(void *ctx, const uint8_t *p, size_t n)
+{
+    uint32_t *crc = ctx;
+    *crc = esl_crc32_update(*crc, p, n);
+}
+
 uint32_t esl_content_id(const esl_content_t *c)
 {
-    uint8_t body[ESL_CONTENT_BODY_MAX];
-    size_t n = esl_content_body(c, body);
-    uint32_t id = esl_crc32(body, n);
+    uint32_t id = 0;
+    body_walk(c, crc_fn, &id);
     return id ? id : 1;
 }
 
 bool esl_content_equal(const esl_content_t *a, const esl_content_t *b)
 {
-    uint8_t ba[ESL_CONTENT_BODY_MAX], bb[ESL_CONTENT_BODY_MAX];
-    size_t na = esl_content_body(a, ba);
-    size_t nb = esl_content_body(b, bb);
-    return na == nb && memcmp(ba, bb, na) == 0;
+    if (a->layout != b->layout || a->flags != b->flags || a->nfields != b->nfields ||
+        (a->layout == ESL_LAYOUT_NAMED && strncmp(a->name, b->name, ESL_LAYOUT_NAME_MAX) != 0))
+        return false;
+    for (unsigned i = 0; i < a->nfields; i++)
+        if (a->len[i] != b->len[i])
+            return false;
+    return memcmp(a->text, b->text, esl_content_text_len(a)) == 0;
 }
 
 uint32_t esl_layout_name_hash(const char *name)

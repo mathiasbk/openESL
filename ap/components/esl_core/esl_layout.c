@@ -239,6 +239,35 @@ int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t 
     return i;
 }
 
+int esl_layouts_field_index(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, const char *field,
+                            size_t flen)
+{
+    /* The fields list holds at most ESL_MAX_FIELDS names: a token for the array and one each */
+    esl_jtok_t tok[ESL_MAX_FIELDS + 1];
+    char f[ESL_LAYOUT_FIELD_NAME_MAX + 1];
+    int r = -2;
+    if (!ls)
+        return -2;
+    lock(ls);
+    esl_layout_t *l = slot(ls, model);
+    int i = l ? esl_layout_bin_find(&l->bin, name, len) : -1;
+    if (i >= 0) {
+        r = -1;
+        size_t at = l->bin.fields_at[i], n = l->bin.fields_len[i];
+        if (at + n <= l->len && esl_json_parse(l->data + at, n, tok, ESL_MAX_FIELDS + 1) > 0 &&
+            tok[0].type == ESL_JSON_ARRAY) {
+            int k = 1;
+            for (unsigned j = 0; j < tok[0].size && r < 0; j++, k = tok[k].next) {
+                int fl = esl_json_str_decode(l->data + at, &tok[k], f, sizeof(f));
+                if (fl >= 0 && (size_t)fl == flen && memcmp(f, field, flen) == 0)
+                    r = (int)j;
+            }
+        }
+    }
+    unlock(ls);
+    return r;
+}
+
 size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap)
 {
     if (!ls)

@@ -334,10 +334,11 @@ static void test_content(void)
     CHECK(len == 2 && memcmp(f, "xy", 2) == 0);
     /* too long for a tag */
     esl_values_set(&v, "desc", "0123456789012345678901234567890123456789");
-    for (int i = 0; i < 3; i++)
-        strcpy(cfg[0].fields[i], "{desc}{desc}");
+    for (int i = 0; i < 4; i++)
+        strcpy(cfg[0].fields[i], "{desc}{desc}{desc}");
+    cfg[0].nfields = 4;
     CHECK(!esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
-    CHECK(HAS(err, "longer than a tag's 96 bytes"));
+    CHECK(HAS(err, "longer than a tag's 256 bytes"));
     /* the built-in text layout */
     strcpy(cfg[0].layout, "text");
     cfg[0].nfields = 1;

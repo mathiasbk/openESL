@@ -846,6 +846,8 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
                 return fail(c, "the field \"%s\" is listed twice", f);
     }
     lay.nfields = (uint8_t)T(c, fl)->size;
+    out->fields_at[c->li] = (uint16_t)T(c, fl)->start;
+    out->fields_len[c->li] = (uint16_t)(T(c, fl)->end - T(c, fl)->start);
 
     int el = esl_json_obj_get(c->js, c->tok, l, "elements");
     if (el < 0 || T(c, el)->type != ESL_JSON_ARRAY || T(c, el)->size < 1)

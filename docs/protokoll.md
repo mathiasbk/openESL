@@ -274,7 +274,7 @@ In short:
 
 | Request | What it does |
 |---|---|
-| `PUT /api/tags/{mac}` | Set the content of one tag: `{"layout":"price","fields":["Milk 1 L","24.90","NOK 24.90/L"],"price_highlight":true}`. The AP calculates `content_id` (CRC-32); the same content again is `changed:false` and the tag does not draw again |
+| `PUT /api/tags/{mac}` | Set the content of one tag: `{"layout":"price","fields":["Milk 1 L","24.90","NOK 24.90/L"],"price_highlight":true}`, or with the fields by name, `"fields":{"name":"Milk 1 L","price":"24.90"}`. Up to 16 fields sharing 256 bytes (text in UTF-8, drawn in the fonts' Latin-1, other characters as `?`). The AP calculates `content_id` (CRC-32); the same content again is `changed:false` and the tag does not draw again |
 | `PUT /api/tags` | The same for up to 50 tags, all or nothing |
 | `"at"` in either | Scheduled content: `"at":1792069200` (Unix seconds, UTC) sets the content at that time instead of now, also after an AP restart |
 | `GET`/`DELETE /api/schedule`, `DELETE /api/schedule/{mac}` | What is scheduled, with its content; remove it |
@@ -329,7 +329,7 @@ Models with the same screen (width, height and colours) can share one file (#181
 | `model` | `"2.9"` or `"1.54"`, and the same as `{model}` in the URL. Positions are checked against that screen: 296×128 or 200×200 |
 | `layouts` | 1 to 16 layouts. Layout n in this list is layout n in the compiled file; clients only see the names |
 | `name` | 1–31 of `a-z 0-9 . _ -`, starting with a letter or digit, unique in the file, not `price` or `text` |
-| `fields` | 1–6 field names (`a-z 0-9 _`, starting with a letter, at most 16), the order clients send `fields` in |
+| `fields` | 1–16 field names (`a-z 0-9 _`, starting with a letter, at most 16 characters), the order clients send `fields` in as a list; a client can also send them by these names (`"fields": {"price": "24,90"}`). An AP with 0.9.2 or older takes 6 |
 | `elements` | 1 or more, drawn in order (all rectangles, then lines, then icons, then the barcode and QR code, then all text, see `esl_render.c`) |
 | `type` | `"text"` (one field in a box), `"rect"` (a box, filled or only its border), `"barcode"` (one field as a barcode), `"line"`, `"icon"` or `"qr"` (one field as a QR code) |
 | `x`, `y`, `w`, `h` | whole pixels; `w`, `h` ≥ 1; the box must be inside the screen. An icon with `icon` takes only `x` and `y` (or `w` and `h` equal to the icon's); one with `field` needs all four. A line runs corner to corner in its box: `h` 1 is a horizontal line, `w` 1 a vertical one |

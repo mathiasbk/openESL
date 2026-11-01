@@ -103,8 +103,8 @@ A value MET did not give is empty. Rain uses a decimal comma below 10 mm.
 `updated` changes with every new forecast, so a field with it makes the tags redraw about
 once an hour even when the weather stays the same. Leave it out to spare the batteries.
 
-The text goes to the tags in Latin-1, so `°`, `æ`, `ø` and `å` work. The fields share 96
-bytes, as for any content.
+The text goes to the tags in Latin-1, so `°`, `æ`, `ø` and `å` work. The fields share 256
+bytes, as for any content, and a source has at most 6 field templates.
 
 ## The weather template
 

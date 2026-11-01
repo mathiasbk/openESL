@@ -30,7 +30,6 @@
 #define PATH_SOURCES "/api/sources"
 #define PATH_RADIOS "/api/radios"
 
-_Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
                "update the config error messages");
 _Static_assert(ESL_NTP_MAX == 63 && ESL_TZ_MAX == 63, "update the ntp and tz error messages");
@@ -286,12 +285,65 @@ static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **
 
 static int text_too_long(char *msg)
 {
-    snprintf(msg, MSG_MAX, "text too long: the fields share 96 bytes, one per field plus the text after "
-                           "Latin-1 conversion (92 bytes of text with four fields, 90 with six)");
+    snprintf(msg, MSG_MAX, "text too long: the fields share %d bytes, one per field plus the text after "
+                           "Latin-1 conversion (%d bytes of text with one field, %d with six), at most %d in one field",
+             ESL_CONTENT_FIELD_SPACE, ESL_MAX_TEXT_FOR(1), ESL_MAX_TEXT_FOR(6), ESL_MAX_TEXT);
     return 422;
 }
 
-/* Fills c from {layout, fields, price_highlight, frame} for the tag mac.
+/* The names of the built-in layouts' fields, for "fields" as an object */
+static const char *const price_field_names[] = {"name", "price", "subtitle", NULL};
+static const char *const text_field_names[] = {"line1", "line2", "line3", "line4", NULL};
+
+/* The index of the field called key (klen bytes, UTF-8) in content c's layout, for the tag
+ * mac: in the layout file for its model, or, while the model is not known, in every file that
+ * has the layout (they must agree). Returns the index, or -1 with msg set. */
+static int field_by_name(const esl_api_t *api, uint64_t mac, const esl_content_t *c, const char *key, size_t klen,
+                         char *msg)
+{
+    if (c->layout != ESL_LAYOUT_NAMED) {
+        const char *const *names = c->layout == ESL_LAYOUT_PRICE ? price_field_names : text_field_names;
+        for (int i = 0; names[i]; i++)
+            if (strlen(names[i]) == klen && memcmp(names[i], key, klen) == 0)
+                return i;
+        snprintf(msg, MSG_MAX, "layout %s has no field \"%.*s\" (it has %s)", c->layout == ESL_LAYOUT_PRICE ? "price" : "text",
+                 (int)(klen > 32 ? 32 : klen), key,
+                 c->layout == ESL_LAYOUT_PRICE ? "name, price, subtitle" : "line1, line2, line3, line4");
+        return -1;
+    }
+    esl_tag_t t;
+    uint8_t model = ESL_MODEL_UNKNOWN;
+    size_t nl = strlen(c->name);
+    if (esl_store_get(api->store, mac, &t) && t.seen && esl_model_name(t.model))
+        model = t.model;
+    int found = -2;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+        if (model != ESL_MODEL_UNKNOWN && m != model)
+            continue;
+        int i = esl_layouts_field_index(api->layouts, m, c->name, nl, key, klen);
+        if (i == -2)
+            continue;
+        if (i == -1) {
+            snprintf(msg, MSG_MAX, "layout %s for model %s has no field \"%.*s\"", c->name, esl_model_name(m),
+                     (int)(klen > 32 ? 32 : klen), key);
+            return -1;
+        }
+        if (found >= 0 && i != found) {
+            snprintf(msg, MSG_MAX, "the field \"%.*s\" is not in the same place in layout %s for every model, and this "
+                     "tag's model is not known yet: send the fields as a list", (int)(klen > 32 ? 32 : klen), key, c->name);
+            return -1;
+        }
+        found = i;
+    }
+    if (found < 0) {
+        snprintf(msg, MSG_MAX, "layout %s has no field \"%.*s\"", c->name, (int)(klen > 32 ? 32 : klen), key);
+        return -1;
+    }
+    return found;
+}
+
+/* Fills c from {layout, fields, price_highlight, frame} for the tag mac. fields is a list
+ * (by position) or an object keyed by the layout's field names (#182).
  * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
 static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
 {
@@ -327,52 +379,89 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
         max_fields = (unsigned)esl_content_max_fields(layout);
     }
 
+    /* The token of each field's text, in the layout's order; -1 for none (an empty field) */
+    int vt[ESL_MAX_FIELDS];
+    unsigned nf = 0;
     int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
-    if (arr < 0 || j->tok[arr].type != ESL_JSON_ARRAY) {
-        snprintf(msg, MSG_MAX, "fields must be an array of strings");
-        return 422;
-    }
-    if (j->tok[arr].size > max_fields) {
-        if (layout == ESL_LAYOUT_NAMED)
-            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", c->name, max_fields);
-        else
-            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", layout == ESL_LAYOUT_PRICE ? "price" : "text",
-                     max_fields);
+    if (arr >= 0 && j->tok[arr].type == ESL_JSON_ARRAY) {
+        if (j->tok[arr].size > max_fields) {
+            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields",
+                     layout == ESL_LAYOUT_NAMED ? c->name : layout == ESL_LAYOUT_PRICE ? "price" : "text", max_fields);
+            return 422;
+        }
+        nf = j->tok[arr].size;
+        for (unsigned k = 0, i = (unsigned)arr + 1; k < nf; k++, i = j->tok[i].next)
+            vt[k] = (int)i;
+    } else if (arr >= 0 && j->tok[arr].type == ESL_JSON_OBJECT) {
+        for (unsigned k = 0; k < ESL_MAX_FIELDS; k++)
+            vt[k] = -1;
+        for (unsigned p = 0, i = (unsigned)arr + 1; p < j->tok[arr].size; p++, i = j->tok[i + 1].next) {
+            char key[ESL_LAYOUT_FIELD_NAME_MAX + 1];
+            int kl = esl_json_str_decode(j->js, &j->tok[i], key, sizeof(key));
+            if (kl == -1) {
+                snprintf(msg, MSG_MAX, "invalid string escape");
+                return 400;
+            }
+            if (kl < 0)
+                kl = (int)sizeof(key); /* longer than any field name: not found */
+            int f = field_by_name(api, mac, c, kl < (int)sizeof(key) ? key : &j->js[j->tok[i].start],
+                                  kl < (int)sizeof(key) ? (size_t)kl : (size_t)(j->tok[i].end - j->tok[i].start), msg);
+            if (f < 0)
+                return 422;
+            if (vt[f] >= 0) {
+                snprintf(msg, MSG_MAX, "the field \"%s\" is given twice", key);
+                return 422;
+            }
+            vt[f] = (int)i + 1;
+            if ((unsigned)f + 1 > nf)
+                nf = (unsigned)f + 1;
+        }
+    } else {
+        snprintf(msg, MSG_MAX, "fields must be a list of strings, or an object of strings by field name");
         return 422;
     }
 
     /* the fields as Latin-1, back to back; empty fields at the end are dropped
-       before they go into c, so they cost no length bytes */
+       before they go into c, so they cost no length bytes. One field's UTF-8 (up to 4
+       bytes a character) is on the heap: the HTTP task's stack is 8 KB */
     uint8_t text[ESL_MAX_TEXT];
     size_t len[ESL_MAX_FIELDS] = {0}, used = 0;
-    unsigned nf = (unsigned)j->tok[arr].size;
-    int i = arr + 1;
-    for (unsigned k = 0; k < nf; k++) {
-        const esl_jtok_t *t = &j->tok[i];
-        char utf8[ESL_MAX_TEXT * 4 + 4];
+    const size_t umax = ESL_MAX_TEXT * 4 + 4;
+    char *utf8 = nf ? malloc(umax) : NULL;
+    if (nf && !utf8) {
+        snprintf(msg, MSG_MAX, "out of memory");
+        return 500;
+    }
+    int st = 0;
+    for (unsigned k = 0; k < nf && !st; k++) {
+        const esl_jtok_t *t = vt[k] >= 0 ? &j->tok[vt[k]] : NULL;
         size_t n = 0;
         bool overflow = false;
 
-        if (t->type == ESL_JSON_STRING) {
-            int ul = esl_json_str_decode(j->js, t, utf8, sizeof(utf8));
+        if (t && t->type == ESL_JSON_STRING) {
+            int ul = esl_json_str_decode(j->js, t, utf8, umax);
             if (ul == -1) {
                 snprintf(msg, MSG_MAX, "invalid string escape");
-                return 400;
+                st = 400;
+                break;
             }
             if (ul >= 0)
                 n = esl_utf8_to_latin1(utf8, (size_t)ul, text + used, sizeof(text) - used, &overflow);
             else
                 overflow = true;
-        } else if (t->type != ESL_JSON_NULL) {
-            snprintf(msg, MSG_MAX, "fields must be an array of strings");
-            return 422;
+        } else if (t && t->type != ESL_JSON_NULL) {
+            snprintf(msg, MSG_MAX, "fields must be a list of strings, or an object of strings by field name");
+            st = 422;
+            break;
         }
-        if (overflow)
-            return text_too_long(msg);
+        if (overflow || n > ESL_MAX_TEXT)
+            st = text_too_long(msg);
         len[k] = n;
         used += n;
-        i = t->next;
     }
+    free(utf8);
+    if (st)
+        return st;
     while (nf > 0 && len[nf - 1] == 0)
         nf--;
     used = 0;
@@ -1854,11 +1943,11 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
         esl_sb_printf(out,
                       "\"board\":\"%s\",\"limits\":{\"runs\":%u,\"rects\":%u,\"lines\":%u,\"icons\":%u,"
                       "\"barcodes\":%u,\"qrs\":%u,\"fileBytes\":%u,\"jsonBytes\":%u,\"fields\":%u,"
-                      "\"fixedTextBytes\":%u},\"layouts\":[",
+                      "\"fixedTextBytes\":%u,\"textBytes\":%u},\"layouts\":[",
                       ESL_BOARD, (unsigned)esl_limits.runs, (unsigned)esl_limits.rects, (unsigned)esl_limits.lines,
                       (unsigned)esl_limits.icons, (unsigned)ESL_DRAW_MAX_BARCODES, (unsigned)ESL_DRAW_MAX_QR,
                       (unsigned)esl_limits.file_bytes, (unsigned)esl_limits.json_bytes, (unsigned)ESL_MAX_FIELDS,
-                      (unsigned)ESL_LBIN_TEXT_LEN_MAX);
+                      (unsigned)ESL_LBIN_TEXT_LEN_MAX, (unsigned)ESL_CONTENT_FIELD_SPACE);
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
             if (m > 1)
                 esl_sb_putc(out, ',');

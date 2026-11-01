@@ -1,6 +1,6 @@
 # Home Assistant: 3D printer status on a tag
 
-The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields`. This page shows the way without it; the layouts, limits and battery advice hold for both.
+The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields` (as a list; fields by name need the `rest_command` for now). This page shows the way without it; the layouts, limits and battery advice hold for both.
 
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
 
@@ -90,7 +90,19 @@ The layout `3d-printer` is the template "3D printer status" in the designer's te
 
 Layout files have no bar element, so the bar is an inverted text field of spaces: the black box hugs the text. Nothing in the layout is tied to one printer, so one layout serves every printer and each printer has its own automation and tag.
 
-The AP takes at most 90 bytes of text in all for the six fields, and a full bar uses 31 of them (20 on the 1.54"). The rest is enough for `left`, `done` and a short `printer` and `name`; a longer text makes the AP refuse the update, and the tag keeps its old screen. So cut a file name short, as in the Moonraker example below.
+The AP takes at most 250 bytes of text in all for the six fields (90 on an AP with 0.9.2 or older), and a full bar uses 31 of them (20 on the 1.54"). On an older AP the rest is just enough for `left`, `done` and a short `printer` and `name`; a longer text makes the AP refuse the update, and the tag keeps its old screen. So cut a file name short, as in the Moonraker example below.
+
+On an AP newer than 0.9.2, `fields` can also name the fields, so the automation keeps working when the layout's field order changes or you switch the tag to another layout with the same field names. A field you leave out is empty. With the `rest_command` above, pass a mapping instead of a list:
+
+```yaml
+      fields:
+        printer: "{{ printer }}"
+        pct: "{{ pct }}"
+        left: "Left {{ left // 60 }} h {{ left % 60 }} min"
+        bar: "{{ ' ' * (pct | int * 31 // 100) }}"
+```
+
+A name the layout does not have gives `422` with the name in the message. For now this works with the `rest_command` only: the integration's `openesl.send` still takes `fields` as a list.
 
 To put it on the AP, open the [Design](https://mathiasbk.github.io/openESL/#design) tab, pick the tag's model, choose **+ From template**, then **3D printer** and **3D printer status**, and add it. The designer checks that your layout file still fits the AP with it, and **Send to your AP…** (or **Save to AP** on the AP's own designer) uploads the file. It takes 176 bytes compiled; the AP's limits are in `GET /api/layouts`, so delete example layouts no tag uses if it does not fit. Without the designer: copy the variant's `layout` from the template file into the AP's file for the model (`GET /api/layouts/2.9`, add it to `layouts`, `PUT` it back, or `esl-client layouts` and `layout-put 2.9 FILE`).
 
@@ -199,7 +211,7 @@ actions:
         {%- endif -%}
 ```
 
-To show the file name in the band, put `states('sensor.snapmaker_filename')[:15]` in place of the `''` after `printer`. Keep the `[:15]`: a whole file name such as `Benchy_0.2mm_PLA_MK4.gcode` goes over the AP's 90 bytes near the end of the print, and the tag then stops updating. With a printer name longer than `Snapmaker`, cut the file name shorter.
+To show the file name in the band, put `states('sensor.snapmaker_filename')[:15]` in place of the `''` after `printer`. Keep the `[:15]`: a whole file name such as `Benchy_0.2mm_PLA_MK4.gcode` goes over the 90 bytes of an AP with 0.9.2 or older near the end of the print, and the tag then stops updating (a newer AP takes 250). With a printer name longer than `Snapmaker`, cut the file name shorter.
 
 ## A picture instead of text
 
@@ -234,7 +246,7 @@ A picture costs about 5 KB of the AP's NVS per tag (less for one with large area
 
 ## Limits and timing
 
-- **Text:** 4 fields (lines), 92 characters in all after conversion to Latin-1 (96 bytes with the length bytes, [protokoll.md](protokoll.md) part 1). æøå work. Over the limit the AP answers `422` and the tag keeps what it shows.
+- **Text:** 4 fields (lines), 252 characters in all after conversion to Latin-1 (256 bytes with the length bytes; 92 and 96 on an AP with 0.9.2 or older; [protokoll.md](protokoll.md) part 2). æøå work; characters the fonts do not have become `?`. Over the limit the AP answers `422` and the tag keeps what it shows.
 - **Line width:** about 20 characters per line on the 2.9" before the text drops to a smaller font or is cut with "…". The 1.54" wraps to two lines per field.
 - **When it shows:** the tag polls the AP every 60 s, so a change shows within about a minute plus drawing.
 - **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): a new screen costs power (the image download and the refresh), the same text again does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
