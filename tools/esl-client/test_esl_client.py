@@ -31,6 +31,7 @@ class FakeAp(BaseHTTPRequestHandler):
     ota_rollback = False
     tagfw = {}
     images = {}
+    fonts = None   # name -> font file; None: an AP without font files (404)
 
     def log_message(self, *a):
         pass
@@ -97,6 +98,12 @@ class FakeAp(BaseHTTPRequestHandler):
                              "layouts": [{"model": m, "version": 1, "size": 1, "binary_size": 1,
                                           "layouts": [x["name"] for x in f["layouts"]]}
                                          for m, f in FakeAp.layouts.items()]})
+        elif self.path == "/api/fonts" and FakeAp.fonts is not None:
+            self._send(200, {"max_fonts": 8, "max_bytes": 32768, "bytes": 0, "builtin": [],
+                             "fonts": [{"name": n, "slot": i, "used_by": []} for i, n in enumerate(FakeAp.fonts)]})
+        elif self.path.startswith("/api/fonts/") and FakeAp.fonts is not None:
+            f = FakeAp.fonts.get(self.path.rsplit("/", 1)[1])
+            self._send(200 if f else 404, f or {"error": "no font file"})
         elif self.path.startswith("/api/layouts/"):
             f = FakeAp.layouts.get(self.path.rsplit("/", 1)[1])
             self._send(200 if f else 404, f or {"error": "no layout file"})
@@ -197,8 +204,19 @@ class FakeAp(BaseHTTPRequestHandler):
                            "hostname": body.get("hostname") or FakeAp.wifi.get("hostname", "openesl"),
                            "networks": []}
             self._send(200, FakeAp.wifi)
+        elif self.path.startswith("/api/fonts/") and FakeAp.fonts is not None:
+            if body.get("name") == "full":
+                return self._send(507, {"error": "no room for the font file"})
+            FakeAp.fonts[self.path.rsplit("/", 1)[1]] = body
+            self._send(200, {"font": {"name": body["name"]}, "replaced": False, "redrawn": [],
+                             "content_errors": [], "content_errors_total": 0})
         elif self.path.startswith("/api/layouts/"):
             model = self.path.rsplit("/", 1)[1]
+            fonts = {f for x in body.get("layouts", []) for e in x.get("elements", []) for f in e.get("fonts", [])}
+            if any(f not in ("small", "medium", "large", "mid", "text20", "price44") and f not in (FakeAp.fonts or {})
+                   for f in fonts):
+                self._send(422, {"error": "unknown font"})
+                return
             if body.get("model") != model:
                 self._send(422, {"error": "the file is for another model"})
                 return
@@ -277,6 +295,7 @@ class ClientTest(unittest.TestCase):
         FakeAp.images = {}
         FakeAp.wifi = {}
         FakeAp.tagfw = {}
+        FakeAp.fonts = None
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -550,6 +569,47 @@ class ClientTest(unittest.TestCase):
                 f.write("{\"format\": \"something\"}")
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1)
+
+    def test_backup_and_restore_font_files(self):
+        # A layout file that draws with a font file (#177): the font goes in the backup and back first
+        font = {"format": "esl-font", "version": 1, "name": "text28", "height": 10, "baseline": 8,
+                "first": 65, "last": 65, "widths": [1], "bitmap": "/8A="}
+        layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
+                  "layouts": [{"name": "s", "fields": ["a"], "elements": [{"type": "text", "field": "a", "x": 0,
+                                                                            "y": 0, "w": 10, "h": 20,
+                                                                            "fonts": ["text28"]}]}]}
+        FakeAp.fonts = {"text28": font}
+        FakeAp.layouts["2.9"] = layout
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ap.json")
+            self.assertEqual(self.run_cli("backup", path)[0], 0)
+            with open(path, encoding="utf-8") as f:
+                b = json.load(f)
+            self.assertEqual(b["fonts"], {"text28": font})
+            self.setUp()
+            FakeAp.fonts = {}
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("font files: text28", out)
+            self.assertEqual((FakeAp.fonts, FakeAp.layouts), ({"text28": font}, {"2.9": layout}))
+            paths = [c[0] for c in FakeAp.calls]
+            self.assertLess(paths.index("/api/fonts/text28"), paths.index("/api/layouts/2.9"))
+            # a font the AP turns down is a warning; the rest is still restored
+            b["fonts"] = {"full": dict(font, name="full"), **b["fonts"]}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(b, f)
+            self.setUp()
+            FakeAp.fonts = {}
+            rc, out = self.run_cli("restore", path)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("warning: font file full was not restored (HTTP 507", out)
+            self.assertEqual(FakeAp.layouts, {"2.9": layout})
+            # an AP without font files has no "fonts" in its backup, as before
+            self.setUp()
+            FakeAp.layouts["2.9"] = dict(layout, layouts=[])
+            self.run_cli("backup", path)
+            with open(path, encoding="utf-8") as f:
+                self.assertNotIn("fonts", json.load(f))
 
     def test_restore_backup_from_091(self):
         # 0.9.0 and 0.9.1 put the radio key (and "only paired tags") in the backup; this AP

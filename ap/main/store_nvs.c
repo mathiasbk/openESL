@@ -17,7 +17,9 @@
  * "c<slot>"), and the run-time default interval is "poll_s" (u16) in namespace
  * "cfg", next to ssid/pass/token; without it the menuconfig value is used.
  * Layout files live in namespace "esl_layouts", one blob per model (key
- * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex.
+ * "m<model>", ESL_MODEL_* from shared/proto.h). Both use the same mutex. Font files
+ * (esl_font.h) live in namespace "esl_fonts", one blob per slot (key "f<slot>"), and are
+ * loaded before the layout files, which may draw with them.
  *
  * The content is not kept in RAM: the store reads the blob back when it draws a
  * tag's image or the API shows it (load_content). A picture a client sent (PUT
@@ -31,6 +33,7 @@
 static const char *TAG = "store";
 static const char *NS_TAGS = "esl_tags";
 static const char *NS_LAYOUTS = "esl_layouts";
+static const char *NS_FONTS = "esl_fonts";
 
 static SemaphoreHandle_t mutex;
 static SemaphoreHandle_t save_mutex; /* esl_store_ops_t save_lock: content and settings writes in order */
@@ -336,6 +339,64 @@ static void layout_erase(void *ctx, uint8_t model)
     blob_write(NS_LAYOUTS, key, NULL, 0);
 }
 
+static void font_key(unsigned slot, char key[8])
+{
+    snprintf(key, 8, "f%u", slot);
+}
+
+/* A font file leaves IMAGE_RESERVE_ENTRIES free in NVS, as a picture does */
+static bool font_save(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    char key[8];
+    font_key(slot, key);
+    if (data) {
+        nvs_stats_t stats;
+        size_t old = 0;
+        nvs_handle_t h;
+        if (nvs_get_stats(NULL, &stats) != ESP_OK)
+            return false;
+        size_t avail = stats.free_entries;
+        if (nvs_open(NS_FONTS, NVS_READONLY, &h) == ESP_OK) {
+            if (nvs_get_blob(h, key, NULL, &old) == ESP_OK)
+                avail += (old + 31) / 32 + 2;
+            nvs_close(h);
+        }
+        if (avail < (len + 31) / 32 + 2 + IMAGE_RESERVE_ENTRIES) {
+            ESP_LOGW(TAG, "no room for a font file of %u bytes: NVS keeps %u KB for other content", (unsigned)len,
+                     (unsigned)(IMAGE_RESERVE_ENTRIES * 32 / 1024));
+            return false;
+        }
+    }
+    return blob_write(NS_FONTS, key, data, len);
+}
+
+static void fonts_restore(esl_layouts_t *ls)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS_FONTS, NVS_READONLY, &h) != ESP_OK)
+        return;
+    /* one font at a time, its own size: one 32 KB block may not be free on a C6 */
+    for (unsigned slot = 0; slot < ESL_FONT_USER_MAX; slot++) {
+        char key[8];
+        size_t len = 0;
+        font_key(slot, key);
+        if (nvs_get_blob(h, key, NULL, &len) != ESP_OK || !len)
+            continue;
+        uint8_t *buf = malloc(len);
+        if (!buf) {
+            ESP_LOGE(TAG, "no memory for font file %u (%u bytes): layouts that use it are skipped", slot, (unsigned)len);
+            continue;
+        }
+        if (nvs_get_blob(h, key, buf, &len) == ESP_OK && esl_layouts_font_restore(ls, slot, buf, len))
+            ESP_LOGI(TAG, "font file %u loaded (%u bytes)", slot, (unsigned)len);
+        else
+            ESP_LOGW(TAG, "ignoring bad stored font file %u", slot);
+        free(buf);
+    }
+    nvs_close(h);
+}
+
 /* Calls fn for every blob in namespace esl_tags whose key is prefix + slot number. */
 static void each_slot(nvs_handle_t h, char prefix, void (*fn)(nvs_handle_t h, const char *key, unsigned slot, void *arg),
                       void *arg)
@@ -462,10 +523,11 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 
 esp_err_t layouts_nvs_init(esl_layouts_t *ls)
 {
-    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase, NULL};
+    static const esl_layout_ops_t ops = {NULL, lock, unlock, layout_save, layout_erase, NULL, font_save};
     if (!mutex)
         return ESP_ERR_INVALID_STATE; /* store_nvs_init() creates it */
     esl_layouts_init(ls, &ops);
+    fonts_restore(ls); /* first: a layout file may draw with them */
 
     nvs_handle_t h;
     if (nvs_open(NS_LAYOUTS, NVS_READONLY, &h) != ESP_OK)

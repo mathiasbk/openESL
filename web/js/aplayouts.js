@@ -11,6 +11,8 @@ import { MODELS, layoutModel, layoutUsers, modelName, modelLabel } from "./model
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
 import { variantFor, addTemplate, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
+import { apFonts, checkFontFile } from "./apfonts.js";
+import { makeFont, loadFontFile, previewFont, hasFont, MAX_FILE } from "./fontmaker.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
@@ -53,6 +55,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   let busy = false;
   let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
+  const fonts = apFonts();
+  let fontState = { supported: false, info: null, files: {}, slots: {} };   // the AP's font files (js/apfonts.js)
   const host = sameOrigin ? location.host : "openesl.local";
   const canEdit = !!$("tab-design");
 
@@ -78,6 +82,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     if (file) {
       // The renderer is shared with the designer: check with this AP's limits each time
       r.setLimits?.(last?.layouts?.limits || null);
+      r.setFonts?.(fontState.files, fontState.slots);   // and with its font files, which the file may name
       const res = r.loadLayouts(JSON.stringify(file));
       if (!res.ok) return null;
     }
@@ -196,8 +201,14 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       say("Could not read the AP's layouts: " + e.message, "error");
       return;
     }
+    try {
+      fontState = await fonts.read(client());
+    } catch (e) {
+      say("Could not read the AP's font files: " + e.message, "error");
+    }
+    drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, t.content_error]), !!cat, sel, busy]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -441,6 +452,174 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     });
   }
 
+  // The font files on the AP (#177): which layout files draw with each, and a way to add one
+  function drawFonts() {
+    const box = $("lay-fonts");
+    if (!box) return;
+    box.hidden = !fontState.supported;
+    if (!fontState.supported) return;
+    const i = fontState.info;
+    $("lay-fonts-space").textContent = `${(i.fonts || []).length} of ${i.max_fonts} · ${(i.bytes / 1024).toFixed(1)} of ${(i.max_bytes / 1024).toFixed(0)} KB`;
+    const rows = (i.fonts || []).map((f) => {
+      const li = el("li");
+      li.append(el("b", "", f.name), " ", el("span", "muted small",
+        `${f.height} px · ${f.characters} characters` + (f.source ? " · " + f.source : "") +
+        (f.used_by?.length ? ` · used by the ${f.used_by.map(modelName).join(", ")} layouts` : " · not used yet")));
+      const del = button("Delete", () => removeFont(f.name),
+        f.used_by?.length ? "A layout file draws with it: change those layouts first" : "Delete the font file from the AP");
+      del.disabled = busy || !!f.used_by?.length;
+      li.append(" ", del);
+      return li;
+    });
+    if (!rows.length) rows.push(el("li", "muted", "None yet: the AP draws with its built-in fonts only."));
+    $("lay-font-list").replaceChildren(...rows);
+    $("lay-font-add").disabled = busy;
+    $("lay-font-make").disabled = busy;
+    if ($("fm-send")) $("fm-send").disabled = busy || !made;
+  }
+
+  function addFont(text) {
+    return run("Sending the font file", async () => {
+      let file = text;
+      if (typeof text === "string") {
+        try {
+          file = JSON.parse(text);
+        } catch {
+          throw new Error("The file is not JSON: pick a font file made here (Make a font…) or by tag/tools/gen_font.py --file.");
+        }
+      }
+      const bad = checkFontFile(file);
+      if (bad) throw new Error("The file is " + bad + ".");
+      const r = await fonts.put(client(), file);
+      const again = r.redrawn?.length ? ` The ${r.redrawn.map(modelName).join(", ")} layouts that use it are drawn again with it.` : "";
+      return [`"${file.name}" is on the AP${r.replaced ? " in place of the old one" : ""}: layouts can name it in their fonts.` +
+        again + unfit(r), unfit(r) ? "error" : "ok"];
+    });
+  }
+
+  function removeFont(name) {
+    if (!confirm(`Delete the font file "${name}" from the AP?`)) return;
+    return run(`Deleting "${name}"`, async () => {
+      await fonts.remove(client(), name);
+      return [`Deleted the font file "${name}".`, "ok"];
+    });
+  }
+
+  if ($("lay-font-add")) {
+    $("lay-font-add").onclick = () => $("lay-font-file").click();
+    $("lay-font-file").onchange = async (ev) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (f) await addFont(await f.text());
+    };
+  }
+
+  // Make a font (js/fontmaker.js): the browser draws a font on this computer, or a font file,
+  // into a font file, with a preview of what the tag shows, and sends it to the AP
+  let made = null;          // the font file made from the form, null when the form has an error
+  let picked = null;        // { family, file } of a font file picked in the form
+  let makeTimer = 0;
+  const fm = (id) => $("fm-" + id);
+  function makeNow() {
+    made = null;
+    const info = fm("info");
+    try {
+      const sel = fm("family").value;
+      fm("other-l").hidden = sel !== "other";
+      fm("file-l").hidden = sel !== "file";
+      fm("custom-l").hidden = fm("chars").value !== "custom";
+      let family = sel, source = "";
+      if (sel === "file") {
+        if (!picked) throw new Error("Pick a font file.");
+        family = picked.family;
+        source = picked.file;
+      } else if (sel === "other") {
+        family = fm("other").value.trim();
+        if (!family) throw new Error("Write the name of a font on this computer.");
+        if (!hasFont(family)) throw new Error(`This computer has no font called "${family}" (or the browser may not use it).`);
+        source = family;
+      } else source = "browser " + sel;
+      const name = fm("name").value.trim();
+      const bad = checkFontFile({ format: "esl-font", name });
+      if (bad) throw new Error("The name: " + bad.replace(/^its name /, "") + ".");
+      const weight = fm("weight").value;
+      const file = makeFont({
+        name, family, weight, height: +fm("height").value, size: +fm("size").value || 0,
+        chars: fm("chars").value === "custom" ? fm("custom").value : fm("chars").value,
+      });
+      file.source = `${source}, ${weight}, ${file._made.size} px`.replace(/[^\x20-\x7e]/g, "?").slice(0, 63);
+      const p = previewFont(fm("canvas"), file, fm("sample").value || "Aa", file.height > 36 ? 1 : 2);
+      if (!fm("size").value) fm("size").placeholder = `auto (${file._made.size})`;
+      const n = file.widths.filter((w) => w).length;
+      const kb = (p.blob / 1024).toFixed(1);
+      const list = (a) => a.slice(0, 12).join(" ") + (a.length > 12 ? " …" : "");
+      const { clipped, accents } = file._made;
+      const clip = (clipped.length ? ` The tops or bottoms of ${list(clipped)} are cut off: make it taller or the letters smaller.` : "") +
+        (accents.length && !clipped.length ? ` Tall accents (${list(accents)}) reach a little out of it at the top, as in the built-in fonts.` : "");
+      const room = fontState.info ? fontState.info.max_bytes - fontState.info.bytes + ((fontState.info.fonts || []).find((f) => f.name === name)?.bytes || 0) : Infinity;
+      const full = p.json > MAX_FILE ? ` The file is ${(p.json / 1024).toFixed(1)} KB, more than the ${MAX_FILE / 1024} KB the AP takes in one font file: fewer characters or a smaller height.`
+        : p.blob > room ? ` That is more than the ${(room / 1024).toFixed(1)} KB the AP has left: fewer characters or a smaller height.` : "";
+      info.textContent = `"${name}": ${file.height} px high, ${n} characters, ${kb} KB.` + clip + full;
+      info.className = "hint" + (full ? " error" : "");
+      made = full ? null : file;
+    } catch (e) {
+      info.textContent = e.message;
+      info.className = "hint error";
+      const c = fm("canvas");
+      c.width = c.height = 0;
+    }
+    fm("send").disabled = busy || !made;
+    fm("save").disabled = !made;
+  }
+  const makeSoon = () => {
+    clearTimeout(makeTimer);
+    makeTimer = setTimeout(makeNow, 150);
+  };
+  if ($("lay-fm")) {
+    $("lay-font-make").onclick = () => {
+      $("lay-fm").hidden = !$("lay-fm").hidden;
+      if (!$("lay-fm").hidden) {
+        makeNow();
+        fm("name").focus();
+      }
+    };
+    for (const id of ["name", "other", "height", "size", "custom", "sample"]) fm(id).oninput = makeSoon;
+    for (const id of ["weight", "chars"]) fm(id).onchange = makeNow;
+    fm("family").onchange = () => {
+      if (fm("family").value === "file" && !picked) fm("file").click();
+      makeNow();
+    };
+    fm("file").onchange = async (ev) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (!f) return;
+      try {
+        picked = { family: await loadFontFile(f), file: f.name };
+        fm("family").value = "file";
+        fm("pick").textContent = f.name;
+      } catch (e) {
+        picked = null;
+        say(e.message, "error");
+      }
+      makeNow();
+    };
+    fm("pick").onclick = () => fm("file").click();
+    fm("send").onclick = async () => {
+      makeNow();
+      if (made) await addFont(made);
+    };
+    fm("save").onclick = () => {
+      makeNow();
+      if (!made) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(made)], { type: "application/json" }));
+      a.download = made.name + ".json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+    fm("close").onclick = () => ($("lay-fm").hidden = true);
+  }
+
   // The designer of this page opens the AP's file with this layout picked (js/editor.js)
   function edit(name) {
     const file = files[model]?.file;
@@ -455,6 +634,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     for (const k of Object.keys(files)) delete files[k];
     for (const k of Object.keys(shown)) delete shown[k];
     if ($("lay-card")) $("lay-card").hidden = true;
+    fontState = { supported: false, info: null, files: {}, slots: {} };
+    if ($("lay-fonts")) $("lay-fonts").hidden = true;
     say("");
   }
 

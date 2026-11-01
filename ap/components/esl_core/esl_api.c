@@ -19,6 +19,7 @@
 
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
+#define PATH_FONTS "/api/fonts"
 #define PATH_CONFIG "/api/config"
 #define PATH_WIFI "/api/wifi"
 #define PATH_TIME "/api/time"
@@ -1746,6 +1747,107 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
     return api_error(out, 405, "method not allowed");
 }
 
+/* ---- font files (esl_font.h, #177) --------------------------------------------- */
+
+static int put_font(const esl_api_t *api, const char *name, const char *body, size_t len, esl_sb_t *out)
+{
+    char err[ESL_LAYOUT_ERR_MAX + 64];
+    if (!body || len == 0)
+        return api_error(out, 400, "missing font file (JSON: Make a font in the dashboard, or tag/tools/gen_font.py --file)");
+    if (len > ESL_API_MAX_BODY) {
+        snprintf(err, sizeof(err), "font file too large (max %u bytes: fewer characters or a smaller height)",
+                 (unsigned)ESL_API_MAX_BODY);
+        return api_error(out, 413, err);
+    }
+    /* Not JSON or not an object: 400, as for the other endpoints (a file with more values
+       than a font has is left to esl_font_from_json, which says so) */
+    esl_jtok_t *tok = malloc(sizeof(*tok) * 320);
+    if (!tok)
+        return api_error(out, 500, "out of memory");
+    int nt = esl_json_parse(body, len, tok, 320);
+    bool object = nt > 0 && tok[0].type == ESL_JSON_OBJECT;
+    free(tok);
+    if (nt < 0 && nt != ESL_JSON_ERR_NOMEM)
+        return api_error(out, 400, "invalid JSON");
+    if (nt > 0 && !object)
+        return api_error(out, 400, "a font file must be a JSON object");
+    esl_ufont_t *f = esl_font_from_json(body, len, name, err, sizeof(err));
+    if (!f)
+        return api_error(out, 422, err);
+    unsigned models;
+    bool replaced;
+    int status = esl_layouts_font_put(api->layouts, f, &models, &replaced, err, sizeof(err));
+    if (status)
+        return api_error(out, status, err);
+    esl_sb_puts(out, "{\"font\":");
+    int s = esl_font_slot_of(name, strlen(name));
+    if (s >= 0)
+        esl_font_write_info(esl_font_slot((unsigned)s), out, false);
+    else
+        esl_sb_puts(out, "null");
+    esl_sb_printf(out, ",\"replaced\":%s,\"redrawn\":[", replaced ? "true" : "false");
+    unsigned n = 0;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
+        if (models & (1u << (m - 1)))
+            esl_sb_printf(out, "%s\"%s\"", n++ ? "," : "", esl_model_name(m));
+    /* A file compiled again may no longer fit some tags' content (a number now too wide) */
+    esl_sb_puts(out, "],\"content_errors\":[");
+    unfit_list_t ul = {out, 0};
+    unsigned bad = 0;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
+        if (models & (1u << (m - 1)))
+            bad += esl_store_check_layout(api->store, api->layouts, m, unfit_tag, &ul);
+    esl_sb_printf(out, "],\"content_errors_total\":%u}", bad);
+    return 200;
+}
+
+static int handle_fonts(const esl_api_t *api, const char *method, const char *uri, size_t plen,
+                        const char *body, size_t body_len, esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_FONTS) - 1;
+    if (plen == base || (plen == base + 1 && uri[base] == '/')) {
+        if (strcmp(method, "GET") != 0)
+            return api_error(out, 405, "method not allowed");
+        esl_sb_printf(out, "{\"max_fonts\":%u,\"max_bytes\":%u,\"bytes\":%u,\"builtin\":", (unsigned)ESL_FONT_USER_MAX,
+                      (unsigned)ESL_FONT_MAX_BYTES, (unsigned)esl_font_bytes());
+        esl_font_write_builtin(out);
+        esl_sb_puts(out, ",\"fonts\":");
+        esl_layouts_font_list(api->layouts, out);
+        esl_sb_putc(out, '}');
+        return 200;
+    }
+    size_t nl = plen - base - 1;
+    if (nl > 0 && uri[base + nl] == '/')
+        nl--;
+    const char *np = &uri[base + 1];
+    if (nl > ESL_FONT_NAME_MAX || !esl_font_name_ok(np, nl))
+        return esl_font_find(np, nl) >= 0
+                   ? api_error(out, strcmp(method, "GET") == 0 ? 404 : 403, "a built-in font is part of the firmware")
+                   : api_error(out, 404, "not a font file name (1 to 15 of a-z, 0-9, _ and -)");
+    char name[ESL_FONT_NAME_MAX + 1];
+    memcpy(name, np, nl);
+    name[nl] = '\0';
+
+    if (strcmp(method, "GET") == 0) {
+        if (esl_font_slot_of(name, nl) < 0) /* only the API changes the fonts */
+            return api_error(out, 404, "no font file by that name");
+        esl_sb_stream(out, 200); /* a font file can be bigger than the reply buffer */
+        esl_layouts_font_write(api->layouts, name, nl, out);
+        return 200;
+    }
+    if (strcmp(method, "PUT") == 0)
+        return put_font(api, name, body, body_len, out);
+    if (strcmp(method, "DELETE") == 0) {
+        char err[96];
+        int status = esl_layouts_font_delete(api->layouts, name, nl, err, sizeof(err));
+        if (status)
+            return api_error(out, status, err);
+        esl_sb_printf(out, "{\"name\":\"%s\",\"deleted\":true}", name);
+        return 200;
+    }
+    return api_error(out, 405, "method not allowed");
+}
+
 /* ---- tag firmware (docs/tag-ota.md) ------------------------------------------- */
 
 /* ?key=N in the query string; false if absent or not a number. */
@@ -2293,6 +2395,13 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return status;
     }
 
+    const size_t nbase = sizeof(PATH_FONTS) - 1;
+    if (api->layouts && plen >= nbase && memcmp(uri, PATH_FONTS, nbase) == 0 && (plen == nbase || uri[nbase] == '/')) {
+        int status = handle_fonts(api, method, uri, plen, body, body_len, out);
+        if (out->overflow)
+            return api_error(out, 500, "response too large");
+        return status;
+    }
     const size_t fbase = sizeof(PATH_TAGFW) - 1;
     if (api->tagfw && plen >= fbase && memcmp(uri, PATH_TAGFW, fbase) == 0 && (plen == fbase || uri[fbase] == '/')) {
         int status = handle_tagfw(api, method, uri, plen, body, body_len, out);

@@ -17,6 +17,7 @@ class FakeAp {
     this.scheduled = [];
     this.time = 1792065600;
     this.calls = [];
+    this.fonts = null;   // name -> font file; null: an AP without font files
   }
   tag(mac) {
     if (!this.tags.has(mac)) this.tags.set(mac, { mac, model: null, content: null, config: {} });
@@ -57,8 +58,17 @@ class FakeAp {
     if ((m = path.match(/^\/api\/layouts\/(.+)$/))) {
       const model = decodeURIComponent(m[1]);
       if (method === "GET") return this.layouts[model];
+      if (body.fonts?.some((f) => !this.fonts?.[f])) throw new Error("422: unknown font");
       this.layouts[model] = body;
       return { model, changed: true };
+    }
+    if (this.fonts && method === "GET" && path === "/api/fonts")
+      return { fonts: Object.keys(this.fonts).map((name, slot) => ({ name, slot, used_by: [] })) };
+    if (this.fonts && (m = path.match(/^\/api\/fonts\/(.+)$/))) {
+      const name = decodeURIComponent(m[1]);
+      if (method === "GET") return this.fonts[name];
+      this.fonts[name] = body;
+      return { font: { name }, replaced: false, redrawn: [] };
     }
     if (method === "GET" && path === "/api/tag-firmware")
       return { images: [{ model: "2.9", version: 82, crc: 1234, tags: { pending: 1, failed: 0, done: 3 } }, { model: "1.54", version: null }] };
@@ -126,7 +136,7 @@ test("a backup holds settings, layouts, content, pictures, own settings and sche
   assert.deepEqual(b.tag_firmware, [{ model: "2.9", version: 82, crc: 1234, waiting: 1 }]);
   assert.equal(steps.at(-1).done, steps.at(-1).total);
   assert.equal(backupName(b), "openesl-backup-openesl-2026-10-26.json");
-  assert.deepEqual(backupSummary(b), { layouts: ["2.9"], tags: 1, pictures: 1, configs: 1, scheduled: 1 });
+  assert.deepEqual(backupSummary(b), { fonts: [], layouts: ["2.9"], tags: 1, pictures: 1, configs: 1, scheduled: 1 });
   assert.ok(!JSON.stringify(b).includes("token"), "never the token");
 });
 
@@ -222,4 +232,21 @@ test("a layout file for a model that now uses another model's file (same_as) is 
   const r = await restoreBackup(ap, b, { parts: { scheduled: false } });
   assert.deepEqual(r.failed, []);
   assert.ok(r.notes.some((n) => n === 'The 2.9b" layout file was skipped: model 2.9b uses the layout file of model 2.9 (same_as): upload it with PUT /api/layouts/2.9'));
+});
+
+test("font files go in the backup and back before the layout files", async () => {
+  const font = { format: "esl-font", version: 1, name: "text28", height: 10, baseline: 8, first: 65, last: 65, widths: [1], bitmap: "/8A=" };
+  const old = filledAp();
+  old.fonts = { text28: font };
+  old.layouts["2.9"] = { layouts: { shelf: { fields: 3 } }, fonts: ["text28"] };
+  const b = parseBackup(JSON.stringify(await makeBackup(old)));
+  assert.deepEqual(b.fonts, { text28: font });
+  assert.deepEqual(backupSummary(b).fonts, ["text28"]);
+  const ap = new FakeAp();
+  ap.fonts = {};
+  const r = await restoreBackup(ap, b);
+  assert.deepEqual(r.failed, []);
+  assert.deepEqual(ap.fonts, { text28: font });
+  assert.ok(ap.calls.indexOf("PUT /api/fonts/text28") < ap.calls.indexOf("PUT /api/layouts/2.9"));
+  assert.throws(() => parseBackup(JSON.stringify({ ...b, fonts: [] })), /fonts/);
 });

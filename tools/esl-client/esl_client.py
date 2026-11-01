@@ -163,6 +163,21 @@ class Client:
     def put_layout(self, model, raw):
         return self._request("PUT", f"/api/layouts/{model}", raw)
 
+    def fonts(self):
+        """The font files on the AP (GET /api/fonts), or None from an AP without font files."""
+        try:
+            return self._request("GET", "/api/fonts")
+        except ApiError as e:
+            if e.status == 404:
+                return None
+            raise
+
+    def font(self, name):
+        return self._request("GET", f"/api/fonts/{name}")
+
+    def put_font(self, name, raw):
+        return self._request("PUT", f"/api/fonts/{name}", raw)
+
     def health(self, silent_s=None, battery_mv=None):
         q = [f"silent_s={silent_s}" if silent_s else "", f"battery_mv={battery_mv}" if battery_mv else ""]
         q = "&".join(x for x in q if x)
@@ -1064,6 +1079,8 @@ def backup(cli, now=None, warn=None):
             tags.append(row)
     cfg = cli.config()
     layouts = {m: f for m in MODELS if (f := cli.layout(m)) is not None}
+    # the font files the layout files may draw with (#177): they go back before the layouts
+    fonts = {f["name"]: cli.font(f["name"]) for f in ((cli.fonts() or {}).get("fonts") or [])}
     try:
         sched = [{k: v for k, v in e.items() if v is not None} for e in cli.schedule().get("scheduled", [])]
     except ApiError as e:
@@ -1085,6 +1102,7 @@ def backup(cli, now=None, warn=None):
             .isoformat(timespec="seconds"),
             "ap": ap,
             "config": backup_config(cfg),
+            **({"fonts": fonts} if fonts else {}),
             "layouts": layouts, "tags": tags, "scheduled": sched, "tag_firmware": tag_firmware_offered(cli)}
 
 
@@ -1181,7 +1199,7 @@ def read_backup(path):
     for key, kind in (("config", dict), ("layouts", dict), ("tags", list), ("scheduled", list)):
         if not isinstance(b.get(key), kind):
             raise BackupError(f"{path}: \"{key}\" is missing or not a {kind.__name__}")
-    for key, kind in (("ap", dict), ("tag_firmware", list)):  # not in older backups
+    for key, kind in (("ap", dict), ("tag_firmware", list), ("fonts", dict)):  # not in older backups
         if key in b and not isinstance(b[key], kind):
             raise BackupError(f"{path}: \"{key}\" is not a {kind.__name__}")
     for i, t in enumerate(b["tags"] + b["scheduled"]):
@@ -1211,6 +1229,7 @@ def restore(cli, b, dry_run=False, now=None):
     if cfg.get("webhook"):
         want["webhook"] = cfg["webhook"]
     layouts = {m: f for m, f in b["layouts"].items() if m in MODELS}
+    fonts = b.get("fonts") or {}
     settings = [(t["mac"], t["config"]) for t in b["tags"] if t.get("config")]
     content = [{"mac": t["mac"], **{k: t[k] for k in CONTENT_KEYS if k in t}} for t in b["tags"] if "layout" in t]
     pictures = [(t["mac"], base64.b64decode(t["image"])) for t in b["tags"] if "image" in t]
@@ -1220,6 +1239,8 @@ def restore(cli, b, dry_run=False, now=None):
     if want:
         lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
                      + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
+    if fonts:
+        lines.append(f"font files: {', '.join(fonts)}")
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
     lines.append(f"tags: {len(content)} with content, {len(pictures)} with a picture, "
                  f"{len(settings)} with their own settings")
@@ -1246,6 +1267,16 @@ def restore(cli, b, dry_run=False, now=None):
             if e.status != 422:
                 raise
             lines.append("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings")
+    for name, f in fonts.items():  # first: a layout file may draw with them
+        try:
+            cli.put_font(name, json.dumps(f).encode("utf-8"))
+        except ApiError as e:
+            ok = False
+            if e.status == 404:
+                lines.append("warning: the font files were not restored; this AP's firmware has no font files")
+                break
+            # as the dashboard: the rest goes on, and a layout file that needs it says so
+            lines.append(f"warning: font file {name} was not restored (HTTP {e.status}: {e.body.strip()})")
     for m, f in layouts.items():
         cli.put_layout(m, json.dumps(f).encode("utf-8"))
     for mac, c in settings:

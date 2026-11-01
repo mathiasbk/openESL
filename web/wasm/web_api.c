@@ -11,6 +11,11 @@
  *                                model. 1 = ok, 0 = rejected, web_error() says why (the
  *                                AP's 422 message)
  *   web_clear_layouts()          back to only the built-in layouts
+ *   web_load_font(json, len, slot) loads a font file (esl_font.h, GET /api/fonts/{name}) that
+ *                                layouts can then name, as on the AP, into the AP's slot (its
+ *                                "slot" in GET /api/fonts; -1 = the first free). 1 = ok, 0 = rejected
+ *                                (web_error). Load the fonts before the layouts that use them.
+ *   web_clear_fonts()            back to only the built-in fonts
  *   web_render(layout, flags, n, f0, ..., f5)
  *                                draws content with fields in UTF-8 (converted to Latin-1 as
  *                                the AP does) into the frame buffer. layout 1 = price,
@@ -27,6 +32,7 @@
 #include "esl_clock.h"
 #include "esl_content.h"
 #include "esl_crc32.h"
+#include "esl_font.h"
 #include "esl_layout.h"
 #include "esl_render.h"
 #include "esl_text.h"
@@ -116,6 +122,37 @@ EMSCRIPTEN_KEEPALIVE int web_load_layouts(const char *json, int len)
 
 EMSCRIPTEN_KEEPALIVE void web_clear_layouts(void)
 {
+    bin_ver = 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int web_load_font(const char *json, int len, int slot)
+{
+    err[0] = 0;
+    esl_ufont_t *f = len > 0 ? esl_font_from_json(json, (size_t)len, NULL, err, sizeof(err)) : NULL;
+    if (!f) {
+        if (!err[0])
+            snprintf(err, sizeof(err), "empty font file");
+        return 0;
+    }
+    const char *name = esl_font_name(f);
+    int s = esl_font_slot_of(name, strlen(name));
+    if (s < 0 && slot >= 0 && slot < ESL_FONT_USER_MAX && !esl_font_slot((unsigned)slot))
+        s = slot; /* the AP's slot: the compiled file, and so its version, is the AP's */
+    if (s < 0)
+        s = esl_font_free_slot();
+    if (s < 0) {
+        snprintf(err, sizeof(err), "at most %d font files", ESL_FONT_USER_MAX);
+        esl_font_free(f);
+        return 0;
+    }
+    esl_font_free(esl_font_swap((unsigned)s, f));
+    bin_ver = 0; /* a layout file that uses it must be compiled again */
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_clear_fonts(void)
+{
+    esl_font_clear();
     bin_ver = 0;
 }
 

@@ -33,6 +33,7 @@
 - [Label templates](Label-templates)
 - [Getting layouts onto the AP](Getting-layouts-onto-the-AP)
 - [Layout elements and limits](Layout-elements-and-limits)
+- [Font files](Font-files)
 
 **Sending content**
 - [Overview](Sending-content)

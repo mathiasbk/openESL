@@ -1,6 +1,7 @@
 // backup.js - the AP's backup file from the dashboard: the same file as `esl_client.py backup`
 // and `restore` (tools/esl-client), so one made here goes back with esl-client and the other
 // way round. In it: the AP's settings (poll interval, webhook, NTP server, time zone), the
+// font files (#177, from an AP that has them; they go back before the layout files), the
 // layout files, every tag's content (pictures too) and own settings, and the content scheduled
 // for later, read through the API (docs/openapi.yaml). Not in it: the WiFi password and the API
 // token, which the AP never gives out, and the tag firmware images, which come from the
@@ -28,14 +29,21 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
   const layouts = await optional("/api/layouts");
   const schedule = await optional("/api/schedule");
   const tagfw = await optional("/api/tag-firmware");
+  const fontList = await optional("/api/fonts");
 
   // A model whose same_as names another uses that model's file: it is saved (and restored) once
   const files = (layouts?.layouts || []).filter((l) => l.version != null && !l.same_as);
   const withContent = list.tags.filter((t) => t.content_id);
-  const total = files.length + withContent.length;
+  const fontNames = (fontList?.fonts || []).map((f) => f.name);
+  const total = fontNames.length + files.length + withContent.length;
   let done = 0;
   const step = () => progress({ done: ++done, total });
 
+  const fonts = {};
+  for (const n of fontNames) {
+    fonts[n] = await client.call("GET", "/api/fonts/" + encodeURIComponent(n));
+    step();
+  }
   const files_ = {};
   for (const l of files) {
     files_[l.model] = await client.call("GET", "/api/layouts/" + encodeURIComponent(l.model));
@@ -75,6 +83,7 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
     config: { poll_s: config.poll_s ?? 0, webhook: config.webhook ?? null,
       ...("ntp" in config ? { ntp: config.ntp === config.builtin_ntp ? null : config.ntp } : {}),
       ...("tz" in config ? { tz: config.tz ?? null } : {}) },
+    ...(fontNames.length ? { fonts } : {}),
     layouts: files_,
     tags,
     scheduled,
@@ -100,6 +109,7 @@ export function parseBackup(text) {
   if (b.version !== BACKUP_VERSION) throw new Error(`the backup is version ${b.version}, this page knows ${BACKUP_VERSION}`);
   const obj = (v) => v && typeof v === "object" && !Array.isArray(v);
   for (const k of ["config", "layouts"]) if (!obj(b[k])) throw new Error(`"${k}" is missing in the backup`);
+  if ("fonts" in b && !obj(b.fonts)) throw new Error('"fonts" in the backup is not an object');
   for (const k of ["tags", "scheduled"]) if (!Array.isArray(b[k])) throw new Error(`"${k}" is missing in the backup`);
   for (const t of [...b.tags, ...b.scheduled]) {
     if (!MAC_RE.test(String(t?.mac))) throw new Error("an entry in the backup has no valid MAC");
@@ -118,6 +128,7 @@ export function parseBackup(text) {
 // What a restore would put back, counted: for the question before it starts
 export function backupSummary(b) {
   return {
+    fonts: Object.keys(b.fonts || {}),
     layouts: Object.keys(b.layouts),
     tags: b.tags.filter((t) => "layout" in t).length,
     pictures: b.tags.filter((t) => "image" in t).length,
@@ -141,7 +152,11 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
 
   const steps = [];
   if (want.settings) steps.push(["settings"]);
-  if (want.layouts) for (const m of Object.keys(b.layouts)) steps.push(["layout", m]);
+  if (want.layouts) {
+    // the font files first: a layout file that draws with one is refused without it
+    for (const n of Object.keys(b.fonts || {})) steps.push(["font", n]);
+    for (const m of Object.keys(b.layouts)) steps.push(["layout", m]);
+  }
   if (want.tags) {
     for (const t of b.tags.filter((t) => t.config)) steps.push(["config", t]);
     const content = b.tags.filter((t) => "layout" in t);
@@ -159,7 +174,10 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
   for (const [kind, arg] of steps) {
     try {
       if (kind === "settings") await putSettings(client, b.config, note);
-      else if (kind === "layout") {
+      else if (kind === "font") {
+        await client.call("PUT", "/api/fonts/" + encodeURIComponent(arg), b.fonts[arg]);
+        note(true, `Font file "${arg}"`);
+      } else if (kind === "layout") {
         await client.call("PUT", "/api/layouts/" + encodeURIComponent(arg), b.layouts[arg]);
         note(true, `Layout file for the ${modelName(arg)}`);
       } else if (kind === "config") {
@@ -180,8 +198,9 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
       }
     } catch (e) {
       // a backup from before its model got same_as: this AP draws it with the other model's file
+      const what = kind === "layout" ? `Layout file for the ${modelName(arg)}` : kind === "font" ? `Font file "${arg}"` : kind[0].toUpperCase() + kind.slice(1);
       if (kind === "layout" && /^409\b/.test(e.message)) notes.push(`The ${modelName(arg)} layout file was skipped: ${e.message.replace(/^409:?\s*/, "")}`);
-      else note(false, `${kind === "layout" ? `Layout file for the ${modelName(arg)}` : kind[0].toUpperCase() + kind.slice(1)}: ${e.message}`);
+      else note(false, `${what}: ${e.message}`);
     }
     progress({ done: ++n, total: steps.length });
   }
