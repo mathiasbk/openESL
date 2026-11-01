@@ -9,6 +9,7 @@ Generates the code that lists the tag models from the registry, shared/models.js
   tools/esl-client/esl_client.py   the block between "BEGIN models" and "END models" (the client
                                is a single file people copy, so it carries its own copy)
   README.md                    the list of supported tags, between "BEGIN models" and "END models"
+  wiki/Home.md                 the supported tag links on the wiki home page
 
 The Python tools in the repository (tag/tools/build.py, web/build.py, tools/flash-tui) read
 shared/models.json directly through shared/models.py.
@@ -18,6 +19,7 @@ shared/models.json directly through shared/models.py.
 
 The generated files are checked in, so nothing else needs this script to build.
 """
+from html import escape
 import json
 import os
 import re
@@ -303,6 +305,7 @@ def gen_client_block(ms):
 
 BLOCK = re.compile(r"# BEGIN models \(.*?\n# END models", re.S)
 README_BLOCK = re.compile(r"<!-- BEGIN models .*?<!-- END models -->", re.S)
+WIKI_HOME_BLOCK = re.compile(r"<!-- BEGIN models .*?<!-- END models -->", re.S)
 CHIP_NAMES = {"zbs243": "ZBS243"}
 STATUS_TEXT = {"supported": "Supported", "experimental": "Experimental", "planned": "Planned"}
 
@@ -321,6 +324,22 @@ def gen_readme_block(ms):
     return "\n".join(out)
 
 
+def gen_wiki_home_block(ms):
+    out = ["<!-- BEGIN models (%s) -->" % HEADER]
+    links = []
+    for m in ms:
+        page = m.get("wiki_page")
+        if not page:
+            sys.exit("model %s has no wiki_page in shared/models.json" % m["id"])
+        label = "%s %s" % (m["vendor"], m.get("short", m["name"] + '"'))
+        if m["status"] == "experimental":
+            label += " (experimental)"
+        links.append('<a href="%s">%s</a>' % (escape(page, quote=True), escape(label)))
+    out.append("One of: %s." % ", ".join(links))
+    out.append("<!-- END models -->")
+    return "\n".join(out)
+
+
 def outputs(ms, all_ms):
     client = os.path.join(ROOT, "tools", "esl-client", "esl_client.py")
     with open(client, encoding="utf-8") as f:
@@ -332,12 +351,18 @@ def outputs(ms, all_ms):
         readme_text = f.read()
     if not README_BLOCK.search(readme_text):
         sys.exit("%s has no \"<!-- BEGIN models\" ... \"<!-- END models -->\" block" % readme)
+    wiki_home = os.path.join(ROOT, "wiki", "Home.md")
+    with open(wiki_home, encoding="utf-8") as f:
+        wiki_home_text = f.read()
+    if not WIKI_HOME_BLOCK.search(wiki_home_text):
+        sys.exit("%s has no \"<!-- BEGIN models\" ... \"<!-- END models -->\" block" % wiki_home)
     return {
         os.path.join(ROOT, "shared", "models_gen.h"): gen_shared_h(ms),
         os.path.join(ROOT, "tag", "src", "model_gen.h"): gen_tag_h(ms),
         os.path.join(ROOT, "web", "js", "models.js"): gen_js(ms),
         client: BLOCK.sub(lambda _: gen_client_block(ms), text, count=1),
         readme: README_BLOCK.sub(lambda _: gen_readme_block(all_ms), readme_text, count=1),
+        wiki_home: WIKI_HOME_BLOCK.sub(lambda _: gen_wiki_home_block(all_ms), wiki_home_text, count=1),
     }
 
 

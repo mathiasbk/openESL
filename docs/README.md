@@ -1,4 +1,4 @@
-# OpenESL: open firmware for the tag (ZBS243) and the AP (ESP32-C6)
+# OpenESL: open firmware for the tag (ZBS243) and ESP32 access-point boards
 
 Goal: show **price and text** on SoluM ST-GM29XX2 tags (2.9", 296×128, black/white) and ST-GM16XX2 tags (1.54", 200×200, black/white), sent from any software through a small HTTP API on the AP. All code is written from scratch for this project.
 
@@ -45,4 +45,4 @@ Principle: **as simple as possible, but finished and reliable in operation.** Ev
 
 ## Status
 
-The tag firmware runs on the SoluM 1.54" and 2.9" and the ESP32-C6 AP serves them over the API; the first release is v0.1.0. The open rows in [fremdriftsplan.md](fremdriftsplan.md) say what is left, most of it checks on hardware.
+The tag firmware runs on SoluM 1.54" and 2.9" labels, and supported ESP32 access-point boards serve them over the API. The project has published releases; see the [latest release](https://github.com/mathiasbk/openESL/releases/latest). The open rows in [fremdriftsplan.md](fremdriftsplan.md) say what is left, most of it checks on hardware.

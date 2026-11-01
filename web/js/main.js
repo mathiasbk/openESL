@@ -7,6 +7,7 @@ import { initWifiSetup } from "./wifisetup.js";
 import { initApWizard } from "./apwizard.js";
 import { initDashboard } from "./dashboard.js";
 import { MODELS, modelName, modelLabel } from "./models.js";
+import { boardsOf } from "./apsteps.js";
 
 // The board picked on the Flash AP tab and the like, kept between visits
 const store = {
@@ -60,7 +61,20 @@ async function firmwareInfo() {
   }
 }
 
+function renderHomeHardware(info) {
+  const boards = boardsOf(info).map((board) =>
+    `${board.name || board.label || board.id} (${board.status || "supported"})`
+  );
+  $("home-ap-models").textContent = boards.length
+    ? boards.join("; ")
+    : "No access-point board list is available in this firmware info.";
+  $("home-tag-models").textContent = Object.entries(MODELS)
+    .map(([name, model]) => `${model.label || modelName(name)} (${model.status})`)
+    .join("; ");
+}
+
 firmwareInfo().then((info) => {
+  renderHomeHardware(info);
   const built = !info ? "" : info.release
     ? `Release ${info.version}.`
     : `Development build ${info.version} from ${info.ref} (${info.commit.slice(0, 7)}), ${info.date}.`;

@@ -5,7 +5,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 ## What you need
 
 - The jig with a D1 mini running ZBS_Flasher, plugged in by USB.
-- Chrome or Edge on a computer.
+- Chrome, Edge, or Firefox 151 or newer on desktop. Firefox shows a site permission add-on prompt the first time it requests serial access.
 - The label with its battery taken out, so the test pads are free.
 
 ## From the web page
