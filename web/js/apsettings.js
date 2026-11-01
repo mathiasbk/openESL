@@ -253,6 +253,10 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     },
     fill(cur) {
       $("set-hostname").value = cur.hostname ?? "";
+      if (cur.tz === "" && !general.dirty) {
+        const mine = tzForZone(zone);
+        if (mine) cur.tz = mine[0];
+      }
       const preset = TZ_PRESETS.some(([tz]) => tz === cur.tz);
       tzSel.value = preset ? cur.tz : "other";
       $("set-tz").value = preset ? "" : cur.tz ?? "";

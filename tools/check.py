@@ -144,9 +144,15 @@ def step_ap_test():
 
 
 def step_tools():
+    need_python("textual", "textual")
+    need_python("serial", "pyserial")
+    need_python("rich", "rich")
+
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
     run([PY, "-m", "unittest", "test_release_notes"], cwd=os.path.join(ROOT, "tools"))
+    run([PY, "-m", "unittest", "discover", "-s", "tools/flash-tui/tests"], cwd=ROOT)
+    run([PY, "-m", "unittest", "discover", "-s", "tag/test", "-p", "test_label_*.py"], cwd=ROOT)
 
 
 def step_openapi():
@@ -226,7 +232,7 @@ STEPS = {
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
-    "tools": (step_tools, "Python"),
+    "tools": (step_tools, "Python (pip: textual pyserial rich)"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
@@ -264,7 +270,8 @@ def in_docker(steps, strict):
     if not docker_ok():
         sys.exit("Docker is not running (Docker Desktop on Windows and macOS)")
     try:
-        run(["docker", "build", "-t", DEV_IMAGE, os.path.join(HERE, "dev")])
+        # Build from ROOT so Docker context includes requirements-dev.txt
+        run(["docker", "build", "-t", DEV_IMAGE, "-f", os.path.join(HERE, "dev", "Dockerfile"), ROOT])
         run(docker_args(DEV_IMAGE, "/src") + ["python3", "tools/check.py"] + (["--strict"] if strict else []) + steps)
     except RuntimeError:
         sys.exit(1)
