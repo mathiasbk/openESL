@@ -144,9 +144,15 @@ def step_ap_test():
 
 
 def step_tools():
+    need_python("textual", "textual")
+    need_python("serial", "pyserial")
+    need_python("rich", "rich")
+
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
     run([PY, "-m", "unittest", "test_release_notes"], cwd=os.path.join(ROOT, "tools"))
+    run([PY, "-m", "unittest", "discover", "-s", "tools/flash-tui/tests"], cwd=ROOT)
+    run([PY, "-m", "unittest", "discover", "-s", "tag/test", "-p", "test_label_*.py"], cwd=ROOT)
 
 
 def step_openapi():
@@ -161,7 +167,8 @@ AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
 
 def designer_boards():
     """The boards in ap/boards/ with the Design tab (CONFIG_ESL_WEB_DESIGNER=y in their
-    sdkconfig.defaults or their base's), which pack the renderer"""
+    sdkconfig.defaults or their base
+'s), which pack the renderer"""
     out = []
     for path in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json")):
         b = json.load(open(path))
@@ -226,7 +233,7 @@ STEPS = {
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
-    "tools": (step_tools, "Python"),
+    "tools": (step_tools, "Python (pip: textual pyserial rich)"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
