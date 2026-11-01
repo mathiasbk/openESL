@@ -25,6 +25,7 @@
   - [SoluM 2.9" red (experimental)](SoluM-2.9-red-ST-GR29000)
 - [The flashing jig](Flashing-jig)
 - [Flashing labels](Flashing-labels)
+  - [With a Wemos D1 mini](Building-the-flasher)
   - [Label backups](Label-backups)
 
 **Layouts**
