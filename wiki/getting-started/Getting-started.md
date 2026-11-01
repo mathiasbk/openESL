@@ -1,6 +1,6 @@
 # Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome or Edge on a computer.
+Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome, Edge, or Firefox 151 or newer on a desktop computer. Firefox shows a site permission add-on prompt the first time it requests serial access.
 
 Four steps on the web page and one test request take you to the first label. Words you have not seen before are in the [Glossary](Glossary).
 

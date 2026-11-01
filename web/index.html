@@ -31,7 +31,7 @@
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
       <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p>OpenESL runs on SoluM ZBS243 e-paper tag models and ESP32 access-point boards. The AP provides a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. Current tag models and AP boards are listed below from the firmware and model registries. This page has the tools to design the labels and put firmware on the hardware.</p>
       <p id="home-fw" class="muted"></p>
     </section>
     <div class="cards">
@@ -47,14 +47,14 @@
       </a>
       <a class="card link" href="#ap">
         <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6 or ESP32-C5 board over USB.</p>
+        <p>Put the AP firmware on a supported access-point board over USB.</p>
         <span class="go">Open the AP flasher</span>
       </a>
     </div>
     <section class="card wide">
       <h3>How it fits together</h3>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
+        <li><strong>Flash the AP</strong> on a supported board and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
@@ -64,9 +64,10 @@
     <section class="card wide">
       <h3>What you need</h3>
       <ul>
-        <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
-        <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB (an ESP32-C5 with PSRAM is experimental).</li>
+        <li>Chrome or Edge, or Firefox 151 or newer on desktop, for flashing (Web Serial). Firefox prompts for a site permission add-on the first time a site requests serial access. The designer works in any modern browser.</li>
+        <li>Tag models: <span id="home-tag-models">Loading from the model registry…</span></li>
+        <li>For flashing tags: a Wemos D1 mini with atc1441's ZBS_Flasher and a pogo-pin jig.</li>
+        <li>AP boards: <span id="home-ap-models">Loading from firmware info…</span></li>
       </ul>
       <p class="muted">Setting up and running the AP: the <a href="#setup">Set up</a> tab. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>
@@ -215,7 +216,7 @@
           </div>
           <div id="ap-usb" hidden>
             <p class="hint">Pick the AP's port in the list the browser shows. Close anything else that uses it first, such as <code>esl_client.py ... serve</code>.</p>
-            <p id="ap-usb-missing" class="warn" hidden>This browser cannot use USB ports. Use Chrome or Edge on a computer, or choose WiFi.</p>
+            <p id="ap-usb-missing" class="warn" hidden>This browser cannot use USB ports. Use Chrome, Edge, or Firefox 151+ on desktop, or choose WiFi.</p>
             <div class="buttons tight"><button id="ap-usb-connect" class="primary">Connect over USB</button></div>
           </div>
           <div id="ap-wifi" hidden>
@@ -345,7 +346,7 @@
     </section>
     <section id="dash-conn" class="card wide">
       <h2>AP dashboard</h2>
-      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP with a USB cable (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address). A page on the web may not call an AP on your network, so for WiFi there is the AP's own page, or for developers the bridge in <code>tools/esl-client</code> (<code>esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>).</p>
+      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP with a USB cable (Chrome, Edge, or Firefox 151+ on desktop). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address). A page on the web may not call an AP on your network, so for WiFi there is the AP's own page, or for developers the bridge in <code>tools/esl-client</code> (<code>esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>).</p>
       <div class="form row">
         <p id="dash-live" class="dash-live" hidden><span id="dash-dot" class="dot"></span> <span id="dash-where"></span> · <span id="dash-updated"></span></p>
         <label>Connect over
@@ -671,8 +672,8 @@
   <main id="tab-setup" class="tab" role="tabpanel" hidden>
     <section class="card wide">
       <h2>WiFi and API token over USB</h2>
-      <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome or Edge on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
-      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="#setup">Set up</a>).</p>
+      <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome, Edge, or Firefox 151+ on desktop is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
+      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome, Edge, or Firefox 151+ on desktop, or the AP's setup network (<a href="#setup">Set up</a>).</p>
       <div class="buttons">
         <button id="wifi-connect">Connect AP</button>
         <span id="wifi-state" class="muted" role="status"></span>
