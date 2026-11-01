@@ -11,6 +11,7 @@ import { flasherPicture } from "./appics.js";
 const STEPS = ["Choose tag", "Connect flasher", "Flash", "Done"];
 const STAGES = [["mac", "MAC"], ["backup", "Backup"], ["write", "Write"], ["verify", "Verify"]];
 const FLASHER = "https://github.com/atc1441/ZBS_Flasher";
+const FLASHER_GUIDE = "https://github.com/mathiasbk/openESL/wiki/Building-the-flasher";
 const TAG_OTA = "https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -124,7 +125,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
           <span class="hint ${st.connectMsg.startsWith("No") ? "error" : ""}" role="status">${esc(st.connectMsg)}</span></p>
           <p class="muted">Pick the D1 mini's port (CH340 or CP210x).</p>`}
       </div></div></div></div></div>
-      <p class="wz-hint">ⓘ No answer? The D1 mini must run the ZBS_Flasher, and no other program (such as <code>tools/flash-tui</code>) may have its port.</p>`;
+      <p class="wz-hint">ⓘ No answer? The D1 mini must run the ZBS_Flasher, and no other program (such as <code>tools/flash-tui</code>) may have its port. <a href="${FLASHER_GUIDE}" target="_blank" rel="noopener">Building the flasher</a> has the wiring, the settings and what the messages mean.</p>`;
   }
 
   function stages() {

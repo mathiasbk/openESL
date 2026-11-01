@@ -4,7 +4,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 
 ## What you need
 
-- The jig with a D1 mini running ZBS_Flasher, plugged in by USB.
+- The jig with a D1 mini running ZBS_Flasher, plugged in by USB. [Building the flasher](Building-the-flasher) shows how to build and wire it.
 - Chrome or Edge on a computer.
 - The label with its battery taken out, so the test pads are free.
 

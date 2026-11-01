@@ -13,8 +13,8 @@ The jig holds one label at a time with pogo pins on its debug pads, so you do no
 
 ## Building it
 
-1. Build and flash the ESP8266 version of ZBS_Flasher to the D1 mini. Its repository has the pin list for wiring the pogo pins.
-2. Print the three parts and wire the pogo pins to the D1 mini.
+1. Build the flasher: a D1 mini with ZBS_Flasher, a small power switch and the wires to the pogo pins. [Building the flasher](Building-the-flasher) has the parts, the wiring, the ZBS_Flasher settings and how to test it.
+2. Print the three parts and put the pogo pins in the upper part.
 
 Photos, the printable files and the details: [Jig/Hardware](https://github.com/mathiasbk/openESL/blob/master/Jig/Hardware/README.md).
 
