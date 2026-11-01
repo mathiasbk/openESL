@@ -68,6 +68,10 @@ typedef struct {
 #define ESL_HIST_LOST     0x7F /* hist_info: rounds the tag lost before this POLL (127 = 127 or more) */
 #define ESL_HIST_RETRY    0x80 /* ... and its answer came only on the tag's second try */
 
+/* Radios a store tells apart (esl_tag_t.radio): the one on the AP's channel and 3 more
+ * (docs/ap-netradio.md, "Several radios"). */
+#define ESL_STORE_RADIOS 4
+
 /* One slot of the table. Kept small, since there is one per tag for the whole run
  * (sizeof is printed in the boot log): the content itself is not here but in NVS
  * (esl_store_get_content), and the flags are bits. */
@@ -90,6 +94,8 @@ typedef struct {
     bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
                                  RAM only): ESL_CERR_UNFIT */
     bool content_check : 1;   /* its content or model changed since that was last checked (esl_store_check_tag) */
+    uint8_t radio : 2;        /* several radios over the network: the one that serves it (esl_store_set_tag_radio,
+                                 RAM only), 0 = the one on the AP's channel */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
@@ -175,6 +181,7 @@ typedef struct {
     bool channel_radio_old;   /* the radio does not pass a move on to the tags (esl_store_set_radio_follows) */
     bool channel_force;       /* the planned move goes even with tags that cannot follow */
     uint16_t channel_stopped; /* tags with old firmware that stopped the last move (1 for an old radio), 0 = none */
+    uint8_t radio_channel[ESL_STORE_RADIOS]; /* the channel of each extra radio, [0] unused (esl_store_set_radio_channel) */
     esl_store_ops_t ops;
 } esl_store_t;
 
@@ -199,6 +206,8 @@ void esl_store_init(esl_store_t *st, unsigned max, const esl_store_ops_t *ops, u
 void esl_store_free(esl_store_t *st);
 /* Slot numbers in use are below this (the slots there is memory for). */
 unsigned esl_store_slots(esl_store_t *st);
+/* The slot of the tag, -1 when it is not in the table. */
+int esl_store_slot_of(esl_store_t *st, uint64_t mac);
 /* A new tag found no room since a tag last got a slot: none free, and no memory or
  * max reached. Such a tag is not in the table until one frees. */
 bool esl_store_full(esl_store_t *st);
@@ -334,12 +343,25 @@ typedef struct {
     uint32_t unheard_s; /* ... the most seconds until they no longer count */
     bool radio_old;     /* the radio cannot pass a move on to the tags (esl_store_set_radio_follows) */
     unsigned stopped;   /* the last move was given up when tags with old firmware showed up (how many) */
+    uint32_t taken;     /* bit c: another radio of this AP is on channel c (esl_store_set_radio_channel) */
 } esl_channel_state_t;
 void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state_t *out);
 /* For a radio over the network (docs/ap-netradio.md): false when the one connected
  * retunes but does not tell the tags (a C6 from before 0.9.0, HELLO without
  * ESL_NLINK_F_CHANNEL). The radio on the AP itself or over UART always does. */
 void esl_store_set_radio_follows(esl_store_t *st, bool follows);
+/* ---- Several radios over the network (docs/ap-netradio.md, "Several radios") ----
+ * Radio 0 is on the AP's channel and follows its moves. Radios 1..ESL_STORE_RADIOS-1
+ * each have a channel of their own, and the tags they serve are told that channel in
+ * CONFIG (cfg_ver, config_pending and a channel move count it). The AP's channel cannot
+ * move to one of theirs (409 in PUT /api/config). */
+/* Radio (1..ESL_STORE_RADIOS-1) is on channel; 0 = it is gone, and its tags count as
+ * radio 0's again. */
+void esl_store_set_radio_channel(esl_store_t *st, uint8_t radio, uint8_t channel);
+/* The tag was last heard through radio (0..ESL_STORE_RADIOS-1). */
+void esl_store_set_tag_radio(esl_store_t *st, uint64_t mac, uint8_t radio);
+/* The defaults (esl_store_tag_defaults) as they apply to t: the channel of its radio. */
+esl_tag_cfg_t esl_store_tag_ap(esl_store_t *st, const esl_tag_t *t, const esl_tag_cfg_t *ap);
 /* A tag counts in a move while it was heard within this many of its intervals (and a
  * minute): one that has gone quiet does not hold it up. */
 #define ESL_CHANNEL_ACTIVE_POLLS 3

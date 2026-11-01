@@ -116,7 +116,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -529,6 +529,24 @@ static void test_channel(void)
     CHECK_INT(config("{\"channel\":15}"), 200);
     CHECK_INT(config("{\"channel\":15,\"channel_now\":true}"), 200);
     CHECK_INT(esl_store_channel_step(&st, 0), 15);
+
+    /* another radio of the AP's on a channel (several radios): the AP's cannot move there,
+       a tag that radio serves is told its channel, and config_pending counts that */
+    esl_store_set_radio_channel(&st, 1, 26);
+    CHECK_INT(config("{\"channel\":26}"), 409);
+    CHECK(strstr(resp, "another radio"));
+    CHECK_INT(config("{\"channel\":26,\"channel_now\":true,\"force\":true}"), 409);
+    esl_store_set_tag_radio(&st, 0xA1, 1);
+    CHECK_INT(air(&a, 420000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 26);
+    CHECK_INT(air(&a, 480000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000000A1/config", AUTH, NULL, 0, 480000, &out), 200);
+    CHECK(strstr(resp, "\"config_pending\":false"));
+    esl_store_set_radio_channel(&st, 1, 0); /* gone: its tags are the AP's radio's again */
+    CHECK_INT(air(&a, 540000, false), ESL_MSG_CONFIG);
+    CHECK_INT(a.cfg.channel, 15);
+    CHECK_INT(config("{\"channel\":26}"), 200);
+    CHECK_INT(config("{\"channel\":15}"), 200);
 
     /* after a restart the AP starts on the stored channel, and tells the tags */
     ap_boot();

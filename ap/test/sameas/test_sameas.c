@@ -15,7 +15,7 @@ int tt_checks, tt_failures;
 
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 

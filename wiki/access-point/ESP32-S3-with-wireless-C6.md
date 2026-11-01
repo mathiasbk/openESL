@@ -42,6 +42,16 @@ The details: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/mas
 
 Over a cable the radio asks the S3 for each reply, which takes a few milliseconds. Over WiFi that takes 20–110 ms, too slow for a label. So the S3 tells the radio in advance what each label should get (its image, settings and firmware), the radio answers the labels on its own, and afterwards it tells the S3 what happened.
 
-Later the plan is to let one S3 have several wireless radios, each serving the labels it hears best.
-
 The technical details and the measurements: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md).
+
+## Several radios
+
+One S3 can have up to 4 wireless radios, to cover a shop or a house that one radio cannot reach. **Not tried on hardware yet**, only tested on a PC. Set up each C6 the same way (the Flash AP tab, or by hand above); the S3 tells them apart by themselves.
+
+- The first radio is on the AP's channel, as with one radio. Every other radio gets a channel of its own when it first connects, and keeps it.
+- A label is served by the radio that heard it last. If its radio stops answering, the label looks on the other channels after three missed rounds and moves to a radio that answers there (labels with firmware 0.9.0 or newer; older ones stay where they are). It does not move just because another radio is closer.
+- The dashboard shows a line per radio (channel, address, how many labels) and, next to each label's signal, which radio serves it.
+- **Replacing a broken radio:** first press **Forget** next to it in the dashboard's AP facts (it shows while the radio is not connected), then connect the new C6. It takes the old one's place and channel. A fifth radio is turned away until one is forgotten.
+- Extra limits: each radio costs the S3 some memory, the radios' syncs take turns, and changing the AP's channel only moves the labels on the first radio.
+
+The details: [docs/ap-netradio.md, "Several radios"](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md#several-radios).

@@ -23,7 +23,19 @@ typedef struct {
     uint32_t ip;            /* its address, host order */
     uint64_t seen_ms;       /* when it last sent anything (ms since boot) */
     uint16_t ver;           /* its firmware, as its HELLO says (0 before HELLO) */
+    /* several radios (docs/ap-netradio.md, "Several radios"), in "radios" */
+    uint64_t id;            /* its own MAC from HELLO, 0 = no radio known in this place */
+    uint8_t channel;        /* the channel it serves */
+    unsigned tags;          /* tags it heard last (esl_rowners_count) */
 } esl_radio_link_t;
+
+/* Several radios over the network: what the API may do to them (DELETE /api/radios/{id}). */
+typedef struct {
+    void *ctx;
+    /* Forgets the radio with this id, so its place and channel go to the next new radio:
+       0 done, 404 not known, 409 connected now. */
+    int (*forget)(void *ctx, uint64_t id);
+} esl_radio_ops_t;
 
 /* The 802.15.4 transmit power (ESL_TX_POWER_MIN..MAX, esl_link.h), as "tx_power" in
  * GET/PUT /api/config. The radio code owns it: set() applies dbm to the radio and
@@ -100,6 +112,10 @@ typedef struct {
     bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
                                false: GET leaves it out, PUT answers 422 */
     esl_api_changes_t *changes; /* GET /api/tags?since= (above); NULL: since is ignored, the whole list */
+    const esl_radio_link_t *links; /* all network radios by number (esl_tag_t.radio), n_links of them: "radios" in
+                                      GET /api/tags, and each tag's "radio" when more than one is known */
+    unsigned n_links;
+    const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

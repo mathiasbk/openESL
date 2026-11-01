@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -239,7 +239,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   }
   function signalCell(tag) {
     const sig = signalSummary(tag);
-    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num");
+    const via = tagRadio(tag, last?.list?.ap?.radios);
+    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num", via ? "Through " + via : "");
     const td = cell("", "opt num signal" + (sig.weak ? " state-busy" : ""));
     const W = 5, H = 18, n = tag.signal.rssi.length;
     const svg = svgEl("svg", { viewBox: `0 0 ${n * W} ${H}`, width: n * W, height: H, "aria-hidden": "true" });
@@ -250,7 +251,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (tag.signal.lost?.[i] || tag.signal.retry?.[i])
         svg.append(svgEl("rect", { x: i * W, y: 0, width: W - 1, height: 3, class: tag.signal.lost?.[i] ? "lost" : "retry" }));
     });
-    td.append(signalButton(tag, [svg, " " + sig.text], sig.title));
+    td.append(signalButton(tag, [svg, " " + sig.text], via ? `${sig.title}\nThrough ${via}` : sig.title));
     return td;
   }
 
@@ -331,12 +332,22 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-where").textContent = connectedTo + (who ? " · " + who : "");
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v, radio]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
       dt.textContent = k;
       dd.textContent = v;
+      if (radioForgettable(radio)) {
+        // a radio over WiFi that is not connected: forget it, so a new C6 takes its place
+        const b = document.createElement("button");
+        b.className = "small";
+        b.textContent = "Forget";
+        b.title = "Forget this radio, so a new C6 takes its place and channel";
+        b.disabled = sending;
+        b.onclick = () => forgetRadio(radio);
+        dd.append(" ", b);
+      }
       d.append(dt, dd);
       return d;
     }));
@@ -442,7 +453,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       // On a phone the columns after the MAC become one line under it
       const meta = [tag.model ? modelLabel(tag.model) : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
         next && !next.late ? "next " + next.text : null, signalSummary(tag)?.text ?? (tag.rssi == null ? null : `${tag.rssi} dBm`),
-        battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
+        battery === "–" ? null : battery, tag.fw == null ? null : fwText,
+        tagRadio(tag, list.ap?.radios)].filter(Boolean).join(" · ");
       const metaTd = cell(meta, "meta");
       const sig = signalSummary(tag);
       if (sig) {
@@ -1120,6 +1132,23 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (client === c) refresh();
     }
   };
+
+  // A radio over WiFi that is gone for good (a broken C6): DELETE /api/radios/{id}
+  async function forgetRadio(r) {
+    if (!client || sending) return;
+    if (!confirm(`Forget radio ${r.radio} (${r.id})? A new C6 that connects then takes its place and channel. ` +
+      `If this radio comes back, it is a new radio.`)) return;
+    const c = client;
+    sending = true;
+    try {
+      await c.call("DELETE", "/api/radios/" + encodeURIComponent(r.id));
+    } catch (e) {
+      alert("Not forgotten: " + e.message);
+    } finally {
+      sending = false;
+      if (client === c) refresh();
+    }
+  }
 
   // ---- Firmware card ----
 

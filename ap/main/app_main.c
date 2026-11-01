@@ -100,6 +100,8 @@ void app_main(void)
     api.reset_reason = why;
 #if CONFIG_ESL_RADIO_DRIVER_NET
     api.link = radio_net_link();
+    api.links = radio_net_links(&api.n_links);
+    api.radio_ops = radio_net_ops();
 #elif !CONFIG_ESL_RADIO_STUB
     api.radio_stats = &radio_link.stats;
 #endif

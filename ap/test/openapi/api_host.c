@@ -158,11 +158,32 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
 }
 
+static esl_radio_link_t links[ESL_STORE_RADIOS] = {
+    {.up = true, .ip = 0xC0A803F9, .seen_ms = 500, .ver = 1000, .id = 0xF0F5BDFFFE01ull},
+    {.id = 0xF0F5BDFFFE02ull, .channel = 15},
+};
+
+/* DELETE /api/radios/{id}: the example radio is known and not connected (and gone once
+   forgotten); the first is connected */
+static int forget_radio(void *ctx, uint64_t id)
+{
+    (void)ctx;
+    for (unsigned i = 0; i < ESL_STORE_RADIOS; i++) {
+        if (!id || links[i].id != id)
+            continue;
+        if (links[i].up)
+            return 409;
+        links[i].id = 0;
+        return 0;
+    }
+    return 404;
+}
+
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
@@ -170,6 +191,13 @@ int main(void)
     clock_cfg.set = clock_set;
     static const esl_link_stats_t radio_stats = {.polls = 12, .blocks = 340, .tx_failed = 1, .slow = 2, .worst_us = 6100};
     api.radio_stats = &radio_stats; /* "replies" in GET /api/tags, as on a C6 */
+    /* radios over WiFi, as on an S3 with C6 radios (docs/ap-netradio.md): one connected on the
+       AP's channel, one gone (forget it: the spec's example id) */
+    api.link = &links[0];
+    api.links = links;
+    api.n_links = ESL_STORE_RADIOS;
+    static const esl_radio_ops_t radio_ops = {NULL, forget_radio};
+    api.radio_ops = &radio_ops;
     static esl_sources_t sources;   /* data sources, as on an S3: kept in RAM, never fetched */
     esl_sources_init(&sources, NULL);
     api.sources = &sources;

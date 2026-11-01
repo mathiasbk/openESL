@@ -1333,6 +1333,68 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
 
+  /api/radios:
+    get:
+      tags: [AP]
+      operationId: getRadios
+      summary: The radios over WiFi this AP knows (several radios)
+      description: |
+        Only on an AP whose radio is a C6 over WiFi (board `s3-n16r8-netradio`, docs/ap-netradio.md);
+        404 on the others. Up to 4 radios: radio 0 is on the AP's channel and follows its moves,
+        the others each have a channel of their own, picked when they first connect and kept in
+        NVS (`cfg/radios`). A tag is served by the radio that last heard it. The same list is
+        `radios` under `ap` in `GET /api/tags`.
+      responses:
+        "200":
+          description: The radios
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [radios]
+                properties:
+                  radios: { $ref: "#/components/schemas/Radios" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "This AP has no radio over WiFi", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "not found" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
+  /api/radios/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The radio's id (its MAC, 16 hex digits) as `GET /api/radios` gives it
+        schema: { type: string, pattern: "^[0-9A-Fa-f]{16}$" }
+        example: "0000F0F5BDFFFE02"
+    delete:
+      tags: [AP]
+      operationId: forgetRadio
+      summary: Forget a radio, so its place and channel go to the next new one
+      description: |
+        For a radio that is gone for good (a broken C6, one moved to another AP). Only while it
+        is not connected: turn it off first. Its tags count as radio 0's until a radio hears
+        them; a tag that loses its radio finds another one by looking on the other channels
+        (docs/protokoll.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
+        takes its place on the AP's channel, and a radio that is then the only one left moves
+        there at its next connection. Done before the reply.
+      responses:
+        "200":
+          description: Forgotten
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [forgotten]
+                properties:
+                  forgotten: { type: string, description: The radio's id }
+              example: { forgotten: "0000F0F5BDFFFE02" }
+        "400": { description: "The id is not 16 hex digits", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "the radio id must be 16 hex digits" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "No radio with this id, or this AP has no radio over WiFi", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "unknown radio" } } } }
+        "409": { description: "The radio is connected", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "the radio is connected: turn it off first, then forget it" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
+
 components:
   securitySchemes:
     token:
@@ -1713,6 +1775,7 @@ components:
             ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
             seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
             fw: { type: integer, minimum: 0, description: "Its firmware version as a number, as in its HELLO (0 before HELLO; only while connected)" }
+        radios: { $ref: "#/components/schemas/Radios" }
         replies:
           type: object
           additionalProperties: false
@@ -1771,6 +1834,7 @@ components:
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
         poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
         config: { $ref: "#/components/schemas/TagCfg" }
+        radio: { type: integer, minimum: 0, maximum: 3, description: "The radio over WiFi that serves it (`radio` in `radios`), 0 also when none has heard it since the AP started; only when the AP knows more than one radio" }
         config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }
         content_error:
           type: [string, "null"]
@@ -1811,6 +1875,26 @@ components:
                 version: { type: string }
                 received: { type: integer, minimum: 0 }
                 size: { type: integer, minimum: 1024 }
+
+    Radios:
+      type: array
+      description: "The radios over WiFi this AP knows (docs/ap-netradio.md, \"Several radios\"); only from an AP whose radio is a C6 over WiFi"
+      items:
+        type: object
+        additionalProperties: false
+        required: [radio, id, channel, tags, connected]
+        properties:
+          radio: { type: integer, minimum: 0, maximum: 3, description: "Its place: 0 is on the AP's channel and follows its moves, 1-3 have a channel of their own. Each tag's `radio` names it" }
+          id: { type: string, description: "Its MAC, as its HELLO says", example: "0000F0F5BDFFFE01" }
+          channel: { type: integer, minimum: 11, maximum: 26, description: "The channel it serves" }
+          tags: { type: integer, minimum: 0, description: "Tags it heard last, since the AP started" }
+          connected: { type: boolean }
+          ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
+          seen_s: { type: integer, minimum: 0, description: "Seconds since it last sent anything (only while connected)" }
+          fw: { type: integer, minimum: 0, description: "Its firmware version as a number (only while connected)" }
+      example:
+        - { radio: 0, id: "0000F0F5BDFFFE01", channel: 25, tags: 41, connected: true, ip: "192.168.3.249", seen_s: 4, fw: 1000 }
+        - { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 12, connected: false }
 
     Tag:
       allOf: [{ $ref: "#/components/schemas/TagFields" }]

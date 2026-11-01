@@ -119,8 +119,8 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
 
 /* ---- the host's side ---- */
 
-typedef struct {
-    esl_rhost_t *h;
+typedef struct esl_nlink_host {
+    esl_rhost_t *h;          /* NULL until on_hello sets it, when on_hello is used */
     esl_tagfw_t *fw;         /* for the firmware bytes, may be NULL */
     esl_nlink_write_t write;
     void *wctx;
@@ -136,6 +136,11 @@ typedef struct {
     bool broken;             /* a write failed: the connection is to be closed */
     bool config_due;         /* CONFIG goes with the next answer */
     uint64_t (*now_ms)(void);
+    /* May be set after init: called with each HELLO (n->radio filled in) before the CONFIG
+     * that answers it, to set n->h and n->channel for the radio it names (several radios,
+     * docs/ap-netradio.md). False closes the connection, as does n->h still NULL. */
+    bool (*on_hello)(void *ctx, struct esl_nlink_host *n);
+    void *hello_ctx;
 } esl_nlink_host_t;
 
 /* now_ms gives the host's clock (ms since boot). */

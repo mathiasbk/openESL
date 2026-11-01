@@ -119,6 +119,9 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
 esl_tx_power_t *radio_tx_power(void);
 void radio_set_tx_power(int8_t dbm);
 #if CONFIG_ESL_RADIO_DRIVER_NET
-/* radio_net.c: the link to the network radio, for GET /api/tags ("radio") */
+/* radio_net.c: the link to the network radio in place 0 (on the AP's channel), for GET
+   /api/tags ("radio"); every place (n of them) for "radios" and GET/DELETE /api/radios */
 const esl_radio_link_t *radio_net_link(void);
+const esl_radio_link_t *radio_net_links(unsigned *n);
+const esl_radio_ops_t *radio_net_ops(void);
 #endif
