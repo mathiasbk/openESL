@@ -67,13 +67,13 @@ The usual order, unless a section says otherwise:
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.9.2, for example, with many tags:
+From 0.5.x to 0.10.0, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.9.2 esl-client.
-2. The AP: `openesl-ap-<board>-v0.9.2-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
+1. `esl-client backup ap.json` with the 0.10.0 esl-client.
+2. The AP: `openesl-ap-<board>-v0.10.0-ota.bin` over the air. It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
 3. ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168). The S3 with a C6 over WiFi (netradio) is new in 0.6.0, so a 0.5.x setup has none.
-4. The tags: the tag image of the 0.9.2 release, which is version 0.9.2 (the first new tag firmware since 0.6.0 to use; not the 0.9.0 tag image, which draws faded screens, and not 0.9.1, which can pair tags). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
-5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Change the radio channel only once every tag runs 0.9.2 (below).
+4. The tags: the tag image of the 0.10.0 release, which is version 0.10.0 (not the 0.9.0 tag image, which draws faded screens, and not 0.9.1, which can pair tags). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Change the radio channel only once every tag runs 0.9.2 or newer (below). Font files, rotated text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0 (below).
 
 ### Upgrading from 0.4.x to 0.5.0
 
@@ -124,6 +124,22 @@ The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for do
 A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
+
+### Upgrading from 0.9.2 to 0.10.0
+
+Order: the AP, then the tags when you want the new "no AP" mark; neither C6 radio needs an update. Nothing has to be done on the tags: a tag on 0.9.2 or older works with a 0.10.0 AP as before, and a tag that is out of range during the update simply keeps working on the firmware it has. No tag draws again after the AP update. Use font files, rotated text, more than 6 fields or 96 bytes of text, and several radios over WiFi only once the AP will stay on 0.10.0: an AP that goes back to 0.9.2 drops such content and layout files, and knows only one radio (the tags keep their screen and stay under control).
+
+The AP: update it over the air as usual (`esl-client backup ap.json` first; the 0.10.0 esl-client also saves the font files). It keeps its tags, layouts, settings and name, and converts nothing. Content within the old limits keeps its stored form and its `content_id` (#300). It stores new things only when they are used: font files (NVS namespace `esl_fonts`, #297), content with up to 16 fields and 256 bytes of text (#300), and the places and channels of several radios over WiFi (`cfg/radios`, #299). `GET /api/health` and `GET /api/radios` report a C6 the S3 has lost for 30 s (`radio_lost`, `radio_problems`, #336/#337), and the webhook reports it too. `http://openesl.local/` now leads to the dashboard (or to `/setup` while no network is saved): the read-only status page that 0.9.2 had at `/` is gone, and `/setup` has the dashboard's look (#345). The web page has a light/dark/auto button (#340), a designer that works on a phone (#344) and help to choose an AP setup in the Flash AP tab (#343).
+
+Home Assistant: the integration 0.3.0 (already released) reads the radio fields above for its radio sensors and repairs; with an AP on 0.9.2 they just stay empty. Fields by name in `openesl.send` come with integration 0.4.0, which needs this AP release; `rest_command` can send fields by name to a 0.10.0 AP as it is.
+
+The C6 radios (on a cable or over WiFi) have not changed what they do: their images say 0.10.0 only because they are built from some of the AP's source files. A C6 over WiFi on 0.9.0 or newer can be one of several radios as it is (#299). Only tags on firmware 0.9.0 or newer can move to a second radio on another channel; older tags stay with the radio on the AP's channel. When a C6 is replaced, forget the old one on the AP before the new one connects ([ap-netradio.md](ap-netradio.md)).
+
+The tags: tag image 0.10.0 keeps its screen when the AP is gone and draws a small crossed-out signal mark in the top right corner instead of "No AP found" (#294); the mark goes away when the AP answers again. Nothing else changes for the tag: the settings record, the image formats and the radio protocol are the same as in 0.9.2, so the update is optional and goes over the air as usual, one tag of each model first ([section 3](#3-rollout-to-the-tags)). A tag that misses the update keeps working on 0.9.2. The SoluM 2.9" black/white/red (ST-GR29000, #298) is new and experimental, and not tried on hardware yet.
+
+New, all on the AP and the web page only: font files made in the browser and stored on the AP (#297), text turned 90°, 180° or 270° in layouts (#295), one layout file shared by models with the same screen (`same_as`, #296), up to 16 fields and 256 bytes of text per tag with fields by name (#300), and a calendar template for Home Assistant (#333). Not tried on hardware yet: several radios over WiFi with several C6 boards (#299, tested on the PC only) and the stack and heap with 16 fields on a C6 (#300).
+
+Going back to 0.9.2: the AP keeps its data, but at boot it skips a model's whole layout file when a layout in it uses a font file, rotated text or more than 6 fields, and it forgets content with more than 6 fields or 96 bytes. The tags keep what they show and keep checking in; the layouts of that model are gone until a file without those things is uploaded, and that content must be sent again in the old form (updating the AP to 0.10.0 again brings the files back). So before going back, remove those layouts and send such content again within the old limits. The font files and `cfg/radios` stay unused in NVS. With several radios over WiFi, take all but one C6 off first: 0.9.2 knows one radio, and tags served by another radio find the AP again on its channel by scanning (tag firmware 0.9.0 or newer). Tags on 0.10.0 work with a 0.9.2 AP; going back on the tags is not needed.
 
 ### Upgrading from 0.9.1 to 0.9.2
 
@@ -199,6 +215,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 ## 6. Summaries
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 0.10.0
+
+New on the AP and the web page: font files made in the browser, rotated text, layout files shared between models with the same screen, up to 16 fields and 256 bytes of text per tag with fields by name, up to four C6 radios over WiFi per S3 (not tried on hardware with several C6 boards yet), and a warning (API, webhook and Home Assistant) when an S3 loses its C6 radio. The web page has a new look with a light/dark button, the designer works on a phone, and `http://openesl.local/` opens the dashboard. Tags on the new firmware keep their screen with a small "no AP" mark when the AP is gone, instead of "No AP found". The update is safe for tags out of range: update the AP; the tag firmware is optional, and the C6 radios need nothing.
 
 ### Summary of 0.9.2
 
