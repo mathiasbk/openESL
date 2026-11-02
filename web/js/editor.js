@@ -804,7 +804,8 @@ function refreshLayoutPick(lays) {
   const builtin = document.createElement("optgroup");
   builtin.label = "Built in";
   builtin.append(...Object.keys(BUILTIN).map((name) => opt("builtin:" + name, name)));
-  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, l.name || "(no name)")), builtin);
+  const label = (l) => { const t = titleOf(templates, l); return t ? `${t} (${l.name})` : l.name || "(no name)"; };
+  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, label(l))), builtin);
   $("layout-pick").value = state.sel;
   $("mtab-count").textContent = String(lays.length);
 }
