@@ -579,6 +579,8 @@ function initDrag() {
       return;
     }
     state.el = +box.dataset.i;
+    // on a narrow screen the selected box's position and field are under Elements
+    if (narrow.matches && $("dz").dataset.mtab === "fields") showPanel("elements");
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
@@ -634,7 +636,7 @@ function initDrag() {
 // box the browser's own keys win (its undo, arrows, Delete).
 function onKey(ev) {
   if ($("tab-design").hidden || document.querySelector("#tab-design dialog[open]")) return;
-  if (ev.target.closest("input, textarea, select")) return;
+  if (ev.target.closest("input, textarea, select, [role=tab]")) return;
   const mod = ev.ctrlKey || ev.metaKey;
   const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   const e = element();
@@ -767,6 +769,16 @@ function refreshLayoutList() {
   }));
   if (isBuiltin()) $("builtin-box").open = true;
   refreshLayoutPick(lays);
+}
+
+// Narrow screens: Fields, Elements or Layouts under the tag, one at a time
+function showPanel(name) {
+  $("dz").dataset.mtab = name;
+  $("dz-mtabs").querySelectorAll("button[data-mtab]").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.mtab === name));
+    b.tabIndex = b.dataset.mtab === name ? 0 : -1;
+  });
+  store.set("panel", name);
 }
 
 // The same layouts in the picker over the tag, which a narrow screen shows instead of the list
@@ -1802,17 +1814,22 @@ function initActions() {
     state.el = -1;
     refreshAll();
   });
-  // Narrow screens: Fields, Elements or Layouts under the tag
-  const showPanel = (name) => {
-    $("dz").dataset.mtab = name;
-    $("dz-mtabs").querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mtab === name)));
-    store.set("panel", name);
-  };
   $("dz-mtabs").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-mtab]");
     if (b) showPanel(b.dataset.mtab);
   });
-  if (["fields", "elements", "layouts"].includes(store.get("panel"))) showPanel(store.get("panel"));
+  // The tab pattern's keys: arrows, Home and End move between the tabs
+  $("dz-mtabs").addEventListener("keydown", (ev) => {
+    const tabs = [...$("dz-mtabs").querySelectorAll("button[data-mtab]")];
+    const i = tabs.indexOf(ev.target.closest("button[data-mtab]"));
+    const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[ev.key];
+    if (i < 0 || to === undefined) return;
+    const b = tabs[(to + tabs.length) % tabs.length];
+    showPanel(b.dataset.mtab);
+    b.focus();
+    ev.preventDefault();
+  });
+  showPanel(["fields", "elements", "layouts"].includes(store.get("panel")) ? store.get("panel") : "fields");
   $("layout-from-tpl").addEventListener("click", openTemplatePicker);
   $("tpl-offer-no").addEventListener("click", () => ($("tpl-offer").hidden = true));
   initTemplatePicker({
