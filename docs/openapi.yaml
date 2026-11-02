@@ -203,7 +203,9 @@ paths:
       operationId: setTags
       summary: Set content for many tags
       description: |
-        At most 50 tags per call (RAM on the AP). The batch is all or nothing: one invalid
+        At most 50 tags per call (RAM on the AP), and the body within the limits above
+        (24,576 bytes, 1,024 JSON tokens): 50 tags with 14 or more fields pass the token limit,
+        so send fewer per call (esl-client does). The batch is all or nothing: one invalid
         row gives `422` with `index` pointing at the row, and no tag is changed. Practical
         for the daily price job: send everything every time, and only what changed is drawn.
         Rows with `at` are scheduled (see `PUT /api/tags/{mac}`); the same MAC may be in the

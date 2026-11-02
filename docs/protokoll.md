@@ -275,7 +275,7 @@ In short:
 | Request | What it does |
 |---|---|
 | `PUT /api/tags/{mac}` | Set the content of one tag: `{"layout":"price","fields":["Milk 1 L","24.90","NOK 24.90/L"],"price_highlight":true}`, or with the fields by name, `"fields":{"name":"Milk 1 L","price":"24.90"}`. Up to 16 fields sharing 256 bytes (text in UTF-8, drawn in the fonts' Latin-1, other characters as `?`). The AP calculates `content_id` (CRC-32); the same content again is `changed:false` and the tag does not draw again |
-| `PUT /api/tags` | The same for up to 50 tags, all or nothing |
+| `PUT /api/tags` | The same for up to 50 tags, all or nothing; the body has at most 1,024 JSON tokens, so tags with 14 or more fields go fewer per call |
 | `"at"` in either | Scheduled content: `"at":1792069200` (Unix seconds, UTC) sets the content at that time instead of now, also after an AP restart |
 | `GET`/`DELETE /api/schedule`, `DELETE /api/schedule/{mac}` | What is scheduled, with its content; remove it |
 | `GET`/`PUT /api/time` | The AP's clock (NTP over WiFi, or set by the client), which only scheduled content uses |
