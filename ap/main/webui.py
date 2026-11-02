@@ -58,6 +58,7 @@ PAGE = """<!doctype html>
   <title>OpenESL AP dashboard</title>
   <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">{css}
+  <script>try {{ var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
 </head>
 <body>
   <header class="top">
@@ -163,12 +164,12 @@ def page_files(web, modules, wasm=None):
     for css in ["style.css"] + [c for name in modules for c in MODULES[name]["css"]]:
         with open(os.path.join(web, "css", css), "rb") as f:
             files.append((f"/ui/css/{css}", "text/css", f.read()))
-    js = ["aptabs.js"] + list(dict.fromkeys(j for name in modules for j in MODULES[name]["js"]))
+    js = ["aptabs.js", "theme.js"] + list(dict.fromkeys(j for name in modules for j in MODULES[name]["js"]))
     for name in js:
         with open(os.path.join(web, "js", name), "rb") as f:
             src = f.read()
         # every module the page imports must be packed too, or the page breaks on the AP
-        for dep in re.findall(rb'from "\./([\w.-]+\.js)"', src):
+        for dep in re.findall(rb'(?:from|import) "\./([\w.-]+\.js)"', src):
             if dep.decode() not in js:
                 sys.exit(f"webui.py: js/{name} imports {dep.decode()}, which is not packed")
         files.append((f"/ui/js/{name}", "text/javascript", src))

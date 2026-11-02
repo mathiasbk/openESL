@@ -89,7 +89,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The label picks the new content up at its next poll. The [Set up](https://mathiasbk.github.io/openESL/#setup) tab covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
+The label picks the new content up at its next poll. The wiki page [WiFi and API token](https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token) covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
 
 ## How it works
 
