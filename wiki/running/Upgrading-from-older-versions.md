@@ -11,12 +11,25 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.9.2, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.10.0, for example:
 
-1. Backup, then the AP to 0.9.2 over the air. It keeps `openesl.local`.
+1. Backup, then the AP to 0.10.0 over the air. It keeps `openesl.local`.
 2. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.9.2 release (never 0.9.0), one of each model first.
-4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2.
+3. The labels to the label firmware of the 0.10.0 release (never 0.9.0), one of each model first.
+4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0.
+
+## From 0.9.2 to 0.10.0
+
+Update the AP over the air. That is all you have to do: labels on 0.9.2 work with it as before, and neither C6 radio needs flashing. The new label firmware is optional and safe to roll out slowly, so labels that are out of range during the update keep working.
+
+- New on the AP: [font files](Font-files) made in the browser, text turned 90°, 180° or 270° in layouts, up to 16 fields and 256 bytes of text per label with fields by name, a calendar template for Home Assistant, and up to four C6 radios over WiFi per S3 (not tried with several C6 boards on hardware yet).
+- `http://openesl.local/` opens the dashboard; the old read-only status page is gone. The web page has a light/dark/auto button and the designer works on a phone.
+- An S3 that loses contact with its C6 radio for 30 seconds says so in the dashboard, `GET /api/health` and the webhook. The Home Assistant integration 0.3.0 shows it as a radio sensor and a repair; it needs this AP release for that.
+- The 0.10.0 label firmware keeps its screen when it hears no AP for two hours and draws a small crossed-out signal mark in the top right corner, instead of replacing the screen with "No AP found". Roll it out one label of each model first ([Updating labels](Updating-labels)).
+- The Home Assistant integration 0.4.0 sends fields by name and needs this AP release.
+- Going back to 0.9.2: the AP keeps everything, but skips layout files that use a font file, turned text or more than 6 fields until you upload ones without them, and forgets content with more than 6 fields or 96 bytes of text. The labels keep their screen. With several radios over WiFi, unplug all but one C6 first.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-092-to-0100).
 
 ## From 0.9.1 to 0.9.2
 
