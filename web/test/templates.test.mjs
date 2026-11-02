@@ -136,15 +136,16 @@ test("names and search", () => {
 
 test("a layout's title comes from its template, by id or else by name", () => {
   const index = [
-    { id: "vare", layout: "vare", title: "Product with brand" },
-    { id: "room", layout: "room", title: "Room climate" },
-    { id: "same", layout: "same", title: "same" },
+    { id: "vare", layout: "vare", title: "Product with brand", fields: ["brand", "name", "price"] },
+    { id: "room", layout: "room", title: "Room climate", fields: ["temp"] },
+    { id: "same", layout: "same", title: "same", fields: [] },
   ];
-  assert.equal(titleOf(index, { name: "vare" }), "Product with brand");            // the example file
+  assert.equal(titleOf(index, { name: "vare", fields: ["brand", "name", "price"] }), "Product with brand"); // the example file
+  assert.equal(titleOf(index, { name: "vare", fields: ["text"] }), "");             // your own, by chance the same name
   assert.equal(titleOf(index, { name: "vare-2", _template: "vare" }), "Product with brand");
   assert.equal(titleOf(index, { name: "room", _template: "vare" }), "Product with brand"); // the id wins
   assert.equal(titleOf(index, { name: "mine" }), "");
   assert.equal(titleOf(index, { name: "x", _template: "gone" }), "");
   assert.equal(titleOf(index, { name: "same" }), "");                               // no title that repeats the name
-  assert.equal(titleOf(undefined, { name: "vare" }), "");
+  assert.equal(titleOf(undefined, { name: "vare", fields: ["brand", "name", "price"] }), "");
 });
