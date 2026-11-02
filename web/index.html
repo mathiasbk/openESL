@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/designer.css">
   <link rel="stylesheet" href="css/apwizard.css">
+  <!-- the kept light/dark choice, before the page is drawn (js/theme.js has the button) -->
+  <script>try { var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
 <body>
   <header class="top">
@@ -790,6 +792,7 @@
     <iframe class="api-frame" data-src="api.html" title="API reference"></iframe>
   </main>
 
+  <script type="module" src="js/theme.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -22,7 +22,8 @@ Steps:
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
             on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
             Design tab packs (web/build.py --wasm, Emscripten 3.1.74)
-  web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
+  web       the stylesheets keep to the design scale (tools/check_css.py), the web page and
+            renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
 Toolchains: tools/dev/setup.sh installs SDCC, Emscripten and Node into ~/.cache/openesl on Linux
@@ -208,6 +209,7 @@ def step_ap_fw():
 
 
 def step_web():
+    run([PY, "tools/check_css.py"])     # needs only Python, so it runs without Emscripten too
     need("emcc", "Emscripten %s, tools/dev/setup.sh or emsdk" % EMSCRIPTEN_VERSION)
     node = need("node", "Node 22")
     need_host_cc()
