@@ -327,7 +327,9 @@ def ap_boards():
 
     for b in boards.values():
         b["display"] = "\nCONFIG_ESL_DISPLAY=y" in "\n" + sdkconfig(b)
-    return sorted(boards.values(), key=lambda b: (b["status"] != "supported", b.get("base") is not None, b["id"]))
+        # the Design tab on the AP's own page (ap/main/webui.py), which the Flash AP card names
+        b["designer"] = "\nCONFIG_ESL_WEB_DESIGNER=y" in "\n" + sdkconfig(b)
+    return sorted(boards.values(), key=lambda b: (not b.get("recommended"), b["status"] != "supported", b.get("base") is not None, b["id"]))
 
 
 def ap_radios():
@@ -469,7 +471,10 @@ def add_firmware(*files):
                                   "chip_family": b["chip_family"], "display": b["display"], "file": name[:-4],
                                   "manifest": manifest, "radio": b.get("radio", "native"),
                                   # the radio firmware this board takes, as keys in "radios"
-                                  "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])]})
+                                  "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])],
+                                  # what the card in step 1 tells a newcomer (board.json, optional)
+                                  **{k: b[k] for k in ("recommended", "tags") if k in b},
+                                  "designer": b["designer"]})
     # The C6 radio images for the boards with "radio": "uart" or "net" (the Flash AP tab flashes
     # the C6 before the main board), split and listed like the AP's: a radio on the network keeps
     # its WiFi in NVS when it is flashed again

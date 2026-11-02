@@ -2,7 +2,7 @@
 // connect steps, the partition table check and the radio over WiFi's console.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cards, plan, radiosFor, compareTables, radioCommands, radioLine, isNativeUsb, twoPorts } from "../js/apsteps.js";
+import { cards, summary, plan, radiosFor, compareTables, radioCommands, radioLine, isNativeUsb, twoPorts } from "../js/apsteps.js";
 
 const info = {
   ap_boards: [
@@ -25,6 +25,19 @@ test("a card for every board, with its title and chips", () => {
   assert.deepEqual(c[2].chips, ["S3", "C6 radio"]);
   assert.deepEqual(c.map((x) => x.pic), ["single", "screen", "cable", "wifi", "single"]);
   assert.ok(c.every((x) => x.ready));
+});
+
+test("each card says how many tags, what it takes and what it costs, and which one to start with", () => {
+  const c = cards({ ...info, ap_boards: info.ap_boards.map((b, i) => i === 0 ? { ...b, recommended: true, tags: 500 } : i === 2 ? { ...b, tags: 1000, designer: true } : b) });
+  assert.equal(c[0].line, "Up to about 500 tags · one board");
+  assert.equal(c[2].line, "Up to about 1000 tags · two boards and four wires · dashboard with the label designer");
+  assert.equal(c[3].line, "two boards, no wire");
+  assert.deepEqual(c.map((x) => x.recommended), [true, false, false, false, false]);
+  assert.equal(summary({ display: true }), "one board");
+});
+
+test("an info.json from before ap_boards still recommends the C6", () => {
+  assert.equal(cards({ ap: true })[0].recommended, true);
 });
 
 test("a board with a C6 radio is not ready without its radio image", () => {

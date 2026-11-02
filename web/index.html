@@ -31,7 +31,7 @@
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
       <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32-C6 or ESP32-C5 access point. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
+      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32 access point: one ESP32-C6 board to start, or an ESP32-S3 with a C6 as its radio for up to about 1000 tags. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
       <p id="home-fw" class="muted"></p>
     </section>
     <div class="cards">
@@ -47,14 +47,14 @@
       </a>
       <a class="card link" href="#ap">
         <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6 or ESP32-C5 board over USB.</p>
+        <p>Put the AP firmware on an ESP32-C6, an ESP32-S3 + C6 or another supported board over USB. The page helps you choose.</p>
         <span class="go">Open the AP flasher</span>
       </a>
     </div>
     <section class="card wide">
       <h3>How it fits together</h3>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
+        <li><strong>Flash the AP</strong> on an ESP32-C6 (or an S3 + C6) and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
@@ -66,7 +66,7 @@
       <ul>
         <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
         <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB (an ESP32-C5 with PSRAM is experimental).</li>
+        <li>For the AP: an ESP32-C6 board with USB (up to about 500 tags), or an ESP32-S3 N16R8 with a C6 as its radio for up to about 1000 tags. The ESP32-C5 is experimental.</li>
       </ul>
       <p class="muted">Setting up and running the AP: the <a href="#setup">Set up</a> tab. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>

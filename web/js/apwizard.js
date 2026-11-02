@@ -15,6 +15,7 @@ const STEPS = ["Choose AP", "Flash", "WiFi & token", "Done"];
 const JOIN_WAIT_MS = 30000;
 const WEAK_RSSI = -75;   // below this the radio over WiFi loses frames (docs/ap-netradio.md)
 const HA_GUIDE = "https://github.com/mathiasbk/openesl/blob/master/docs/home-assistant.md";
+const CHOOSING = "https://github.com/mathiasbk/openESL/wiki/Access-point-boards";
 const OTHER_TOOLS = "https://github.com/mathiasbk/openesl/blob/master/ap/README.md#build-and-flash";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -88,8 +89,9 @@ export function initApWizard(info, store) {
     wire();
   }
 
-  function badge(status) {
-    return status === "supported" ? `<span class="wz-badge ok">supported</span>` : `<span class="wz-badge">${esc(status)}</span>`;
+  function badge(c) {
+    if (c.recommended && c.status === "supported") return `<span class="wz-badge rec">Recommended to start</span>`;
+    return c.status === "supported" ? `<span class="wz-badge ok">supported</span>` : `<span class="wz-badge">${esc(c.status)}</span>`;
   }
 
   function seg(name, options, value) {
@@ -100,14 +102,15 @@ export function initApWizard(info, store) {
   function choosePage() {
     const rs = radios();
     return `
-      <h2>Which AP do you have?</h2>
+      <div class="wz-head"><h2>Which AP do you have?</h2><a class="wz-help" href="${CHOOSING}" target="_blank" rel="noopener">Which one should I choose?</a></div>
       ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome or Edge on a computer (Web Serial).</p>`}
       <div class="wz-cards">${all.map((c) => `
         <button type="button" class="wz-card" data-card="${esc(c.board.id)}" aria-pressed="${st.card === c}" ${c.ready ? "" : "disabled"}>
           <span class="wz-pic">${setupPicture(c.pic, c.chip)}</span>
           <b>${esc(c.title)}</b>
           <span class="wz-chips">${c.chips.map((x) => `<span class="wz-chip ${esc(x.replace(/ .*/, "").toLowerCase())}">${esc(x)}</span>`).join("")}</span>
-          ${c.ready ? badge(c.status) : `<span class="wz-badge">not on this page yet</span>`}
+          ${c.line ? `<span class="wz-line">${esc(c.line)}</span>` : ""}
+          ${c.ready ? badge(c) : `<span class="wz-badge">not on this page yet</span>`}
         </button>`).join("")}
       </div>
       ${all.length ? "" : `<p class="warn">No AP firmware is published with this page yet.</p>`}
