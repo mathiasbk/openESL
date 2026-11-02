@@ -31,7 +31,7 @@ Added after the plan, all described in ap/README.md: drawing each tag's screen o
 ## Writing a client
 The AP is only an API, so the client can be anything that speaks HTTP. Tips for a robust client:
 - Send `PUT /api/tags/{mac}` when content changes, and retry if the AP does not respond.
-- Do a periodic full send (`PUT /api/tags` in chunks of 50). It catches anything that was lost and costs no extra drawing, because the AP compares `content_id`.
+- Do a periodic full send (`PUT /api/tags` in batches of at most 50 tags, and fewer when they have many fields: a body has at most 1,024 JSON tokens, which 50 tags with 14 or more fields pass). It catches anything that was lost and costs no extra drawing, because the AP compares `content_id`.
 - Read `GET /api/tags` now and then to see battery, "last seen" and new tags (`content_id: 0`).
 - Or use [tools/esl-client](../tools/esl-client/README.md): CSV import (`sync`), scheduling (`--at`), `health`, `backup`/`restore`, `ota`, and the USB port (`--serial`).
 - `tag/tools/label_design.py` turns a label design and your data into the body of `PUT /api/tags/{mac}`.
