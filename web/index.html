@@ -99,8 +99,9 @@
       <button id="send-open" class="primary">Send to your AP…</button>
     </div>
 
-    <div class="dz">
+    <div class="dz" id="dz" data-mtab="fields">
       <aside class="dz-left">
+        <div class="dz-lays" data-mt="layouts">
         <div class="dz-h">
           <h3>Layouts <span class="muted small" id="layout-count"></span></h3>
         </div>
@@ -114,14 +115,19 @@
           <summary class="small muted">Built in: price, text</summary>
           <ol id="builtin-list" class="dz-list"></ol>
         </details>
+        </div>
+        <div class="dz-els" data-mt="elements">
         <div class="dz-h" id="el-head">
           <h3>Elements</h3>
           <span class="muted small">front at the top</span>
         </div>
         <ol id="el-list" class="dz-list el-list"></ol>
+        </div>
       </aside>
 
       <section class="dz-center">
+        <!-- on a narrow screen: the layout to edit, above the tag (the list is under the Layouts tab) -->
+        <label class="dz-mpick"><span class="muted">Layout</span><select id="layout-pick" aria-label="Layout"></select></label>
         <div class="dz-tools" id="add-group" role="toolbar" aria-label="Add">
           <button id="el-add-text" class="tool" title="A field filled in by each update"><b>T</b>Text</button>
           <button id="el-add-fixed" class="tool" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)"><b>“A”</b>Fixed text</button>
@@ -172,26 +178,33 @@
         </div>
       </section>
 
+      <!-- on a narrow screen one part at a time under the tag; the columns otherwise -->
+      <div class="dz-mtabs" id="dz-mtabs" role="tablist" aria-label="Panels">
+        <button role="tab" data-mtab="fields" aria-selected="true">Fields</button>
+        <button role="tab" data-mtab="elements" aria-selected="false" tabindex="-1">Elements</button>
+        <button role="tab" data-mtab="layouts" aria-selected="false" tabindex="-1">Layouts <span class="muted" id="mtab-count"></span></button>
+      </div>
+
       <aside class="dz-right">
-        <div class="dz-sec dz-title">
+        <div class="dz-sec dz-title" data-mt="fields">
           <input id="lay-name" class="title-input" spellcheck="false" aria-label="Layout name">
           <span id="lay-sub" class="muted small"></span>
         </div>
-        <p id="builtin-note" class="dz-sec hint" hidden>Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own. You can still try the sample text and send it.</p>
-        <section class="dz-sec">
+        <p id="builtin-note" class="dz-sec hint" data-mt="fields" hidden>Built-in layouts are part of the firmware and cannot be edited. Pick a layout from the file, or make a new one, to design your own. You can still try the sample text and send it.</p>
+        <section class="dz-sec" data-mt="fields">
           <div class="dz-h"><h3>Fields and sample text</h3><button id="field-add" class="link">+ Field</button></div>
           <div id="sample" class="fields"></div>
           <p id="sample-count" class="count"></p>
         </section>
-        <section class="dz-sec" id="sel-sec" hidden>
+        <section class="dz-sec" id="sel-sec" data-mt="elements" hidden>
           <div class="dz-h"><h3 id="sel-title">Selected</h3></div>
           <div id="el-form" class="el-form"></div>
         </section>
-        <section class="dz-sec" id="desc-sec">
+        <section class="dz-sec" id="desc-sec" data-mt="fields">
           <div class="dz-h"><h3>Description</h3></div>
           <input id="lay-desc" class="soft" placeholder="What the layout is for (optional)" aria-label="Description">
         </section>
-        <details class="dz-sec tips">
+        <details class="dz-sec tips" data-mt="fields">
           <summary>Keys and tips</summary>
           <ul>
             <li>Drag a box to move it, drag its edge or corner to resize. It snaps to the screen's edges and centre and to the other boxes; hold <kbd>Alt</kbd> to place it freely.</li>
