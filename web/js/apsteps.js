@@ -18,7 +18,7 @@ export function setupKind(board) {
 export function boardsOf(info) {
   if (info?.ap_boards?.length) return info.ap_boards;
   return [
-    ...(info?.ap ? [{ id: "c6-supermini", name: "ESP32-C6", chip_family: "ESP32-C6", status: "supported", manifest: "ap-manifest.json" }] : []),
+    ...(info?.ap ? [{ id: "c6-supermini", name: "ESP32-C6", chip_family: "ESP32-C6", status: "supported", manifest: "ap-manifest.json", recommended: true }] : []),
     ...(info?.ap_lcd ? [{ id: "c6-supermini-lcd", name: "ESP32-C6 with status screen", chip_family: "ESP32-C6", display: true, status: "supported", manifest: "ap-lcd-manifest.json" }] : []),
   ];
 }
@@ -29,8 +29,22 @@ export function radiosFor(board, info) {
   return (board.radio_fw || []).map((k) => all.find((r) => r.key === k)).filter(Boolean);
 }
 
-// A card of step 1: { board, title, chips, status, pic, ready }. A board with a C6 radio is
-// ready only when the page has its radio image too.
+// What a setup takes, for the line on its card
+const PARTS = { single: "one board", screen: "one board", cable: "two boards and four wires", wifi: "two boards, no wire" };
+
+// The line under a card's title for a newcomer: "Up to about 1000 tags · two boards and four
+// wires · dashboard with the label designer", from "tags" in the board's board.json and
+// "designer" (web/build.py); what the board does not say is left out
+export function summary(board) {
+  return [
+    board.tags ? `Up to about ${board.tags} tags` : "",
+    PARTS[setupKind(board)],
+    board.designer ? "dashboard with the label designer" : "",
+  ].filter(Boolean).join(" · ");
+}
+
+// A card of step 1: { board, title, chips, status, recommended, line, pic, ready }. A board with
+// a C6 radio is ready only when the page has its radio image too.
 export function card(board, info) {
   const kind = setupKind(board);
   const chip = shortChip(board.chip_family || board.target?.replace(/^esp32/, "ESP32-"));
@@ -46,6 +60,8 @@ export function card(board, info) {
     title,
     chips: radio ? [chip, "C6 radio"] : [chip],
     status: board.status || "supported",
+    recommended: !!board.recommended,
+    line: summary(board),
     pic: kind,
     chip,
     ready: !radio || radiosFor(board, info).length > 0,
