@@ -766,6 +766,23 @@ function refreshLayoutList() {
     return li;
   }));
   if (isBuiltin()) $("builtin-box").open = true;
+  refreshLayoutPick(lays);
+}
+
+// The same layouts in the picker over the tag, which a narrow screen shows instead of the list
+function refreshLayoutPick(lays) {
+  const opt = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    return o;
+  };
+  const builtin = document.createElement("optgroup");
+  builtin.label = "Built in";
+  builtin.append(...Object.keys(BUILTIN).map((name) => opt("builtin:" + name, name)));
+  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, l.name || "(no name)")), builtin);
+  $("layout-pick").value = state.sel;
+  $("mtab-count").textContent = String(lays.length);
 }
 
 function infoButton() {
@@ -1779,6 +1796,23 @@ function initActions() {
     state.el = -1;
     refreshAll();
   });
+  $("layout-pick").addEventListener("change", () => {
+    if ($("layout-pick").value === state.sel) return;
+    state.sel = $("layout-pick").value;
+    state.el = -1;
+    refreshAll();
+  });
+  // Narrow screens: Fields, Elements or Layouts under the tag
+  const showPanel = (name) => {
+    $("dz").dataset.mtab = name;
+    $("dz-mtabs").querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mtab === name)));
+    store.set("panel", name);
+  };
+  $("dz-mtabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-mtab]");
+    if (b) showPanel(b.dataset.mtab);
+  });
+  if (["fields", "elements", "layouts"].includes(store.get("panel"))) showPanel(store.get("panel"));
   $("layout-from-tpl").addEventListener("click", openTemplatePicker);
   $("tpl-offer-no").addEventListener("click", () => ($("tpl-offer").hidden = true));
   initTemplatePicker({

@@ -332,3 +332,41 @@
 .date-fields { display: grid; gap: 4px; margin: -2px 0 6px; }
 .date-fields .chip { min-height: 24px; padding: 2px 8px; font-size: 12px; font-family: ui-monospace, monospace; }
 .date-fields p { margin: 0; }
+
+/* ===================== Narrow screens: layout picker over the tag, one part at a time under it (#313) ===================== */
+.dz-mpick, .dz-mtabs { display: none; }
+@media (max-width: 1000px) {
+  /* The columns give up their boxes, so each part is placed on its own: tag, tabs, the tab's part */
+  .dz-left, .dz-right { display: contents; }
+  .dz-center { order: 1; }
+  .dz-mtabs { order: 2; }
+  .dz [data-mt] { order: 3; background: var(--panel); }
+  .dz-lays, .dz-els { padding: 12px 14px 16px; }
+  .dz-els #el-head { margin-top: 0; }
+  .dz[data-mtab="fields"] [data-mt]:not([data-mt="fields"]),
+  .dz[data-mtab="elements"] [data-mt]:not([data-mt="elements"]),
+  .dz[data-mtab="layouts"] [data-mt]:not([data-mt="layouts"]) { display: none; }
+
+  .dz-mpick {
+    display: flex; align-items: center; gap: 8px; z-index: 5;
+    width: min(560px, calc(100% - 24px)); margin: 10px auto 0;
+  }
+  .dz-mpick select { flex: 1; min-width: 0; font-weight: 600; }
+  .dz-tools { margin-top: 10px; }
+  .dz-canvas { padding: 20px 12px 28px; }
+
+  .dz-mtabs {
+    display: flex; position: sticky; top: 0; z-index: 6; gap: 4px; padding: 6px 8px;
+    background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .dz-mtabs button { flex: 1; border: 0; border-radius: 6px; background: none; padding: 7px 6px; font-size: 14px; white-space: nowrap; }
+  .dz-mtabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); }
+  .dz-mtabs button[aria-selected="true"] .muted { color: inherit; opacity: .8; }
+
+  /* A finger needs more than a mouse: larger list rows and resize handles */
+  .dz-list li { min-height: 40px; }
+  .dz-list .acts button { padding: 6px 8px; }
+}
+@media (pointer: coarse) {
+  .box .grip { width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; }
+}

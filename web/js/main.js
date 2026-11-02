@@ -22,7 +22,11 @@ const TABS = ["home", "design", "tag", "ap", "dashboard", "setup", "api"];
 
 function showTab(name) {
   if (!TABS.includes(name)) name = "home";
-  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    b.setAttribute("aria-selected", b.dataset.tab === name);
+    // on a phone the tabs are one row that scrolls sideways: keep the chosen one in view
+    if (b.dataset.tab === name) b.parentElement.scrollLeft = Math.max(0, b.offsetLeft - b.parentElement.offsetLeft - 12);
+  });
   document.querySelectorAll(".tab").forEach((t) => {
     // a modal dialog left open in a tab that is hidden (Back, a typed #name) would keep the
     // whole page inert behind it, unseen
