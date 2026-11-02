@@ -551,6 +551,7 @@ details.help > p { max-width: 62ch; }
 .lay-thumb { background: var(--paper); border: 1px solid var(--paper-edge); border-radius: 2px; aspect-ratio: 296 / 128; position: relative; overflow: hidden; }
 .lay-thumb canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .lay-n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lay-card .lay-name { font-size: var(--fs-xs); color: var(--muted); background: none; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lay-u { font-size: var(--fs-xs); color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .lay-b { display: flex; gap: 6px; margin-top: 2px; }
 .pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: var(--fs-xs); font-weight: 500; }

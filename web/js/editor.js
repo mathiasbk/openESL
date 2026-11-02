@@ -14,7 +14,8 @@ import { ApClient, PortClient, apBase } from "./apclient.js";
 import { hasSerial, serialAp, connectSerial, onSerialChange } from "./apport.js";
 import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
 import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
-import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
+import { initTemplatePicker, openTemplatePicker, templateById, catalogTemplates } from "./tplpicker.js";
+import { titleOf } from "./catalog.js";
 import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { MODELS as TAGS, layoutModel, layoutUsers, modelName, modelLabel, isExperimental } from "./models.js";
@@ -72,6 +73,8 @@ const store = {
 // On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
 // origin, and the layout files stored on the AP are what the editor opens and saves
 let onAp = false;
+// The template library's index entries, for the titles in the layout list (tplpicker.js)
+let templates = [];
 
 const state = {
   model: "2.9",
@@ -699,7 +702,8 @@ function refreshLayoutList() {
   const lays = doc().layouts || [];
   const cmp = ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
   const counts = cmp ? countByLayout(ap.tags, ap.tagLayouts, state.model) : {};
-  $("layout-count").textContent = `${lays.length} of 16`;
+  $("layout-count").textContent = `${lays.length} (max 16)`;
+  $("layout-count").title = `This file has ${lays.length} layout${lays.length === 1 ? "" : "s"}; a layout file holds at most 16`;
   $("layout-list").replaceChildren(...lays.map((l, i) => {
     const key = "file:" + i;
     const li = document.createElement("li");
@@ -712,13 +716,21 @@ function refreshLayoutList() {
     paintThumb(pic, thumbs[state.model]?.[i]);
     const t = document.createElement("span");
     t.className = "t";
+    // the template's title over the name a client sends, when it comes from the library
+    const title = titleOf(templates, l);
     const n = document.createElement("span");
     n.className = "name";
-    n.textContent = l.name || "(no name)";
+    n.textContent = title || l.name || "(no name)";
     const f = document.createElement("span");
     f.className = "dim";
     const nf = (l.fields || []).length;
-    f.textContent = nf === 1 ? "1 field" : nf + " fields";
+    if (title) {
+      const code = document.createElement("code");
+      code.textContent = l.name;
+      code.title = "The layout's name, which a client sends";
+      f.append(code, " · ");
+    }
+    f.append(nf === 1 ? "1 field" : nf + " fields");
     t.append(n, f);
     if (cmp) {
       const st = document.createElement("span");
@@ -792,16 +804,22 @@ function refreshLayoutPick(lays) {
   const builtin = document.createElement("optgroup");
   builtin.label = "Built in";
   builtin.append(...Object.keys(BUILTIN).map((name) => opt("builtin:" + name, name)));
-  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, l.name || "(no name)")), builtin);
+  const label = (l) => { const t = titleOf(templates, l); return t ? `${t} (${l.name})` : l.name || "(no name)"; };
+  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, label(l))), builtin);
   $("layout-pick").value = state.sel;
   $("mtab-count").textContent = String(lays.length);
 }
 
 function infoButton() {
   const b = document.createElement("button");
-  b.textContent = "API";
   b.className = "info";
-  b.title = b.ariaLabel = "What a tag needs for this layout: send it to a tag, or see the request for curl, esl-client and Home Assistant";
+  const ico = document.createElement("span");
+  ico.className = "ico";
+  ico.ariaHidden = "true";
+  ico.textContent = "</>";
+  b.append(ico, "Use");
+  b.title = "How to use this layout: its fields, and the request for curl, esl-client and Home Assistant";
+  b.ariaLabel = "Use this layout: what a client sends for it";
   b.dataset.act = "info";
   return b;
 }
@@ -2443,6 +2461,22 @@ async function openFromAp({ model, file, name }) {
   refreshUndo();
 }
 
+// The one-time explanation of the layout file, and the library's titles for the layout list
+function initIntro() {
+  // A short explanation the first time the designer opens, until it is closed
+  $("dz-intro").hidden = store.get("intro.seen") !== null;
+  if (onAp) $("dz-intro-send").textContent = "Save to AP";
+  $("dz-intro-ok").addEventListener("click", () => {
+    $("dz-intro").hidden = true;
+    store.set("intro.seen", "1");
+  });
+  // the library's titles for the layout list, once the catalog is read (none without it)
+  catalogTemplates().then((t) => {
+    templates = t;
+    if (t.length && doc()) refreshLayoutList();
+  });
+}
+
 export async function initEditor({ sameOrigin = false } = {}) {
   onAp = sameOrigin;
   try {
@@ -2455,6 +2489,7 @@ export async function initEditor({ sameOrigin = false } = {}) {
   initDrag();
   initList();
   initAp();
+  initIntro();
   window.addEventListener("openesl-edit-layout", (ev) => openFromAp(ev.detail));
   const m = store.get("tag") || store.get("model");
   await loadModel(TAGS[m] ? m : Object.keys(TAGS)[0]);
