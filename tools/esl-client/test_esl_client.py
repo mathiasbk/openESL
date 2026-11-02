@@ -234,6 +234,9 @@ class FakeAp(BaseHTTPRequestHandler):
             if len(body["tags"]) > esl_client.BATCH_MAX:
                 self._send(413, {"error": "too many"})
                 return
+            if esl_client.json_tokens(body) > 1024:  # as the AP's JSON parser (ESL_API_MAX_TOKENS)
+                self._send(413, {"error": "too many JSON tokens"})
+                return
             bad = [i for i, r in enumerate(body["tags"]) if "BAD" in r.get("fields", [])]
             if bad:
                 self._send(422, {"error": "layout \"BAD\" is not in any layout file", "index": bad[0]})
@@ -841,6 +844,27 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(sizes, [50, 50, 20])
         self.assertTrue(FakeAp.calls[0][1]["tags"][1]["price_highlight"])
         self.assertNotIn("price_highlight", FakeAp.calls[0][1]["tags"][0])
+
+    def test_set_many_16_fields(self):
+        # 50 tags with 16 fields are about 1,150 JSON tokens: more than the AP takes in one body
+        rows = [{"mac": f"{i:016X}", "layout": "text", "fields": [f"f{k}" for k in range(16)]} for i in range(120)]
+        self.assertGreater(esl_client.json_tokens({"tags": rows[:50]}), 1024)
+        cli = esl_client.Client(self.url, TOKEN)
+        self.assertEqual(len(cli.set_many(rows)), 120)
+        bodies = [b for p, b in FakeAp.calls if p == "/api/tags"]
+        self.assertEqual(sum(len(b["tags"]) for b in bodies), 120)
+        for b in bodies:
+            self.assertLessEqual(esl_client.json_tokens(b), 1024)
+            self.assertLessEqual(len(json.dumps(b).encode()), esl_client.BODY_MAX_BYTES)
+
+    def test_batches(self):
+        small = [{"mac": f"{i:016X}", "fields": ["a"]} for i in range(120)]
+        self.assertEqual([len(c) for c in esl_client.batches(small)], [50, 50, 20])
+        big = [{"mac": f"{i:016X}", "fields": ["x" * 255] * 16} for i in range(10)]
+        parts = list(esl_client.batches(big))
+        self.assertEqual(sum(len(c) for c in parts), 10)
+        self.assertTrue(all(len(json.dumps({"tags": c})) <= esl_client.BODY_MAX_BYTES for c in parts))
+        self.assertEqual(list(esl_client.batches([])), [])
 
     def write(self, text, encoding="utf-8"):
         f = tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False)
