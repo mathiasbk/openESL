@@ -27,7 +27,7 @@ test("a card for every board, with its title and chips", () => {
   assert.ok(c.every((x) => x.ready));
 });
 
-test("each card says how many tags, what it takes and what it costs, and which one to start with", () => {
+test("each card says how many tags, what it takes and whether it has the designer, and which one to start with", () => {
   const c = cards({ ...info, ap_boards: info.ap_boards.map((b, i) => i === 0 ? { ...b, recommended: true, tags: 500 } : i === 2 ? { ...b, tags: 1000, designer: true } : b) });
   assert.equal(c[0].line, "Up to about 500 tags · one board");
   assert.equal(c[2].line, "Up to about 1000 tags · two boards and four wires · dashboard with the label designer");
