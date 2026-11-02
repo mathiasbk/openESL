@@ -9,7 +9,7 @@
 
 import { MODELS, layoutModel, layoutUsers, modelName, modelLabel } from "./models.js";
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
-import { variantFor, addTemplate, PAGES } from "./catalog.js";
+import { variantFor, addTemplate, titleOf, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { apFonts, checkFontFile } from "./apfonts.js";
 import { makeFont, loadFontFile, previewFont, hasFont, MAX_FILE } from "./fontmaker.js";
@@ -274,8 +274,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
         buttons.push(rm);
       }
       const uses = unk ? (c ? `at least ${c} tag${c === 1 ? "" : "s"}` : "Not checked") : c ? `${c} tag${c === 1 ? "" : "s"}` : "Not used";
+      // the template's title over the name a client sends, when it comes from the library
+      const title = titleOf(cat?.index.templates, l);
       cards.push(card({
-        key: "ap:" + l.name, name: l.name, pic: r && paint(r, file, 0x10 + i, sampleOf(l)),
+        key: "ap:" + l.name, name: l.name, title, pic: r && paint(r, file, 0x10 + i, sampleOf(l)),
         sub: [el("span", "pill " + (c ? "ok" : "off"), uses),
               el("span", "", ` ${(l.fields || []).length} field${(l.fields || []).length === 1 ? "" : "s"}`)],
         buttons, sel: { kind: "ap", name: l.name },
@@ -300,8 +302,8 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
         send.disabled ||= onAp.length >= MAX_LAYOUTS;
         if (onAp.length >= MAX_LAYOUTS) send.title = `The file has ${MAX_LAYOUTS} layouts, the most it can hold. Remove one first.`;
         can.push(card({
-          key: "tpl:" + entry.id, name: entry.layout, pic,
-          sub: [el("span", "", `${titles[entry.category] || entry.category} · ${entry.title}`)],
+          key: "tpl:" + entry.id, name: entry.layout, title: entry.title !== entry.layout ? entry.title : "", pic,
+          sub: [el("span", "", titles[entry.category] || entry.category)],
           buttons: [send], sel: { kind: "tpl", name: entry.layout, id: entry.id },
         }));
       }
@@ -330,15 +332,22 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     return b;
   }
 
-  function card({ key, name, pic, sub, buttons = [], sel: s }) {
+  // title: the template's title, shown over the name (which a client sends) when there is one
+  function card({ key, name, title = "", pic, sub, buttons = [], sel: s }) {
     const d = el("div", "lay-card" + (sel && sel.kind === s.kind && sel.name === s.name ? " sel" : ""));
     d.dataset.key = key;
     d.tabIndex = 0;
     d.setAttribute("role", "button");
-    d.setAttribute("aria-label", `${name}: show its fields`);
+    d.setAttribute("aria-label", `${title ? title + " (" + name + ")" : name}: show its fields`);
     const box = el("div", "lay-thumb");
     if (pic) box.append(pic);
-    d.append(box, el("div", "lay-n", name), Object.assign(el("div", "lay-u"), {}));
+    d.append(box, el("div", "lay-n", title || name));
+    if (title) {
+      const n = el("code", "lay-name", name);
+      n.title = "The layout's name, which a client sends";
+      d.append(n);
+    }
+    d.append(el("div", "lay-u"));
     d.lastChild.append(...sub);
     if (buttons.length) {
       const row = el("div", "lay-b");

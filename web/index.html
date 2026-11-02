@@ -130,6 +130,16 @@
           <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
           <button id="el-add-qr" class="tool" title="A field as a QR code, e.g. a link (one per layout)"><b>▦</b>QR</button>
         </div>
+        <section id="dz-intro" class="dz-intro" aria-labelledby="dz-intro-h" hidden>
+          <h3 id="dz-intro-h">This is a layout file</h3>
+          <p>A layout file holds the designs (layouts) the AP draws one tag model's screens with. It starts with a few examples to try or change.</p>
+          <ol>
+            <li><b>Draw</b> a layout: pick one in the list of layouts, or add one, and place text fields, boxes and codes on the tag.</li>
+            <li><b>Send it to your AP</b> with <i id="dz-intro-send">Send to your AP…</i> at the top. The AP keeps the file; the tags need nothing new.</li>
+            <li><b>Send content</b> from Home Assistant, esl-client or your own software: the layout's name and a text for each field. <i>Use</i> next to a layout shows how.</li>
+          </ol>
+          <button id="dz-intro-ok" class="small primary">Got it</button>
+        </section>
         <div id="tpl-offer" class="tpl-offer" role="status" hidden>
           <span id="tpl-offer-text"></span>
           <button id="tpl-offer-add" class="small primary"></button>
@@ -156,9 +166,11 @@
           <span id="status" class="status" role="status"></span>
           <span class="sep"></span>
           <label title="Show the outline and name of every element"><input type="checkbox" id="opt-boxes" checked> Outlines</label>
-          <span class="muted">Preview with</span>
-          <label title="price_highlight in the update: the price drawn white on black"><input type="checkbox" id="opt-highlight" checked> highlighted price</label>
-          <label title="frame in the update: a frame round the screen"><input type="checkbox" id="opt-frame"> frame</label>
+          <span class="pv-opts" role="group" aria-labelledby="pv-opts-h">
+            <span class="muted" id="pv-opts-h">Preview with</span>
+            <label title="price_highlight in the update: the price drawn white on black"><input type="checkbox" id="opt-highlight" checked> highlighted price</label>
+            <label title="frame in the update: a frame round the screen"><input type="checkbox" id="opt-frame"> frame</label>
+          </span>
           <select id="zoom" aria-label="Zoom" title="Fit: the whole tag fits in the window">
             <option value="fit">Fit</option>
             <option value="1">1×</option>

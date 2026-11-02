@@ -83,6 +83,17 @@ async function templateFile(entry) {
   return files[entry.id];
 }
 
+// The templates of the catalog (its index entries), for the titles of the layout list; [] when it
+// cannot be read, or when it is only the example file (whose "titles" are the layout names)
+export async function catalogTemplates() {
+  try {
+    const c = await loadCatalog();
+    return c.offline ? [] : c.index.templates;
+  } catch {
+    return [];
+  }
+}
+
 // A template by id (its file), for the offer to add it for another model; null when the catalog
 // cannot be read or has no such template
 export async function templateById(id) {
