@@ -14,9 +14,12 @@ If the saved network stops working (a new WiFi password, say), the setup network
 
 The WiFi and the token are kept across restarts and firmware updates. Erasing the flash clears them.
 
+To move the AP to another WiFi network, do it over USB or on the setup form: changed over WiFi (`PUT /api/wifi`), the AP drops the old network at once, and with it your connection.
+
 ## The API token
 
 - Every API call needs `Authorization: Bearer <token>`.
+- A token is 8 to 128 characters: letters, digits and punctuation, no spaces.
 - There is one token for the whole AP, with no users or roles: treat it like a password, and keep the AP on your local network or VPN (the API is plain HTTP).
 - Five wrong tokens in a row lock the API for 60 seconds, also wrong tokens typed in the setup form. The USB port is never locked.
 - The AP never shows the token again. **Lost it?** Set a new one over USB, which needs no old token:
