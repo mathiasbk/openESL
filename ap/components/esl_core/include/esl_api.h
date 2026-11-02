@@ -111,7 +111,6 @@ typedef struct {
     esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
     struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
     esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
-    bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
     esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
@@ -148,7 +147,7 @@ typedef struct esl_api_lock {
                                                                           : ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH))
 /* Buffer for a glue that streams (esl_sb_set_sink): every reply that is not
  * streamed (a batch reply, a layout file, errors) fits in it, and GET
- * /api/tags and the status page, which grow with the tag table, come through
+ * /api/tags, which grows with the tag table, comes through
  * the sink in pieces of this size. */
 #define ESL_API_STREAM_BUF ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH)
 
@@ -221,11 +220,6 @@ typedef enum { ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BAD } esl_tag_level_t;
 #define ESL_TAG_CHECKIN_GRACE_S 15 /* CHECKIN_GRACE_S in dashdata.js: late after poll_s + this */
 esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms);
 
-/* The status page at / (krav A6): an HTML table with the same data as
- * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
-int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
-/* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1856 * (max_tags)) /* fields up to 5 x ESL_CONTENT_FIELD_SPACE escaped; for a buffer that does not stream (tests) */
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);

@@ -81,14 +81,6 @@ menu "OpenESL AP"
             it first with python web/build.py --wasm (Emscripten). On for the
             boards with flash and PSRAM to spare.
 
-    config ESL_STATUS_PAGE
-        bool "Status page at / (no token)"
-        default y
-        help
-            A read-only HTML table of all tags (MAC, model, last seen,
-            battery, content). It needs no token, so anyone on the network
-            can read it. The /api/ endpoints always need the token.
-
     config ESL_SERIAL_API
         bool "API over the USB serial port"
         default y

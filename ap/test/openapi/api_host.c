@@ -183,7 +183,7 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, false, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};

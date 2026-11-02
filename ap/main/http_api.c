@@ -4,6 +4,7 @@
 #include "esp_http_server.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esl_page.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -67,7 +68,7 @@ static esp_err_t send_json(httpd_req_t *req, int status, const char *body, size_
     return httpd_resp_send(req, body, (ssize_t)len);
 }
 
-/* Replies that grow with the tag table (GET /api/tags, the status page) are
+/* Replies that grow with the tag table (GET /api/tags) are
  * streamed: the API fills a buffer of ESL_API_STREAM_BUF bytes and hands each
  * full one here as a chunk, so the reply never has to fit in RAM at once. */
 typedef struct {
@@ -492,6 +493,16 @@ static esp_err_t send_page(httpd_req_t *req, int status, esl_sb_t *out)
     return httpd_resp_send(req, out->buf, (ssize_t)out->len);
 }
 
+/* The pages this AP serves, for the links in the header of /setup */
+static unsigned own_pages(const esl_api_t *api)
+{
+    unsigned pages = api->wifi ? ESL_PAGE_SETUP : 0;
+#if CONFIG_ESL_WEB_DASHBOARD
+    pages |= ESL_PAGE_DASHBOARD;
+#endif
+    return pages;
+}
+
 static esp_err_t setup_get(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
@@ -515,7 +526,7 @@ static esp_err_t setup_get(httpd_req_t *req)
         xSemaphoreTake(api_mutex, portMAX_DELAY);
         bool token_set = api->token && api->token[0];
         xSemaphoreGive(api_mutex);
-        esl_wifi_page(&out, ws, token_set, api->fw_version, msg);
+        esl_wifi_page(&out, ws, token_set, api->fw_version, msg, own_pages(api));
         ret = send_page(req, 200, &out);
     }
     free(page);
@@ -553,7 +564,7 @@ static esp_err_t setup_post(httpd_req_t *req)
     /* Under the API mutex: it may change the token the API checks. */
     xSemaphoreTake(api_mutex, portMAX_DELAY);
     int status = esl_wifi_setup_post(api->wifi, api->token, api->fw_version, body, len, api->lock,
-                                     (uint64_t)esp_timer_get_time() / 1000, &out);
+                                     (uint64_t)esp_timer_get_time() / 1000, own_pages(api), &out);
     xSemaphoreGive(api_mutex);
     ESP_LOGI(TAG, "POST /setup -> %d", status);
     ret = send_page(req, status, &out);
@@ -563,42 +574,45 @@ done:
     return ret;
 }
 
-#if CONFIG_ESL_STATUS_PAGE
-/* GET /: the status page (krav A6). Read-only and without a token. */
-static esp_err_t page_handler(httpd_req_t *req)
+static esp_err_t redirect(httpd_req_t *req, const char *to)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", to);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+/* GET /: where the address in the wiki and the Flash AP wizard leads. The setup
+ * form while no network is saved, else the dashboard, the one place for the
+ * tags. (Firmware 0.9.2 and older had a read-only status page here.) */
+static esp_err_t root_handler(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
     if (api->wifi) {
-        /* Nothing saved yet: whoever is on the setup network wants the form. */
+        /* Nothing saved yet, or asked for on the setup network (open next to a saved
+           network that gives no IP): whoever is there wants the form. */
+        char host[48] = "";
+        httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host));
         esl_wifi_status_t *ws = malloc(sizeof(*ws));
-        bool unset = false;
+        bool form = false;
         if (ws) {
             api->wifi->status(api->wifi->ctx, ws);
-            unset = ws->mode == ESL_WIFI_SETUP;
+            const char *setup_ip = ws->setup_ip[0] ? ws->setup_ip : "192.168.4.1";
+            form = ws->mode == ESL_WIFI_SETUP || (ws->setup_ssid[0] && strcmp(host, setup_ip) == 0);
             free(ws);
         }
-        if (unset) {
-            httpd_resp_set_status(req, "302 Found");
-            httpd_resp_set_hdr(req, "Location", "/setup");
-            return httpd_resp_send(req, NULL, 0);
-        }
+        if (form)
+            return redirect(req, "/setup");
     }
-    char *page = malloc(GET_BUF); /* streamed: grows with the table in pieces of this size */
-    if (!page) {
-        log_oom("/", GET_BUF);
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        return httpd_resp_sendstr(req, "out of memory");
-    }
-    esl_sb_t out;
-    sink_t sink = {req, "text/html; charset=utf-8"};
-    esl_sb_init(&out, page, GET_BUF);
-    esl_sb_set_sink(&out, http_sink, &sink);
-    int status = esl_api_status_page(api, (uint64_t)esp_timer_get_time() / 1000, &out);
-    esp_err_t ret = send_reply(req, status, &out, status == 200 ? sink.type : "text/plain");
-    free(page);
-    return ret;
-}
+#if CONFIG_ESL_WEB_DASHBOARD
+    return redirect(req, "/dashboard");
+#else
+    if (api->wifi)
+        return redirect(req, "/setup");
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+    return ESP_OK;
 #endif
+}
 
 #if CONFIG_ESL_WEB_DASHBOARD
 /* GET /dashboard and /ui/...: the web page's dashboard, gzipped in flash
@@ -701,17 +715,9 @@ esp_err_t http_api_start(const esl_api_t *api)
             (err = httpd_register_uri_handler(server, &sp)) != ESP_OK)
             return err;
     }
-#if CONFIG_ESL_STATUS_PAGE
-    httpd_uri_t page = {
-        .uri = "/",
-        .method = HTTP_GET,
-        .handler = page_handler,
-        .user_ctx = (void *)api,
-    };
-    err = httpd_register_uri_handler(server, &page);
-    if (err != ESP_OK)
+    httpd_uri_t root = {.uri = "/", .method = HTTP_GET, .handler = root_handler, .user_ctx = (void *)api};
+    if ((err = httpd_register_uri_handler(server, &root)) != ESP_OK)
         return err;
-#endif
 #if CONFIG_ESL_WEB_DASHBOARD
     httpd_uri_t ui[] = {
         {.uri = "/dashboard", .method = HTTP_GET, .handler = webui_handler, .user_ctx = (void *)api},

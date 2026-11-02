@@ -15,7 +15,7 @@ info:
     The same API (the same code, `esl_api.c`) also answers on the AP's USB port as `@ESL`
     lines next to the log, with no token, for setups without WiFi
     ([ap/README.md](https://github.com/mathiasbk/openesl/blob/master/ap/README.md), "Over the USB port"). Over the USB port a body that stops arriving gives `408`.
-    A read-only status page at `/` needs no token.
+    `/` leads to the AP's dashboard (firmware 0.9.2 and older had a read-only status page there).
 
     **Trying it from this page.** A web page cannot open the AP's USB port or call a plain
     HTTP address, so start the bridge in the example client on the computer the AP is

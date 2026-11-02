@@ -47,7 +47,7 @@
 | A3 | Answers a tag's poll within about 5 ms, so the tag can keep a short listening window. | MUST |
 | A4 | Stores the content per tag in NVS so it survives a restart. | MUST |
 | A5 | Status per tag available in the API: last seen, battery, RSSI, content shown. | MUST |
-| A6 | Simple status page at `http://<ap-ip>/` (list of tags). | SHOULD |
+| A6 | Simple status page at `http://<ap-ip>/` (list of tags); met by the dashboard the AP serves there. | SHOULD |
 | A7 | Fixed channel and PAN ID, configurable. | MUST |
 | A8 | Logging over USB serial. | MUST |
 | A9 | Several APs in the same location. | LATER |

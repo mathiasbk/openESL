@@ -1,6 +1,7 @@
 #include "tinytest.h"
 #include "esl_api.h"
 #include "esl_wifi.h"
+#include "esl_page.h"
 #include <stdlib.h>
 
 /* A fake radio: remembers what was saved. */
@@ -99,7 +100,7 @@ static uint64_t post_now;
 static int post(const char *token, const char *body, esl_sb_t *out)
 {
     esl_sb_init(out, buf, sizeof(buf));
-    return esl_wifi_setup_post(&ops, token, "1.0", body, strlen(body), post_lock, post_now, out);
+    return esl_wifi_setup_post(&ops, token, "1.0", body, strlen(body), post_lock, post_now, 0, out);
 }
 
 static void test_setup_page(void)
@@ -113,8 +114,14 @@ static void test_setup_page(void)
     fake.st.scan_count = 2;
 
     esl_sb_init(&out, buf, sizeof(buf));
-    esl_wifi_page(&out, &fake.st, false, "1.0", NULL);
+    esl_wifi_page(&out, &fake.st, false, "1.0", NULL, 0);
     CHECK(!out.overflow);
+    /* the dashboard's look: its header, and its stylesheet only when it is in flash */
+    CHECK(HAS(buf, "<body class=\"ap-page\"><header class=\"top\">"));
+    CHECK(HAS(buf, "<a href=\"/setup\" aria-current=\"page\">WiFi and token</a>"));
+    CHECK(!HAS(buf, "style.css"));
+    CHECK(!HAS(buf, "/dashboard"));
+    CHECK(HAS(buf, "</main></body></html>"));
     CHECK(HAS(buf, "no network saved"));
     CHECK(HAS(buf, "<option>Home&lt;1&gt;</option>"));
     /* the name is read from the option's text, which keeps leading, trailing and double spaces */
@@ -130,8 +137,10 @@ static void test_setup_page(void)
     fake.st.scan_count = ESL_WIFI_SCAN_MAX;
     strcpy(fake.st.ssid, fake.st.scan[0]);
     esl_sb_init(&out, buf, sizeof(buf));
-    esl_wifi_page(&out, &fake.st, true, "1.0", "Saved.");
+    esl_wifi_page(&out, &fake.st, true, "1.0", "Saved.", ESL_PAGE_DASHBOARD);
     CHECK(!out.overflow);
+    CHECK(HAS(buf, "<link rel=\"stylesheet\" href=\"/ui/css/style.css\">"));
+    CHECK(HAS(buf, "<a href=\"/dashboard\">Dashboard</a><a href=\"/setup\" aria-current=\"page\">"));
     CHECK(HAS(buf, "Current API token"));
 
     /* first setup: no token yet, a new one is optional */
@@ -216,7 +225,7 @@ static void test_api_wifi(void)
     esl_sb_t out;
     esl_store_free(&st);
     esl_store_init(&st, 4, NULL, 0);
-    esl_api_t api = {&st, "tok12345", "1.0", NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+    esl_api_t api = {&st, "tok12345", "1.0", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 
     esl_sb_init(&out, resp, sizeof(resp));
     CHECK_INT(esl_api_handle(&api, "GET", "/api/wifi", AUTH, NULL, 0, 0, &out), 404);

@@ -84,16 +84,18 @@ int esl_form_get(const char *body, size_t len, const char *key, char *out, size_
 void esl_wifi_write_json(esl_sb_t *out, const esl_wifi_status_t *st);
 
 /* The setup page (GET /setup). msg is an HTML-safe line shown on top, or NULL.
- * token_set says whether the form must ask for the current token. */
-void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, const char *fw, const char *msg);
-#define ESL_WIFI_PAGE_SIZE 8192
+ * token_set says whether the form must ask for the current token. pages are the
+ * AP's other pages (ESL_PAGE_* in esl_page.h), for the links in the header. */
+void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, const char *fw, const char *msg,
+                   unsigned pages);
+#define ESL_WIFI_PAGE_SIZE 10240
 
 /* POST /setup with the form fields ssid, pass, token and new_token. When a
  * token is set, the form must carry it in "token"; when none is set, new_token
  * (optional) becomes the token. lock (may be NULL) is the API's lockout
  * against guessing (esl_api_lock_t): a wrong token counts there too, and the
- * form answers 429 while the API is locked. Writes the answer page and
- * returns the HTTP status. */
+ * form answers 429 while the API is locked. Writes the answer page (with the
+ * header links for pages, as esl_wifi_page) and returns the HTTP status. */
 struct esl_api_lock;
 int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char *fw, const char *body, size_t len,
-                        struct esl_api_lock *lock, uint64_t now_ms, esl_sb_t *out);
+                        struct esl_api_lock *lock, uint64_t now_ms, unsigned pages, esl_sb_t *out);
