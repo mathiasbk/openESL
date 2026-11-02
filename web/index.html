@@ -54,7 +54,7 @@
     <section class="card wide">
       <h3>How it fits together</h3>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab explains the first start, the WiFi and the API token.</li>
+        <li><strong>Flash the AP</strong> on an ESP32-C6 or C5 and connect it to your computer or network. The <a href="#setup">Set up</a> tab sets its WiFi and API token over USB.</li>
         <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
         <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
         <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
@@ -68,7 +68,7 @@
         <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
         <li>For the AP: an ESP32-C6 board with USB (an ESP32-C5 with PSRAM is experimental).</li>
       </ul>
-      <p class="muted">Setting up and running the AP: the <a href="#setup">Set up</a> tab. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
+      <p class="muted">Setting up and running the AP: the <a href="https://github.com/mathiasbk/openESL/wiki/">wiki</a>. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
     </section>
   </main>
 
@@ -714,7 +714,7 @@
     <section class="card wide">
       <h2>WiFi and API token over USB</h2>
       <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome or Edge on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
-      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="#setup">Set up</a>).</p>
+      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token">WiFi and API token</a>).</p>
       <div class="buttons">
         <button id="wifi-connect">Connect AP</button>
         <span id="wifi-state" class="muted" role="status"></span>
@@ -733,54 +733,19 @@
         </div>
       </form>
       <p id="wifi-msg" class="hint wifi-msg" role="status"></p>
-      <p class="muted">The page sends <code>PUT /api/wifi</code> over the USB port, as <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code> does; the USB port needs no token. Leave the network empty to change only the token, or the token empty to keep it. "Name" is the AP's name on the network: what your router lists, and <code>http://NAME.local/</code>. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it.</p>
+      <p class="muted">Leave the network empty to change only the token, or the token empty to keep it. "Name" is the AP's name on the network: what your router lists, and <code>http://NAME.local/</code>. The token cannot be read back from the AP, so keep a copy. Opening the port can restart the AP; the page waits for it. From a terminal: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>
     </section>
 
     <section class="card wide">
-      <h2>First start</h2>
+      <h2>Getting an AP going</h2>
       <ol class="steps">
-        <li><strong>Flash the AP</strong> (<a href="#ap">Flash AP</a>) and leave it plugged into USB, or power it from a charger. Right after flashing, the Flash AP tab gives it your WiFi and an API token over the same cable; then skip to step 4.</li>
-        <li><strong>Join its setup network.</strong> An AP with no WiFi saved opens an open network named <code>openesl-XXXX</code> (the last digits of its MAC). Join it with a phone or laptop: the phone's "sign in to network" page opens the setup form by itself; otherwise open <code>http://192.168.4.1/setup</code>. If the phone cannot join it, set the WiFi and token over USB above instead.</li>
-        <li><strong>Fill in the form:</strong> pick your WiFi from the scan list, enter its password, and choose an <strong>API token</strong> (8 to 128 characters, letters, digits and punctuation, no spaces). The AP saves all three and joins your network at once; the setup network closes a minute later.</li>
-        <li><strong>Find it on your network</strong> at <code>http://openesl-xxxx.local/</code>, with the same four digits as its setup network (mDNS; an AP set up with 0.6.0 or older keeps <code>openesl.local</code>, and the name can be changed with "Name" in the WiFi card) or at the IP your router gave it. The page at <code>/</code> is a read-only status page with all tags, and needs no token. The dashboard is at <code>http://openesl-xxxx.local/dashboard</code>: it asks for the token once.</li>
-        <li><strong>Try the API:</strong> <code>curl -H "Authorization: Bearer &lt;token&gt;" http://openesl-xxxx.local/api/tags</code>, or <code>python3 tools/esl-client/esl_client.py --url http://openesl-xxxx.local --token &lt;token&gt; status</code>.</li>
+        <li><strong>Flash it</strong> on the <a href="#ap">Flash AP</a> tab. Its last step gives the AP your WiFi and an API token over the same cable. <a href="https://github.com/mathiasbk/openESL/wiki/Flashing-the-access-point">Flashing the AP</a></li>
+        <li><strong>No cable?</strong> An AP with no WiFi saved opens an open network <code>openesl-XXXX</code>. Join it from a phone and fill in the form that opens (or go to <code>http://192.168.4.1/setup</code>). <a href="https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token">WiFi and API token</a></li>
+        <li><strong>Keep a copy of the token.</strong> Every API request needs it, and the AP never shows it again. Lost it? Set a new one over USB above: no old token is needed. <a href="https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token#the-api-token">The API token</a></li>
+        <li><strong>Open it</strong> at <code>http://openesl-xxxx.local/dashboard</code>, or at the IP your router gave it. <a href="https://github.com/mathiasbk/openESL/wiki/Dashboard">Dashboard</a></li>
+        <li><strong>Keep it running:</strong> <a href="https://github.com/mathiasbk/openESL/wiki/Sending-content">send content</a>, <a href="https://github.com/mathiasbk/openESL/wiki/Health-and-webhook">watch its health</a>, <a href="https://github.com/mathiasbk/openESL/wiki/Updating-the-access-point">update it</a> and <a href="https://github.com/mathiasbk/openESL/wiki/Backup-and-restore">back it up</a>.</li>
       </ol>
-      <p class="muted">No WiFi? The AP works over its USB port alone: <code>esl_client.py --serial /dev/ttyACM0 status</code> speaks the same API through the serial port, with no token. The WiFi and token can also be set that way: <code>esl_client.py --serial /dev/ttyACM0 wifi "Network" --password "..." --new-token "..."</code>.</p>
-    </section>
-
-    <section class="card wide">
-      <h2>The API token</h2>
-      <p>One shared secret for the whole AP. There are no users or roles: whoever has the token can read and change everything, so treat it like a password and keep the AP on your local network or VPN (the API is plain HTTP, there is no HTTPS).</p>
-      <ul>
-        <li><strong>Where it is set.</strong> The setup form, or "WiFi and API token over USB" above (also right after flashing, on the Flash AP tab), writes it to the AP's flash (NVS, <code>cfg/token</code>). A token can also be built into the firmware with <code>ESL_API_TOKEN</code> in menuconfig; the flash value wins when both exist. There is no default: with no token set, every API request gets <code>401</code> and the AP logs an error at start.</li>
-        <li><strong>How it is sent.</strong> <code>Authorization: Bearer &lt;token&gt;</code> on every request to <code>/api/...</code>, also <code>POST /api/ota</code>. <code>esl-client</code> takes it as <code>--token</code> or the <code>OPENESL_TOKEN</code> environment variable.</li>
-        <li><strong>What needs no token.</strong> The status page at <code>/</code> (it only reads; <code>ESL_STATUS_PAGE</code> in menuconfig turns it off) and the USB serial port: whoever has the cable has the device.</li>
-        <li><strong>Wrong tokens lock the API.</strong> Five wrong tokens in a row lock the HTTP API for 60 seconds: every request, even with the right token, answers <code>429</code> with the seconds left. Wrong tokens in the setup form count in the same lock. The USB port is never locked.</li>
-        <li><strong>Changing it.</strong> Over USB: "WiFi and API token over USB" above with only a new token, or <code>esl_client.py --serial /dev/ttyACM0 wifi --new-token "..."</code>; no old token is needed, since whoever has the cable has the device. Over WiFi: <code>PUT /api/wifi</code> with <code>{"token": "..."}</code> and the current token, or open the setup form (it is linked from the status page, or reachable on the setup network) and enter the current token and a new one. Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet. <code>ESL_WIFI_SETUP_PASSWORD</code> in menuconfig puts WPA2 on the setup network as well.</li>
-        <li><strong>Lost it?</strong> The token cannot be read back, but a new one can be set over USB at any time, as above. Nothing stored is lost.</li>
-      </ul>
-    </section>
-
-    <section class="card wide">
-      <h2>WiFi</h2>
-      <ul>
-        <li>The saved network and the token are kept in flash across restarts and firmware updates over the API (<code>POST /api/ota</code>). Erasing the flash clears them.</li>
-        <li>If the saved network gives no IP for 180 seconds (<code>ESL_WIFI_SETUP_AFTER_S</code>), the AP opens the setup network again next to it, so a changed WiFi password can be fixed from a phone without a cable. It keeps retrying the saved network every 20 seconds meanwhile, and closes the setup network a minute after it has joined.</li>
-        <li><code>GET /api/wifi</code> shows the state and the last scan; <code>PUT /api/wifi</code>, or <code>esl-client wifi SSID --password ...</code>, changes the network (<code>wifi ""</code> forgets it and opens the setup network). Over WiFi the AP drops the old network at once, so do that over USB or on the setup form.</li>
-        <li>The tags do not use WiFi: they talk to the AP over 802.15.4 radio, on channel 25 unless you pick another under Settings → Radio on the Dashboard, which WiFi 2.4 GHz and Zigbee networks share. The AP's WiFi and radio coexist on the same chip.</li>
-      </ul>
-    </section>
-
-    <section class="card wide">
-      <h2>Running it</h2>
-      <ul>
-        <li><strong>Content.</strong> Your software sends text per tag with <code>PUT /api/tags/{mac}</code>, or many at once with <code>PUT /api/tags</code>; the AP stores it and hands it to the tag at its next poll (about a minute). <code>"at"</code> in the request sets it at a given time, so a price change can be sent the day before. The <a href="#api">API</a> tab has every call, and <code>tools/esl-client</code> is a complete command-line client (<code>price</code>, <code>text</code>, <code>sync prices.csv</code> from an Excel export, <code>--at</code>).</li>
-        <li><strong>Health.</strong> <code>GET /api/health</code> lists the tags that need attention (silent, not yet seen, low battery, drawing failed, content the AP cannot draw), and <code>webhook</code> in <code>PUT /api/config</code> makes the AP <code>POST</code> the same report to your software whenever it changes. The status page shows the same flags.</li>
-        <li><strong>Updates.</strong> Each release has an <code>openesl-ap-&lt;board&gt;-&lt;version&gt;-ota.bin</code> per board: <code>esl-client ota that.bin --wait</code> writes it over the API, the AP restarts into it keeping its tags, layout files, WiFi and token, and the client reports whether the new version runs. If the new firmware does not start, the AP falls back to the old one by itself. The Firmware card on the <a href="#dashboard">Dashboard</a> tab sends the same file from this page. Tags are updated over the radio: <code>esl-client tag-ota openesl-tag-&lt;model&gt;-&lt;version&gt;-ota.bin</code> (or the same card) gives the image to the AP, each tag of that model fetches it a part at a time at its normal polls, keeps showing its price meanwhile, and restarts into it. On the 1.54" jig tag a 54 KB image took 6–8 polls (about 7–8 minutes at one poll a minute). <code>esl-client tag-ota</code> without a file shows how many tags are updated, still waiting, or failed. A tag needs one pass in the jig with this firmware first (<a href="#tag">Flash tag</a>), and the AP one flash over USB for the tag firmware storage.</li>
-        <li><strong>Backup.</strong> <code>esl-client backup ap.json</code> saves the tags' content and settings, the layout files, the default poll interval, the webhook and the schedule; <code>restore ap.json</code> puts them onto the same or another AP. The WiFi and the token are not in it.</li>
-        <li><strong>Long-term test.</strong> <code>esl-client log week.csv</code> records every tag once a minute, and <code>report week.csv</code> sums up gaps, battery and AP restarts.</li>
-      </ul>
-      <p class="muted">More detail: <a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md">ap/README.md</a> (WiFi setup, menuconfig, the serial port, how the AP stores things), <a href="https://github.com/mathiasbk/openesl/blob/master/tools/esl-client/README.md">tools/esl-client/README.md</a> (every command) and <a href="https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md">docs/protokoll.md</a> (the radio protocol and the file formats).</p>
+      <p class="muted">Stuck? See <a href="https://github.com/mathiasbk/openESL/wiki/Troubleshooting">Troubleshooting</a>. Developers: <a href="https://github.com/mathiasbk/openesl/blob/master/ap/README.md">ap/README.md</a> has menuconfig and how the AP stores things, and the <a href="#api">API</a> tab every call.</p>
     </section>
   </main>
 

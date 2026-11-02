@@ -10,15 +10,19 @@ Right after flashing, step 3 of the [Flash AP](https://mathiasbk.github.io/openE
 
 With no WiFi saved, the AP opens its own network `openesl-XXXX`. Join it from a phone, and the "sign in to network" page opens the setup form (or go to `http://192.168.4.1/setup`). Pick your network, enter the password, and choose the API token.
 
-If the saved network stops working (a new WiFi password, say), the setup network opens again after three minutes, so you can fix it without a cable.
+If the saved network stops working (a new WiFi password, say), the setup network opens again after three minutes, so you can fix it without a cable. The AP keeps retrying the saved network meanwhile, and closes the setup network a minute after it has joined.
+
+The WiFi and the token are kept across restarts and firmware updates. Erasing the flash clears them.
 
 ## The API token
 
 - Every API call needs `Authorization: Bearer <token>`.
-- Five wrong tokens in a row lock the API for 60 seconds.
+- There is one token for the whole AP, with no users or roles: treat it like a password, and keep the AP on your local network or VPN (the API is plain HTTP).
+- Five wrong tokens in a row lock the API for 60 seconds, also wrong tokens typed in the setup form. The USB port is never locked.
 - The AP never shows the token again. **Lost it?** Set a new one over USB, which needs no old token:
   `python3 tools/esl-client/esl_client.py --serial /dev/ttyACM0 wifi --new-token NEWTOKEN`, or the Set up tab.
-- The USB port needs no token: whoever has the cable has the device.
+- **Changing it** over WiFi: open the setup form (linked from the status page) and enter the current token and a new one, or send `PUT /api/wifi` with `{"token": "..."}` and the current token. Once a token is set, the form asks for it before changing anything.
+- The USB port needs no token: whoever has the cable has the device. Neither does the read-only status page at `http://openesl-xxxx.local/`.
 
 ## Finding the AP on the network
 
