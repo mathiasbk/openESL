@@ -169,7 +169,7 @@ def page_files(web, modules, wasm=None):
         with open(os.path.join(web, "js", name), "rb") as f:
             src = f.read()
         # every module the page imports must be packed too, or the page breaks on the AP
-        for dep in re.findall(rb'from "\./([\w.-]+\.js)"', src):
+        for dep in re.findall(rb'(?:from|import) "\./([\w.-]+\.js)"', src):
             if dep.decode() not in js:
                 sys.exit(f"webui.py: js/{name} imports {dep.decode()}, which is not packed")
         files.append((f"/ui/js/{name}", "text/javascript", src))

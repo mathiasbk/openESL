@@ -1,5 +1,5 @@
 /* The design scale (#317). Every colour, font size and corner radius in web/css/ comes from
-   these variables: `python tools/check.py css` (part of `web`) rejects a colour or a font size
+   these variables: `python tools/check_css.py` (run by `tools/check.py web`) rejects a colour or a font size
    in px outside a :root block. The dark values follow the system setting unless the theme
    picker in the top bar (js/theme.js) sets data-theme="light" or "dark" on <html>. */
 :root {
@@ -79,6 +79,7 @@
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, .6);
     --backdrop: rgba(0, 0, 0, .55);
     --toolbar-bg: #2e2e2b;
+    --toolbar-hover: #48483f;
     --code-bg: #12161e;
     color-scheme: dark;
   }
@@ -100,6 +101,7 @@
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, .6);
   --backdrop: rgba(0, 0, 0, .55);
   --toolbar-bg: #2e2e2b;
+  --toolbar-hover: #48483f;
   --code-bg: #12161e;
   color-scheme: dark;
 }
@@ -149,6 +151,10 @@ a:hover { text-decoration-thickness: 2px; }
 .repo + .theme-btn { margin-left: 0; }
 .theme-btn:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+@media (max-width: 600px) {
+  .theme-btn { padding: 0 var(--space-1); }
+  .theme-btn span { display: none; }
+}
 .top :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .tab { padding: var(--space-4); max-width: 1400px; margin: 0 auto; }

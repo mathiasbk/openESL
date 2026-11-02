@@ -3,7 +3,11 @@
 // style.css reads. The choice is kept in this browser. A small script in the <head> of
 // index.html applies a kept choice before the page is drawn, so it does not flash.
 const KEY = "openesl.theme";
+// After Auto comes the opposite of what the system shows, so the first click always changes something
+const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+const order = () => (dark() ? ["auto", "light", "dark"] : ["auto", "dark", "light"]);
 const MODES = ["auto", "light", "dark"];
+const nextOf = (mode) => { const o = order(); return o[(o.indexOf(mode) + 1) % o.length]; };
 const LABEL = { auto: "Auto", light: "Light", dark: "Dark" };
 // 24x24 outline icons: half-filled circle, sun, moon
 const ICON = {
@@ -34,7 +38,7 @@ function save(mode) {
 }
 
 function draw(btn, mode) {
-  const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+  const next = nextOf(mode);
   btn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[mode]}</svg><span>${LABEL[mode]}</span>`;
   btn.setAttribute("aria-label", `Colour theme: ${LABEL[mode]}. Change to ${LABEL[next]}`);
   btn.title = `Colour theme: ${LABEL[mode]} (click for ${LABEL[next]})`;
@@ -50,7 +54,7 @@ export function mount(header = document.querySelector("header.top")) {
   apply(mode);
   draw(btn, mode);
   btn.addEventListener("click", () => {
-    mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    mode = nextOf(mode);
     apply(mode);
     save(mode);
     draw(btn, mode);

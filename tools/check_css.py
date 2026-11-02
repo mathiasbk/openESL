@@ -8,6 +8,8 @@ does not break dark mode:
     Use a variable (var(--text), var(--muted), ...) or color-mix() of variables; add a new
     variable to :root, with its dark value in both dark blocks, when none fits.
   - no font size in px, pt or rem outside a :root block: use var(--fs-xs) ... var(--fs-2xl).
+  - the two dark blocks (for the system setting and for data-theme="dark") set the same
+    variables to the same values.
 
   python tools/check_css.py [file.css ...]     default: web/css/*.css
 
@@ -19,7 +21,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}(?![\w-])|\b(?:rgba?|hsla?)\(")
+COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}(?![\w-])|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(")
 NAMED = re.compile(r"\b(?:white|black|red|green|blue|gr[ae]y|orange|yellow|purple|pink|silver|navy|maroon)\b", re.I)
 COLOUR_PROPS = re.compile(r"^(?:color|background(?:-color)?|border(?:-[a-z]+)*|outline(?:-color)?|fill|stroke|"
                           r"box-shadow|text-shadow|caret-color|accent-color|text-decoration(?:-color)?|--[\w-]+)$")
@@ -35,6 +37,7 @@ def check(path):
     """[(line, message)] for one stylesheet"""
     css = strip_comments(open(path, encoding="utf-8").read())
     problems = []
+    dark = {}           # the variables of each dark :root block, by its selector
     stack = []          # the selector (or at-rule) of each open block
     start = 0           # where the text since the last { ; } starts
     line = 1
@@ -53,6 +56,8 @@ def check(path):
             in_root = any(s.startswith(":root") for s in stack)
             prop, value = (p.strip() for p in decl.split(":", 1))
             prop = prop.lower()
+            if in_root and any("dark" in s for s in stack) and prop.startswith("--"):
+                dark.setdefault(" ".join(stack), {})[prop] = value
             if not in_root:
                 if COLOUR.search(value) or (COLOUR_PROPS.match(prop) and NAMED.search(value)):
                     problems.append((at, "colour outside :root (use a variable): %s" % decl))
@@ -62,6 +67,13 @@ def check(path):
                     problems.append((at, "font size outside the scale (use var(--fs-...)): %s" % decl))
         if ch == "}" and stack:
             stack.pop()
+    blocks = list(dark.items())
+    for sel, vars_ in blocks[1:]:
+        first_sel, first = blocks[0]
+        for name in sorted(set(first) | set(vars_)):
+            if first.get(name) != vars_.get(name):
+                problems.append((1, "%s differs between %s (%s) and %s (%s)" % (
+                    name, first_sel, first.get(name, "unset"), sel, vars_.get(name, "unset"))))
     return problems
 
 
