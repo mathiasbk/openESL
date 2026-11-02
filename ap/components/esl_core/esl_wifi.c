@@ -318,7 +318,7 @@ int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char
     free(st);
     esl_sb_puts(out, ".local/ or by the address your router gives it. "
                      "If it cannot join, the setup network comes back after a while.</p>"
-                     "<p><a href=\"/setup\">Status</a></p>");
+                     "<p><a href=\"/setup\">Back to WiFi and token</a></p>");
     page_tail(out);
     return 200;
 }

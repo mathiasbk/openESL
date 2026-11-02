@@ -589,15 +589,19 @@ static esp_err_t root_handler(httpd_req_t *req)
 {
     const esl_api_t *api = req->user_ctx;
     if (api->wifi) {
-        /* Nothing saved yet: whoever is on the setup network wants the form. */
+        /* Nothing saved yet, or asked for on the setup network (open next to a saved
+           network that gives no IP): whoever is there wants the form. */
+        char host[48] = "";
+        httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host));
         esl_wifi_status_t *ws = malloc(sizeof(*ws));
-        bool unset = false;
+        bool form = false;
         if (ws) {
             api->wifi->status(api->wifi->ctx, ws);
-            unset = ws->mode == ESL_WIFI_SETUP;
+            const char *setup_ip = ws->setup_ip[0] ? ws->setup_ip : "192.168.4.1";
+            form = ws->mode == ESL_WIFI_SETUP || (ws->setup_ssid[0] && strcmp(host, setup_ip) == 0);
             free(ws);
         }
-        if (unset)
+        if (form)
             return redirect(req, "/setup");
     }
 #if CONFIG_ESL_WEB_DASHBOARD
