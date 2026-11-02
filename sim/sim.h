@@ -98,6 +98,7 @@ void sim_tag_run_until(uint64_t t_ms);
 bool sim_tag_run_until_draw(uint64_t t_ms);
 
 uint32_t sim_tag_shown_id(void); /* content_id on the screen, 0 = none */
+bool sim_tag_marked(void);       /* the "no AP" mark is drawn over it (#98) */
 int sim_tag_draws(void);         /* times the display was drawn */
 uint16_t sim_tag_interval_s(void);
 uint16_t sim_tag_last_sleep_s(void);
@@ -124,5 +125,7 @@ extern void (*sim_on_draw)(void);
 /* ---- PNG (png.c) ---- */
 /* Grey image, 1 byte per pixel, written as an 8-bit greyscale PNG. */
 bool png_write_gray(const char *path, const uint8_t *pix, int w, int h);
+/* pix holds indexes into pal, n_pal RGB triples (the screen of a tag with red) */
+bool png_write_indexed(const char *path, const uint8_t *pix, int w, int h, const uint8_t *pal, int n_pal);
 
 #endif

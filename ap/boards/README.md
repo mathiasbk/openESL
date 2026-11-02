@@ -26,6 +26,12 @@ Each folder has:
   - `artifact`: the file names `build.py` writes in `out/` (`<artifact>.bin`, `<artifact>-ota.bin`)
   - `release`: the file names in a GitHub release (`<release>-<version>.bin`, `...-ota.bin`)
   - `status`: `supported` (tried on hardware) or `experimental`
+  - `recommended`, `tags` (optional): what the Flash AP tab's first step tells a newcomer on
+    the board's card: `recommended: true` marks the board to start with (shown first), and `tags`
+    is about how many tags the setup handles (the C6 runs out of RAM before
+    `CONFIG_ESL_MAX_TAGS`; left out when it is not known). Keep it in step with
+    [docs/access-points.md](../../docs/access-points.md). The card also says when the board's
+    dashboard has the label designer (`CONFIG_ESL_WEB_DESIGNER=y`, `designer` in info.json)
   - `radio`: where the 802.15.4 radio is. `native`: on the AP chip itself (C6, C5;
     `main/radio_ieee802154.c`). `uart`: a radio coprocessor on UART (`main/radio_uart.c`,
     [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets

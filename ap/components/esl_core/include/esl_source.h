@@ -33,6 +33,7 @@
 #define ESL_SOURCE_ID_MAX     16  /* a-z 0-9 _ - */
 #define ESL_SOURCE_PLACE_MAX  32  /* bytes of UTF-8 */
 #define ESL_SOURCE_TPL_MAX    48  /* bytes of one field template */
+#define ESL_SOURCE_FIELDS     6   /* field templates per source (less than ESL_MAX_FIELDS, to keep cfg small) */
 #define ESL_SOURCE_EVERY_MAX  1440 /* most minutes between fetches (the least is the type's) */
 #define ESL_SOURCE_ERR_MAX    96
 #define ESL_SOURCE_BODY_MAX   (128 * 1024) /* biggest answer the AP reads */
@@ -54,7 +55,7 @@ typedef struct {
     uint16_t every_min;
     char layout[ESL_LAYOUT_NAME_MAX + 1]; /* a layout from the layout files, or "text" */
     uint8_t nfields;
-    char fields[ESL_MAX_FIELDS][ESL_SOURCE_TPL_MAX + 1];
+    char fields[ESL_SOURCE_FIELDS][ESL_SOURCE_TPL_MAX + 1];
     uint8_t ntags;
     uint64_t tags[ESL_SOURCE_TAGS_MAX];
 } esl_source_cfg_t;

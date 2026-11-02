@@ -16,14 +16,34 @@
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
  * host tests call it directly. */
 
-/* The network radio's link as the AP sees it (ap/main/radio_net.c), shown as "radio" in
- * GET /api/tags. The driver keeps it up to date. */
+/* A radio coprocessor's link as the AP sees it: the network radio (ap/main/radio_net.c) or
+ * the C6 on the cable (ap/main/radio_uart.c), shown as "radio" in GET /api/tags, and as
+ * "radio_lost" in GET /api/health when it has been gone for ESL_RADIO_LOST_S. The driver
+ * keeps it up to date. */
 typedef struct {
     bool up;                /* a radio is connected now */
-    uint32_t ip;            /* its address, host order */
+    bool uart;              /* on the cable (no ip): "via":"uart", else "wifi" */
+    uint32_t ip;            /* its address, host order (0 on the cable) */
+    uint64_t down_ms;       /* when it last lost contact (ms since boot); 0: not connected since boot */
     uint64_t seen_ms;       /* when it last sent anything (ms since boot) */
     uint16_t ver;           /* its firmware, as its HELLO says (0 before HELLO) */
+    /* several radios (docs/ap-netradio.md, "Several radios"), in "radios" */
+    uint64_t id;            /* its own MAC from HELLO, 0 = no radio known in this place */
+    uint8_t channel;        /* the channel it serves */
+    unsigned tags;          /* tags it heard last (esl_rowners_count) */
 } esl_radio_link_t;
+
+/* A radio that has not been connected for this long is "radio_lost" in GET /api/health
+   (and so in the webhook): longer than a radio takes to restart or reconnect. */
+#define ESL_RADIO_LOST_S 30
+
+/* Several radios over the network: what the API may do to them (DELETE /api/radios/{id}). */
+typedef struct {
+    void *ctx;
+    /* Forgets the radio with this id, so its place and channel go to the next new radio:
+       0 done, 404 not known, 409 connected now. */
+    int (*forget)(void *ctx, uint64_t id);
+} esl_radio_ops_t;
 
 /* The 802.15.4 transmit power (ESL_TX_POWER_MIN..MAX, esl_link.h), as "tx_power" in
  * GET/PUT /api/config. The radio code owns it: set() applies dbm to the radio and
@@ -91,7 +111,6 @@ typedef struct {
     esl_notify_t *notify;   /* the webhook (GET/PUT /api/config "webhook"); NULL: no webhook, shown as null */
     struct esl_api_lock *lock; /* lockout after wrong tokens (below); NULL: none, for a transport without a token */
     esl_tagfw_t *tagfw;     /* tag firmware images (docs/tag-ota.md); NULL: /api/tag-firmware answers 404 */
-    bool dashboard;         /* the AP serves the dashboard at /dashboard: the status page links to it */
     const esl_radio_link_t *link; /* the network radio (radio_net.c); NULL: no "radio" in GET /api/tags */
     const esl_link_stats_t *radio_stats; /* the AP's own radio link (radio.c), as "replies" in GET /api/tags; NULL: left out */
     esl_tx_power_t *tx_power; /* the radio's transmit power (GET/PUT /api/config "tx_power"); NULL: left out */
@@ -100,6 +119,10 @@ typedef struct {
     bool channel_settable;  /* the radio's channel can be set (GET/PUT /api/config "channel", esl_store_move_channel);
                                false: GET leaves it out, PUT answers 422 */
     esl_api_changes_t *changes; /* GET /api/tags?since= (above); NULL: since is ignored, the whole list */
+    const esl_radio_link_t *links; /* all network radios by number (esl_tag_t.radio), n_links of them: "radios" in
+                                      GET /api/tags, and each tag's "radio" when more than one is known */
+    unsigned n_links;
+    const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the
@@ -117,14 +140,14 @@ typedef struct esl_api_lock {
  * layout file. ESL_API_RESP_SIZE_ is n batch replies; a tag in the list takes
  * ESL_API_LIST_TAG, with its signal history (esl_store.h) at 11 bytes a POLL. */
 #define ESL_API_RESP_SIZE_(n) (512 + 448 * (n))
-#define ESL_API_LIST_TAG (640 + 11 * ESL_LINK_HIST)
+#define ESL_API_LIST_TAG (960 + 11 * ESL_LINK_HIST) /* fields up to 2 x ESL_CONTENT_FIELD_SPACE in JSON */
 #define ESL_API_LIST_SIZE_(n) (512 + ESL_API_LIST_TAG * (n))
 #define ESL_API_RESP_SIZE(max_tags)                                                        \
     (ESL_API_LIST_SIZE_(max_tags) > ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH) ? ESL_API_LIST_SIZE_(max_tags) \
                                                                           : ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH))
 /* Buffer for a glue that streams (esl_sb_set_sink): every reply that is not
  * streamed (a batch reply, a layout file, errors) fits in it, and GET
- * /api/tags and the status page, which grow with the tag table, come through
+ * /api/tags, which grows with the tag table, comes through
  * the sink in pieces of this size. */
 #define ESL_API_STREAM_BUF ESL_API_RESP_SIZE_(ESL_API_MAX_BATCH)
 
@@ -175,12 +198,19 @@ int esl_api_image_put(const esl_api_t *api, const char *uri, const char *auth, s
                       uint64_t now_ms, esl_sb_t *out);
 
 /* GET /api/health as JSON: every tag with a problem (esl_health_flags) and
- * counts per problem. prev (the store's max bytes, may be NULL) holds the flags of the
+ * counts per problem, and every radio coprocessor that is lost (esl_api_radios_lost)
+ * under "radio_problems", counted as "radio_lost". prev (the store's max bytes, may be NULL) holds the flags of the
  * last report: the tags whose flags differ are listed under "changed", and
  * every tag's new flags are written back to it. Returns the HTTP status;
  * streams like GET /api/tags. */
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
                    esl_sb_t *out);
+
+/* The radio coprocessors that are lost now, one bit per radio number (bit 0: api->link, or
+ * links[0]): not connected for ESL_RADIO_LOST_S. A radio place with no radio known is not
+ * lost, except place 0, which the AP always needs (its own channel). 0 without radios. The
+ * webhook posts the report when this changes, as when a tag's flags do. */
+uint32_t esl_api_radios_lost(const esl_api_t *api, uint64_t now_ms);
 
 /* What the dashboard shows for a tag (tagState in web/js/dashdata.js): BAD when
  * GET /api/health lists a problem for it, BUSY when its poll is late or it is
@@ -190,11 +220,6 @@ typedef enum { ESL_TAG_OK, ESL_TAG_BUSY, ESL_TAG_BAD } esl_tag_level_t;
 #define ESL_TAG_CHECKIN_GRACE_S 15 /* CHECKIN_GRACE_S in dashdata.js: late after poll_s + this */
 esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms);
 
-/* The status page at / (krav A6): an HTML table with the same data as
- * GET /api/tags. Needs no token, since it only reads. Returns the HTTP status. */
-int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out);
-/* Buffer that always fits the status page. */
-#define ESL_API_PAGE_SIZE(max_tags) (2816 + 1024 * (max_tags))
 
 /* "200 OK", "401 Unauthorized", ... for esp_http_server. */
 const char *esl_api_status_line(int status);

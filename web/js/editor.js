@@ -14,13 +14,26 @@ import { ApClient, PortClient, apBase } from "./apclient.js";
 import { hasSerial, serialAp, connectSerial, onSerialChange } from "./apport.js";
 import { apPageUrl, layoutsMessage, READY, SAVED } from "./handoff.js";
 import { compareLayouts, tagLayouts, countByLayout } from "./layoutinfo.js";
-import { initTemplatePicker, openTemplatePicker, templateById } from "./tplpicker.js";
+import { initTemplatePicker, openTemplatePicker, templateById, catalogTemplates } from "./tplpicker.js";
+import { titleOf } from "./catalog.js";
 import { freeName } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
+import { MODELS as TAGS, layoutModel, layoutUsers, modelName, modelLabel, isExperimental } from "./models.js";
 import { loadRenderer, MODELS, LAYOUT_PRICE, LAYOUT_TEXT, LAYOUT_FILE, FLAG_PRICE_HIGHLIGHT, FLAG_FRAME } from "./renderer.js";
+import { apFonts } from "./apfonts.js";
 
-const FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
+const BUILTIN_FONTS = ["small", "text20", "medium", "mid", "price44", "large"];
 const FONT_PX = { small: 17, medium: 24, text20: 20, mid: 36, price44: 44, large: 52 };
+// The fonts to pick from: the built-in ones, then the font files the renderer has (the connected
+// AP's, #177), and a font a layout names that neither has (so the choice shows what the file says)
+function fontChoices(e) {
+  const files = Object.keys(state.renderer?.limits.fontHeight || {}).filter((f) => !BUILTIN_FONTS.includes(f)).sort();
+  const named = (e?.fonts || []).filter((f) => !BUILTIN_FONTS.includes(f) && !files.includes(f));
+  return [...BUILTIN_FONTS, ...files, ...named];
+}
+const fontPx = (f) => state.renderer?.limits.fontHeight[f] ?? FONT_PX[f];
+const fontLabel = (f) => (BUILTIN_FONTS.includes(f) ? f[0].toUpperCase() + f.slice(1) : f) +
+  (fontPx(f) ? ` ${fontPx(f)} px` : " (not on the AP)");
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
 const LINE_COLORS = ["black", "white"];      // lines and icons
@@ -60,6 +73,8 @@ const store = {
 // On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
 // origin, and the layout files stored on the AP are what the editor opens and saves
 let onAp = false;
+// The template library's index entries, for the titles in the layout list (tplpicker.js)
+let templates = [];
 
 const state = {
   model: "2.9",
@@ -122,6 +137,7 @@ function samples() {
 function save() {
   store.set("doc." + state.model, JSON.stringify(doc()));
   store.set("model", state.model);
+  store.set("tag", state.tag);
   store.set("samples", JSON.stringify(state.samples));
   scheduleRecord();
   if (ap.connected) refreshLayoutList();   // a layout changed here is no longer the AP's
@@ -139,7 +155,11 @@ function markClean() {
 function refreshFileState() {
   const clean = store.get("clean." + state.model);
   const fs = $("file-state");
-  fs.replaceChildren(`Layout file for ${state.model}"`);
+  const users = layoutUsers(state.model);
+  const also = users.filter((u) => u !== state.model);
+  fs.replaceChildren(`Layout file for ${modelName(state.model)}` + (also.length ? ` (also used by ${also.map(modelName).join(", ")})` : ""));
+  if (users.length > 1) fs.title = `The ${users.map(modelName).join(", ")} tags have the same screen and use this one file`;
+  else fs.removeAttribute("title");
   if (clean !== JSON.stringify(doc())) {
     const d = document.createElement("span");
     d.className = "dirty";
@@ -196,7 +216,13 @@ async function exampleDoc(model) {
   return r.json();
 }
 
+// model: the tag picked in the list; its layout file is edited (a model whose sameAs names
+// another is edited as that one's file, #181)
 async function loadModel(model) {
+  state.tag = model in TAGS ? model : layoutModel(model);
+  $("model-pick").value = state.tag;
+  $("model-exp").hidden = !isExperimental(state.tag);
+  model = layoutModel(model);
   const from = state.model;
   const template = state.docs[from] && layout()?._template;
   state.model = model;
@@ -215,7 +241,6 @@ async function loadModel(model) {
   }
   state.renderer = await loadRenderer(model);
   applyLimits();
-  document.querySelectorAll("#model-tabs button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.model === model)));
   applyZoom();
   document.querySelectorAll(".model-name").forEach((e) => (e.textContent = model));
   state.sel = doc().layouts?.length ? "file:0" : "builtin:price";
@@ -254,8 +279,8 @@ async function offerVariant(id) {
   // a layout of the same name without "_template" (from the example file, or added by hand) is
   // most likely the same one
   if (doc().layouts?.some((l) => l.name === found.entry.layout && !l._template)) return;
-  $("tpl-offer-text").textContent = `The ${model}" file has no “${found.t.title}” yet.`;
-  $("tpl-offer-add").textContent = `Add its ${model}" version`;
+  $("tpl-offer-text").textContent = `The ${modelName(model)} file has no “${found.t.title}” yet.`;
+  $("tpl-offer-add").textContent = `Add its ${modelName(model)} version`;
   $("tpl-offer-add").onclick = () => {
     bar.hidden = true;
     openTemplatePicker(id);
@@ -325,7 +350,7 @@ function refreshMeters(res) {
   meters.push(["JSON", new TextEncoder().encode(JSON.stringify(doc())).length, lim.jsonBytes, "Size of the layout file as Send to your AP uploads it (compact JSON), in bytes; it usually fills before the compiled file. Save layout file writes it indented, and esl-client layout-put compacts it again"]);
   if (lay) meters.push(["Fields", lay.fields.length, lim.fields, "Text fields the client sends for this layout, e.g. price and price_ex"]);
   const t = textBudget();
-  meters.push(["Sample text", t.n, t.max, "Bytes of text in one update from the AP (the fields share 96 bytes, one per field plus the text)"]);
+  meters.push(["Sample text", t.n, t.max, `Bytes of text in one update to the AP (the fields share ${r.fieldSpace} bytes, one per field plus the text)`]);
   $("meters").replaceChildren(...meters.map(([name, n, max, title]) => {
     const m = document.createElement("div");
     m.className = "meter" + (n === null ? "" : n > max ? " over" : n >= max ? " near" : "");
@@ -365,6 +390,8 @@ function limitsSource() {
 // called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
+  // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
+  if (ap.connected) state.renderer?.setFonts?.(ap.fonts, ap.fontSlots);
 }
 
 // After connecting or disconnecting: check and draw again with the limits that now apply
@@ -416,7 +443,8 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e);
+    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e)) +
+      (e.type === "text" && e.rotate ? " ↻" + e.rotate + "°" : "");
     b.append(tag);
     if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
       const g = document.createElement("span");
@@ -452,7 +480,7 @@ function refreshList() {
     name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
-    dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
+    dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.rotate ? e.rotate + "°" : "", e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
       : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
@@ -554,6 +582,8 @@ function initDrag() {
       return;
     }
     state.el = +box.dataset.i;
+    // on a narrow screen the selected box's position and field are under Elements
+    if (narrow.matches && $("dz").dataset.mtab === "fields") showPanel("elements");
     const e = element();
     const rect = ov.getBoundingClientRect();
     drag = {
@@ -609,7 +639,7 @@ function initDrag() {
 // box the browser's own keys win (its undo, arrows, Delete).
 function onKey(ev) {
   if ($("tab-design").hidden || document.querySelector("#tab-design dialog[open]")) return;
-  if (ev.target.closest("input, textarea, select")) return;
+  if (ev.target.closest("input, textarea, select, [role=tab]")) return;
   const mod = ev.ctrlKey || ev.metaKey;
   const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   const e = element();
@@ -672,7 +702,8 @@ function refreshLayoutList() {
   const lays = doc().layouts || [];
   const cmp = ap.connected && state.model in ap.files ? compareLayouts(doc(), ap.files[state.model]) : null;
   const counts = cmp ? countByLayout(ap.tags, ap.tagLayouts, state.model) : {};
-  $("layout-count").textContent = `${lays.length} of 16`;
+  $("layout-count").textContent = `${lays.length} (max 16)`;
+  $("layout-count").title = `This file has ${lays.length} layout${lays.length === 1 ? "" : "s"}; a layout file holds at most 16`;
   $("layout-list").replaceChildren(...lays.map((l, i) => {
     const key = "file:" + i;
     const li = document.createElement("li");
@@ -685,13 +716,21 @@ function refreshLayoutList() {
     paintThumb(pic, thumbs[state.model]?.[i]);
     const t = document.createElement("span");
     t.className = "t";
+    // the template's title over the name a client sends, when it comes from the library
+    const title = titleOf(templates, l);
     const n = document.createElement("span");
     n.className = "name";
-    n.textContent = l.name || "(no name)";
+    n.textContent = title || l.name || "(no name)";
     const f = document.createElement("span");
     f.className = "dim";
     const nf = (l.fields || []).length;
-    f.textContent = nf === 1 ? "1 field" : nf + " fields";
+    if (title) {
+      const code = document.createElement("code");
+      code.textContent = l.name;
+      code.title = "The layout's name, which a client sends";
+      f.append(code, " · ");
+    }
+    f.append(nf === 1 ? "1 field" : nf + " fields");
     t.append(n, f);
     if (cmp) {
       const st = document.createElement("span");
@@ -741,13 +780,46 @@ function refreshLayoutList() {
     return li;
   }));
   if (isBuiltin()) $("builtin-box").open = true;
+  refreshLayoutPick(lays);
+}
+
+// Narrow screens: Fields, Elements or Layouts under the tag, one at a time
+function showPanel(name) {
+  $("dz").dataset.mtab = name;
+  $("dz-mtabs").querySelectorAll("button[data-mtab]").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.mtab === name));
+    b.tabIndex = b.dataset.mtab === name ? 0 : -1;
+  });
+  store.set("panel", name);
+}
+
+// The same layouts in the picker over the tag, which a narrow screen shows instead of the list
+function refreshLayoutPick(lays) {
+  const opt = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    return o;
+  };
+  const builtin = document.createElement("optgroup");
+  builtin.label = "Built in";
+  builtin.append(...Object.keys(BUILTIN).map((name) => opt("builtin:" + name, name)));
+  const label = (l) => { const t = titleOf(templates, l); return t ? `${t} (${l.name})` : l.name || "(no name)"; };
+  $("layout-pick").replaceChildren(...lays.map((l, i) => opt("file:" + i, label(l))), builtin);
+  $("layout-pick").value = state.sel;
+  $("mtab-count").textContent = String(lays.length);
 }
 
 function infoButton() {
   const b = document.createElement("button");
-  b.textContent = "API";
   b.className = "info";
-  b.title = b.ariaLabel = "What a tag needs for this layout: send it to a tag, or see the request for curl, esl-client and Home Assistant";
+  const ico = document.createElement("span");
+  ico.className = "ico";
+  ico.ariaHidden = "true";
+  ico.textContent = "</>";
+  b.append(ico, "Use");
+  b.title = "How to use this layout: its fields, and the request for curl, esl-client and Home Assistant";
+  b.ariaLabel = "Use this layout: what a client sends for it";
   b.dataset.act = "info";
   return b;
 }
@@ -776,7 +848,7 @@ async function showLayoutInfo(key = infoKey) {
   const pill = builtin ? "Built in" : !ap.connected ? "In this file"
     : st === "ap" ? "On the AP" : st === "changed" ? "Changed, not on the AP" : "Not on the AP";
   const host = onAp ? location.host : "openesl.local";
-  const tags = ap.connected ? ap.tags.filter((t) => t.model === state.model)
+  const tags = ap.connected ? ap.tags.filter((t) => layoutModel(t.model) === state.model)
     .map((t) => ({ mac: t.mac, shows: ap.tagLayouts[t.mac] === name, shown: t.content_id ? ap.tagLayouts[t.mac] || "?" : "" })) : null;
   infoPanel.show({
     key: state.model + "/" + name, name, state: pill, ok: st === "ap", desc: l?.description || "", fields, sample, what, host, tags,
@@ -854,7 +926,7 @@ function refreshLayoutForm() {
   const bi = isBuiltin();
   $("lay-name").value = layoutName() || "";
   $("lay-name").disabled = bi;
-  $("lay-sub").textContent = bi ? `built-in · ${state.model}"` : `${state.model}"`;
+  $("lay-sub").textContent = bi ? `built-in · ${modelName(state.model)}` : `${modelName(state.model)}`;
   $("builtin-note").hidden = !bi;
   $("desc-sec").hidden = bi;
   $("add-group").hidden = bi;
@@ -1131,7 +1203,7 @@ function refreshBar() {
   };
   if (e.type === "text") {
     const fonts = e.fonts || ["small"];
-    select(bar, "Font", FONTS.map((f) => [f, `${f[0].toUpperCase() + f.slice(1)} ${FONT_PX[f]} px`]), fonts[0], (v) => {
+    select(bar, "Font", fontChoices(e).map((f) => [f, fontLabel(f)]), fonts[0], (v) => {
       e.fonts = [v, ...fonts.slice(1).filter((f) => f !== v)];
     });
     sep();
@@ -1224,6 +1296,21 @@ function numberRows(e, row) {
   return true;
 }
 
+// Turns text element e to deg (0, 90, 180, 270). From across to up and down, or back, the box
+// swaps width and height round its middle, kept on the screen.
+function setRotate(e, deg) {
+  const { width, height } = MODELS[state.model];
+  const upright = (d) => d === 90 || d === 270;
+  if (upright(deg) !== upright(e.rotate || 0)) {
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+    [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
+    e.x = clamp(Math.round(cx - e.w / 2), 0, width - e.w);
+    e.y = clamp(Math.round(cy - e.h / 2), 0, height - e.h);
+  }
+  if (deg) e.rotate = deg;
+  else delete e.rotate;
+}
+
 // What is used less: vertical alignment, lines, smaller fonts, placing on the screen, order.
 function moreMenu(e, btn, select, open) {
   const { width, height } = MODELS[state.model];
@@ -1252,12 +1339,18 @@ function moreMenu(e, btn, select, open) {
       if (+val) e.lines = +val;
       else delete e.lines;
     });
+    // Turned text (clockwise). The box stays where it is on the screen; going between
+    // across and up-and-down swaps its width and height round its middle.
+    const turn = row("Turn");
+    for (const [deg, icon, name] of [[0, "A", "Not turned"], [90, "90°", "90° clockwise, reads top to bottom"],
+      [180, "180°", "Upside down"], [270, "270°", "90° anticlockwise, reads bottom to top"]])
+      btn(turn, icon, "Turn: " + name.toLowerCase(), () => setRotate(e, deg), (e.rotate || 0) === deg);
     // Up to two smaller fonts, tried in order when the text does not fit the first
     const fonts = e.fonts || ["small"];
     const f = row("If too long");
     for (let i = 1; i < 3; i++) {
       const sel = select(f, i === 1 ? "Next font if the text does not fit" : "Last font if the text does not fit",
-        [["", "–"], ...FONTS.map((x) => [x, x])], fonts[i] || "", (val) => {
+        [["", "–"], ...fontChoices(e).map((x) => [x, x])], fonts[i] || "", (val) => {
           const a = fonts.slice();
           if (!val) a.length = Math.min(a.length, i);
           else a[i] = val;
@@ -1648,6 +1741,8 @@ function download(name, text, type = "application/json") {
 }
 
 function setDoc(d) {
+  // a file for a model whose sameAs names another is that model's file (the AP takes it under that name)
+  if (d.model && MODELS[d.model] && layoutModel(d.model) !== d.model) d = { ...d, model: layoutModel(d.model) };
   if (d.model && MODELS[d.model] && d.model !== state.model) {
     state.docs[d.model] = d;
     loadModel(d.model).then(save);
@@ -1676,16 +1771,24 @@ function fitHeight() {
 }
 
 function initActions() {
-  for (const [name, m] of Object.entries(MODELS)) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = name + '"';
-    b.title = `${m.width} × ${m.height}`;
-    b.dataset.model = name;
-    b.setAttribute("role", "radio");
-    b.addEventListener("click", () => { if (name !== state.model) loadModel(name).then(save); });
-    $("model-tabs").append(b);
+  // One entry per supported tag, by maker and name; tags with the same screen open the same file
+  for (const [name, t] of Object.entries(TAGS)) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = `${t.vendor} ${t.product} · ${modelLabel(name)} · ${t.width} × ${t.height} px`;
+    o.title = t.label;
+    $("model-pick").append(o);
   }
+  $("model-pick").addEventListener("change", () => {
+    const name = $("model-pick").value;
+    if (layoutModel(name) === state.model) {
+      state.tag = name; // the same file: nothing to load
+      $("model-exp").hidden = !isExperimental(name);
+      store.set("tag", name);
+      return;
+    }
+    loadModel(name).then(save);
+  });
   $("zoom").value = store.get("zoom") || "fit";
   $("zoom").addEventListener("change", () => {
     store.set("zoom", $("zoom").value);
@@ -1723,6 +1826,28 @@ function initActions() {
     state.el = -1;
     refreshAll();
   });
+  $("layout-pick").addEventListener("change", () => {
+    if ($("layout-pick").value === state.sel) return;
+    state.sel = $("layout-pick").value;
+    state.el = -1;
+    refreshAll();
+  });
+  $("dz-mtabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-mtab]");
+    if (b) showPanel(b.dataset.mtab);
+  });
+  // The tab pattern's keys: arrows, Home and End move between the tabs
+  $("dz-mtabs").addEventListener("keydown", (ev) => {
+    const tabs = [...$("dz-mtabs").querySelectorAll("button[data-mtab]")];
+    const i = tabs.indexOf(ev.target.closest("button[data-mtab]"));
+    const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[ev.key];
+    if (i < 0 || to === undefined) return;
+    const b = tabs[(to + tabs.length) % tabs.length];
+    showPanel(b.dataset.mtab);
+    b.focus();
+    ev.preventDefault();
+  });
+  showPanel(["fields", "elements", "layouts"].includes(store.get("panel")) ? store.get("panel") : "fields");
   $("layout-from-tpl").addEventListener("click", openTemplatePicker);
   $("tpl-offer-no").addEventListener("click", () => ($("tpl-offer").hidden = true));
   initTemplatePicker({
@@ -1740,7 +1865,7 @@ function initActions() {
     addLayout(d);
   });
   $("file-example").addEventListener("click", async () => {
-    if (!confirm(`Replace the ${state.model}" layout file in the editor with the example from the repository?`)) return;
+    if (!confirm(`Replace the ${modelName(state.model)} layout file in the editor with the example from the repository?`)) return;
     try {
       setDoc(await exampleDoc(state.model));
       state.sel = "file:0";
@@ -1838,7 +1963,9 @@ function initActions() {
 // via: on the web page, how the AP is reached: "usb" (its port, js/apport.js) or "wifi" (its
 // own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
 const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
-             tagLayouts: {} };   // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
+             tagLayouts: {},     // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
+             fonts: {}, fontSlots: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
+const apFontFiles = apFonts();
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
 // The version of the model's layout file on the AP (GET /api/layouts), null when it has none,
@@ -1884,6 +2011,8 @@ function apDisconnected() {
   if (!onAp) ap.files = {};
   ap.limits = null;
   ap.board = "";
+  ap.fonts = {};
+  ap.fontSlots = {};
   limitsChanged();
   apShow();
   apStatus("");
@@ -1916,13 +2045,13 @@ function ago(s) {
 // The AP's tags of this model, one to pick; the last six digits of the MAC tell them apart
 function refreshApTags() {
   const box = $("ap-tags");
-  const mine = ap.tags.filter((t) => t.model === state.model || t.model === null);
+  const mine = ap.tags.filter((t) => layoutModel(t.model) === state.model || t.model === null);
   $("ap-tags-h").textContent = `Tag (${state.model}" tags on this AP)`;
   if (!mine.some((t) => t.mac === ap.mac)) ap.mac = mine.length === 1 ? mine[0].mac : "";
   if (!mine.length) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = ap.tags.length ? `The AP has no ${state.model}" tags.` : "The AP has no tags yet.";
+    p.textContent = ap.tags.length ? `The AP has no ${modelName(state.model)} tags.` : "The AP has no tags yet.";
     box.replaceChildren(p);
     return;
   }
@@ -1981,6 +2110,14 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
+  try {
+    ({ files: ap.fonts, slots: ap.fontSlots } = await apFontFiles.read(apClient()));
+  } catch (e) {
+    // the AP's font files are not needed to connect: layouts that name one show it as unknown
+    console.warn("could not read the AP's font files:", e);
+    ap.fonts = {};
+    ap.fontSlots = {};
+  }
   limitsChanged();
   const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
@@ -2007,7 +2144,7 @@ async function apReadFile(model) {
       ap.files[model] = null;
     }
   }
-  const mine = ap.tags.filter((t) => t.model === model);
+  const mine = ap.tags.filter((t) => layoutModel(t.model) === model);
   if (mine.some((t) => !(t.mac in ap.tagLayouts)))
     tagLayouts(apClient(), mine, ap.tagLayouts).then((m) => {
       if (!ap.connected) return;
@@ -2033,7 +2170,7 @@ async function apOpen(model, discard = false) {
     // nothing on the AP: whatever the editor has is not saved there
     store.set("clean." + model, "");
     refreshFileState();
-    return [`The AP has no ${model}" layout file yet. Save to AP stores this one.`, ""];
+    return [`The AP has no ${modelName(model)} layout file yet. Save to AP stores this one.`, ""];
   }
   if (!discard && !wasClean && JSON.stringify(file) !== JSON.stringify(doc())) {
     store.set("clean." + model, JSON.stringify(file));
@@ -2047,7 +2184,7 @@ async function apOpen(model, discard = false) {
   save();
   markClean();
   refreshUndo();
-  return [`Opened the ${model}" layout file stored on the AP.`, "ok"];
+  return [`Opened the ${modelName(model)} layout file stored on the AP.`, "ok"];
 }
 
 async function apUpload(skip) {
@@ -2060,7 +2197,7 @@ async function apUpload(skip) {
   markClean();
   const unfit = unfitNote(r, skip);
   if (unfit) return [`Stored on the AP, but ${unfit}`, "error"];
-  return [r.changed ? `Stored on the AP. It draws the ${state.model}" tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
+  return [r.changed ? `Stored on the AP. It draws the ${modelName(state.model)} tags with it, and they get the new screen at their next poll.` : "The AP already has this file.", "ok"];
 }
 
 // The tags whose content no longer fits the uploaded file (their content is held back), "" for none.
@@ -2144,7 +2281,7 @@ function initOnAp() {
   $("ap-reload").addEventListener("click", async () => {
     closeMenus();
     if (store.get("clean." + state.model) !== JSON.stringify(doc()) &&
-      !confirm(`Drop the changes to the ${state.model}" layout file and open the one stored on the AP?`)) return;
+      !confirm(`Drop the changes to the ${modelName(state.model)} layout file and open the one stored on the AP?`)) return;
     await apRun("Reading the AP's layout file", () => apOpen(state.model, true));
     toStatus();
   });
@@ -2311,7 +2448,7 @@ async function openFromAp({ model, file, name }) {
   if (model !== state.model) await loadModel(model);
   if (state.docs[model] && JSON.stringify(state.docs[model]) !== JSON.stringify(file) &&
       store.get("clean." + model) !== JSON.stringify(state.docs[model]) &&
-      !confirm(`The designer has changes to its ${model}" layout file that are not saved anywhere. Open the AP's file instead?`)) return;
+      !confirm(`The designer has changes to its ${modelName(model)} layout file that are not saved anywhere. Open the AP's file instead?`)) return;
   setDoc(structuredClone(file));
   state.history[model].reset(JSON.stringify(file));
   ap.files[model] = structuredClone(file);
@@ -2322,6 +2459,22 @@ async function openFromAp({ model, file, name }) {
   save();
   markClean();
   refreshUndo();
+}
+
+// The one-time explanation of the layout file, and the library's titles for the layout list
+function initIntro() {
+  // A short explanation the first time the designer opens, until it is closed
+  $("dz-intro").hidden = store.get("intro.seen") !== null;
+  if (onAp) $("dz-intro-send").textContent = "Save to AP";
+  $("dz-intro-ok").addEventListener("click", () => {
+    $("dz-intro").hidden = true;
+    store.set("intro.seen", "1");
+  });
+  // the library's titles for the layout list, once the catalog is read (none without it)
+  catalogTemplates().then((t) => {
+    templates = t;
+    if (t.length && doc()) refreshLayoutList();
+  });
 }
 
 export async function initEditor({ sameOrigin = false } = {}) {
@@ -2336,9 +2489,10 @@ export async function initEditor({ sameOrigin = false } = {}) {
   initDrag();
   initList();
   initAp();
+  initIntro();
   window.addEventListener("openesl-edit-layout", (ev) => openFromAp(ev.detail));
-  const m = store.get("model");
-  await loadModel(MODELS[m] ? m : Object.keys(MODELS)[0]);
+  const m = store.get("tag") || store.get("model");
+  await loadModel(TAGS[m] ? m : Object.keys(TAGS)[0]);
   fitHeight();
   if (onAp) {
     apReady = true;

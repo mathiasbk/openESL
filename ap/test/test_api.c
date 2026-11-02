@@ -19,8 +19,20 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
+static uint64_t forgot;
+static int forget_radio(void *ctx, uint64_t id)
+{
+    (void)ctx;
+    if (id == 0xC6000001)
+        return 409;
+    if (id != 0xC6000002)
+        return 404;
+    forgot = id;
+    return 0;
+}
+static const esl_radio_ops_t radio_ops = {NULL, forget_radio};
 static esl_sb_t out;
 
 static int req(const char *method, const char *uri, const char *auth, const char *body, uint64_t now_ms)
@@ -176,26 +188,26 @@ static void test_put_errors(void)
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"text\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", 0), 422);
     CHECK_INT(req("PUT", u, AUTH, "{\"layout\":\"price\",\"fields\":[\"a\"],\"price_highlight\":\"yes\"}", 0), 422);
 
-    /* text and one byte per field share 96 bytes: 95 bytes of Latin-1 in one field;
+    /* text and one byte per field share 256 bytes: 255 bytes of Latin-1 in one field;
        each Latin-1 character (e.g. æ) is one byte */
-    char body[512];
-    char text[200];
-    memset(text, 'x', 95);
-    text[95] = '\0';
+    char body[1024];
+    char text[300];
+    memset(text, 'x', 255);
+    text[255] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
     /* empty fields at the end cost nothing */
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\",\"\",null,\"\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-    text[95] = 'x';
-    text[96] = '\0';
+    text[255] = 'x';
+    text[256] = '\0';
     snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%s\"]}", text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     CHECK(HAS(resp, "too long"));
-    /* three fields: 93 bytes */
-    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.45s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
+    /* three fields: 253 bytes */
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.125s\",\"%.127s\",\"\xC3\xA6\"]}", text, text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.46s\",\"%.47s\",\"\xC3\xA6\"]}", text, text);
+    snprintf(body, sizeof(body), "{\"layout\":\"text\",\"fields\":[\"%.126s\",\"%.127s\",\"\xC3\xA6\"]}", text, text);
     CHECK_INT(req("PUT", u, AUTH, body, 0), 422);
     /* very long UTF-8 input does not overflow anything */
     char huge[2048];
@@ -336,15 +348,90 @@ static void test_batch_and_list(void)
     esl_radio_link_t link = {.up = true, .ip = 0xC0A803F9, .seen_ms = 86395000, .ver = 3};
     api.link = &link;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":5,\"fw\":3}},\"tags\":["));
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":5,\"fw\":3}},\"tags\":["));
+    /* gone: since when, and lost after ESL_RADIO_LOST_S */
     link.up = false;
+    link.down_ms = 86390000;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false}},\"tags\":["));
+    CHECK(HAS(resp, "\"poll_s\":0,\"radio\":{\"connected\":false,\"via\":\"wifi\",\"lost\":false,\"lost_s\":10}},\"tags\":["));
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 0);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86420000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":false,\"via\":\"wifi\",\"lost\":true,\"lost_s\":30}}"));
+    CHECK_INT((int)esl_api_radios_lost(&api, 86420000), 1);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86420000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":null,\"via\":\"wifi\",\"problems\":[\"radio_lost\"],"
+                    "\"lost_s\":30}],\"ok\":false,"));
+    CHECK(HAS(resp, "\"radio_lost\":1,"));
+    /* the C6 on the cable: no address; never connected since boot counts from boot */
+    esl_radio_link_t cable = {.uart = true, .id = 0xC60000000077C8ULL};
+    api.link = &cable;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 20000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":false,\"via\":\"uart\",\"lost\":false,\"lost_s\":20}}"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":\"00C60000000077C8\",\"via\":\"uart\","));
+    cable.up = true;
+    cable.seen_ms = 39000;
+    cable.ver = 0x0101;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"uart\",\"lost\":false,\"seen_s\":1,\"fw\":257}}"));
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[],\"ok\":true,"));
+    CHECK(HAS(resp, "\"radio_lost\":0,"));
+    api.link = &link;
     /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
     link.up = true;
     link.seen_ms = 86400001;
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
+    CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3}},\"tags\":["));
+    /* several radios: each with its channel and tags, and each tag says which serves it */
+    esl_radio_link_t links[3] = {link, {0}, {.up = false, .id = 0xC6000002, .channel = 20, .tags = 0}};
+    links[0].id = 0xC6000001;
+    links[0].tags = 1;
+    api.links = links;
+    api.n_links = 3;
+    esl_store_set_radio_channel(&st, 2, 20);
+    esl_store_set_tag_radio(&st, 0xABCDEF, 2);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, ",\"radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"channel\":25,\"tags\":1,"
+                    "\"connected\":true,\"via\":\"wifi\",\"lost\":false,\"ip\":\"192.168.3.249\",\"seen_s\":0,\"fw\":3},"
+                    "{\"radio\":2,\"id\":\"00000000C6000002\",\"channel\":20,\"tags\":0,\"connected\":false,"
+                    "\"via\":\"wifi\",\"lost\":true,\"lost_s\":86400}]"));
+    CHECK(HAS(resp, "\"mac\":\"0000000000ABCDEF\""));
+    CHECK(HAS(resp, "\"pending\":false,\"radio\":2,\"poll_s\""));
+    /* only known places count: radio 1 has none, radio 2 is gone (bit 2) */
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 4);
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":2,\"id\":\"00000000C6000002\",\"via\":\"wifi\","
+                    "\"problems\":[\"radio_lost\"],\"lost_s\":86400}]"));
+    /* place 0 is needed even with no radio known there */
+    esl_radio_link_t empty[2] = {{0}, {0}};
+    api.links = empty;
+    api.n_links = 2;
+    CHECK_INT((int)esl_api_radios_lost(&api, 86400000), 1);
+    api.links = links;
+    api.n_links = 3;
+    /* GET /api/radios lists the same; DELETE forgets one that is not connected */
+    CHECK_INT(req("GET", "/api/radios", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "{\"radios\":[{\"radio\":0,"));
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000002", AUTH, NULL, 0), 405); /* no radio_ops */
+    api.radio_ops = &radio_ops;
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000002", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "{\"forgotten\":\"00000000C6000002\"}"));
+    CHECK((long long)forgot == (long long)0xC6000002);
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000001", AUTH, NULL, 0), 409);
+    CHECK_INT(req("DELETE", "/api/radios/00000000C6000009", AUTH, NULL, 0), 404);
+    CHECK_INT(req("DELETE", "/api/radios/C6", AUTH, NULL, 0), 400);
+    CHECK_INT(req("PUT", "/api/radios", AUTH, "{}", 0), 405);
+    CHECK_INT(req("GET", "/api/radios", NULL, NULL, 0), 401);
+    api.radio_ops = NULL;
+    /* one radio known: no "radio" per tag */
+    links[2].id = 0;
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
+    CHECK(!HAS(resp, "\"radio\":2"));
+    esl_store_set_radio_channel(&st, 2, 0);
+    api.links = NULL;
+    api.n_links = 0;
+    CHECK_INT(req("GET", "/api/radios", AUTH, NULL, 0), 404); /* not a network radio AP */
     api.link = NULL;
     api.reset_reason = "task_wdt";
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
@@ -402,9 +489,12 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
                     "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
-                    "\"jsonBytes\":8192,\"fields\":6,\"fixedTextBytes\":64},\"layouts\":["
-                    "{\"model\":\"2.9\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
-                    "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}]}");
+                    "\"jsonBytes\":8192,\"fields\":16,\"fixedTextBytes\":64,\"textBytes\":256},\"layouts\":["
+                    "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]},"
+                    "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
+                    "{\"model\":\"2.9-bwr\",\"same_as\":null,\"used_by\":[\"2.9-bwr\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);
     CHECK_INT(req("PUT", "/api/layouts", AUTH, f29, 0), 405);
     CHECK_INT(req("GET", "/api/layouts/2.9", AUTH, NULL, 0), 404);
@@ -418,7 +508,7 @@ static void test_layouts(void)
 
     /* upload, read back, same file again is not a change */
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f29, 0), 200);
-    CHECK(HAS(resp, "{\"model\":\"2.9\",\"version\":"));
+    CHECK(HAS(resp, "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":"));
     CHECK(HAS(resp, "\"layouts\":[\"shelf\",\"sign\"],\"changed\":true,\"content_errors\":[],\"content_errors_total\":0}"));
     uint32_t v = json_u32(resp, "\"version\":");
     CHECK(v != 0);
@@ -432,10 +522,11 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     char expect[256];
     snprintf(expect, sizeof(expect),
-             "{\"model\":\"2.9\",\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
+             "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":%u,\"size\":%u,\"binary_size\":175,\"layouts\":[\"shelf\",\"sign\"]}",
              (unsigned)v, (unsigned)len29);
     CHECK(HAS(resp, expect));
-    CHECK(HAS(resp, "{\"model\":\"1.54\",\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]}"));
+    CHECK(HAS(resp, "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]}"));
 
     /* the file is checked against the model in the URL (krav A13): 422 with where and why */
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f29, 0), 422);
@@ -502,6 +593,111 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
                   "{\"layout\":\"six\",\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\"]}", 0), 422);
     CHECK(HAS(resp, "at most 6 fields"));
+
+    /* fields by name (#182): the same content as by position */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":[\"Kramp\",\"Spann\",\"\",\"192,25\"]}", 0), 200);
+    uint32_t by_pos = json_u32(resp, "\"content_id\":");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"price\":\"192,25\",\"brand\":\"Kramp\",\"name\":\"Spann\","
+                  "\"unit\":null}}", 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_id\":"), by_pos);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"Kramp\",\"Spann\",\"\",\"192,25\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":{\"pris\":\"1\"}}", 0), 422);
+    CHECK_STR(resp, "{\"error\":\"layout six for model 2.9 has no field \\\"pris\\\"\"}");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"unit\":\"stk\",\"unit\":\"m\"}}", 0), 422);
+    CHECK(HAS(resp, "given twice"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"unit\":1}}", 0), 422);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"six\",\"fields\":{\"a-very-long-name-of-a-field-that-is-not-there\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "has no field"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":\"x\"}", 0), 422);
+    CHECK(HAS(resp, "an object of strings by field name"));
+    /* an empty object is no text, as [] */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"six\",\"fields\":{}}", 0), 200);
+    /* the built-in layouts' fields have names too */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}", 0), 200);
+    by_pos = json_u32(resp, "\"content_id\":");
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"price\",\"fields\":{\"price\":\"24,90\",\"name\":\"Melk\"}}", 0), 200);
+    CHECK_INT(json_u32(resp, "\"content_id\":"), by_pos);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"text\",\"fields\":{\"line3\":\"c\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"\",\"\",\"c\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, "{\"layout\":\"text\",\"fields\":{\"line5\":\"c\"}}", 0), 422);
+    CHECK(HAS(resp, "line1, line2, line3, line4"));
+
+    /* sixteen fields, 255 bytes in one of them */
+    static char f16[4096], b16[2048];
+    {
+        esl_sb_t l;
+        esl_sb_init(&l, f16, sizeof(f16));
+        esl_sb_puts(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"many\",\"fields\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&l, "%s\"f%d\"", i ? "," : "", i);
+        esl_sb_puts(&l, "],\"elements\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&l, "%s{\"type\":\"text\",\"field\":\"f%d\",\"x\":%d,\"y\":%d,\"w\":70,\"h\":17,\"fonts\":[\"small\"]}",
+                          i ? "," : "", i, (i % 4) * 74, (i / 4) * 30);
+        esl_sb_puts(&l, "]},{\"name\":\"link\",\"fields\":[\"url\"],\"elements\":[{\"type\":\"qr\",\"field\":\"url\","
+                        "\"x\":0,\"y\":0,\"w\":128,\"h\":128}]}]}");
+        CHECK(!l.overflow);
+    }
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, f16, 0), 200);
+    {
+        esl_sb_t b;
+        esl_sb_init(&b, b16, sizeof(b16));
+        esl_sb_puts(&b, "{\"layout\":\"many\",\"fields\":[");
+        for (int i = 0; i < 16; i++)
+            esl_sb_printf(&b, "%s\"%c%.13s\"", i ? "," : "", 'A' + i, "0123456789abcdef"); /* 14 bytes each */
+        esl_sb_puts(&b, "]}");
+    }
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, b16, 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"P0123456789abc\"]"));
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH,
+                  "{\"layout\":\"many\",\"fields\":{\"f15\":\"last\",\"f0\":\"first\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/0000000000000290", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"first\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"last\"]"));
+    /* a link of 200 bytes for the QR code (it did not fit in 96) */
+    {
+        char url[201];
+        memset(url, 'a', 200);
+        memcpy(url, "https://example.com/", 20);
+        url[200] = '\0';
+        snprintf(b16, sizeof(b16), "{\"layout\":\"link\",\"fields\":{\"url\":\"%s\"}}", url);
+    }
+    /* the model not known yet: by name only where every file with the layout agrees */
+    const char *link154 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"1.54\",\"layouts\":[{\"name\":\"link\","
+                          "\"fields\":[\"title\",\"url\"],\"elements\":[{\"type\":\"text\",\"field\":\"title\",\"x\":0,"
+                          "\"y\":0,\"w\":100,\"h\":20,\"fonts\":[\"small\"]}]},{\"name\":\"many\",\"fields\":[\"f0\",\"f1\"],"
+                          "\"elements\":[{\"type\":\"text\",\"field\":\"f1\",\"x\":0,\"y\":0,\"w\":100,\"h\":20,"
+                          "\"fonts\":[\"small\"]}]}]}";
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, link154, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"url\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "not in the same place in layout link for every model"));
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"title\":\"x\"}}", 0), 422);
+    CHECK(HAS(resp, "layout link for model 2.9 has no field \\\"title\\\""));
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"many\",\"fields\":{\"f1\":\"x\"}}", 0), 200);
+    /* ... and once it is known, its own file counts */
+    poll_model(0xBC, ESL_MODEL_154, true);
+    CHECK_INT(req("PUT", "/api/tags/00000000000000BC", AUTH, "{\"layout\":\"link\",\"fields\":{\"url\":\"x\"}}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags/00000000000000BC", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"fields\":[\"\",\"x\"]"));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
+    CHECK_INT(req("PUT", "/api/tags/0000000000000290", AUTH, b16, 0), 200);
+    {
+        static uint8_t img[16384];
+        esl_content_t lc;
+        CHECK(esl_store_get_content(&st, 0x290, &lc));
+        CHECK_INT(lc.len[0], 200);
+        CHECK(esl_layouts_render(&layouts, ESL_MODEL_29, &lc, img, sizeof(img)) > 0);
+        CHECK(esl_layouts_check_content(&layouts, ESL_MODEL_29, &lc, (char[192]){0}, 192));
+    }
 
     /* a barcode field must be one the tag can draw */
     const char *bc29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"bc\","
@@ -682,87 +878,6 @@ static void test_layouts(void)
     free(f154);
 }
 
-static void test_status_page(void)
-{
-    static char page[ESL_API_PAGE_SIZE(CAP)];
-    esl_sb_t sb;
-    esl_sb_init(&sb, page, sizeof(page));
-    esl_store_free(&st);
-    esl_store_init(&st, CAP, NULL, 0);
-
-    CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
-                  "{\"layout\":\"price\",\"fields\":[\"Br\u00f8d <b>&amp;\",\"9,90\"]}", 0), 200);
-    poll_as_tag(0xABCDEF, 0, 1000);
-    CHECK_INT(esl_api_status_page(&api, 1000 + 3 * 3600 * 1000, &sb), 200);
-    CHECK(HAS(page, "<!DOCTYPE html>"));
-    CHECK(HAS(page, "Firmware 0.1.0, up 3 h, channel 25, 2 of 8 tags, <span class=\"p\">2 need attention</span>."));
-    CHECK(HAS(page, "<td>" MAC1 "</td><td>-</td><td>-</td>"));
-    CHECK(HAS(page, "price: Br\xC3\xB8" "d &lt;b&gt;&amp;amp; | 9,90</td><td class=\"p\">pending</td>"
-                    "<td class=\"p\">unseen</td></tr>"));
-    CHECK(HAS(page, "<td>-</td><td>no content</td><td class=\"p\">silent</td></tr>")); /* seen 3 h ago */
-    CHECK(HAS(page, "<p>Layout files: 2.9 none (built-in price and text only); 1.54 version "));
-    CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
-                    "<td>-</td><td>no content</td>"));
-    CHECK(!HAS(page, "<b>"));
-    CHECK(!HAS(page, "/dashboard"));
-    api.dashboard = true;
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 1000, &sb), 200);
-    CHECK(HAS(page, "<a href=\"/dashboard\">Dashboard</a>"));
-    api.dashboard = false;
-
-    /* battery 0 = not measured */
-    uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
-    esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
-    CHECK(HAS(page, "<td>0000000000000002</td><td>1.54</td><td>1 s ago</td><td>-</td><td>-70</td>"));
-
-    /* worst case: every slot full, every byte escaped, both models with 16 layouts with
-       long names, and half the tags with named content they cannot get */
-    static char lf[4096];
-    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
-        esl_sb_t l;
-        esl_sb_init(&l, lf, sizeof(lf));
-        esl_sb_printf(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"%s\",\"layouts\":[",
-                      esl_model_name(m));
-        for (int i = 0; i < ESL_LAYOUT_FILE_MAX; i++)
-            esl_sb_printf(&l, "%s{\"name\":\"a-long-layout-name-with-31-ch%02d\",\"fields\":[\"a\",\"b\",\"c\",\"d\"],"
-                          "\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}", i ? "," : "", i);
-        esl_sb_puts(&l, "]}");
-        char u[64];
-        snprintf(u, sizeof(u), "/api/layouts/%s", esl_model_name(m));
-        CHECK_INT(req("PUT", u, AUTH, lf, 0), 200);
-    }
-    char body[512], text[ESL_MAX_TEXT + 1];
-    memset(text, '&', ESL_MAX_TEXT / 4);
-    text[ESL_MAX_TEXT / 4] = '\0';
-    esl_store_free(&st);
-    esl_store_init(&st, CAP, NULL, 0);
-    for (unsigned i = 0; i < CAP; i++) {
-        char u[64];
-        snprintf(u, sizeof(u), "/api/tags/%016X", 0x1000 + i);
-        snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
-                 i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
-        CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
-        uint8_t reply[ESL_MAX_PAYLOAD];
-        esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
-    }
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, UINT64_C(1) << 50, &sb), 200);
-    CHECK(!sb.overflow);
-    CHECK(HAS(page, "pending, draw failed"));
-    CHECK(HAS(page, "pending, draw failed (the tag cannot show images drawn by the AP (old firmware, or no SPI flash))"));
-    CHECK(HAS(page, "a-long-layout-name-with-31-ch15: "));
-
-    /* too small a buffer gives 500 instead of a cut page */
-    char small[100];
-    esl_sb_init(&sb, small, sizeof(small));
-    CHECK_INT(esl_api_status_page(&api, 0, &sb), 500);
-}
-
 static void test_config_api(void)
 {
     esl_store_free(&st);
@@ -848,9 +963,9 @@ static void test_config_api(void)
 }
 
 /* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
-   and the status page in pieces, byte for byte what a big buffer would hold.
+   in pieces, byte for byte what a big buffer would hold.
    Everything else must fit the buffer, and errors never start a stream. */
-static char streamed[ESL_API_PAGE_SIZE(CAP)];
+static char streamed[ESL_API_RESP_SIZE(CAP)];
 static size_t streamed_len, pieces;
 
 static bool collect(esl_sb_t *sb)
@@ -865,7 +980,6 @@ static bool collect(esl_sb_t *sb)
 
 static void test_streaming(void)
 {
-    static char page[ESL_API_PAGE_SIZE(CAP)];
     char small[200]; /* smaller than one tag: every tag needs a flush */
     esl_sb_t sb;
     esl_store_free(&st);
@@ -909,22 +1023,21 @@ static void test_streaming(void)
     CHECK(!sb.streaming && pieces == 0); /* one tag is bigger than this buffer: an error, not a stream */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", "Bearer wrong", NULL, 0, 5000, &sb), 401);
     CHECK(!sb.streaming && sb.sent == 0 && pieces == 0);
+    /* a layout file far bigger than this buffer */
+    static char lf[4096];
+    esl_sb_t l;
+    esl_sb_init(&l, lf, sizeof(lf));
+    esl_sb_puts(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[");
+    for (int i = 0; i < ESL_LAYOUT_FILE_MAX; i++)
+        esl_sb_printf(&l, "%s{\"name\":\"a-long-layout-name-with-31-ch%02d\",\"fields\":[\"a\",\"b\",\"c\",\"d\"],"
+                      "\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}", i ? "," : "", i);
+    esl_sb_puts(&l, "]}");
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, lf, 0), 200);
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/layouts/2.9", AUTH, NULL, 0, 5000, &sb), 500); /* too big */
     CHECK(!sb.streaming && pieces == 0);
 
-    /* the status page */
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
-    whole = sb.len;
-    CHECK(whole > sizeof(small) && sb.sent == 0);
-    streamed_len = pieces = 0;
-    esl_sb_init(&sb, small, sizeof(small));
-    esl_sb_set_sink(&sb, collect, NULL);
-    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
-    esl_sb_flush(&sb);
-    CHECK(!sb.overflow && pieces >= CAP);
-    CHECK_INT((int)streamed_len, (int)whole);
-    CHECK_MEM(streamed, page, whole);
 }
 
 static void test_webhook_config(void)
@@ -1127,7 +1240,7 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"silent\":0,\"unseen\":0,"
+    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
                     "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
@@ -1145,11 +1258,11 @@ static void test_health(void)
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
-                    "],\"ok\":false,\"tags\":4,\"with_problems\":3,\"silent\":1,\"unseen\":1,"
+                    "],\"radio_problems\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
                     "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);
-    CHECK(HAS(resp, "\"with_problems\":2,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
+    CHECK(HAS(resp, "\"with_problems\":2,\"radio_lost\":0,\"silent\":0,\"unseen\":1,\"draw_failed\":1,\"low_battery\":0,"));
     /* a tag with its own interval is silent after 3 x that */
     CHECK_INT(req("PUT", "/api/tags/0000000000000002/config", AUTH, "{\"poll_s\":300}", 0), 200);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, now), 200);
@@ -1382,7 +1495,6 @@ void test_api(void)
     test_put_errors();
     test_batch_and_list();
     test_layouts();
-    test_status_page();
     test_config_api();
     test_streaming();
     test_webhook_config();

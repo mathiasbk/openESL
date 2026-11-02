@@ -80,11 +80,39 @@ for (const model of Object.keys(MODELS)) {
   test(`too much text, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     r.clearLayouts();
-    // the fields share 96 bytes with one length byte each; the empty one at the end is not sent
-    const res = r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(20), ""]);
+    // the fields share 256 bytes with one length byte each; the empty one at the end is not sent
+    const res = r.render(2, 0, ["x".repeat(120), "y".repeat(120), "z".repeat(20), ""]);
     assert.equal(res.ok, false);
-    assert.match(res.error, /at most 93 with 3 fields/);
-    assert.ok(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(13), ""]).ok);
+    assert.match(res.error, /at most 253 with 3 fields/);
+    assert.ok(r.render(2, 0, ["x".repeat(120), "y".repeat(120), "z".repeat(13), ""]).ok);
+    assert.equal(r.fieldSpace, 256);
+    assert.equal(r.limits.textBytes, 256);
+    // an AP with 0.9.2 or older reports no textBytes, and took 96 bytes and 6 fields
+    r.setLimits({ fields: 6 });
+    assert.equal(r.fieldSpace, 96);
+    assert.equal(r.limits.fields, 6);
+    assert.match(r.render(2, 0, ["x".repeat(40), "y".repeat(40), "z".repeat(20)]).error, /at most 93 with 3 fields/);
+    r.setLimits(null);
+    assert.equal(r.fieldSpace, 256);
+    assert.equal(r.limits.fields, 16);
+  });
+
+  test(`sixteen fields, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const fields = Array.from({ length: 16 }, (_, i) => "f" + i);
+    const file = { format: "esl-layouts", version: 1, model, layouts: [{ name: "many", fields,
+      elements: fields.map((f, i) => ({ type: "text", field: f, x: (i % 4) * 30, y: Math.floor(i / 4) * 20, w: 28, h: 17, fonts: ["small"] })) }] };
+    assert.ok(r.loadLayouts(JSON.stringify(file)).ok);
+    const text = fields.map((_, i) => String.fromCharCode(65 + i));
+    const res = r.render(0x10, 0, text);
+    assert.ok(res.ok, res.error);
+    const fp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "many.json");
+    writeFileSync(fp, JSON.stringify(file));
+    const nat = native(model, fp, 0x10, 0, text);
+    assert.ok(nat.ok, nat.error);
+    assert.deepEqual(res.pixels, nat.pixels);
+    assert.match(r.render(0x10, 0, [...text, "Q"]).error, /at most 16 fields/);
+    r.clearLayouts();
   });
 
   test(`a QR field too long for its box is drawn, with the AP's reason, ${model}`, async () => {
@@ -123,6 +151,41 @@ for (const model of Object.keys(MODELS)) {
     assert.ok(r.loadLayouts(file("keep")).ok);
     assert.deepEqual(got.pixels, r.render(0x10, 0, ["200,-"]).pixels);
     assert.notDeepEqual(got.pixels, r.render(0x10, 0, ["199,90"]).pixels);
+  });
+
+  test(`turned text draws as the AP draws it, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const { height } = MODELS[model];
+    const file = {
+      format: "esl-layouts", version: 1, model,
+      layouts: [{
+        name: "turn", fields: ["a"],
+        elements: [
+          { type: "text", field: "a", x: 0, y: 0, w: 26, h: height, fonts: ["medium", "small"], rotate: 270 },
+          { type: "text", field: "a", x: 30, y: 0, w: 52, h: height, fonts: ["medium"], valign: "middle", rotate: 90 },
+          { type: "text", field: "a", x: 90, y: 4, w: 100, h: 50, fonts: ["small"], align: "right", rotate: 180,
+            color: "invert" },
+        ],
+      }],
+    };
+    const text = JSON.stringify(file);
+    const res = r.loadLayouts(text);
+    assert.ok(res.ok, res.error);
+    // turned, the lines are stacked across w: 52 px holds two lines of medium
+    const u = layoutUsage(file.layouts[0], r.limits);
+    assert.deepEqual([u.runs, u.rects], [1 + 2 + 2, 1]);
+    const tmp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "turn.json");
+    writeFileSync(tmp, text);
+    for (const t of ["Tilbud", "Turned text over two lines"]) {
+      const a = r.render(0x10, 0, [t]);
+      const b = native(model, tmp, 0x10, 0, [t]);
+      assert.ok(a.ok && b.ok, a.error || b.error);
+      assert.deepEqual(a.pixels, b.pixels, t);
+      assert.ok(a.pixels.some((p) => p));
+    }
+    // only text turns
+    file.layouts[0].elements.push({ type: "rect", x: 0, y: 0, w: 4, h: 4, rotate: 90 });
+    assert.match(r.loadLayouts(JSON.stringify(file)).error, /rotate is only for text elements/);
   });
 
   test(`lines, round and open boxes and icons, ${model}`, async () => {

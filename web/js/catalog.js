@@ -74,3 +74,16 @@ export function search(templates, text) {
     return words.every((w) => hay.includes(w));
   });
 }
+
+// The title of the template a layout of a file comes from ("Product with brand" for "vare"), or ""
+// when it is not from the library: by its "_template" id, else, for a layout without one (the
+// example file, or added by hand), by a template whose layout has the same name and the same
+// fields, so a layout of your own that happens to be called "notice" keeps its name. The lists
+// show it over the layout's name, which is what a client sends.
+export function titleOf(templates, layout) {
+  if (!layout || !Array.isArray(templates)) return "";
+  const same = (a, b) => Array.isArray(a) && Array.isArray(b) && a.join("\n") === b.join("\n");
+  const t = layout._template ? templates.find((e) => e.id === layout._template)
+    : templates.find((e) => e.layout === layout.name && same(e.fields, layout.fields || []));
+  return t?.title && t.title !== layout.name ? t.title : "";
+}

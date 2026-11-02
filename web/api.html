@@ -10,8 +10,16 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <style>
     html, body { margin: 0; background: #fff; }
-    @media (prefers-color-scheme: dark) { html, body { background: #0f0f0f; } }
+    html.dark, html.dark body { background: #0f0f0f; }
   </style>
+  <script>
+    // light or dark as the theme button of index.html set it (js/theme.js), otherwise the system's
+    var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    try { var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") dark = t === "dark"; } catch (e) {}
+    if (dark) document.documentElement.classList.add("dark");
+    // the button pressed in the page around this one (the API tab): draw again in the new theme
+    addEventListener("storage", function (e) { if (e.key === "openesl.theme" || e.key === null) location.reload(); });
+  </script>
 </head>
 <body>
   <!-- The API reference, made by Scalar from docs/openapi.yaml (copied next to this page
@@ -21,7 +29,9 @@
   <script>
     Scalar.createApiReference("#app", {
       url: "openapi.yaml",
-      darkMode: matchMedia("(prefers-color-scheme: dark)").matches,
+      darkMode: dark,
+      forceDarkModeState: dark ? "dark" : "light",
+      hideDarkModeToggle: true,
       withDefaultFonts: false,
       showDeveloperTools: "never",
       agent: { disabled: true },

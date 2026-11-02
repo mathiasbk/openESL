@@ -34,7 +34,7 @@
 | `epd` | SSD16xx: reset, init, write the black/white plane, update, wait for BUSY, sleep | GPIO, datasheet |
 | `font` | Generated tables: small (17 px) and medium (24 px) in Latin-1 for the status screens. The mid, large, text20 and price44 fonts are only in the AP's drawing | Font generator |
 | `draw` | Calculates one pixel column at a time from a scene of text runs and rectangles and streams it to `epd` | `font` |
-| `status` | The screens the tag draws itself: "Waiting for content" (also at start-up, when it has no image) and "No AP found", with its MAC and firmware version (T9) | `draw` |
+| `status` | The screens the tag draws itself: "Waiting for content" (also at start-up, when it has no image) and "No AP found", with its MAC and firmware version (T9), and the "no AP" mark drawn over the image (#98) | `draw` |
 | `image` | Stores the IMG blocks from the AP in the SPI flash, checks the image against its id and streams it to `epd` | `epd`, SPI flash |
 | `ota` | Stores FW blocks in the SPI flash and installs the image through the bootloader ([tag-ota.md](tag-ota.md)) | SPI flash |
 | `radio` | Init, set channel/PAN, send frame, receive frame with timeout, RSSI | Register findings |

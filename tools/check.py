@@ -13,7 +13,7 @@ machine, so a change can be checked before it is pushed.
 Steps:
   models    the generated model files match shared/models.json (tools/gen_models.py --check)
   wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
-  tag       tag host tests (tag/tools/build.py test)
+  tag       tag host tests (tag/tools/build.py test), for every model
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
@@ -22,7 +22,8 @@ Steps:
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
             on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
             Design tab packs (web/build.py --wasm, Emscripten 3.1.74)
-  web       web page and renderer (Emscripten 3.1.74) and the web tests (Node)
+  web       the stylesheets keep to the design scale (tools/check_css.py), the web page and
+            renderer (Emscripten 3.1.74) and the web tests (Node)
 
 The firmware ends up in out/ with the names CI gives it (tag-29.bin, openesl-ap.bin, ...).
 Toolchains: tools/dev/setup.sh installs SDCC, Emscripten and Node into ~/.cache/openesl on Linux
@@ -116,7 +117,10 @@ def step_wiki():
 
 def step_tag():
     need_host_cc()
-    run([PY, "tag/tools/build.py", "test"])
+    # once per model: the image slot, the download and the drawing depend on the screen and on red
+    for m in models.load():
+        run([PY, "tag/tools/build.py", "test"],
+            env={"HOST_CFLAGS": (os.environ.get("HOST_CFLAGS", "") + " -DMODEL=" + m["build"]).strip()})
 
 
 def step_sim():
@@ -205,6 +209,7 @@ def step_ap_fw():
 
 
 def step_web():
+    run([PY, "tools/check_css.py"])     # needs only Python, so it runs without Emscripten too
     need("emcc", "Emscripten %s, tools/dev/setup.sh or emsdk" % EMSCRIPTEN_VERSION)
     node = need("node", "Node 22")
     need_host_cc()

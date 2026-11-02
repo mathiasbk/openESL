@@ -12,6 +12,7 @@
 
 import { loadRenderer, MODELS, LAYOUT_FILE } from "./renderer.js";
 import { PAGES, variantFor, soloFile, addTemplate, search } from "./catalog.js";
+import { modelName } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 const ISSUES = "https://github.com/mathiasbk/openESL/issues/new";
@@ -32,7 +33,6 @@ function el(tag, cls, text) {
   return e;
 }
 
-const modelName = (m) => m + '"';
 
 // ---------- the catalog ----------
 
@@ -81,6 +81,17 @@ async function loadCatalog() {
 async function templateFile(entry) {
   if (!files[entry.id]) files[entry.id] = await fetchJson(catalog.base + entry.file);
   return files[entry.id];
+}
+
+// The templates of the catalog (its index entries), for the titles of the layout list; [] when it
+// cannot be read, or when it is only the example file (whose "titles" are the layout names)
+export async function catalogTemplates() {
+  try {
+    const c = await loadCatalog();
+    return c.offline ? [] : c.index.templates;
+  } catch {
+    return [];
+  }
 }
 
 // A template by id (its file), for the offer to add it for another model; null when the catalog
@@ -310,7 +321,7 @@ async function openDetail(entry) {
   buttons.append(backButton(), el("span", "sep"));
   if (!v) {
     const a = el("a", "button", `Ask for a ${modelName(model)} version`);
-    a.href = `${ISSUES}?title=${encodeURIComponent(`Template ${t.id}: a ${model}" version`)}&labels=enhancement`;
+    a.href = `${ISSUES}?title=${encodeURIComponent(`Template ${t.id}: a ${modelName(model)} version`)}&labels=enhancement`;
     a.target = "_blank";
     a.rel = "noopener";
     buttons.append(a);

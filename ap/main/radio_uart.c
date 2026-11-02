@@ -61,6 +61,24 @@ static struct {
     int64_t last_ping_us;  /* CONFIG while down, PING while up */
 } link;
 
+/* The link as GET /api/tags ("radio") and GET /api/health ("radio_lost") show it, written
+   by the UART task (and radio_ota_end) without the API's lock */
+static esl_radio_link_t status = {.uart = true};
+
+/* link.up, and status with it */
+static void set_up(bool up)
+{
+    if (link.up && !up)
+        status.down_ms = (uint64_t)esp_timer_get_time() / 1000;
+    link.up = up;
+    status.up = up;
+}
+
+const esl_radio_link_t *radio_uart_link(void)
+{
+    return &status;
+}
+
 /* From the UART task's TX_DONE to the radio task, which owns radio_link.stats */
 static atomic_uint lost, resent;
 static uint32_t late;      /* TX_DONE LATE, for the log */
@@ -107,6 +125,8 @@ static void on_hello(const esl_coproc_hello_t *h)
     link.hello = *h;
     link.heard = true;
     taskEXIT_CRITICAL(&hello_mux);
+    status.id = h->ieee_addr;
+    status.ver = h->fw;
     bool ours = h->configured && h->cfg.channel == cfg.channel && h->cfg.pan == cfg.pan &&
                 h->cfg.short_addr == cfg.short_addr && h->cfg.tx_power == cfg.tx_power && h->cfg.flags == cfg.flags;
     if (!ours) {
@@ -117,14 +137,14 @@ static void on_hello(const esl_coproc_hello_t *h)
             ESP_LOGW(TAG, "radio speaks link v%u, this AP v%u", h->version, ESL_COPROC_VERSION);
         ESP_LOGI(TAG, "radio %u.%u %s(%016llX) %s: sending CONFIG", h->fw >> 8, h->fw & 0xFF, h->app_version,
                  (unsigned long long)h->ieee_addr, h->configured ? "has other settings" : "started");
-        link.up = false;
+        set_up(false);
         send_config();
         return;
     }
     if (!link.up)
         ESP_LOGI(TAG, "radio %u.%u up on channel %u, PAN 0x%04X", h->fw >> 8, h->fw & 0xFF,
                  cfg.channel, cfg.pan);
-    link.up = true;
+    set_up(true);
 }
 
 static void on_rx(const esl_coproc_rx_t *rx)
@@ -176,6 +196,7 @@ static void on_stats(const esl_coproc_stats_t *s)
 static void handle(const esl_coproc_parser_t *p)
 {
     link.last_heard_us = esp_timer_get_time();
+    status.seen_ms = (uint64_t)link.last_heard_us / 1000;
     switch (p->type) {
     case ESL_COPROC_HELLO: {
         esl_coproc_hello_t h;
@@ -254,7 +275,8 @@ static void uart_task(void *arg)
         if (link.up && now - link.last_heard_us > LINK_DEAD_US) {
             ESP_LOGW(TAG, "the radio has said nothing for %lld s: configuring it again",
                      (long long)((now - link.last_heard_us) / 1000000));
-            link.up = false;
+            set_up(false);
+            status.down_ms = (uint64_t)link.last_heard_us / 1000; /* gone since then */
             link.last_ping_us = 0;
         }
         if (link.up && now - link.last_ping_us > PING_EVERY_US) {
@@ -385,7 +407,7 @@ int radio_ota_end(char *err, size_t errlen)
         return ota_error(st, err, errlen);
     /* The radio restarts: GET /api/ota says up again only on the new firmware's HELLO,
      * not the old one's for up to LINK_DEAD_US */
-    link.up = false;
+    set_up(false);
     ESP_LOGI(TAG, "radio firmware: %lu bytes written, the radio restarts into it", (unsigned long)off);
     return 0;
 }

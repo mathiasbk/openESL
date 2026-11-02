@@ -528,6 +528,11 @@ bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size
         n->radio.features = g.at < g.n ? get8(&g) : 0;
         if (g.bad || ver != ESL_NLINK_VERSION)
             return false;
+        /* several radios: the host picks this radio's esl_rhost_t and channel by its id */
+        if (n->on_hello && !n->on_hello(n->hello_ctx, n))
+            return false;
+        if (!n->h)
+            return false;
         n->hello = true;
         n->in_sync = false;
         n->h->fw_models = n->radio.fw_models;

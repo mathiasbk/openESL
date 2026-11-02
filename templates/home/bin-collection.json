@@ -32,6 +32,7 @@
         ]
       }
     },
+    "2.9-bwr": { "same_as": "2.9" },
     "1.54": {
       "icons": {
         "bin": {"w": 48, "h": 60, "data": "AAA/+AAAAAA/+AAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAAAAA4OAAA////////////////////////////////////////////////////////AAAAAAAAAAAAAAAAP//////4P//////4P//////4P//////4P//////4H/x+Pj/4H/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wH/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/wD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gD/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/gB/x+Pj/AB/x+Pj/AB/x+Pj/AB/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/x+Pj/AA/////+AAf////+AAf////+AAf////+AAf////+AAf////+A"}

@@ -23,3 +23,12 @@ test("tagLayouts asks only for tags it does not know, and countByLayout counts b
   assert.deepEqual(m, { D: "shelf", A: "shelf", B: "" });
   assert.deepEqual(countByLayout(tags, m, "2.9"), { shelf: 1 });
 });
+
+test("tagLayouts asks every tag by default, also past 200 (#302)", async () => {
+  const client = { call: async (m, path) => ({ layout: path.endsWith("/T266") ? "rare" : "shelf" }) };
+  const tags = Array.from({ length: 267 }, (_, i) => ({ mac: "T" + i, model: "2.9" }));
+  const m = await tagLayouts(client, tags);
+  assert.equal(Object.keys(m).length, 267);
+  assert.deepEqual(countByLayout(tags, m, "2.9"), { shelf: 266, rare: 1 });
+  assert.equal(Object.keys(await tagLayouts(client, tags, {}, { max: 10 })).length, 10);
+});

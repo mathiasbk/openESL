@@ -53,8 +53,8 @@ jobs:
       - run: echo "$HOME/sdcc/bin" >> "$GITHUB_PATH"
       - name: Model registry (the generated files match shared/models.json)
         run: python3 tools/gen_models.py --check
-      - name: Host tests
-        run: python3 tag/tools/build.py test
+      - name: Host tests (every model in shared/models.json)
+        run: python3 tools/check.py --strict tag
       - name: End-to-end simulation (tag firmware against the AP core, sim/README.md)
         run: |
           make -C sim SAN=1

@@ -7,6 +7,7 @@
 // (404) the choice and the card stay hidden.
 
 import { addTemplate } from "./catalog.js";
+import { modelName } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 export const WEATHER_LAYOUT = "weather";
@@ -149,11 +150,15 @@ export function weatherPlan(sources, macs, to) {
 
 // The models of the tags whose layout file on the AP has no layout called "weather", from
 // GET /api/layouts
+// (a model whose same_as names another stands for that model: it is that model's file)
 export function missingModels(tags, layouts) {
   const has = new Set();
-  for (const m of layouts?.layouts || [])
+  const fileOf = {};
+  for (const m of layouts?.layouts || []) {
+    if (m.same_as) fileOf[m.model] = m.same_as;
     if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
-  return [...new Set(tags.map((t) => t.model).filter((m) => m && !has.has(m)))];
+  }
+  return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
 
 // The place each tag is in now, by MAC
@@ -389,7 +394,7 @@ export function initSources() {
     $("wx-new").hidden = chosen() !== "";
     const missing = missingModels(pending.tags, layouts);
     $("wx-layout-label").hidden = !missing.length;
-    $("wx-layout-text").textContent = `Add the Weather layout to the AP's ${missing.map((m) => m + '"').join(" and ")} layout ${missing.length === 1 ? "file" : "files"} (the tags need it; the layouts there stay)`;
+    $("wx-layout-text").textContent = `Add the Weather layout to the AP's ${missing.map(modelName).join(" and ")} layout ${missing.length === 1 ? "file" : "files"} (the tags need it; the layouts there stay)`;
   }
 
   async function open(tags, done) {
@@ -422,12 +427,12 @@ export function initSources() {
         doc = { format: "esl-layouts", version: 1, model, layouts: [] }; // no file yet
       }
       const added = addTemplate(doc, t, model);
-      if (!added) throw new Error(`the weather template has no layout for the ${model}"`);
-      msg("wx-msg", `Adding the Weather layout to the ${model}" layout file …`);
+      if (!added) throw new Error(`the weather template has no layout for the ${modelName(model)}`);
+      msg("wx-msg", `Adding the Weather layout to the ${modelName(model)} layout file …`);
       try {
         await c.call("PUT", "/api/layouts/" + encodeURIComponent(model), added.doc);
       } catch (e) {
-        throw new Error(`the ${model}" layout file did not take the Weather layout: ${e.message}`);
+        throw new Error(`the ${modelName(model)} layout file did not take the Weather layout: ${e.message}`);
       }
     }
   }
@@ -448,7 +453,7 @@ export function initSources() {
     }
     const missing = missingModels(pending.tags, layouts);
     if (missing.length && !$("wx-layout").checked)
-      return msg("wx-msg", `The ${missing.join('" and ')}" tags need a layout called "weather" on the AP: tick the box, or add it in the Design tab.`, "error");
+      return msg("wx-msg", `The ${missing.map(modelName).join(" and ")} tags need a layout called "weather" on the AP: tick the box, or add it in the Design tab.`, "error");
     $("wx-ok").disabled = true;
     try {
       // the latest list, so a change made elsewhere meanwhile is kept

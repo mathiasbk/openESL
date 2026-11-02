@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -213,4 +213,55 @@ test("radio channels and a waiting move", async () => {
     "Moving from channel 25 to 20: 2 tags have not confirmed it yet. The AP moves once they all have it, at the latest in 5 min.");
   assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 1, channel_due_s: 10 }), /1 tag has .* in 1 min\.$/);
   assert.match(channelMove({ channel: 25, channel_next: 20, channel_waiting: 0, channel_due_s: 10 }), /every tag has it, so the AP moves now\.$/);
+});
+
+test("several radios over WiFi: a line each in the AP facts, and which serves a tag", () => {
+  const radios = [
+    { radio: 0, id: "0000F0F5BDFFFE01", channel: 25, tags: 41, connected: true, ip: "192.168.3.249", seen_s: 4, fw: 1000 },
+    { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 1, connected: false },
+  ];
+  const f = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: radios[0], radios }));
+  assert.equal(f["Radio 0 (C6, channel 25)"], "192.168.3.249, last seen 4 s ago · 41 tags");
+  assert.equal(f["Radio 1 (C6, channel 15)"], "not connected · 1 tag");
+  assert.ok(!("Radio (C6)" in f));
+  // one radio: the line as before
+  const one = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: radios[0], radios: [radios[0]] }));
+  assert.ok("Radio (C6)" in one);
+  assert.equal(tagRadio({ radio: 1 }, radios), "radio 1 (channel 15)");
+  assert.equal(tagRadio({ radio: 3 }, radios), "radio 3");
+  assert.equal(tagRadio({ radio: 0 }, [radios[0]]), null);
+  assert.equal(tagRadio({}, radios), null);
+  // a radio that is not connected can be forgotten, from its line in the facts
+  const lines = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: radios[0], radios });
+  assert.deepEqual(lines.filter(([, , r]) => radioForgettable(r)).map(([k]) => k), ["Radio 1 (C6, channel 15)"]);
+  const lone = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false }, radios: [radios[1]] });
+  assert.ok(radioForgettable(lone.find(([k]) => k === "Radio (C6)")[2]));
+  assert.ok(!radioForgettable({ connected: false }));
+});
+
+test("a lost radio: the warning at the top, the AP facts, and the tags line", () => {
+  // the C6 on the cable of an S3 AP
+  const cable = { fw: "0.9.3", uptime_s: 600, channel: 25, max_tags: 1000, poll_s: 60, radio: { connected: false, via: "uart", lost: true, lost_s: 300 } };
+  const health = { ok: false, tags: 4, with_problems: 0, radio_lost: 1, radio_problems: [{ radio: 0, id: "000098880E7177C8", via: "uart", problems: ["radio_lost"], lost_s: 300 }] };
+  assert.deepEqual(radioWarnings(cable, health), [
+    "No contact with the radio (C6 on the cable) for 5 min: no tag hears anything from the AP until it answers again. Check the cable between the S3 and the C6, and that the C6 has power.",
+  ]);
+  assert.equal(healthLine(health), "All 4 tags are fine.");
+  assert.equal(Object.fromEntries(apFacts(cable))["Radio (C6)"], "not connected for 5 min");
+  // without the health report (or older firmware) "lost" in GET /api/tags is enough
+  assert.equal(radioWarnings(cable, null).length, 1);
+  // back, or not yet lost: nothing
+  assert.deepEqual(radioWarnings({ ...cable, radio: { connected: false, via: "uart", lost: false, lost_s: 5 } }, null), []);
+  assert.deepEqual(radioWarnings(cable, { ...health, ok: true, radio_lost: 0, radio_problems: [] }), []);
+  assert.deepEqual(radioWarnings({ fw: "0.9.2", radio: { connected: false } }, { ok: true, tags: 1 }), []);
+  const up = { ...cable, radio: { connected: true, via: "uart", lost: false, seen_s: 1, fw: 257 } };
+  assert.equal(Object.fromEntries(apFacts(up))["Radio (C6)"], "answering, last heard 1 s ago");
+  // several radios over WiFi: which one, and on which channel
+  const radios = [
+    { radio: 0, id: "0000F0F5BDFFFE01", channel: 25, tags: 41, connected: true, via: "wifi", lost: false, ip: "192.168.3.249", seen_s: 4, fw: 1000 },
+    { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 1, connected: false, via: "wifi", lost: true, lost_s: 120 },
+  ];
+  assert.deepEqual(radioWarnings({ radio: radios[0], radios }, null), [
+    "No contact with radio 1 (C6 over WiFi, channel 15) for 2 min: its tags hear nothing from the AP until it answers again. Check that the C6 has power and is on the WiFi.",
+  ]);
 });

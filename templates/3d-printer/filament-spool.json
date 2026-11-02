@@ -37,6 +37,7 @@
         ]
       }
     },
+    "2.9-bwr": { "same_as": "2.9" },
     "1.54": {
       "icons": {
         "spool": {"w": 40, "h": 40, "data": "AAD/AAAAB//gAAA///wAAH///gAA////AAP/AP/AB/wAP+AH8AAP4A/gfgfwH8P/w/g/h//h/D8P//D8Ph//+Hx+P//8fnx///4+fH/D/j74f4H+H/j/AP8f+P4Afx/4/gB/H/j+AH8f+P4Afx/4/wD/H/h/gf4ffH/D/j58f//+Pn4///x+Ph//+Hw/D//w/D+H/+H8H8P/w/gP4H4H8AfwAA/gB/wAP+AD/wD/wAD///8AAH///gAAP//8AAAH/+AAAAD/AAA="}

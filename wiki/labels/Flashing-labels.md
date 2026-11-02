@@ -4,7 +4,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 
 ## What you need
 
-- The jig with a D1 mini running ZBS_Flasher, plugged in by USB.
+- The jig with a D1 mini running ZBS_Flasher, plugged in by USB. [Building the flasher](Building-the-flasher) shows how to build and wire it.
 - Chrome or Edge on a computer.
 - The label with its battery taken out, so the test pads are free.
 
@@ -12,7 +12,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 
 The [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab is a guide in steps, like the one for the AP:
 
-1. **Choose tag.** Pick the label model from the photos. The firmware is the page's own, or a `.bin` file.
+1. **Choose tag.** Pick the label model from the photos. The firmware is the page's own, or a `.bin` file. A model marked **experimental** (the [2.9" red](SoluM-2.9-red-ST-GR29000)) has not been tried on a real label: flash one and check it first.
 2. **Connect flasher.** Press **Connect flasher** and pick the D1 mini's port.
 3. **Flash.** Put the label in the jig and press **Flash tag**. The page reads the label's MAC, **backs up the whole original firmware** in the browser ([Label backups](Label-backups)), writes the MAC to the info page if needed, then writes OpenESL and reads it back to check it. Each label gets a row with its MAC, barcode and result.
 4. **Done.** How many were flashed, and a button to export the new backups. Keep them somewhere safe.
@@ -35,6 +35,6 @@ python tools/flash-tui/flash_tui.py
 
 ## After flashing
 
-The label looks for the AP and polls it about once a minute. It turns up on the [Dashboard](Dashboard) at its first poll. If it finds no AP it shows "No AP found" and tries again less often to save battery.
+The label looks for the AP and polls it about once a minute. It turns up on the [Dashboard](Dashboard) at its first poll. If it finds no AP it shows "No AP found" after two hours and tries again less often to save battery. A label that already shows content keeps it, with a small crossed-out signal mark in the top right corner instead.
 
 Labels flashed with very old firmware (before 0.3.0) have no bootloader for updates over the air and need one more pass in the jig.

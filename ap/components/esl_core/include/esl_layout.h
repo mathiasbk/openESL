@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esl_content.h"
+#include "esl_font.h"
 #include "esl_json.h"
 #include "esl_proto.h"
 
@@ -64,6 +65,13 @@ typedef struct {
     uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
     /* ESL_CLOCK_* of each layout: whether its fixed texts have date fields (esl_clock.h) */
     uint8_t clock[ESL_LAYOUT_FILE_MAX];
+    /* Bit n: a layout draws with font file n (esl_font.h). Its version is part of the file's. */
+    uint8_t user_fonts;
+    /* Where each layout's "fields" list (the JSON array) is in the JSON file that was
+     * compiled, so a client can name the fields (esl_layouts_field_index) without the AP
+     * keeping the names twice. Not part of the compiled bytes or the version. */
+    uint16_t fields_at[ESL_LAYOUT_FILE_MAX];
+    uint16_t fields_len[ESL_LAYOUT_FILE_MAX];
     /* Last, so a stored file (esl_layout_t) is allocated only up to bin[size]: the
      * compiler writes into a whole one, the store keeps ESL_LAYOUT_BIN_BYTES(size). */
     uint8_t bin[ESL_LBIN_CAP];
@@ -96,6 +104,9 @@ typedef struct {
     void (*persist_save)(void *ctx, uint8_t model, const char *data, size_t len);
     void (*persist_erase)(void *ctx, uint8_t model);
     void *(*alloc)(size_t n);   /* memory for a file, freed with free(); NULL = malloc (tests fail it) */
+    /* Font files (esl_layouts_font_*): saves the blob of the font in slot n, or erases it
+       (data NULL). false when it could not be saved (no room); NULL = nothing is persisted. */
+    bool (*font_save)(void *ctx, unsigned slot, const uint8_t *data, size_t len);
 } esl_layout_ops_t;
 
 typedef struct {
@@ -133,17 +144,24 @@ void esl_layouts_init(esl_layouts_t *ls, const esl_layout_ops_t *ops);
 /* Frees every file (nothing is persisted or erased). */
 void esl_layouts_free(esl_layouts_t *ls);
 
+/* A model with same_as in shared/models.json (#181) has no file of its own: the functions
+ * below that read a model's file (info, write, names, find, check, render, env, image_ver,
+ * clock) give it the file of the model it names (esl_model_layout_model), and restore, set and
+ * delete refuse it (false or 0), so its tags follow that model's file. */
+
 /* Loads a persisted file at boot (compiling it again). Does not call
- * persist_save. False for an unknown model or a file that no longer compiles. */
+ * persist_save. False for an unknown model, a model with same_as, or a file that no longer
+ * compiles. */
 bool esl_layouts_restore(esl_layouts_t *ls, uint8_t model, const char *data, size_t len);
 
 /* Stores a file that esl_layout_compile() accepted as bin for this model.
- * Returns the version (0 for an unknown model, a bad size, or no memory; the model then
+ * Returns the version (0 for an unknown model, a model with same_as, a bad size, or no memory; the model then
  * keeps the file it had). *changed is false (and nothing is persisted) when the model
  * already has exactly this file, or when there was no memory. */
 uint32_t esl_layouts_set(esl_layouts_t *ls, uint8_t model, const char *data, size_t len,
                          const esl_layout_bin_t *bin, bool *changed);
 
+/* False if the model has no file of its own (none, or same_as) */
 bool esl_layouts_delete(esl_layouts_t *ls, uint8_t model);
 
 /* Version, JSON size and binary size of a model's file; false if it has none.
@@ -159,6 +177,12 @@ void esl_layouts_write_names(esl_layouts_t *ls, uint8_t model, esl_sb_t *out);
 /* Index of layout name in a model's file, -1 if the model has no such layout.
  * *nfields (may be NULL) gets the number of fields it takes. */
 int esl_layouts_find(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, uint8_t *nfields);
+
+/* The index of the field called field in the layout called name in model's file (as its
+ * "fields" list has them), -1 when the layout has no such field, -2 when the file has no
+ * such layout. */
+int esl_layouts_field_index(esl_layouts_t *ls, uint8_t model, const char *name, size_t len, const char *field,
+                            size_t flen);
 
 /* esl_layout_check_fields for content c (a named layout) and the layout of that name in
  * model's file, under the lock. True if the file has no such layout. */
@@ -180,4 +204,33 @@ uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash
 
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);
+
+/* ---- font files (esl_font.h) ------------------------------------------------------------- */
+
+/* The fonts are one table per program (esl_font.c), changed only through these, under the
+ * layouts' lock, since esl_layouts_render draws with them under it. */
+
+/* Loads a font file persisted in slot n at boot, before the layout files (which may name
+ * it). False for a bad blob, a slot in use or no room. Does not call font_save. */
+bool esl_layouts_font_restore(esl_layouts_t *ls, unsigned slot, const uint8_t *blob, size_t len);
+
+/* Stores font f (esl_font_from_json; taken over in any case): a new one in a free slot, or in
+ * place of the one with its name. The layout files that draw with the old one are compiled
+ * again with the new one, so their version changes and their tags are drawn again; a file it
+ * no longer compiles (a box now too small for it) turns the font down and nothing changes.
+ * Returns 0, or an HTTP status with a message in err: 507 (no free slot, too many bytes, no
+ * room in NVS), 422 (a layout file no longer compiles), 500 (no memory). *models gets bit
+ * (model - 1) for each model whose file was compiled again, *replaced whether it replaced one. */
+int esl_layouts_font_put(esl_layouts_t *ls, esl_ufont_t *f, unsigned *models, bool *replaced, char *err,
+                         size_t errlen);
+
+/* Deletes the font file called name. 0, 404 when there is none, or 409 (with the models in
+ * err) while a layout file draws with it. */
+int esl_layouts_font_delete(esl_layouts_t *ls, const char *name, size_t len, char *err, size_t errlen);
+
+/* Writes the font file called name (JSON) to out; false if there is none. */
+bool esl_layouts_font_write(esl_layouts_t *ls, const char *name, size_t len, esl_sb_t *out);
+
+/* Writes [{name, height, ..., "used_by": ["2.9", ...]}, ...] of the font files to out. */
+void esl_layouts_font_list(esl_layouts_t *ls, esl_sb_t *out);
 

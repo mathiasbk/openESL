@@ -8,10 +8,12 @@
  * left to right, each DRAW_H pixels tall. draw.c computes one column at a time and
  * epd.c streams the columns to the display controller.
  *
- * Both supported tags are black/white only (no red): the SoluM ST-GM29XX2, 2.9",
+ * The two supported tags are black/white only (no red): the SoluM ST-GM29XX2, 2.9",
  * 296 x 128, and the SoluM ST-GM16XX2, 1.54", 200 x 200 (docs/krav.md G6).
  * MODEL_HAS_RED = 0 for both: draw.c only fills the black plane (highlighting is an
- * inverted field, white on black) and epd.c sends only the black plane.
+ * inverted field, white on black) and epd.c sends only the black plane. The SoluM
+ * ST-GR29000 (2.9" black/white/red, experimental, #255) has MODEL_HAS_RED = 1: the image
+ * has a red plane after the black one, and epd.c writes both.
  * Which controller the small tag has is not confirmed yet (phase 0).
  */
 #ifndef MODEL_H

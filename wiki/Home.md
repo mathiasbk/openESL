@@ -13,7 +13,7 @@ This wiki is the user guide: how to get from a box of labels to labels that show
 ## What can I use it for?
 
 - **Prices in a shop:** product name, price, unit price, EAN or QR code, offers that start and end at a set time.
-- **At home:** the weather, the bin collection day, the room temperature, the guest WiFi as a QR code, from [Home Assistant](Home-Assistant) or your own scripts.
+- **At home:** the weather, today's calendar, the bin collection day, the room temperature, the guest WiFi as a QR code, from [Home Assistant](Home-Assistant) or your own scripts.
 - **In the workshop:** a 3D printer's progress, labels on filament spools, boxes and shelves.
 
 The labels are shop shelf labels, often sold cheaply second-hand. They run for years on a coin cell and keep showing their screen without power.

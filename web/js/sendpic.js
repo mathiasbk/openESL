@@ -3,6 +3,7 @@
 // (Floyd-Steinberg error diffusion, or the nearest colour), and sent as the raw screen image
 // (PUT /api/tags/{mac}/image, the format GET gives back), so the preview is exactly what the
 // tag shows and the AP has nothing left to decide. The drawing onto a canvas is in dashboard.js.
+import { modelName } from "./models.js";
 
 export const FITS = ["fill", "fit", "stretch"];
 export const TURNS = [0, 90, 180, 270];
@@ -119,7 +120,7 @@ export function picturePlan(tags, models) {
   return tags.map((t) => {
     const m = models[t.model];
     if (!t.model) return { mac: t.mac, model: null, ok: false, text: "has not polled yet, so its screen is not known" };
-    if (!m) return { mac: t.mac, model: t.model, ok: false, text: `a ${t.model}" tag, which this page does not know` };
+    if (!m) return { mac: t.mac, model: t.model, ok: false, text: `a ${modelName(t.model)} tag, which this page does not know` };
     return { mac: t.mac, model: t.model, ok: true, text: `the picture, ${m.width} x ${m.height}` };
   });
 }

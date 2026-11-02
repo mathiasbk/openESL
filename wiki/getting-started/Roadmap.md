@@ -5,7 +5,7 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
 ## Next
 
 - **More label models, with red first.** SoluM M2 labels, on the same ZBS243 chip as today's two, so the radio, updates and flashing stay the same and only the panel is new:
-  - the 2.9" black/white/red (ST-GR29000) ([#255](https://github.com/mathiasbk/openESL/issues/255)),
+  - the 2.9" black/white/red (ST-GR29000) ([#255](https://github.com/mathiasbk/openESL/issues/255)): in the firmware as [experimental](SoluM-2.9-red-ST-GR29000), waiting for someone to try it on a real label,
   - the 4.2",
   - the 2.6" and 1.6".
 

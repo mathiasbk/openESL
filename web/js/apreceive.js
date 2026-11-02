@@ -5,6 +5,7 @@
 // designer's Send does, and tells the designer how it went.
 import { ApClient } from "./apclient.js";
 import { READY, SAVED, VERSION, QUERY, trustedOrigin, readLayoutsMessage, compareFiles } from "./handoff.js";
+import { modelName } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -57,10 +58,10 @@ export function initReceive() {
     if (n !== seq || done) return;
     const d = compareFiles(file, current);
     const what = $("recv-what");
-    what.replaceChildren(`For ${model}" tags: `, ...names(d.kept), ...names(d.added, current ? "new" : ""), ...names(d.removed, "gone"));
+    what.replaceChildren(`For ${modelName(model)} tags: `, ...names(d.kept), ...names(d.added, current ? "new" : ""), ...names(d.removed, "gone"));
     const bytes = new TextEncoder().encode(JSON.stringify(file)).length;
     const notes = [];
-    notes.push(current ? `It replaces the ${model}" layout file on this AP.` : token() ? `This AP has no ${model}" layout file yet.` : "");
+    notes.push(current ? `It replaces the ${modelName(model)} layout file on this AP.` : token() ? `This AP has no ${modelName(model)} layout file yet.` : "");
     if (d.removed.length) notes.push(`Not in this file, so gone from the AP after saving: ${d.removed.join(", ")}. Tags that use ${d.removed.length === 1 ? "it" : "them"} keep their picture until they get other content.`);
     notes.push(`Tags that use these layouts get their new look at their next check-in. Size ${kb(bytes)}${max ? " of " + kb(max) : ""}.`);
     $("recv-note").textContent = notes.filter(Boolean).join(" ");
@@ -83,7 +84,7 @@ export function initReceive() {
     try {
       const r = await client().putLayouts(got.model, got.file);
       done = true;
-      let text = r.changed ? `Saved on the AP. The ${got.model}" tags that use it get their new look at their next check-in.` : "The AP already had this file.";
+      let text = r.changed ? `Saved on the AP. The ${modelName(got.model)} tags that use it get their new look at their next check-in.` : "The AP already had this file.";
       let errs = r.content_errors_total || 0;
       if (errs) text += ` ${errs === 1 ? "1 tag has" : errs + " tags have"} content that does not fit it and keep${errs === 1 ? "s" : ""} what ${errs === 1 ? "it shows" : "they show"}: see the table below.`;
       const mac = $("recv-tag").value;
@@ -133,7 +134,7 @@ export function initReceive() {
     if (m.preview) $("recv-img").src = m.preview;
     // A built-in layout (price, text) is not in the file: then it is the file that came
     const inFile = m.layout && (m.file.layouts || []).some((l) => l.name === m.layout);
-    $("recv-h").textContent = inFile ? `The designer sent you "${m.layout}"` : `The designer sent you the ${m.model}" layout file`;
+    $("recv-h").textContent = inFile ? `The designer sent you "${m.layout}"` : `The designer sent you the ${modelName(m.model)} layout file`;
     $("recv-buttons").hidden = $("recv-note").hidden = false;
     say("");
     describe();

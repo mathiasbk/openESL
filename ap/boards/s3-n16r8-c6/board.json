@@ -12,5 +12,6 @@
   "artifact": "openesl-ap-s3-n16r8",
   "release": "openesl-ap-esp32s3-n16r8",
   "status": "supported",
+  "tags": 1000,
   "limits": { "runs": 64, "rects": 40, "lines": 32, "icons": 16, "fileBytes": 8192, "jsonBytes": 16384 }
 }

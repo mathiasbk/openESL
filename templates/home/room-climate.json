@@ -36,6 +36,7 @@
         ]
       }
     },
+    "2.9-bwr": { "same_as": "2.9" },
     "1.54": {
       "icons": {
         "drop": {"w": 16, "h": 22, "data": "AIABwAHAA+AD4AfwD/AP+D/8P/x//v///////////////3/+P/w//A/wB+A="}

@@ -33,6 +33,7 @@
         ]
       }
     },
+    "2.9-bwr": { "same_as": "2.9" },
     "1.54": {
       "icons": {
         "wifi": {"w": 22, "h": 22, "data": "Af8AD//gP//4fwH8+AA84AAMwP4Eg/+AD//gHwPwHADwCABgAHgAAf4AA/8AAf4AAP4AAP4AAP4AAHwAADgAAAAA"}

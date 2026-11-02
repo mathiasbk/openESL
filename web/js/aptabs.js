@@ -1,6 +1,8 @@
 // aptabs.js - the tabs of the page the AP serves at /dashboard (ap/main/webui.py packs the
 // tabs its board has room for, each a <main class="tab">): #name in the address picks one,
 // the first is shown without it. The nav has a link per tab when there is more than one.
+import "./theme.js"; // the light/dark/auto button in the top bar
+
 const tabs = [...document.querySelectorAll("main.tab")];
 
 function show() {

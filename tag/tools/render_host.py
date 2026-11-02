@@ -79,7 +79,9 @@ class Renderer:
 
     def __init__(self, model):
         self.exe = web_build.build_native(model)
-        self.path = os.path.join(build.TAG, "designs", "layouts", MODEL_NAME[model] + ".json")
+        # a model with same_as is drawn with the example file of the model it names
+        self.path = os.path.join(build.TAG, "designs", "layouts",
+                                 build.models.layout_name(build.models.by_build(model)) + ".json")
         self.lfile = None
         if os.path.exists(self.path):
             self.lfile = label_design.load(self.path)

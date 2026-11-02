@@ -150,6 +150,23 @@ static void test_examples(void)
         CHECK(!esl_layout_compile(js, len, other, &bin, err, sizeof(err)));
         free(js);
     }
+
+    /* the 2.9" with red (#255): its shipped file uses red, so it compiles for that model only,
+       and the black/white 2.9" (the same screen size) refuses it for the red */
+    size_t len;
+    char *js = read_file("../../tag/designs/layouts/2.9-bwr.json", &len);
+    CHECK(js != NULL);
+    if (js) {
+        bool ok = esl_layout_compile(js, len, ESL_MODEL_293, &bin, err, sizeof(err));
+        if (!ok)
+            printf("  2.9-bwr.json: %s\n", err);
+        CHECK(ok);
+        CHECK_STR(bin.names[0], "shelf");
+        CHECK_INT(bin.bin[1], ESL_MODEL_293);
+        CHECK(!esl_layout_compile(js, len, ESL_MODEL_29, &bin, err, sizeof(err)));
+        CHECK(HAS(err, "model must be"));
+        free(js);
+    }
 }
 
 static void test_binary(void)
@@ -279,7 +296,8 @@ static void test_errors(void)
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
              "\"fields\":[],\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
-             "\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\"],\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
+             "\"fields\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\",\"j\",\"k\",\"l\",\"m\",\"n\",\"o\",\"p\",\"q\"],"
+             "\"elements\":[]}]}", ESL_MODEL_29, "fields must list");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
              "\"fields\":[\"a\",\"a\"],\"elements\":[]}]}", ESL_MODEL_29, "listed twice");
     bad_file("{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"a\","
@@ -307,6 +325,7 @@ static void test_errors(void)
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "black/white model");
     bad_el(TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"red_invert\"}", "black/white model");
     CHECK(!esl_model_has_red(ESL_MODEL_29) && !esl_model_has_red(ESL_MODEL_154) && !esl_model_has_red(0));
+    CHECK(esl_model_has_red(ESL_MODEL_293));
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"invert\"}", "a rect can be");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"field\":\"a\"}", "field is only for text");
     bad_el(TEXT_XYW ",\"h\":30,\"fonts\":[\"medium\"],\"field\":\"c\"}", "field \"c\" is not in the layout's fields");
@@ -318,6 +337,13 @@ static void test_errors(void)
     bad_el(TEXT_A ",\"align\":\"justify\"}", "align must be");
     bad_el(TEXT_A ",\"valign\":\"center\"}", "valign must be");
     bad_el(TEXT_A ",\"lines\":4}", "lines must be");
+    bad_el(TEXT_A ",\"rotate\":45}", "rotate must be 0, 90, 180 or 270");
+    bad_el(TEXT_A ",\"rotate\":360}", "rotate must be 0, 90, 180 or 270");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"rotate\":90}", "rotate is only for text");
+    /* turned, the lines are stacked across w: 60 px high fits the font, 10 px wide does not */
+    CHECK(compile_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":10,\"h\":60,\"field\":\"a\",\"fonts\":[\"medium\"]}"));
+    bad_el("{\"type\":\"text\",\"x\":0,\"y\":0,\"w\":10,\"h\":60,\"field\":\"a\",\"fonts\":[\"medium\"],\"rotate\":90}",
+           "the box (10x60, turned) is too small for its smallest font (24 px");
     bad_el(TEXT_XYW ",\"h\":20,\"field\":\"a\",\"fonts\":[\"medium\"]}", "too small for its smallest font (24 px");
     bad_el(TEXT_A ",\"color\":\"invert\"}", "border of an inverted field");
     /* the AP's scene: 32 text lines and 20 rectangles per screen (esl_render.c) */
@@ -606,7 +632,7 @@ static void test_storage(void)
 {
     static esl_layouts_t ls;
     fake_t f = {0};
-    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL};
+    esl_layout_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL};
     char buf[512];
     esl_sb_t sb;
     bool changed;

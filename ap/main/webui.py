@@ -33,7 +33,8 @@ MODULES = {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
                "fwupload.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
-               "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js"],
+               "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
+               "fontmaker.js"],
         "css": [],
         # the Weather template (templates/), which Send -> The weather adds to a layout file
         # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
@@ -42,7 +43,8 @@ MODULES = {
     "design": {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
-               "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js", "layoutapi.js"],
+               "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js", "layoutapi.js",
+               "apfonts.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,
@@ -56,12 +58,12 @@ PAGE = """<!doctype html>
   <title>OpenESL AP dashboard</title>
   <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">{css}
+  <script>try {{ var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
 </head>
 <body>
   <header class="top">
     <h1>OpenESL</h1>
     <nav class="tabs">{tabs}
-      <a href="/">Status</a>
       <a href="/setup">WiFi and token</a>
       <a href="https://mathiasbk.github.io/openESL/">{more}</a>
     </nav>
@@ -106,7 +108,8 @@ def example_layouts():
     sys.path.insert(0, os.path.join(ROOT, "shared"))
     import models
     for m in models.load():
-        yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
+        if "same_as" not in m:  # it uses the file of the model it names (the editor opens that one)
+            yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
 
 
 def web_build():
@@ -160,12 +163,12 @@ def page_files(web, modules, wasm=None):
     for css in ["style.css"] + [c for name in modules for c in MODULES[name]["css"]]:
         with open(os.path.join(web, "css", css), "rb") as f:
             files.append((f"/ui/css/{css}", "text/css", f.read()))
-    js = ["aptabs.js"] + list(dict.fromkeys(j for name in modules for j in MODULES[name]["js"]))
+    js = ["aptabs.js", "theme.js"] + list(dict.fromkeys(j for name in modules for j in MODULES[name]["js"]))
     for name in js:
         with open(os.path.join(web, "js", name), "rb") as f:
             src = f.read()
         # every module the page imports must be packed too, or the page breaks on the AP
-        for dep in re.findall(rb'from "\./([\w.-]+\.js)"', src):
+        for dep in re.findall(rb'(?:from|import) "\./([\w.-]+\.js)"', src):
             if dep.decode() not in js:
                 sys.exit(f"webui.py: js/{name} imports {dep.decode()}, which is not packed")
         files.append((f"/ui/js/{name}", "text/javascript", src))

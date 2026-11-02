@@ -7,12 +7,17 @@
 //                                       refused (why the AP would refuse these fields, if it would) }
 //   r.setLimits(apLimits)    the limits of the AP the page talks to ("limits" from GET /api/layouts),
 //                            or null for the default board's; r.limits then has them
+//   r.setFonts({name: text}, {name: slot}) the font files layouts may name (GET /api/fonts/{name},
+//                            js/apfonts.js), as on the AP and in its slots (GET /api/fonts), so
+//                            a layout file compiles to the AP's version: the ones loaded before
+//                            are dropped. -> { errors }
+//                            r.limits.fontHeight then has their heights next to the built-in fonts'
 
 import { MODELS as REGISTRY } from "./models.js";
 
 // Per model name: the renderer file (render-<file>.js), the name to show, the screen size, its colours
 export const MODELS = Object.fromEntries(
-  Object.entries(REGISTRY).map(([n, m]) => [n, { file: m.build, name: n + '"', width: m.width, height: m.height, colors: m.colors }]),
+  Object.entries(REGISTRY).map(([n, m]) => [n, { file: m.build, name: m.short, width: m.width, height: m.height, colors: m.colors }]),
 );
 
 export const LAYOUT_PRICE = 1;
@@ -23,8 +28,11 @@ export const FLAG_FRAME = 0x02;
 
 const cache = {};
 
-// The limits an AP board sets (esl_limits in esl_layout.h), by their web_limit number
-const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, jsonBytes: 14, lines: 17, icons: 18 };
+// The limits an AP board sets (esl_limits in esl_layout.h), and the AP firmware's content limits
+// (fields per layout, bytes the fields of one update share), by their web_limit number
+const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22 };
+// An AP with 0.9.2 or older reports no textBytes: its fields share 96 bytes (and it reports 6 fields)
+const OLD_AP_TEXT_BYTES = 96;
 
 // Days since 1970-01-01 of d's local date (web_set_today)
 export function localDays(d) {
@@ -50,13 +58,15 @@ async function create(model, base) {
   const height = call("web_height", "number", [], []);
   const error = () => M.UTF8ToString(call("web_error", "number", [], []));
   const limit = (what) => call("web_limit", "number", ["number"], [what]);
+  const fileHeights = {};   // the font files' heights, by name (setFonts)
   const readLimits = (l) => Object.assign(l, {
     runs: limit(0),
     rects: limit(1),
     fileBytes: limit(2),
     invertPad: limit(3),
     linesPerText: limit(4),
-    fontHeight: { small: limit(5), medium: limit(6), mid: limit(7), large: limit(8), text20: limit(15), price44: limit(16) },
+    fontHeight: { small: limit(5), medium: limit(6), mid: limit(7), large: limit(8), text20: limit(15), price44: limit(16),
+                  ...fileHeights },
     barcodes: limit(9),
     barcodeMinH: limit(10),
     barcodeModuleMax: limit(11),
@@ -68,6 +78,7 @@ async function create(model, base) {
     lineWidthMax: limit(19),
     qrs: limit(20),
     qrModuleMax: limit(21),
+    textBytes: limit(22),
   });
   // the default board's, for setLimits(null)
   const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));
@@ -76,8 +87,8 @@ async function create(model, base) {
     model,
     width,
     height,
-    // Text and one length byte per field sent share this many bytes in an update.
-    fieldSpace: call("web_max_text", "number", [], []),
+    // Text and one length byte per field sent share this many bytes in an update (limits.textBytes).
+    get fieldSpace() { return call("web_max_text", "number", [], []); },
     // The compiler's limits (web_limit in web_api.c): the default AP board's until setLimits.
     // The same object throughout, so a reference to it sees the AP's limits once they are set.
     limits: readLimits({}),
@@ -87,7 +98,8 @@ async function create(model, base) {
     setLimits(apLimits) {
       if (!this.canSetLimits) return;
       for (const [key, what] of Object.entries(SETTABLE))
-        call("web_set_limit", "number", ["number", "number"], [what, apLimits?.[key] ?? defaults[key]]);
+        call("web_set_limit", "number", ["number", "number"],
+          [what, apLimits?.[key] ?? (apLimits && key === "textBytes" ? OLD_AP_TEXT_BYTES : defaults[key])]);
       readLimits(this.limits);
     },
 
@@ -112,6 +124,34 @@ async function create(model, base) {
       call("web_clear_layouts", null, [], []);
     },
 
+    // A renderer from before font files (the published one on an older AP's page) has none
+    canLoadFonts: typeof M._web_load_font === "function",
+    fontKey: "",
+
+    setFonts(files = {}, slots = {}) {
+      const errors = [];
+      if (!this.canLoadFonts) return { errors };
+      const at = (n) => (Number.isInteger(slots[n]) ? slots[n] : 99);
+      const names = Object.keys(files).sort((a, b) => at(a) - at(b) || (a < b ? -1 : a > b ? 1 : 0));
+      const key = JSON.stringify(names.map((n) => [n, at(n), files[n]]));
+      if (key === this.fontKey) return { errors };
+      call("web_clear_fonts", null, [], []);
+      for (const n of Object.keys(fileHeights)) delete fileHeights[n];
+      for (const n of names) {
+        const text = files[n];
+        const len = M.lengthBytesUTF8(text);
+        const p = M._malloc(len + 1);
+        M.stringToUTF8(text, p, len + 1);
+        const ok = call("web_load_font", "number", ["number", "number", "number"], [p, len, at(n) < 99 ? at(n) : -1]) === 1;
+        M._free(p);
+        if (ok) fileHeights[n] = JSON.parse(text).height;
+        else errors.push(`${n}: ${error()}`);
+      }
+      this.fontKey = key;
+      readLimits(this.limits);
+      return { errors };
+    },
+
     textBytes(s) {
       return call("web_text_bytes", "number", ["string"], [s]);
     },
@@ -121,12 +161,18 @@ async function create(model, base) {
       // a renderer from before them has no web_set_today and draws them as written
       if (typeof M._web_set_today === "function")
         call("web_set_today", null, ["number"], [localDays(today)]);
-      const f = fields.slice(0, 6).map((s) => String(s ?? ""));
-      const n = f.length;
-      while (f.length < 6) f.push("");
-      const res = call("web_render", "number",
-        ["number", "number", "number", "string", "string", "string", "string", "string", "string"],
-        [layout, flags, n, ...f]);
+      // the fields back to back, each NUL-terminated (web_render in web_api.c)
+      const f = fields.map((x) => String(x ?? ""));
+      const bytes = f.reduce((n, x) => n + M.lengthBytesUTF8(x) + 1, 0);
+      const p = M._malloc(bytes || 1);
+      let q = p;
+      for (const x of f) {
+        const l = M.lengthBytesUTF8(x);
+        M.stringToUTF8(x, q, l + 1);
+        q += l + 1;
+      }
+      const res = call("web_render", "number", ["number", "number", "number", "number"], [layout, flags, f.length, p]);
+      M._free(p);
       if (!res) return { ok: false, error: error() };
       const at = call("web_fb", "number", [], []);
       const out = { ok: true, pixels: M.HEAPU8.slice(at, at + width * height) };

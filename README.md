@@ -1,4 +1,6 @@
-<h1 align="center">OpenESL</h1>
+<h1 align="center">
+  <img src="web/img/favicon.svg" alt="" width="48" height="48" align="top"> OpenESL
+</h1>
 
 <p align="center">
   Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
@@ -65,6 +67,7 @@ The ESP32-C6 alone is the simple choice and the one tried most. For more tags, t
 |---|---|---|---|---|---|---|---|
 | SoluM | SoluM 2.9" black/white | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 1.54" black/white | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | 802.15.4 | Supported |
+| SoluM | SoluM 2.9" black/white/red | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | 802.15.4 | Experimental |
 <!-- END models -->
 
 The list is made from [shared/models.json](shared/models.json), the one place a tag model is described: its maker, chip, radio, screen, colours and the image format the AP draws for it. Adding a model is an entry there and a few files next to it ([shared/README.md](shared/README.md)).
@@ -86,7 +89,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"]}'
 ```
 
-The label picks the new content up at its next poll. The [Set up](https://mathiasbk.github.io/openESL/#setup) tab covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
+The label picks the new content up at its next poll. The wiki page [WiFi and API token](https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token) covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
 
 ## How it works
 

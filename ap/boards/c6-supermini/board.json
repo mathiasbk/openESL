@@ -10,5 +10,7 @@
   "radio": "native",
   "artifact": "openesl-ap",
   "release": "openesl-ap-esp32c6",
-  "status": "supported"
+  "status": "supported",
+  "recommended": true,
+  "tags": 500
 }

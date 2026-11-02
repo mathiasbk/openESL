@@ -171,3 +171,38 @@ void status_build(draw_scene_t *s, const uint8_t *const *lines, const uint8_t *l
         if (lens[i])
             place(s, i, lines[i], lens[i]);
 }
+
+/* ---- The "no AP" mark (#98) ---- */
+
+#define MARK_PAD 2                   /* white around the symbol */
+
+/* The symbol, one u16 per column, bit 15 = its top row: a cross, then four bars */
+static const uint16_t __code mark[STATUS_MARK_W - 2 * MARK_PAD] = {
+    0xC603, 0x6C03, 0x3803, 0x6C00, 0xC61F, 0x001F, 0x001F, 0x0000,
+    0x00FF, 0x00FF, 0x00FF, 0x0000, 0x07FF, 0x07FF, 0x07FF,
+};
+
+#if STATUS_MARK_H - 2 * MARK_PAD != 16 || STATUS_MARK_H > DRAW_H || STATUS_MARK_W > DRAW_W
+#error "the no-AP mark does not fit"
+#endif
+
+void status_mark_column(uint16_t x, uint8_t *black, uint8_t *red)
+{
+    uint16_t c = 0;
+    uint8_t y, i, m;
+
+    if (x < DRAW_W - STATUS_MARK_W)
+        return;
+    x -= DRAW_W - STATUS_MARK_W;
+    if (x >= MARK_PAD && x < STATUS_MARK_W - MARK_PAD)
+        c = mark[x - MARK_PAD];
+    for (y = 0; y < STATUS_MARK_H; y++) {
+        i = y >> 3;
+        m = (uint8_t)(0x80 >> (y & 7));
+        red[i] &= (uint8_t)~m;
+        if (y >= MARK_PAD && y < STATUS_MARK_H - MARK_PAD && (c & (0x8000u >> (y - MARK_PAD))))
+            black[i] |= m;
+        else
+            black[i] &= (uint8_t)~m;
+    }
+}

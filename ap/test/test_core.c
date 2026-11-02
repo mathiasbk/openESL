@@ -206,19 +206,48 @@ void test_content(void)
     esl_content_init(&a, ESL_LAYOUT_TEXT, 0);
     CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT + 1), ESL_CONTENT_ERR_TOO_LONG);
     CHECK_INT(esl_content_add_field(&a, big, 50), ESL_CONTENT_OK);
-    /* each field also takes a length byte: 2 fields leave 94 bytes for text */
+    /* each field also takes a length byte: 2 fields leave 254 bytes for text */
     CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT_FOR(2) - 49), ESL_CONTENT_ERR_TOO_LONG);
     CHECK_INT(esl_content_add_field(&a, big, ESL_MAX_TEXT_FOR(2) - 50), ESL_CONTENT_OK);
     CHECK_INT(esl_content_text_len(&a), ESL_MAX_TEXT_FOR(2));
     CHECK_INT(esl_content_add_field(&a, S("")), ESL_CONTENT_ERR_TOO_LONG);
 
-    /* a named layout takes six fields, with 90 bytes of text between them */
+    /* a named layout takes sixteen fields, with 240 bytes of text between them (#182) */
     CHECK_INT(esl_content_init_named(&a, "vare", 4, 0), ESL_CONTENT_OK);
     for (int i = 0; i < ESL_MAX_FIELDS; i++)
         CHECK_INT(esl_content_add_field(&a, big, 15), ESL_CONTENT_OK);
     CHECK_INT(esl_content_add_field(&a, S("")), ESL_CONTENT_ERR_TOO_MANY_FIELDS);
-    CHECK_INT(esl_content_text_len(&a), 90);
-    CHECK_INT(ESL_MAX_TEXT_BYTES, 90);
+    CHECK_INT(esl_content_text_len(&a), 240);
+    CHECK_INT(ESL_MAX_TEXT_BYTES, 240);
+    CHECK_INT(ESL_MAX_FIELDS, 16);
+    /* one field holds 255 bytes (its length byte), e.g. a long link for a QR code */
+    esl_content_init_named(&a, "vare", 4, 0);
+    CHECK_INT(esl_content_add_field(&a, big, 255), ESL_CONTENT_OK);
+    CHECK_INT(esl_content_add_field(&a, S("")), ESL_CONTENT_ERR_TOO_LONG);
+    CHECK_INT(a.len[0], 255);
+
+    /* content within the old limits (6 fields, 96 bytes) keeps its body and content_id:
+       the CRC-32 of the body as 0.9 computed it, written out here (#182) */
+    esl_content_init(&a, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
+    esl_content_add_field(&a, S("Lettmelk 1 L"));
+    esl_content_add_field(&a, S("24,90"));
+    esl_content_add_field(&a, S("kr/l 24,90"));
+    CHECK_INT(esl_content_id(&a), esl_crc32("\x01\x01\x0CLettmelk 1 L\x05" "24,90\x0Akr/l 24,90", 32));
+    esl_content_init_named(&a, "vare", 4, ESL_CFLAG_FRAME);
+    esl_content_add_field(&a, S("Melk"));
+    esl_content_add_field(&a, S("\xE6"));
+    CHECK_INT(esl_content_id(&a), esl_crc32("\xFF\x04vare\x02\x04Melk\x01\xE6", 14));
+    /* and equal compares what the body holds */
+    b = a;
+    CHECK(esl_content_equal(&a, &b));
+    b.text[4] = 'x';
+    CHECK(!esl_content_equal(&a, &b));
+    b = a;
+    strcpy(b.name, "vari");
+    CHECK(!esl_content_equal(&a, &b));
+    b = a;
+    b.text[200] = 'z'; /* past the text: not part of the content */
+    CHECK(esl_content_equal(&a, &b));
 
     /* trailing empty fields do not change the id */
     esl_content_init(&a, ESL_LAYOUT_TEXT, 0);
@@ -234,19 +263,19 @@ void test_content(void)
     esl_content_add_field(&b, S("hei"));
     CHECK_INT(esl_content_id(&a), esl_content_id(&b));
 
-    /* four fields hold 92 bytes of text */
+    /* four fields hold 252 bytes of text */
     esl_content_init(&a, ESL_LAYOUT_TEXT, 3);
     for (int i = 0; i < 4; i++)
-        esl_content_add_field(&a, big, 92 / 4);
-    CHECK_INT(esl_content_text_len(&a), 92);
-    CHECK_INT(ESL_MAX_TEXT_FOR(4), 92);
+        esl_content_add_field(&a, big, 252 / 4);
+    CHECK_INT(esl_content_text_len(&a), 252);
+    CHECK_INT(ESL_MAX_TEXT_FOR(4), 252);
 
     /* a layout from the layout file, by name (krav A14) */
     esl_content_t n1, n2, b1;
     CHECK_INT(esl_content_init_named(&n1, "shelf", 5, ESL_CFLAG_FRAME), ESL_CONTENT_OK);
     CHECK_INT(n1.layout, ESL_LAYOUT_NAMED);
     CHECK_STR(n1.name, "shelf");
-    CHECK_INT(esl_content_max_fields(ESL_LAYOUT_NAMED), 6);
+    CHECK_INT(esl_content_max_fields(ESL_LAYOUT_NAMED), 16);
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_NAMED, 0), ESL_CONTENT_ERR_LAYOUT); /* only by name */
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 15, 0), ESL_CONTENT_OK);     /* by index */
     CHECK_INT(esl_content_init(&b1, ESL_LAYOUT_FILE + 16, 0), ESL_CONTENT_ERR_LAYOUT);
@@ -564,6 +593,41 @@ void test_persist(void)
     blob[9] = ESL_LAYOUT_PRICE;
     blob[11] = 4; /* too many fields for the price layout */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
+
+    /* the most content there is (#182): 16 fields and 240 bytes, or 255 bytes in one field,
+       in the same blob format; the blob is ESL_PERSIST_BLOB_MAX at most */
+    {
+        uint8_t big[ESL_MAX_TEXT];
+        for (unsigned i = 0; i < sizeof(big); i++)
+            big[i] = (uint8_t)(' ' + i % 90);
+        esl_content_init_named(&c, "a-long-layout-name-with-31-ch15", 31, ESL_CFLAG_FRAME);
+        for (int i = 0; i < ESL_MAX_FIELDS; i++)
+            CHECK_INT(esl_content_add_field(&c, big + i, 15), ESL_CONTENT_OK);
+        n = esl_persist_encode(0x0102030405060708ull, &c, blob);
+        CHECK_INT(n, 1 + 8 + 1 + 1 + 31 + 1 + 1 + 16 + 240);
+        CHECK(n <= ESL_PERSIST_BLOB_MAX);
+        CHECK(esl_persist_decode(blob, n, &mac, &d));
+        CHECK(esl_content_equal(&c, &d));
+        esl_content_init(&c, ESL_LAYOUT_TEXT, 0);
+        CHECK_INT(esl_content_add_field(&c, big, 255), ESL_CONTENT_OK);
+        n = esl_persist_encode(0x0102030405060708ull, &c, blob);
+        CHECK_INT(n, 1 + 8 + 3 + 1 + 255);
+        CHECK(esl_persist_decode(blob, n, &mac, &d));
+        CHECK(esl_content_equal(&c, &d));
+        CHECK_INT(d.len[0], 255);
+        /* more fields than there is room for */
+        esl_content_init_named(&c, "x", 1, 0);
+        n = esl_persist_encode(1, &c, blob);
+        blob[n - 1] = ESL_MAX_FIELDS + 1;
+        memset(blob + n, 0, ESL_MAX_FIELDS + 1);
+        CHECK(!esl_persist_decode(blob, n + ESL_MAX_FIELDS + 1, &mac, &d));
+    }
+    esl_content_init(&c, ESL_LAYOUT_PRICE, ESL_CFLAG_PRICE_HIGHLIGHT);
+    esl_content_add_field(&c, S("Br\xF8" "d"));
+    esl_content_add_field(&c, S(""));
+    esl_content_add_field(&c, S("39,90"));
+    n = esl_persist_encode(0x1122334455667788ull, &c, blob);
+    blob[11] = 3;
 
     /* named layout: version 2 blob; built-in content is still written as version 1 */
     blob[11] = 3;

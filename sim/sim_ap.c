@@ -178,7 +178,7 @@ void sim_ap_boot(void)
     static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
     static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL,
                                         nvs_image, nvs_load_image, nvs_channel};
-    static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL};
+    static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL, NULL};
     static bool first = true;
 
     if (first) {
@@ -267,14 +267,12 @@ size_t sim_ap_render_tag(uint64_t mac, uint8_t *out, size_t cap)
 {
     esl_tag_t t;
     esl_content_t c;
-    const esl_layout_t *f;
     if (!esl_store_get(&st, mac, &t) || !t.has_content || t.model == 0 || t.model >= ESL_MODEL_COUNT ||
         !esl_store_get_content(&st, mac, &c))
         return 0;
     if (c.layout == ESL_LAYOUT_IMAGE) /* a picture: as the AP keeps it */
         return esl_image_screen(&st, &layouts, mac, t.model, &c, out, cap);
-    f = layouts.models[t.model - 1];
-    return esl_render(t.model, f ? &f->bin : NULL, &c, out, cap);
+    return esl_layouts_render(&layouts, t.model, &c, out, cap); /* with the file the model uses (same_as) */
 }
 
 void sim_ap_off(void)
@@ -318,7 +316,7 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, false, NULL, NULL, NULL, NULL, NULL, true, &changes};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL};
     esl_sb_t out;
     int status;
 

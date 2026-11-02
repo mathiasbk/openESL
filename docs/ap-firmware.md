@@ -13,7 +13,7 @@
 3. **Storage** (`esl_store.c`, `main/store_nvs.c`): table MAC → {content, content_id, last seen, battery, RSSI, fw}. Content is stored in NVS when it changes (requirement A4). Status is kept in RAM.
 4. **HTTP API** (`esl_api.c`, `main/http_api.c`): `esp_http_server` with the endpoints in [protokoll.md](protokoll.md) part 2. Check the token, parse the JSON, convert UTF-8 to Latin-1, validate length, calculate CRC32 (`content_id`) and store; the radio path draws the image from it. Protect the table with a mutex, since HTTP and radio run in separate tasks.
 5. **WiFi setup**: done. A setup network `openesl-XXXX` with a form at `/setup` (with a captive portal), `GET`/`PUT /api/wifi`; the values go to NVS (`cfg`). mDNS name `openesl`. See ap/README.md, "WiFi setup".
-6. **Status page** (SHOULD): done, an HTML table at `/` with the same data as `GET /api/tags`, plus the health flags and the webhook.
+6. **Status page** (SHOULD): covered by the dashboard the AP serves at `/dashboard` (`/` leads there). The separate read-only status page was removed after 0.9.2, so the tags have one place.
 7. **Layout files per model** (requirements A12, G7): store the layout files for 2.9" and 1.54" in NVS, check and compile each one for its model when it is uploaded ([protokoll.md](protokoll.md) part 3), and draw the screens of that model's tags with it (`esl_render.c`); the file never goes to the tags. Done in `esl_layout` / `esl_layout_compile`.
 8. **Model per tag** (requirements A13, T18): store the model the tag reports in POLL, and validate the layout name and the number of fields against that model's file.
 
@@ -31,7 +31,7 @@ Added after the plan, all described in ap/README.md: drawing each tag's screen o
 ## Writing a client
 The AP is only an API, so the client can be anything that speaks HTTP. Tips for a robust client:
 - Send `PUT /api/tags/{mac}` when content changes, and retry if the AP does not respond.
-- Do a periodic full send (`PUT /api/tags` in chunks of 50). It catches anything that was lost and costs no extra drawing, because the AP compares `content_id`.
+- Do a periodic full send (`PUT /api/tags` in batches of at most 50 tags, and fewer when they have many fields: a body has at most 1,024 JSON tokens, which 50 tags with 14 or more fields pass). It catches anything that was lost and costs no extra drawing, because the AP compares `content_id`.
 - Read `GET /api/tags` now and then to see battery, "last seen" and new tags (`content_id: 0`).
 - Or use [tools/esl-client](../tools/esl-client/README.md): CSV import (`sync`), scheduling (`--at`), `health`, `backup`/`restore`, `ota`, and the USB port (`--serial`).
 - `tag/tools/label_design.py` turns a label design and your data into the body of `PUT /api/tags/{mac}`.

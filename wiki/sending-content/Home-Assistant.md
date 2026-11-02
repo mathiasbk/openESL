@@ -20,7 +20,7 @@ An AP set up with firmware 0.6.0 or older is named `openesl`, like every AP of t
 ### What you get
 
 - **Each label is a device** named after the first 8 digits under its barcode (`Tag 02066346`; rename it to where it hangs), with battery voltage, signal, last check-in, a problem sensor (silent, low battery, drawing failed, as on the [Dashboard](Dashboard)) and its firmware. New labels show up by themselves.
-- **The AP is a device** with the number of labels, labels with problems, its firmware, WiFi signal and radio channel.
+- **The AP is a device** with the number of labels, labels with problems, its firmware, WiFi signal and radio channel. An ESP32-S3 AP also has **Radio** (on while it has contact with its C6, on the cable or over WiFi; **Radio 1**-**3** with several radios), and when the S3 loses a C6 for 30 seconds a repair shows under Settings → System → Repairs, until it is back (integration 0.3.0 and AP firmware after 0.9.2).
 - **Actions:** `openesl.send` puts text in a layout on one or more labels (the same as `PUT /api/tags`, optionally at a later time), `openesl.send_image` shows a PNG of the label's screen size, and `openesl.refresh` reads the labels at once.
 
 ```yaml
@@ -32,6 +32,10 @@ data:
     - "Bins out tonight"
     - "{{ states('sensor.next_collection') }}"
 ```
+
+Ready-made automations (today's calendar from one or more calendars, bin collection, weather, room climate, low battery alerts) are in the [integration's wiki](https://github.com/mathiasbk/openesl-homeassistant/wiki), and their layouts are in the designer's [template library](Label-templates).
+
+![Today's calendar on a 2.9" label](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-calendar.jpg)
 
 The integration reads the AP every 120 s; change it under the AP's **Configure**. The list of labels is about 600 bytes a label, so with many labels or weak WiFi, read it less often. Reading costs the labels nothing: only the AP answers.
 

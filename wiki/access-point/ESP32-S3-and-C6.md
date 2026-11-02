@@ -46,7 +46,7 @@ The easiest log to read is the C6's, on its own USB port (115200 baud). It start
 | no `channel` line at all, and `rx 0 ... link errors 0` every minute | nothing from the S3 reaches the C6 | the wire from S3 GPIO17 to C6 GPIO17 (RX), GND, TX and RX swapped |
 | `channel ..` again every 2–3 seconds | the C6 hears the S3, but the S3 does not hear the C6, so it keeps sending its settings | the wire from C6 GPIO16 (TX) to S3 **GPIO18** |
 
-Since 0.8.2 the [dashboard](Dashboard) shows the radio under **Firmware**: its version, and whether the AP hears it (`radio` in `GET /api/ota`). Once the C6 says `channel` only once, wake a label: on the [dashboard](Dashboard) it shows as seen just now, and `replies.polls` in `GET /api/tags` goes up.
+Since 0.8.2 the [dashboard](Dashboard) shows the radio under **Firmware**: its version, and whether the AP hears it (`radio` in `GET /api/ota`). Newer firmware also shows it in the AP facts as **Radio (C6)**, with when it was last heard, and puts a red line at the top of the dashboard when the S3 has not heard the C6 for 30 seconds. The same is `radio_lost` in the [health report and webhook](Health-and-webhook#lost-radio), and a repair in [Home Assistant](Home-Assistant). Once the C6 says `channel` only once, wake a label: on the [dashboard](Dashboard) it shows as seen just now, and `replies.polls` in `GET /api/tags` goes up.
 
 With esptool instead: `esptool --chip esp32c6 write_flash 0 openesl-ap-radio-esp32c6-<version>.bin`.
 

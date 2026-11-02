@@ -6,11 +6,11 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
-import { infoRows, sendRows, textBytes, usesDate, maxDays, TEXT_BYTES, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
-import { MODELS as TAG_MODELS } from "./models.js";
+import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
@@ -239,7 +239,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   }
   function signalCell(tag) {
     const sig = signalSummary(tag);
-    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num");
+    const via = tagRadio(tag, last?.list?.ap?.radios);
+    if (!sig) return cell(tag.rssi == null ? "–" : `${tag.rssi} dBm`, "opt num", via ? "Through " + via : "");
     const td = cell("", "opt num signal" + (sig.weak ? " state-busy" : ""));
     const W = 5, H = 18, n = tag.signal.rssi.length;
     const svg = svgEl("svg", { viewBox: `0 0 ${n * W} ${H}`, width: n * W, height: H, "aria-hidden": "true" });
@@ -250,7 +251,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (tag.signal.lost?.[i] || tag.signal.retry?.[i])
         svg.append(svgEl("rect", { x: i * W, y: 0, width: W - 1, height: 3, class: tag.signal.lost?.[i] ? "lost" : "retry" }));
     });
-    td.append(signalButton(tag, [svg, " " + sig.text], sig.title));
+    td.append(signalButton(tag, [svg, " " + sig.text], via ? `${sig.title}\nThrough ${via}` : sig.title));
     return td;
   }
 
@@ -331,21 +332,35 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     $("dash-where").textContent = connectedTo + (who ? " · " + who : "");
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v]) => {
+    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v, radio]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
       dt.textContent = k;
       dd.textContent = v;
+      if (radioForgettable(radio)) {
+        // a radio over WiFi that is not connected: forget it, so a new C6 takes its place
+        const b = document.createElement("button");
+        b.className = "small";
+        b.textContent = "Forget";
+        b.title = "Forget this radio, so a new C6 takes its place and channel";
+        b.disabled = sending;
+        b.onclick = () => forgetRadio(radio);
+        dd.append(" ", b);
+      }
       d.append(dt, dd);
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
+    // the S3 has lost its C6: nothing reaches the tags, so it goes above everything else
+    const lostText = radioWarnings(ap, health).join(" ");
+    if ($("dash-radio").textContent !== lostText) $("dash-radio").textContent = lostText;
+    $("dash-radio").hidden = !lostText;
     settings.render(last);
 
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
-      : [healthLine(health), !health ? "" : health.ok ? "ok" : "bad"];
+      : [healthLine(health), !health ? "" : health.ok || !health.with_problems ? "ok" : "bad"]; // a lost radio: #dash-radio
     // only a change is read out (aria-live)
     if ($("dash-health").textContent !== health_[0]) $("dash-health").textContent = health_[0];
     $("dash-health").className = health_[1];
@@ -381,7 +396,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const chip = (f, label, n) => filterButton(f, "chip", `${label} `, Object.assign(document.createElement("span"), { className: "n", textContent: n }));
     $("dash-filter").replaceChildren(
       chip("all", "All", counts.all), chip("bad", "Need attention", counts.bad), chip("busy", "Busy or late", counts.busy),
-      ...(models.length > 1 ? models.map((m) => chip("model:" + m, m + '"', counts.models[m])) : []));
+      ...(models.length > 1 ? models.map((m) => chip("model:" + m, modelLabel(m), counts.models[m])) : []));
 
     const rows = filterRows(all, filter, $("dash-find").value);
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
@@ -409,7 +424,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const battery = fmtBattery(tag.battery_mv);
       const fw = cell(fmtTagFw(tag.fw), "opt fw");
       tr.append(st, mac,
-        cell(tag.model ? tag.model + '"' : "–", "opt"),
+        cell(tag.model ? modelLabel(tag.model) : "–", "opt"),
         cell(seen.text, "opt", seen.at),
         cell(next ? next.text : "–", "opt " + lateCls, next ? "Expected by " + next.at : ""),
         signalCell(tag),
@@ -440,9 +455,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         }
       }
       // On a phone the columns after the MAC become one line under it
-      const meta = [tag.model ? tag.model + '"' : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
+      const meta = [tag.model ? modelLabel(tag.model) : null, tag.seen_s_ago == null ? "never seen" : "seen " + seen.text,
         next && !next.late ? "next " + next.text : null, signalSummary(tag)?.text ?? (tag.rssi == null ? null : `${tag.rssi} dBm`),
-        battery === "–" ? null : battery, tag.fw == null ? null : fwText].filter(Boolean).join(" · ");
+        battery === "–" ? null : battery, tag.fw == null ? null : fwText,
+        tagRadio(tag, list.ap?.radios)].filter(Boolean).join(" · ");
       const metaTd = cell(meta, "meta");
       const sig = signalSummary(tag);
       if (sig) {
@@ -726,6 +742,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     // What each tag gets today
     const rows = stRows(tags).filter((r) => !r.at);
     const most = rows.reduce((n, r) => Math.max(n, textBytes(r.fields)), 0);
+    const TEXT_BYTES = textLimit(last?.layouts?.limits);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
     const where = sources.placeOf();
@@ -773,7 +790,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const replaced = upload.map((m) => (last?.tagfw?.images || []).find((i) => i.model === m && i.version)).filter(Boolean);
     if (!confirm(`Update ${todo.length === 1 ? "1 tag" : todo.length + " tags"} to the firmware on this page? ` +
       "Each fetches it over its next polls, keeps showing its content, and restarts into it." +
-      replaced.map((i) => ` The AP's ${i.model}" firmware ${i.version} is replaced, so tags still fetching it stop.`).join(""))) return;
+      replaced.map((i) => ` The AP's ${modelName(i.model)} firmware ${i.version} is replaced, so tags still fetching it stop.`).join(""))) return;
     const c = client;
     sending = true;
     clearTimeout(timer);
@@ -784,7 +801,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         const first = todo.find((r) => r.model === model && r.action === "upload");
         const v = pageImgs[model].version;
         await sendTagFirmware(c, pageData[model], (sent, total) =>
-          stMsg(`Sending ${model}" firmware ${v} to the AP: ${Math.floor((sent * 100) / total)} % ...`), first.mac);
+          stMsg(`Sending ${modelName(model)} firmware ${v} to the AP: ${Math.floor((sent * 100) / total)} % ...`), first.mac);
         first.done = true;
       }
       for (const r of todo) {
@@ -815,6 +832,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       });
     }
     const rows = stRows(tags);
+    const TEXT_BYTES = textLimit(last?.layouts?.limits);
     const over = rows.filter((r) => textBytes(r.fields) > TEXT_BYTES);
     if (over.length) return stMsg(`Too much text for ${over[0].mac}: the lines share ${TEXT_BYTES} bytes.`, "error");
     stBusy = true;
@@ -892,9 +910,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       v.place = s.place;
       paintScreen({ width: s.w, height: s.h, pixels: s.pixels }, v.canvas);
       v.canvas.style.maxWidth = 2 * s.w + "px"; // at most two screen pixels per pixel
-      v.canvas.setAttribute("aria-label", `The picture on a ${m}" tag`);
+      v.canvas.setAttribute("aria-label", `The picture on a ${modelName(m)} tag`);
       const fill = $("st-fit").value !== "stretch";
-      v.cap.textContent = `${m}" (${s.w} x ${s.h})` + (fill ? ": drag the picture, or use the arrow keys, to move it" : "");
+      v.cap.textContent = `${modelName(m)} (${s.w} x ${s.h})` + (fill ? ": drag the picture, or use the arrow keys, to move it" : "");
     }
     const box = $("st-pics");
     const figs = models.map((m) => picViews.get(m).fig);
@@ -1121,6 +1139,23 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   };
 
+  // A radio over WiFi that is gone for good (a broken C6): DELETE /api/radios/{id}
+  async function forgetRadio(r) {
+    if (!client || sending) return;
+    if (!confirm(`Forget radio ${r.radio} (${r.id})? A new C6 that connects then takes its place and channel. ` +
+      `If this radio comes back, it is a new radio.`)) return;
+    const c = client;
+    sending = true;
+    try {
+      await c.call("DELETE", "/api/radios/" + encodeURIComponent(r.id));
+    } catch (e) {
+      alert("Not forgotten: " + e.message);
+    } finally {
+      sending = false;
+      if (client === c) refresh();
+    }
+  }
+
   // ---- Firmware card ----
 
   const fwMsg = (text, cls = "") => {
@@ -1133,7 +1168,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const parts = [];
     if (ota) parts.push(`AP ${ota.version}` + (img?.newer ? ` (${img.version} available)` : ""));
     if (ota?.radio?.version) parts.push(`radio ${ota.radio.version}` + (rimg?.newer ? ` (${rimg.version} available)` : ""));
-    for (const r of tagFirmwareRows(tagfw)) if (r.version) parts.push(`${r.model}" ${r.version}: ${r.text}`);
+    for (const r of tagFirmwareRows(tagfw)) if (r.version) parts.push(`${modelName(r.model)} ${r.version}: ${r.text}`);
     return parts.join(" · ") || "AP and tag updates";
   }
   const openFw = () => ($("dash-fw-box").open = true);
@@ -1189,7 +1224,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const rows = tagFirmwareRows(tagfw);
     $("dash-tagfw").replaceChildren(...rows.map((r) => {
       const tr = document.createElement("tr");
-      for (const text of [r.model + '"', r.version ? `${r.version}, for ${r.to}` : "–"]) {
+      for (const text of [modelLabel(r.model), r.version ? `${r.version}, for ${r.to}` : "–"]) {
         const td = document.createElement("td");
         td.textContent = text;
         tr.append(td);
@@ -1210,9 +1245,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       // The page has newer firmware for the model than the AP: all its tags at once
       const page = pageImgs[r.model];
       if (page && (!r.version || cmpVersion(page.version, r.version) > 0))
-        button("\u2191 " + page.version + " to all", `Give ${r.model}" firmware ${page.version} to the AP for every ${r.model}" tag`, () => sendPageTagFirmware(r.model));
+        button("\u2191 " + page.version + " to all", `Give ${modelName(r.model)} firmware ${page.version} to the AP for every ${modelName(r.model)} tag`, () => sendPageTagFirmware(r.model));
       else if (r.toAll)
-        button("To all", `Every ${r.model}" tag gets ${r.version}, not only the chosen ones`, () => chooseTag(r.model, "all", r.version));
+        button("To all", `Every ${modelName(r.model)} tag gets ${r.version}, not only the chosen ones`, () => chooseTag(r.model, "all", r.version));
       if (r.version) button("Remove", "Stop updating the tags of this model", () => removeTagFirmware(r.model));
       tr.append(td);
       return tr;
@@ -1230,7 +1265,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
   // The choices in "Send": the files published with this page, then a file of your own. The AP
   // images are one per board (ap_boards in info.json; one from before that has the C6 ones)
-  const TAG_FILES = Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${name}"`]);
+  const TAG_FILES = Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${modelName(name)}`]);
   const apBoards = (info) => info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
@@ -1257,7 +1292,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
         pageData[kind.model] = data;
         // the list names the version in the file itself
         const o = $("fw-src").querySelector(`option[value="${k}-ota"]`);
-        if (o) o.textContent = `Tag firmware for the ${kind.model}", ${kind.version}`;
+        if (o) o.textContent = `Tag firmware for the ${modelName(kind.model)}, ${kind.version}`;
       } catch {
         /* offline: no update buttons */
       }
@@ -1266,7 +1301,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const models = Object.keys(pageImgs);
     const o = $("st-what").querySelector('option[value="fw"]');
     o.disabled = o.hidden = !models.length;
-    o.textContent = "New firmware (" + models.map((m) => `${m}" ${pageImgs[m].version}`).join(", ") + ")";
+    o.textContent = "New firmware (" + models.map((m) => `${modelName(m)} ${pageImgs[m].version}`).join(", ") + ")";
     if (models.length && store.get("st.what") === "fw") $("st-what").value = "fw";
     if (last) render();
   }
@@ -1366,9 +1401,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const v = pageImgs[model].version;
     const onAp = (last?.tagfw?.images || []).find((i) => i.model === model && i.version);
     const q = mac
-      ? `Update tag ${mac} to ${model}" firmware ${v}? The AP gets the firmware for this tag only, and the tag updates itself over its next polls.` +
+      ? `Update tag ${mac} to ${modelName(model)} firmware ${v}? The AP gets the firmware for this tag only, and the tag updates itself over its next polls.` +
         (onAp ? ` It replaces ${onAp.version} on the AP, so tags still fetching that one stop.` : "")
-      : `Give ${model}" firmware ${v} to the AP? Every ${model}" tag that takes firmware over the radio updates itself over its next polls.`;
+      : `Give ${modelName(model)} firmware ${v} to the AP? Every ${modelName(model)} tag that takes firmware over the radio updates itself over its next polls.`;
     if (!confirm(q)) return;
     openFw();
     $("fw-msg").scrollIntoView({ block: "nearest" });
@@ -1378,10 +1413,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   // The AP has the firmware already: it goes to one more tag, or (to "all") to every one
   async function chooseTag(model, to, version) {
     if (!client || sending) return;
-    if (to === "all" && !confirm(`Give ${model}" firmware ${version} to every ${model}" tag, not only the chosen ones?`)) return;
+    if (to === "all" && !confirm(`Give ${modelName(model)} firmware ${version} to every ${modelName(model)} tag, not only the chosen ones?`)) return;
     try {
       await chooseTagFirmware(client, model, to);
-      fwMsg(to === "all" ? `Every ${model}" tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
+      fwMsg(to === "all" ? `Every ${modelName(model)} tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
     } catch (e) {
       fwMsg("Could not choose it: " + e.message, "error");
     }
@@ -1393,7 +1428,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   async function sendData(data, lcd = null, to = null) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
-    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${kind.model}"`
+    const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${modelName(kind.model)}`
       : `${kind.kind === "radio" ? "radio" : "AP"} firmware${kind.version ? " " + kind.version : ""}`;
     if (kind.kind === "ap" && !confirm(apSendQuestion(kind, last?.ota, lcd))) return;
     if (kind.kind === "radio" && !confirm(radioSendQuestion(kind, last?.ota, lcd))) return;
@@ -1408,8 +1443,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       if (kind.kind === "tag") {
         const r = await sendTagFirmware(c, data, progress, to);
         fwMsg(to
-          ? `The AP now has ${r.model}" firmware ${r.version} for tag ${to}. It takes it over its next polls; the table shows how far it is.`
-          : `The AP now offers ${r.model}" firmware ${r.version}. Each tag takes it over its next polls; the table shows how far they are.`, "ok");
+          ? `The AP now has ${modelName(r.model)} firmware ${r.version} for tag ${to}. It takes it over its next polls; the table shows how far it is.`
+          : `The AP now offers ${modelName(r.model)} firmware ${r.version}. Each tag takes it over its next polls; the table shows how far they are.`, "ok");
       } else if (kind.kind === "radio") {
         const r = await sendRadioFirmware(c, data, progress);
         fwMsg(`The radio has firmware ${r.version} and is restarting into it ...`);
@@ -1430,10 +1465,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   }
 
   async function removeTagFirmware(model) {
-    if (!client || sending || !confirm(`Stop updating the ${model}" tags? The AP removes its firmware for them.`)) return;
+    if (!client || sending || !confirm(`Stop updating the ${modelName(model)} tags? The AP removes its firmware for them.`)) return;
     try {
       await client.call("DELETE", "/api/tag-firmware/" + encodeURIComponent(model));
-      fwMsg(`No more firmware updates for the ${model}" tags.`, "ok");
+      fwMsg(`No more firmware updates for the ${modelName(model)} tags.`, "ok");
     } catch (e) {
       fwMsg("Could not remove it: " + e.message, "error");
     }
@@ -1496,6 +1531,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
-  // The AP's own page with a remembered token: connect at once
+  // The AP's own page with a remembered token: connect at once. Without one, say where it was chosen (#309)
   if (sameOrigin && $("dash-token").value) $("dash-connect").click();
+  else if (sameOrigin) msg("First time here? Enter the API token chosen when the AP was set up: in the Flash AP wizard, " +
+    "over USB, or on its WiFi and token page (linked at the top). The page keeps it in this browser.");
 }

@@ -414,6 +414,23 @@ bool esl_model_has_red(uint8_t model)
     return esl_model_name(model) && models[model - 1].red;
 }
 
+uint8_t esl_model_layout_model(uint8_t model)
+{
+    uint8_t file = model;
+    uint16_t w, h, fw, fh;
+    if (!esl_model_size(model, &w, &h))
+        return ESL_MODEL_UNKNOWN;
+#define ESL_SAME_AS_ROW(code, of) \
+    if (model == (code))          \
+        file = (of);
+    ESL_MODEL_SAME_AS_LIST(ESL_SAME_AS_ROW)
+#undef ESL_SAME_AS_ROW
+    if (file != model &&
+        (!esl_model_size(file, &fw, &fh) || fw != w || fh != h || esl_model_has_red(file) != esl_model_has_red(model)))
+        return model;
+    return file;
+}
+
 uint8_t esl_model_parse(const char *s, size_t len)
 {
     for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {

@@ -118,6 +118,15 @@ static void tag_defaults(const esl_store_t *st, esl_tag_cfg_t *out)
     out->channel = announced_channel(st);
 }
 
+/* esl_store_tag_ap() under the lock */
+static esl_tag_cfg_t tag_ap(const esl_store_t *st, const esl_tag_t *t, const esl_tag_cfg_t *ap)
+{
+    esl_tag_cfg_t a = *ap;
+    if (t->radio && st->radio_channel[t->radio])
+        a.channel = st->radio_channel[t->radio];
+    return a;
+}
+
 static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
     uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
@@ -205,6 +214,7 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     esl_tag_cfg_t ap, eff;
 
     tag_defaults(st, &ap);
+    ap = tag_ap(st, t, &ap);
     esl_tag_effective_cfg(t, &ap, &eff);
     /* tag_poll_s, not eff.poll_s: 0 would leave an image tag at ESL_IMAGE_BUSY_S */
     uint16_t next = next_poll(t, tag_poll_s(st, t), now_ms);
@@ -491,6 +501,7 @@ esl_store_err_t esl_store_set_cfg(esl_store_t *st, uint64_t mac, const esl_tag_c
         t->cfg = *cfg;
     esl_tag_cfg_t ap;
     tag_defaults(st, &ap);
+    ap = tag_ap(st, t, &ap);
     res->pending = esl_tag_cfg_pending(t, &ap);
     bool is_default = esl_tag_cfg_is_default(cfg);
     unlock(st);
@@ -735,6 +746,14 @@ bool esl_store_delete(esl_store_t *st, uint64_t mac)
     return idx >= 0;
 }
 
+int esl_store_slot_of(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    int idx = find(st, mac);
+    unlock(st);
+    return idx;
+}
+
 bool esl_store_get(esl_store_t *st, uint64_t mac, esl_tag_t *out)
 {
     lock(st);
@@ -803,7 +822,8 @@ unsigned esl_store_check_layout(esl_store_t *st, esl_layouts_t *ls, uint8_t mode
     for (unsigned slot = 0; slot < slots; slot++) {
         esl_tag_t t;
         char msg[ESL_LAYOUT_ERR_MAX];
-        if (!esl_store_get_slot(st, slot, &t) || t.model != model || !t.has_content)
+        /* the tags drawn with model's file: its own, and those of models whose same_as names it */
+        if (!esl_store_get_slot(st, slot, &t) || !t.has_content || esl_model_layout_model(t.model) != model)
             continue;
         if (!check_one(st, ls, &t, msg, sizeof(msg))) {
             bad++;
@@ -1001,7 +1021,8 @@ static unsigned channel_waiting(const esl_store_t *st, uint64_t now_ms)
         const esl_tag_t *t = at(st, i);
         if (!t->used)
             continue;
-        if (!t->seen ? st->channel_hold : heard_lately(st, t, now_ms) && esl_tag_cfg_pending(t, &ap))
+        esl_tag_cfg_t a = tag_ap(st, t, &ap);
+        if (!t->seen ? st->channel_hold : heard_lately(st, t, now_ms) && esl_tag_cfg_pending(t, &a))
             n++;
     }
     return n;
@@ -1063,6 +1084,9 @@ void esl_store_channel_state(esl_store_t *st, uint64_t now_ms, esl_channel_state
     }
     out->radio_old = st->channel_radio_old;
     out->stopped = st->channel_stopped;
+    for (unsigned r = 1; r < ESL_STORE_RADIOS; r++)
+        if (st->radio_channel[r])
+            out->taken |= 1u << st->radio_channel[r];
     unlock(st);
 }
 
@@ -1071,6 +1095,38 @@ void esl_store_set_radio_follows(esl_store_t *st, bool follows)
     lock(st);
     st->channel_radio_old = !follows;
     unlock(st);
+}
+
+void esl_store_set_radio_channel(esl_store_t *st, uint8_t radio, uint8_t channel)
+{
+    if (!radio || radio >= ESL_STORE_RADIOS)
+        return;
+    lock(st);
+    st->radio_channel[radio] = channel;
+    if (!channel)
+        for (unsigned i = 0; i < st->cap; i++)
+            if (at(st, i)->radio == radio)
+                at(st, i)->radio = 0;
+    unlock(st);
+}
+
+void esl_store_set_tag_radio(esl_store_t *st, uint64_t mac, uint8_t radio)
+{
+    if (radio >= ESL_STORE_RADIOS)
+        return;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0)
+        at(st, (unsigned)idx)->radio = radio;
+    unlock(st);
+}
+
+esl_tag_cfg_t esl_store_tag_ap(esl_store_t *st, const esl_tag_t *t, const esl_tag_cfg_t *ap)
+{
+    lock(st);
+    esl_tag_cfg_t a = tag_ap(st, t, ap);
+    unlock(st);
+    return a;
 }
 
 uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac)

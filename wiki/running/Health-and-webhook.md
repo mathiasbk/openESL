@@ -12,6 +12,15 @@ The AP keeps an eye on its labels and can tell you when something needs attentio
 | `draw_failed` | The AP could not draw its screen |
 | `content_error` | It has content it cannot show, such as old firmware that does not take images |
 
+## Lost radio
+
+On an ESP32-S3 AP the labels' radio is an ESP32-C6, [on a cable](ESP32-S3-and-C6) or [over WiFi](ESP32-S3-with-wireless-C6). When the S3 has had no contact with a C6 for 30 seconds (over WiFi up to 2 minutes, when the C6 just loses power), the report lists it under `radio_problems` as `radio_lost`, with how long it has been gone, and `ok` is false. Until it answers again the labels it serves hear nothing from the AP. A webhook gets the report both when the radio is lost and when it is back. The [dashboard](Dashboard) shows it in red at the top, and [Home Assistant](Home-Assistant) as a repair. Firmware from before this sends no `radio_problems`.
+
+```json
+"radio_problems": [{"radio": 0, "id": "000098880E7177C8", "via": "uart", "problems": ["radio_lost"], "lost_s": 300}],
+"radio_lost": 1
+```
+
 ## Asking for it
 
 ```sh
@@ -23,7 +32,7 @@ The thresholds can be changed per call. The dashboard shows the same report.
 
 ## Webhook
 
-With a webhook set, the AP posts the same report to your URL whenever it changes (checked every 30 seconds):
+With a webhook set, the AP posts the same report to your URL whenever it changes, including when a radio is lost or back (checked every 30 seconds):
 
 ```sh
 python3 esl_client.py config --webhook http://homeserver:8123/api/webhook/esl

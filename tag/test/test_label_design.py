@@ -82,20 +82,20 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(ld.to_latin1("Mer…"), b"Mer...")
         self.assertEqual(ld.to_latin1("Søn – stengt"), "Søn - stengt".encode("latin-1"))
         d = copy.deepcopy(PRICE)
-        d["fields"] = {"name": "A" * 61, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
+        d["fields"] = {"name": "A" * 221, "price": "B" * 20, "subtitle": "C" * 10 + "…"}
         with self.assertRaises(ld.DesignError):
-            ld.render(d, {})  # 94 bytes after "…" becomes "...", 93 is the limit with three fields
+            ld.render(d, {})  # 254 bytes after "…" becomes "...", 253 is the limit with three fields
 
     def test_too_many_bytes(self):
         d = copy.deepcopy(PRICE)
-        d["fields"] = {"name": "A" * 60, "price": "B" * 20, "subtitle": "C" * 20}
+        d["fields"] = {"name": "A" * 220, "price": "B" * 20, "subtitle": "C" * 20}
         with self.assertRaises(ld.DesignError):
             ld.render(d, {})
         d["fields"]["subtitle"] = "C" * 14
         with self.assertRaises(ld.DesignError):
             ld.render(d, {})
         d["fields"]["subtitle"] = "C" * 13
-        ld.render(d, {})  # 93 bytes: exactly at the limit with three fields (96 - 3 length bytes)
+        ld.render(d, {})  # 253 bytes: exactly at the limit with three fields (256 - 3 length bytes)
 
 
 if __name__ == "__main__":
@@ -150,7 +150,7 @@ class LayoutFileTests(unittest.TestCase):
             "no layouts": lambda f: f.update(layouts=[]),
             "reserved name": lambda f: f["layouts"][0].update(name="price"),
             "duplicate name": lambda f: f["layouts"][1].update(name="shelf"),
-            "seven fields": lambda f: f["layouts"][0].update(fields=["a", "b", "c", "d", "e", "f", "g"]),
+            "seventeen fields": lambda f: f["layouts"][0].update(fields=[chr(97 + i) for i in range(17)]),
             "bad field": lambda f: f["layouts"][0].update(fields=["Name"]),
             "no elements": lambda f: f["layouts"][0].update(elements=[]),
         }

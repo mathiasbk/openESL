@@ -129,7 +129,7 @@ static int serve(int argc, char **argv)
         return 1;
     }
     printf("PTY %s\n", ptsname(pty_fd));
-    printf("tag %016llX (%s\"), %g simulated s per s\n", (unsigned long long)sim_tag_mac, sim_tag_model, speed);
+    printf("tag %016llX (model %s), %g simulated s per s\n", (unsigned long long)sim_tag_mac, sim_tag_model, speed);
     fflush(stdout);
 
     sim_on_draw = on_draw;

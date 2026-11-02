@@ -11,5 +11,6 @@
   "radio": "native",
   "artifact": "openesl-ap-lcd",
   "release": "openesl-ap-esp32c6-lcd",
-  "status": "supported"
+  "status": "supported",
+  "tags": 500
 }

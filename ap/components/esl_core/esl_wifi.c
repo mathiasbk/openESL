@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esl_api.h"
+#include "esl_page.h"
 
 const char *esl_wifi_mode_name(esl_wifi_mode_t m)
 {
@@ -153,23 +154,22 @@ void esl_wifi_write_json(esl_sb_t *out, const esl_wifi_status_t *st)
     esl_sb_puts(out, "]}");
 }
 
-static void page_head(esl_sb_t *out)
+static void page_head(esl_sb_t *out, unsigned pages)
 {
-    esl_sb_puts(out,
-                "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                "<title>OpenESL AP setup</title><style>"
-                "body{font-family:sans-serif;margin:16px;max-width:28em}"
-                "label{display:block;margin-top:12px}input{width:100%;padding:6px;box-sizing:border-box}"
-                "button{margin-top:16px;padding:8px 16px}.m{background:#eef;padding:8px}"
-                ".e{background:#fee;padding:8px}small{color:#555}"
-                "select{width:100%;padding:6px;margin-top:6px}"
-                "</style></head><body><h1>OpenESL AP setup</h1>");
+    esl_page_head(out, "WiFi and token", pages | ESL_PAGE_SETUP, ESL_PAGE_SETUP);
+    esl_sb_puts(out, "<section class=\"card\"><h2>WiFi and API token</h2>");
 }
 
-void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, const char *fw, const char *msg)
+static void page_tail(esl_sb_t *out)
 {
-    page_head(out);
+    esl_sb_puts(out, "</section>");
+    esl_page_tail(out);
+}
+
+void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, const char *fw, const char *msg,
+                   unsigned pages)
+{
+    page_head(out, pages);
     if (msg)
         esl_sb_printf(out, "<p class=\"m\">%s</p>", msg);
     esl_sb_puts(out, "<p>Firmware ");
@@ -219,7 +219,7 @@ void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, c
         esl_sb_puts(out, "<label>API token <small>(no token is set, so the HTTP API answers 401 until you choose "
                          "one; 8 characters or more)</small>");
     esl_sb_puts(out, "<input name=\"new_token\" type=\"password\" maxlength=\"128\" autocomplete=\"off\"></label>"
-                     "<button type=\"submit\">Save and connect</button></form>"
+                     "<button type=\"submit\" class=\"primary\">Save and connect</button></form>"
                      "<p><a href=\"/setup?scan=1\">Search for networks again</a> "
                      "<small>(reload the page after a few seconds)</small></p>");
     if (st->setup_ssid[0]) {
@@ -228,7 +228,7 @@ void esl_wifi_page(esl_sb_t *out, const esl_wifi_status_t *st, bool token_set, c
         esl_sb_printf(out, "</b> at http://%s/. It turns off once the AP has joined your network.</small></p>",
                       st->setup_ip[0] ? st->setup_ip : "192.168.4.1");
     }
-    esl_sb_puts(out, "</body></html>");
+    page_tail(out);
 }
 
 static bool token_eq(const char *a, const char *b)
@@ -240,17 +240,18 @@ static bool token_eq(const char *a, const char *b)
     return al && diff == 0;
 }
 
-static int fail(esl_sb_t *out, int status, const char *msg)
+static int fail(esl_sb_t *out, unsigned pages, int status, const char *msg)
 {
-    page_head(out);
+    page_head(out, pages);
     esl_sb_puts(out, "<p class=\"e\">");
     html_esc(out, msg);
-    esl_sb_puts(out, "</p><p><a href=\"/setup\">Back</a></p></body></html>");
+    esl_sb_puts(out, "</p><p><a href=\"/setup\">Back</a></p>");
+    page_tail(out);
     return status;
 }
 
 int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char *fw, const char *body, size_t len,
-                        struct esl_api_lock *lock, uint64_t now_ms, esl_sb_t *out)
+                        struct esl_api_lock *lock, uint64_t now_ms, unsigned pages, esl_sb_t *out)
 {
     (void)fw;
     char ssid[ESL_WIFI_SSID_MAX + 1], pass[ESL_WIFI_PASS_MAX + 1];
@@ -262,45 +263,45 @@ int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char
         if (wait_s) {
             char msg[64];
             snprintf(msg, sizeof(msg), "Too many wrong API tokens. Try again in %u s.", wait_s);
-            return fail(out, 429, msg);
+            return fail(out, pages, 429, msg);
         }
         int gl = esl_form_get(body, len, "token", given, sizeof(given));
         bool ok = gl >= 0 && token_eq(token, given);
         esl_api_lock_note(lock, ok, now_ms);
         if (!ok)
-            return fail(out, 401, "Wrong API token.");
+            return fail(out, pages, 401, "Wrong API token.");
     }
 
     int sl = esl_form_get(body, len, "ssid", ssid, sizeof(ssid));
     if (sl <= 0)
-        return fail(out, 422, sl == -2 ? "The network name is longer than 32 bytes." : "The network name is missing.");
+        return fail(out, pages, 422, sl == -2 ? "The network name is longer than 32 bytes." : "The network name is missing.");
     int pl = esl_form_get(body, len, "pass", pass, sizeof(pass));
     if (pl == -1) {
         pl = 0;
         pass[0] = 0;
     }
     if (pl < 0)
-        return fail(out, 422, "The password is longer than 63 characters.");
+        return fail(out, pages, 422, "The password is longer than 63 characters.");
     const char *err = esl_wifi_check(ssid, (size_t)sl, pass, (size_t)pl);
     if (err)
-        return fail(out, 422, err);
+        return fail(out, pages, 422, err);
 
     int nl = esl_form_get(body, len, "new_token", new_token, sizeof(new_token));
     if (nl == -2 || (nl > 0 && nl < ESL_WIFI_TOKEN_MIN))
-        return fail(out, 422, "The API token must be 8 to 128 characters.");
+        return fail(out, pages, 422, "The API token must be 8 to 128 characters.");
     if (nl > 0) {
         if (esl_wifi_check_token(new_token, (size_t)nl))
-            return fail(out, 422, "The API token must be printable ASCII without spaces.");
+            return fail(out, pages, 422, "The API token must be printable ASCII without spaces.");
         if (!ops->set_token)
-            return fail(out, 422, "This AP cannot change its token here.");
+            return fail(out, pages, 422, "This AP cannot change its token here.");
         if (ops->set_token(ops->ctx, new_token) != 0)
-            return fail(out, 500, "Could not save the token.");
+            return fail(out, pages, 500, "Could not save the token.");
     }
 
     if (ops->set(ops->ctx, ssid, pass) != 0)
-        return fail(out, 500, "Could not save the network.");
+        return fail(out, pages, 500, "Could not save the network.");
 
-    page_head(out);
+    page_head(out, pages);
     esl_sb_puts(out, "<p class=\"m\">Saved. The AP now joins <b>");
     html_esc(out, ssid);
     esl_sb_puts(out, "</b>");
@@ -317,6 +318,7 @@ int esl_wifi_setup_post(const esl_wifi_ops_t *ops, const char *token, const char
     free(st);
     esl_sb_puts(out, ".local/ or by the address your router gives it. "
                      "If it cannot join, the setup network comes back after a while.</p>"
-                     "<p><a href=\"/setup\">Status</a></p></body></html>");
+                     "<p><a href=\"/setup\">Back to WiFi and token</a></p>");
+    page_tail(out);
     return 200;
 }

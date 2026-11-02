@@ -60,14 +60,14 @@ _spec.loader.exec_module(tag_build)
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
-              "esl_render.c", "esl_qr.c", "esl_barcode.c", "esl_clock.c"]
+              "esl_render.c", "esl_qr.c", "esl_barcode.c", "esl_clock.c", "esl_font.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
 MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "malloc", "free"]
+           "web_clear_layouts", "web_load_font", "web_clear_fonts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "malloc", "free"]
 
 
 # The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and
@@ -173,11 +173,13 @@ def copy_static():
     shutil.copy2(os.path.join(ROOT, "docs", "openapi.yaml"), DIST)
     # the Flash AP tab shows how an S3 and its C6 radio are wired
     shutil.copy2(os.path.join(ROOT, "docs", "images", "ap-s3-c6-wiring.svg"), os.path.join(DIST, "img"))
-    # the example layout files, so the editor can open them
+    # the example layout files, so the editor can open them (a model with same_as uses the
+    # file of the model it names, which the editor opens under that model's name)
     lay = os.path.join(DIST, "designs", "layouts")
     os.makedirs(lay, exist_ok=True)
-    for m in (m["name"] for m in tag_build.models.load()):
-        shutil.copy2(os.path.join(tag_build.TAG, "designs", "layouts", m + ".json"), lay)
+    for m in tag_build.models.load():
+        if "same_as" not in m:
+            shutil.copy2(os.path.join(tag_build.TAG, "designs", "layouts", m["name"] + ".json"), lay)
     os.makedirs(os.path.join(DIST, "firmware"), exist_ok=True)
 
 
@@ -325,7 +327,9 @@ def ap_boards():
 
     for b in boards.values():
         b["display"] = "\nCONFIG_ESL_DISPLAY=y" in "\n" + sdkconfig(b)
-    return sorted(boards.values(), key=lambda b: (b["status"] != "supported", b.get("base") is not None, b["id"]))
+        # the Design tab on the AP's own page (ap/main/webui.py), which the Flash AP card names
+        b["designer"] = "\nCONFIG_ESL_WEB_DESIGNER=y" in "\n" + sdkconfig(b)
+    return sorted(boards.values(), key=lambda b: (not b.get("recommended"), b["status"] != "supported", b.get("base") is not None, b["id"]))
 
 
 def ap_radios():
@@ -467,7 +471,10 @@ def add_firmware(*files):
                                   "chip_family": b["chip_family"], "display": b["display"], "file": name[:-4],
                                   "manifest": manifest, "radio": b.get("radio", "native"),
                                   # the radio firmware this board takes, as keys in "radios"
-                                  "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])]})
+                                  "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])],
+                                  # what the card in step 1 tells a newcomer (board.json, optional)
+                                  **{k: b[k] for k in ("recommended", "tags") if k in b},
+                                  "designer": b["designer"]})
     # The C6 radio images for the boards with "radio": "uart" or "net" (the Flash AP tab flashes
     # the C6 before the main board), split and listed like the AP's: a radio on the network keeps
     # its WiFi in NVS when it is flashed again

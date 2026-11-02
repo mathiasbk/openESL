@@ -1,6 +1,8 @@
 // layoutinfo.js - how the layouts in a layout file compare with the AP's, and which of the
 // AP's tags use each one. Used by the designer's layout column and the dashboard's Layouts page.
 
+import { layoutModel } from "./models.js";
+
 // JSON with the keys sorted, so two layouts that differ only in key order compare equal
 export function canon(v) {
   if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
@@ -25,9 +27,11 @@ export function compareLayouts(file, apFile) {
 }
 
 // The layout each tag shows, by MAC. GET /api/tags leaves the content out, so this asks for
-// each tag not in `known` yet (a few at a time); a tag without content maps to "". client:
-// anything with call(method, path), an ApClient or a SerialAp.
-export async function tagLayouts(client, tags, known = {}, { max = 200, parallel = 3 } = {}) {
+// each tag not in `known` yet (a few at a time); a tag without content maps to "". A tag whose
+// answer did not come is left out, so callers can tell it from one that shows no layout.
+// client: anything with call(method, path), an ApClient or a SerialAp. Every tag is asked by
+// default: a count that leaves tags out can call a layout in use unused (#302).
+export async function tagLayouts(client, tags, known = {}, { max = Infinity, parallel = 3 } = {}) {
   const todo = tags.filter((t) => !(t.mac in known)).slice(0, max);
   const out = { ...known };
   let next = 0;
@@ -47,7 +51,7 @@ export async function tagLayouts(client, tags, known = {}, { max = 200, parallel
 export function countByLayout(tags, layouts, model) {
   const n = {};
   for (const t of tags) {
-    if (t.model !== model) continue;
+    if (layoutModel(t.model) !== model) continue; // also the models whose sameAs names it
     const l = layouts[t.mac];
     if (l) n[l] = (n[l] || 0) + 1;
   }

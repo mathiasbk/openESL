@@ -19,10 +19,12 @@ export function elementUsage(e, limits) {
   if (e.type === "qr") return { ...NONE, qrs: 1 };
   if (e.type !== "text") return { ...NONE };
   let most = 1;
+  // turned 90 or 270 degrees, the lines are stacked across w (ESL_LE_ROT)
+  const across = e.rotate === 90 || e.rotate === 270 ? e.w : e.h;
   for (const f of (e.fonts || []).slice(0, 3)) {
     const fh = limits.fontHeight[f];
     if (!fh) continue;
-    let n = Math.floor(e.h / fh);
+    let n = Math.floor(across / fh);
     if (e.lines && e.lines < n) n = e.lines;
     if (n > limits.linesPerText) n = limits.linesPerText;
     if (n > most) most = n;

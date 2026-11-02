@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readCatalog, checkCatalog, missingVariants } from "../templates.mjs";
-import { addTemplate, variantFor, soloFile, search, freeName } from "../js/catalog.js";
+import { addTemplate, variantFor, soloFile, search, freeName, titleOf } from "../js/catalog.js";
 import { loadRenderer } from "../js/renderer.js";
 
 const WASM = new URL("../dist/wasm/", import.meta.url);
@@ -30,6 +30,7 @@ test("every template in templates/ passes the check", async () => {
     assert.ok(m.bytes > 0 && m.bytes - m.icon_bytes <= 1024 && m.icon_bytes <= 2048, `${t.id} fits well within one file`);
   }
   assert.deepEqual(missingVariants(index)["2.9"], []);
+  assert.deepEqual(missingVariants(index)["2.9-bwr"], []);
 });
 
 test("the 3d-printer template has the six fields of docs/home-assistant.md on both models", () => {
@@ -72,10 +73,13 @@ test("the check refuses a broken catalog", async () => {
   await refuses((c) => { variantFor(find(c, "notice").t, "2.9").layout.elements[1].color = "red"; }, /element 1 is red, which the 2\.9" has not/);
   // same_as only between models with the same screen
   await refuses((c) => { find(c, "notice").t.variants["1.54"] = { same_as: "2.9" }; }, /same_as "2\.9" needs the same screen/);
+  // a model with red may use a black/white variant of its size (#255), not the other way round
+  await refuses((c) => { const t = find(c, "vare").t; t.variants["2.9"] = { same_as: "2.9-bwr" }; }, /variant 2\.9: same_as "2\.9-bwr" needs the same screen size .* only colours model 2\.9 has/);
   // the starting file's layouts and the catalog's stay the same
   await refuses((c) => { variantFor(find(c, "vare").t, "2.9").layout.elements[0].h = 25; }, /tag\/designs\/layouts\/2\.9\.json has a layout "vare"/);
+  await refuses((c) => { variantFor(find(c, "vare").t, "2.9-bwr").layout.elements[0].color = "black"; }, /tag\/designs\/layouts\/2\.9-bwr\.json has a layout "vare"/);
   // a sample text the AP would refuse (too long for the QR code)
-  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[2] = "x".repeat(90); }, /refuse the sample text/);
+  await refuses((c) => { variantFor(find(c, "guest-wifi").t, "1.54").layout._sample[2] = "x".repeat(255); }, /refuse the sample text/);
 });
 
 test("same_as reuses another model's variant", () => {
@@ -128,4 +132,20 @@ test("names and search", () => {
   assert.deepEqual(search(list, "wifi").map((t) => t.id), ["a"]);
   assert.deepEqual(search(list, "QR ssid").map((t) => t.id), ["a"]);
   assert.deepEqual(search(list, "price").map((t) => t.id), ["b"]);
+});
+
+test("a layout's title comes from its template, by id or else by name", () => {
+  const index = [
+    { id: "vare", layout: "vare", title: "Product with brand", fields: ["brand", "name", "price"] },
+    { id: "room", layout: "room", title: "Room climate", fields: ["temp"] },
+    { id: "same", layout: "same", title: "same", fields: [] },
+  ];
+  assert.equal(titleOf(index, { name: "vare", fields: ["brand", "name", "price"] }), "Product with brand"); // the example file
+  assert.equal(titleOf(index, { name: "vare", fields: ["text"] }), "");             // your own, by chance the same name
+  assert.equal(titleOf(index, { name: "vare-2", _template: "vare" }), "Product with brand");
+  assert.equal(titleOf(index, { name: "room", _template: "vare" }), "Product with brand"); // the id wins
+  assert.equal(titleOf(index, { name: "mine" }), "");
+  assert.equal(titleOf(index, { name: "x", _template: "gone" }), "");
+  assert.equal(titleOf(index, { name: "same" }), "");                               // no title that repeats the name
+  assert.equal(titleOf(undefined, { name: "vare", fields: ["brand", "name", "price"] }), "");
 });

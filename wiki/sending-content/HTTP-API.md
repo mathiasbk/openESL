@@ -27,8 +27,8 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
   -d '{"layout": "price", "fields": ["Lettmelk 1 L", "24,90", "kr 24,90/L"], "price_highlight": true}'
 ```
 
-- `layout`: `price` (3 fields), `text` (4 fields) or one of your own (up to 6 fields).
-- `fields`: the layout's text fields, in order. æøå work.
+- `layout`: `price` (3 fields), `text` (4 fields) or one of your own (up to 16 fields; 6 on an AP with 0.9.2 or older).
+- `fields`: the layout's text fields, in order, or by name: `{"name": "Lettmelk 1 L", "price": "24,90"}` (the names are the layout's `fields`; `name`, `price`, `subtitle` for `price` and `line1` to `line4` for `text`). By name, a field you leave out is empty, and the text stays in the right field when the layout's field order changes. Text is UTF-8; æøå and the rest of Latin-1 work, other characters become `?`.
 - `price_highlight` draws the price inverted with `price`; `frame` draws a frame with `text`.
 - `at`: a time to show it, instead of now ([Scheduled prices](Scheduled-prices)).
 

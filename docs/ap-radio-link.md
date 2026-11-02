@@ -88,6 +88,18 @@ Flash AP tab (which erases the radio's flash anyway) to get the two slots. After
 every update over the cable. Mind the image: a radio with the screen needs the `-lcd` one
 (`radio.display` in `GET /api/ota`).
 
+## When the S3 loses the C6
+
+The S3 shows whether it hears the C6 in `GET /api/tags` (`ap.radio`: `connected`, `via` `uart`,
+`seen_s` while connected, `lost_s` since it stopped answering) and in `GET /api/ota` (`radio.up`).
+A C6 that has not answered for 30 s (`ESL_RADIO_LOST_S`) is `radio_lost` in `GET /api/health`
+(`radio_problems`, and `ok` false), so the [webhook](../wiki/running/Health-and-webhook.md) posts
+the report when the S3 loses the C6 and again when it is back. The dashboard shows a red line at the
+top, and the Home Assistant integration a repair. Until the C6 answers no tag hears the AP: check
+the wires (TX, RX, GND) and the C6's power. A C6 that was never heard since the S3 started counts
+from the start. An update of the radio (above) takes it away for a few seconds, which is not long
+enough to count.
+
 ## The link
 
 UART at 921600 baud, 8N1, no flow control. Code: `ap/components/esl_coproc` (tested on the PC

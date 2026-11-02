@@ -51,7 +51,7 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 6 | CONFIG: `poll_s` 120, then back to the default | The tag sleeps 120 s, then 60 s; `config_pending: false` |
 | 7 | Tag restart with the AP off | The content comes back from flash (T12); no new image when the AP returns |
 | 8 | AP gone for an hour with new content waiting | The backoff reaches 600 s (T11); the tag finds the AP within 600 s and gets the content |
-| 9 | AP gone for more than 2 hours | "No AP found" (T9); content again when the AP is back |
+| 9 | AP gone for more than 2 hours | The content stays with the "no AP" mark in its corner (T9, #98), no more refreshes while the AP is away; the content without the mark when the AP is back, from the tag's flash |
 | 10 | Tag deleted on the AP | Registered again with no content, keeps its screen; a new PUT reaches it |
 | 11 | Content with `at`, poll interval 300 s | Shown just after it is due (the AP shortens the tag's sleep), not at the next 300 s poll |
 | 12 | Tag firmware over the air (`PUT /api/tag-firmware`, a 4 KB test image in two parts) | Downloaded, copied into the chip by the bootloader, restarted with the same screen, confirmed |

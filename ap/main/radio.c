@@ -191,8 +191,9 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     rx_queue = xQueueCreate(8, sizeof(esl_link_rx_t));
     if (!rx_queue)
         return ESP_ERR_NO_MEM;
-    /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack */
-    if (xTaskCreate(radio_task, "radio", 6144, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
+    /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack, and
+       drawing an image holds a tag's content and its NVS blob (about 0.6 KB since #182) */
+    if (xTaskCreate(radio_task, "radio", 6656, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     esp_err_t err = radio_link.start(&radio_link, channel, pan_id, ESL_AP_SHORT_ADDR, SNIFFER);
     int8_t dbm = radio_tx_power()->dbm;

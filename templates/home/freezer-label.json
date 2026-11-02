@@ -34,6 +34,7 @@
         ]
       }
     },
+    "2.9-bwr": { "same_as": "2.9" },
     "1.54": {
       "icons": {
         "snow": {"w": 36, "h": 36, "data": "AAAAAAAAAAAAAAAnDkAAAHcO4AAA/gfwAAJ+B+QAA/4H/AAD/gf8AAD+B/AAAD4HwAAADw8AAAAPDwAAEAeeAIA4B54BwHwD/APgPgP8B8AfAfgPgH/////wf/////B/////8D8D/A/AfAP8A+A4B54BwBAHngCAAA8PAAAADw8AAAA+B8AAAP4H8AAD/gf8AAP+B/wAAn4H5AAA/gfwAAB3DuAAACcOQAAAAAAAAAAAAAAA"}

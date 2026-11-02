@@ -225,7 +225,9 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     ntp_start(ntp);
     clock_cfg.builtin_ntp = CONFIG_ESL_NTP_SERVER;
     clock_cfg.set = clock_set;
-    if (xTaskCreate(tick_task, "sched", 6144, st, 3, NULL) != pdPASS) {
+    /* a scheduled content, and setting it (the old content and its NVS blob), on the stack:
+       about 1 KB more since #182 */
+    if (xTaskCreate(tick_task, "sched", 7168, st, 3, NULL) != pdPASS) {
         ESP_LOGE(TAG, "no task: no scheduled content");
         return NULL;
     }

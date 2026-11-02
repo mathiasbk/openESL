@@ -10,7 +10,7 @@ Use this to replace the AP with a new board, of the same kind or another (a C6 t
 
 ## What happens to the labels
 
-The labels need nothing: the radio channel and PAN ID are the same on every board, and a label does not remember which AP it belongs to. A label that polls the new AP before the restore keeps showing what it has, and after the restore it gets the same content back, usually without drawing its screen again (another AP firmware version may draw it slightly differently, and then it is drawn once). Labels that hear no AP for more than two hours (by default) show "No AP found"; they get their content back and drawn after the restore, so keep the move short.
+The labels need nothing: the radio channel and PAN ID are the same on every board, and a label does not remember which AP it belongs to. A label that polls the new AP before the restore keeps showing what it has, and after the restore it gets the same content back, usually without drawing its screen again (another AP firmware version may draw it slightly differently, and then it is drawn once). Labels that hear no AP for more than two hours (by default) put a small crossed-out signal mark in their top right corner (older label firmware shows "No AP found" instead); the mark goes away, or the content comes back, after the restore, so keep the move short.
 
 ## Steps
 
@@ -35,7 +35,7 @@ Restoring the same file twice changes nothing, so running it again in step 7 is 
 
 ## If something goes wrong
 
-- **A label shows "No AP found":** it heard no AP for two hours (by default). After the restore it gets its content back at its next poll and draws it; give it up to 10 minutes.
+- **A label shows the "no AP" mark or "No AP found":** it heard no AP for two hours (by default). After the restore it draws its content again without the mark at its next poll; give it up to 10 minutes.
 - **`restore` says pictures are waiting:** the labels have not polled the new AP yet. Run `restore` again when they have; that can take up to 10 minutes.
 - **The old AP is still on:** both answer the labels. Turn it off, or flash it as something else.
 - **Going back:** the backup file goes onto the old AP just as well. Flash it back if it was erased, and restore the same file.

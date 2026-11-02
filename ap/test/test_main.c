@@ -27,6 +27,7 @@ void test_coproc(void);
 void test_png(void);
 void test_source(void);
 void test_clock(void);
+void test_font(void);
 
 static const struct {
     const char *name;
@@ -57,6 +58,7 @@ static const struct {
     {"coproc", test_coproc},
     {"source", test_source},
     {"clock", test_clock},
+    {"font", test_font},
 };
 
 int main(void)

@@ -100,15 +100,17 @@ void app_main(void)
     api.reset_reason = why;
 #if CONFIG_ESL_RADIO_DRIVER_NET
     api.link = radio_net_link();
+    api.links = radio_net_links(&api.n_links);
+    api.radio_ops = radio_net_ops();
 #elif !CONFIG_ESL_RADIO_STUB
     api.radio_stats = &radio_link.stats;
+#if CONFIG_ESL_RADIO_DRIVER_UART
+    api.link = radio_uart_link();
+#endif
 #endif
 #if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
     api.tx_power = radio_tx_power();
     api.channel_settable = true; /* radio.c and radio_net.c move it (esl_store_channel_step) */
-#endif
-#if CONFIG_ESL_WEB_DASHBOARD
-    api.dashboard = true;
 #endif
     /* A pointer per model; each stored file takes its JSON and its compiled size from the heap. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));

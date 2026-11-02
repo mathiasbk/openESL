@@ -19,6 +19,7 @@
 
 #define PATH_TAGS "/api/tags"
 #define PATH_LAYOUTS "/api/layouts"
+#define PATH_FONTS "/api/fonts"
 #define PATH_CONFIG "/api/config"
 #define PATH_WIFI "/api/wifi"
 #define PATH_TIME "/api/time"
@@ -27,8 +28,8 @@
 #define PATH_OTA "/api/ota"
 #define PATH_TAGFW "/api/tag-firmware"
 #define PATH_SOURCES "/api/sources"
+#define PATH_RADIOS "/api/radios"
 
-_Static_assert(ESL_CONTENT_FIELD_SPACE == 96 && ESL_MAX_FIELDS == 6, "update the \"text too long\" message");
 _Static_assert(ESL_CFG_POLL_MIN_S == 10 && ESL_CFG_POLL_MAX_S == 3600 && ESL_CFG_LOST_AP_MIN_S == 60,
                "update the config error messages");
 _Static_assert(ESL_NTP_MAX == 63 && ESL_TZ_MAX == 63, "update the ntp and tz error messages");
@@ -261,6 +262,7 @@ static int parse_at(const esl_api_t *api, const json_t *j, int obj, uint32_t *at
 /* Fills cfg from {poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min}; missing or null = default. */
 static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
 {
+    *cfg = (esl_tag_cfg_t){0}; /* channel is not set here, and esl_store_set_cfg() compares the whole struct */
     if (parse_uint(j, obj, "poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->poll_s) < 0 ||
         parse_uint(j, obj, "max_poll_s", ESL_CFG_POLL_MIN_S, ESL_CFG_POLL_MAX_S, &cfg->max_poll_s) < 0) {
         *msg = "poll_s and max_poll_s must be null or a whole number of seconds from 10 to 3600";
@@ -283,12 +285,65 @@ static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **
 
 static int text_too_long(char *msg)
 {
-    snprintf(msg, MSG_MAX, "text too long: the fields share 96 bytes, one per field plus the text after "
-                           "Latin-1 conversion (92 bytes of text with four fields, 90 with six)");
+    snprintf(msg, MSG_MAX, "text too long: the fields share %d bytes, one per field plus the text after "
+                           "Latin-1 conversion (%d bytes of text with one field, %d with six), at most %d in one field",
+             ESL_CONTENT_FIELD_SPACE, ESL_MAX_TEXT_FOR(1), ESL_MAX_TEXT_FOR(6), ESL_MAX_TEXT);
     return 422;
 }
 
-/* Fills c from {layout, fields, price_highlight, frame} for the tag mac.
+/* The names of the built-in layouts' fields, for "fields" as an object */
+static const char *const price_field_names[] = {"name", "price", "subtitle", NULL};
+static const char *const text_field_names[] = {"line1", "line2", "line3", "line4", NULL};
+
+/* The index of the field called key (klen bytes, UTF-8) in content c's layout, for the tag
+ * mac: in the layout file for its model, or, while the model is not known, in every file that
+ * has the layout (they must agree). Returns the index, or -1 with msg set. */
+static int field_by_name(const esl_api_t *api, uint64_t mac, const esl_content_t *c, const char *key, size_t klen,
+                         char *msg)
+{
+    if (c->layout != ESL_LAYOUT_NAMED) {
+        const char *const *names = c->layout == ESL_LAYOUT_PRICE ? price_field_names : text_field_names;
+        for (int i = 0; names[i]; i++)
+            if (strlen(names[i]) == klen && memcmp(names[i], key, klen) == 0)
+                return i;
+        snprintf(msg, MSG_MAX, "layout %s has no field \"%.*s\" (it has %s)", c->layout == ESL_LAYOUT_PRICE ? "price" : "text",
+                 (int)(klen > 32 ? 32 : klen), key,
+                 c->layout == ESL_LAYOUT_PRICE ? "name, price, subtitle" : "line1, line2, line3, line4");
+        return -1;
+    }
+    esl_tag_t t;
+    uint8_t model = ESL_MODEL_UNKNOWN;
+    size_t nl = strlen(c->name);
+    if (esl_store_get(api->store, mac, &t) && t.seen && esl_model_name(t.model))
+        model = t.model;
+    int found = -2;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
+        if (model != ESL_MODEL_UNKNOWN && m != model)
+            continue;
+        int i = esl_layouts_field_index(api->layouts, m, c->name, nl, key, klen);
+        if (i == -2)
+            continue;
+        if (i == -1) {
+            snprintf(msg, MSG_MAX, "layout %s for model %s has no field \"%.*s\"", c->name, esl_model_name(m),
+                     (int)(klen > 32 ? 32 : klen), key);
+            return -1;
+        }
+        if (found >= 0 && i != found) {
+            snprintf(msg, MSG_MAX, "the field \"%.*s\" is not in the same place in layout %s for every model, and this "
+                     "tag's model is not known yet: send the fields as a list", (int)(klen > 32 ? 32 : klen), key, c->name);
+            return -1;
+        }
+        found = i;
+    }
+    if (found < 0) {
+        snprintf(msg, MSG_MAX, "layout %s has no field \"%.*s\"", c->name, (int)(klen > 32 ? 32 : klen), key);
+        return -1;
+    }
+    return found;
+}
+
+/* Fills c from {layout, fields, price_highlight, frame} for the tag mac. fields is a list
+ * (by position) or an object keyed by the layout's field names (#182).
  * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
 static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
 {
@@ -324,52 +379,89 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
         max_fields = (unsigned)esl_content_max_fields(layout);
     }
 
+    /* The token of each field's text, in the layout's order; -1 for none (an empty field) */
+    int vt[ESL_MAX_FIELDS];
+    unsigned nf = 0;
     int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
-    if (arr < 0 || j->tok[arr].type != ESL_JSON_ARRAY) {
-        snprintf(msg, MSG_MAX, "fields must be an array of strings");
-        return 422;
-    }
-    if (j->tok[arr].size > max_fields) {
-        if (layout == ESL_LAYOUT_NAMED)
-            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", c->name, max_fields);
-        else
-            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", layout == ESL_LAYOUT_PRICE ? "price" : "text",
-                     max_fields);
+    if (arr >= 0 && j->tok[arr].type == ESL_JSON_ARRAY) {
+        if (j->tok[arr].size > max_fields) {
+            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields",
+                     layout == ESL_LAYOUT_NAMED ? c->name : layout == ESL_LAYOUT_PRICE ? "price" : "text", max_fields);
+            return 422;
+        }
+        nf = j->tok[arr].size;
+        for (unsigned k = 0, i = (unsigned)arr + 1; k < nf; k++, i = j->tok[i].next)
+            vt[k] = (int)i;
+    } else if (arr >= 0 && j->tok[arr].type == ESL_JSON_OBJECT) {
+        for (unsigned k = 0; k < ESL_MAX_FIELDS; k++)
+            vt[k] = -1;
+        for (unsigned p = 0, i = (unsigned)arr + 1; p < j->tok[arr].size; p++, i = j->tok[i + 1].next) {
+            char key[ESL_LAYOUT_FIELD_NAME_MAX + 1];
+            int kl = esl_json_str_decode(j->js, &j->tok[i], key, sizeof(key));
+            if (kl == -1) {
+                snprintf(msg, MSG_MAX, "invalid string escape");
+                return 400;
+            }
+            if (kl < 0)
+                kl = (int)sizeof(key); /* longer than any field name: not found */
+            int f = field_by_name(api, mac, c, kl < (int)sizeof(key) ? key : &j->js[j->tok[i].start],
+                                  kl < (int)sizeof(key) ? (size_t)kl : (size_t)(j->tok[i].end - j->tok[i].start), msg);
+            if (f < 0)
+                return 422;
+            if (vt[f] >= 0) {
+                snprintf(msg, MSG_MAX, "the field \"%s\" is given twice", key);
+                return 422;
+            }
+            vt[f] = (int)i + 1;
+            if ((unsigned)f + 1 > nf)
+                nf = (unsigned)f + 1;
+        }
+    } else {
+        snprintf(msg, MSG_MAX, "fields must be a list of strings, or an object of strings by field name");
         return 422;
     }
 
     /* the fields as Latin-1, back to back; empty fields at the end are dropped
-       before they go into c, so they cost no length bytes */
+       before they go into c, so they cost no length bytes. One field's UTF-8 (up to 4
+       bytes a character) is on the heap: the HTTP task's stack is 8 KB */
     uint8_t text[ESL_MAX_TEXT];
     size_t len[ESL_MAX_FIELDS] = {0}, used = 0;
-    unsigned nf = (unsigned)j->tok[arr].size;
-    int i = arr + 1;
-    for (unsigned k = 0; k < nf; k++) {
-        const esl_jtok_t *t = &j->tok[i];
-        char utf8[ESL_MAX_TEXT * 4 + 4];
+    const size_t umax = ESL_MAX_TEXT * 4 + 4;
+    char *utf8 = nf ? malloc(umax) : NULL;
+    if (nf && !utf8) {
+        snprintf(msg, MSG_MAX, "out of memory");
+        return 500;
+    }
+    int st = 0;
+    for (unsigned k = 0; k < nf && !st; k++) {
+        const esl_jtok_t *t = vt[k] >= 0 ? &j->tok[vt[k]] : NULL;
         size_t n = 0;
         bool overflow = false;
 
-        if (t->type == ESL_JSON_STRING) {
-            int ul = esl_json_str_decode(j->js, t, utf8, sizeof(utf8));
+        if (t && t->type == ESL_JSON_STRING) {
+            int ul = esl_json_str_decode(j->js, t, utf8, umax);
             if (ul == -1) {
                 snprintf(msg, MSG_MAX, "invalid string escape");
-                return 400;
+                st = 400;
+                break;
             }
             if (ul >= 0)
                 n = esl_utf8_to_latin1(utf8, (size_t)ul, text + used, sizeof(text) - used, &overflow);
             else
                 overflow = true;
-        } else if (t->type != ESL_JSON_NULL) {
-            snprintf(msg, MSG_MAX, "fields must be an array of strings");
-            return 422;
+        } else if (t && t->type != ESL_JSON_NULL) {
+            snprintf(msg, MSG_MAX, "fields must be a list of strings, or an object of strings by field name");
+            st = 422;
+            break;
         }
-        if (overflow)
-            return text_too_long(msg);
+        if (overflow || n > ESL_MAX_TEXT)
+            st = text_too_long(msg);
         len[k] = n;
         used += n;
-        i = t->next;
     }
+    free(utf8);
+    if (st)
+        return st;
     while (nf > 0 && len[nf - 1] == 0)
         nf--;
     used = 0;
@@ -583,12 +675,135 @@ static void write_signal(esl_sb_t *out, const esl_tag_t *t)
         esl_sb_puts(out, "\"tag_rssi\":null,\"tag_lqi\":null}");
 }
 
+/* The radios the AP has: links[] (radio_net.c) or the one link (radio_uart.c); NULL, 0: none */
+static const esl_radio_link_t *radio_links(const esl_api_t *api, unsigned *n)
+{
+    if (api->links && api->n_links) {
+        *n = api->n_links > 32 ? 32 : api->n_links;
+        return api->links;
+    }
+    *n = api->link ? 1 : 0;
+    return api->link;
+}
+
+/* Seconds since the radio lost contact (since boot when it never had any) */
+static uint64_t radio_lost_s(const esl_radio_link_t *l, uint64_t now_ms)
+{
+    /* written by the radio's task without the API's lock: may be just ahead of now_ms */
+    uint64_t down = l->down_ms;
+    return (down < now_ms ? now_ms - down : 0) / 1000;
+}
+
+static bool radio_is_lost(const esl_radio_link_t *l, unsigned i, uint64_t now_ms)
+{
+    if (l->up || (i && !l->id))
+        return false;
+    return radio_lost_s(l, now_ms) >= ESL_RADIO_LOST_S;
+}
+
+uint32_t esl_api_radios_lost(const esl_api_t *api, uint64_t now_ms)
+{
+    unsigned n;
+    const esl_radio_link_t *l = radio_links(api, &n);
+    uint32_t lost = 0;
+    for (unsigned i = 0; i < n; i++)
+        if (radio_is_lost(&l[i], i, now_ms))
+            lost |= 1u << i;
+    return lost;
+}
+
+/* The fields of a radio's link after "connected": where it is and when it was last heard, or
+   since when it is gone */
+static void write_link_state(esl_sb_t *out, const esl_radio_link_t *l, unsigned i, uint64_t now_ms)
+{
+    esl_sb_printf(out, ",\"via\":\"%s\",\"lost\":%s", l->uart ? "uart" : "wifi",
+                  radio_is_lost(l, i, now_ms) ? "true" : "false");
+    if (!l->up) {
+        esl_sb_printf(out, ",\"lost_s\":%" PRIu64, radio_lost_s(l, now_ms));
+        return;
+    }
+    /* the radio's task writes seen_ms without the API's lock: a read just after
+       a write can see it ahead of now_ms */
+    uint64_t ago = l->seen_ms < now_ms ? now_ms - l->seen_ms : 0;
+    if (l->ip)
+        esl_sb_printf(out, ",\"ip\":\"%u.%u.%u.%u\"", (unsigned)(l->ip >> 24), (unsigned)((l->ip >> 16) & 0xff),
+                      (unsigned)((l->ip >> 8) & 0xff), (unsigned)(l->ip & 0xff));
+    esl_sb_printf(out, ",\"seen_s\":%" PRIu64 ",\"fw\":%u", ago / 1000, (unsigned)l->ver);
+}
+
+/* "[{radio, id, channel, tags, connected, ...}]": every network radio the AP knows, the one
+   on its channel (0) and those with their own; channel is the AP's for radio 0 */
+static void write_radios(const esl_api_t *api, esl_sb_t *out, uint8_t ap_channel, uint64_t now_ms)
+{
+    esl_sb_putc(out, '[');
+    bool first = true;
+    for (unsigned i = 0; i < api->n_links; i++) {
+        const esl_radio_link_t *l = &api->links[i];
+        if (!l->id)
+            continue;
+        char id[17];
+        esl_mac_format(l->id, id);
+        esl_sb_printf(out, "%s{\"radio\":%u,\"id\":\"%s\",\"channel\":%u,\"tags\":%u,\"connected\":%s",
+                      first ? "" : ",", i, id, (unsigned)(l->channel ? l->channel : ap_channel), l->tags,
+                      l->up ? "true" : "false");
+        first = false;
+        write_link_state(out, l, i, now_ms);
+        esl_sb_putc(out, '}');
+    }
+    esl_sb_putc(out, ']');
+}
+
+/* GET /api/radios: the network radios; DELETE /api/radios/{id}: forget one that is not connected */
+static int handle_radios(const esl_api_t *api, const char *method, const char *uri, size_t plen, uint64_t now_ms,
+                         esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_RADIOS) - 1;
+    size_t il = plen > base ? plen - base - 1 : 0;
+    if (il && uri[base + il] == '/')
+        il--;
+    if (!il) {
+        if (strcmp(method, "GET") != 0)
+            return api_error(out, 405, "method not allowed");
+        esl_channel_state_t ch;
+        esl_store_channel_state(api->store, now_ms, &ch);
+        esl_sb_puts(out, "{\"radios\":");
+        write_radios(api, out, ch.channel, now_ms);
+        esl_sb_putc(out, '}');
+        return 200;
+    }
+    uint64_t id;
+    if (il != 16 || !esl_mac_parse(&uri[base + 1], 16, &id) || !id)
+        return api_error(out, 400, "the radio id must be 16 hex digits");
+    if (strcmp(method, "DELETE") != 0 || !api->radio_ops)
+        return api_error(out, 405, "method not allowed");
+    int r = api->radio_ops->forget(api->radio_ops->ctx, id);
+    if (r == 404)
+        return api_error(out, 404, "unknown radio");
+    if (r == 409)
+        return api_error(out, 409, "the radio is connected: turn it off first, then forget it");
+    char m[17];
+    esl_mac_format(id, m);
+    esl_sb_printf(out, "{\"forgotten\":\"%s\"}", m);
+    return 200;
+}
+
+/* More than one network radio is known: each tag says which one serves it */
+static bool several_radios(const esl_api_t *api)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; api->links && i < api->n_links; i++)
+        n += api->links[i].id != 0;
+    return n > 1;
+}
+
 /* fingerprint: for the change fingerprint (esl_api_changes_t), when the tag was last
    heard instead of how long ago, which changes every second */
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
-                      const esl_tag_cfg_t *ap, bool with_content, bool fingerprint)
+                      const esl_tag_cfg_t *ap_all, bool with_content, bool fingerprint)
 {
     char m[17];
+    esl_tag_cfg_t tap = esl_store_tag_ap(api->store, t, ap_all); /* its radio's channel */
+    const esl_tag_cfg_t *ap = &tap;
     esl_mac_format(t->mac, m);
     esl_sb_printf(out, "{\"mac\":\"%s\",", m);
     /* A tag not heard since this boot, from NVS: what it said last, and when
@@ -626,6 +841,8 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     } else
         esl_sb_puts(out, "\"shown_content_id\":null,");
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
+    if (several_radios(api))
+        esl_sb_printf(out, "\"radio\":%u,", (unsigned)t->radio);
     write_tag_cfg(out, t, ap);
 
     esl_sb_puts(out, ",\"content_error\":");
@@ -956,16 +1173,12 @@ static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_s
     if (api->link) {
         const esl_radio_link_t *l = api->link;
         esl_sb_printf(out, ",\"radio\":{\"connected\":%s", l->up ? "true" : "false");
-        if (l->up) {
-            /* the radio's task writes seen_ms without the API's lock: a read just after
-               a write can see it ahead of now_ms */
-            uint64_t ago = l->seen_ms < now_ms ? now_ms - l->seen_ms : 0;
-            esl_sb_printf(out, ",\"ip\":\"%u.%u.%u.%u\",\"seen_s\":%" PRIu64 ",\"fw\":%u",
-                          (unsigned)(l->ip >> 24), (unsigned)((l->ip >> 16) & 0xff),
-                          (unsigned)((l->ip >> 8) & 0xff), (unsigned)(l->ip & 0xff),
-                          ago / 1000, (unsigned)l->ver);
-        }
+        write_link_state(out, l, 0, now_ms);
         esl_sb_puts(out, "}");
+    }
+    if (api->links && api->n_links) {
+        esl_sb_puts(out, ",\"radios\":");
+        write_radios(api, out, ch.channel, now_ms);
     }
     if (api->radio_stats) {
         /* written by the radio task without the API's lock: a counter may be one behind */
@@ -1101,6 +1314,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
         esl_store_tag_defaults(api->store, &ap);
         if (!esl_store_get(api->store, mac, &t))
             return api_error(out, 404, "unknown tag");
+        ap = esl_store_tag_ap(api->store, &t, &ap);
         esl_sb_printf(out, "{\"mac\":\"%s\",", m);
         write_tag_cfg(out, &t, &ap);
         esl_sb_putc(out, '}');
@@ -1125,6 +1339,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
             status = api_error(out, 500, "tag vanished");
         else {
             esl_store_tag_defaults(api->store, &ap);
+            ap = esl_store_tag_ap(api->store, &t, &ap);
             esl_sb_printf(out, "{\"mac\":\"%s\",", m);
             write_tag_cfg(out, &t, &ap);
             esl_sb_printf(out, ",\"changed\":%s}", r.changed ? "true" : "false");
@@ -1224,6 +1439,8 @@ static bool channel_now_ok(const esl_channel_state_t *cs, uint8_t channel)
    the 409 with why ("force" moves past tags with old firmware, not past an old radio) */
 static int channel_move_ok(const esl_channel_state_t *cs, uint8_t channel, bool force, esl_sb_t *out)
 {
+    if (channel != cs->channel && (cs->taken >> channel & 1))
+        return api_error(out, 409, "another radio of this AP is on that channel: pick another one");
     if (channel == cs->builtin || channel == cs->channel)
         return 0;
     if (cs->radio_old)
@@ -1448,7 +1665,28 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
             esl_sb_puts(out, "],\"seen_s_ago\":null,\"battery_mv\":null}");
         problems++;
     }
-    esl_sb_printf(out, "],\"ok\":%s,\"tags\":%u,\"with_problems\":%u", problems ? "false" : "true", tags, problems);
+    /* the radio coprocessors that are gone: no tag hears from the AP through them */
+    unsigned nl, lost = 0;
+    const esl_radio_link_t *links = radio_links(api, &nl);
+    esl_sb_puts(out, "],\"radio_problems\":[");
+    for (unsigned i = 0; i < nl; i++) {
+        const esl_radio_link_t *l = &links[i];
+        if (!radio_is_lost(l, i, now_ms))
+            continue;
+        esl_sb_printf(out, "%s{\"radio\":%u,\"id\":", lost ? "," : "", i);
+        if (l->id) {
+            char id[17];
+            esl_mac_format(l->id, id);
+            esl_sb_printf(out, "\"%s\"", id);
+        } else {
+            esl_sb_puts(out, "null");
+        }
+        esl_sb_printf(out, ",\"via\":\"%s\",\"problems\":[\"radio_lost\"],\"lost_s\":%" PRIu64 "}",
+                      l->uart ? "uart" : "wifi", radio_lost_s(l, now_ms));
+        lost++;
+    }
+    esl_sb_printf(out, "],\"ok\":%s,\"tags\":%u,\"with_problems\":%u,\"radio_lost\":%u",
+                  problems || lost ? "false" : "true", tags, problems, lost);
     for (unsigned b = 0; b < 8; b++) {
         uint8_t flag = (uint8_t)(1u << b);
         if (strcmp(esl_health_flag_name(flag), "?") != 0)
@@ -1467,6 +1705,7 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
         return ESL_TAG_BAD;
     esl_tag_cfg_t ap, eff;
     esl_store_tag_defaults(api->store, &ap);
+    ap = esl_store_tag_ap(api->store, t, &ap);
     esl_tag_effective_cfg(t, &ap, &eff); /* "poll_s" in GET /api/tags */
     uint64_t poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
     uint64_t ago; /* "seen_s_ago": late also for a tag from NVS not heard since this boot */
@@ -1575,11 +1814,37 @@ static int ap_wifi(const esl_api_t *api, const char *method, const char *body, s
 
 /* ---- layouts ------------------------------------------------------------------- */
 
+/* "same_as": the model whose file a model uses (#181), null for its own; "used_by": the
+   models whose tags are drawn with the file a model uses, in code order */
+static void write_layout_sharing(esl_sb_t *out, uint8_t model)
+{
+    uint8_t file = esl_model_layout_model(model);
+    if (file != model)
+        esl_sb_printf(out, "\"same_as\":\"%s\",\"used_by\":[", esl_model_name(file));
+    else
+        esl_sb_puts(out, "\"same_as\":null,\"used_by\":[");
+    for (uint8_t m = 1, n = 0; m < ESL_MODEL_COUNT; m++)
+        if (esl_model_layout_model(m) == file)
+            esl_sb_printf(out, "%s\"%s\"", n++ ? "," : "", esl_model_name(m));
+    esl_sb_puts(out, "],");
+}
+
+/* 409 for a model whose same_as names another: its file is that model's */
+static int shared_file_error(esl_sb_t *out, uint8_t model, const char *what)
+{
+    char msg[MSG_MAX];
+    const char *file = esl_model_name(esl_model_layout_model(model));
+    snprintf(msg, sizeof(msg), "model %s uses the layout file of model %s (same_as): %s /api/layouts/%s",
+             esl_model_name(model), file, what, file);
+    return api_error(out, 409, msg);
+}
+
 static void write_layout_info(esl_sb_t *out, esl_layouts_t *ls, uint8_t model)
 {
     uint32_t version;
     size_t len, bin;
     esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
+    write_layout_sharing(out, model);
     if (esl_layouts_info(ls, model, &version, &len, &bin))
         esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u,\"binary_size\":%u,\"layouts\":", version,
                       (unsigned)len, (unsigned)bin);
@@ -1611,6 +1876,8 @@ static void unfit_tag(void *ctx, uint64_t mac, const char *msg)
 
 static int put_layout(const esl_api_t *api, uint8_t model, const char *body, size_t len, esl_sb_t *out)
 {
+    if (esl_model_layout_model(model) != model)
+        return shared_file_error(out, model, "upload it with PUT");
     if (!body || len == 0)
         return api_error(out, 400, "missing JSON body");
     if (len > ESL_LAYOUT_MAX_SIZE)
@@ -1645,8 +1912,9 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     free(bin);
     if (!version)
         return api_error(out, 500, "could not store layout");
-    esl_sb_printf(out, "{\"model\":\"%s\",\"version\":%" PRIu32 ",\"size\":%u,", esl_model_name(model), version,
-                  (unsigned)len);
+    esl_sb_printf(out, "{\"model\":\"%s\",", esl_model_name(model));
+    write_layout_sharing(out, model);
+    esl_sb_printf(out, "\"version\":%" PRIu32 ",\"size\":%u,", version, (unsigned)len);
     size_t bsize;
     esl_layouts_info(api->layouts, model, NULL, NULL, &bsize);
     esl_sb_printf(out, "\"binary_size\":%u,\"layouts\":", (unsigned)bsize);
@@ -1675,11 +1943,11 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
         esl_sb_printf(out,
                       "\"board\":\"%s\",\"limits\":{\"runs\":%u,\"rects\":%u,\"lines\":%u,\"icons\":%u,"
                       "\"barcodes\":%u,\"qrs\":%u,\"fileBytes\":%u,\"jsonBytes\":%u,\"fields\":%u,"
-                      "\"fixedTextBytes\":%u},\"layouts\":[",
+                      "\"fixedTextBytes\":%u,\"textBytes\":%u},\"layouts\":[",
                       ESL_BOARD, (unsigned)esl_limits.runs, (unsigned)esl_limits.rects, (unsigned)esl_limits.lines,
                       (unsigned)esl_limits.icons, (unsigned)ESL_DRAW_MAX_BARCODES, (unsigned)ESL_DRAW_MAX_QR,
                       (unsigned)esl_limits.file_bytes, (unsigned)esl_limits.json_bytes, (unsigned)ESL_MAX_FIELDS,
-                      (unsigned)ESL_LBIN_TEXT_LEN_MAX);
+                      (unsigned)ESL_LBIN_TEXT_LEN_MAX, (unsigned)ESL_CONTENT_FIELD_SPACE);
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
             if (m > 1)
                 esl_sb_putc(out, ',');
@@ -1706,10 +1974,113 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
         return 200;
     }
     if (strcmp(method, "DELETE") == 0) {
+        if (esl_model_layout_model(model) != model)
+            return shared_file_error(out, model, "delete it with DELETE");
         if (!esl_layouts_delete(ls, model))
             return api_error(out, 404, "no layout for this model");
         esl_store_check_layout(api->store, ls, model, NULL, NULL); /* no file: nothing is unfit */
         esl_sb_printf(out, "{\"model\":\"%s\",\"deleted\":true}", esl_model_name(model));
+        return 200;
+    }
+    return api_error(out, 405, "method not allowed");
+}
+
+/* ---- font files (esl_font.h, #177) --------------------------------------------- */
+
+static int put_font(const esl_api_t *api, const char *name, const char *body, size_t len, esl_sb_t *out)
+{
+    char err[ESL_LAYOUT_ERR_MAX + 64];
+    if (!body || len == 0)
+        return api_error(out, 400, "missing font file (JSON: Make a font in the dashboard, or tag/tools/gen_font.py --file)");
+    if (len > ESL_API_MAX_BODY) {
+        snprintf(err, sizeof(err), "font file too large (max %u bytes: fewer characters or a smaller height)",
+                 (unsigned)ESL_API_MAX_BODY);
+        return api_error(out, 413, err);
+    }
+    /* Not JSON or not an object: 400, as for the other endpoints (a file with more values
+       than a font has is left to esl_font_from_json, which says so) */
+    esl_jtok_t *tok = malloc(sizeof(*tok) * 320);
+    if (!tok)
+        return api_error(out, 500, "out of memory");
+    int nt = esl_json_parse(body, len, tok, 320);
+    bool object = nt > 0 && tok[0].type == ESL_JSON_OBJECT;
+    free(tok);
+    if (nt < 0 && nt != ESL_JSON_ERR_NOMEM)
+        return api_error(out, 400, "invalid JSON");
+    if (nt > 0 && !object)
+        return api_error(out, 400, "a font file must be a JSON object");
+    esl_ufont_t *f = esl_font_from_json(body, len, name, err, sizeof(err));
+    if (!f)
+        return api_error(out, 422, err);
+    unsigned models;
+    bool replaced;
+    int status = esl_layouts_font_put(api->layouts, f, &models, &replaced, err, sizeof(err));
+    if (status)
+        return api_error(out, status, err);
+    esl_sb_puts(out, "{\"font\":");
+    int s = esl_font_slot_of(name, strlen(name));
+    if (s >= 0)
+        esl_font_write_info(esl_font_slot((unsigned)s), out, false);
+    else
+        esl_sb_puts(out, "null");
+    esl_sb_printf(out, ",\"replaced\":%s,\"redrawn\":[", replaced ? "true" : "false");
+    unsigned n = 0;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
+        if (models & (1u << (m - 1)))
+            esl_sb_printf(out, "%s\"%s\"", n++ ? "," : "", esl_model_name(m));
+    /* A file compiled again may no longer fit some tags' content (a number now too wide) */
+    esl_sb_puts(out, "],\"content_errors\":[");
+    unfit_list_t ul = {out, 0};
+    unsigned bad = 0;
+    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++)
+        if (models & (1u << (m - 1)))
+            bad += esl_store_check_layout(api->store, api->layouts, m, unfit_tag, &ul);
+    esl_sb_printf(out, "],\"content_errors_total\":%u}", bad);
+    return 200;
+}
+
+static int handle_fonts(const esl_api_t *api, const char *method, const char *uri, size_t plen,
+                        const char *body, size_t body_len, esl_sb_t *out)
+{
+    const size_t base = sizeof(PATH_FONTS) - 1;
+    if (plen == base || (plen == base + 1 && uri[base] == '/')) {
+        if (strcmp(method, "GET") != 0)
+            return api_error(out, 405, "method not allowed");
+        esl_sb_printf(out, "{\"max_fonts\":%u,\"max_bytes\":%u,\"bytes\":%u,\"builtin\":", (unsigned)ESL_FONT_USER_MAX,
+                      (unsigned)ESL_FONT_MAX_BYTES, (unsigned)esl_font_bytes());
+        esl_font_write_builtin(out);
+        esl_sb_puts(out, ",\"fonts\":");
+        esl_layouts_font_list(api->layouts, out);
+        esl_sb_putc(out, '}');
+        return 200;
+    }
+    size_t nl = plen - base - 1;
+    if (nl > 0 && uri[base + nl] == '/')
+        nl--;
+    const char *np = &uri[base + 1];
+    if (nl > ESL_FONT_NAME_MAX || !esl_font_name_ok(np, nl))
+        return esl_font_find(np, nl) >= 0
+                   ? api_error(out, strcmp(method, "GET") == 0 ? 404 : 403, "a built-in font is part of the firmware")
+                   : api_error(out, 404, "not a font file name (1 to 15 of a-z, 0-9, _ and -)");
+    char name[ESL_FONT_NAME_MAX + 1];
+    memcpy(name, np, nl);
+    name[nl] = '\0';
+
+    if (strcmp(method, "GET") == 0) {
+        if (esl_font_slot_of(name, nl) < 0) /* only the API changes the fonts */
+            return api_error(out, 404, "no font file by that name");
+        esl_sb_stream(out, 200); /* a font file can be bigger than the reply buffer */
+        esl_layouts_font_write(api->layouts, name, nl, out);
+        return 200;
+    }
+    if (strcmp(method, "PUT") == 0)
+        return put_font(api, name, body, body_len, out);
+    if (strcmp(method, "DELETE") == 0) {
+        char err[96];
+        int status = esl_layouts_font_delete(api->layouts, name, nl, err, sizeof(err));
+        if (status)
+            return api_error(out, status, err);
+        esl_sb_printf(out, "{\"name\":\"%s\",\"deleted\":true}", name);
         return 200;
     }
     return api_error(out, 405, "method not allowed");
@@ -2072,166 +2443,6 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
     return api_error(out, 405, "method not allowed");
 }
 
-/* ---- status page ------------------------------------------------------------------ */
-
-/* Latin-1 to UTF-8, escaped for HTML text and attribute values. */
-static void html_latin1(esl_sb_t *out, const uint8_t *s, size_t len)
-{
-    for (size_t i = 0; i < len; i++) {
-        uint8_t c = s[i];
-        if (c == '&')
-            esl_sb_puts(out, "&amp;");
-        else if (c == '<')
-            esl_sb_puts(out, "&lt;");
-        else if (c == '>')
-            esl_sb_puts(out, "&gt;");
-        else if (c == '"')
-            esl_sb_puts(out, "&#34;");
-        else if (c >= 0x80) {
-            esl_sb_putc(out, (char)(0xC0 | (c >> 6)));
-            esl_sb_putc(out, (char)(0x80 | (c & 0x3F)));
-        } else
-            esl_sb_putc(out, (char)c);
-    }
-}
-
-static void html_ago(esl_sb_t *out, uint64_t s)
-{
-    if (s < 120)
-        esl_sb_printf(out, "%" PRIu64 " s", s);
-    else if (s < 7200)
-        esl_sb_printf(out, "%" PRIu64 " min", s / 60);
-    else if (s < 172800)
-        esl_sb_printf(out, "%" PRIu64 " h", s / 3600);
-    else
-        esl_sb_printf(out, "%" PRIu64 " d", s / 86400);
-}
-
-int esl_api_status_page(const esl_api_t *api, uint64_t now_ms, esl_sb_t *out)
-{
-    sb_reset(out);
-    esl_sb_stream(out, 200); /* as in get_all: one row per tag, far more than the buffer */
-    esl_sb_puts(out,
-                "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                "<meta http-equiv=\"refresh\" content=\"30\"><title>OpenESL AP</title><style>"
-                "body{font-family:sans-serif;margin:16px}table{border-collapse:collapse}"
-                "td,th{border:1px solid #999;padding:4px 8px;text-align:left}"
-                ".p{color:#b00}</style></head><body><h1>OpenESL AP</h1><p>Firmware ");
-    html_latin1(out, (const uint8_t *)(api->fw_version ? api->fw_version : ""),
-                api->fw_version ? strlen(api->fw_version) : 0);
-    esl_sb_puts(out, ", up ");
-    html_ago(out, now_ms / 1000);
-    esl_channel_state_t ch;
-    esl_store_channel_state(api->store, now_ms, &ch);
-    esl_sb_printf(out, ", channel %u, %u of %u tags", (unsigned)ch.channel,
-                  esl_store_count(api->store), api->store->max);
-    if (esl_store_full(api->store))
-        esl_sb_puts(out, " <span class=\"p\">(full: no room for a new tag)</span>");
-    unsigned attention = 0;
-    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
-        esl_tag_t t;
-        if (esl_store_get_slot(api->store, s, &t) && tag_health(api, &t, now_ms, NULL))
-            attention++;
-    }
-    if (attention)
-        esl_sb_printf(out, ", <span class=\"p\">%u need attention</span>", attention);
-    esl_sb_puts(out, ".</p>");
-    if (api->dashboard)
-        esl_sb_puts(out, "<p><a href=\"/dashboard\">Dashboard</a> (needs the API token)</p>");
-    if (api->wifi)
-        esl_sb_puts(out, "<p><a href=\"/setup\">WiFi and API token setup</a></p>");
-    if (api->notify && api->notify->url[0]) {
-        esl_sb_puts(out, "<p>Health report posted to ");
-        html_latin1(out, (const uint8_t *)api->notify->url, strlen(api->notify->url));
-        esl_sb_puts(out, " when it changes.</p>");
-    }
-    if (api->layouts) {
-        esl_sb_puts(out, "<p>Layout files:");
-        for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
-            uint32_t v;
-            size_t bin;
-            esl_sb_printf(out, "%s %s ", m > 1 ? ";" : "", esl_model_name(m));
-            if (esl_layouts_info(api->layouts, m, &v, NULL, &bin)) {
-                esl_sb_printf(out, "version %" PRIu32 " (%u bytes compiled): ", v, (unsigned)bin);
-                esl_layouts_write_names(api->layouts, m, out); /* plain ASCII names */
-            } else {
-                esl_sb_puts(out, "none (built-in price and text only)");
-            }
-        }
-        esl_sb_puts(out, ".</p>");
-    }
-    esl_sb_puts(out, "<table><tr><th>MAC</th><th>Model</th><th>Seen</th><th>Battery</th><th>RSSI</th>"
-                     "<th>FW</th><th>Content</th><th>State</th><th>Attention</th></tr>");
-
-    for (unsigned s = 0, n = esl_store_slots(api->store); s < n; s++) {
-        esl_tag_t t;
-        char m[17];
-        if (!esl_store_get_slot(api->store, s, &t))
-            continue;
-        esl_mac_format(t.mac, m);
-        const char *model = t.seen ? esl_model_name(t.model) : NULL;
-        esl_sb_printf(out, "<tr><td>%s</td><td>%s</td><td>", m, model ? model : "-");
-        if (t.seen) {
-            html_ago(out, esl_tag_seen_ms_ago(&t, now_ms) / 1000);
-            if (t.battery_mv)
-                esl_sb_printf(out, " ago</td><td>%u mV</td>", (unsigned)t.battery_mv);
-            else
-                esl_sb_puts(out, " ago</td><td>-</td>");
-            esl_sb_printf(out, "<td>%d</td><td>%u</td><td>", (int)t.rssi, (unsigned)t.fw);
-        } else {
-            esl_sb_puts(out, "-</td><td>-</td><td>-</td><td>-</td><td>");
-        }
-        esl_content_t c;
-        if (t.has_content && esl_store_get_content(api->store, t.mac, &c)) {
-            esl_sb_puts(out, layout_name(&c));
-            if (text_fields(&c))
-                esl_sb_puts(out, ": ");
-            for (unsigned i = 0; i < text_fields(&c); i++) {
-                uint8_t len;
-                const uint8_t *f = esl_content_field(&c, i, &len);
-                if (i)
-                    esl_sb_puts(out, " | ");
-                html_latin1(out, f, len);
-            }
-        } else {
-            esl_sb_puts(out, "-");
-        }
-        if (esl_tag_pending(&t))
-            esl_sb_puts(out, "</td><td class=\"p\">pending");
-        else if (t.has_content)
-            esl_sb_puts(out, "</td><td>shown");
-        else
-            esl_sb_puts(out, "</td><td>no content");
-        if (t.seen && (t.poll_flags & ESL_POLL_FLAG_DRAW_FAILED))
-            esl_sb_puts(out, ", draw failed");
-        const char *err = esl_content_err_text(esl_tag_content_err(&t));
-        if (err)
-            esl_sb_printf(out, " (%s)", err);
-        /* the same flags as GET /api/health, with spaces for the page */
-        uint8_t f = tag_health(api, &t, now_ms, NULL);
-        esl_sb_puts(out, f ? "</td><td class=\"p\">" : "</td><td>");
-        bool first = true;
-        for (unsigned b = 0; b < 8; b++) {
-            if (!(f & (1u << b)))
-                continue;
-            if (!first)
-                esl_sb_puts(out, ", ");
-            for (const char *n = esl_health_flag_name((uint8_t)(1u << b)); *n; n++)
-                esl_sb_putc(out, *n == '_' ? ' ' : *n);
-            first = false;
-        }
-        esl_sb_puts(out, f ? "</td></tr>" : "ok</td></tr>");
-    }
-    esl_sb_puts(out, "</table></body></html>");
-    if (out->overflow) {
-        sb_reset(out);
-        esl_sb_puts(out, "status page too large");
-        return 500;
-    }
-    return 200;
-}
-
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out)
 {
@@ -2260,6 +2471,13 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
         return status;
     }
 
+    const size_t nbase = sizeof(PATH_FONTS) - 1;
+    if (api->layouts && plen >= nbase && memcmp(uri, PATH_FONTS, nbase) == 0 && (plen == nbase || uri[nbase] == '/')) {
+        int status = handle_fonts(api, method, uri, plen, body, body_len, out);
+        if (out->overflow)
+            return api_error(out, 500, "response too large");
+        return status;
+    }
     const size_t fbase = sizeof(PATH_TAGFW) - 1;
     if (api->tagfw && plen >= fbase && memcmp(uri, PATH_TAGFW, fbase) == 0 && (plen == fbase || uri[fbase] == '/')) {
         int status = handle_tagfw(api, method, uri, plen, body, body_len, out);
@@ -2305,6 +2523,13 @@ int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, co
                 return status;
         }
         int status = api->sources->api(api->sources, method, uri, plen, body, body_len, now, out);
+        return out->overflow ? api_error(out, 500, "response too large") : status;
+    }
+
+    const size_t rbase = sizeof(PATH_RADIOS) - 1;
+    if (api->links && api->n_links && plen >= rbase && memcmp(uri, PATH_RADIOS, rbase) == 0 &&
+        (plen == rbase || uri[rbase] == '/')) {
+        int status = handle_radios(api, method, uri, plen, now_ms, out);
         return out->overflow ? api_error(out, 500, "response too large") : status;
     }
 
