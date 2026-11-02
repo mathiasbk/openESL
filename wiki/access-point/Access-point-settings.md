@@ -27,4 +27,4 @@ Most settings can be changed while the AP runs: on the **Settings** page of the 
 
 ## When building the firmware
 
-`idf.py menuconfig` → "OpenESL AP": radio channel (the built-in one, 25), PAN ID, TX power (the built-in value, 10 dBm), the most labels to keep, the status page, the dashboard, OTA, the screen, and the API over USB. See [Building from source](Building-from-source) and [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#configuration).
+`idf.py menuconfig` → "OpenESL AP": radio channel (the built-in one, 25), PAN ID, TX power (the built-in value, 10 dBm), the most labels to keep, the dashboard, OTA, the screen, and the API over USB. See [Building from source](Building-from-source) and [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#configuration).

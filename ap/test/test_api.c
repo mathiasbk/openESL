@@ -19,7 +19,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static uint64_t forgot;
 static int forget_radio(void *ctx, uint64_t id)
@@ -878,87 +878,6 @@ static void test_layouts(void)
     free(f154);
 }
 
-static void test_status_page(void)
-{
-    static char page[ESL_API_PAGE_SIZE(CAP)];
-    esl_sb_t sb;
-    esl_sb_init(&sb, page, sizeof(page));
-    esl_store_free(&st);
-    esl_store_init(&st, CAP, NULL, 0);
-
-    CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
-                  "{\"layout\":\"price\",\"fields\":[\"Br\u00f8d <b>&amp;\",\"9,90\"]}", 0), 200);
-    poll_as_tag(0xABCDEF, 0, 1000);
-    CHECK_INT(esl_api_status_page(&api, 1000 + 3 * 3600 * 1000, &sb), 200);
-    CHECK(HAS(page, "<!DOCTYPE html>"));
-    CHECK(HAS(page, "Firmware 0.1.0, up 3 h, channel 25, 2 of 8 tags, <span class=\"p\">2 need attention</span>."));
-    CHECK(HAS(page, "<td>" MAC1 "</td><td>-</td><td>-</td>"));
-    CHECK(HAS(page, "price: Br\xC3\xB8" "d &lt;b&gt;&amp;amp; | 9,90</td><td class=\"p\">pending</td>"
-                    "<td class=\"p\">unseen</td></tr>"));
-    CHECK(HAS(page, "<td>-</td><td>no content</td><td class=\"p\">silent</td></tr>")); /* seen 3 h ago */
-    CHECK(HAS(page, "<p>Layout files: 2.9 none (built-in price and text only); 1.54 version "));
-    CHECK(HAS(page, "<td>0000000000ABCDEF</td><td>2.9</td><td>3 h ago</td><td>2950 mV</td><td>-61</td><td>2</td>"
-                    "<td>-</td><td>no content</td>"));
-    CHECK(!HAS(page, "<b>"));
-    CHECK(!HAS(page, "/dashboard"));
-    api.dashboard = true;
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 1000, &sb), 200);
-    CHECK(HAS(page, "<a href=\"/dashboard\">Dashboard</a>"));
-    api.dashboard = false;
-
-    /* battery 0 = not measured */
-    uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 0, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
-    esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 2000, &sb), 200);
-    CHECK(HAS(page, "<td>0000000000000002</td><td>1.54</td><td>1 s ago</td><td>-</td><td>-70</td>"));
-
-    /* worst case: every slot full, every byte escaped, both models with 16 layouts with
-       long names, and half the tags with named content they cannot get */
-    static char lf[4096];
-    for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
-        esl_sb_t l;
-        esl_sb_init(&l, lf, sizeof(lf));
-        esl_sb_printf(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"%s\",\"layouts\":[",
-                      esl_model_name(m));
-        for (int i = 0; i < ESL_LAYOUT_FILE_MAX; i++)
-            esl_sb_printf(&l, "%s{\"name\":\"a-long-layout-name-with-31-ch%02d\",\"fields\":[\"a\",\"b\",\"c\",\"d\"],"
-                          "\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}", i ? "," : "", i);
-        esl_sb_puts(&l, "]}");
-        char u[64];
-        snprintf(u, sizeof(u), "/api/layouts/%s", esl_model_name(m));
-        CHECK_INT(req("PUT", u, AUTH, lf, 0), 200);
-    }
-    char body[1200], text[ESL_MAX_TEXT + 1];
-    memset(text, '&', ESL_MAX_TEXT / 4);
-    text[ESL_MAX_TEXT / 4] = '\0';
-    esl_store_free(&st);
-    esl_store_init(&st, CAP, NULL, 0);
-    for (unsigned i = 0; i < CAP; i++) {
-        char u[64];
-        snprintf(u, sizeof(u), "/api/tags/%016X", 0x1000 + i);
-        snprintf(body, sizeof(body), "{\"layout\":\"%s\",\"fields\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
-                 i % 2 ? "a-long-layout-name-with-31-ch15" : "text", text, text, text, text);
-        CHECK_INT(req("PUT", u, AUTH, body, 0), 200);
-        esl_poll_t p = {65535, 65535, 1, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
-        uint8_t reply[ESL_MAX_PAYLOAD];
-        esl_store_on_poll(&st, 0x1000 + i, &p, -128, 0, NULL, reply);
-    }
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, UINT64_C(1) << 50, &sb), 200);
-    CHECK(!sb.overflow);
-    CHECK(HAS(page, "pending, draw failed"));
-    CHECK(HAS(page, "pending, draw failed (the tag cannot show images drawn by the AP (old firmware, or no SPI flash))"));
-    CHECK(HAS(page, "a-long-layout-name-with-31-ch15: "));
-
-    /* too small a buffer gives 500 instead of a cut page */
-    char small[100];
-    esl_sb_init(&sb, small, sizeof(small));
-    CHECK_INT(esl_api_status_page(&api, 0, &sb), 500);
-}
-
 static void test_config_api(void)
 {
     esl_store_free(&st);
@@ -1044,9 +963,9 @@ static void test_config_api(void)
 }
 
 /* Streaming (esl_sb_set_sink): a glue with a small buffer gets GET /api/tags
-   and the status page in pieces, byte for byte what a big buffer would hold.
+   in pieces, byte for byte what a big buffer would hold.
    Everything else must fit the buffer, and errors never start a stream. */
-static char streamed[ESL_API_PAGE_SIZE(CAP)];
+static char streamed[ESL_API_RESP_SIZE(CAP)];
 static size_t streamed_len, pieces;
 
 static bool collect(esl_sb_t *sb)
@@ -1061,7 +980,6 @@ static bool collect(esl_sb_t *sb)
 
 static void test_streaming(void)
 {
-    static char page[ESL_API_PAGE_SIZE(CAP)];
     char small[200]; /* smaller than one tag: every tag needs a flush */
     esl_sb_t sb;
     esl_store_free(&st);
@@ -1105,22 +1023,21 @@ static void test_streaming(void)
     CHECK(!sb.streaming && pieces == 0); /* one tag is bigger than this buffer: an error, not a stream */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/tags", "Bearer wrong", NULL, 0, 5000, &sb), 401);
     CHECK(!sb.streaming && sb.sent == 0 && pieces == 0);
+    /* a layout file far bigger than this buffer */
+    static char lf[4096];
+    esl_sb_t l;
+    esl_sb_init(&l, lf, sizeof(lf));
+    esl_sb_puts(&l, "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[");
+    for (int i = 0; i < ESL_LAYOUT_FILE_MAX; i++)
+        esl_sb_printf(&l, "%s{\"name\":\"a-long-layout-name-with-31-ch%02d\",\"fields\":[\"a\",\"b\",\"c\",\"d\"],"
+                      "\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}", i ? "," : "", i);
+    esl_sb_puts(&l, "]}");
+    CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, lf, 0), 200);
+    esl_sb_init(&sb, small, sizeof(small));
+    esl_sb_set_sink(&sb, collect, NULL);
     CHECK_INT(esl_api_handle(&api, "GET", "/api/layouts/2.9", AUTH, NULL, 0, 5000, &sb), 500); /* too big */
     CHECK(!sb.streaming && pieces == 0);
 
-    /* the status page */
-    esl_sb_init(&sb, page, sizeof(page));
-    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
-    whole = sb.len;
-    CHECK(whole > sizeof(small) && sb.sent == 0);
-    streamed_len = pieces = 0;
-    esl_sb_init(&sb, small, sizeof(small));
-    esl_sb_set_sink(&sb, collect, NULL);
-    CHECK_INT(esl_api_status_page(&api, 9000, &sb), 200);
-    esl_sb_flush(&sb);
-    CHECK(!sb.overflow && pieces >= CAP);
-    CHECK_INT((int)streamed_len, (int)whole);
-    CHECK_MEM(streamed, page, whole);
 }
 
 static void test_webhook_config(void)
@@ -1578,7 +1495,6 @@ void test_api(void)
     test_put_errors();
     test_batch_and_list();
     test_layouts();
-    test_status_page();
     test_config_api();
     test_streaming();
     test_webhook_config();

@@ -13,7 +13,7 @@
 3. **Storage** (`esl_store.c`, `main/store_nvs.c`): table MAC → {content, content_id, last seen, battery, RSSI, fw}. Content is stored in NVS when it changes (requirement A4). Status is kept in RAM.
 4. **HTTP API** (`esl_api.c`, `main/http_api.c`): `esp_http_server` with the endpoints in [protokoll.md](protokoll.md) part 2. Check the token, parse the JSON, convert UTF-8 to Latin-1, validate length, calculate CRC32 (`content_id`) and store; the radio path draws the image from it. Protect the table with a mutex, since HTTP and radio run in separate tasks.
 5. **WiFi setup**: done. A setup network `openesl-XXXX` with a form at `/setup` (with a captive portal), `GET`/`PUT /api/wifi`; the values go to NVS (`cfg`). mDNS name `openesl`. See ap/README.md, "WiFi setup".
-6. **Status page** (SHOULD): done, an HTML table at `/` with the same data as `GET /api/tags`, plus the health flags and the webhook.
+6. **Status page** (SHOULD): covered by the dashboard the AP serves at `/dashboard` (`/` leads there). The separate read-only status page was removed after 0.9.2, so the tags have one place.
 7. **Layout files per model** (requirements A12, G7): store the layout files for 2.9" and 1.54" in NVS, check and compile each one for its model when it is uploaded ([protokoll.md](protokoll.md) part 3), and draw the screens of that model's tags with it (`esl_render.c`); the file never goes to the tags. Done in `esl_layout` / `esl_layout_compile`.
 8. **Model per tag** (requirements A13, T18): store the model the tag reports in POLL, and validate the layout name and the number of fields against that model's file.
 

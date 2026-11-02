@@ -64,7 +64,6 @@ PAGE = """<!doctype html>
   <header class="top">
     <h1>OpenESL</h1>
     <nav class="tabs">{tabs}
-      <a href="/">Status</a>
       <a href="/setup">WiFi and token</a>
       <a href="https://mathiasbk.github.io/openESL/">{more}</a>
     </nav>

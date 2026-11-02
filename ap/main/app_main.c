@@ -112,9 +112,6 @@ void app_main(void)
     api.tx_power = radio_tx_power();
     api.channel_settable = true; /* radio.c and radio_net.c move it (esl_store_channel_step) */
 #endif
-#if CONFIG_ESL_WEB_DASHBOARD
-    api.dashboard = true;
-#endif
     /* A pointer per model; each stored file takes its JSON and its compiled size from the heap. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)

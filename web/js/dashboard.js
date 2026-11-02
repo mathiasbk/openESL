@@ -1531,6 +1531,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
-  // The AP's own page with a remembered token: connect at once
+  // The AP's own page with a remembered token: connect at once. Without one, say where it was chosen (#309)
   if (sameOrigin && $("dash-token").value) $("dash-connect").click();
+  else if (sameOrigin) msg("First time here? Enter the API token chosen when the AP was set up: in the Flash AP wizard, " +
+    "over USB, or on its WiFi and token page (linked at the top). The page keeps it in this browser.");
 }

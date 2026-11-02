@@ -63,7 +63,3 @@ Every AP board has the Settings page, on the AP's own dashboard and over USB. Th
 ## Health and webhook
 
 The "need attention" figure comes from the AP's health report. To get told about problems without keeping the dashboard open, see [Health and webhook](Health-and-webhook).
-
-## The plain status page
-
-`http://openesl.local/` is a simple page with every label and the layout files, which needs no token.
