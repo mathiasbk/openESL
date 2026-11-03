@@ -12,5 +12,5 @@
   "release": "openesl-ap-esp32c6",
   "status": "supported",
   "recommended": true,
-  "tags": 500
+  "tags": 400
 }

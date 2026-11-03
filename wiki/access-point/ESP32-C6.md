@@ -1,6 +1,6 @@
 # ESP32-C6
 
-**Status:** supported, on hardware since 2026-10-14. **Labels:** about 500. **Release file:** `openesl-ap-esp32c6-<version>.bin`
+**Status:** supported, on hardware since 2026-10-14. **Labels:** about 400. **Release file:** `openesl-ap-esp32c6-<version>.bin`
 
 The simple choice. One small board (the "ESP32-C6 Super Mini" with 4 MB flash) does both WiFi and the 802.15.4 radio to the labels, with the antenna on the board. It costs about 5 $.
 
@@ -13,7 +13,7 @@ The simple choice. One small board (the "ESP32-C6 Super Mini" with 4 MB flash) d
 
 ## Good to know
 
-- **Labels:** the C6 has 512 KB of RAM and no PSRAM, which limits it to about 500 labels next to WiFi (an estimate, not yet measured on hardware). When the table is full, the dashboard says so.
+- **Labels:** the C6 has 512 KB of RAM and no PSRAM, which limits it to about 400 labels next to WiFi (measured on hardware: one C6 with WiFi, the dashboard and Home Assistant was full at 416). When the table is full, the dashboard says so. Labels the AP already knows keep working; a new label waits until there is room. For more labels, use an [ESP32-S3 + ESP32-C6](ESP32-S3-and-C6) or a second AP on another radio channel.
 - **One radio, two jobs:** WiFi and the label radio take turns. An API reply can wait a little, and a label's poll can now and then be missed while WiFi is busy. The label just tries again.
 - **No weather by itself:** the C6 has no memory to spare for fetching the [weather](Weather); send it from Home Assistant instead.
 - **Flashing:** from the [web page](https://mathiasbk.github.io/openESL/#ap), the plain ESP32-C6 board. See [Flashing the AP](Flashing-the-access-point).
