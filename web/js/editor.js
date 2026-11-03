@@ -1322,6 +1322,9 @@ function moreMenu(e, btn, select, open) {
   const list = document.createElement("div");
   list.className = "menu-list";
   d.append(s, list);
+  d.addEventListener("toggle", () => {
+    if (d.open) requestAnimationFrame(() => placeMoreMenu(d));
+  });
   const row = (label) => {
     const r = document.createElement("div");
     r.className = "row";
@@ -1462,6 +1465,27 @@ function moreMenu(e, btn, select, open) {
 }
 
 const narrow = matchMedia("(max-width: 1000px)");
+narrow.addEventListener("change", placeBar);
+
+// Keep the More list inside the scrollable canvas. Its anchor follows the selected element,
+// so a list that always opens to the right is clipped for elements near the tag's right edge.
+function placeMoreMenu(menu) {
+  if (!menu?.open) return;
+  const list = menu.querySelector(".menu-list");
+  if (narrow.matches) {
+    list.style.removeProperty("left");
+    list.style.removeProperty("right");
+    return;
+  }
+  const canvas = $("dz-canvas").getBoundingClientRect();
+  const anchor = menu.getBoundingClientRect();
+  list.style.left = "0px";
+  list.style.right = "auto";
+  const width = list.getBoundingClientRect().width;
+  const inset = 8;
+  const left = clamp(anchor.left, canvas.left + inset, Math.max(canvas.left + inset, canvas.right - width - inset));
+  list.style.left = Math.round(left - anchor.left) + "px";
+}
 
 // Under the selected box, or over it when there is no room under it in the view.
 function placeBar() {
@@ -1470,7 +1494,9 @@ function placeBar() {
   if (narrow.matches) {
     // On a narrow screen the bar sits at the bottom of the window (designer.css), More opens upwards
     Object.assign(bar.style, { top: "", left: "", visibility: "visible" });
-    bar.querySelector("details.menu")?.classList.add("up");
+    const menu = bar.querySelector("details.menu");
+    menu?.classList.add("up");
+    placeMoreMenu(menu);
     return;
   }
   const box = document.querySelector("#overlay .box.sel");
@@ -1488,7 +1514,9 @@ function placeBar() {
   const left = clamp(b.left - h.left + host.scrollLeft, 8, Math.max(8, host.scrollWidth - bar.offsetWidth - 8));
   Object.assign(bar.style, { top: top + "px", left: left + "px", visibility: "visible" });
   // The More list opens upwards when the bar is in the lower half of the view
-  bar.querySelector("details.menu")?.classList.toggle("up", b.top + b.height / 2 > (h.top + Math.min(h.bottom, innerHeight)) / 2);
+  const menu = bar.querySelector("details.menu");
+  menu?.classList.toggle("up", b.top + b.height / 2 > (h.top + Math.min(h.bottom, innerHeight)) / 2);
+  placeMoreMenu(menu);
 }
 
 function refreshJson() {
