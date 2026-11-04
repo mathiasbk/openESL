@@ -1,23 +1,10 @@
 #!/bin/bash
-# Installs the toolchains CI uses into ~/.cache/openesl (Linux x86-64, WSL included), so
-# tools/check.py can build and test everything on this machine. Safe to run again: what is
-# there already is kept. The versions are the ones in .github/workflows/.
-#
-#   SDCC 4.5.0          tag firmware (tag/tools/build.py: another version gives different code)
-#   Emscripten 3.1.74   the web page's renderer (web/build.py)
-#   Node 22             web tests, only when no node 22 or newer is on PATH
-#   zxing-cpp, pillow, pyyaml   host tests (barcode read-back) and the API spec check
-#
-# ESP-IDF v5.5.5 is not installed here: tools/check.py uses idf.py when it is on PATH
-# (ESP-IDF's export.sh / export.ps1), otherwise the espressif/idf:v5.5.5 Docker image.
-#
-# Afterwards: source ~/.cache/openesl/env.sh, or just run tools/check.py (it looks there).
 set -euo pipefail
 
 DIR="${OPENESL_TOOLS:-$HOME/.cache/openesl}"
 SDCC_VERSION=4.5.0
 EMSCRIPTEN_VERSION=3.1.74
-EMSCRIPTEN_HASH=c2655005234810c7c42e02a18e4696554abe0352   # emscripten-releases-tags.json in emsdk
+EMSCRIPTEN_HASH=c2655005234810c7c42e02a18e4696554abe0352
 NODE_VERSION=22.22.0
 
 mkdir -p "$DIR"
@@ -32,7 +19,6 @@ if [ ! -x "sdcc-$SDCC_VERSION/bin/sdcc" ]; then
   mv "sdcc-$SDCC_VERSION.tmp" "sdcc-$SDCC_VERSION" && rm sdcc.tar.bz2
 fi
 
-# The prebuilt Emscripten that emsdk would install, without emsdk itself
 EM="emscripten-$EMSCRIPTEN_VERSION"
 if [ ! -x "$EM/install/emscripten/emcc" ]; then
   echo "Installing Emscripten $EMSCRIPTEN_VERSION"
@@ -56,23 +42,28 @@ if ! command -v node > /dev/null || [ "$(node -p 'process.versions.node.split(".
 fi
 NODE="$( [ -n "$NODE_BIN" ] && echo "$NODE_BIN/node" || command -v node )"
 
-cat > "$EM/em_config" << EOF
+cat > "$EM/em_config" << EOM
 LLVM_ROOT = '$DIR/$EM/install/bin'
 BINARYEN_ROOT = '$DIR/$EM/install'
 NODE_JS = '$NODE'
-EOF
+EOM
 
-PY_PACKAGES="zxing-cpp==3.1.1 pillow pyyaml"
-if ! python3 -c "import zxingcpp, PIL, yaml" 2> /dev/null; then
-  echo "Installing $PY_PACKAGES"
-  # --user, except in a virtual environment (such as ESP-IDF's, in the Docker image)
-  USER_FLAG=$(python3 -c 'import sys; print("" if sys.prefix != sys.base_prefix else "--user")')
-  python3 -m pip install $USER_FLAG --quiet $PY_PACKAGES 2> /dev/null ||
-    python3 -m pip install $USER_FLAG --quiet --break-system-packages $PY_PACKAGES
+# Logic to find requirements-dev.txt: check same dir as script, then ../../
+if [ -f "$(dirname "$0")/requirements-dev.txt" ]; then
+  REQ_FILE="$(dirname "$0")/requirements-dev.txt"
+else
+  REQ_FILE="$(dirname "$0")/../../requirements-dev.txt"
 fi
 
-cat > env.sh << EOF
+if ! python3 -c "import zxingcpp, PIL, yaml, textual, serial, rich" 2> /dev/null; then
+  echo "Installing Python dependencies from $REQ_FILE"
+  USER_FLAG=$(python3 -c 'import sys; print("" if sys.prefix != sys.base_prefix else "--user")')
+  python3 -m pip install $USER_FLAG --quiet -r "$REQ_FILE" 2> /dev/null ||
+    python3 -m pip install $USER_FLAG --quiet --break-system-packages -r "$REQ_FILE"
+fi
+
+cat > env.sh << EOM
 export PATH="$DIR/sdcc-$SDCC_VERSION/bin:$DIR/$EM/install/emscripten${NODE_BIN:+:$NODE_BIN}:\$PATH"
 export EM_CONFIG="$DIR/$EM/em_config"
-EOF
+EOM
 echo "Tools are in $DIR (source $DIR/env.sh to use them in this shell)"
