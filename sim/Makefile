@@ -4,6 +4,7 @@
 #                   (screens as PNG in build/<model>/screens/)
 #   make SAN=1      the same with AddressSanitizer + UndefinedBehaviorSanitizer
 #   make serial     esl_client.py against "esl-sim serve" over a pseudo-terminal
+#   make upgrade    tag firmware over the air from each release to today's, and back (upgrade.py)
 #   make clean
 
 CC      ?= cc
@@ -31,13 +32,13 @@ TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/dra
             $(TAG)/src/ota.c $(TAG)/src/image.c $(TAG)/boot/boot_core.c $(wildcard $(TAG)/fonts/font_*.c) $(TAG)/test/fake_epd.c $(TAG)/test/fake_epd_image.c \
             $(TAG)/test/fake_xflash.c sim_tag.c
 # esl_screen.c (the optional LCD on the C6) is left out: it shares the tag's font code
-AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c e2e.c main.c png.c
+AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c e2e.c upgrade.c main.c png.c
 DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(CORE)/*.h $(ROOT)/shared/*.h) \
             $(TAG_SRCS) $(AP_SRCS) $(ROOT)/VERSION
 
 BINS   := $(MODELS:%=build/%/esl-sim)
 
-.PHONY: all test serial clean
+.PHONY: all test serial upgrade clean
 all: test
 
 # Each side is compiled with its own flags, then linked into one program
@@ -52,6 +53,10 @@ test: $(BINS)
 
 serial: build/154/esl-sim
 	python3 test_serial.py
+
+# Tag firmware over the air from each release (ap/test/compat/) to today's, and back
+upgrade: $(BINS)
+	SAN=$(SAN) python3 upgrade.py
 
 clean:
 	rm -rf build

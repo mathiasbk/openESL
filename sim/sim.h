@@ -124,6 +124,16 @@ bool sim_tag_app_is(const uint8_t *img, size_t len);
 bool sim_tag_ota_confirmed(void);
 /* The screen as the tag drew it last, in the image format of esl_render.h. Returns the size. */
 size_t sim_tag_screen(uint8_t *out, size_t cap);
+/* The upgrade test (esl-sim-tag, upgrade.c). What a restart keeps (settings record, SPI
+   flash, code flash, e-paper image) and the simulated time, to a file and back; load
+   before sim_tag_boot(). */
+bool sim_tag_state_save(const char *path);
+/* The settings the firmware works with (app.cfg as bytes, its layout that of the firmware) */
+size_t sim_tag_cfg(uint8_t *out, size_t cap);
+bool sim_tag_state_load(const char *path);
+/* Called after the bootloader has run for a firmware update, before the application
+   starts again (NULL: it starts here) */
+extern void (*sim_on_restart)(void);
 /* The screen as PNG (2x, black/white; red as grey). The tag is drawn in the orientation of the layouts. */
 bool sim_tag_save_png(const char *path);
 /* Called after every wake-up with a new drawing (NULL = none). */

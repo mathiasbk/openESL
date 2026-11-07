@@ -15,6 +15,8 @@ Steps:
   wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
   tag       tag host tests (tag/tools/build.py test), for every model
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
+  upgrade   tag firmware over the air from each release to today's and back, with sanitizers
+            (make -C sim upgrade; needs the release tags: git fetch --tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client, power-budget and release notes tests (the upgrade instructions for VERSION)
@@ -32,6 +34,7 @@ or WSL, and this script finds them there. Exit code: 1 when a step failed, other
 import argparse
 import glob
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -127,6 +130,17 @@ def step_sim():
     need_san()
     run(["make", "-C", "sim", "SAN=1"])
     run(["make", "-C", "sim", "serial"])
+
+
+def step_upgrade():
+    need_san()
+    need("git", "git")
+    releases = [f[:-4] for f in os.listdir(os.path.join(ROOT, "ap", "test", "compat")) if re.match(r"v[\d.]+\.txt$", f)]
+    have = subprocess.run(["git", "-C", ROOT, "tag", "--list", "v*"], capture_output=True, text=True).stdout.split()
+    missing = [r for r in releases if r not in have]
+    if missing:
+        raise Skip("release tags missing here: %s (git fetch --tags)" % ", ".join(sorted(missing)))
+    run(["make", "-C", "sim", "upgrade", "SAN=1"])
 
 
 def step_tag_fw():
@@ -229,6 +243,7 @@ STEPS = {
     "wiki": (step_wiki, "Python"),
     "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
+    "upgrade": (step_upgrade, "make, gcc/clang with sanitizers (not native Windows), git with the release tags"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
