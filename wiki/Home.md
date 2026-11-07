@@ -50,6 +50,8 @@ Your software sends text, the access point (AP) draws the screen from a layout y
 2. [Getting started](Getting-started): from nothing to the first label, on one page.
 3. [Sending content](Sending-content): put text and prices on the labels from your own software.
 
+**Already using OpenEPaperLink?** [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink) explains what is different, which labels work and how to move them over.
+
 **No hardware yet?** The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, and the [label designer](https://mathiasbk.github.io/openESL/#design) works in any browser.
 
 **Want to help?** Photos of a label we do not support yet, a report from a board marked experimental, a new template or a clearer sentence here are all welcome. See [Contributing](Contributing).
@@ -57,7 +59,7 @@ Your software sends text, the access point (AP) draws the screen from a layout y
 ## The guide
 
 **Getting started**
-[How it works](How-it-works) · [Glossary](Glossary) · [Getting started](Getting-started) · [What you need](What-you-need) · [Roadmap](Roadmap)
+[How it works](How-it-works) · [Glossary](Glossary) · [Getting started](Getting-started) · [What you need](What-you-need) · [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink) · [Roadmap](Roadmap)
 
 **Access point**
 [Choosing a board](Access-point-boards) · [ESP32-C6](ESP32-C6) · [ESP32-C6 with screen](ESP32-C6-with-screen) · [ESP32-C5](ESP32-C5) · [ESP32-S3 + C6](ESP32-S3-and-C6) · [ESP32-S3 + wireless C6](ESP32-S3-with-wireless-C6) · [Flashing the AP](Flashing-the-access-point) · [WiFi and API token](WiFi-and-API-token) · [AP settings](Access-point-settings)

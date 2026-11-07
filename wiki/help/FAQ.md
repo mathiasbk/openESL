@@ -14,6 +14,8 @@ Problems and fixes are on [Troubleshooting](Troubleshooting).
 
 **Do I need to know programming?** No. Flashing, designing layouts and sending content can all be done from the web page and the AP's dashboard, and [Home Assistant](Home-Assistant) has an integration. The HTTP API is there when you want to connect your own software.
 
+**I use OpenEPaperLink. Can I switch?** Yes, label by label, with both running side by side. The labels are flashed once in the jig, and the original firmware is backed up first. See [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink).
+
 **Can I use labels from other makers?** Not yet, but the project is built to grow there. See [Adding hardware](Adding-hardware).
 
 
