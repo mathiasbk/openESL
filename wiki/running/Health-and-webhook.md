@@ -44,3 +44,5 @@ Plain HTTP, no retries: a failed post is logged and the change goes out with the
 ## Long-term test
 
 `esl_client.py log week.csv` writes a row per label per minute until you stop it, and `esl_client.py report week.csv` sums it up: outages, AP restarts, the longest time each label went without a poll, and the lowest battery.
+
+`esl_client.py battery week.csv --html battery.html` reads the same log for the battery: when each label's reading first dropped a step, how fast it falls and how many days are left at that rate, plus a rough charge estimate from the power budget. The 2.9" only reports 100 mV steps below 2.6 V, so a fresh battery shows 2600 for most of its life; the 1.54" cannot measure its battery and gets the charge estimate only. The page has a chart per label.
