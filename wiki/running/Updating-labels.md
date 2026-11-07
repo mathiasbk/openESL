@@ -7,8 +7,10 @@ Labels get new firmware over the radio, through the AP. The AP holds one image p
 Give new firmware to **one label of each model first**:
 
 1. On the [Dashboard](Dashboard), tick one label and send it the firmware (or `PUT /api/tag-firmware?to=<MAC>`).
-2. Watch it until it has installed and checked in for at least 10 polls. Its start screen shows the new version.
+2. Watch it until it has installed and checked in for at least 10 polls. Its start screen shows the new version, and the Firmware card on the dashboard says "Tried: runs on 1 label" with the polls so far, then "safe for the rest" once it has polled 10 times without problems.
 3. Give it to the rest of that model: `POST /api/tag-firmware/{model}?to=all`, or tick them on the dashboard.
+
+The dashboard helps with this: when firmware is about to go to several labels of a model and no label has polled 10 times on that version without problems, it asks first, with **Send to one first** as the default. That picks one of the labels (no problems, best signal) and sends the firmware to it alone. It asks again before more labels get a version that labels have had problems with (drawing failed, silent, content cannot be shown, or the label rejected the image). The dashboard counts the polls it sees itself, in that browser, from the first time it sees a label on the version, so a browser that was not open during the update counts from when it is opened.
 
 A label running older firmware than the web page has gets a small arrow in its firmware column on the dashboard.
 

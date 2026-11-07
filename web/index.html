@@ -589,7 +589,7 @@
         <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>
         <details class="help">
           <summary>How updates work</summary>
-          <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+          <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). New tag firmware should go to one tag of each model first, and to the rest once that tag has polled 10 times without problems: the table says how far each version is tried, and the page asks before it sends firmware to several tags of a model that no tag has run that long (it counts the polls it sees itself, in this browser, from the first time it sees a tag on the version). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         </details>
         <dl id="dash-ota" class="facts"></dl>
         <div class="table-wrap">
@@ -608,6 +608,16 @@
         <progress id="fw-progress" max="1" value="0" hidden></progress>
         <p id="fw-msg" class="hint" role="status"></p>
       </details>
+      <dialog id="ro-dlg" class="dlg" aria-labelledby="ro-h">
+        <h3 id="ro-h">Try it on one tag first</h3>
+        <p id="ro-text"></p>
+        <div class="dlg-buttons">
+          <button type="button" id="ro-cancel">Cancel</button>
+          <span class="sep"></span>
+          <button type="button" id="ro-all"></button>
+          <button type="button" id="ro-one" class="primary" autofocus></button>
+        </div>
+      </dialog>
       </div>
       <section id="dash-settings" class="card wide set-page" hidden>
         <nav class="set-nav" role="tablist" aria-label="Settings">

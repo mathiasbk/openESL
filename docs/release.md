@@ -46,7 +46,7 @@ A part whose firmware did not change in this release ("unchanged" in the notes) 
 New tag firmware goes to one tag of each model first, not to all at once:
 
 1. Upload the image for one tag: `esl-client tag-ota <file> --to <MAC>`, pick the tag in the dashboard, or `PUT /api/tag-firmware?to=<MAC>`.
-2. Watch it until it has installed and checked in for at least 10 polls (`esl-client tag-ota` shows how far it is).
+2. Watch it until it has installed and checked in for at least 10 polls (`esl-client tag-ota` shows how far it is, and the dashboard's Firmware card says "safe for the rest" once a tag has polled 10 times on it without problems; the dashboard asks before it sends a version no tag has run that long to several tags).
 3. Give it to the rest: `esl-client tag-ota --model <model> --all` (`POST /api/tag-firmware/{model}?to=all`). With many tags, a few more first: `esl-client tag-ota --to <MAC>,<MAC>` (`POST /api/tag-firmware/{model}?to=<MAC>`) adds tags, up to 16.
 
 Tags that are being used for a test of other firmware are kept out until the test is done: give the image to chosen MACs instead of `all`.
