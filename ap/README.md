@@ -346,7 +346,7 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 ## Notes
 
-These are notes from development. Some may be out of date; the code and the tests are the reference.
+These are notes from development. Some may be out of date; the code and the tests are the reference. The original plan for the AP, with notes on what came of it, is in [docs/history/ap-firmware-plan.md](../docs/history/ap-firmware-plan.md).
 
 **Status (October 2026).** The core, the HTTP API (including layout files, per-tag settings and the setup form), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
 
@@ -355,7 +355,7 @@ These are notes from development. Some may be out of date; the code and the test
 - **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5, 1.54" jig tag):** the phase 5 test matrix, see "Results on hardware" in [docs/history/work-plan.md](../docs/history/work-plan.md). CONFIG and per-tag settings are not tested on hardware yet.
 - **WiFi on the jig's C6 Super Mini is weak:** it was not dead but turned off by 802.15.4 until coexistence was switched on (v0.3.1). The board's chip antenna still hears the router at only -75 to -85 dBm where a PC hears -65, so place it near the router, on a USB extension cable away from the computer's USB 3 ports.
 - **Battery in POLL:** the 1.54" tag reports 0 mV (= unknown), since its panel does not answer the voltage-detector reads; see issue #4.
-- **Another model** is described in `shared/models.json` (see the wiki page "Adding hardware").
+- **Another model** is described in `shared/models.json` (see [Adding hardware](../wiki/developers/Adding-hardware.md) in the wiki).
 - **Validation per model (A13):** layout files are checked against the model's screen and what the AP can draw, and named content against the tag's model. The text limit (256 bytes with the length bytes, 255 in one field) is the same for both sizes; there is no other per-field or per-line length check (the AP shrinks and truncates text that does not fit).
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
 - **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`, the captive portal) is host-tested and builds, but not tried on hardware: the jig's C6 has dead WiFi.
