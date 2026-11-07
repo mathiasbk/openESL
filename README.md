@@ -39,6 +39,31 @@
 - **A simulator** that runs the label firmware and the AP together on a PC, so you can try the API without any hardware.
 - **Written from scratch** and released under the **[MIT licence](LICENSE)**.
 
+## What you can make
+
+Every picture here is the screen of a simulated tag: the access point drew it and the tag firmware showed it, with the same code that runs on real hardware ([tools/gallery/render_gallery.py](tools/gallery/render_gallery.py) renders them). Start from one of the [templates](templates/README.md), draw your own layout with text, fonts, boxes, lines, icons, barcodes and QR codes in the [label designer](https://mathiasbk.github.io/openESL/#design), or send a photo and let the AP dither it. All the text is made up.
+
+<table>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/weather.png" alt="Weather: a sun-and-cloud symbol, 7 degrees, partly cloudy, the day's low and high, wind and rain" width="340"><br><sub>Weather from MET Norway</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/photo.png" alt="A photo of the access point in its case, dithered to black and white on a 1.54-inch tag" width="156"><br><sub>A dithered photo</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/freeform.png" alt="A layout of its own: a rounded box with a rain symbol and 12 degrees, a day header, two times in rounded boxes and slanted lines" width="340"><br><sub>Your own layout</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/guest-wifi.png" alt="Guest WiFi: the network name, the password and a QR code to join" width="156"><br><sub>Guest WiFi with QR</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/calendar.png" alt="Calendar: the date on the left and the next two events with their times" width="340"><br><sub>Calendar</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/3d-printer.png" alt="A 3D print at 70 percent, time left and a progress bar" width="156"><br><sub>3D printer</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/shelf-red.png" alt="A shelf label with the product name on a red bar and a big price" width="340"><br><sub>Red, on the 2.9" black/white/red</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/opening-hours.png" alt="Opening hours for weekdays, Saturday and Sunday" width="156"><br><sub>Opening hours</sub></td>
+  </tr>
+</table>
+
+More, with barcodes and signs, on the [web page](https://mathiasbk.github.io/openESL/).
+
 ## What you need
 
 - One of the [supported labels](#supported-tags).
