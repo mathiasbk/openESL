@@ -26,7 +26,7 @@ A step whose tools are missing is skipped and says what it needs.
 ## Flashing what you built
 
 - **AP:** `idf.py -B build-<board> -p /dev/ttyACM0 flash monitor` keeps the AP's data, like the web page. See [Flashing the AP](Flashing-the-access-point).
-- **Label:** with the jig and flash-tui, or over the air with `esl_client.py tag-ota tag/build/fw/openesl-ota.bin`.
+- **Label:** with the jig and flash-tui, or over the air with `esl_client.py tag-ota tag/build/fw/openesl-ota.bin --to <MAC>`.
 
 ## Building with your own settings
 

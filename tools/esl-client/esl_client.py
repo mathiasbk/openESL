@@ -18,8 +18,9 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
   esl_client.py ota build/esl_ap.bin    # new AP firmware; "ota" alone shows the slots
-  esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin   # new tag firmware, sent over the radio
+  esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin --to 00000123456789A8   # new tag firmware to one tag first
   esl_client.py tag-ota                 # the tag firmware on the AP and how far the tags are
+  esl_client.py tag-ota --model 1.54 --all   # then to every 1.54 tag
   esl_client.py log week.csv --every 60 # long-term test: one row per tag per minute
   esl_client.py report week.csv         # gaps, battery, problems and AP restarts from that log
   esl_client.py --serial /dev/ttyACM0 status
@@ -52,6 +53,8 @@ BODY_MAX_TOKENS = 1024
 BODY_MAX_BYTES = 24576
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
 TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: older AP firmware holds a part in RAM in one block
+TAGFW_TO_MAX = 16       # tags a tag firmware image can be offered to one by one (ESL_TAGFW_CHOSEN in esl_tagfw.h)
+TAGFW_TO_FROM = (0, 4, 4)  # the first AP firmware that offers tag firmware to chosen tags (to=, #88)
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -252,14 +255,23 @@ class Client:
     def tag_firmware(self):
         return self._request("GET", "/api/tag-firmware")
 
-    def put_tag_firmware(self, data, progress=None):
-        """Uploads a tag firmware file (openesl-tag-<model>-<version>-ota.bin) in parts of TAGFW_PART bytes.
+    def tag_firmware_model(self, model):
+        return self._request("GET", f"/api/tag-firmware/{model}")
+
+    def choose_tag_firmware(self, model, to):
+        """Offers the model's image to one more tag (its MAC), or to all of them ("all")."""
+        return self._request("POST", f"/api/tag-firmware/{model}?to={to}")
+
+    def put_tag_firmware(self, data, progress=None, to=None):
+        """Uploads a tag firmware file (openesl-tag-<model>-<version>-ota.bin) in parts of TAGFW_PART bytes,
+        for one tag when to is its MAC, otherwise for every tag of the model.
         Returns the AP's reply to the last part: the image it now offers."""
         total = len(data)
         reply = None
         for off in range(0, total, TAGFW_PART):
             part = data[off:off + TAGFW_PART]
-            status, payload = self.send("PUT", f"/api/tag-firmware?offset={off}&total={total}", part,
+            status, payload = self.send("PUT", f"/api/tag-firmware?offset={off}&total={total}"
+                                        + (f"&to={to}" if to else ""), part,
                                         content_type="application/octet-stream")
             if status >= 400:
                 raise ApiError(status, payload.decode("utf-8", "replace"))
@@ -790,14 +802,157 @@ def print_ota(o):
                   + ("" if r.get("ota") else "; it takes new firmware only over USB"))
 
 
+def tag_firmware_line(i):
+    """One image from GET /api/tag-firmware: who it is for and how far its tags are, then, for an image
+    that went to chosen tags first, what to do next."""
+    if not i.get("version"):
+        return f"{i['model']:>5}: no firmware"
+    t = i.get("tags", {})
+    to = i.get("to", "all")
+    who = "all tags" if to == "all" else \
+        f"{len(to)} chosen tag{'s' if len(to) != 1 else ''} ({', '.join(to)})"
+    line = (f"{i['model']:>5}: {i['version']} ({i['size']} bytes, CRC {i['crc']}) for {who}: {t.get('updated', 0)} updated, "
+            f"{t.get('pending', 0)} pending, {t.get('failed', 0)} failed, {t.get('no_ota', 0)} without OTA")
+    if to != "all":
+        line += f", {t.get('not_chosen', 0)} not chosen"
+        if t.get("updated", 0) and not t.get("pending", 0) and not t.get("failed", 0):
+            line += (f"\n       once it has polled about 10 times without problems: "
+                     f"tag-ota --model {i['model']} --all")
+    return line
+
+
 def print_tag_firmware(f):
     for i in f.get("images", []):
-        if not i.get("version"):
-            print(f"{i['model']:>5}: no firmware")
-            continue
-        t = i.get("tags", {})
-        print(f"{i['model']:>5}: {i['version']} ({i['size']} bytes, CRC {i['crc']}), tags: {t.get('updated', 0)} updated, "
-              f"{t.get('pending', 0)} pending, {t.get('failed', 0)} failed, {t.get('no_ota', 0)} without OTA")
+        print(tag_firmware_line(i))
+
+
+def parse_macs(s):
+    """--to: one MAC or several with commas, at most TAGFW_TO_MAX, each once."""
+    macs = list(dict.fromkeys(norm_mac(m.strip()) for m in s.split(",") if m.strip()))
+    if not macs:
+        raise argparse.ArgumentTypeError("give a tag's MAC (16 hex digits), or several with commas")
+    if len(macs) > TAGFW_TO_MAX:
+        raise argparse.ArgumentTypeError(f"at most {TAGFW_TO_MAX} tags one by one; for more, --all")
+    return macs
+
+
+def tag_models(cli, macs):
+    """{mac: model} for tags the AP knows, and an error line for each it does not."""
+    models, errors = {}, []
+    for mac in macs:
+        try:
+            models[mac] = cli.tag(mac).get("model")
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            errors.append(f"error: the AP does not know {mac} (it has not heard from it)")
+    return models, errors
+
+
+def fw_tuple(v):
+    """(major, minor, patch) from a version such as "0.9.2" or "0.9.95-dev", None when it is not one."""
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(v or ""))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def tag_ota(cli, args):
+    """tag-ota with a file, --to or --all. Firmware goes to the tags named with --to, or to the whole
+    model only with --all: a tag that does not start again must go back in the jig, so a new version
+    goes to one tag of a model first (docs/release.md). Returns the exit code."""
+    err = lambda line: print(line, file=sys.stderr)  # noqa: E731
+    data = model = None
+    if args.file is not None:
+        with open(args.file, "rb") as f:
+            data = f.read()
+        hdr = tag_firmware_header(data)
+        if not hdr:
+            err(f"error: {args.file} is not a tag firmware file (use openesl-ota.bin or openesl-tag-<model>-<version>-ota.bin, "
+                f"not openesl.bin, which is for the flasher)")
+            return 2
+        model = hdr[0]
+        if args.model and args.model != model:
+            err(f"error: {args.file} is {model} firmware, not {args.model}")
+            return 2
+        if not args.to and not args.all:
+            err(f"error: say which {model} tags get it: --to MAC (one tag first; once it has polled about 10 times "
+                f"without problems, tag-ota --model {model} --all), or --all for every {model} tag at once")
+            return 2
+    else:
+        model = args.model
+    if args.to:
+        models, errors = tag_models(cli, args.to)
+        for mac, m in models.items():
+            if model is None:
+                model = m
+            if m and m != model:
+                errors.append(f"error: {mac} is a {m} tag, not {model}")
+        for mac, m in models.items():
+            if not m:
+                err(f"warning: the AP does not know the model of {mac} yet: it gets the firmware only if it is a "
+                    f"{model} tag")
+        # an AP from before "to" would offer the image to every tag of the model: refuse before sending anything
+        ap_fw = (cli.tags().get("ap") or {}).get("fw")
+        if (v := fw_tuple(ap_fw)) is not None and v < TAGFW_TO_FROM:
+            errors.append(f"error: the AP runs {ap_fw}, which cannot offer tag firmware to chosen tags (from "
+                          f"{'.'.join(map(str, TAGFW_TO_FROM))}): update the AP first")
+        for line in errors:
+            err(line)
+        if errors:
+            return 2
+    if model is None:
+        err("error: say which model: --model MODEL")
+        return 2
+
+    if data is not None:
+        first = args.to[0] if args.to else None
+        print(f"sending {model} firmware {hdr[1]} ({len(data)} bytes) to "
+            f"{'every ' + model + ' tag' if args.all else first} ...", flush=True)
+        r = cli.put_tag_firmware(data, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True),
+                                 to=first)
+        print(f"the AP offers {r.get('model')} firmware {r.get('version')}; "
+            f"each tag takes it at its next poll (\"tag-ota\" shows how far they are)")
+        rest = args.to[1:] if args.to else []
+    else:
+        try:
+            img = cli.tag_firmware_model(model)
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            err(f"error: the AP has no {model} firmware: send the file first (tag-ota FILE --to MAC)")
+            return 2
+        if args.all and img.get("to") != "all" and not img.get("tags", {}).get("updated", 0) and not args.force:
+            err(f"error: no {model} tag runs {img.get('version')} yet: wait until a chosen tag has it and has polled "
+                f"about 10 times, or give --force")
+            return 2
+        if img.get("to", "all") == "all":
+            print(f"{model} firmware {img.get('version')} is offered to every {model} tag already")
+            print(tag_firmware_line(img))
+            return 0
+        rest = ["all"] if args.all else args.to
+    try:
+        for to in rest:
+            cli.choose_tag_firmware(model, to)
+        img = cli.tag_firmware_model(model)
+        # an AP that does not know "to" offers it to all (and older ones leave "to" out)
+        to_all = args.to and img.get("to", "all") == "all"
+    except (ApiError, ConnectionError) as e:
+        if not (args.to and data is not None):
+            raise
+        to_all, why = True, e
+    else:
+        why = None
+    if to_all:
+        # the upload went to more tags than chosen: take it back at once
+        try:
+            cli.delete_tag_firmware(model)
+            stopped = "so the update is stopped again"
+        except (ApiError, ConnectionError) as e:
+            stopped = f"and stopping it failed too ({e}): run tag-ota --delete {model} now"
+        err(f"error: the AP may offer it to every {model} tag, not the ones chosen{f' ({why})' if why else ''}, "
+            f"{stopped}; update the AP first")
+        return 1
+    print(tag_firmware_line(img))
+    return 0
 
 
 def tag_firmware_header(data):
@@ -1191,14 +1346,14 @@ def tag_firmware_note(old, new):
     model, ver, to = old.get("model"), old.get("version"), old.get("to", "all")
     waiting = old.get("waiting")
     left = f" ({waiting} not updated yet)" if waiting else ""
-    send = (f"send it again with tag-ota and the release's openesl-tag-{model}-v<release>-ota.bin "
-            f"whose firmware is {ver} (tag-ota shows the version before sending)")
+    file = f"openesl-tag-{model}-v<release>-ota.bin"
+    which = f"from the release whose {model} firmware is {ver} (tag-ota shows the version before sending)"
     if isinstance(to, list):
         n = len(to)
         return (f"note: the old AP offered {model} tag firmware {ver} to {n} chosen tag{'s' if n != 1 else ''}{left}; "
-                f"upload it on the dashboard and tick the same tags, or PUT /api/tag-firmware?to=<MAC>: "
-                f"tag-ota sends it to every {model} tag")
-    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; {send}"
+                f"send it again to the same tags with tag-ota {file} --to {','.join(to)}, {which}")
+    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; " \
+           f"send it again with tag-ota {file} --all, {which}"
 
 
 def restore_notes(cli, b):
@@ -1461,7 +1616,14 @@ def main(argv=None):
     s = sub.add_parser("tag-ota", help="send new tag firmware to the AP, which updates the tags over the radio; "
                                        "alone, show what the AP has and how far the tags are")
     s.add_argument("file", nargs="?", help="openesl-tag-<model>-<version>-ota.bin from a release, or tag/build/fw/openesl-ota.bin")
-    s.add_argument("--delete", metavar="MODEL", help="stop updating tags of this model (%s)" % " or ".join(MODELS))
+    who = s.add_mutually_exclusive_group()
+    who.add_argument("--to", type=parse_macs, metavar="MAC[,MAC]",
+                     help="only these tags (at most %d); without a file: offer the AP's image to them too" % TAGFW_TO_MAX)
+    who.add_argument("--all", action="store_true", help="every tag of the model; without a file, with --model: "
+                                                        "the image the AP has, once a chosen tag runs it")
+    who.add_argument("--delete", metavar="MODEL", help="stop updating tags of this model (%s)" % " or ".join(MODELS))
+    s.add_argument("--model", choices=MODELS, help="the model, for --all without a file")
+    s.add_argument("--force", action="store_true", help="with --all without a file: although no tag runs the image yet")
 
     s = sub.add_parser("log", help="long-term test: append a row per tag to a CSV file every --every seconds, until Ctrl-C")
     s.add_argument("file", help="the CSV log (created with a header if new, otherwise appended to)")
@@ -1602,21 +1764,10 @@ def main(argv=None):
             if args.delete:
                 cli.delete_tag_firmware(args.delete)
                 print(f"no more firmware updates for {args.delete} tags")
-            elif args.file is None:
+            elif args.file is None and not args.to and not args.all:
                 print_tag_firmware(cli.tag_firmware())
             else:
-                with open(args.file, "rb") as f:
-                    data = f.read()
-                hdr = tag_firmware_header(data)
-                if not hdr:
-                    print(f"error: {args.file} is not a tag firmware file (use openesl-ota.bin or openesl-tag-<model>-<version>-ota.bin, "
-                          f"not openesl.bin, which is for the flasher)", file=sys.stderr)
-                    return 2
-                print(f"sending {hdr[0]} firmware {hdr[1]} ({len(data)} bytes) ...", flush=True)
-                r = cli.put_tag_firmware(data, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r",
-                                                                        flush=True))
-                print(f"the AP offers {r.get('model')} firmware {r.get('version')} to the tags; "
-                      f"each takes it at its next poll (\"tag-ota\" shows how far they are)")
+                return tag_ota(cli, args)
         elif args.cmd == "backup":
             b = backup(cli, warn=lambda line: print(line, file=sys.stderr))
             text = json.dumps(b, indent=1, ensure_ascii=False)
