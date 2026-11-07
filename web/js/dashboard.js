@@ -163,6 +163,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const c = client;
       // only the tags that changed since the last read, the whole list from an AP without since
       const reply = await c.call("GET", "/api/tags?since=" + encodeURIComponent(since));
+      const replyAt = Date.now(); // seen_s_ago is from now, not after the calls below
       const health = await optional("/api/health");
       const wifi = await optional("/api/wifi");
       const ota = await optional("/api/ota");
@@ -170,7 +171,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
       if (c !== client) return;
-      const list = mergeTagList(last?.list, reply, seenAt);
+      const list = mergeTagList(last?.list, reply, seenAt, replyAt);
       since = reply.since || "0";
       last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
@@ -580,6 +581,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     try {
       while (screenQueue.length && client) {
         const { mac, key } = screenQueue.shift();
+        // a row the table no longer shows (filtered out, or the tag gone): asked again if it comes back
+        if (!$("dash-tags").querySelector(`tr[data-mac="${CSS.escape(mac)}"]`)) continue;
         const c = client;
         const old = screens.get(mac);
         let s;
