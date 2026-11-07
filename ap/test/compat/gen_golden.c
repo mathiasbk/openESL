@@ -9,9 +9,13 @@
  * same NVS and the same POLLs and checks it gets the same.
  *
  * Only API that has not changed since 0.8.2 is used; what came later is behind
- * HAS_NO_LINK (0.9.0: 14-byte POLL of older tags), HAS_LONG (0.9.0: long_poll_s and
- * long_after_min) and HAS_CHANNEL (0.9.0: the radio channel in NVS), which make_golden.py
- * sets from the release. */
+ * HAS_NO_LINK (0.9.0: 14-byte POLL of older tags) and HAS_LONG (0.9.0: long_poll_s and
+ * long_after_min), which make_golden.py sets from the release. The radio channel in NVS is
+ * not covered yet.
+ *
+ * Some tags get new content or settings once they have everything, and do not poll
+ * again until the AP has restarted, as a tag out of range during an update: their POLL
+ * after the restart is answered with CONFIG or IMG instead of IDLE. */
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,22 +158,26 @@ typedef struct {
     uint16_t fw;
     int kind; /* 0: today's tag, 1: 14-byte POLL (before 0.9.0), 2: 12-byte POLL, no images */
     const char *content, *config;
+    const char *later_content, *later_config; /* set after it has everything; it polls again only after the restart */
 } tag_spec_t;
 
 static const tag_spec_t specs[] = {
-    {0xC0FFEE01, ESL_MODEL_29, 600, 0, "{\"layout\":\"price\",\"fields\":[\"Milk 1 L\",\"24.90\",\"NOK 24.90/L\"],"
-                                       "\"price_highlight\":true}", "{\"poll_s\":120,\"lost_ap_s\":65535}"},
+    {0xC0FFEE01, ESL_MODEL_29, 600, 1, "{\"layout\":\"price\",\"fields\":[\"Milk 1 L\",\"24.90\",\"NOK 24.90/L\"],"
+                                       "\"price_highlight\":true}", "{\"poll_s\":120,\"lost_ap_s\":65535}",
+     NULL, "{\"poll_s\":180,\"lost_ap_s\":65535}"},
     {0xC0FFEE02, ESL_MODEL_154, 902, 0, "{\"layout\":\"text\",\"fields\":[\"Opening hours\",\"Mon-Fri 9-21\"],"
                                         "\"frame\":true}",
 #ifdef HAS_LONG
-     "{\"poll_s\":300,\"max_poll_s\":1800,\"long_poll_s\":3600,\"long_after_min\":60}"},
+     "{\"poll_s\":300,\"max_poll_s\":1800,\"long_poll_s\":3600,\"long_after_min\":60}",
 #else
-     "{\"poll_s\":300,\"max_poll_s\":1800}"},
+     "{\"poll_s\":300,\"max_poll_s\":1800}",
 #endif
+     "{\"layout\":\"text\",\"fields\":[\"Opening hours\",\"Mon-Sat 9-21\"],\"frame\":true}", NULL},
     {0xC0FFEE03, ESL_MODEL_29, 600, 1, "{\"layout\":\"shelf\",\"fields\":[\"Coffee\",\"59.90\",\"500 g\",\"Organic\"]}",
-     NULL},
-    {0xC0FFEE04, ESL_MODEL_29, 1, 2, "{\"layout\":\"text\",\"fields\":[\"Old tag\"]}", "{\"poll_s\":900}"},
-    {0xC0FFEE05, ESL_MODEL_154, 902, 0, NULL, NULL},
+     NULL, NULL, NULL},
+    {0xC0FFEE04, ESL_MODEL_29, 1, 2, "{\"layout\":\"text\",\"fields\":[\"Old tag\"]}", "{\"poll_s\":900}", NULL,
+     "{\"poll_s\":600}"},
+    {0xC0FFEE05, ESL_MODEL_154, 902, 0, NULL, NULL, NULL, NULL},
 };
 #define NTAGS (sizeof(specs) / sizeof(specs[0]))
 
@@ -229,6 +237,16 @@ int main(int argc, char **argv)
             fprintf(stderr, "tag %u never settled\n", i);
             return 1;
         }
+    }
+    /* new content or settings for tags that are away until the AP has restarted */
+    for (unsigned i = 0; i < NTAGS; i++) {
+        char uri[64];
+        snprintf(uri, sizeof(uri), "/api/tags/%016" PRIX64, specs[i].mac);
+        if (specs[i].later_content)
+            call("PUT", uri, specs[i].later_content, strlen(specs[i].later_content));
+        strcat(uri, "/config");
+        if (specs[i].later_config)
+            call("PUT", uri, specs[i].later_config, strlen(specs[i].later_config));
     }
     esl_store_save_seen(&st);
 

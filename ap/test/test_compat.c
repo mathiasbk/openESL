@@ -3,8 +3,9 @@
  * restart from it (compat/gen_golden.c). Today's core must read the same NVS to the same
  * content_id, settings and "seen" record, so no tag is sent its content again after an
  * update of the AP, and answer the same POLLs with the same frames, so no tag gets a reply
- * its firmware does not know. A tag that shows an image may be sent a new image when the
- * drawing changed; that is printed, not failed. */
+ * its firmware does not know. A CONFIG may carry settings after the ones the release sent,
+ * which tags skip. A tag that shows an image may be sent a new (or another) image
+ * when the drawing changed; that is printed, not failed. */
 #define _POSIX_C_SOURCE 200809L /* opendir, strdup */
 #include <dirent.h>
 #include <inttypes.h>
@@ -75,8 +76,17 @@ static void check_reply(const char *file, const uint8_t *poll, size_t poll_len, 
               esl_frame_parse_to_tag(want, want_len, &w) && esl_reply_parse(w.payload, w.payload_len, &wr);
     char mac[17];
     esl_mac_format(ok ? rx.src_mac : 0, mac);
+    /* CONFIG with settings added at its end (as long_poll_s and long_after_min in 0.9.0): tags
+       read the fields they know and skip the rest (shared/proto.h, CONFIG), so only the
+       release's fields must be there unchanged */
+    if (ok && wr.type == ESL_MSG_CONFIG && gr.type == ESL_MSG_CONFIG && want_len >= ESL_FCS_LEN &&
+        got_len > want_len && memcmp(got, want, want_len - ESL_FCS_LEN) == 0) {
+        CHECK(1);
+        return;
+    }
     /* the drawing changed: a tag that shows the AP's images is sent the new one */
-    if (ok && (p.flags & ESL_POLL_F_IMAGE) && wr.type == ESL_MSG_IDLE && gr.type == ESL_MSG_IMG &&
+    if (ok && (p.flags & ESL_POLL_F_IMAGE) && (wr.type == ESL_MSG_IDLE || wr.type == ESL_MSG_IMG) &&
+        gr.type == ESL_MSG_IMG &&
         g.seq == w.seq && gr.next_poll_s == wr.next_poll_s) {
         printf("\n  note %s: %s is sent a new image (its content draws differently now)", file, mac);
         redrawn++;
