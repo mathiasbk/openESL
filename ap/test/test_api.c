@@ -604,6 +604,14 @@ static void test_layouts(void)
     CHECK(row_layout(resp, MAC1, "\"shelf\""));            /* in no file now: from its content */
     CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
+    {   /* a picture */
+        esl_content_t pic;
+        esl_set_result_t res;
+        esl_content_init_image(&pic, ESL_MODEL_29, 0x12345678u);
+        CHECK_INT(esl_store_set(&st, 0x31, &pic, &res), ESL_STORE_OK);
+        CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+        CHECK(row_layout(resp, "0000000000000031", "\"image\""));
+    }
     /* batch: the row is named */
     CHECK_INT(req("PUT", "/api/tags", AUTH,
                   "{\"tags\":[{\"mac\":\"0000000000000154\",\"layout\":\"sign\",\"fields\":[\"a\"]},"

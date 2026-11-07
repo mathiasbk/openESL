@@ -34,7 +34,8 @@ export function compareLayouts(file, apFile) {
 // default: a count that leaves tags out can call a layout in use unused (#302).
 export async function tagLayouts(client, tags, known = {}, { max = Infinity, parallel = 3 } = {}) {
   const out = { ...known };
-  for (const t of tags) if ("layout" in t) out[t.mac] = t.layout || "";
+  // null with content: the AP could not tell (its content was not read back), so it is asked
+  for (const t of tags) if ("layout" in t && (t.layout || !t.content_id)) out[t.mac] = t.layout || "";
   const todo = tags.filter((t) => !(t.mac in out)).slice(0, max);
   let next = 0;
   const worker = async () => {

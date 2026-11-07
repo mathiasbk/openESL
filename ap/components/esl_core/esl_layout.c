@@ -210,10 +210,10 @@ bool esl_layouts_name(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash, ch
         return false;
     bool found = false;
     lock(ls);
-    const esl_layout_t *l = slot(ls, model);
+    const esl_layout_t *own = slot(ls, model), *l = own;
     int i = name_of(l, layout_hash);
     for (unsigned m = 0; i < 0 && m < ESL_MODEL_COUNT - 1; m++)
-        if (ls->models[m] != l)
+        if (ls->models[m] != own)
             i = name_of(l = ls->models[m], layout_hash);
     if (i >= 0) {
         memcpy(name, l->bin.names[i], ESL_LAYOUT_NAME_MAX + 1);
