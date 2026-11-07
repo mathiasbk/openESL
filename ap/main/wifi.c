@@ -358,7 +358,7 @@ const esl_wifi_ops_t *wifi_start(const char *ssid, const char *password, const c
     static const char *const names[] = {"wifi_fallback", "wifi_setup_off", "wifi_retry"};
     for (int i = 0; i < 3; i++) {
         esp_timer_create_args_t ta = {.callback = on_timer, .arg = (void *)handles[i], .name = names[i]};
-        ESP_ERROR_CHECK(esp_timer_create(&ta, handles[i]));
+        ESL_CHECK(esp_timer_create(&ta, handles[i]));
     }
 
     wifi_config_t cfg = {0};
