@@ -14,6 +14,7 @@ import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
 import { openRenderer, draw, LAYOUT_TEXT, FLAG_FRAME } from "./renderframe.js";
+import { trackRollout, modelTrial, firstTag, apCanChoose, rolloutQuestion, verNum, ROLLOUT_POLLS } from "./rollout.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -49,6 +50,13 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
   let last = null;        // { list, health, wifi, ota, tagfw, layouts, config }
+  // Per tag, the polls this browser has seen it make on the firmware it runs (rollout.js)
+  let rollout = {};
+  try {
+    rollout = JSON.parse(store.get("rollout") || "{}") || {};
+  } catch {
+    /* not kept, or from something else: counts start again */
+  }
   let connectedTo = "";   // "Connected to <where>", before the AP's board
   let lastAt = 0;         // when last was read
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
@@ -178,6 +186,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       since = reply.since || "0";
       last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
+      rollout = trackRollout(rollout, list, health, Math.round(lastAt / 1000));
+      store.set("rollout", JSON.stringify(rollout));
       stale = failed = false;
       $("dash-body").classList.remove("stale");
       render();
@@ -820,12 +830,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   // that needs it, then the AP gives it to the others too
   async function sendTagFw(tags) {
     const { rows, upload } = tagFirmwarePlan(tags, pageImgs, last?.tagfw);
-    const todo = rows.filter((r) => r.action);
+    let todo = rows.filter((r) => r.action);
     if (!todo.length) return stMsg("None of the ticked tags has anything to update.", "error");
     const replaced = upload.map((m) => (last?.tagfw?.images || []).find((i) => i.model === m && i.version)).filter(Boolean);
-    if (!confirm(`Update ${todo.length === 1 ? "1 tag" : todo.length + " tags"} to the firmware on this page? ` +
-      "Each fetches it over its next polls, keeps showing its content, and restarts into it." +
-      replaced.map((i) => ` The AP's ${modelName(i.model)} firmware ${i.version} is replaced, so tags still fetching it stop.`).join(""))) return;
+    const replacedText = replaced.map((i) => ` The AP's ${modelName(i.model)} firmware ${i.version} is replaced, so tags still fetching it stop.`).join("");
+    // Several tags of a model that no tag has run the version on long enough: one of them first
+    let asked = false;
+    for (const model of [...new Set(todo.map((r) => r.model))]) {
+      const macs = todo.filter((r) => r.model === model).map((r) => r.mac);
+      const g = await rolloutGate(model, pageImgs[model].ver, macs, replacedText);
+      if (!g) return;
+      asked ||= g.asked;
+      if (g.one) todo = todo.filter((r) => r.model !== model || r.mac === g.one);
+    }
+    if (!asked && !confirm(`Update ${todo.length === 1 ? "1 tag" : todo.length + " tags"} to the firmware on this page? ` +
+      "Each fetches it over its next polls, keeps showing its content, and restarts into it." + replacedText)) return;
     const c = client;
     sending = true;
     clearTimeout(timer);
@@ -1267,6 +1286,16 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const tags = document.createElement("td");
       tags.textContent = r.text;
       if (r.progress) tags.append(" ", progressBar(r.progress));
+      // How far the version is tried: tags on it, their polls, problems (#306)
+      if (r.version) {
+        const t = trial(r.model, verNum(r.version));
+        const p = document.createElement("div");
+        p.className = "fw-trial " + (t.bad.length || t.failed ? "error" : t.proven ? "ok" : "muted");
+        p.textContent = "Tried: " + t.text;
+        p.title = `Polls this page has seen the tags make on ${r.version}, counted in this browser from the first time it saw each on it. ` +
+          `Give it to the rest once one tag has polled ${ROLLOUT_POLLS} times without problems (silent, drawing failed, content cannot be shown).`;
+        tags.append(p);
+      }
       tr.append(tags);
       const td = document.createElement("td");
       const button = (text, title, onclick) => {
@@ -1431,24 +1460,83 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   }
 
   // The arrow-up buttons: in the tag table for one tag (mac), in the firmware table for all
-  function sendPageTagFirmware(model, mac = null) {
+  async function sendPageTagFirmware(model, mac = null) {
     if (!client || sending || !pageData[model]) return;
     const v = pageImgs[model].version;
     const onAp = (last?.tagfw?.images || []).find((i) => i.model === model && i.version);
+    const replacedText = onAp ? ` It replaces ${onAp.version} on the AP, so tags still fetching that one stop.` : "";
+    // To all: one tag first, unless one has run it long enough
+    const g = mac ? { one: mac, asked: false } : await rolloutGate(model, pageImgs[model].ver, null, replacedText);
+    if (!g) return;
     const q = mac
-      ? `Update tag ${mac} to ${modelName(model)} firmware ${v}? The AP gets the firmware for this tag only, and the tag updates itself over its next polls.` +
-        (onAp ? ` It replaces ${onAp.version} on the AP, so tags still fetching that one stop.` : "")
+      ? `Update tag ${mac} to ${modelName(model)} firmware ${v}? The AP gets the firmware for this tag only, and the tag updates itself over its next polls.` + replacedText
       : `Give ${modelName(model)} firmware ${v} to the AP? Every ${modelName(model)} tag that takes firmware over the radio updates itself over its next polls.`;
-    if (!confirm(q)) return;
+    if (!g.asked && !confirm(q)) return;
     openFw();
     $("fw-msg").scrollIntoView({ block: "nearest" });
-    return sendData(pageData[model], null, mac);
+    return sendData(pageData[model], null, g.one, true);
+  }
+
+  // How far a version is tried on the tags of a model (rollout.js), with the tags that
+  // rejected the AP's image when it is that version
+  function trial(model, ver) {
+    const img = (last?.tagfw?.images || []).find((i) => i.model === model && verNum(i.version) === ver);
+    return modelTrial(model, ver, last?.list, rollout, img?.tags?.failed || 0);
+  }
+
+  // The rollout dialog: "one", "all", or null (cancelled). Without oneLabel only "all" and
+  // Cancel, and Cancel is the default.
+  function askRollout(text, oneLabel, allLabel) {
+    return new Promise((resolve) => {
+      const d = $("ro-dlg");
+      let answer = null;
+      const done = (a) => {
+        answer = a;
+        d.close();
+      };
+      $("ro-text").textContent = text;
+      $("ro-one").textContent = oneLabel || "";
+      $("ro-one").hidden = !oneLabel;
+      $("ro-all").textContent = allLabel;
+      $("ro-one").onclick = () => done("one");
+      $("ro-all").onclick = () => done("all");
+      $("ro-cancel").onclick = () => done(null);
+      d.addEventListener("close", () => resolve(answer), { once: true });
+      d.showModal();
+      (oneLabel ? $("ro-one") : $("ro-cancel")).focus();
+    });
+  }
+
+  // Before tag firmware (ver) goes to several tags of a model: unless a tag has polled
+  // ROLLOUT_POLLS times on it without problems, ask, with one tag first as the default (#306).
+  // macs: the tags that would get it (null: every tag of the model not on ver yet); one: false
+  // when one tag first is no choice (the AP has the image for chosen tags already); count: how
+  // many tags would get it, when not the tags above. Returns
+  // { one: the MAC to send it to alone, or null for all of them, asked }, or null: cancelled.
+  async function rolloutGate(model, ver, macs = null, extra = "", { one = true, count = null } = {}) {
+    // A tag not heard since the AP started (no signal) may well take it when it polls
+    count ??= macs ? macs.length
+      : (last?.list?.tags || []).filter((t) => t.model === model && t.fw !== ver && (t.ota || !t.signal)).length;
+    const q = rolloutQuestion(model, ver, count, trial(model, ver));
+    if (!q) return { one: null, asked: false };
+    const cand = one && count > 1 ? firstTag(tagRows(last?.list, last?.health), model, ver, macs) : null;
+    const can = apCanChoose(last?.tagfw);
+    const text = q +
+      (cand && !can ? " This AP's firmware gives an uploaded image to every tag of the model; update the AP first to send it to one tag." : "") +
+      (cand && can ? ` "One first" sends it to ${cand.mac} only (no problems, best signal${macs ? " of the ticked tags" : ""}).` : "") +
+      extra;
+    const a = await askRollout(text, cand && can ? "Send to one first" : null, count === 1 ? "Send anyway" : one ? `Send to all ${count}` : "Give it to all anyway");
+    return a === "one" ? { one: cand.mac, asked: true } : a === "all" ? { one: null, asked: true } : null;
   }
 
   // The AP has the firmware already: it goes to one more tag, or (to "all") to every one
   async function chooseTag(model, to, version) {
     if (!client || sending) return;
-    if (to === "all" && !confirm(`Give ${modelName(model)} firmware ${version} to every ${modelName(model)} tag, not only the chosen ones?`)) return;
+    if (to === "all") {
+      const img = (last?.tagfw?.images || []).find((i) => i.model === model && i.version === version);
+      const g = await rolloutGate(model, verNum(version), null, "", { one: false, count: img?.tags?.not_chosen ?? null });
+      if (!g || (!g.asked && !confirm(`Give ${modelName(model)} firmware ${version} to every ${modelName(model)} tag, not only the chosen ones?`))) return;
+    }
     try {
       await chooseTagFirmware(client, model, to);
       fwMsg(to === "all" ? `Every ${modelName(model)} tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
@@ -1459,10 +1547,21 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   }
 
   // lcd: whether an AP or radio image is the one with the screen (null: a file of your own);
-  // to: the one tag a tag image is for (null: all of its model)
-  async function sendData(data, lcd = null, to = null) {
+  // to: the one tag a tag image is for (null: all of its model); asked: the rollout question
+  // was answered already (a tag image for all of its model asks it here otherwise)
+  async function sendData(data, lcd = null, to = null, asked = false) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
+    if (kind.kind === "tag" && !to && !asked) {
+      const g = await rolloutGate(kind.model, kind.ver);
+      if (!g) return;
+      to = g.one;
+      // Not asked (one tag, or a tag has run this version long enough): still not without a word,
+      // since the proof is by version number and a test build can have a proven one's
+      const n = (last?.list?.tags || []).filter((t) => t.model === kind.model && t.fw !== kind.ver && (t.ota || !t.signal)).length;
+      if (!g.asked && !confirm(`Give ${modelName(kind.model)} firmware ${kind.version} to the AP for every ${modelName(kind.model)} tag` +
+        ` (${n === 1 ? "1 tag" : n + " tags"} not on it yet)? Each updates itself over its next polls.`)) return;
+    }
     const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${modelName(kind.model)}`
       : `${kind.kind === "radio" ? "radio" : "AP"} firmware${kind.version ? " " + kind.version : ""}`;
     if (kind.kind === "ap" && !confirm(apSendQuestion(kind, last?.ota, lcd))) return;

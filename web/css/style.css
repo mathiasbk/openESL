@@ -375,6 +375,10 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); fon
 
 button.small { padding: 2px 8px; font-size: var(--fs-sm); }
 .fw-prog { white-space: nowrap; }
+.fw-trial { font-size: var(--fs-sm); margin-top: 2px; }
+.fw-trial.muted { color: var(--muted); }
+.fw-trial.ok { color: var(--ok); }
+.fw-trial.error { color: var(--error); }
 .fw-prog progress { width: 80px; height: 10px; vertical-align: middle; margin: 0 6px 0 2px; }
 button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: var(--space-1); }
 .mac-ask[hidden] { display: none; }
