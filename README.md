@@ -42,11 +42,11 @@
 ## What you need
 
 - One of the [supported labels](#supported-tags).
-- An **ESP32-C6** board with USB as the access point. For more labels, other boards work too: see [Choosing an access point board](https://github.com/mathiasbk/openESL/wiki/Access-point-boards).
+- An **ESP32-C6** board with USB as the access point (about 400 labels). For more labels, other boards work too: see [Choosing an access point board](https://github.com/mathiasbk/openESL/wiki/Access-point-boards).
 - A small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery: [Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher).
 - A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer.
 
-The whole list, with links and prices, is on [What you need](https://github.com/mathiasbk/openESL/wiki/What-you-need).
+The whole list, with links, is on [What you need](https://github.com/mathiasbk/openESL/wiki/What-you-need).
 
 ## Supported tags
 
