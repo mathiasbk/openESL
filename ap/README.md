@@ -76,7 +76,7 @@ Choices: **Highlighted price:** `price_highlight` gives white digits in a black 
 
 ## HTTP API
 
-The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protokoll.md](../docs/protokoll.md) part 2 has an overview. `make openapi` in `test/` checks the spec against `esl_api.c`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`). Five wrong tokens in a row lock the API for 60 s: every request, also with the right token, gets `429` until then, and `POST /api/ota` counts the same way (`esl_api_auth_check()`, `esl_api_lock_t`). The USB port has no token and no lockout.
+The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protokoll.md](../docs/protokoll.md) part 2 has an overview. `make openapi` in `test/` checks the spec against the code. The API lives in `components/esl_core/esl_api*.c`: `esl_api.c` has the route table, and each resource has its own file (`esl_api_tags.c`, `esl_api_layouts.c`, `esl_api_config.c` ...); to add an endpoint, add a line to the table, the handler in its resource file and the path in `docs/openapi.yaml`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`). Five wrong tokens in a row lock the API for 60 s: every request, also with the right token, gets `429` until then, and `POST /api/ota` counts the same way (`esl_api_auth_check()`, `esl_api_lock_t`). The USB port has no token and no lockout.
 
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
