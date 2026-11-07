@@ -8,7 +8,7 @@
  * SPI flash pins as in eepromprobe.c: P0.0 SCK, P0.1 MOSI, P0.2 MISO, P1.1 nCS. P1 is
  * written as a whole byte, since the port does not read back what was written
  * (0x80: flash nCS low, display nCS P1.7 high; 0x82: both high). The flash register
- * sequence is the one in hal_zbs243.c (flash_write_page), see docs/kildelogg.md.
+ * sequence is the one in hal_zbs243.c (flash_write_page), see docs/sources.md.
  */
 #include "../boot_core.h"
 #include "proto.h"

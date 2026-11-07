@@ -12,7 +12,7 @@
 #include "nvs.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
- * (key "t<slot>"), so a tag keeps its slot across reboots (krav A4, G4). A
+ * (key "t<slot>"), so a tag keeps its slot across reboots (requirements A4, G4 in docs/requirements.md). A
  * tag's own settings (poll_s etc.) are a second blob in the same slot (key
  * "c<slot>"), and the run-time default interval is "poll_s" (u16) in namespace
  * "cfg", next to ssid/pass/token; without it the menuconfig value is used.

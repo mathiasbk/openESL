@@ -8,7 +8,7 @@ info:
   description: |
     Any software (the client) calls this small REST API on the access point (AP) when
     content changes. The AP never calls the client. It sends the content to the tags over
-    802.15.4 radio the next time each tag polls ([docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md), part 1).
+    802.15.4 radio the next time each tag polls ([docs/protocol.md](https://github.com/mathiasbk/openesl/blob/master/docs/protocol.md), part 1).
 
     **Reaching the AP.** Over WiFi the client must be on the same network as the AP (or a
     VPN). Give the AP a fixed IP (DHCP reservation) or use the mDNS name `openesl.local`.
@@ -142,7 +142,7 @@ tags:
       content (`"layout": "shelf"`). The AP checks the file against the model's screen and
       what it can draw, so a file that is accepted always draws; the AP draws each tag's
       screen with it and sends the tag the image. The format is in the `LayoutFile` schema below and,
-      with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
+      with every rule, in [docs/protocol.md](https://github.com/mathiasbk/openesl/blob/master/docs/protocol.md) part 3.
       The built-in layouts `price` and `text` can always be used, with or without a file.
   - name: Font files
     description: |
@@ -446,7 +446,7 @@ paths:
       summary: The screen the AP draws for a tag
       description: |
         The tag's content drawn by the AP, the bytes a tag that shows images gets
-        (protokoll.md, "Image transfer"). A tag that draws itself shows the same pixels. Drawn
+        (protocol.md, "Image transfer"). A tag that draws itself shows the same pixels. Drawn
         on each request and not kept; for previews such as the dashboard.
 
         `data` is base64 of the raw image: the black plane, then the red plane when `red`
@@ -1386,7 +1386,7 @@ paths:
         For a radio that is gone for good (a broken C6, one moved to another AP). Only while it
         is not connected: turn it off first. Its tags count as radio 0's until a radio hears
         them; a tag that loses its radio finds another one by looking on the other channels
-        (docs/protokoll.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
+        (docs/protocol.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
         takes its place on the AP's channel, and a radio that is then the only one left moves
         there at its next connection. Done before the reply.
       responses:

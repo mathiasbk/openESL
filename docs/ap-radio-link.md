@@ -3,7 +3,7 @@
 The AP normally runs on one ESP32-C6, which does WiFi and 802.15.4 on the same radio by
 time-division and has 512 KB of RAM. For more tags, the AP can instead run on an
 ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
-([issue #146](https://github.com/mathiasbk/openESL/issues/146), risiko.md R4).
+([issue #146](https://github.com/mathiasbk/openESL/issues/146), history/risks.md R4).
 
 | Chip | Firmware | Does |
 |---|---|---|

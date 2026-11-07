@@ -5,7 +5,7 @@
  * Dmitry Grinberg's reverse engineering of the ZBS243 (dmitry.gr), as published in
  * his zbs243.h and carried on in atc1441's ZBS_Flasher examples and the
  * OpenEPaperLink tag firmware (Tag_FW_ZBS243). Each one used is listed in
- * docs/kildelogg.md, with what was confirmed on our own tags.
+ * docs/sources.md, with what was confirmed on our own tags.
  *
  * Some SFR addresses mean different registers depending on CFGPAGE (bit 0x04).
  * The comment says which page a register needs; page 0 is the default.

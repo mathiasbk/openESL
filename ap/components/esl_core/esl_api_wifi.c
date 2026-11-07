@@ -1,7 +1,7 @@
 /* /api/wifi: the WiFi the AP joins. */
 #include "esl_api_int.h"
 
-/* GET/PUT /api/wifi: the network the AP joins (krav A1). The password is never
+/* GET/PUT /api/wifi: the network the AP joins (requirement A1 in docs/requirements.md). The password is never
  * shown. ssid "" or null forgets the network, and the AP opens its setup
  * network again. "token" sets a new API token (the page sets both right after
  * flashing, over the USB port); "hostname" is the AP's name on the network

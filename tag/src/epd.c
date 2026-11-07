@@ -4,7 +4,7 @@
  * UNCONFIRMED: the controller on the ST-GM29XX2 is not confirmed (phase 0). The
  * command codes below are the common ones in the SSD1680 family and must be checked
  * against the datasheet of the controller actually fitted, before they are entered
- * in docs/kildelogg.md. The same applies to polarity (EPD_BW_INVERT) and RAM
+ * in docs/sources.md. The same applies to polarity (EPD_BW_INVERT) and RAM
  * direction (EPD_DATA_ENTRY).
  * No custom waveform: the update uses the display's OTP waveform.
  *

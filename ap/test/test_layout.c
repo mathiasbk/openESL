@@ -4,7 +4,7 @@
 #include "esl_render.h"
 #include <stdlib.h>
 
-/* Layout files: the compiler (JSON -> the binary the AP draws with, krav A13) and
+/* Layout files: the compiler (JSON -> the binary the AP draws with, requirement A13 in docs/requirements.md) and
  * the storage per model. The tests use fixed copies of the example files
  * (ap/test/layouts/, two layouts each) so their sizes do not change when the
  * examples grow; the files in tag/designs/layouts/ are compiled too, so they

@@ -1,5 +1,7 @@
 # Work plan
 
+> **Historical.** This is a plan from the start of the project (October 2026), kept for the record and not kept up to date. How things are today: [docs/README.md](../README.md) and the [code map](../code-map.md).
+
 Unit: **evening** = 2–3 hours. The estimates are rough and assume you learn as you go. The largest spreads are where the registers are unknown (phases 1, 3 and 6).
 
 The order is **risk first**: the hardest and most uncertain part (the tag's radio) is tested early, before you spend time on the AP, clients and polish. The AP track can run in parallel when you need a break from the tag.
@@ -27,7 +29,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] SDCC and ESP-IDF (v5.5.5) installed; the tag firmware and the AP build
 - [x] Flashing through ZBS_Flasher on a Wemos works (`tools/flash-tui`)
 - [x] Display controller found (ST-GM16XX2, 1.54"), pins mapped
-- [x] Power budget for requirement T6 estimated ([strombudsjett.md](strombudsjett.md), `tools/power-budget`): about 4.6 µA average, T6 holds on one CR2450 as long as sleep stays under ~20 µA
+- [x] Power budget for requirement T6 estimated ([power-budget.md](../power-budget.md), `tools/power-budget`): about 4.6 µA average, T6 holds on one CR2450 as long as sleep stays under ~20 µA
 - [x] Battery type and count confirmed: 1.54" tags hold one CR2450, 2.9" tags two; the budget covers both
 
 **Phase 1: Signs of life**
@@ -65,7 +67,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 
 **Phase 6: Power**
 - [x] Deep sleep with timer wake-up on the tag
-- [ ] Measure sleep current, energy per POLL and per display update, and put them into `tools/power-budget` ([strombudsjett.md](strombudsjett.md), "What phase 6 should measure")
+- [ ] Measure sleep current, energy per POLL and per display update, and put them into `tools/power-budget` ([power-budget.md](../power-budget.md), "What phase 6 should measure")
 - [ ] Battery measurement (T8): not supported on this panel yet, reported as 0 mV; in progress (issue #4)
 - [x] Longer interval without the AP (T11): backoff up to 600 s
 
@@ -73,7 +75,7 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Example client in Python (`tools/esl-client`)
 - [x] Status page on the AP (A6)
 - [x] Web flasher and label designer (GitHub Pages, `web/`)
-- [x] API documentation checked against the code (`docs/protokoll.md` part 2: transports, limits, error codes, every field in `GET /api/tags`); the AP runs the same `esl_api.c` as the host tests
+- [x] API documentation checked against the code (`docs/protocol.md` part 2: transports, limits, error codes, every field in `GET /api/tags`); the AP runs the same `esl_api.c` as the host tests
 - [x] Interactive API docs: `docs/openapi.yaml` (OpenAPI 3.1) is the reference, shown with Scalar in the API tab of the web page; CI runs every example in it against `esl_api.c` and checks the replies against the schemas (`ap/test/openapi/check_openapi.py`)
 - [ ] "Test Request" from the API tab against the AP on the jig, through `esl_client.py --serial /dev/ttyACM0 serve` (tried here against the API code on the host only)
 - [ ] The settings endpoints (`/api/config`, `/api/tags/{mac}/config`) and CONFIG tried on hardware; the other endpoints were used over the USB port in phase 5
@@ -90,14 +92,14 @@ What is done and what is not, per phase. The details of each phase follow below.
 
 **Improvements after v0.1.0** (the list from 2026-10-15)
 - [x] "No AP found" exactly 2 h after the last answer (T9), PR #24
-- [x] Barcodes in layouts: Code 128 and EAN-13 drawn by the tag (`barcode` element, [protokoll.md](protokoll.md) parts 1 and 3), the AP refuses content it cannot encode; decoded from the drawn screens in the host tests
+- [x] Barcodes in layouts: Code 128 and EAN-13 drawn by the tag (`barcode` element, [protocol.md](../protocol.md) parts 1 and 3), the AP refuses content it cannot encode; decoded from the drawn screens in the host tests
 - [ ] A barcode scanned from a real tag (2.9" with 2-pixel modules, and the 1.54" with 1-pixel modules)
 - [x] Fixed text in layouts (`"text"` in a text element, stored once at the end of the layout file), and up to 16 text lines and 10 rectangles per screen (was 8 and 5)
 - [x] CSV import for bulk updates in `esl-client sync`: columns by name, Excel exports (`;`, Windows-1252), prices by item number with a `mac,item` file (`--tags`), every bad line reported before anything is sent, `--dry-run`; the tool tests now run in CI
 - [x] Scheduled prices: `"at"` in `PUT /api/tags` (Unix seconds), kept in NVS and applied by the AP itself, also after a restart; the clock from NTP or `PUT /api/time`; `GET`/`DELETE /api/schedule`; `esl-client --at` (`ap/README.md`, "Scheduled content")
 - [ ] Scheduled prices tried on hardware: NTP over WiFi, and over the USB port with the time set by `esl-client`; an entry survives an AP restart
 - [x] OTA for the AP (A10): `POST /api/ota` with the app image, whole or in parts over USB (`esl-client ota`), two app slots with rollback; releases carry `openesl-ap-esp32c6-<version>-ota.bin`. Host-tested routing and built; the upload, restart and rollback are not tried on hardware
-- [x] OTA tried on hardware (2026-10-15, from the web page's Firmware card over USB): 0.2.0 → 0.2.91 → 0.2.0, each back on the new version in seconds, stored tags and tag firmware kept ([tag-ota.md](tag-ota.md), "From the web page")
+- [x] OTA tried on hardware (2026-10-15, from the web page's Firmware card over USB): 0.2.0 → 0.2.91 → 0.2.0, each back on the new version in seconds, stored tags and tag firmware kept ([tag-ota.md](../tag-ota.md), "From the web page")
 - [ ] AP OTA rollback tried on hardware: a broken image falls back to the old slot
 - [x] Health and alerts: `GET /api/health` (silent, never seen, drawing failed, battery low, layout file rejected, content that cannot be sent) and a webhook the AP posts the report to when it changes (`PUT /api/config {"webhook":...}`)
 - [x] Backup and restore of an AP: `esl-client backup ap.json` (config, layout files, every tag's content and settings, the schedule) and `esl-client restore ap.json` onto a new AP or after `erase-flash`; tested against the fake AP in CI and against the simulator's AP core over the serial framing
@@ -105,8 +107,8 @@ What is done and what is not, per phase. The details of each phase follow below.
 - [x] Six fields per layout (was four), sharing the 96 bytes in CONTENT; example layout `vare-priser` with the price both with and without VAT (`price`, `price_ex`). The client sends both prices, the AP computes no VAT. Tags still on v0.1.0 read four fields and reject a layout file that uses field 5 or 6, so reflash them before uploading such a layout
 - [ ] `vare-priser` shown on a real tag (after reflashing it from master)
 - [ ] Release v0.2.0: `VERSION` on master is still 0.1.0, so tags flashed from master send the same version in POLL as tags on the v0.1.0 release, although they read six fields, barcodes and fixed texts and the release does not
-- [x] OTA for the tags (T15, [tag-ota.md](tag-ota.md)): a 1 KB bootloader in page 0, the application from 0x0400, the image staged in the SPI flash (W25Q80, probed on the 1.54"), install with rollback after 9 starts without the AP; on the AP `PUT /api/tag-firmware` (`esl-client tag-ota`), offered after content, layout and settings; releases carry `openesl-tag-<model>-<version>-ota.bin`. On by default without T16, by decision. Host-tested (tag, bootloader, AP) and in the simulation; tried on the 1.54" jig tag 2026-10-15
-- [x] Tag OTA tried on the jig (2026-10-15): `openesl.bin` with the bootloader flashed once, then four updates through the AP (two up, two down), each installed and confirmed in 5–9 minutes at poll 60 s, with the price shown again after the restart ([tag-ota.md](tag-ota.md), "Tried on the jig")
+- [x] OTA for the tags (T15, [tag-ota.md](../tag-ota.md)): a 1 KB bootloader in page 0, the application from 0x0400, the image staged in the SPI flash (W25Q80, probed on the 1.54"), install with rollback after 9 starts without the AP; on the AP `PUT /api/tag-firmware` (`esl-client tag-ota`), offered after content, layout and settings; releases carry `openesl-tag-<model>-<version>-ota.bin`. On by default without T16, by decision. Host-tested (tag, bootloader, AP) and in the simulation; tried on the 1.54" jig tag 2026-10-15
+- [x] Tag OTA tried on the jig (2026-10-15): `openesl.bin` with the bootloader flashed once, then four updates through the AP (two up, two down), each installed and confirmed in 5–9 minutes at poll 60 s, with the price shown again after the restart ([tag-ota.md](../tag-ota.md), "Tried on the jig")
 - [ ] Tag OTA rollback tried on the jig: a broken image (one that never polls) copied back after 9 starts
 - [ ] SPI flash probed on a 2.9"
 - [ ] Radio security (T16, put on hold 2026-10-15): today anyone with an 802.15.4 radio on channel 25 can send CONTENT to a tag and change what it shows. The fix when wanted: a 4-byte MIC (AES-CCM) in the space already held for it (`ESL_MIC_RESERVE`), a network key on each tag, and a counter or the tag's nonce against replays. The HTTP API itself is protected by the token on every `/api` endpoint, and five wrong tokens in a row lock it for 60 s (`429`)
@@ -116,14 +118,14 @@ What is done and what is not, per phase. The details of each phase follow below.
 - Back up (`read`) the original SoluM firmware on 2–3 tags before flashing anything else. It is the basis for the register study, and lets you restore the tags.
 - Confirm the battery type and capacity, and calculate the power budget (requirement T6).
 - Confirm the display controller and download the datasheet.
-- Use a multimeter to find which ZBS243 pins go to the display's FPC (CS, DC, RST, BUSY, SCK, MOSI, power), and note them in [kildelogg.md](kildelogg.md).
+- Use a multimeter to find which ZBS243 pins go to the display's FPC (CS, DC, RST, BUSY, SCK, MOSI, power), and note them in [sources.md](../sources.md).
 - Build and flash a firmware that is just an endless loop. Confirm that the flasher writes and that the tag does not start in a previous firmware.
 
 ## Phase 1: Signs of life
 - Find out how UART TX is set up (study the SoluM backup in Ghidra: which SFRs are written early in start-up?). Alternative: bit-bang UART on a known GPIO and measure with the logic analyser.
 - Find the clock setup and make a calibrated delay function (verify with the logic analyser).
 - Find GPIO direction and output. Confirm by toggling a pin you can measure.
-- **Checkpoint:** if you have no UART or toggling pin after 8 evenings, stop and consider the options in [risiko.md](risiko.md).
+- **Checkpoint:** if you have no UART or toggling pin after 8 evenings, stop and consider the options in [risks.md](risks.md).
 
 ## Phase 2: Display
 - Bit-bang SPI on the pins from phase 0. Reset, wait for BUSY, read a status register to confirm contact.
@@ -132,16 +134,16 @@ What is done and what is not, per phase. The details of each phase follow below.
 - Put the display into deep sleep after drawing.
 
 ## Phase 3: Radio (gate)
-- Build the C6 sniffer first (see [ap-firmware.md](ap-firmware.md)).
+- Build the C6 sniffer first (see [ap-firmware-plan.md](ap-firmware-plan.md)).
 - Study how the SoluM firmware turns on the radio and transmits. Look for writes to the same registers around a send sequence. Confirm with experiments.
 - Sub-goals: (a) the tag sends something the sniffer sees, (b) correct channel and format, (c) the tag receives a frame that the C6 sends, (d) RSSI.
-- **Gate:** if you cannot reach (a) after 12 evenings, the tag's own firmware is not realistic without more help. Read [risiko.md](risiko.md) before continuing.
+- **Gate:** if you cannot reach (a) after 12 evenings, the tag's own firmware is not realistic without more help. Read [risks.md](risks.md) before continuing.
 
 ## Phase 4: AP foundation (can run in parallel with phases 1–3)
 - 802.15.4 up on the C6 with a fixed channel and PAN ID.
 - Fake tag on the second C6.
 - WiFi, NVS, table of tags, pre-built replies. Measure response time.
-- The HTTP API ([protokoll.md](protokoll.md) part 2) with a token. Test with `curl` and the fake tag.
+- The HTTP API ([protocol.md](../protocol.md) part 2) with a token. Test with `curl` and the fake tag.
 
 ## Phase 5: End to end
 - `proto.c` on the tag: POLL → IDLE/CONTENT → draw.
@@ -163,7 +165,7 @@ ESP32-C6 Super Mini as AP (API over USB, `esl-client --serial`), the 1.54" tag i
 Not tried on hardware yet: losing the CONTENT reply itself in the middle of an exchange, and the AP gone for an hour. Both run in the simulation below.
 
 ### Results in the simulation (2026-10-15)
-`make -C sim` ([sim/README.md](../sim/README.md)): `tag/src/app.c` and `ap/components/esl_core` on the PC, joined by a simulated radio link, driven through `esl_api_handle()`, with simulated time. Both models, in CI on every push. The same numbers for the cases above (same content, new content, unknown tag, restart, layout file) as on hardware.
+`make -C sim` ([sim/README.md](../../sim/README.md)): `tag/src/app.c` and `ap/components/esl_core` on the PC, joined by a simulated radio link, driven through `esl_api_handle()`, with simulated time. Both models, in CI on every push. The same numbers for the cases above (same content, new content, unknown tag, restart, layout file) as on hardware.
 
 | Case | Result |
 |---|---|
@@ -182,7 +184,7 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 
 ## Phase 7: API polish and example client
 - Document the API with complete examples, and check that it is stable.
-- A small example client (e.g. a Python script) that sets content, does a full send and reads status ([ap-firmware.md](ap-firmware.md), "Writing a client").
+- A small example client (e.g. a Python script) that sets content, does a full send and reads status ([ap-firmware-plan.md](ap-firmware-plan.md), "Writing a client").
 - The status page on the AP (requirement A6) that lists tags, battery and "last seen".
 
 ## Phase 8: Operational reliability
@@ -192,4 +194,13 @@ Not tried on hardware yet: losing the CONTENT reply itself in the middle of an e
 - Write a flashing recipe per tag (backup → write → MAC) and build a jig so that it takes under a minute per tag.
 
 ## After version 1 (not planned in detail)
-Signed content (T16), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes, OTA for the AP (A10) and OTA for the tags (T15, [tag-ota.md](tag-ota.md)) are already done, see the checklist above.
+Signed content (T16), images (T14), QR codes (T13; Code 128 and EAN-13 are done), own flasher hardware, several APs (A9). Barcodes, OTA for the AP (A10) and OTA for the tags (T15, [tag-ota.md](../tag-ota.md)) are already done, see the checklist above.
+
+## Equipment (from the original plan)
+
+- A ZBS243 flasher, for example [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) on a D1 mini (ESP8266), with pogo pins to the tag's debug pads.
+- One ESP32-C6 for the AP, and preferably a second one as a sniffer and fake tag during development.
+- A few tags only for development, and a fixed setup (pogo jig) so you do not have to hold the pins.
+- **Logic analyser** (8 channels, 24 MHz, a cheap "Saleae clone" works with PulseView). Almost essential for debugging SPI to the display and radio timing.
+- **Current measurement in µA.** A multimeter with a µA range is enough for a rough check. A Nordic PPK2 makes sleep optimisation much easier. Can wait until phase 6.
+

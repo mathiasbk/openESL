@@ -12,7 +12,7 @@
  * Content, per-tag settings (esl_tag_cfg_t) and the AP-wide default interval
  * are persisted through the persist hooks (NVS on the device) when they
  * change; status lives in RAM only. Answering a POLL builds one short
- * message from the table (krav A3: microseconds, well inside the 5 ms).
+ * message from the table (requirement A3 in docs/requirements.md: microseconds, well inside the 5 ms).
  *
  * HTTP and radio run in different tasks, so every public function takes the
  * lock. The persist hooks are called after the lock is released. */
@@ -312,7 +312,7 @@ void esl_store_reset_next_poll(esl_store_t *st);
 /* Loads a persisted default interval at boot. Does not call persist_next_poll. */
 void esl_store_restore_next_poll(esl_store_t *st, uint16_t next_poll_s);
 uint16_t esl_store_get_next_poll(esl_store_t *st);
-/* ---- The radio channel (#256, docs/protokoll.md "Channel") ----
+/* ---- The radio channel (#256, docs/protocol.md "Channel") ----
  * The AP announces the channel it is on, or the one it is moving to, in every tag's
  * CONFIG (esl_tag_cfg_t.channel, part of cfg_ver). A tag keeps polling where it hears
  * the AP and tries the announced channel first when the AP stops answering there. So a

@@ -270,7 +270,7 @@ void test_content(void)
     CHECK_INT(esl_content_text_len(&a), 252);
     CHECK_INT(ESL_MAX_TEXT_FOR(4), 252);
 
-    /* a layout from the layout file, by name (krav A14) */
+    /* a layout from the layout file, by name (requirement A14 in docs/requirements.md) */
     esl_content_t n1, n2, b1;
     CHECK_INT(esl_content_init_named(&n1, "shelf", 5, ESL_CFLAG_FRAME), ESL_CONTENT_OK);
     CHECK_INT(n1.layout, ESL_LAYOUT_NAMED);

@@ -233,7 +233,7 @@ static bool exchange(uint8_t flen)
     return false;
 }
 
-/* exchange(), and once more after a random pause if nothing came (protokoll.md). The
+/* exchange(), and once more after a random pause if nothing came (protocol.md). The
    retry is the same frame, byte for byte; retried says it was needed and answered. */
 static bool retried;
 
@@ -289,7 +289,7 @@ static bool fw_transfer(void)
 }
 
 /*
- * reply is an IMG block (docs/protokoll.md part 1, "Image transfer"): writes it to the
+ * reply is an IMG block (docs/protocol.md part 1, "Image transfer"): writes it to the
  * SPI flash and asks for the next ones in the same round, up to CFG_IMG_MAX_REQ, with
  * lost answers handled as for FW. Returns IMAGE_DONE when the image is whole (or was
  * in the slot already), IMAGE_STOP when the tag refused it; an unfinished download
@@ -404,7 +404,7 @@ static bool try_channel(uint8_t ch, uint8_t flen)
 /*
  * No answer on the tag's channel (radio on): one POLL, with its retry, on the channel
  * the AP announced, then on the built-in one from the CFG_BUILTIN_AFTER-th miss in a row,
- * each when it is another (docs/protokoll.md, "Changing the channel"). An AP that moved is
+ * each when it is another (docs/protocol.md, "Changing the channel"). An AP that moved is
  * found at the first miss; the built-in channel finds one that went back to it before the
  * tag heard. True = reply is filled in and the tag stays there.
  */

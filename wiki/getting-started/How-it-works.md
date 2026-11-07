@@ -20,4 +20,4 @@ flowchart TB
 
 An image that has not changed is never sent again, and a label only redraws when its screen really changed. That is what keeps the batteries going.
 
-The design in more depth: [docs/README.md](https://github.com/mathiasbk/openESL/blob/master/docs/README.md#the-main-choices-short-version) and [docs/arkitektur.md](https://github.com/mathiasbk/openESL/blob/master/docs/arkitektur.md).
+The design in more depth: [docs/README.md](https://github.com/mathiasbk/openESL/blob/master/docs/README.md#the-main-choices-short-version) and [docs/architecture.md](https://github.com/mathiasbk/openESL/blob/master/docs/architecture.md).

@@ -83,7 +83,7 @@ static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, si
  * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
  * tz null or "" = UTC. Keys left out stay as they are; one of them must be there. */
 /* "channel_now" skips the wait for a move the tags were told of; a channel they have not heard
-   of would leave them on the old one (docs/protokoll.md, "Changing the channel"). The built-in
+   of would leave them on the old one (docs/protocol.md, "Changing the channel"). The built-in
    channel is fine: every tag goes back to it when it loses the AP. */
 static bool channel_now_ok(const esl_channel_state_t *cs, uint8_t channel)
 {

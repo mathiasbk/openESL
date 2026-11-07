@@ -1,6 +1,6 @@
 # ST-GM16XX2: what we learned getting it to draw
 
-The small SoluM tag (label ST-GM16XX2, display FPC marked **HINK-E0154A16-A0**) was brought up on 2026-10-14 by studying a backup of its stock firmware and testing changes to the OpenEPaperLink (OEPL) tag firmware. The OEPL changes live in our fork of OEPL, not here (this repo contains no code from other firmware). This page keeps the hardware facts, so our own tag firmware can use them. Each fact is also a line in [kildelogg.md](kildelogg.md).
+The small SoluM tag (label ST-GM16XX2, display FPC marked **HINK-E0154A16-A0**) was brought up on 2026-10-14 by studying a backup of its stock firmware and testing changes to the OpenEPaperLink (OEPL) tag firmware. The OEPL changes live in our fork of OEPL, not here (this repo contains no code from other firmware). This page keeps the hardware facts, so our own tag firmware can use them. Each fact is also a line in [sources.md](sources.md).
 
 ## Summary
 

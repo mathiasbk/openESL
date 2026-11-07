@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* AP side of the radio protocol in docs/protokoll.md, part 1.
+/* AP side of the radio protocol in docs/protocol.md, part 1.
  *
  * The message layout comes from shared/proto.h, which the tag firmware uses
  * too. The AP-side names below are aliases for it. */
@@ -70,7 +70,7 @@ size_t esl_fw_req_build(uint8_t *out, const esl_fw_req_t *req); /* for the fake 
 size_t esl_fw_msg_build(uint8_t *out, uint16_t next_poll_s, uint16_t ver, uint16_t size, uint16_t pos,
                         uint32_t crc, uint8_t model, const uint8_t *data, size_t n);
 
-/* IMG_REQ (tag -> AP, screen image; docs/protokoll.md "Image transfer") */
+/* IMG_REQ (tag -> AP, screen image; docs/protocol.md "Image transfer") */
 typedef struct {
     uint8_t model;
     uint8_t max;     /* data bytes the tag wants at most */

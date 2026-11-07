@@ -1,7 +1,7 @@
 /* /api/tags: content, batch, the tag list (?since=), one tag and its settings. */
 #include "esl_api_int.h"
 
-/* A layout name from the layout files (krav A13, A14): it must be in the file
+/* A layout name from the layout files (requirements A13, A14 in docs/requirements.md): it must be in the file
  * for the tag's model, or, while the model is not known yet, in some model's
  * file. *max_fields gets how many fields it takes. Returns 0 or 422 with msg. */
 static int check_named(const esl_api_t *api, uint64_t mac, const char *name, size_t nl, unsigned *max_fields,
@@ -517,7 +517,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     /* the tag takes firmware over the radio (docs/tag-ota.md) */
     esl_sb_printf(out, ",\"ota\":%s", t->seen && (t->poll_flags & ESL_POLL_F_OTA) ? "true" : "false");
     write_signal(out, t);
-    /* the tag shows images the AP draws (protokoll.md "Image transfer"): the id of its
+    /* the tag shows images the AP draws (protocol.md "Image transfer"): the id of its
        content's image once drawn, 0 before, and the image id the tag reports */
     esl_sb_printf(out, ",\"image\":%s", t->seen && t->image_capable ? "true" : "false");
     if (t->has_content)

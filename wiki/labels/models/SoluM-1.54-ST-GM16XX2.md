@@ -23,7 +23,7 @@ A small, square label. It fits a short name and a price, or a status such as a 3
 | Radio | 802.15.4 on 2.4 GHz, the same as every OpenESL label |
 | Battery | one CR2450 (3 V) |
 | Battery reading | no, it reports 0 (unknown); see [Known issues](#known-issues) |
-| Battery life | about 9 years calculated with a poll every 60 s and one new screen a day ([power budget](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md)) |
+| Battery life | about 9 years calculated with a poll every 60 s and one new screen a day ([power budget](https://github.com/mathiasbk/openESL/blob/master/docs/power-budget.md)) |
 | MAC | 8 bytes, the second last is `34`, e.g. `000002079575341D` |
 | Updates over the air | yes ([Updating labels](Updating-labels)) |
 

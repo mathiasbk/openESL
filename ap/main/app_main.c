@@ -137,7 +137,7 @@ void app_main(void)
     if (image_mem) {
         esl_image_init(&images, image_mem, NULL);
         esl_radio_set_image(&images);
-        /* Drawn after the reply, not in the tag's 20 ms listening window (krav A3) */
+        /* Drawn after the reply, not in the tag's 20 ms listening window (requirement A3 in docs/requirements.md) */
         esl_radio_set_draw_later(true);
     } else {
         ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());

@@ -542,7 +542,7 @@ static void test_layouts(void)
     CHECK(HAS(resp, "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,"
                     "\"binary_size\":0,\"layouts\":[]}"));
 
-    /* the file is checked against the model in the URL (krav A13): 422 with where and why */
+    /* the file is checked against the model in the URL (requirement A13 in docs/requirements.md): 422 with where and why */
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f29, 0), 422);
     CHECK_STR(resp, "{\"error\":\"model must be \\\"1.54\\\": the file is checked against that screen\"}");
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
@@ -555,7 +555,7 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, wide, 0), 422);
     CHECK_STR(resp, "{\"error\":\"layouts[0].elements[0]: x + w = 296 is past the right edge of the screen (200)\"}");
 
-    /* content naming a layout (krav A14). Model not known yet: any model's file will do */
+    /* content naming a layout (requirement A14). Model not known yet: any model's file will do */
     CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
                   "{\"layout\":\"shelf\",\"fields\":[\"Kaffe\",\"49,90\",\"kr 99,80/kg\",\"Tilbud\"],"
                   "\"price_highlight\":true}", 0), 200);

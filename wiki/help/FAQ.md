@@ -19,7 +19,7 @@ Problems and fixes are on [Troubleshooting](Troubleshooting).
 
 ## Labels
 
-**How long does the battery last?** It depends on the poll interval and how often the screen changes. The estimate and how it is worked out are in [docs/strombudsjett.md](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md).
+**How long does the battery last?** It depends on the poll interval and how often the screen changes. The estimate and how it is worked out are in [docs/power-budget.md](https://github.com/mathiasbk/openESL/blob/master/docs/power-budget.md).
 
 **Can I get the original firmware back?** Yes, if you kept the backup the Flash tag tab made ([Label backups](Label-backups)). Write it back with ZBS_Flasher.
 

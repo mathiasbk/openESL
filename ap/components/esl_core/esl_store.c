@@ -191,7 +191,7 @@ static bool env_has(const esl_layout_env_t *env, uint32_t layout_hash)
 /*
  * Under the lock: the answer to a POLL for a known tag.
  *
- * Priority when several things are waiting (docs/protokoll.md part 1, "Priority"):
+ * Priority when several things are waiting (docs/protocol.md part 1, "Priority"):
  *   1. CONFIG - settings
  *   2. IDLE   - the caller then offers an image (esl_image) or firmware (esl_tagfw)
  * The AP draws the content itself, so here it only notes why content cannot be

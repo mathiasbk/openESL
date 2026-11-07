@@ -3,7 +3,7 @@
  *
  * Register facts are from Dmitry Grinberg's ZBS243 reverse engineering, as used in
  * atc1441's ZBS_Flasher examples and the OpenEPaperLink tag firmware (see zbs243.h
- * and docs/kildelogg.md). The code itself is written for this project.
+ * and docs/sources.md). The code itself is written for this project.
  *
  * No interrupts are used: the delay polls timer 0, the UART polls its TX flag, and
  * the temperature sensor's "done" flag is polled.
@@ -240,7 +240,7 @@ void hal_mac_read(uint8_t *mac8)
     /*
      * The MAC is at info page 0x10-0x17, least significant byte first, which is
      * the air order. ZBS_Flasher's "mac -m" writes it there; checked against
-     * the flasher's MAC backups (kildelogg 2026-10-14).
+     * the flasher's MAC backups (docs/sources.md 2026-10-14).
      */
     static __xdata uint8_t buf[8];
     uint8_t i;
@@ -278,7 +278,7 @@ static void epd_byte(uint8_t b)
  * wakes it (hal_xflash_open), and hal_xflash_close puts it back (the display
  * traffic keeps its nCS high, and the chip stays powered through the ZBS243's
  * sleep). Whole-byte writes to P1,
- * since reading a port back does not give the written levels (kildelogg.md);
+ * since reading a port back does not give the written levels (sources.md);
  * the levels are those gpio_init() set, with P1.1 low in between.
  */
 static void eeprom_sleep(void)

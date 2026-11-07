@@ -13,9 +13,9 @@
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
- * tag, and back. Follows the test matrix in docs/fremdriftsplan.md phase 5. */
+ * tag, and back. Follows the test matrix in docs/history/work-plan.md phase 5. */
 
-#define CAP 24 /* krav G3: at least 20 tags */
+#define CAP 24 /* requirement G3 in docs/requirements.md: at least 20 tags */
 #define PAN 0x4553
 #define AUTH "Bearer t"
 
@@ -122,7 +122,7 @@ static esl_sb_t out;
 
 /* Tags that show what the AP draws (POLL bit5): the image is drawn when the tag polls
  * with another image than its content gives, sent block by block, and never stored.
- * docs/protokoll.md "Image transfer"; plan D in design-sending-alternativer. */
+ * docs/protocol.md "Image transfer"; plan D in design-sending-alternativer. */
 static esl_image_t images;
 
 static void images_boot(void)

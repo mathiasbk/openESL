@@ -11,7 +11,7 @@
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
 
-/* OTA for the AP itself (krav A10): POST /api/ota with the app image
+/* OTA for the AP itself (requirement A10 in docs/requirements.md): POST /api/ota with the app image
  * (build/esl_ap.bin, the CI's openesl-ap-ota.bin) writes the app slot that
  * is not running, in one request or in parts (?offset=N&total=T, which the
  * USB port needs: its driver drops bytes when its buffer is full, so the

@@ -1,5 +1,5 @@
 /*
- * xflash_zbs243.c - the SPI flash (Winbond W25Q80 on the 1.54", docs/kildelogg.md
+ * xflash_zbs243.c - the SPI flash (Winbond W25Q80 on the 1.54", docs/sources.md
  * 2026-10-15) and the restart, for firmware updates (hal.h, docs/tag-ota.md).
  *
  * Pins: P0.0 SCK and P0.1 MOSI (shared with the display), P0.2 MISO, P1.1 nCS. SPI

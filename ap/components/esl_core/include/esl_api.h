@@ -12,7 +12,7 @@
 #include "esl_tagfw.h"
 #include "esl_source.h"
 
-/* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
+/* The HTTP API from docs/protocol.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
  * host tests call it directly. */
 

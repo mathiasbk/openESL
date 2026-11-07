@@ -33,4 +33,4 @@ There is one layout file per label model, holding up to 16 layouts. The built-in
 
 ## The file format
 
-The format is described in [docs/protokoll.md, part 3](https://github.com/mathiasbk/openESL/blob/master/docs/protokoll.md). Example files: [tag/designs/layouts](https://github.com/mathiasbk/openESL/blob/master/tag/designs/layouts). What a layout can hold: [Layout elements and limits](Layout-elements-and-limits).
+The format is described in [docs/protocol.md, part 3](https://github.com/mathiasbk/openESL/blob/master/docs/protocol.md). Example files: [tag/designs/layouts](https://github.com/mathiasbk/openESL/blob/master/tag/designs/layouts). What a layout can hold: [Layout elements and limits](Layout-elements-and-limits).

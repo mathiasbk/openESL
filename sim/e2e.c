@@ -1,6 +1,6 @@
 /* e2e.c - end-to-end scenarios: the real tag firmware against the real AP core, driven
  * through the API, with simulated time. The cases follow the phase 5 test matrix in
- * docs/fremdriftsplan.md (and the hardware results there), plus CONFIG, layout files and
+ * docs/history/work-plan.md (and the hardware results there), plus CONFIG, layout files and
  * T12. One tag runs through all of them in order, as one long day on the jig.
  * Every screen worth looking at is saved as PNG in the output folder. */
 #include <stdarg.h>
@@ -233,7 +233,7 @@ static uint32_t image_id(void)
 }
 
 /* The tag shows the image of its current content: the AP draws the screen and the tag
-   only shows it (protokoll.md "Image transfer"), so what the tag reports is the image id. */
+   only shows it (protocol.md "Image transfer"), so what the tag reports is the image id. */
 static bool shows_image(void)
 {
     uint32_t id = image_id();

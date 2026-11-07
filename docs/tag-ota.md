@@ -12,7 +12,7 @@ The approach is our own; the SPI flash pins and the idea of staging an image in 
 
 1. A release has `openesl-tag-<model>-<version>-ota.bin` per model (`tag/build/fw/openesl-ota.bin` from `build.py fw`): a 16-byte header (magic `OSFW`, format, model, version, size, CRC-32; `ESL_FWF_*` in `shared/proto.h`) and the application, padded to whole 1 KB pages.
 2. `esl-client tag-ota FILE`, or the Firmware card on the web page's Dashboard tab (over the AP's USB port or the bridge), uploads it with `PUT /api/tag-firmware` (16 KB parts). The AP keeps one image per model in its `tagfw` partition and checks the CRC before it offers it.
-3. A tag polls with `fw_ver` and POLL flag bit3 ("I take firmware over the air"). When nothing else waits for it (settings, a new image) and it runs another version, the AP answers with the first FW block instead of IDLE. The tag asks for the rest with FW_REQ, at most 128 blocks (11 KB) per wake-up, and writes them to the SPI flash. A request that gets no answer even after its one retry is sent again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), before the tag leaves the rest for the next poll. A 40 KB image takes four wake-ups or a few more; the tag keeps showing its image in between, and the AP has it come back after 5 s for the next part (`ESL_BLOCKS_POLL_S`) instead of after its poll interval, so an update takes minutes even on a long interval. The messages are in [protokoll.md](protokoll.md), "Firmware transfer".
+3. A tag polls with `fw_ver` and POLL flag bit3 ("I take firmware over the air"). When nothing else waits for it (settings, a new image) and it runs another version, the AP answers with the first FW block instead of IDLE. The tag asks for the rest with FW_REQ, at most 128 blocks (11 KB) per wake-up, and writes them to the SPI flash. A request that gets no answer even after its one retry is sent again, up to 8 times per wake-up (`CFG_FW_MAX_MISS`), before the tag leaves the rest for the next poll. A 40 KB image takes four wake-ups or a few more; the tag keeps showing its image in between, and the AP has it come back after 5 s for the next part (`ESL_BLOCKS_POLL_S`) instead of after its poll interval, so an update takes minutes even on a long interval. The messages are in [protocol.md](protocol.md), "Firmware transfer".
 4. With the whole image in the SPI flash, the tag reads it back and checks the CRC-32, copies its own application to the rollback slot, marks "install" and restarts (`ota.c`).
 5. The bootloader in page 0 (`tag/boot/`) checks the image again, copies it page by page into 0x0400–0xF3FF and jumps to it. The new firmware shows the image in its slot again (T12) and polls. Coming from 0.4.7 or older there is no image yet, so it shows its start screen until the AP sends one, at its first poll.
 6. The first answered POLL confirms the new image. If it is started 9 times without that (resets, not wake-ups from sleep), the bootloader copies the old application back and marks the update as rolled back; the old firmware then reports POLL flag bit4, and the AP stops offering that version.
@@ -25,10 +25,10 @@ The image can go to one tag instead of all of its model: `PUT /api/tag-firmware?
 
 | Fact | Value | Source |
 |------|-------|--------|
-| ZBS243 main flash | 64 KB, 1 KB pages; 0xF400 free (the probes log there), 0xF800 settings record, 0xFC00 up stock MAC/flags | `tag/tools/build.py`, kildelogg.md |
+| ZBS243 main flash | 64 KB, 1 KB pages; 0xF400 free (the probes log there), 0xF800 settings record, 0xFC00 up stock MAC/flags | `tag/tools/build.py`, sources.md |
 | Firmware (SDCC 4.5.0, with OTA) | application 39,647 bytes (2.9") and 40,072 (1.54"); bootloader 994 bytes; OTA file 39,952 bytes (2.9") and 40,976 (1.54") | `build.py fw`, 2026-10-20 |
 | Interrupts | none used (`IEN0 = 0`), so the bootloader needs no vector forwarding | `hal_zbs243.c` (`hal_init`) |
-| Writing the main flash from the firmware | works: erase + write of a whole 1 KB page | kildelogg.md 2026-10-14/15, `flash_write_page` |
+| Writing the main flash from the firmware | works: erase + write of a whole 1 KB page | sources.md 2026-10-14/15, `flash_write_page` |
 | SPI flash on the board | **Winbond W25Q80, 1 MB** on P1.1 (nCS), P0.0 SCK, P0.1 MOSI, P0.2 MISO. 4 KB erase 25 ms, 16-byte write 1 ms | `eepromprobe.c` on 000002079350341C (1.54"), 2026-10-15; see "Probe" below |
 | Tag model and firmware version in POLL | yes (T18), so the AP knows which image a tag needs | `shared/proto.h` |
 
@@ -43,13 +43,13 @@ Two copies of the firmware do not fit in the chip (2 × 40 KB > 61 KB), so the n
 | SPI 0x80000 | slot NEW: header at 0x80000, image from 0x80100 |
 | SPI 0x90000 | slot OLD: the application that ran before the update, same layout |
 | SPI 0xA0000 | update state: one byte per flag, 0xFF = not set, programmed to 0x00 to set (install, copied, 8 tries, confirmed, rolled back), so setting a flag never needs an erase |
-| SPI 0xB0000 | the screen image drawn by the AP (protokoll.md "Image transfer", `tag/src/image.h`): 16-byte header at 0xB0000, written last, the image from 0xB0100 |
+| SPI 0xB0000 | the screen image drawn by the AP (protocol.md "Image transfer", `tag/src/image.h`): 16-byte header at 0xB0000, written last, the image from 0xB0100 |
 
 The slots are well clear of the data the stock firmware left in sectors 0 and 1. The layout is in `tag/src/otaslot.h`.
 
 ## Bootloader
 
-It runs only after a reset: deep sleep resumes where the firmware stopped, so a wake-up from sleep never passes through it. It has its own bit-banged SPI (whole-byte writes to P1, see kildelogg), the flash page write and a CRC-32 in assembler, and must fit 1 KB (`build.py` fails the build otherwise).
+It runs only after a reset: deep sleep resumes where the firmware stopped, so a wake-up from sleep never passes through it. It has its own bit-banged SPI (whole-byte writes to P1, see [sources.md](sources.md)), the flash page write and a CRC-32 in assembler, and must fit 1 KB (`build.py` fails the build otherwise).
 
 | State at start | What it does |
 |----------------|--------------|

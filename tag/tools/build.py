@@ -243,7 +243,7 @@ def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, m
     if model == "--model-large":
         flags.append("--stack-auto")
     # ZBS243 XRAM is 8 KB at 0xE000-0xFFFF, but 0xE000-0xE2FF is lost in deep sleep,
-    # so variables start at 0xE300 (kildelogg 2026-10-14; OEPL links there too)
+    # so variables start at 0xE300 (docs/sources.md 2026-10-14; OEPL links there too)
     link_flags = ["--xram-loc", "0xE300", "--xram-size", "0x1D00",
                   "--code-loc", str(code_loc), "--code-size", str(limit - code_loc)]
     rels = []

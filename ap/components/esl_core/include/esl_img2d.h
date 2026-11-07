@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 /* ESL_IMG_FMT_2D (shared/proto.h): a raw screen image (ESL_IMG_FMT_RAW, column by
- * column) coded column against column, as docs/protokoll.md part 1 describes it.
+ * column) coded column against column, as docs/protocol.md part 1 describes it.
  *
  * Codes the n raw bytes at in, columns of h pixels, into out, at most max bytes;
  * n must be a whole number of columns. Returns the coded length, 0 when it does not

@@ -141,7 +141,7 @@ Help is welcome, most of all with hardware we have not tried yet: other labels (
 
 ## A clean implementation
 
-OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/kildelogg.md](docs/kildelogg.md).
+OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/sources.md](docs/sources.md).
 
 ## Credits
 

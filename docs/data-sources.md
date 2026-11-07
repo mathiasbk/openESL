@@ -1,5 +1,7 @@
 # Data sources: the weather on a tag
 
+> A user guide. The short version is the wiki page [Weather](https://github.com/mathiasbk/openESL/wiki/Weather).
+
 An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its tags by itself, so no client has to run. A
 *data source* is something on the internet the AP reads every so often. The first type is
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind

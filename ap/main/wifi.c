@@ -12,7 +12,7 @@
 #include "nvs.h"
 #include "sdkconfig.h"
 
-/* WiFi with a setup network (krav A1).
+/* WiFi with a setup network (requirement A1 in docs/requirements.md).
  *
  * With a network saved (NVS cfg/ssid, or menuconfig) the AP joins it as a
  * station. If it has no IP after CONFIG_ESL_WIFI_SETUP_AFTER_S, or nothing is

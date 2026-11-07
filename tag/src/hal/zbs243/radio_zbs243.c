@@ -3,7 +3,7 @@
  *
  * The init values and the register meanings are from Dmitry Grinberg's ZBS243
  * reverse engineering, as used in the OpenEPaperLink tag firmware (see zbs243.h
- * and docs/kildelogg.md). Most init values have no known meaning; they are
+ * and docs/sources.md). Most init values have no known meaning; they are
  * written as found. The code is written for this project and runs without
  * interrupts: the pending flags in RADIO_IRQ_PENDING and TCON2 are polled.
  *

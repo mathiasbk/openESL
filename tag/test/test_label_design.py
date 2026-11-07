@@ -103,7 +103,7 @@ if __name__ == "__main__":
 
 
 class LayoutFileTests(unittest.TestCase):
-    """Designs for layouts from a layout file (docs/protokoll.md part 3)."""
+    """Designs for layouts from a layout file (docs/protocol.md part 3)."""
 
     def setUp(self):
         self.lf = {m: ld.load(os.path.join(TAG, "designs", "layouts", m + ".json")) for m in ("2.9", "1.54")}

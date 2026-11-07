@@ -1,5 +1,5 @@
 /*
- * image.h - screen images drawn by the AP (docs/protokoll.md part 1, "Image transfer").
+ * image.h - screen images drawn by the AP (docs/protocol.md part 1, "Image transfer").
  *
  * The AP sends the picture in IMG blocks; image_block() writes them to the SPI flash
  * (one slot after the firmware slots in otaslot.h) and checks the whole image against

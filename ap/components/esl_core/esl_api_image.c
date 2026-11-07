@@ -19,7 +19,7 @@ static void sb_base64(esl_sb_t *out, const uint8_t *p, size_t n)
 }
 
 /* GET /api/tags/{mac}/image: the screen the AP draws for the tag's content, the bytes a
-   tag that shows images gets (docs/protokoll.md, "Image transfer"), for the dashboard.
+   tag that shows images gets (docs/protocol.md, "Image transfer"), for the dashboard.
    Drawn on each request and not kept (a picture is read back); also for a tag that
    cannot show it (no SPI flash). */
 static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)

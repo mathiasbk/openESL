@@ -65,8 +65,8 @@ Per day: sleep current for the whole day, plus the charge of each POLL, plus the
 | Long backoff | 3600 s after 1440 min without the AP | `CFG_LONG_POLL_S`, `CFG_LONG_AFTER_MIN` (#261); not yet seen on hardware |
 | Listening window | 20 ms, up to 2 per POLL | `CFG_RX_TIMEOUT_MS`, one retry after 2–10 ms |
 | Time to the reply | 5 ms | the AP answers a frame in under 40 µs (`ap/README.md`, layout transfer timing); the rest is air time and the tag's turnaround. Not measured on the tag side |
-| Wake-up time | 5 ms | estimate; the deep-sleep wake is a jump back into the code, not a reboot (`kildelogg.md`) |
-| Display refresh | 2.9 s BUSY | measured on the 1.54" panel (`kildelogg.md`); init and transfer 0.3 s estimated |
+| Wake-up time | 5 ms | estimate; the deep-sleep wake is a jump back into the code, not a reboot (`sources.md`) |
+| Display refresh | 2.9 s BUSY | measured on the 1.54" panel (`sources.md`); init and transfer 0.3 s estimated |
 | Sleep current | 3 µA | **estimate**: sleep timer, retained XRAM and the panel's deep sleep (typically under 1 µA for this panel family) |
 | Core running | 4 mA | **estimate** for an 8051 at 16 MHz |
 | Radio on | 12 mA | **estimate**, typical for a 2.4 GHz 802.15.4 radio in RX or TX at 0 dBm |
