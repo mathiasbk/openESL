@@ -32,46 +32,36 @@
   <!-- ===================== Overview ===================== -->
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
-      <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32 access point: one ESP32-C6 board to start, or an ESP32-S3 with a C6 as its radio for up to about 1000 tags. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
-      <p id="home-fw" class="muted"></p>
+      <div class="hero-text">
+        <h2>Open firmware for e-paper shelf labels</h2>
+        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP.</p>
+        <div class="hero-go">
+          <a class="button primary big" href="#ap">Flash the firmware</a>
+          <a class="button big" href="https://github.com/mathiasbk/openESL/wiki/">Read the wiki</a>
+          <a class="button big" href="https://github.com/mathiasbk/openesl">GitHub</a>
+        </div>
+        <p id="home-fw" class="muted"></p>
+      </div>
+      <img class="hero-img" src="img/tags-29-and-154.jpg" width="900" height="323" alt="A 2.9 inch and a 1.54 inch tag running OpenESL, showing a price and a QR code">
     </section>
+    <ol class="flow" aria-label="How it works">
+      <li><strong>Flash the AP</strong><span>An ESP32-C6 board over USB, in the browser.</span></li>
+      <li><strong>Flash the tags</strong><span>One by one in a jig, with a D1 mini flasher.</span></li>
+      <li><strong>Send content</strong><span>From the HTTP API, Home Assistant or a CSV file.</span></li>
+    </ol>
     <div class="cards">
-      <a class="card link" href="#design">
-        <h3>Design labels</h3>
-        <p>Lay out text, inverted fields, lines and boxes for each tag model, with a preview drawn by the AP's own code. Save the layout file for the AP.</p>
-        <span class="go">Open the designer</span>
-      </a>
-      <a class="card link" href="#tag">
-        <h3>Flash a tag</h3>
-        <p>Put the OpenESL firmware on a tag in the jig with a ZBS_Flasher. The stock firmware is backed up first and kept in this browser.</p>
-        <span class="go">Open the tag flasher</span>
-      </a>
-      <a class="card link" href="#ap">
-        <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6, an ESP32-S3 + C6 or another supported board over USB. The page helps you choose.</p>
-        <span class="go">Open the AP flasher</span>
-      </a>
+      <a class="card link" href="#ap"><h3>Flash AP</h3><p>Choose a board and flash it over USB.</p></a>
+      <a class="card link" href="#tag"><h3>Flash tag</h3><p>Back up the stock firmware and flash a tag.</p></a>
+      <a class="card link" href="#design"><h3>Design</h3><p>Lay out labels with a true preview.</p></a>
+      <a class="card link" href="#dashboard"><h3>Dashboard</h3><p>See your AP and its tags.</p></a>
     </div>
-    <section class="card wide">
-      <h3>How it fits together</h3>
-      <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 (or an S3 + C6) and connect it to your computer or network. The <a href="#setup">Set up</a> tab sets its WiFi and API token over USB.</li>
-        <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
-        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
-        <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
-        <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client tag-ota</code> sends new tag firmware to the tags over the radio; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
-      </ol>
-    </section>
-    <section class="card wide">
-      <h3>What you need</h3>
-      <ul>
-        <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
-        <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB (up to about 400 tags), or an ESP32-S3 N16R8 with a C6 as its radio for up to about 1000 tags. The ESP32-C5 is experimental.</li>
-      </ul>
-      <p class="muted">Setting up and running the AP: the <a href="https://github.com/mathiasbk/openESL/wiki/">wiki</a>. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
-    </section>
+    <p class="home-links muted">
+      <a href="https://github.com/mathiasbk/openESL/wiki/What-you-need">What you need</a> ·
+      <a href="https://github.com/mathiasbk/openESL/wiki/How-it-works">How it works</a> ·
+      <a href="#api">API</a> ·
+      <a href="https://github.com/mathiasbk/openesl-homeassistant">Home Assistant</a> ·
+      <a href="https://github.com/mathiasbk/openesl/releases">Releases</a>
+    </p>
   </main>
 
   <!-- ===================== Design ===================== -->
