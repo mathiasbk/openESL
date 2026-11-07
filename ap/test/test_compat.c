@@ -84,9 +84,24 @@ static void check_reply(const char *file, const uint8_t *poll, size_t poll_len, 
         CHECK(1);
         return;
     }
-    /* the drawing changed: a tag that shows the AP's images is sent the new one */
+    /* the drawing changed: a tag that shows the AP's images is sent the new one. Only the
+       image id, its size and the data may differ: the block starts where the release's did
+       (at 0 instead of IDLE), for the same model, in the release's format or (instead of
+       IDLE) one the tag says it takes, and stays inside the image */
+    bool fmt_ok = false, same_block = false;
+    if (ok && gr.type == ESL_MSG_IMG) {
+        if (wr.type == ESL_MSG_IMG) {
+            fmt_ok = gr.img_fmt == wr.img_fmt;
+            same_block = gr.pos == wr.pos && gr.fw_model == wr.fw_model;
+        } else {
+            fmt_ok = gr.img_fmt == ESL_IMG_FMT_RAW || (gr.img_fmt == ESL_IMG_FMT_RLE && (p.flags & ESL_POLL_F_IMG_RLE)) ||
+                     (gr.img_fmt == ESL_IMG_FMT_2D && (p.flags & ESL_POLL_F_IMG_2D));
+            same_block = gr.pos == 0 && (!p.model || gr.fw_model == p.model);
+        }
+        same_block = same_block && (size_t)gr.pos + gr.len <= gr.size;
+    }
     if (ok && (p.flags & ESL_POLL_F_IMAGE) && (wr.type == ESL_MSG_IDLE || wr.type == ESL_MSG_IMG) &&
-        gr.type == ESL_MSG_IMG &&
+        gr.type == ESL_MSG_IMG && fmt_ok && same_block &&
         g.seq == w.seq && gr.next_poll_s == wr.next_poll_s) {
         printf("\n  note %s: %s is sent a new image (its content draws differently now)", file, mac);
         redrawn++;
