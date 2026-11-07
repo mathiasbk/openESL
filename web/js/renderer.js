@@ -41,7 +41,11 @@ export function localDays(d) {
 
 export function loadRenderer(model, base = new URL("../wasm/", import.meta.url)) {
   if (!MODELS[model]) throw new Error("unknown model " + model);
-  if (!cache[model]) cache[model] = create(model, base);
+  // one that failed to load (a fetch that failed once) is tried again next time
+  if (!cache[model]) cache[model] = create(model, base).catch((e) => {
+    delete cache[model];
+    throw e;
+  });
   return cache[model];
 }
 

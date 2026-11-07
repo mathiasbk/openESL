@@ -52,7 +52,14 @@ export async function openRenderer(model, base = "") {
 }
 
 export function draw(r, job) {
-  return r.frame ? r.frame.call(r.model, "draw", job) : drawWith(r, job);
+  return r.frame ? r.frame.call(r.model, "draw", job).then((out) => checked(r, out)) : drawWith(r, job);
+}
+
+// The frame's answer as drawWith gives it, or { ok: false }: the page only draws pixels from it
+function checked(r, out) {
+  const n = r.width * r.height;
+  if (out?.ok === true && out.pixels instanceof Uint8Array && out.pixels.length >= n) return { ok: true, pixels: out.pixels };
+  return { ok: false, error: typeof out?.error === "string" ? out.error : "no picture from the renderer" };
 }
 
 // The code in the frame. It imports the renderer from base and answers each { id, model,
@@ -68,7 +75,11 @@ addEventListener("message", async (e) => {
   const { id, model, method, job } = e.data;
   try {
     R ||= await import(new URL("js/renderer.js", base).href);
-    const r = await (renderers[model] ||= R.loadRenderer(model, new URL("wasm/", base)));
+    // a renderer that failed to load is tried again next time (a fetch that failed once)
+    const r = await (renderers[model] ||= R.loadRenderer(model, new URL("wasm/", base)).catch((err) => {
+      delete renderers[model];
+      throw err;
+    }));
     let value = null;
     if (method === "draw") value = drawWith(r, job);
     else if (method !== "open") throw new Error("no method " + method);
@@ -94,7 +105,12 @@ function makeFrame(base) {
   f.setAttribute("aria-hidden", "true");
   f.tabIndex = -1;
   f.hidden = true;
-  f.srcdoc = `<!doctype html><meta charset="utf-8"><script type="module">${frameCode(base)}</script>`;
+  // Its own policy too: it loads code and data from base only, so even a changed published
+  // page cannot send what the page gives it (layout files, sample text) anywhere else
+  const origin = new URL(base).origin;
+  const csp = `default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' ${origin}; connect-src ${origin}`;
+  f.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">` +
+    `<script type="module">${frameCode(base)}</script>`;
   const ready = new Promise((resolve, reject) => {
     setTimeout(() => reject(new Error("the renderer frame did not start")), TIMEOUT_MS);
     addEventListener("message", (e) => {
