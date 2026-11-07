@@ -91,6 +91,17 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
 
 The label picks the new content up at its next poll. The wiki page [WiFi and API token](https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token) covers the first start, WiFi and the token in detail. Developers can try every request on the [API](https://mathiasbk.github.io/openESL/#api) tab against their own AP, through the bridge in [tools/esl-client](tools/esl-client/README.md).
 
+## Try it without hardware
+
+The [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make), so you can try the API before you buy anything:
+
+```bash
+make -C sim                                      # builds both label models and runs the tests
+sim/build/154/esl-sim serve --png /tmp/screen.png   # a simulated AP with one label on a serial port
+```
+
+`serve` prints the serial port it opened; [esl-client](tools/esl-client/README.md) talks to it as to a real AP, and the label's screen is saved to the PNG. The details are in [sim/README.md](sim/README.md#serial-port-esl-sim-serve).
+
 ## How it works
 
 ```mermaid
@@ -132,13 +143,11 @@ Hardware notes, pinouts and where each fact comes from are in [docs/](docs/READM
 
 ## Status
 
-Running on real hardware: the 1.54" since 2026-10-14 and the 2.9" since 2026-10-17, both served by the ESP32-C6 AP over USB and WiFi. The features above are tested on a PC and in CI, and most of them on real labels. What is left, and what has not been tried on hardware yet, is in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
-
-Tag firmware 0.4.7 and older draws the screen itself and does not take the AP's images, so every tag needs the new tag firmware: over the radio (`esl-client tag-ota`, or the dashboard) if it has the bootloader (0.3.0 and newer), otherwise in the jig ([tag/README.md](tag/README.md)).
+OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions).
 
 ## Roadmap
 
-Next up: more SoluM label models (the 2.9" with red first), choosing the radio channel on the AP's Settings page, and measured battery life. Later: labels that find the AP by themselves, several APs in one place and security on the radio. Some day: labels with other chips, such as SoluM M3 "Newton" and Hanshow Nebular. The whole list is in the [wiki](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+What comes next, and what came in the last releases, is on the wiki page [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
 ## Folders
 
@@ -154,15 +163,11 @@ Next up: more SoluM label models (the 2.9" with red first), choosing the radio c
 | [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link: end-to-end tests in CI, and a serial port for `esl-client` with no hardware |
 | [Jig/Hardware/](Jig/Hardware/README.md) | The flashing jig: ZBS_Flasher on a D1 mini, BOM, photos and 3D-printed parts |
 
-Start with [docs/README.md](docs/README.md), then phase 0 in [docs/fremdriftsplan.md](docs/fremdriftsplan.md).
+New to the code? [CONTRIBUTING.md](CONTRIBUTING.md) says how a change is made and tested, and the README in each folder says how to build and test that part.
 
 ## Releases
 
-The release's version is in [VERSION](VERSION). The AP firmware and the firmware of each tag model carry the version of the release they last changed in, worked out by [tools/fw_version.py](tools/fw_version.py) from the release tags (`python3 tools/fw_version.py --all`): a release that changes only the AP, or only one tag model, gives the other tags the same firmware as before, with the same version, so the dashboard offers them nothing and no tag downloads an update over the radio for no reason. Nothing is bumped by hand; the script lists which files belong to which part. The tag firmware shows its version on its start screen and sends it in POLL (1.2.3 as 10203), and the AP reports its own as `ap.fw` in `GET /api/tags`. A checkout without the release tags (a download of the sources, a shallow clone) builds with the version in `VERSION`. The AP build and the simulation read the version when they configure: after new tags or source changes, a local build that only recompiles keeps the earlier version until `idf.py reconfigure` or a clean build.
-
-To make a release, bump `VERSION` in a pull request. When it is merged to `master`, [release.yml](.github/workflows/release.yml) makes the release `v<VERSION>` from that commit: it builds the firmware and publishes a GitHub release with the tag firmware for each model, the merged AP image for a new board, one per board in [ap/boards](ap/boards/README.md) (written at 0x0 it erases what an AP in use has stored, see [ap/README.md](ap/README.md#build-and-flash)), the app image alone for OTA (`...-ota.bin` for each board, `esl-client ota`), `SHA256SUMS.txt`, and notes from [tools/release_notes.py](tools/release_notes.py): the pull requests since the previous release sorted by what they changed (AP firmware, tag firmware, web page, the rest), with the version each firmware carries and "unchanged" where nothing was. The files are named after the release even when a part is unchanged. The same script writes the body of the release pull request: `python3 tools/release_notes.py v0.4.5 origin/development`. The web page is then published again, and its flashers serve that release.
-
-The same workflow can be started by hand (Actions → Release → Run workflow) to release the current `VERSION` if that release does not exist yet, or by pushing a tag that matches `VERSION` (`git tag v0.2.0 && git push origin v0.2.0`). A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.
+The release's version is in [VERSION](VERSION). Each part (the AP and each tag model) carries the version of the release it last changed in, so an update that does not touch a part leaves it alone. A release is made by bumping `VERSION` in a pull request; when it is merged to `master`, [release.yml](.github/workflows/release.yml) builds the firmware and publishes the GitHub release and the web page, and the same push publishes the wiki. How versions work, the release files and the steps are in [docs/release.md](docs/release.md).
 
 Every pull request and push to `master` runs [web.yml](.github/workflows/web.yml): host tests, both tag models, the AP and the web page with its tests.
 
