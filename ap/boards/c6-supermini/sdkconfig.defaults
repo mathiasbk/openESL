@@ -7,3 +7,7 @@ CONFIG_IDF_TARGET="esp32c6"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/c6-supermini/partitions.csv"
+
+# The AP only makes TLS connections (HTTPS data sources, main/datasrc.c), it never
+# accepts one, so mbedTLS leaves out its TLS server side (about 8 KB of flash)
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
