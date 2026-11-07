@@ -48,7 +48,9 @@ Details: [Dashboard](Dashboard).
 
 ## No hardware yet?
 
-The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API and the dashboard first. One command in a checkout of the repository starts an AP with six simulated labels and opens the dashboard connected to it:
+[Open the demo](https://mathiasbk.github.io/openESL/?demo=browser#dashboard) on the web page: a pretend AP with six labels runs in your browser, so you can try the dashboard and the designer with nothing to install.
+
+For the real firmware, the [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API and the dashboard first. One command in a checkout of the repository starts an AP with six simulated labels and opens the dashboard connected to it:
 
 ```
 python3 tools/demo.py            # Linux, macOS or WSL: needs make and a C compiler

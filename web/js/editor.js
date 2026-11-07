@@ -73,6 +73,7 @@ const store = {
 // On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
 // origin, and the layout files stored on the AP are what the editor opens and saves
 let onAp = false;
+let demoAp = null;   // the browser demo's pretend AP (js/demoap.js), from main.js on ?demo=browser
 // The template library's index entries, for the titles in the layout list (tplpicker.js)
 let templates = [];
 
@@ -2015,8 +2016,9 @@ function apButtons(busy = false) {
 
 function apShow() {
   if (!doc()) return;    // before the first model is loaded
-  $("ap-setup").hidden = ap.connected;
+  $("ap-setup").hidden = ap.connected || !!demoAp;   // the demo has no USB, bridge or address to choose
   $("ap-conn").hidden = $("ap-pick").hidden = $("ap-buttons").hidden = !ap.connected;
+  $("ap-change").hidden = !!demoAp;
   $("ap-conn-text").textContent = ap.info;
   $("send-h").textContent = `Send "${layoutName()}" to your AP`;
   if (!onAp) {
@@ -2047,6 +2049,7 @@ function apDisconnected() {
 }
 
 function apClient() {
+  if (demoAp) return demoAp;
   if (onAp) return new ApClient("", $("ap-token").value.trim());
   if (ap.usb) {
     if (!serialAp()) throw new Error("The USB connection to the AP is closed. Connect again.");
@@ -2147,7 +2150,7 @@ async function apConnect() {
     ap.fontSlots = {};
   }
   limitsChanged();
-  const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  const where = demoAp ? "the demo AP in this browser" : onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
   ap.tagLayouts = {};
   if (onAp) {
@@ -2440,7 +2443,8 @@ function handoffMessage(ev) {
 
 function initAp() {
   // what Connect needs (the token on the AP, the port or the bridge's address on the web), "" before there is one
-  const canConnect = onAp ? initOnAp() : initOnWeb();
+  const how = onAp ? initOnAp() : initOnWeb();
+  const canConnect = demoAp ? () => "demo" : how;
   $("ap-connect").addEventListener("click", () => {
     ap.usb = false;
     apRun("Connecting", apConnect);
@@ -2505,8 +2509,10 @@ function initIntro() {
   });
 }
 
-export async function initEditor({ sameOrigin = false } = {}) {
+// demoAp: the browser demo's pretend AP (js/demoap.js), used instead of a real one
+export async function initEditor({ sameOrigin = false, demoAp: demo = null } = {}) {
   onAp = sameOrigin;
+  demoAp = demo;
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
   } catch {
@@ -2526,4 +2532,6 @@ export async function initEditor({ sameOrigin = false } = {}) {
     apReady = true;
     await apStart();
   }
+  // the demo AP is there at once, so the layout list shows what it has
+  if (demoAp) apRun("Connecting", apConnect);
 }
