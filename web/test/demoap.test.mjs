@@ -157,6 +157,8 @@ test("layout files: upload, a new version, and removal holds back the tags that 
   const e29 = list.layouts.find((l) => l.model === "2.9");
   assert.ok(e29.version && e29.layouts.includes("shelf"));
   assert.ok(list.limits.textBytes > 0);
+  // ellipses and polygons: an AP without these limits is taken as too old for them
+  assert.ok(list.limits.shapes > 0 && list.limits.polygonPoints >= 3);
   const file = await ap.call("GET", "/api/layouts/2.9");
   assert.equal(file.model, "2.9");
   const same = await ap.call("PUT", "/api/layouts/2.9", file);

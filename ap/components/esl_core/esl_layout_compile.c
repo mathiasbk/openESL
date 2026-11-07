@@ -199,7 +199,7 @@ static int fixed_bytes(cc_t *c, const uint8_t *b, size_t n)
         if (c->tlen[i] == n && memcmp(c->text[i], b, n) == 0)
             return (int)i;
     if (c->ntext >= ESL_LBIN_TEXT_MAX)
-        return fail(c, "at most %d different fixed texts in a file", ESL_LBIN_TEXT_MAX), -1;
+        return fail(c, "at most %d different fixed texts in a file (polygon corners count too)", ESL_LBIN_TEXT_MAX), -1;
     memcpy(c->text[c->ntext], b, n);
     c->tlen[c->ntext] = (uint8_t)n;
     return (int)c->ntext++;

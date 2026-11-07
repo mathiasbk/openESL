@@ -455,62 +455,100 @@ static bool in_ellipse(int64_t dx, int64_t dy, int64_t a, int64_t b, bool strict
     return strict ? l < r : l <= r;
 }
 
-/* Is the centre of pixel (x, y) inside polygon sh (even-odd)? */
-static bool in_polygon(const rd_shape_t *sh, int32_t x, int32_t y)
+/* The first row from the top of sh's box whose pixel in the column dx (doubled, from the
+ * centre) is in the ellipse a, b; the rows down to its mirror (y0 + y1 - row) are all in it.
+ * Past the middle when there is none. */
+static int32_t ellipse_top(const rd_shape_t *sh, int64_t dx, int64_t a, int64_t b, int32_t from, bool strict)
 {
-    bool in = false;
-    for (uint8_t i = 0, j = (uint8_t)(sh->n - 1); i < sh->n; j = i++) {
-        int32_t yi = sh->py[i], yj = sh->py[j];
-        if ((yi > y) != (yj > y)) {
-            /* the edge crosses row y right of x: x - xi < (y - yi) (xj - xi) / (yj - yi) */
-            int32_t l = (x - sh->px[i]) * (yj - yi), r = (y - yi) * (sh->px[j] - sh->px[i]); /* < 2^20 */
-            if (yj > yi ? l < r : l > r)
-                in = !in;
+    int32_t y, mid = (sh->y0 + sh->y1) / 2;
+    for (y = from; y <= mid && !in_ellipse(dx, 2 * (int64_t)y - sh->y0 - sh->y1, a, b, strict); y++)
+        ;
+    return y;
+}
+
+/* Rows a..b of a column bitmap (bit 7 of byte 0 = row 0) */
+static void rows_set(uint8_t *m, int32_t a, int32_t b)
+{
+    for (; a <= b; a++)
+        m[a >> 3] |= (uint8_t)(0x80 >> (a & 7));
+}
+
+/* The rows lo..hi of column x at most w / 2 from the segment: one run (a capsule is convex)
+ * round the row nearest to it, which is in it when any is */
+static void seg_rows(uint8_t *m, int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t x, int32_t w, int32_t lo,
+                     int32_t hi)
+{
+    int32_t y, t, b;
+    if (ax == bx) {
+        y = (ay + by) / 2;
+    } else {
+        /* the segment at the column (or its nearer end), rounded: whole numbers below 2^26 */
+        int32_t cx = x < (ax < bx ? ax : bx) ? (ax < bx ? ax : bx) : x > (ax > bx ? ax : bx) ? (ax > bx ? ax : bx) : x;
+        int32_t den = bx - ax, num = ay * den + (cx - ax) * (by - ay);
+        if (den < 0) {
+            den = -den;
+            num = -num;
         }
+        y = (2 * num + den) / (2 * den);
     }
-    return in;
+    if (y < lo || y > hi || !seg_near(ax, ay, bx, by, x, y, w))
+        return;
+    for (t = y; t > lo && seg_near(ax, ay, bx, by, x, t - 1, w); t--)
+        ;
+    for (b = y; b < hi && seg_near(ax, ay, bx, by, x, b + 1, w); b++)
+        ;
+    rows_set(m, t, b);
 }
 
-/* Is the centre of pixel (x, y) at most w / 2 from an edge of polygon sh? */
-static bool near_edge(const rd_shape_t *sh, int32_t x, int32_t y, int32_t w)
-{
-    for (uint8_t i = 0, j = (uint8_t)(sh->n - 1); i < sh->n; j = i++)
-        if (seg_near(sh->px[j], sh->py[j], sh->px[i], sh->py[i], x, y, w))
-            return true;
-    return false;
-}
-
-static bool shape_hit(const rd_shape_t *sh, int32_t x, int32_t y)
-{
-    if (sh->kind == ESL_LE_ELLIPSE) {
-        int64_t a = sh->x1 - sh->x0 + 1, b = sh->y1 - sh->y0 + 1;
-        int64_t dx = 2 * (int64_t)x - sh->x0 - sh->x1, dy = 2 * (int64_t)y - sh->y0 - sh->y1;
-        if (!in_ellipse(dx, dy, a, b, false))
-            return false;
-        /* a border: not inside the ellipse border pixels in from the box on every side */
-        return !sh->border || a <= 2 * sh->border || b <= 2 * sh->border ||
-               !in_ellipse(dx, dy, a - 2 * sh->border, b - 2 * sh->border, true);
-    }
-    if (!in_polygon(sh, x, y) && !near_edge(sh, x, y, 1))
-        return false;
-    return !sh->border || near_edge(sh, x, y, 2 * (int32_t)sh->border - 1);
-}
-
-/* An ellipse or polygon in column x: every run of its pixels is one span */
+/* An ellipse or polygon in column x. Worked out per column, not per pixel: an ellipse from its
+ * top row (it is the same mirrored), a polygon from where its edges cross the column and the
+ * rows near each edge. The same pixels as the definition in shared/proto.h. */
 static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, uint8_t *black, uint8_t *red)
 {
-    int32_t y, top = -1, last = sh->y1 < mo->h ? sh->y1 : mo->h - 1;
-
-    if (x < sh->x0 || x > sh->x1)
+    if (x < sh->x0 || x > sh->x1 || sh->y1 >= mo->h)
         return;
-    for (y = sh->y0; y <= last + 1; y++) {
-        if (y <= last && shape_hit(sh, x, y)) {
-            if (top < 0)
-                top = y;
-        } else if (top >= 0) {
-            fill_span(black, red, (uint16_t)top, (uint16_t)(y - 1), sh->color);
-            top = -1;
+    if (sh->kind == ESL_LE_ELLIPSE) {
+        int64_t a = sh->x1 - sh->x0 + 1, b = sh->y1 - sh->y0 + 1, dx = 2 * (int64_t)x - sh->x0 - sh->x1;
+        int32_t top = ellipse_top(sh, dx, a, b, sh->y0, false), bottom = sh->y0 + sh->y1 - top, in, bd = sh->border;
+        if (top > bottom)
+            return;
+        /* a border: not inside the ellipse border pixels in from the box on every side */
+        in = bd && a > 2 * bd && b > 2 * bd ? ellipse_top(sh, dx, a - 2 * bd, b - 2 * bd, top, true) : bottom + 1;
+        if (in > (sh->y0 + sh->y1) / 2) {
+            fill_span(black, red, (uint16_t)top, (uint16_t)bottom, sh->color);
+        } else if (in > top) {
+            fill_span(black, red, (uint16_t)top, (uint16_t)(in - 1), sh->color);
+            fill_span(black, red, (uint16_t)(sh->y0 + sh->y1 - in + 1), (uint16_t)bottom, sh->color);
         }
+        return;
+    }
+    /* polygon: inside (even-odd along the column), near an edge (1/2 px), near an edge (border) */
+    uint8_t ins[32] = {0}, edge[32] = {0}, band[32] = {0};
+    int32_t ys[ESL_POLY_MAX], n = 0, k;
+    for (uint8_t i = 0, j = (uint8_t)(sh->n - 1); i < sh->n; j = i++) {
+        int32_t xi = sh->px[i], yi = sh->py[i], xj = sh->px[j], yj = sh->py[j];
+        seg_rows(edge, xi, yi, xj, yj, x, 1, sh->y0, sh->y1);
+        if (sh->border)
+            seg_rows(band, xi, yi, xj, yj, x, 2 * (int32_t)sh->border - 1, sh->y0, sh->y1);
+        if ((xi > (int32_t)x) != (xj > (int32_t)x)) {
+            /* the first row below where the edge crosses the column */
+            int32_t den = xj - xi, num = yi * den + ((int32_t)x - xi) * (yj - yi);
+            if (den < 0) {
+                den = -den;
+                num = -num;
+            }
+            int32_t y = num / den + 1;
+            for (k = n++; k > 0 && ys[k - 1] > y; k--)
+                ys[k] = ys[k - 1];
+            ys[k] = y;
+        }
+    }
+    for (k = 0; k + 1 < n; k += 2)
+        rows_set(ins, ys[k], ys[k + 1] - 1);
+    for (k = 0; k < mo->col_bytes; k++) {
+        uint8_t m = (uint8_t)(edge[k] | (sh->border ? ins[k] & band[k] : ins[k]));
+        if (m)
+            ink(black, red, (uint16_t)k, m, sh->color);
     }
 }
 
