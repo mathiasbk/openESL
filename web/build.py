@@ -176,8 +176,7 @@ def copy_static():
     # the Overview tab shows a photo of the two tag models
     shutil.copy2(os.path.join(ROOT, "docs", "images", "tags-29-and-154.jpg"), os.path.join(DIST, "img"))
     # and the "What you can make" gallery (tools/gallery/render_gallery.py renders it)
-    shutil.copytree(os.path.join(ROOT, "docs", "images", "gallery"), os.path.join(DIST, "img", "gallery"),
-                    ignore=shutil.ignore_patterns("*.json"))
+    shutil.copytree(os.path.join(ROOT, "docs", "images", "gallery"), os.path.join(DIST, "img", "gallery"))
     # the example layout files, so the editor can open them (a model with same_as uses the
     # file of the model it names, which the editor opens under that model's name)
     lay = os.path.join(DIST, "designs", "layouts")

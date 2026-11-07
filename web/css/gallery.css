@@ -1,0 +1,15 @@
+/* gallery.css - the "What you can make" gallery on the Overview tab. GitHub Pages only: the AP
+   packs style.css (ap/main/webui.py), so these rules stay out of it to save the AP's flash. */
+.gallery { max-width: 1100px; margin-bottom: var(--space-5); }
+.gallery h2 { font-size: var(--fs-xl); margin-bottom: var(--space-2); }
+.gallery > p { max-width: 760px; margin: 0 0 var(--space-4); }
+.gallery-grid { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-start; }
+.gallery-grid figure { margin: 0; flex: 0 1 204px; }
+.gallery-grid figure.wide { flex-basis: 300px; }
+.gallery-grid img { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: var(--radius); box-shadow: var(--shadow-md); }
+.gallery-grid figcaption { font-size: var(--fs-sm); color: var(--muted); margin-top: var(--space-2); }
+@media (max-width: 760px) {
+  .gallery-grid { gap: var(--space-3); }
+  .gallery-grid figure, .gallery-grid figure.wide { flex: 1 1 100%; }
+  .gallery-grid figure:not(.wide) { flex: 0 1 calc(50% - var(--space-3) / 2); }
+}

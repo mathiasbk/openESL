@@ -65,7 +65,8 @@ FREEFORM = {
     ],
 }
 
-# (file name, model, template id or None, fields, caption); template None: FREEFORM, "photo": the picture
+# (file name, model, template id or None, fields, caption); template None: FREEFORM, "photo": the picture.
+# The captions are the ones README.md and web/index.html use; change them there too.
 GALLERY = [
     ("weather", "2.9", "weather", ["Lakeside", "7", "partsun", "Partly cloudy", "3° / 9°", "4 m/s  0,6 mm"],
      "Weather with a symbol that follows the forecast"),
@@ -78,9 +79,10 @@ GALLERY = [
      "Your next events from a calendar"),
     ("shelf-red", "2.9-bwr", "shelf", ["Rye bread", "34,90", "kr 46,53/kg", "Baked today, 750 g"],
      "A shelf label with red, on the 2.9\" black/white/red"),
-    ("3d-printer", "1.54", "3d-printer", ["Printer", "benchy.gcode", "70", "Left 1 h 12 min", "Done at 14:35", "              "],
+    # bar: as many spaces as the progress, drawn inverted (20 fill it on the 1.54")
+    ("3d-printer", "1.54", "3d-printer", ["Printer", "benchy.gcode", "70", "Left 1 h 12 min", "Done at 14:35", " " * 14],
      "A 3D print's progress, from Home Assistant"),
-    ("product-ean", "2.9", "vare-ean", ["Fjordbakst", "Oat crackers 250 g", "7038010009457", "27,50"],
+    ("product-ean", "2.9", "vare-ean", ["Fjordbakst", "Oat crackers 250 g", "2001234000000", "27,50"],
      "A price with an EAN-13 barcode"),
     ("meeting-room", "2.9", "meeting-room", ["Room Aurora", "BUSY", "Now: Team meeting until 11:00", "Next: 13:00 Planning"],
      "A meeting room sign"),
@@ -215,9 +217,6 @@ def main():
             items = [g for g in GALLERY if g[1] == model]
             if items:
                 render_model(model, items, out, tmp)
-    with open(os.path.join(out, "gallery.json"), "w", encoding="utf-8") as f:
-        json.dump([{"file": g[0] + ".png", "model": g[1], "caption": g[4]} for g in GALLERY], f, indent=1)
-        f.write("\n")
 
 
 if __name__ == "__main__":
