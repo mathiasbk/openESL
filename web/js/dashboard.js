@@ -43,8 +43,7 @@ const store = {
 };
 
 // firmwareBase: where the firmware files are ("" next to the page); rendererBase: where the
-// previews' renderer comes from ("" the page's own, js/renderframe.js); demoAp: the browser
-// demo's pretend AP (js/demoap.js, from main.js on ?demo=browser), used instead of a real one
+// previews' renderer comes from ("" the page's own, js/renderframe.js); demoAp: js/demoap.js
 export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererBase = "", demoAp = null } = {}) {
   let client = null;      // anything with call(method, path)
   const sources = initSources(); // the data sources card (apsources.js)
@@ -1627,7 +1626,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
 
   // The USB port opened or closed elsewhere (the WiFi card on the Set up tab)
   onSerialChange((ap) => {
-    if (demoAp || src() !== "serial") return;   // the demo never takes a real AP over USB
+    if (demoAp || src() !== "serial") return;
     if (ap && !client) setConnected(ap, "the AP over USB");
     else if (!ap && client) {
       setConnected(null);
@@ -1673,7 +1672,6 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   // page to some other server. Nothing is remembered, so the next visit is as before.
   const demo = sameOrigin || demoAp ? null : new URLSearchParams(location.search).get("demo");
   const localDemo = (a) => !a || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(a);
-  // The browser demo: its pretend AP, connected at once
   if (demoAp) setConnected(demoAp, DEMO_WHERE);
   else if (demo !== null && !localDemo(demo)) msg("?demo only connects to a bridge on this computer (localhost).", "error");
   else if (demo !== null) {
