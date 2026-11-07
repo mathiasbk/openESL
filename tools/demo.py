@@ -34,6 +34,7 @@ import http.server
 import importlib.util
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -46,6 +47,7 @@ ROOT = os.path.dirname(HERE)
 SIM = os.path.join(ROOT, "sim")
 WEB_OUT = os.path.join(SIM, "build", "demo-web")
 DOCKER_IMAGE = "python:3.12-bookworm"   # Python with gcc and make
+DOCKER_NAME = "openesl-demo"
 sys.path.insert(0, os.path.join(HERE, "esl-client"))
 sys.path.insert(0, os.path.join(ROOT, "shared"))
 import esl_client  # noqa: E402
@@ -160,11 +162,14 @@ def wait_for(url, timeout_s=300):
 
 
 def run_docker(args):
-    """The demo in the python image, with the ports on this computer and the browser here"""
+    """The demo in the python image, with the ports on this computer (localhost only) and the browser here"""
     if not shutil.which("docker"):
         sys.exit("docker not found: install Docker Desktop (https://www.docker.com/products/docker-desktop/)")
-    cmd = ["docker", "run", "--rm", "-i", "-p", "%d:%d" % (args.port, args.port),
-           "-p", "%d:%d" % (args.bridge_port, args.bridge_port), "-v", ROOT + ":/openesl", "-w", "/openesl",
+    # One left over from a run that was not stopped would hold the ports
+    subprocess.run(["docker", "rm", "-f", DOCKER_NAME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    cmd = ["docker", "run", "--rm", "-i", "--init", "--name", DOCKER_NAME,
+           "-p", "127.0.0.1:%d:%d" % (args.port, args.port),
+           "-p", "127.0.0.1:%d:%d" % (args.bridge_port, args.bridge_port), "-v", ROOT + ":/openesl", "-w", "/openesl",
            DOCKER_IMAGE, "python3", "tools/demo.py", "--no-browser", "--host", "0.0.0.0",
            "--tags", str(args.tags), "--speed", str(args.speed), "--port", str(args.port),
            "--bridge-port", str(args.bridge_port)]
@@ -172,12 +177,19 @@ def run_docker(args):
     p = subprocess.Popen(cmd)
     try:
         url = "http://localhost:%d/?demo=http://localhost:%d#dashboard" % (args.port, args.bridge_port)
-        if wait_for("http://localhost:%d/api/tags" % args.bridge_port) and not args.no_browser:
-            webbrowser.open(url)
+        # The first run pulls the image (about 1 GB) and builds: wait as long as the container runs
+        while p.poll() is None:
+            if wait_for("http://localhost:%d/api/tags" % args.bridge_port, 5):
+                if not args.no_browser:
+                    webbrowser.open(url)
+                break
         return p.wait()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
+        return 0
+    finally:
+        # On Windows terminate() only stops the docker command, not the container
         p.terminate()
-        return p.wait()
+        subprocess.run(["docker", "rm", "-f", DOCKER_NAME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main():
@@ -191,6 +203,10 @@ def main():
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--docker", action="store_true")
     args = ap.parse_args()
+    # kill, an IDE's stop button or a closed terminal: stop as on Ctrl+C, so the simulator stops too
+    for sig in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, sig):
+            signal.signal(getattr(signal, sig), lambda *_: sys.exit(0))
     if not 1 <= args.tags <= 16:
         ap.error("--tags: 1 to 16")
     if args.docker:
@@ -220,7 +236,7 @@ def main():
             time.sleep(0.5)
         log("the simulator stopped (exit %s)" % sim.returncode)
         return 1
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         return 0
     finally:
         sim.terminate()

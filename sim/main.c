@@ -122,6 +122,8 @@ static int open_pty(void)
     cfmakeraw(&t);
     tcsetattr(slave, TCSANOW, &t);
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    fcntl(fd, F_SETFD, FD_CLOEXEC);   /* not for the tag programs (--tags) */
+    fcntl(slave, F_SETFD, FD_CLOEXEC);
     return fd;
 }
 
@@ -269,16 +271,25 @@ static bool start_child(const char *sim, int i, double speed)
 {
     int sv[2];
     char mac[24], mv[8], temp[8], rssi[8], sp[32];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv))
+    if (access(sim, X_OK)) {
+        fprintf(stderr, "%s: not a program (--sims)\n", sim);
         return false;
+    }
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+        perror("socketpair");
+        return false;
+    }
+    fcntl(sv[0], F_SETFD, FD_CLOEXEC);   /* the AP's end: not for the other tag programs */
     snprintf(mac, sizeof(mac), "%016llX", (unsigned long long)(sim_tag_mac + (uint64_t)i));
     snprintf(mv, sizeof(mv), "%u", profiles[i].mv);
     snprintf(temp, sizeof(temp), "%d", profiles[i].temp_c);
     snprintf(rssi, sizeof(rssi), "%d", profiles[i].rssi);
     snprintf(sp, sizeof(sp), "%g", speed);
     pid_t pid = fork();
-    if (pid < 0)
+    if (pid < 0) {
+        perror("fork");
         return false;
+    }
     if (pid == 0) {
         close(sv[0]);
         if (sv[1] != 3) {
@@ -367,10 +378,8 @@ static int serve(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
     atexit(stop_children);
     for (int i = 1; i < n_tags; i++)
-        if (!start_child(list[(i - 1) % n_list], i, speed)) {
-            perror("tag");
+        if (!start_child(list[(i - 1) % n_list], i, speed))
             return 1;
-        }
     fflush(stdout);
 
     sim_on_draw = on_draw;
