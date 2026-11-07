@@ -173,6 +173,8 @@ def copy_static():
     shutil.copy2(os.path.join(ROOT, "docs", "openapi.yaml"), DIST)
     # the Flash AP tab shows how an S3 and its C6 radio are wired
     shutil.copy2(os.path.join(ROOT, "docs", "images", "ap-s3-c6-wiring.svg"), os.path.join(DIST, "img"))
+    # the Overview tab shows a photo of the two tag models
+    shutil.copy2(os.path.join(ROOT, "docs", "images", "tags-29-and-154.jpg"), os.path.join(DIST, "img"))
     # the example layout files, so the editor can open them (a model with same_as uses the
     # file of the model it names, which the editor opens under that model's name)
     lay = os.path.join(DIST, "designs", "layouts")
