@@ -30,9 +30,11 @@ const cache = {};
 
 // The limits an AP board sets (esl_limits in esl_layout.h), and the AP firmware's content limits
 // (fields per layout, bytes the fields of one update share), by their web_limit number
-const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22 };
-// An AP with 0.9.2 or older reports no textBytes: its fields share 96 bytes (and it reports 6 fields)
-const OLD_AP_TEXT_BYTES = 96;
+const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22, shapes: 23 };
+// What an AP reports none of draws: an AP with 0.9.2 or older reports no textBytes, its fields
+// share 96 bytes (and it reports 6 fields); one with 0.10.x or older reports no shapes and
+// refuses ellipses and polygons
+const OLD_AP = { textBytes: 96, shapes: 0 };
 
 // Days since 1970-01-01 of d's local date (web_set_today)
 export function localDays(d) {
@@ -90,6 +92,10 @@ async function create(model, base) {
     qrs: limit(20),
     qrModuleMax: limit(21),
     textBytes: limit(22),
+    // ellipses and polygons per screen, 0 for an AP too old for them; a renderer from before
+    // them has no limit 23 and says 0 too
+    shapes: limit(23),
+    polygonPoints: limit(24),
   });
   // the default board's, for setLimits(null)
   const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));
@@ -110,7 +116,7 @@ async function create(model, base) {
       if (!this.canSetLimits) return;
       for (const [key, what] of Object.entries(SETTABLE))
         call("web_set_limit", "number", ["number", "number"],
-          [what, apLimits?.[key] ?? (apLimits && key === "textBytes" ? OLD_AP_TEXT_BYTES : defaults[key])]);
+          [what, apLimits?.[key] ?? (apLimits && key in OLD_AP ? OLD_AP[key] : defaults[key])]);
       readLimits(this.limits);
     },
 

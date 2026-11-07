@@ -63,6 +63,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_MAX_NUMS     ESL_DRAW_MAX_NUMS
 #define RD_MAX_LINES_DRAWN ESL_DRAW_CAP_LINES
 #define RD_MAX_ICONS    ESL_DRAW_CAP_ICONS
+#define RD_MAX_SHAPES   ESL_DRAW_CAP_SHAPES
 #define RD_BC_MAX_W     1024 /* modules a barcode may have: at most the widest screen */
 
 #define RD_BLACK 0
@@ -106,6 +107,17 @@ typedef struct {
     int16_t x0, x1, y0, y1;
 } rd_line_t;
 
+/* An ellipse in the box x0..x1, y0..y1, or a polygon with n corners (on the screen) */
+typedef struct {
+    uint8_t kind;      /* ESL_LE_ELLIPSE or ESL_LE_POLYGON */
+    uint8_t color;
+    uint8_t border;    /* 0 = filled, else only a border this wide */
+    uint8_t n;
+    uint16_t x0, x1;
+    uint16_t y0, y1;
+    int16_t px[ESL_POLY_MAX], py[ESL_POLY_MAX];
+} rd_shape_t;
+
 typedef struct {
     const uint8_t *data;   /* the icon's columns in the layout file */
     uint16_t x, w;
@@ -131,11 +143,12 @@ typedef struct {
 
 typedef struct {
     rd_model_t m;
-    uint8_t nruns, nrects, nbars, nlines, nicons, nqr;
+    uint8_t nruns, nrects, nbars, nlines, nicons, nqr, nshapes;
     rd_run_t run[RD_MAX_RUNS];
     rd_rect_t rect[RD_MAX_RECTS];
     rd_line_t line[RD_MAX_LINES_DRAWN];
     rd_icon_t icon[RD_MAX_ICONS];
+    rd_shape_t shape[RD_MAX_SHAPES];
     rd_bars_t bars;
     /* Formatted numbers (ESL_LE_NUM_*); the runs point into them */
     uint8_t nnums;
@@ -160,6 +173,7 @@ static void scene_clear(rd_scene_t *s)
     s->nlines = 0;
     s->nicons = 0;
     s->nqr = 0;
+    s->nshapes = 0;
 }
 
 static bool add_text(rd_scene_t *s, uint8_t font, uint8_t color, uint16_t x, uint16_t y, const uint8_t *text,
@@ -241,6 +255,24 @@ static void add_line(rd_scene_t *s, int16_t ax, int16_t ay, int16_t bx, int16_t 
         l->y0 = 0;
     if (l->y1 >= (int16_t)s->m.h)
         l->y1 = (int16_t)(s->m.h - 1);
+}
+
+static rd_shape_t *add_shape(rd_scene_t *s, uint8_t kind, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                             uint8_t border, uint8_t color)
+{
+    rd_shape_t *sh;
+    if (s->nshapes >= RD_MAX_SHAPES)
+        return 0;
+    sh = &s->shape[s->nshapes++];
+    sh->kind = kind;
+    sh->color = color;
+    sh->border = border;
+    sh->n = 0;
+    sh->x0 = x;
+    sh->x1 = (uint16_t)(x + w - 1);
+    sh->y0 = y;
+    sh->y1 = (uint16_t)(y + h - 1);
+    return sh;
 }
 
 static void add_icon(rd_scene_t *s, const uint8_t *data, uint16_t x, uint16_t y, uint16_t w, uint8_t h, uint8_t color)
@@ -363,26 +395,31 @@ static void draw_rect(const rd_model_t *mo, const rd_rect_t *r, uint16_t x, uint
     fill_span(black, red, t, b, r->color);
 }
 
-/* Is the centre of pixel (x, y) at most w / 2 from the line? In whole numbers, so every
- * platform draws the same pixels: 4 d^2 <= w^2 with d the distance to the segment. */
-static bool line_hit(const rd_line_t *l, int32_t x, int32_t y)
+/* Is the centre of pixel (x, y) at most w / 2 from the segment (ax, ay)-(bx, by)? In whole
+ * numbers, so every platform draws the same pixels: 4 d^2 <= w^2 with d the distance to it. */
+static bool seg_near(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t x, int32_t y, int32_t w)
 {
-    int32_t dx = l->bx - l->ax, dy = l->by - l->ay;
-    int32_t px = x - l->ax, py = y - l->ay;
+    int32_t dx = bx - ax, dy = by - ay;
+    int32_t px = x - ax, py = y - ay;
     int64_t len2 = (int64_t)dx * dx + (int64_t)dy * dy;
     int64_t dot = (int64_t)px * dx + (int64_t)py * dy;
-    int64_t w2 = (int64_t)l->w * l->w;
+    int64_t w2 = (int64_t)w * w;
 
     if (dot <= 0 || len2 == 0)
         return 4 * ((int64_t)px * px + (int64_t)py * py) <= w2;
     if (dot >= len2) {
-        int64_t qx = x - l->bx, qy = y - l->by;
+        int64_t qx = x - bx, qy = y - by;
         return 4 * (qx * qx + qy * qy) <= w2;
     }
     {
         int64_t cross = (int64_t)px * dy - (int64_t)py * dx;
         return 4 * cross * cross <= w2 * len2;
     }
+}
+
+static bool line_hit(const rd_line_t *l, int32_t x, int32_t y)
+{
+    return seg_near(l->ax, l->ay, l->bx, l->by, x, y, l->w);
 }
 
 static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *red)
@@ -407,6 +444,74 @@ static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *r
     }
     if (top >= 0)
         fill_span(black, red, (uint16_t)top, (uint16_t)bottom, l->color);
+}
+
+/* Is the centre of pixel (x, y) in the ellipse with doubled semi-axes a and b (the box's
+ * width and height) round the box's centre? dx and dy are 2x and 2y less the doubled centre.
+ * strict: on the edge counts as outside. */
+static bool in_ellipse(int64_t dx, int64_t dy, int64_t a, int64_t b, bool strict)
+{
+    int64_t l = dx * dx * b * b + dy * dy * a * a, r = a * a * b * b;
+    return strict ? l < r : l <= r;
+}
+
+/* Is the centre of pixel (x, y) inside polygon sh (even-odd)? */
+static bool in_polygon(const rd_shape_t *sh, int32_t x, int32_t y)
+{
+    bool in = false;
+    for (uint8_t i = 0, j = (uint8_t)(sh->n - 1); i < sh->n; j = i++) {
+        int32_t yi = sh->py[i], yj = sh->py[j];
+        if ((yi > y) != (yj > y)) {
+            /* the edge crosses row y right of x: x - xi < (y - yi) (xj - xi) / (yj - yi) */
+            int64_t l = (int64_t)(x - sh->px[i]) * (yj - yi), r = (int64_t)(y - yi) * (sh->px[j] - sh->px[i]);
+            if (yj > yi ? l < r : l > r)
+                in = !in;
+        }
+    }
+    return in;
+}
+
+/* Is the centre of pixel (x, y) at most w / 2 from an edge of polygon sh? */
+static bool near_edge(const rd_shape_t *sh, int32_t x, int32_t y, int32_t w)
+{
+    for (uint8_t i = 0, j = (uint8_t)(sh->n - 1); i < sh->n; j = i++)
+        if (seg_near(sh->px[j], sh->py[j], sh->px[i], sh->py[i], x, y, w))
+            return true;
+    return false;
+}
+
+static bool shape_hit(const rd_shape_t *sh, int32_t x, int32_t y)
+{
+    if (sh->kind == ESL_LE_ELLIPSE) {
+        int64_t a = sh->x1 - sh->x0 + 1, b = sh->y1 - sh->y0 + 1;
+        int64_t dx = 2 * (int64_t)x - sh->x0 - sh->x1, dy = 2 * (int64_t)y - sh->y0 - sh->y1;
+        if (!in_ellipse(dx, dy, a, b, false))
+            return false;
+        /* a border: not inside the ellipse border pixels in from the box on every side */
+        return !sh->border || a <= 2 * sh->border || b <= 2 * sh->border ||
+               !in_ellipse(dx, dy, a - 2 * sh->border, b - 2 * sh->border, true);
+    }
+    if (!in_polygon(sh, x, y) && !near_edge(sh, x, y, 1))
+        return false;
+    return !sh->border || near_edge(sh, x, y, 2 * (int32_t)sh->border - 1);
+}
+
+/* An ellipse or polygon in column x: every run of its pixels is one span */
+static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, uint8_t *black, uint8_t *red)
+{
+    int32_t y, top = -1, last = sh->y1 < mo->h ? sh->y1 : mo->h - 1;
+
+    if (x < sh->x0 || x > sh->x1)
+        return;
+    for (y = sh->y0; y <= last + 1; y++) {
+        if (y <= last && shape_hit(sh, x, y)) {
+            if (top < 0)
+                top = y;
+        } else if (top >= 0) {
+            fill_span(black, red, (uint16_t)top, (uint16_t)(y - 1), sh->color);
+            top = -1;
+        }
+    }
 }
 
 static uint8_t run_char(const rd_run_t *r, uint8_t i)
@@ -512,6 +617,9 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
 
     for (i = 0; i < s->nrects; i++)
         draw_rect(mo, &s->rect[i], x, black, red);
+
+    for (i = 0; i < s->nshapes; i++)
+        draw_shape(mo, &s->shape[i], x, black, red);
 
     for (i = 0; i < s->nlines; i++)
         draw_line(&s->line[i], x, black, red);
@@ -1162,6 +1270,21 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                     add_line(s, x0, y1, x1, y0, e->lines ? e->lines : 1, color);
                 else
                     add_line(s, x0, y0, x1, y1, e->lines ? e->lines : 1, color);
+            } else if (e->kind == ESL_LE_ELLIPSE) {
+                add_shape(s, ESL_LE_ELLIPSE, e->x, e->y, e->w, e->h, e->opts /* ESL_LE_OFF_BORDER */, color);
+            } else if (e->kind == ESL_LE_POLYGON) {
+                uint8_t len;
+                const uint8_t *p = fixed_text(fl, e->field, &len);
+                uint8_t n = (uint8_t)(len / ESL_POLY_PT_LEN);
+                rd_shape_t *sh = n >= ESL_POLY_MIN && n <= ESL_POLY_MAX
+                                     ? add_shape(s, ESL_LE_POLYGON, e->x, e->y, e->w, e->h, e->opts, color)
+                                     : 0;
+                for (uint8_t i = 0; sh && i < n; i++, p += ESL_POLY_PT_LEN) {
+                    sh->px[i] = (int16_t)(e->x + ESL_GET_U16(p));
+                    sh->py[i] = (int16_t)(e->y + p[2]);
+                }
+                if (sh)
+                    sh->n = n;
             } else if (e->kind == ESL_LE_ICON && (e->field & ESL_LE_ICON_FIELD)) {
                 uint8_t f = (uint8_t)(e->field & ~ESL_LE_ICON_FIELD);
                 int i = f < nfields ? icon_by_name(fl, e->font[0], text[f], lens[f]) : -1;

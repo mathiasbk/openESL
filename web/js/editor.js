@@ -294,6 +294,8 @@ async function offerVariant(id) {
 function compileAndDraw() {
   const r = state.renderer;
   applyLimits();
+  // the polygons' shapes as they are now, before a resize changes their boxes (fitPolygon)
+  for (const e of layout()?.elements || []) if (e.type === "polygon" && Array.isArray(e.points)) polygonNorm(e);
   const res = r.loadLayouts(JSON.stringify(doc()));
   let layoutId;
   if (isBuiltin()) {
@@ -334,12 +336,20 @@ function refreshMeters(res) {
   const meters = [];
   $("el-add-barcode").disabled = false;
   $("el-add-qr").disabled = false;
+  // an AP from before ellipses and polygons (0.10.x or older) refuses them
+  for (const [k, what] of [["circle", "A circle or ellipse, filled or only its border"], ["triangle", "A triangle or polygon (up to 8 corners), filled or only its border"]]) {
+    const old = !lim.shapes, full = !old && lay && layoutUsage(lay, lim).shapes >= lim.shapes;
+    $("el-add-" + k).disabled = old || !!full;
+    $("el-add-" + k).title = old ? "Your AP's firmware is too old for circles and polygons: update it to 0.11.0 or newer"
+      : full ? `A layout has at most ${lim.shapes} circles and polygons on this AP` : what;
+  }
   if (lay) {
     const u = layoutUsage(lay, lim);
     meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
     meters.push(["Boxes", u.rects, lim.rects, "Boxes and inverted or highlighted text in this layout"]);
     if (u.lines) meters.push(["Lines", u.lines, lim.lines, "Line elements in this layout"]);
     if (u.icons) meters.push(["Icons", u.icons, lim.icons, "Icon elements in this layout"]);
+    if (u.shapes) meters.push(["Shapes", u.shapes, lim.shapes, "Circles, ellipses, triangles and polygons in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
     $("el-add-barcode").title = u.barcodes >= lim.barcodes ? "A layout has at most one barcode" : "A field as a Code 128 or EAN-13 barcode (one per layout)";
@@ -435,7 +445,7 @@ function drawOverlay() {
   const lay = layout();
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
+    b.className = "box" + (isShape(e) || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
       (e.type === "icon" && !iconByField(e) ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
@@ -473,8 +483,9 @@ function refreshList() {
     li.draggable = true;
     const ico = document.createElement("span");
     const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
-    ico.className = "ico" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : inverted ? " inv" : "");
-    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦" }[e.type] ??
+    ico.className = "ico" + (isShape(e) || e.type === "icon" ? " rect" : inverted ? " inv" : "");
+    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦",
+      ellipse: e.border ? "○" : "●", polygon: e.border ? "△" : "▲" }[e.type] ??
       (e.text !== undefined ? "“”" : "T");
     const name = document.createElement("span");
     name.className = "name";
@@ -494,6 +505,8 @@ function rectName(e) {
   if (iconByField(e)) kind = "icon named by " + e.field;
   else if (e.type === "icon") kind = "icon " + e.icon;
   else if (e.type === "line") kind = e.h === 1 ? "line" : e.w === 1 ? "vertical line" : "slanted line";
+  else if (e.type === "ellipse") kind = (e.w === e.h ? "circle" : "ellipse") + (e.border ? " outline" : "");
+  else if (e.type === "polygon") kind = (e.points?.length === 3 ? "triangle" : "polygon") + (e.border ? " outline" : "");
   else kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : e.border ? "frame box" : "box";
   return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
 }
@@ -1238,7 +1251,7 @@ function refreshBar() {
     if (e.type === "text") sep();
     const red = MODELS[state.model].colors?.includes("red");
     const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
-      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : red ? LINE_COLORS_RED : LINE_COLORS;
+      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : red ? LINE_COLORS_RED : LINE_COLORS; // lines, icons, ellipses, polygons
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = SWATCH[e.color || "black"];
@@ -1406,7 +1419,7 @@ function moreMenu(e, btn, select, open) {
       "border of 2 modules for phones to read it; on the 2.9\", 2 px modules scan well.";
     list.append(p);
   }
-  if (e.type === "rect" || e.type === "line") {
+  if (isShape(e)) {
     const half = Math.floor(Math.min(e.w, e.h) / 2);
     const num = (r, label, key, min, max, def, hint) => {
       const inp = document.createElement("input");
@@ -1429,6 +1442,35 @@ function moreMenu(e, btn, select, open) {
     if (e.type === "rect") {
       num(row("Corners"), "Corner radius in pixels", "radius", 0, half, 0, `Round corners, 0 to ${half} px (half the shorter side)`);
       num(row("Border"), "Border width in pixels", "border", 0, half, 0, "0 fills the box, more draws only a border this wide");
+    } else if (e.type === "ellipse" || e.type === "polygon") {
+      num(row("Border"), "Border width in pixels", "border", 0, half, 0, "0 fills the shape, more draws only a border this wide, inside it");
+      if (e.type === "polygon") {
+        const sh = row("Shape");
+        for (const [name, icon] of [["up", "▲"], ["down", "▼"], ["left", "◀"], ["right", "▶"], ["corner", "◢"], ["diamond", "◆"], ["arrow", "➜"]])
+          btn(sh, icon, POLYGON_TITLES[name], () => setPolygon(e, POLYGON_PRESETS[name]));
+        const pr = row("Points");
+        const inp = document.createElement("input");
+        inp.className = "points";
+        inp.value = e.points.map((p) => p.join(",")).join(" ");
+        inp.title = `${state.renderer.limits.polygonPoints || 8} corners at most, each x,y in pixels from the box's top-left corner, separated by spaces`;
+        inp.setAttribute("aria-label", "Corners of the polygon");
+        inp.addEventListener("change", () => {
+          const pts = parsePoints(inp.value, state.renderer.limits.polygonPoints || 8);
+          if (!pts) {
+            setStatus("Corners: give 3 to 8 points as x,y separated by spaces, e.g. 20,0 39,19 0,19", "error");
+            return;
+          }
+          fitBoxToPoints(e, pts, width, height);
+          changed({});
+        });
+        pr.append(inp);
+      }
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = e.type === "ellipse"
+        ? "The ellipse fills its box: a square box gives a circle. Needs an AP on 0.11.0 or newer."
+        : "The corners stay in the box and follow it when you resize it. Needs an AP on 0.11.0 or newer.";
+      list.append(p);
     } else {
       const d = row("Direction");
       for (const [val, icon, name] of [["down", "╲", "Down: top-left to bottom-right"], ["up", "╱", "Up: bottom-left to top-right"]])
@@ -1453,7 +1495,8 @@ function moreMenu(e, btn, select, open) {
   const fill = e.type === "icon" ? null : row("Fill");
   if (fill) btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
   if (fill) btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
-  if (e.type === "rect" || e.type === "line") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
+  if (isShape(e)) btn(fill, "Turn", e.type === "polygon" ? "Turn a quarter clockwise (swaps width and height)" : "Swap width and height (a line becomes a vertical line)", () => {
+    if (e.type === "polygon") turnPolygon(e);
     [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
     e.x = clamp(e.x, 0, width - e.w);
     e.y = clamp(e.y, 0, height - e.h);
@@ -1540,6 +1583,7 @@ function refreshAll() {
 // Something in the document changed. form: only the numbers moved (drag/keys).
 function changed({ form = false, keepForm = false } = {}) {
   fitCorners(element());
+  fitPolygon(element());
   if (form) {
     drawOverlay();
     updatePositionInputs();
@@ -1556,9 +1600,89 @@ function changed({ form = false, keepForm = false } = {}) {
 // A box made smaller keeps its corner radius and border within half its shorter side, as
 // the compiler wants
 function fitCorners(e) {
-  if (e?.type !== "rect") return;
+  if (e?.type !== "rect" && e?.type !== "ellipse" && e?.type !== "polygon") return;
   const half = Math.floor(Math.min(e.w, e.h) / 2);
   for (const k of ["radius", "border"]) if (e[k] > half) e[k] = half;
+}
+
+// ---------- ellipses and polygons ----------
+
+// Elements drawn as a shape in a box (no text): the box's handles size them
+function isShape(e) {
+  return ["rect", "line", "ellipse", "polygon"].includes(e.type);
+}
+
+// Polygon corners as fractions of the box (0..1), so a resized box keeps its shape however
+// often it is resized: the points in the file are whole pixels. Kept per element, with the
+// points they last gave; points changed elsewhere (the JSON, undo) are taken as they are.
+const polyShape = new WeakMap();
+
+const frac = (v, n) => (n > 1 ? v / (n - 1) : 0);
+const toPx = (u, n) => Math.round(u * (n - 1));
+
+function polygonNorm(e) {
+  const k = JSON.stringify(e.points);
+  const s = polyShape.get(e);
+  if (s && s.key === k) return s.norm;
+  const norm = e.points.map(([x, y]) => [frac(x, e.w), frac(y, e.h)]);
+  polyShape.set(e, { key: k, norm });
+  return norm;
+}
+
+// After the box changed size: the corners scaled with it
+function fitPolygon(e) {
+  if (e?.type !== "polygon" || !Array.isArray(e.points)) return;
+  const norm = polygonNorm(e);
+  e.points = norm.map(([u, v]) => [toPx(u, e.w), toPx(v, e.h)]);
+  polyShape.set(e, { key: JSON.stringify(e.points), norm });
+}
+
+function setPolygon(e, norm) {
+  e.points = norm.map(([u, v]) => [toPx(u, e.w), toPx(v, e.h)]);
+  polyShape.set(e, { key: JSON.stringify(e.points), norm: norm.map((p) => [...p]) });
+}
+
+// A quarter turn clockwise: (u, v) -> (1 - v, u); the box's width and height swap after it
+function turnPolygon(e) {
+  const norm = polygonNorm(e).map(([u, v]) => [1 - v, u]);
+  [e.w, e.h] = [e.h, e.w];
+  setPolygon(e, norm);
+  [e.w, e.h] = [e.h, e.w];
+}
+
+// The shapes the Shape buttons give, as fractions of the box
+const POLYGON_PRESETS = {
+  up: [[0.5, 0], [1, 1], [0, 1]],
+  down: [[0, 0], [1, 0], [0.5, 1]],
+  left: [[1, 0], [1, 1], [0, 0.5]],
+  right: [[0, 0], [1, 0.5], [0, 1]],
+  corner: [[1, 0], [1, 1], [0, 1]],
+  diamond: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
+  arrow: [[0, 0.3], [0.6, 0.3], [0.6, 0], [1, 0.5], [0.6, 1], [0.6, 0.7], [0, 0.7]],
+};
+const POLYGON_TITLES = {
+  up: "Triangle pointing up", down: "Triangle pointing down", left: "Triangle pointing left",
+  right: "Triangle pointing right", corner: "Right-angled triangle in the bottom-right corner",
+  diamond: "Diamond", arrow: "Arrow pointing right",
+};
+
+// "20,0 39,19 0,19" -> [[20, 0], [39, 19], [0, 19]], or null
+function parsePoints(text, max = 8) {
+  const parts = text.trim().split(/[\s;]+/).filter(Boolean);
+  if (parts.length < 3 || parts.length > max) return null;
+  const pts = parts.map((p) => /^(\d+),(\d+)$/.exec(p)).map((m) => (m ? [+m[1], +m[2]] : null));
+  return pts.every(Boolean) ? pts : null;
+}
+
+// Corners typed in, as pixels from the box's corner: the box grows to hold them (on the
+// screen), and the corners then fill it
+function fitBoxToPoints(e, pts, width, height) {
+  const w = clamp(Math.max(...pts.map((p) => p[0])) + 1, 1, width - e.x);
+  const h = clamp(Math.max(...pts.map((p) => p[1])) + 1, 1, height - e.y);
+  e.w = Math.max(e.w, w);
+  e.h = Math.max(e.h, h);
+  e.points = pts.map(([x, y]) => [Math.min(x, e.w - 1), Math.min(y, e.h - 1)]);
+  polygonNorm(e);
 }
 
 // ---------- actions ----------
@@ -1573,7 +1697,10 @@ function addElement(kind) {
     hline: { type: "line", x: 4, y: Math.floor(height / 2), w: width - 8, h: 1, width: 2 },
     barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },
     qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
+    circle: { type: "ellipse", x: 8, y: 8, w: Math.min(40, height - 16), h: Math.min(40, height - 16) },
+    triangle: { type: "polygon", x: 8, y: 8, w: 40, h: 34 },
   }[kind];
+  if (kind === "triangle") setPolygon(e, POLYGON_PRESETS.up);
   lay.elements.push(e);
   state.el = lay.elements.length - 1;
   changed();
@@ -1971,7 +2098,7 @@ function initActions() {
   $("json").addEventListener("blur", refreshJson);
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
-  for (const k of ["text", "fixed", "rect", "hline", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["text", "fixed", "rect", "hline", "circle", "triangle", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-add-icon").addEventListener("click", () => $("icon-file").click());
   $("icon-file").addEventListener("change", (ev) => {
     addIcon(ev.target.files[0]);

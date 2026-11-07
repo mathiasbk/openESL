@@ -38,17 +38,18 @@ esl_limits_t esl_limits = {
     .rects = ESL_DRAW_MAX_RECTS,
     .lines = ESL_DRAW_MAX_LINES,
     .icons = ESL_DRAW_MAX_ICONS,
+    .shapes = ESL_DRAW_MAX_SHAPES,
     .file_bytes = ESL_LBIN_MAX,
     .json_bytes = ESL_LAYOUT_MAX_SIZE,
 };
 
 _Static_assert(ESL_DRAW_MAX_RUNS <= ESL_DRAW_CAP_RUNS && ESL_DRAW_MAX_RECTS <= ESL_DRAW_CAP_RECTS &&
                    ESL_DRAW_MAX_LINES <= ESL_DRAW_CAP_LINES && ESL_DRAW_MAX_ICONS <= ESL_DRAW_CAP_ICONS &&
-                   ESL_LBIN_MAX <= ESL_LBIN_CAP,
+                   ESL_DRAW_MAX_SHAPES <= ESL_DRAW_CAP_SHAPES && ESL_LBIN_MAX <= ESL_LBIN_CAP,
                "a limit is larger than the room for it (ESL_*_CAP)");
 _Static_assert(ESL_DRAW_CAP_RUNS <= 255 && ESL_DRAW_CAP_RECTS <= 255 && ESL_DRAW_CAP_LINES <= 255 &&
-                   ESL_DRAW_CAP_ICONS <= 255,
-               "esl_render.c counts runs, rects, lines and icons in a byte");
+                   ESL_DRAW_CAP_ICONS <= 255 && ESL_DRAW_CAP_SHAPES <= 255,
+               "esl_render.c counts runs, rects, lines, icons and shapes in a byte");
 _Static_assert(ESL_LBIN_CAP <= 65535 && ESL_LAYOUT_MAX_SIZE <= 65535, "sizes are 16 bits");
 
 /* The icons ("icons" in the file), checked first and written into the file at the end */
@@ -167,7 +168,7 @@ typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     unsigned runs, rects, nums; /* what the layout needs at most from the AP's scene (esl_render.c) */
-    unsigned barcodes, lines, icons, qrs;
+    unsigned barcodes, lines, icons, qrs, shapes;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
     uint16_t bc_max;
@@ -190,6 +191,21 @@ static bool field_name_ok(const char *s)
 }
 
 /* "text": a fixed text, stored once in the file. Returns its field byte, or -1 after fail(). */
+/* n bytes (1..ESL_LBIN_TEXT_LEN_MAX) as one of the file's fixed texts, each kept once: its
+ * number, or -1 after fail(). Text elements, icon names and polygon corners share them. */
+static int fixed_bytes(cc_t *c, const uint8_t *b, size_t n)
+{
+    for (unsigned i = 0; i < c->ntext; i++)
+        if (c->tlen[i] == n && memcmp(c->text[i], b, n) == 0)
+            return (int)i;
+    if (c->ntext >= ESL_LBIN_TEXT_MAX)
+        return fail(c, "at most %d different fixed texts in a file (with the corners of the polygons)",
+                    ESL_LBIN_TEXT_MAX), -1;
+    memcpy(c->text[c->ntext], b, n);
+    c->tlen[c->ntext] = (uint8_t)n;
+    return (int)c->ntext++;
+}
+
 static int fixed_text(cc_t *c, int v)
 {
     char utf8[ESL_LBIN_TEXT_LEN_MAX * 4 + 4];
@@ -208,14 +224,8 @@ static int fixed_text(cc_t *c, int v)
         return fail(c, "text is longer than %d bytes", ESL_LBIN_TEXT_LEN_MAX), -1;
     if (n == 0)
         return fail(c, "text must not be empty"), -1;
-    for (unsigned i = 0; i < c->ntext; i++)
-        if (c->tlen[i] == n && memcmp(c->text[i], latin1, n) == 0)
-            return (int)(ESL_LE_FIELD_FIXED | i);
-    if (c->ntext >= ESL_LBIN_TEXT_MAX)
-        return fail(c, "at most %d different fixed texts in a file", ESL_LBIN_TEXT_MAX), -1;
-    memcpy(c->text[c->ntext], latin1, n);
-    c->tlen[c->ntext] = (uint8_t)n;
-    return (int)(ESL_LE_FIELD_FIXED | c->ntext++);
+    int i = fixed_bytes(c, latin1, n);
+    return i < 0 ? -1 : (int)(ESL_LE_FIELD_FIXED | (unsigned)i);
 }
 
 /* "decimals" and "thousands": how a text element draws a number (ESL_LE_NUM_* in opts). */
@@ -296,7 +306,8 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
 /* Keys that only some element types take: "key" is refused unless the type is in kinds. */
 typedef struct {
     const char *key;
-    const char *kinds; /* the types that take it, as type letters: t text, r rect, b barcode, l line, i icon */
+    const char *kinds; /* the types that take it, as type letters: t text, r rect, b barcode, l line, i icon,
+                        * q QR, e ellipse, p polygon */
     const char *what;  /* for the message */
 } only_t;
 
@@ -308,7 +319,8 @@ static bool only_ok(cc_t *c, int e, char kind)
         {"lines", "t", "text elements"},                  {"align", "tbq", "text, barcode and QR elements"},
         {"symbology", "b", "barcode elements"},           {"module", "bq", "barcode and QR elements"},
         {"ecc", "q", "QR elements"},
-        {"radius", "r", "rect elements"},                 {"border", "r", "rect elements"},
+        {"radius", "r", "rect elements"},                 {"border", "rep", "rect, ellipse and polygon elements"},
+        {"points", "p", "polygon elements"},
         {"direction", "l", "line elements"},              {"width", "l", "line elements"},
         {"icon", "i", "icon elements"},
         {"decimals", "t", "text elements"},               {"thousands", "t", "text elements"},
@@ -413,13 +425,60 @@ static bool icon_names(cc_t *c)
     return true;
 }
 
+/* The rest of an ellipse or polygon element (the box and colour are done). */
+static bool shape_element(cc_t *c, int e, lay_t *lay, uint8_t *out, bool polygon, unsigned w, unsigned h,
+                          uint8_t color)
+{
+    unsigned border, half = (w < h ? w : h) / 2;
+
+    if (!esl_limits.shapes)
+        /* only in the web page's renderer, set to the limits of an AP that does not report any:
+           firmware from before ellipses and polygons, which would refuse the file */
+        return fail(c, "the AP's firmware is too old for ellipses and polygons (update it to 0.11.0 or later)");
+    if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
+        return fail(c, "a%s can be black, white or red", polygon ? " polygon" : "n ellipse");
+    if (!opt_uint(c, e, "border", 0, half > 255 ? 255 : half, 0, &border))
+        return false;
+    out[ESL_LE_OFF_BORDER] = (uint8_t)border;
+    if (polygon) {
+        uint8_t pts[ESL_POLY_MAX * ESL_POLY_PT_LEN];
+        int p = esl_json_obj_get(c->js, c->tok, e, "points");
+        if (p < 0 || T(c, p)->type != ESL_JSON_ARRAY || T(c, p)->size < ESL_POLY_MIN || T(c, p)->size > ESL_POLY_MAX)
+            return fail(c, "points must be a list of %d to %d corners, each [x, y] in pixels from the box's "
+                           "top-left corner", ESL_POLY_MIN, ESL_POLY_MAX);
+        unsigned n = T(c, p)->size;
+        int k = p + 1;
+        for (unsigned i = 0; i < n; i++, k = T(c, k)->next) {
+            unsigned px, py;
+            if (T(c, k)->type != ESL_JSON_ARRAY || T(c, k)->size != 2 || !get_uint(c, k + 1, &px) ||
+                !get_uint(c, T(c, k + 1)->next, &py))
+                return fail(c, "point %u must be [x, y]: whole numbers of pixels from the box's top-left corner", i);
+            if (px >= w || py >= h)
+                return fail(c, "point %u [%u, %u] is outside the box: x must be 0 to %u and y 0 to %u", i, px, py,
+                            w - 1, h - 1);
+            pts[i * ESL_POLY_PT_LEN] = (uint8_t)px;
+            pts[i * ESL_POLY_PT_LEN + 1] = (uint8_t)(px >> 8);
+            pts[i * ESL_POLY_PT_LEN + 2] = (uint8_t)py;
+        }
+        _Static_assert(ESL_POLY_MAX * ESL_POLY_PT_LEN <= ESL_LBIN_TEXT_LEN_MAX, "a polygon's corners in a fixed text");
+        int f = fixed_bytes(c, pts, n * ESL_POLY_PT_LEN);
+        if (f < 0)
+            return false;
+        out[ESL_LE_OFF_FIELD] = (uint8_t)f;
+    }
+    if (++lay->shapes > esl_limits.shapes)
+        return fail(c, "the AP draws at most %d ellipses and polygons per screen", esl_limits.shapes);
+    return true;
+}
+
 static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 {
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
                                        "valign", "lines", "color",  "symbology", "module", "text", "radius",
-                                       "border", "direction", "width", "icon", "ecc", "decimals", "thousands", "rotate", NULL};
-    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", NULL};
-    static const char kinds[] = "trbliq";
+                                       "border", "direction", "width", "icon", "ecc", "decimals", "thousands", "rotate",
+                                       "points", NULL};
+    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", "ellipse", "polygon", NULL};
+    static const char kinds[] = "trbliqep";
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
     int icon = -1;
@@ -433,10 +492,12 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int ty = esl_json_obj_get(c->js, c->tok, e, "type");
     int kind = ty < 0 ? -1 : pick(c, ty, types);
     if (kind < 0)
-        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"qr\", \"line\" or \"icon\"");
+        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"qr\", \"line\", \"icon\", \"ellipse\" or "
+                       "\"polygon\"");
     if (!only_ok(c, e, kinds[kind]))
         return false;
     bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4, qr = kind == 5;
+    bool ellipse = kind == 6, polygon = kind == 7;
     bool rising = false;
 
     if (is_icon && esl_json_obj_get(c->js, c->tok, e, "field") >= 0) {
@@ -512,6 +573,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
                            : line    ? ESL_LE_LINE
                            : is_icon ? ESL_LE_ICON
                            : qr      ? ESL_LE_QR
+                           : ellipse ? ESL_LE_ELLIPSE
+                           : polygon ? ESL_LE_POLYGON
                                      : ESL_LE_RECT;
     out[ESL_LE_OFF_FONT] = out[ESL_LE_OFF_FONT + 1] = out[ESL_LE_OFF_FONT + 2] = ESL_FONT_NONE;
     out[ESL_LE_OFF_X] = (uint8_t)x;
@@ -554,6 +617,9 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
             return fail(c, "the AP draws at most %d lines per screen", esl_limits.lines);
         return true;
     }
+
+    if (ellipse || polygon)
+        return shape_element(c, e, lay, out, polygon, w, h, color);
 
     if (!text && !barcode && !qr) {
         unsigned radius, border, half = (w < h ? w : h) / 2;

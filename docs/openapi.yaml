@@ -2348,7 +2348,7 @@ components:
       type: object
       description: >-
         What one layout file may hold on this AP, named as in the web page's renderer.limits. The
-        board sets runs, rects, lines, icons, fileBytes and jsonBytes ("limits" in
+        board sets runs, rects, lines, icons, shapes, fileBytes and jsonBytes ("limits" in
         ap/boards/<board>/board.json; boards with PSRAM allow more), so a file one AP accepts can be
         too big for another. The designer shows these for the AP it is connected to.
       additionalProperties: false
@@ -2365,6 +2365,8 @@ components:
         fields: { type: integer, const: 16, description: "Fields per layout (6 on an AP with 0.9.2 or older)" }
         fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
         textBytes: { type: integer, const: 256, description: "Bytes the fields of one update share: the text in Latin-1 plus one per field (missing on an AP with 0.9.2 or older, which took 96)" }
+        shapes: { type: integer, minimum: 1, description: "ellipse and polygon elements per screen; 8 on the ESP32-C6 (missing on an AP with 0.10.x or older, which refuses both)" }
+        polygonPoints: { type: integer, const: 8, description: "Most corners of one polygon (at least 3; missing on an AP with 0.10.x or older)" }
 
     FontFile:
       type: object
@@ -2730,13 +2732,22 @@ components:
       properties:
         type:
           type: string
-          enum: [text, rect, barcode, line, icon, qr]
+          enum: [text, rect, barcode, line, icon, qr, ellipse, polygon]
           description: |
             `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
             field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`, named in the layout or by a field; `qr`: one
-            field as a QR code (black, with a white quiet zone of 2 modules inside the box)
+            field as a QR code (black, with a white quiet zone of 2 modules inside the box);
+            `ellipse`: an ellipse filling the box (a circle when `w` = `h`), filled or only its
+            border; `polygon`: 3 to 8 `points` in the box, filled or only its border (a
+            triangle has 3). An AP with 0.10.x or older refuses a file with an ellipse or polygon
         radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
-        border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
+        border: { type: integer, minimum: 0, default: 0, description: "rect, ellipse and polygon: 0 = filled, else only a border this many pixels wide, inside the shape (at most half the shorter side of the box)" }
+        points:
+          type: array
+          minItems: 3
+          maxItems: 8
+          items: { type: array, items: { type: integer, minimum: 0 }, minItems: 2, maxItems: 2 }
+          description: "polygon only: its corners in order, each [x, y] in pixels from the top-left of the box (x below w, y below h); edges may cross (even-odd: what is inside twice is left out)"
         direction:
           type: string
           enum: [down, up]

@@ -43,6 +43,7 @@ typedef struct {
     uint16_t icons;      /* icons per screen */
     uint16_t file_bytes; /* compiled file */
     uint16_t json_bytes; /* JSON file */
+    uint16_t shapes;     /* ellipses and polygons per screen */
 } esl_limits_t;
 
 extern esl_limits_t esl_limits;

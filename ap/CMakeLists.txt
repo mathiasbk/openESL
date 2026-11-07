@@ -49,9 +49,9 @@ endif()
 # The board's layout limits ("limits" in board.json, boards/README.md) for the layout compiler
 # and renderer in esl_core; a limit the board does not set keeps the default in shared/proto.h
 # or esl_layout.h (the ESP32-C6's). web/build.py reads the same keys for the web renderer.
-set(limit_keys runs rects lines icons fileBytes jsonBytes)
+set(limit_keys runs rects lines icons fileBytes jsonBytes shapes)
 set(limit_macros ESL_DRAW_MAX_RUNS ESL_DRAW_MAX_RECTS ESL_DRAW_MAX_LINES ESL_DRAW_MAX_ICONS ESL_LBIN_MAX
-    ESL_LAYOUT_MAX_SIZE)
+    ESL_LAYOUT_MAX_SIZE ESL_DRAW_MAX_SHAPES)
 idf_build_set_property(COMPILE_DEFINITIONS "ESL_BOARD=\"${BOARD}\"" APPEND)
 string(JSON board_name ERROR_VARIABLE no_name GET "${board_json}" name)
 if(no_name OR board_name MATCHES "[\"\\]")

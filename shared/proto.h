@@ -265,7 +265,7 @@
 #define ESL_ICON_MAX_H       128
 #define ESL_LE_FIELD_FIXED   0x80   /* field: fixed text number (field & 0x7F) in the file */
 /* Largest compiled file (the AP's RAM; 8 KB of JSON fills up first). This and ESL_DRAW_MAX_RUNS,
- * _RECTS, _LINES and _ICONS are the AP board's limits: a board can set others in "limits" in
+ * _RECTS, _LINES, _ICONS and _SHAPES are the AP board's limits: a board can set others in "limits" in
  * ap/boards/<board>/board.json (ap/CMakeLists.txt), and the values here are the default (ESP32-C6).
  * ESL_*_CAP is the room the code sets aside; it is the limit, except in the web page's renderer,
  * which is built with room for the largest board and takes the limits of the AP it talks to
@@ -311,6 +311,8 @@
 #define ESL_LE_LINE          4      /* a straight line between two corners of the box */
 #define ESL_LE_ICON          5      /* an icon from the file, its size is the box */
 #define ESL_LE_QR            6      /* text field drawn as a QR code (ISO/IEC 18004, byte mode) */
+#define ESL_LE_ELLIPSE       7      /* an ellipse filling the box (a circle when w = h) */
+#define ESL_LE_POLYGON       8      /* a polygon (a triangle and up) with its corners in the box */
 
 /* A rect element also uses (0 in a plain filled rect, so older files compile the same):
  *   ESL_LE_OFF_RADIUS  corner radius in pixels, at most half the shorter side
@@ -336,6 +338,24 @@
 #define ESL_LE_ICON_FIELD    0x40
 #define ESL_LE_OFF_NAMES     ESL_LE_OFF_FONT
 #define ESL_LINE_W_MAX       16
+
+/* An ellipse element (an AP from before 0.11.0 refuses the file):
+ *   ESL_LE_OFF_BORDER  0 = filled, else only a border this many pixels wide, inside the box
+ *   ESL_LE_OFF_COLOR   black, white or red
+ *   the pixels whose centre is inside the ellipse the box is drawn round
+ * A polygon element (the same):
+ *   ESL_LE_OFF_FIELD   the fixed text that holds its corners: 3 bytes each, u16 x and u8 y from
+ *                      the box's top-left corner (so in the box), ESL_POLY_MIN..ESL_POLY_MAX of them
+ *   ESL_LE_OFF_BORDER  0 = filled, else only a border this many pixels wide, inside the edges
+ *   ESL_LE_OFF_COLOR   black, white or red
+ *   a corner is the centre of its pixel; filled, it is the pixels whose centre is inside the
+ *   polygon (even-odd, so the edges may cross) or at most half a pixel from an edge. With a
+ *   border, of those only the ones at most border - 1/2 pixels from an edge. In whole numbers,
+ *   so the AP and the web page draw the same pixels.
+ * Ellipses and polygons count together against ESL_DRAW_MAX_SHAPES. */
+#define ESL_POLY_MIN         3
+#define ESL_POLY_MAX         8
+#define ESL_POLY_PT_LEN      3
 
 /* A QR element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_ECC     error correction level ESL_QR_LEVEL_L..H
@@ -415,6 +435,9 @@
 #ifndef ESL_DRAW_MAX_ICONS
 #define ESL_DRAW_MAX_ICONS   8      /* icons */
 #endif
+#ifndef ESL_DRAW_MAX_SHAPES
+#define ESL_DRAW_MAX_SHAPES  8      /* ellipses and polygons */
+#endif
 #ifndef ESL_DRAW_CAP_RUNS
 #define ESL_DRAW_CAP_RUNS    ESL_DRAW_MAX_RUNS
 #endif
@@ -426,6 +449,9 @@
 #endif
 #ifndef ESL_DRAW_CAP_ICONS
 #define ESL_DRAW_CAP_ICONS   ESL_DRAW_MAX_ICONS
+#endif
+#ifndef ESL_DRAW_CAP_SHAPES
+#define ESL_DRAW_CAP_SHAPES  ESL_DRAW_MAX_SHAPES
 #endif
 #define ESL_DRAW_MAX_QR      1      /* QR codes per screen (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
