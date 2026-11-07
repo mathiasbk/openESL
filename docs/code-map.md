@@ -72,7 +72,8 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `tag/test/` (`check.py tag`) | The tag firmware for every model: protocol, image download, status screens, OTA |
 | `sim/` (`check.py sim`) | End to end: the real tag firmware against the real AP core, through the API |
 | `web/test/` (`check.py web`) | The web page's modules, the renderer against the native build, the flasher against a simulated ZBS_Flasher |
-| `tools/` (`check.py tools`) | esl-client against a fake AP, the power budget, the release notes |
+| `tools/` (`check.py tools`) | esl-client against a fake AP, the power budget, the release notes, the AP flash budget |
 | `check.py openapi`, `check.py wiki` | `openapi.yaml` against the AP code, and the links in the wiki |
 | `check.py models` | The generated model files match `shared/models.json` |
-| `check.py tag-fw`, `check.py ap-fw` | The tag firmware for every model (SDCC) and the AP firmware for every board (ESP-IDF) build |
+| `check.py tag-fw`, `check.py ap-fw` | The tag firmware for every model (SDCC) and the AP firmware for every board (ESP-IDF) build, and each AP image keeps at least 64 KB of its app slot free (`ap/build.py --sizes`) |
+| `check.py ap-pack` | The AP's web pack (`ap/main/webui.py`) holds nothing that is only for the web page (the browser demo, the gallery, pictures) |

@@ -33,6 +33,8 @@ python tools/check.py tag web    # only some steps; --list shows them
 
 The tag firmware needs SDCC 4.5.0 exactly (`setup.sh` installs it); the 4.2 from apt fails to build it. CI is the last check, not the place to find out whether the code builds. If you change firmware, also try it on real hardware if you can, and say in the pull request whether you did.
 
+The AP's flash is tight: the ESP32-C6 boards have 1.5 MB app slots, and the partition table cannot grow on an AP in use without a USB flash. Every AP build checks the free space in each image's slot (`ap/build.py`): it fails under 64 KB free and warns under 128 KB, and CI shows the table, with the change against `development`, in the run's summary. A pull request that changes the AP firmware gives the size change per board (C6, C6 with screen, S3, C5) under Evidence. What only the web page on GitHub Pages needs (the browser demo, the gallery, pictures for the README) never goes into the AP's web pack (`ap/main/webui.py`); `python tools/check.py ap-pack` checks it.
+
 New hardware facts (registers, timings, pinouts) go in [docs/sources.md](docs/sources.md) with where they came from. Do not copy code from other firmware for the same hardware: OpenESL is written from scratch (see "A clean implementation" in the README).
 
 ## 4. Pull request
