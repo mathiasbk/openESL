@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings, mergeTagList } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -264,4 +264,34 @@ test("a lost radio: the warning at the top, the AP facts, and the tags line", ()
   assert.deepEqual(radioWarnings({ radio: radios[0], radios }, null), [
     "No contact with radio 1 (C6 over WiFi, channel 15) for 2 min: its tags hear nothing from the AP until it answers again. Check that the C6 has power and is on the WiFi.",
   ]);
+});
+
+test("GET /api/tags?since= keeps the tags a reply leaves out (#305)", () => {
+  const seenAt = new Map();
+  const ap = { fw: "0.10.0" };
+  // an AP without since: the reply as it is
+  const old = { ap, tags: [tag("A"), tag("B")] };
+  assert.equal(mergeTagList(null, old, seenAt, 100000), old);
+  assert.equal(mergeTagList(old, old, seenAt, 100000), old);
+  // the whole list first, then only what changed
+  const full = { ap, since: "5eed0001-1", full: true, tags: [tag("A", { seen_s_ago: 10 }), tag("B", { seen_s_ago: null }), tag("C", { seen_s_ago: 0 })] };
+  let list = mergeTagList(null, full, seenAt, 100000);
+  assert.equal(list, full);
+  const ap2 = { fw: "0.10.0", uptime_s: 99 };
+  list = mergeTagList(list, { ap: ap2, since: "5eed0001-2", full: false, tags: [tag("C", { seen_s_ago: 1, battery_mv: 2800 }), tag("D", { seen_s_ago: 2 })] }, seenAt, 125400);
+  assert.equal(list.ap, ap2);
+  assert.equal(list.since, "5eed0001-2");
+  assert.deepEqual(list.tags.map((t) => t.mac), ["A", "B", "C", "D"]); // the order kept, a new tag last
+  assert.equal(list.tags[0].seen_s_ago, 35); // counted on: 10 s + 25.4 s
+  assert.equal(list.tags[1].seen_s_ago, null); // never seen stays never
+  assert.equal(list.tags[2].battery_mv, 2800);
+  assert.equal(list.tags[2].seen_s_ago, 1);
+  // nothing changed: every tag counted on from its own poll, without adding up rounding
+  for (let now = 125400; now <= 225400; now += 10000)
+    list = mergeTagList(list, { ap, since: "5eed0001-2", full: false, tags: [] }, seenAt, now);
+  assert.deepEqual(list.tags.map((t) => t.seen_s_ago), [135, null, 101, 102]);
+  // full again (the AP restarted, a tag deleted): the reply replaces the list
+  const again = { ap, since: "5eed0002-1", full: true, tags: [tag("A", { seen_s_ago: 3 })] };
+  assert.equal(mergeTagList(list, again, seenAt, 230000), again);
+  assert.deepEqual([...seenAt.keys()], ["A"]);
 });
