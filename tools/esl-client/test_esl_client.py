@@ -30,6 +30,7 @@ class FakeAp(BaseHTTPRequestHandler):
     ota = {}
     ota_rollback = False
     tagfw = {}
+    ap_fw = "0.1.0"
     images = {}
     fonts = None   # name -> font file; None: an AP without font files (404)
 
@@ -52,9 +53,12 @@ class FakeAp(BaseHTTPRequestHandler):
         """GET /api/tag-firmware/1.54 for the image uploaded to the fake (the only model it takes)."""
         if "to" not in FakeAp.tagfw:
             return None
-        return {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD", "to": FakeAp.tagfw["to"],
-                "tags": FakeAp.tagfw.get("tags", {"updated": 0, "pending": 1, "failed": 0, "no_ota": 0,
-                                                  "not_chosen": 3})}
+        img = {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD", "to": FakeAp.tagfw["to"],
+               "tags": FakeAp.tagfw.get("tags", {"updated": 0, "pending": 1, "failed": 0, "no_ota": 0,
+                                                 "not_chosen": 3})}
+        if FakeAp.tagfw.get("old_ap"):  # an AP from before "to" (0.4.4) has no "to" field
+            del img["to"]
+        return img
 
     def do_DELETE(self):
         if not self._auth():
@@ -70,6 +74,8 @@ class FakeAp(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/api/tag-firmware/"):
             self.calls.append((self.path, None))
+            if FakeAp.tagfw.get("old_ap"):
+                return self._send(405, {"error": "method not allowed"})
             to = self.path.split("?to=")[1]
             if self._tagfw_model() is None or not self.path.startswith("/api/tag-firmware/1.54?"):
                 return self._send(404, {"error": "no tag firmware for this model"})
@@ -164,7 +170,7 @@ class FakeAp(BaseHTTPRequestHandler):
                              "with_problems": len(problems), "silent": 0, "unseen": 0, "draw_failed": 0,
                              "low_battery": len(problems), "content_error": 0})
         elif self.path == "/api/tags":
-            self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
+            self._send(200, {"ap": {"fw": FakeAp.ap_fw, "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
         elif self.path.startswith("/api/tags/") and self.path.endswith("/image"):
             mac = self.path.split("/")[3]
@@ -332,6 +338,7 @@ class ClientTest(unittest.TestCase):
         FakeAp.images = {}
         FakeAp.wifi = {}
         FakeAp.tagfw = {}
+        FakeAp.ap_fw = "0.1.0"
         FakeAp.fonts = None
 
     def run_cli(self, *args):
@@ -736,6 +743,7 @@ class ClientTest(unittest.TestCase):
         data = b"OSFW" + bytes([1, 2]) + (30000).to_bytes(2, "little") + bytes(8) + bytes(range(256)) * 160
         for mac, model in (("00000123456789A8", "1.54"), ("00000123456789A9", "1.54"), ("00000123456789B1", "2.9")):
             FakeAp.tags[mac] = {"mac": mac, "model": model}
+        FakeAp.ap_fw = "0.10.0"
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(data)
             f.flush()
@@ -791,15 +799,48 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(FakeAp.tagfw["to"], ["00000123456789A8", "00000123456789A9"])
             self.assertIn("/api/tag-firmware/1.54?to=00000123456789A9", [c[0] for c in FakeAp.calls])
 
-            # an AP that ignores "to" would update every tag: the update is taken back at once
-            FakeAp.tagfw["old_ap"] = True
+            # more tags for an image that is offered to all already: nothing changes, nothing is stopped
+            FakeAp.tagfw["to"] = "all"
+            FakeAp.calls.clear()
+            rc, out = self.run_cli("tag-ota", "--to", "00000123456789A8")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("offered to every 1.54 tag already", out)
+            self.assertEqual(FakeAp.tagfw["to"], "all")
+            self.assertEqual(FakeAp.calls, [])  # no POST, no DELETE
+
+            # an AP from before "to" (0.4.4) is refused before anything is sent
+            FakeAp.ap_fw = "0.4.3"
+            FakeAp.calls.clear()
             err = io.StringIO()
             with redirect_stderr(err):
                 rc, out = self.run_cli("tag-ota", f.name, "--to", "00000123456789A8")
-            self.assertEqual(rc, 1)
-            self.assertIn("offered it to every 1.54 tag, not the ones chosen", err.getvalue())
-            self.assertEqual(FakeAp.calls[-1], ("/api/tag-firmware/1.54", None))
-            self.assertNotIn("to", FakeAp.tagfw)
+            self.assertEqual(rc, 2)
+            self.assertIn("the AP runs 0.4.3, which cannot offer tag firmware to chosen tags", err.getvalue())
+            self.assertEqual([c for c in FakeAp.calls if "tag-firmware" in c[0]], [])
+            FakeAp.ap_fw = "0.10.0"
+
+            # an AP that still ignores "to" (no "to" in its reply, 405 on POST): the update is taken back
+            FakeAp.tagfw["old_ap"] = True
+            for to in ("00000123456789A8", "00000123456789A8,00000123456789A9"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, out = self.run_cli("tag-ota", f.name, "--to", to)
+                self.assertEqual(rc, 1, to)
+                self.assertIn("the AP may offer it to every 1.54 tag, not the ones chosen", err.getvalue())
+                self.assertIn("so the update is stopped again", err.getvalue())
+                self.assertEqual(FakeAp.calls[-1], ("/api/tag-firmware/1.54", None))
+                self.assertNotIn("to", FakeAp.tagfw)
+            del FakeAp.tagfw["old_ap"]
+
+            # a tag whose model the AP does not know yet: sent, with a warning
+            FakeAp.tags["00000123456789B2"] = {"mac": "00000123456789B2", "model": None}
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", f.name, "--to", "00000123456789B2")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("does not know the model of 00000123456789B2 yet", err.getvalue())
+            FakeAp.calls.clear()
+            self.assertEqual(self.run_cli("tag-ota", "--delete", "1.54")[0], 0)
 
             # no image for the model on the AP
             err = io.StringIO()

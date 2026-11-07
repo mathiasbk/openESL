@@ -54,6 +54,7 @@ BODY_MAX_BYTES = 24576
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
 TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: older AP firmware holds a part in RAM in one block
 TAGFW_TO_MAX = 16       # tags a tag firmware image can be offered to one by one (ESL_TAGFW_CHOSEN in esl_tagfw.h)
+TAGFW_TO_FROM = (0, 4, 4)  # the first AP firmware that offers tag firmware to chosen tags (to=, #88)
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -848,6 +849,12 @@ def tag_models(cli, macs):
     return models, errors
 
 
+def fw_tuple(v):
+    """(major, minor, patch) from a version such as "0.9.2" or "0.9.95-dev", None when it is not one."""
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(v or ""))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
 def tag_ota(cli, args):
     """tag-ota with a file, --to or --all. Firmware goes to the tags named with --to, or to the whole
     model only with --all: a tag that does not start again must go back in the jig, so a new version
@@ -879,6 +886,15 @@ def tag_ota(cli, args):
                 model = m
             if m and m != model:
                 errors.append(f"error: {mac} is a {m} tag, not {model}")
+        for mac, m in models.items():
+            if not m:
+                err(f"warning: the AP does not know the model of {mac} yet: it gets the firmware only if it is a "
+                    f"{model} tag")
+        # an AP from before "to" would offer the image to every tag of the model: refuse before sending anything
+        ap_fw = (cli.tags().get("ap") or {}).get("fw")
+        if (v := fw_tuple(ap_fw)) is not None and v < TAGFW_TO_FROM:
+            errors.append(f"error: the AP runs {ap_fw}, which cannot offer tag firmware to chosen tags (from "
+                          f"{'.'.join(map(str, TAGFW_TO_FROM))}): update the AP first")
         for line in errors:
             err(line)
         if errors:
@@ -908,15 +924,32 @@ def tag_ota(cli, args):
             err(f"error: no {model} tag runs {img.get('version')} yet: wait until a chosen tag has it and has polled "
                 f"about 10 times, or give --force")
             return 2
+        if img.get("to", "all") == "all":
+            print(f"{model} firmware {img.get('version')} is offered to every {model} tag already")
+            print(tag_firmware_line(img))
+            return 0
         rest = ["all"] if args.all else args.to
-    for to in rest:
-        cli.choose_tag_firmware(model, to)
-    img = cli.tag_firmware_model(model)
-    if args.to and img.get("to") == "all":
-        # an AP that does not know "to" would offer it to all: take it back at once
-        cli.delete_tag_firmware(model)
-        err(f"error: the AP offered it to every {model} tag, not the ones chosen, so the update is stopped again; "
-            f"update the AP first")
+    try:
+        for to in rest:
+            cli.choose_tag_firmware(model, to)
+        img = cli.tag_firmware_model(model)
+        # an AP that does not know "to" offers it to all (and older ones leave "to" out)
+        to_all = args.to and img.get("to", "all") == "all"
+    except (ApiError, ConnectionError) as e:
+        if not (args.to and data is not None):
+            raise
+        to_all, why = True, e
+    else:
+        why = None
+    if to_all:
+        # the upload went to more tags than chosen: take it back at once
+        try:
+            cli.delete_tag_firmware(model)
+            stopped = "so the update is stopped again"
+        except (ApiError, ConnectionError) as e:
+            stopped = f"and stopping it failed too ({e}): run tag-ota --delete {model} now"
+        err(f"error: the AP may offer it to every {model} tag, not the ones chosen{f' ({why})' if why else ''}, "
+            f"{stopped}; update the AP first")
         return 1
     print(tag_firmware_line(img))
     return 0
