@@ -34,7 +34,7 @@ MODULES = {
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
                "fwupload.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
                "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
-               "fontmaker.js"],
+               "fontmaker.js", "renderframe.js", "site.js"],
         "css": [],
         # the Weather template (templates/), which Send -> The weather adds to a layout file
         # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
@@ -44,7 +44,7 @@ MODULES = {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
                "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js", "layoutapi.js",
-               "apfonts.js"],
+               "apfonts.js", "site.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,
@@ -56,7 +56,7 @@ PAGE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenESL AP dashboard</title>
-  <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="{site}img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">{css}
   <script>try {{ var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
 </head>
@@ -65,7 +65,7 @@ PAGE = """<!doctype html>
     <h1>OpenESL</h1>
     <nav class="tabs">{tabs}
       <a href="/setup">WiFi and token</a>
-      <a href="https://mathiasbk.github.io/openESL/">{more}</a>
+      <a href="{site}">{more}</a>
     </nav>
   </header>
 {main}
@@ -99,7 +99,16 @@ def page_html(index, modules):
     css = "".join(f'\n  <link rel="stylesheet" href="/ui/css/{c}">' for name in modules for c in MODULES[name]["css"])
     scripts = "".join(f'  <script type="module" src="/ui/js/{MODULES[name]["js"][0]}"></script>\n' for name in modules)
     more = "Flashers" if "design" in modules else "Designer and flashers"
-    return PAGE.format(main=mains, tabs=tabs, css=css, scripts=scripts.rstrip("\n"), more=more)
+    return PAGE.format(main=mains, tabs=tabs, css=css, scripts=scripts.rstrip("\n"), more=more, site=site_url())
+
+
+def site_url():
+    """Where the web page is published: SITE in web/js/site.js, the one place a fork changes"""
+    with open(os.path.join(ROOT, "web", "js", "site.js"), encoding="utf-8") as f:
+        m = re.search(r'export const SITE = "(https://[^"]+/)";', f.read())
+    if not m:
+        sys.exit("webui.py: no SITE in web/js/site.js")
+    return m.group(1)
 
 
 def example_layouts():

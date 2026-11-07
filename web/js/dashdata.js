@@ -265,7 +265,7 @@ export function parsePoll(text) {
 }
 
 // Years on one CR2450 (a 1.54" tag, one display update a day) for a poll interval, from
-// the table in docs/strombudsjett.md (tools/power-budget); between two rows the nearer one
+// the table in docs/power-budget.md (tools/power-budget); between two rows the nearer one
 const BATTERY_YEARS = [[30, 7.5], [60, 9.3], [120, 10.7], [300, 11.7], [600, 12.1]];
 export function batteryYears(poll_s) {
   const s = poll_s || TAG_BUILTIN_POLL_S;
