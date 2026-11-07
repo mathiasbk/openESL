@@ -13,7 +13,7 @@
 #include "esl_sched.h"
 #include "sim.h"
 
-#define CAP 8
+#define CAP 16   /* tags the AP keeps: enough for "esl-sim serve --tags" */
 
 static esl_api_changes_t changes;
 static esl_store_t st;
@@ -364,6 +364,7 @@ static int drop_up;
 static int drop_reply;
 static uint8_t drop_type;
 bool sim_die_on_drop;
+int8_t sim_link_rssi = -55;
 
 void sim_drop_uplink(int n) { drop_up = n; }
 
@@ -411,7 +412,7 @@ uint8_t sim_link(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *re
     memset(&ev, 0, sizeof(ev));
     /* the AP's sched task ticks once a second; here only time between frames matters */
     esl_sched_tick(&sched, &st, ap_now_ms());
-    n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, -55, ap_now_ms(), tx, &ev);
+    n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, sim_link_rssi, ap_now_ms(), tx, &ev);
     if (ev.msg_type == ESL_MSG_POLL)
         sim_stats.polls++;
     else if (ev.msg_type == ESL_MSG_IMG_REQ)

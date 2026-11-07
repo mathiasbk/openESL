@@ -74,6 +74,8 @@ void sim_drop_uplink(int n);
 void sim_drop_reply(uint8_t msg_type, int n);
 /* The AP switches off when it drops a reply (it died in the middle of the exchange). */
 extern bool sim_die_on_drop;
+/* The signal the AP measures for the next frames, in dBm (default -55) */
+extern int8_t sim_link_rssi;
 
 typedef struct {
     unsigned polls, img_reqs;               /* frames from the tag the AP handled */
@@ -88,6 +90,11 @@ extern sim_stats_t sim_stats;
 extern uint64_t sim_tag_mac;     /* as in the API: 00000123456789A8 */
 extern const char *sim_tag_model; /* "2.9" or "1.54" */
 extern bool sim_verbose;          /* print every exchange */
+extern uint16_t sim_tag_battery_mv; /* what the tag measures and reports (default 2950) */
+extern int8_t sim_tag_temp_c;       /* default 20 */
+/* Where the tag's frames go: sim_link (the AP in this program), or for "esl-sim tag" a
+   socket to the AP in another program */
+extern uint8_t (*sim_tag_link)(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply);
 
 void sim_tag_flash_erase(void);   /* a new tag: nothing in flash */
 /* Power-on: app_init() (start screen or the content from flash), then the first poll at once. */

@@ -1564,8 +1564,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
   });
 
+  // ?demo (tools/demo.py): the bridge to the simulator, connected at once. ?demo=<address> names
+  // another bridge than http://localhost:8080. Nothing is remembered, so the next visit is as before.
+  const demo = sameOrigin ? null : new URLSearchParams(location.search).get("demo");
+  if (demo !== null) {
+    $("dash-src").value = "http";
+    showSrc();
+    $("dash-url").value = demo || "http://localhost:8080";
+    $("dash-connect").click();
+  }
   // The AP's own page with a remembered token: connect at once. Without one, say where it was chosen (#309)
-  if (sameOrigin && $("dash-token").value) $("dash-connect").click();
+  else if (sameOrigin && $("dash-token").value) $("dash-connect").click();
   else if (sameOrigin) msg("First time here? Enter the API token chosen when the AP was set up: in the Flash AP wizard, " +
     "over USB, or on its WiFi and token page (linked at the top). The page keeps it in this browser.");
 }
