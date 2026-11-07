@@ -62,7 +62,7 @@ A template is one JSON file, `templates/<category>/<id>.json`, and a pull reques
 | `docs` | optional: a file in the repository that tells how to fill it, such as `docs/home-assistant.md` |
 | `fields` | every field of the layout, in the order clients send them, each with what it means in plain words |
 | `variants` | one per label model, by its name in `shared/models.json` (`"2.9"`, `"1.54"`) |
-| `layout` | a layout exactly as in a layout file ([docs/protokoll.md, part 3](https://github.com/mathiasbk/openESL/blob/master/docs/protokoll.md)), with `_sample`: one sample text per field |
+| `layout` | a layout exactly as in a layout file ([docs/protocol.md, part 3](https://github.com/mathiasbk/openESL/blob/master/docs/protocol.md)), with `_sample`: one sample text per field |
 | `icons` | optional: the pictures the layout uses, as in a layout file. The designer adds them to the file, renamed if the file has another picture by that name |
 | `note` | optional: something about this model only, such as "31 spaces in bar fill the frame" |
 | `same_as` | instead of `layout`: use another model's variant, for a model with the same width and height and at least the same colours (the 2.9" with red can use the 2.9" variant) |

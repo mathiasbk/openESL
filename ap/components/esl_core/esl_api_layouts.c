@@ -88,7 +88,7 @@ static int put_layout(const esl_api_t *api, uint8_t model, const char *body, siz
     if (!object)
         return api_error(out, 400, "layout file must be a JSON object");
 
-    /* The file must work on this model's tags (krav A13): 422 with where and why. */
+    /* The file must work on this model's tags (requirement A13 in docs/requirements.md): 422 with where and why. */
     esl_layout_bin_t *bin = malloc(sizeof(*bin));
     char err[ESL_LAYOUT_ERR_MAX];
     if (!bin)

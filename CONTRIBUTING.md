@@ -2,6 +2,8 @@
 
 Thank you for helping. This page is how a change goes from an idea to tags on a shelf. It is short on purpose; ask in an issue if something is unclear.
 
+New to the code? The [code map](docs/code-map.md) shows where the code for what lives and where to start for a change.
+
 ## 1. Start with an issue
 
 Open an issue for a bug, a new piece of hardware or a feature, with the matching template. Small fixes (a typo, a broken link) can go straight to a pull request.
@@ -31,7 +33,7 @@ python tools/check.py tag web    # only some steps; --list shows them
 
 The tag firmware needs SDCC 4.5.0 exactly (`setup.sh` installs it); the 4.2 from apt fails to build it. CI is the last check, not the place to find out whether the code builds. If you change firmware, also try it on real hardware if you can, and say in the pull request whether you did.
 
-New hardware facts (registers, timings, pinouts) go in [docs/kildelogg.md](docs/kildelogg.md) with where they came from. Do not copy code from other firmware for the same hardware: OpenESL is written from scratch (see "A clean implementation" in the README).
+New hardware facts (registers, timings, pinouts) go in [docs/sources.md](docs/sources.md) with where they came from. Do not copy code from other firmware for the same hardware: OpenESL is written from scratch (see "A clean implementation" in the README).
 
 ## 4. Pull request
 

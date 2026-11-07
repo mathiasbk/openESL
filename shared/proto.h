@@ -1,41 +1,41 @@
 /*
- * proto.h - felles pakkedefinisjoner for radioprotokollen tag <-> AP.
+ * proto.h - the packet definitions of the radio protocol tag <-> AP, shared by both.
  *
- * Kilde: docs/protokoll.md del 1 (eget dokument, laget uavhengig av annen firmware).
- * Brukes av både tag (SDCC, 8051) og AP (GCC, RISC-V), derfor:
- *   - bare faste typer fra <stdint.h>
- *   - ingen bitfelt og ingen structer som legges rett over bytene
- *   - alle flerbyte-tall er little-endian og leses/skrives med makroene under
+ * Source: docs/protocol.md part 1 (our own document, written independently of other firmware).
+ * Used by both the tag (SDCC, 8051) and the AP (GCC, RISC-V), so:
+ *   - only fixed-width types from <stdint.h>
+ *   - no bit-fields and no structs laid over the bytes
+ *   - every multi-byte number is little-endian and read/written with the macros below
  */
 #ifndef ESL_PROTO_H
 #define ESL_PROTO_H
 
 #include <stdint.h>
 
-/* ---- Meldinger (nyttelasten i 802.15.4-rammen) ---- */
+/* ---- Messages (the payload of the 802.15.4 frame) ---- */
 
 #define ESL_PROTO_VER        1
 
 #define ESL_MSG_POLL         0x01   /* tag -> AP */
-#define ESL_MSG_IDLE         0x02   /* AP -> tag: ingenting nytt */
+#define ESL_MSG_IDLE         0x02   /* AP -> tag: nothing new */
 /* 0x03, 0x04 and 0x05 were CONTENT, LAYOUT and LAYOUT_REQ, used while the tag drew the
  * screen itself (before the AP drew images). They are not used again. */
-#define ESL_MSG_CONFIG       0x08   /* AP -> tag: taginnstillinger (se CONFIG under) */
+#define ESL_MSG_CONFIG       0x08   /* AP -> tag: tag settings (see CONFIG below) */
 
-/* Felles start på alle meldinger */
+/* The start every message shares */
 #define ESL_OFF_TYPE         0
 #define ESL_OFF_VER          1
 
 /* POLL, 12 byte */
 #define ESL_POLL_LEN         12
-#define ESL_POLL_OFF_FW      2      /* u16 firmwareversjon */
-#define ESL_POLL_OFF_BATT    4      /* u16 batterispenning i mV */
-#define ESL_POLL_OFF_CID     6      /* u32 content_id som vises nå (0 = ingenting) */
+#define ESL_POLL_OFF_FW      2      /* u16 firmware version */
+#define ESL_POLL_OFF_BATT    4      /* u16 battery voltage in mV */
+#define ESL_POLL_OFF_CID     6      /* u32 content_id shown now (0 = nothing) */
 #define ESL_POLL_OFF_FLAGS   10     /* u8 */
-#define ESL_POLL_OFF_MODEL   11     /* u8 tagmodell (krav T18); byten var reservert (0) i eldre firmware */
+#define ESL_POLL_OFF_MODEL   11     /* u8 tag model (requirement T18 in docs/requirements.md); the byte was reserved (0) in older firmware */
 
-#define ESL_POLL_F_BOOTED    0x01   /* nettopp startet */
-#define ESL_POLL_F_DRAWFAIL  0x02   /* forrige tegning feilet */
+#define ESL_POLL_F_BOOTED    0x01   /* just started */
+#define ESL_POLL_F_DRAWFAIL  0x02   /* the last drawing failed */
 /* 0x04 was LAYOUTFAIL (the tag rejected the layout file); not used again */
 #define ESL_POLL_F_OTA       0x08   /* the tag takes firmware over the air (FW / FW_REQ below) */
 #define ESL_POLL_F_FWFAIL    0x10   /* the tag rejected or rolled back the firmware version the AP offers */
@@ -47,13 +47,13 @@
 /* The flags byte is full: every bit is taken, 0x04 included (retired, and kept unused
  * since older firmware set it). A new capability needs a field of its own after cfg_ver. */
 
-/* Utvidet POLL: firmware som forstår CONFIG legger til cfg_ver etter de 12
- * første bytene. AP-en sender CONFIG bare til tager som sender dette feltet,
- * så eldre tager (12 byte) aldri får en meldingstype de ikke kjenner. */
-#define ESL_POLL_OFF_CFG_VER 12     /* u16 cfg_ver tagen bruker nå (0 = innebygde standardverdier) */
-#define ESL_POLL_LEN_CFG     14     /* POLL med cfg_ver */
+/* Extended POLL: firmware that understands CONFIG adds cfg_ver after the first
+ * 12 bytes. The AP sends CONFIG only to tags that send this field, so older
+ * tags (12 bytes) never get a message type they do not know. */
+#define ESL_POLL_OFF_CFG_VER 12     /* u16 cfg_ver the tag uses now (0 = built-in defaults) */
+#define ESL_POLL_LEN_CFG     14     /* POLL with cfg_ver */
 
-/* The link block after cfg_ver: how the tag hears the AP (docs/protokoll.md, "Signal").
+/* The link block after cfg_ver: how the tag hears the AP (docs/protocol.md, "Signal").
  * The AP keeps it with its own RSSI of the POLL as the tag's signal history. Firmware
  * that downloaded layout files sent 18 bytes with a layout file version at 14-17; no
  * tag runs that any more. */
@@ -66,43 +66,43 @@
 
 #define ESL_POLL_LF_RETRY    0x01   /* the round before this one was answered only on its second try (the retry itself is sent unchanged) */
 
-/* Tagmodell i POLL. 0 er det eldre firmware sender i den reserverte byten,
- * så AP-en leser den som "ukjent" og alt virker som før. De kjente modellene
- * (ESL_MODEL_29, ESL_MODEL_154, ..., ESL_MODEL_COUNT, skjermstørrelsene og
- * ESL_MODEL_LIST) kommer fra modellregisteret shared/models.json. */
+/* Tag model in POLL. 0 is what older firmware sends in the reserved byte, so
+ * the AP reads it as "unknown" and everything works as before. The known models
+ * (ESL_MODEL_29, ESL_MODEL_154, ..., ESL_MODEL_COUNT, the screen sizes and
+ * ESL_MODEL_LIST) come from the model registry shared/models.json. */
 #define ESL_MODEL_UNKNOWN    0
 #include "models_gen.h"
 
 /* IDLE, 4 byte */
 #define ESL_IDLE_LEN         4
-#define ESL_OFF_NEXT_POLL    2      /* u16 sekunder til neste POLL (0 = behold), også i CONFIG, FW og IMG */
+#define ESL_OFF_NEXT_POLL    2      /* u16 seconds to the next POLL (0 = keep), also in CONFIG, FW and IMG */
 
-/* CONFIG, 18 byte (12 before the long backoff, 16 before the channel; a tag reads missing fields as 0): taginnstillinger. Samme next_poll_s på byte 2 som IDLE.
- * Hver innstilling er u16, 0 = tagens innebygde standardverdi (tag/src/config.h).
- * Nye innstillinger legges bare til på slutten: tagen leser feltene den kjenner
- * og hopper over resten, og et felt som mangler i en kortere melding er 0. */
+/* CONFIG, 18 byte (12 before the long backoff, 16 before the channel; a tag reads missing fields as 0): tag settings. The same next_poll_s at byte 2 as IDLE.
+ * Every setting is a u16, 0 = the tag's built-in default (tag/src/config.h).
+ * New settings are only added at the end: the tag reads the fields it knows and
+ * skips the rest, and a field missing from a shorter message is 0. */
 #define ESL_CONFIG_LEN       18
-#define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; tagen sender den tilbake i POLL som kvittering */
-#define ESL_CONFIG_OFF_POLL  6      /* u16 vanlig intervall i sekunder (krav T4) */
-#define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 lengste intervall uten svar fra AP-en (krav T11) */
-#define ESL_CONFIG_OFF_LOST_AP 10   /* u16 sekunder uten svar før "No AP found" (krav T9) */
+#define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; the tag sends it back in POLL as a receipt */
+#define ESL_CONFIG_OFF_POLL  6      /* u16 normal interval in seconds (requirement T4) */
+#define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 longest interval with no answer from the AP (requirement T11) */
+#define ESL_CONFIG_OFF_LOST_AP 10   /* u16 seconds with no answer before "No AP found" (requirement T9) */
 #define ESL_CONFIG_OFF_LONG_POLL 12 /* u16 interval in seconds once the AP has been gone for long_after_min */
 #define ESL_CONFIG_OFF_LONG_AFTER 14 /* u16 minutes without an answer before long_poll_s, ESL_CFG_LONG_NEVER = never */
 #define ESL_CONFIG_OFF_CHANNEL 16   /* u16 the AP's channel, now or after a planned move (#256);
                                      * 0 = ESL_DEFAULT_CHANNEL. The tag stays where it hears the
                                      * AP, and tries this channel first when the AP stops answering
-                                     * (docs/protokoll.md, "Changing the channel") */
+                                     * (docs/protocol.md, "Changing the channel") */
 
-#define ESL_CFG_POLL_MIN_S   10     /* grenser for poll_s og max_poll_s */
+#define ESL_CFG_POLL_MIN_S   10     /* limits of poll_s and max_poll_s */
 #define ESL_CFG_POLL_MAX_S   3600
-#define ESL_CFG_LOST_AP_MIN_S 60    /* grenser for lost_ap_s */
-#define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: vis aldri "No AP found" */
+#define ESL_CFG_LOST_AP_MIN_S 60    /* limits of lost_ap_s */
+#define ESL_CFG_LOST_AP_NEVER 0xFFFFu /* lost_ap_s: never show "No AP found" */
 #define ESL_CFG_LONG_POLL_MIN_S 60  /* lower limit of long_poll_s (no upper one: 65535 s is 18 h) */
 #define ESL_CFG_LONG_AFTER_MIN_MIN 10 /* lower limit of long_after_min */
 #define ESL_CFG_LONG_NEVER   0xFFFFu /* long_after_min: never go to long_poll_s */
 
-#define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC-hode) - 2 (FCS) */
-#define ESL_MIC_RESERVE      4      /* holdt av til framtidig MIC (krav T16) */
+#define ESL_MAX_PAYLOAD      110    /* 127 - 15 (MAC header) - 2 (FCS) */
+#define ESL_MIC_RESERVE      4      /* kept free for a future MIC (requirement T16) */
 
 /* ---- What a tag shows (the AP's content; not sent on the air as such) ----
  * The AP draws the content into an image (IMG below). These are the built-in layouts,
@@ -110,24 +110,24 @@
  * so the limits are the AP's: up to 0.9.2 they were those of the CONTENT message the tag
  * used to get (6 fields, 96 bytes). Content within those is stored, and gets its
  * content_id, exactly as before (#182). */
-#define ESL_LAYOUT_PRICE     1      /* felt: navn, pris, undertekst */
-#define ESL_LAYOUT_TEXT      2      /* felt: linje1..linje4 */
-#define ESL_LAYOUT_FILE      0x10   /* 0x10 + n = layout nr. n i layoutfila for modellen */
-#define ESL_LAYOUT_FILE_MAX  16     /* høyst 16 layouter i en fil: 0x10..0x1F */
+#define ESL_LAYOUT_PRICE     1      /* fields: name, price, subtext */
+#define ESL_LAYOUT_TEXT      2      /* fields: line1..line4 */
+#define ESL_LAYOUT_FILE      0x10   /* 0x10 + n = layout number n in the model's layout file */
+#define ESL_LAYOUT_FILE_MAX  16     /* at most 16 layouts in a file: 0x10..0x1F */
 
-#define ESL_CF_PRICE_HIGHLIGHT 0x01 /* framhevet pris: hvite siffer i svart felt (invertert) */
-#define ESL_CF_FRAME         0x02   /* svart ramme rundt skjermen */
+#define ESL_CF_PRICE_HIGHLIGHT 0x01 /* highlighted price: white digits in a black field (inverted) */
+#define ESL_CF_FRAME         0x02   /* black frame round the screen */
 
-#define ESL_MAX_FIELDS       16     /* tekstfelt (6 til og med 0.9.2) */
-/* Plass til feltene: tekst + én lengdebyte per felt, 256 (96 til og med 0.9.2).
- * Ett felt har høyst 255 byte tekst. */
+#define ESL_MAX_FIELDS       16     /* text fields (6 up to and including 0.9.2) */
+/* Room for the fields: text + one length byte per field, 256 (96 up to and including 0.9.2).
+ * One field holds at most 255 bytes of text. */
 #define ESL_CONTENT_FIELD_SPACE 256
-/* Største sum av tekstbytes med n felt */
+/* Largest total of text bytes with n fields */
 #define ESL_MAX_TEXT_FOR(n)  (ESL_CONTENT_FIELD_SPACE - (n))
-/* Største sum av tekstbytes når alle felt er med: 240 */
+/* Largest total of text bytes when every field is used: 240 */
 #define ESL_MAX_TEXT_BYTES   ESL_MAX_TEXT_FOR(ESL_MAX_FIELDS)
 
-/* ---- Firmware transfer (docs/protokoll.md part 1, "Firmware transfer"; docs/tag-ota.md) ----
+/* ---- Firmware transfer (docs/protocol.md part 1, "Firmware transfer"; docs/tag-ota.md) ----
  * The AP answers a POLL that has ESL_POLL_F_OTA, from a tag whose model has an image on
  * the AP and whose firmware version differs, with the first FW block (after CONFIG and
  * images are done). The tag asks for the rest with FW_REQ. The data is the application
@@ -155,7 +155,7 @@
 #define ESL_FREQ_OFF_POS     6      /* u16 first byte the tag is missing */
 #define ESL_FREQ_OFF_CRC     8      /* u32 CRC-32 of the image being downloaded */
 
-/* ---- Image transfer (docs/protokoll.md part 1, "Image transfer") ----
+/* ---- Image transfer (docs/protocol.md part 1, "Image transfer") ----
  * The AP draws the whole screen and the tag only shows it. The same pattern as the
  * firmware transfer: the AP answers a POLL that has ESL_POLL_F_IMAGE and a content_id
  * other than the image the AP wants shown with the first IMG block (after CONFIG,
@@ -241,35 +241,35 @@
 #define ESL_FWF_FORMAT       1
 
 /*
- * Layoutfila kompilert (binær, laget av AP-en fra JSON-fila; esl_render.c tegner med den):
- *   0 format (= ESL_LBIN_FORMAT)   1 modell (ESL_MODEL_*)   2 antall layouter n (1..16)
- *   3 antall faste tekster t (0..ESL_LBIN_TEXT_MAX)   4 antall ikoner i (0..ESL_LBIN_ICON_MAX)
- *   så n layouter etter hverandre: antall elementer (u8) + elementene, ESL_LE_SIZE byte hver,
- *   så t faste tekster: lengde (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1-tekst,
- *   så i ikoner: bredde (u16), høyde (u8), så bildet som et skjermbilde (ESL_IMG_FMT_RAW):
- *   bredde kolonner fra venstre, (høyde + 7) / 8 byte hver, bit 7 i byte 0 = øverste rad,
- *   1 = blekk.
- * Et tekst- eller strekkodeelement med felt ESL_LE_FIELD_FIXED | i tegner fast tekst i i stedet
- * for et tekstfelt.
- * Versjonen er CRC32 (IEEE, som esl_crc32 på AP-en) av hele fila, 0 regnes som 1.
+ * The compiled layout file (binary, made by the AP from the JSON file; esl_render.c draws with it):
+ *   0 format (= ESL_LBIN_FORMAT)   1 model (ESL_MODEL_*)   2 number of layouts n (1..16)
+ *   3 number of fixed texts t (0..ESL_LBIN_TEXT_MAX)   4 number of icons i (0..ESL_LBIN_ICON_MAX)
+ *   then n layouts one after the other: number of elements (u8) + the elements, ESL_LE_SIZE bytes each,
+ *   then t fixed texts: length (u8, 1..ESL_LBIN_TEXT_LEN_MAX) + Latin-1 text,
+ *   then i icons: width (u16), height (u8), then the picture as a screen image (ESL_IMG_FMT_RAW):
+ *   width columns from the left, (height + 7) / 8 bytes each, bit 7 of byte 0 = the top row,
+ *   1 = ink.
+ * A text or barcode element with field ESL_LE_FIELD_FIXED | i draws fixed text i instead
+ * of a text field.
+ * The version is the CRC32 (IEEE, as esl_crc32 on the AP) of the whole file, 0 counts as 1.
  */
-#define ESL_LBIN_FORMAT      2      /* 2: ikoner, linjer og runde/åpne rektangler */
+#define ESL_LBIN_FORMAT      2      /* 2: icons, lines and round/open rectangles */
 #define ESL_LBIN_HDR_LEN     5
 #define ESL_LBIN_OFF_NTEXT   3
 #define ESL_LBIN_OFF_NICON   4
-#define ESL_LBIN_TEXT_MAX    32     /* faste tekster per fil */
-#define ESL_LBIN_TEXT_LEN_MAX 64    /* byte per fast tekst */
-#define ESL_LBIN_ICON_MAX    16     /* ikoner per fil */
-#define ESL_LBIN_ICON_HDR    3      /* u16 bredde, u8 høyde */
-#define ESL_ICON_MAX_W       128    /* største ikon i piksler */
+#define ESL_LBIN_TEXT_MAX    32     /* fixed texts per file */
+#define ESL_LBIN_TEXT_LEN_MAX 64    /* bytes per fixed text */
+#define ESL_LBIN_ICON_MAX    16     /* icons per file */
+#define ESL_LBIN_ICON_HDR    3      /* u16 width, u8 height */
+#define ESL_ICON_MAX_W       128    /* largest icon in pixels */
 #define ESL_ICON_MAX_H       128
-#define ESL_LE_FIELD_FIXED   0x80   /* felt: fast tekst nr. (felt & 0x7F) i fila */
-/* Største kompilerte fil (AP-ens RAM; 8 KB JSON fyller seg først). Denne og ESL_DRAW_MAX_RUNS,
- * _RECTS, _LINES og _ICONS er AP-kortets grenser: et kort kan sette andre i "limits" i
- * ap/boards/<kort>/board.json (ap/CMakeLists.txt), og verdiene her er standarden (ESP32-C6).
- * ESL_*_CAP er plassen koden setter av; den er grensen, unntatt i nettsidens renderer, som
- * bygges med plass til det største kortet og tar grensene til AP-en den snakker med
- * (esl_limits i esl_layout.h). */
+#define ESL_LE_FIELD_FIXED   0x80   /* field: fixed text number (field & 0x7F) in the file */
+/* Largest compiled file (the AP's RAM; 8 KB of JSON fills up first). This and ESL_DRAW_MAX_RUNS,
+ * _RECTS, _LINES and _ICONS are the AP board's limits: a board can set others in "limits" in
+ * ap/boards/<board>/board.json (ap/CMakeLists.txt), and the values here are the default (ESP32-C6).
+ * ESL_*_CAP is the room the code sets aside; it is the limit, except in the web page's renderer,
+ * which is built with room for the largest board and takes the limits of the AP it talks to
+ * (esl_limits in esl_layout.h). */
 #ifndef ESL_LBIN_MAX
 #define ESL_LBIN_MAX         4096
 #endif
@@ -277,33 +277,33 @@
 #define ESL_LBIN_CAP         ESL_LBIN_MAX
 #endif
 
-/* Ett element, 14 byte, slik esl_render.c leser det */
+/* One element, 14 bytes, as esl_render.c reads it */
 #define ESL_LE_SIZE          14
 #define ESL_LE_OFF_KIND      0      /* u8 ESL_LE_TEXT / ESL_LE_RECT */
-#define ESL_LE_OFF_FIELD     1      /* u8 tekstfelt 0..ESL_MAX_FIELDS-1, eller ESL_LE_FIELD_FIXED | fast tekst */
-#define ESL_LE_OFF_FONT      2      /* 3 x u8 fonter som prøves i rekkefølge, ESL_FONT_NONE avslutter */
-#define ESL_LE_OFF_OPTS      5      /* u8 justering */
-#define ESL_LE_OFF_LINES     6      /* u8 maks linjer, 0 = så mange boksen rommer (høyst 3); tekst: bit 6-7 = ESL_LE_ROT */
+#define ESL_LE_OFF_FIELD     1      /* u8 text field 0..ESL_MAX_FIELDS-1, or ESL_LE_FIELD_FIXED | fixed text */
+#define ESL_LE_OFF_FONT      2      /* 3 x u8 fonts tried in order, ESL_FONT_NONE ends the list */
+#define ESL_LE_OFF_OPTS      5      /* u8 alignment */
+#define ESL_LE_OFF_LINES     6      /* u8 max lines, 0 = as many as the box holds (at most 3); text: bits 6-7 = ESL_LE_ROT */
 #define ESL_LE_OFF_COLOR     7      /* u8 */
 #define ESL_LE_OFF_X         8      /* u16 */
 #define ESL_LE_OFF_Y         10     /* u8 */
 #define ESL_LE_OFF_W         11     /* u16 */
 #define ESL_LE_OFF_H         13     /* u8 */
 
-/* Tallformat for et tekstelement, i bit 4-7 av ESL_LE_OFF_OPTS (0 = teksten som sendt).
- * Bit 4-6 er hvor mange desimaler, bit 7 tusenskille (mellomrom). Teksten må være et tall
- * ("1299.9", "1299,90", "1 299,90", "199,-"); annen tekst tegnes uendret. Desimaltegnet er komma.
- * Et formatert tall tegnes alltid på én linje. */
+/* Number format of a text element, in bits 4-7 of ESL_LE_OFF_OPTS (0 = the text as sent).
+ * Bits 4-6 are how many decimals, bit 7 a thousands separator (space). The text must be a number
+ * ("1299.9", "1299,90", "1 299,90", "199,-"); other text is drawn unchanged. The decimal mark is a comma.
+ * A formatted number is always drawn on one line. */
 #define ESL_LE_NUM_MASK      0x70
-#define ESL_LE_NUM_KEEP      0x10   /* desimalene som sendt */
-#define ESL_LE_NUM_0         0x20   /* ingen desimaler, avrundet */
-#define ESL_LE_NUM_2         0x30   /* alltid to desimaler */
-#define ESL_LE_NUM_AUTO      0x40   /* to desimaler, ingen når de er ,00 */
-#define ESL_LE_NUM_DASH      0x50   /* to desimaler, ",-" når de er ,00 */
-#define ESL_LE_NUM_0_DASH    0x60   /* ingen desimaler, avrundet, med ",-" */
-#define ESL_LE_NUM_THOUSANDS 0x80   /* mellomrom mellom hver tredje siffer: 1 299,90 */
-#define ESL_LE_NUM_MAX_LEN   24     /* lengste formaterte tall: -, 12 siffer, 3 mellomrom, komma, 6 desimaler */
-#define ESL_DRAW_MAX_NUMS    8      /* tekstelementer med tallformat per layout (esl_render.c) */
+#define ESL_LE_NUM_KEEP      0x10   /* the decimals as sent */
+#define ESL_LE_NUM_0         0x20   /* no decimals, rounded */
+#define ESL_LE_NUM_2         0x30   /* always two decimals */
+#define ESL_LE_NUM_AUTO      0x40   /* two decimals, none when they are ,00 */
+#define ESL_LE_NUM_DASH      0x50   /* two decimals, ",-" when they are ,00 */
+#define ESL_LE_NUM_0_DASH    0x60   /* no decimals, rounded, with ",-" */
+#define ESL_LE_NUM_THOUSANDS 0x80   /* a space between every third digit: 1 299,90 */
+#define ESL_LE_NUM_MAX_LEN   24     /* longest formatted number: -, 12 digits, 3 spaces, comma, 6 decimals */
+#define ESL_DRAW_MAX_NUMS    8      /* text elements with a number format per layout (esl_render.c) */
 
 #define ESL_LE_TEXT          1
 #define ESL_LE_RECT          2
@@ -372,48 +372,48 @@
 #define ESL_BC_QUIET_128     10     /* quiet zone each side, in modules */
 #define ESL_BC_QUIET_EAN_L   11
 #define ESL_BC_QUIET_EAN_R   7
-#define ESL_DRAW_MAX_BARCODES 1     /* strekkoder per skjerm (esl_render.c) */
-#define ESL_LE_LEFT          0x00   /* opts: vannrett | loddrett */
+#define ESL_DRAW_MAX_BARCODES 1     /* barcodes per screen (esl_render.c) */
+#define ESL_LE_LEFT          0x00   /* opts: horizontal | vertical */
 #define ESL_LE_CENTER        0x01
 #define ESL_LE_RIGHT         0x02
 #define ESL_LE_MIDDLE        0x04
 #define ESL_LE_BOTTOM        0x08
-#define ESL_LE_BLACK         0      /* farger */
+#define ESL_LE_BLACK         0      /* colours */
 #define ESL_LE_WHITE         1
-#define ESL_LE_INVERT        2      /* hvit tekst i svart boks */
-#define ESL_LE_PRICE_HL      3      /* som ESL_LE_INVERT hvis ESL_CF_PRICE_HIGHLIGHT, ellers svart */
-#define ESL_LE_FRAME         4      /* svart hvis ESL_CF_FRAME, ellers ikke tegnet */
-#define ESL_LE_RED           5      /* rød tekst eller rødt rektangel; bare modeller med rødt (has_red) */
-#define ESL_LE_RED_INVERT    6      /* hvit tekst i rød boks (bare tekst); bare modeller med rødt */
+#define ESL_LE_INVERT        2      /* white text in a black box */
+#define ESL_LE_PRICE_HL      3      /* as ESL_LE_INVERT if ESL_CF_PRICE_HIGHLIGHT, else black */
+#define ESL_LE_FRAME         4      /* black if ESL_CF_FRAME, else not drawn */
+#define ESL_LE_RED           5      /* red text or a red rectangle; only models with red (has_red) */
+#define ESL_LE_RED_INVERT    6      /* white text in a red box (text only); only models with red */
 
 #define ESL_FONT_SMALL       0      /* 17 px, Latin-1 */
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */
-#define ESL_FONT_LARGE       2      /* 52 px, bare siffer og " ,-.:" */
-#define ESL_FONT_MID         3      /* 36 px, samme tegn som LARGE */
-#define ESL_FONT_TEXT20      4      /* 20 px, Latin-1 (AP-en; tagen tegner den ikke) */
-#define ESL_FONT_PRICE44     5      /* 44 px, samme tegn som LARGE (AP-en; tagen tegner den ikke) */
+#define ESL_FONT_LARGE       2      /* 52 px, only digits and " ,-.:" */
+#define ESL_FONT_MID         3      /* 36 px, the same characters as LARGE */
+#define ESL_FONT_TEXT20      4      /* 20 px, Latin-1 (the AP; the tag does not draw it) */
+#define ESL_FONT_PRICE44     5      /* 44 px, the same characters as LARGE (the AP; the tag does not draw it) */
 #define ESL_FONT_COUNT       6
 #define ESL_FONT_NONE        0xFF
-/* Fonthøyder i piksler (= height i tag/fonts/font_*.c), brukt av AP-en når den sjekker layouter */
+/* Font heights in pixels (= height in tag/fonts/font_*.c), used by the AP when it checks layouts */
 #define ESL_FONT_SMALL_H     17
 #define ESL_FONT_MEDIUM_H    24
 #define ESL_FONT_LARGE_H     52
 #define ESL_FONT_MID_H       36
 #define ESL_FONT_TEXT20_H    20
 #define ESL_FONT_PRICE44_H   44
-#define ESL_INVERT_PAD       4      /* rammen rundt et invertert felt (esl_render.c) */
-/* Per skjerm (esl_render.c); per AP-kort, som ESL_LBIN_MAX */
+#define ESL_INVERT_PAD       4      /* the border round an inverted field (esl_render.c) */
+/* Per screen (esl_render.c); per AP board, as ESL_LBIN_MAX */
 #ifndef ESL_DRAW_MAX_RUNS
-#define ESL_DRAW_MAX_RUNS    32     /* tekstlinjer */
+#define ESL_DRAW_MAX_RUNS    32     /* text lines */
 #endif
 #ifndef ESL_DRAW_MAX_RECTS
-#define ESL_DRAW_MAX_RECTS   20     /* rektangler og inverterte felt */
+#define ESL_DRAW_MAX_RECTS   20     /* rectangles and inverted fields */
 #endif
 #ifndef ESL_DRAW_MAX_LINES
-#define ESL_DRAW_MAX_LINES   16     /* linjer */
+#define ESL_DRAW_MAX_LINES   16     /* lines */
 #endif
 #ifndef ESL_DRAW_MAX_ICONS
-#define ESL_DRAW_MAX_ICONS   8      /* ikoner */
+#define ESL_DRAW_MAX_ICONS   8      /* icons */
 #endif
 #ifndef ESL_DRAW_CAP_RUNS
 #define ESL_DRAW_CAP_RUNS    ESL_DRAW_MAX_RUNS
@@ -427,7 +427,7 @@
 #ifndef ESL_DRAW_CAP_ICONS
 #define ESL_DRAW_CAP_ICONS   ESL_DRAW_MAX_ICONS
 #endif
-#define ESL_DRAW_MAX_QR      1      /* QR-koder per skjerm (esl_render.c) */
+#define ESL_DRAW_MAX_QR      1      /* QR codes per screen (esl_render.c) */
 #define ESL_LE_MAX_LINES     3
 /* A text element turned clockwise by 90 degrees times bits 6-7 of ESL_LE_OFF_LINES (0 in older
  * files, so they compile and draw the same). The box keeps its screen coordinates; the text is
@@ -438,7 +438,7 @@
 #define ESL_LE_ROT_MASK      0xC0
 #define ESL_LE_LINES_MASK    0x3F
 
-/* ---- 802.15.4 MAC-ramme (IEEE 802.15.4, offentlig standard) ---- */
+/* ---- 802.15.4 MAC frame (IEEE 802.15.4, a public standard) ---- */
 
 #define ESL_DEFAULT_CHANNEL  25
 #define ESL_CHANNEL_MIN      11     /* the 2.4 GHz channels of 802.15.4 */
@@ -447,31 +447,31 @@
 #define ESL_AP_SHORT_ADDR    0x0000u
 
 /*
- * Frame control (bit 0-2 rammetype, 3 security, 4 frame pending, 5 ACK request,
- * 6 PAN ID compression, 10-11 dst-adressemodus, 12-13 rammeversjon, 14-15 src-adressemodus).
- * Data (1), ingen ACK, PAN ID compression, versjon 0.
+ * Frame control (bits 0-2 frame type, 3 security, 4 frame pending, 5 ACK request,
+ * 6 PAN ID compression, 10-11 dst addressing mode, 12-13 frame version, 14-15 src addressing mode).
+ * Data (1), no ACK, PAN ID compression, version 0.
  */
-#define ESL_FC_TAG_TO_AP     0xC841u   /* dst kort (2), src utvidet (3) */
-#define ESL_FC_AP_TO_TAG     0x8C41u   /* dst utvidet (3), src kort (2) */
+#define ESL_FC_TAG_TO_AP     0xC841u   /* dst short (2), src extended (3) */
+#define ESL_FC_AP_TO_TAG     0x8C41u   /* dst extended (3), src short (2) */
 
-#define ESL_MAC_HDR_LEN      15        /* FC 2 + seq 1 + PAN 2 + adresser 8+2 */
+#define ESL_MAC_HDR_LEN      15        /* FC 2 + seq 1 + PAN 2 + addresses 8+2 */
 #define ESL_MAC_FCS_LEN      2
 #define ESL_MAC_MAX_FRAME    127
 
-/* Tag -> AP: FC, seq, dst PAN, dst kort, src utvidet */
+/* Tag -> AP: FC, seq, dst PAN, dst short, src extended */
 #define ESL_TA_OFF_FC        0
 #define ESL_TA_OFF_SEQ       2
 #define ESL_TA_OFF_PAN       3
 #define ESL_TA_OFF_DST       5
 #define ESL_TA_OFF_SRC       7
-/* AP -> tag: FC, seq, dst PAN, dst utvidet, src kort */
+/* AP -> tag: FC, seq, dst PAN, dst extended, src short */
 #define ESL_AT_OFF_FC        0
 #define ESL_AT_OFF_SEQ       2
 #define ESL_AT_OFF_PAN       3
 #define ESL_AT_OFF_DST       5
 #define ESL_AT_OFF_SRC       13
 
-/* ---- Little-endian-hjelpere (p er en byte-peker) ---- */
+/* ---- Little-endian helpers (p is a byte pointer) ---- */
 
 #define ESL_GET_U16(p)  ((uint16_t)((uint16_t)(p)[0] | ((uint16_t)(p)[1] << 8)))
 #define ESL_GET_U32(p)  ((uint32_t)(p)[0] | ((uint32_t)(p)[1] << 8) | \

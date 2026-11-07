@@ -14,7 +14,7 @@
  *   main/radio_uart.c        an ESP32-C6 running ap/radio/ as a radio coprocessor
  *                            on UART (docs/ap-radio-link.md)
  * Frames are always whole 802.15.4 PSDUs
- * (docs/protokoll.md): the link carries them, it does not change them. The
+ * (docs/protocol.md): the link carries them, it does not change them. The
  * protocol (what a POLL is, what the reply holds) is esl_radio_handle()'s and
  * never a driver's; a tag that speaks another protocol gets another handler,
  * not another link. A radio that is not 802.15.4 (a tag maker's own 2.4 GHz
@@ -53,7 +53,7 @@ typedef struct {
 #define ESL_TX_POWER_MIN (-24)
 #define ESL_TX_POWER_MAX 20
 
-#define ESL_LINK_SLOW_US 5000 /* krav A3: a reply should be on its way within 5 ms */
+#define ESL_LINK_SLOW_US 5000 /* requirement A3 in docs/requirements.md: a reply should be on its way within 5 ms */
 
 struct esl_link {
     const char *name;   /* for the log: "802.15.4" */

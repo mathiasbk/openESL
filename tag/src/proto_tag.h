@@ -1,5 +1,5 @@
 /*
- * proto_tag.h - the tag's side of the radio protocol (docs/protokoll.md part 1).
+ * proto_tag.h - the tag's side of the radio protocol (docs/protocol.md part 1).
  * Builds POLL, IMG_REQ, FW_REQ and the surrounding 802.15.4 frame, and parses
  * IDLE/CONFIG/IMG/FW from the AP.
  * The packet definitions are in shared/proto.h.

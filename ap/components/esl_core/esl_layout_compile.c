@@ -11,7 +11,7 @@
 #include <string.h>
 
 /* Layout file (JSON) -> the binary esl_render.c draws from. The format is in
- * docs/protokoll.md part 3; the limits come from shared/proto.h. Pure C, no ESP-IDF:
+ * docs/protocol.md part 3; the limits come from shared/proto.h. Pure C, no ESP-IDF:
  * also built into the web page's renderer (web/wasm/web_api.c). */
 
 typedef struct {

@@ -4,7 +4,7 @@
  * Implemented in hal/zbs243/ (the real tag) and in test/fake_hal.c (PC tests).
  * The ZBS243 registers are not publicly documented. Each function in hal/zbs243/
  * is a stub until the register facts are measured or found, and every fact that
- * is used must be listed in docs/kildelogg.md.
+ * is used must be listed in docs/sources.md.
  */
 #ifndef HAL_H
 #define HAL_H

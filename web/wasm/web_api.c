@@ -7,7 +7,7 @@
  * image the AP sends to a tag of that model, and a layout file the page accepts is one the
  * AP accepts.
  *
- *   web_load_layouts(json, len)  compiles a layout file (docs/protokoll.md part 3) for this
+ *   web_load_layouts(json, len)  compiles a layout file (docs/protocol.md part 3) for this
  *                                model. 1 = ok, 0 = rejected, web_error() says why (the
  *                                AP's 422 message)
  *   web_clear_layouts()          back to only the built-in layouts

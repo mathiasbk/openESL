@@ -132,7 +132,7 @@ for the WiFi signal at the C6 (it warns below −75 dBm). It keeps the C6's WiFi
 table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 first. By hand:
 
 1. Build and flash the S3 as any AP board: `python ap/build.py s3-n16r8-netradio` (which also builds the
-   radio), then flash the S3 as in [ap-firmware.md](ap-firmware.md). It waits for the radio on TCP port
+   radio), then flash the S3 as in [history/ap-firmware-plan.md](history/ap-firmware-plan.md). It waits for the radio on TCP port
    4553 and announces itself on mDNS as `_openesl-ap._tcp`.
 2. Flash the C6 with `out/openesl-ap-netradio-c6.bin` at 0, or from `ap/netradio/build/` with
    `esptool.py --chip esp32c6 write_flash @flash_args`. Its NVS sits where the AP's does, so a C6 that
@@ -186,7 +186,7 @@ with several C6 boards.
   tries first when it misses an answer) is the one of the radio that serves it. A tag no radio has heard since the S3 started is told to every radio, but
   its image goes ahead only when one radio is connected (each image costs a radio tag replies).
 - **Roaming.** A tag whose radio stops answering finds another the way it finds a moved AP
-  (docs/protokoll.md, "Finding the AP"): after three rounds without an answer it looks on the
+  (docs/protocol.md, "Finding the AP"): after three rounds without an answer it looks on the
   other channels, and the first radio that answers asks the S3 for it (as for a new tag: one or
   two wake-ups of 5 s), owns it from then on and tells it its channel. Nothing changes in the tag
   firmware; tags from before 0.9.0 cannot look on other channels and stay with the radio on the

@@ -11,12 +11,12 @@
 #include "radio.h"
 #include "sdkconfig.h"
 
-/* The radio task (docs/ap-firmware.md, Radio), the same for every link: the
+/* The radio task (docs/history/ap-firmware-plan.md, Radio), the same for every link: the
  * driver (radio_ieee802154.c, ...) puts each received frame on a queue, and a
  * high-priority task hands it to esl_link_handle() (parse, look up the
  * ready-made reply, build the frame; tested on the PC), which sends the reply
  * with radio_link.send. Target: under 5 ms from received POLL to transmit
- * (krav A3); the worst time seen is logged.
+ * (requirement A3 in docs/requirements.md); the worst time seen is logged.
  *
  * The task is registered with the task watchdog and wakes at least once a
  * second to feed it, so a radio task stuck in a lock or the driver restarts

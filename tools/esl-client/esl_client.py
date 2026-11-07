@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example client for the OpenESL AP HTTP API (docs/protokoll.md part 2).
+"""Example client for the OpenESL AP HTTP API (docs/protocol.md part 2).
 
 Standard library only. URL and token come from --url/--token or the environment
 variables OPENESL_URL (default http://openesl.local; a new AP is http://openesl-xxxx.local, with the
@@ -46,7 +46,7 @@ import time
 import urllib.error
 import urllib.request
 
-BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
+BATCH_MAX = 50          # max tags per PUT /api/tags (protocol.md part 2)
 # The AP's other limits on one request body (openapi.yaml; ESL_API_MAX_TOKENS, ESL_API_MAX_BODY in
 # esl_api.h). 50 tags with 14 or more fields each pass 1,024 JSON tokens, so batches are cut by these too.
 BODY_MAX_TOKENS = 1024

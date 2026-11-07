@@ -1,5 +1,7 @@
 # Requirements
 
+The requirements the project started from, each with an ID (G = overall, A = access point, T = tag). Code comments refer to them by ID, for example "requirement A3". The levels below are from the original plan; what is done today is in the README of each folder.
+
 **MUST** = version 1 is not finished without it. **SHOULD** = included if cheap. **LATER** = deliberately deferred to version 2.
 
 ## Overall
@@ -12,7 +14,7 @@
 | G4 | The system tolerates power loss on the AP without losing content or requiring tags to be set up again. | MUST |
 | G5 | Builds of tag and AP firmware are reproducible from git (pinned SDCC and ESP-IDF versions). | MUST |
 | G6 | Supports both SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white). Neither has red: emphasis is black/white (an inverted field, white on black, and a black frame). Screen size is a per-tag parameter, not an assumption in the code. The display controller of the 1.54" is confirmed in phase 0. | MUST |
-| G7 | The screen design (layout) is made in a separate design tool (the Design tab of the web page, `web/`) and stored as a JSON file: fields, positions, fonts, colours. The firmware reads the layout from the file instead of having it fixed in the code. Done: the AP draws each screen from the file and sends the tags the image ([protokoll.md](protokoll.md) part 3). | MUST |
+| G7 | The screen design (layout) is made in a separate design tool (the Design tab of the web page, `web/`) and stored as a JSON file: fields, positions, fonts, colours. The firmware reads the layout from the file instead of having it fixed in the code. Done: the AP draws each screen from the file and sends the tags the image ([protocol.md](protocol.md) part 3). | MUST |
 
 ## Tag (ZBS243)
 
@@ -43,7 +45,7 @@
 | ID | Requirement | Level |
 |---|---|---|
 | A1 | Connects to WiFi (SSID/password set once, stored in NVS). | MUST |
-| A2 | HTTP API with token: set content for one or many tags, read status ([protokoll.md](protokoll.md) part 2). | MUST |
+| A2 | HTTP API with token: set content for one or many tags, read status ([protocol.md](protocol.md) part 2). | MUST |
 | A3 | Answers a tag's poll within about 5 ms, so the tag can keep a short listening window. | MUST |
 | A4 | Stores the content per tag in NVS so it survives a restart. | MUST |
 | A5 | Status per tag available in the API: last seen, battery, RSSI, content shown. | MUST |

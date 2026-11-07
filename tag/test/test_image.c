@@ -1,4 +1,4 @@
-/* test_image.c - screen images from the AP (docs/protokoll.md part 1, "Image transfer"):
+/* test_image.c - screen images from the AP (docs/protocol.md part 1, "Image transfer"):
  * the download into the SPI flash slot (image.c), the drawing from the slot, what
  * survives a restart, and the tag's side over the radio (app.c). */
 #include <string.h>
@@ -145,7 +145,7 @@ static void test_refused(void)
     CHECK_EQ(fake_xflash_misuse, 0);
 }
 
-/* An image whose CRC-32 is 0 has id 1, on the AP and on the tag (protokoll.md) */
+/* An image whose CRC-32 is 0 has id 1, on the AP and on the tag (protocol.md) */
 static void test_crc_zero(void)
 {
     make_picture(7);

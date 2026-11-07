@@ -1,12 +1,14 @@
 # Risks
 
+> **Historical.** This is a plan from the start of the project (October 2026), kept for the record and not kept up to date. How things are today: [docs/README.md](../README.md) and the [code map](../code-map.md).
+
 | # | Risk | Probability | Consequence | Mitigation |
 |---|---|---|---|---|
 | R1 | The ZBS243 registers (especially radio and sleep) cannot be found from the SoluM backup and experiments | Medium | Stops the tag track | Gate in phase 3. See "Plan B" below |
 | R2 | The radio needs calibration or setup that is hard to see in disassembly | Medium | Poor range or no contact | Compare RSSI with the SoluM firmware; use the sniffer to see what the stock firmware transmits |
 | R3 | Sleep current becomes too high | Medium | Short battery life | Phase 6 with proper measuring equipment; a longer interval (e.g. 5 min) is an acceptable emergency solution for prices that change daily |
 | R4 | WiFi and 802.15.4 on the same C6 interfere with each other | Low–medium | Lost POLLs | Retry on the tag; otherwise the second C6 as a separate radio over UART |
-| R5 | Code from other projects for the same hardware ends up in OpenESL by mistake, and brings its licence with it | Low | The project cannot be used freely | Write all code for this project, and record where each hardware fact comes from in [kildelogg.md](kildelogg.md) |
+| R5 | Code from other projects for the same hardware ends up in OpenESL by mistake, and brings its licence with it | Low | The project cannot be used freely | Write all code for this project, and record where each hardware fact comes from in [sources.md](../sources.md) |
 | R6 | Fault in the display controller version or OTP waveform gives poor contrast or ghosting | Low–medium | Faded or murky black, traces of the old image | Try the update modes in the datasheet |
 | R7 | Motivation and time: the project takes longer than estimated | Medium | Never finished | Risk first (phase 3 early), small visible milestones |
 

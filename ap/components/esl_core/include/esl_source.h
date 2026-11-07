@@ -163,7 +163,7 @@ bool esl_sources_restore(esl_sources_t *s, const char *js, size_t len);
 /* Writes one source's configuration as the JSON object the API takes */
 void esl_source_write_cfg(const esl_source_cfg_t *c, esl_sb_t *out);
 
-/* /api/sources (docs/protokoll.md part 2): GET, PUT and POST /api/sources/refresh.
+/* /api/sources (docs/protocol.md part 2): GET, PUT and POST /api/sources/refresh.
  * path is the URI's path from /api/sources on. now is Unix s (0 when the time is not
  * known). Returns the HTTP status. */
 int esl_sources_api(esl_sources_t *s, const char *method, const char *path, size_t plen, const char *body,

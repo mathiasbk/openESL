@@ -7,7 +7,7 @@
 #include "esl_json.h"
 #include "esl_proto.h"
 
-/* Layout files per tag model (krav G7, A12-A14; docs/protokoll.md part 3).
+/* Layout files per tag model (requirements G7, A12-A14 in docs/requirements.md; docs/protocol.md part 3).
  *
  * A layout file is JSON ("format": "esl-layouts") with up to 16 named
  * layouts for one model. esl_layout_compile() checks it against the model

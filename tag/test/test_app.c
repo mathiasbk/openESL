@@ -471,7 +471,7 @@ static void test_restart_bad_flash(void)
     CHECK(sent_poll(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_DRAWFAIL);
 }
 
-/* ---- A planned channel move (#256, docs/protokoll.md "Channel") ---- */
+/* ---- A planned channel move (#256, docs/protocol.md "Channel") ---- */
 
 static void test_channel_move(void)
 {

@@ -50,4 +50,4 @@ A client that reads `GET /api/tags` every minute or two, such as Home Assistant,
 
 The same API answers on the AP's USB port, with no token. [esl-client](esl-client) speaks it with `--serial`.
 
-More detail: [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#http-api) and [docs/protokoll.md](https://github.com/mathiasbk/openESL/blob/master/docs/protokoll.md) part 2.
+More detail: [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#http-api) and [docs/protocol.md](https://github.com/mathiasbk/openESL/blob/master/docs/protocol.md) part 2.

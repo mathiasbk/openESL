@@ -16,7 +16,7 @@
 2. The AP calculates a new `content_id` (CRC32 of the content), stores it in NVS and replies immediately.
 3. The next time the tag wakes (within 60 s) it sends `POLL` with the id of the image it shows.
 4. The AP sees that it is out of date, draws the screen into a 1-bit image and replies with the first `IMG` block; the tag fetches the rest with `IMG_REQ` in the same wake-up (52 blocks raw on the 2.9"; coded column against column, a shelf screen takes 6).
-5. The tag checks the image, stores it in its SPI flash, streams it to the display (a few seconds for a black/white full update; measured in phase 2) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new image id is the acknowledgement (see [protokoll.md](protokoll.md)).
+5. The tag checks the image, stores it in its SPI flash, streams it to the display (a few seconds for a black/white full update; measured in phase 2) and goes back to sleep. There is no separate acknowledgement: the next POLL with the new image id is the acknowledgement (see [protocol.md](protocol.md)).
 6. The next time the client reads `GET /api/tags`, `shown_content_id` shows that the tag has the new content.
 
 The client can also send the content ahead of time with `at` (Unix time): the AP stores it and applies it itself at that time, also after a restart (`/api/schedule`, `/api/time`).
@@ -28,13 +28,13 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 ### The AP draws, the tag shows an image
 - Up to tag firmware 0.4.7 the tag drew the text itself from one CONTENT packet. That kept the radio short, but every layout, font and barcode had to fit the tag's 64 KB flash and its RAM.
 - Now the AP draws the whole screen (`ap/components/esl_core/esl_render.c`, with the code the tag used) and sends it as a 1-bit image in IMG blocks, coded when that is shorter (column against column, as fax machines code a page, or run-length coded). The tag stores it in its SPI flash (the same chip as the OTA slots) and streams it to the display controller a column at a time, so it never needs the whole image in RAM.
-- The cost is radio time: about 50 blocks per new screen instead of one packet. Not measured yet; the estimate is a few mC per new screen, next to 22 mC for the display refresh ([strombudsjett.md](strombudsjett.md)).
+- The cost is radio time: about 50 blocks per new screen instead of one packet. Not measured yet; the estimate is a few mC per new screen, next to 22 mC for the display refresh ([power-budget.md](power-budget.md)).
 - The image id is the CRC-32 of the image, so the same content gives the same image and is never sent twice, also after an AP restart. The AP keeps no images: it draws one when a tag needs it.
 - The tag draws only its start-up and "No AP found" screens, and the small "no AP" mark over the AP's image, itself.
 
 ### Layout from the design tool (requirement G7)
-- A designer makes the screen design in the label designer on the web page (`web/`, the Design tab), which can also send the file straight to the AP. It is one JSON layout file per tag model with up to 16 named layouts: up to 16 fields, positions, fonts, colours, alignment, fixed texts and one barcode, with up to 32 text lines and 20 boxes per screen ([protokoll.md](protokoll.md) part 3).
-- Flow: layout file → AP (`PUT /api/layouts/{model}`) → the AP checks it against the model and compiles it to a compact binary (14 bytes per element, at most 2048 bytes) → `esl_render.c` draws from it. The file never goes to the tags; they get the picture ([protokoll.md](protokoll.md) part 1, "Image transfer").
+- A designer makes the screen design in the label designer on the web page (`web/`, the Design tab), which can also send the file straight to the AP. It is one JSON layout file per tag model with up to 16 named layouts: up to 16 fields, positions, fonts, colours, alignment, fixed texts and one barcode, with up to 32 text lines and 20 boxes per screen ([protocol.md](protocol.md) part 3).
+- Flow: layout file → AP (`PUT /api/layouts/{model}`) → the AP checks it against the model and compiles it to a compact binary (14 bytes per element, at most 2048 bytes) → `esl_render.c` draws from it. The file never goes to the tags; they get the picture ([protocol.md](protocol.md) part 1, "Image transfer").
 - **Conversion on the AP**, not on the PC: clients upload the same JSON the tool makes, and the AP can answer `422` with the exact place of an error. The designer on the web page and the previews on the PC (`tag/tools/render_host.py`) run the AP's compiler and drawing code, so they show exactly what a tag gets.
 - `layout` in `PUT /api/tags` is `price`, `text` or a layout name from the file. The AP stores the name and looks it up in the file for each tag's model when it draws the screen; the same name can exist in both models' files.
 - The limits are the AP's: 32 text lines and 20 boxes per screen (its drawing scene), 2048 bytes compiled and 8 KB of JSON per file (its RAM; the JSON usually fills first, at about 45 to 140 bytes per element), 16 layouts and 6 fields (the content format). The tags put no limit on the layout any more.
@@ -54,7 +54,7 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 
 ### One ESP32-C6
 - ESP-IDF has drivers for 802.15.4 (`esp_ieee802154`) and WiFi on the same chip. Both share the radio by time-division (coexistence).
-- Fallback plan if WiFi and 802.15.4 interfere too much, or for more tags than the C6 has RAM for: an ESP32-S3 with PSRAM as the AP and a C6 as a pure radio connected by UART ([ap-radio-link.md](ap-radio-link.md), board `s3-n16r8-c6`). See [risiko.md](risiko.md).
+- Fallback plan if WiFi and 802.15.4 interfere too much, or for more tags than the C6 has RAM for: an ESP32-S3 with PSRAM as the AP and a C6 as a pure radio connected by UART ([ap-radio-link.md](ap-radio-link.md), board `s3-n16r8-c6`). See [history/risks.md](history/risks.md).
 
 ### The AP is only an API
 - The AP has a simple HTTP API, and clients call it. Changes go out immediately instead of waiting for the next fetch.
