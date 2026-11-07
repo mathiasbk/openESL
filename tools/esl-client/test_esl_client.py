@@ -725,6 +725,39 @@ class ClientTest(unittest.TestCase):
                 self.assertEqual(FakeAp.images["00000123456789B1"], bytes(range(256)) * 18 + bytes(128))
                 self.assertEqual([(e["mac"], e["at"]) for e in FakeAp.sched], [("00000123456789A8", 4102444800)])
 
+    def test_restore_dashboard_backups_from_releases(self):
+        """#307: what the dashboard of every release since 0.9.0 wrote (web/test/compat/,
+        make_backup.mjs) restores with esl-client too: it is the same format."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        files = sorted(glob.glob(os.path.join(here, "..", "..", "web", "test", "compat", "v*-dashboard-backup.json")))
+        self.assertTrue(files)
+        for path in files:
+            with open(path, encoding="utf-8") as f:
+                b = json.load(f)
+            with self.subTest(os.path.basename(path)):
+                self.setUp()
+                FakeAp.fonts = {}
+                for t in b["tags"]:
+                    if "image" in t:  # the tag with the picture has polled
+                        FakeAp.tags[t["mac"]] = {"mac": t["mac"], "content_id": 0, "model": "2.9"}
+                rc, out = self.run_cli("restore", path)
+                self.assertEqual(rc, 0, out)
+                content = [t for t in b["tags"] if "layout" in t]
+                self.assertIn(f"restored: {len(b['layouts'])} layout files, 1 tag settings, {len(content) + 1} tags, "
+                              f"{len(b['scheduled'])} scheduled", out)
+                self.assertEqual(FakeAp.config["poll_s"], b["config"]["poll_s"])
+                self.assertEqual(FakeAp.fonts, b.get("fonts", {}))
+                self.assertEqual(FakeAp.layouts, b["layouts"])
+                self.assertEqual(FakeAp.tag_cfg, {t["mac"]: t["config"] for t in b["tags"] if "config" in t})
+                for t in content:
+                    for k in ("layout", "fields", "price_highlight", "frame"):
+                        if k in t:
+                            self.assertEqual(FakeAp.tags[t["mac"]][k], t[k], (t["mac"], k))
+                for t in b["tags"]:
+                    if "image" in t:
+                        self.assertEqual(FakeAp.images[t["mac"]], base64.b64decode(t["image"]))
+                self.assertEqual([(e["mac"], e["at"]) for e in FakeAp.sched], [(e["mac"], e["at"]) for e in b["scheduled"]])
+
     def test_tag_ota(self):
         rc, out = self.run_cli("tag-ota")
         self.assertEqual(rc, 0)

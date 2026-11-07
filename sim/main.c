@@ -14,6 +14,8 @@
  *     Prints "PTY <path>" on the first line; then, for example:
  *       tools/esl-client/esl_client.py --serial <path> status
  *       tools/esl-client/esl_client.py --serial <path> serve      (API tab of the web page)
+ *   esl-sim upgrade ...         tag firmware over the air from one firmware to another
+ *                               (upgrade.c; run by upgrade.py)
  *   esl-sim tag --fd N ...      one more tag for "serve" (started by it): its frames go over
  *                               the socket on fd N to the AP there
  *
@@ -50,6 +52,7 @@
 #endif
 
 int e2e_run(const char *outdir, const char *root);
+int upgrade_run(int argc, char **argv);
 
 static int pty_fd = -1;
 static const char *png_path;
@@ -461,6 +464,9 @@ int main(int argc, char **argv)
         return serve(argc, argv);
     if (argc >= 2 && !strcmp(argv[1], "tag"))
         return tag_main(argc, argv);
-    fprintf(stderr, "usage: %s test [OUTDIR] | serve [--speed N] [--png PATH] [--tags N] [--sims A,B] [-v]\n", argv[0]);
+    if (argc >= 2 && !strcmp(argv[1], "upgrade"))
+        return upgrade_run(argc, argv);
+    fprintf(stderr, "usage: %s test [OUTDIR] | serve [--speed N] [--png PATH] [--tags N] [--sims A,B] [-v] |\n"
+                    "       upgrade FROM TO TO_VERSION OUTDIR (sim/upgrade.py)\n", argv[0]);
     return 2;
 }

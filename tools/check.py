@@ -14,7 +14,8 @@ Steps:
   models    the generated model files match shared/models.json (tools/gen_models.py --check)
   wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
   tag       tag host tests (tag/tools/build.py test), for every model
-  sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
+  sim       end-to-end simulation, with sanitizers, the serial port test and tag firmware
+            over the air from each release and back (sim/; the upgrade needs the release tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client, power-budget and release notes tests (the upgrade instructions for VERSION)
@@ -127,6 +128,7 @@ def step_sim():
     need_san()
     run(["make", "-C", "sim", "SAN=1"])
     run(["make", "-C", "sim", "serial"])
+    run(["make", "-C", "sim", "upgrade", "SAN=1"])
 
 
 def step_tag_fw():

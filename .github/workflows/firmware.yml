@@ -59,11 +59,15 @@ jobs:
         run: |
           make -C sim SAN=1
           make -C sim serial
+      - name: Tag firmware over the air from each release and back (sim/upgrade.py, #307)
+        run: make -C sim upgrade SAN=1
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sim-screens
-          path: sim/build/*/screens/
+          path: |
+            sim/build/*/screens/
+            sim/build/upgrade/**/*.png
       - name: Versions (tools/fw_version.py)
         run: python3 tools/fw_version.py --all
       - name: Build firmware (every model in shared/models.json)

@@ -32,6 +32,7 @@ Needs a C compiler and make (Linux or macOS; `serve` needs a pseudo-terminal).
 make -C sim            # both tag models: build/154/esl-sim and build/29/esl-sim, then the scenarios
 make -C sim SAN=1      # the same with AddressSanitizer and UBSan (as CI runs it)
 make -C sim serial     # esl-client over the serial framing against "esl-sim serve"
+make -C sim upgrade    # tag firmware over the air from each release to today's, and back
 SIM_VERBOSE=1 sim/build/154/esl-sim test /tmp/screens   # every radio exchange
 ```
 
@@ -105,3 +106,45 @@ AP measures for its frames), one with a low battery and one with a weak signal, 
 dashboard has something to show. Their frames go to the AP in `serve` over a socket; they stop
 when it stops. `--png` is the first tag's screen only; the dashboard shows the others as the
 AP draws them.
+
+## Upgrade from a release (`make upgrade`)
+
+A tag in the field runs the firmware of some earlier release, and gets today's over the air
+from an AP that runs today's. `upgrade.py` tests exactly that, for every release with a
+golden file in `ap/test/compat/` (the VERSION PR adds one) and every tag model that release
+and today's both have (#307):
+
+```
+make -C sim upgrade            # or: python3 sim/upgrade.py v0.10.0
+make -C sim upgrade SAN=1      # with the sanitizers, as CI runs it
+```
+
+It needs the release tags (`git fetch --tags`). For each release it takes that release's
+`tag/` and `shared/` from git (nothing in the working tree changes) and builds `esl-sim-tag`
+from it and from today's tag firmware, both with today's `sim_tag.c`, `tagstep.c` and `png.c`.
+`esl-sim-tag` is one tag in a program of its own; `esl-sim upgrade` (`upgrade.c`) runs today's
+AP core and drives it step by step over a socket (`tagstep.h`), with simulated time, so a run
+gives the same result every time:
+
+1. A new tag on the release's firmware registers with today's AP, gets content and its own
+   poll interval (120 s), and draws what the AP draws.
+2. The AP offers today's firmware (`PUT /api/tag-firmware`, a made-up 4 KB application with
+   today's version). The release's firmware downloads it and its bootloader copies it into the
+   chip; the program then saves what a restart keeps (the settings record, the SPI flash, the
+   chip's code flash and the e-paper image, not RAM) and stops.
+3. Today's firmware starts from that in a second program, and must: show the same screen, find
+   the AP at once, keep its settings (no CONFIG when both keep them in the same record format,
+   `STORE_FORMAT` in `tag/src/app.c`; at most the one CONFIG `app.c` allows when not), confirm the
+   update (no rollback; the AP counts the tag as updated, not failed), not be sent its image
+   again, and draw new content as the AP draws it.
+
+Then the same the other way round, from today's firmware back to the release. When a model's
+firmware has not changed since a release, both report the same version and the tag would not
+take the update, so today's is tested as the next patch version. The screens are saved in
+`sim/build/upgrade/<release>-<model>/up/` and `.../back/` (`1-before.png`, `2-after.png`,
+`3-new-content.png`) and kept by CI with the other screens.
+
+What it does not cover: the bootloader is never updated over the air, and the one that installs
+the update is the first program's, as on a real tag; a further restart in the second program
+would run that program's own. The update is not today's real image built with SDCC
+(`tools/check.py tag-fw` builds that), so its size and the code on the chip are not part of it.
