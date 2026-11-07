@@ -12,6 +12,9 @@ import { modelName } from "./models.js";
 
 export const ROLLOUT_POLLS = 10; // polls on the new firmware before the rest of the model gets it
 export const ROLLOUT_PROBLEMS = ["silent", "draw_failed", "content_error"]; // GET /api/health problems that count against it
+// Problems count against a version while a tag makes its first polls on it (the trial). Later
+// ones (a battery running out weeks on) are not the firmware's.
+export const TRIAL_POLLS = 3 * ROLLOUT_POLLS;
 const BOOT_SLACK_S = 120; // uptime_s and the clock are read at slightly different moments
 const MAX_ENTRIES = 3000;
 
@@ -25,7 +28,10 @@ export function verNum(v) {
 // /api/tags), health (GET /api/health), nowS (Unix seconds). An entry is { fw, boot, base, last,
 // carried, bad }: the tag's version, when the AP started (estimated from uptime_s), its poll
 // count at the first sight on fw, at the last sight, the polls from before an AP restart, and the
-// problems seen on fw. A tag the AP has not heard since it started (no signal) keeps its entry.
+// problems seen on fw in its first TRIAL_POLLS polls; with next: { fw, bad } the problems seen
+// while it installs other firmware (all of it fetched, fw_update in GET /api/tags): a tag that
+// installs new firmware and goes silent still runs its old fw for the AP, and that is the new
+// firmware's problem. A tag the AP has not heard since it started (no signal) keeps its entry.
 export function trackRollout(prev, list, health, nowS) {
   const state = { ...(prev || {}) };
   const uptime = list?.ap?.uptime_s;
@@ -38,7 +44,9 @@ export function trackRollout(prev, list, health, nowS) {
     if (tag.fw == null || !Number.isInteger(polls)) continue;
     let e = state[tag.mac];
     if (!e || e.fw !== tag.fw) {
-      e = { fw: tag.fw, boot, base: polls, last: polls, carried: 0, bad: [] };
+      // what it had while installing this firmware stays with it
+      const had = e?.next?.fw === tag.fw ? [...e.next.bad] : [];
+      e = { fw: tag.fw, boot, base: polls, last: polls, carried: 0, bad: had };
     } else {
       e = { ...e, bad: [...e.bad] };
       // The AP restarted: its count began again at 0, every poll since then is on fw
@@ -50,8 +58,19 @@ export function trackRollout(prev, list, health, nowS) {
       }
       e.last = polls;
     }
-    // A tag that is fetching other firmware still runs fw; its problems count against fw
-    for (const p of probs.get(tag.mac) || []) if (ROLLOUT_PROBLEMS.includes(p) && !e.bad.includes(p)) e.bad.push(p);
+    const found = (probs.get(tag.mac) || []).filter((p) => ROLLOUT_PROBLEMS.includes(p));
+    const u = tag.fw_update;
+    const target = u && u.size && u.received >= u.size ? verNum(u.version) : null;
+    if (target != null && target !== tag.fw) {
+      // installing: its problems are the new firmware's
+      const next = e.next?.fw === target ? { fw: target, bad: [...e.next.bad] } : { fw: target, bad: [] };
+      for (const p of found) if (!next.bad.includes(p)) next.bad.push(p);
+      e.next = next;
+    } else {
+      if (!u) delete e.next;
+      // still fetching other firmware: it runs fw, so its problems are fw's
+      if (pollsOn(e, tag) < TRIAL_POLLS) for (const p of found) if (!e.bad.includes(p)) e.bad.push(p);
+    }
     state[tag.mac] = e;
   }
   // Tags of other APs stay, unless there are very many
@@ -77,6 +96,11 @@ export function modelTrial(model, version, list, state, failed = 0) {
   const on = (list?.tags || []).filter((t) => t.model === model && ver != null && t.fw === ver);
   let polls = 0, ready = 0;
   const bad = [];
+  // tags that went quiet (or worse) while installing it: still on their old fw for the AP
+  for (const t of list?.tags || []) {
+    const n = state?.[t.mac]?.next;
+    if (t.model === model && t.fw !== ver && n?.fw === ver && n.bad.length) bad.push({ mac: t.mac, problems: n.bad.map((p) => p + "_installing") });
+  }
   for (const t of on) {
     const e = state?.[t.mac];
     const n = pollsOn(e, t) ?? 0;
@@ -91,11 +115,15 @@ export function modelTrial(model, version, list, state, failed = 0) {
   return { ver, tried: on.length, polls, ready, bad, failed, proven, text: trialText({ tried: on.length, polls, ready, bad, failed, proven }) };
 }
 
-const PROBLEM_WORDS = { silent: "silent", draw_failed: "drawing failed", content_error: "content cannot be shown" };
+const PROBLEM_WORDS = {
+  silent: "silent", draw_failed: "drawing failed", content_error: "content cannot be shown",
+  silent_installing: "silent since it installed it", draw_failed_installing: "drawing failed while installing it",
+  content_error_installing: "content cannot be shown while installing it",
+};
 
 function trialText({ tried, polls, ready, bad, failed, proven }) {
   const tags = (n) => (n === 1 ? "1 tag" : n + " tags");
-  if (!tried && !failed) return "not tried on a tag yet";
+  if (!tried && !failed && !bad.length) return "not tried on a tag yet";
   const parts = [];
   if (tried) parts.push(`runs on ${tags(tried)}`);
   if (failed) parts.push(`${tags(failed)} rejected it or went back`);
@@ -107,10 +135,11 @@ function trialText({ tried, polls, ready, bad, failed, proven }) {
 }
 
 // The tag to try new firmware on first: of the model's tags that take firmware over the radio
-// and do not run ver already, one that is not late and has no problems, with the best signal.
+// and run older firmware than ver, one that is not late and has no problems, with the best signal.
 // rows: tagRows() (or { tag, problems, next }); among: MACs to pick from (null: all).
 export function firstTag(rows, model, ver, among = null) {
-  const ok = (rows || []).filter(({ tag }) => tag.model === model && tag.ota && tag.fw !== ver && !tag.fw_update && (!among || among.includes(tag.mac)));
+  // older firmware only: a tag on a newer (test) build would be a downgrade
+  const ok = (rows || []).filter(({ tag }) => tag.model === model && tag.ota && tag.fw != null && tag.fw < ver && !tag.fw_update && (!among || among.includes(tag.mac)));
   const score = ({ tag, problems, next }) =>
     (problems?.length ? 2000 : 0) + (next?.late ? 1000 : 0) + (tag.seen_s_ago == null ? 500 : 0) - (Number.isFinite(tag.rssi) ? tag.rssi : -127);
   return ok.sort((a, b) => score(a) - score(b) || a.tag.mac.localeCompare(b.tag.mac))[0]?.tag || null;

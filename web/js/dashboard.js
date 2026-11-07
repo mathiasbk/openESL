@@ -1556,6 +1556,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const g = await rolloutGate(kind.model, kind.ver);
       if (!g) return;
       to = g.one;
+      // Not asked (one tag, or a tag has run this version long enough): still not without a word,
+      // since the proof is by version number and a test build can have a proven one's
+      const n = (last?.list?.tags || []).filter((t) => t.model === kind.model && t.fw !== kind.ver && (t.ota || !t.signal)).length;
+      if (!g.asked && !confirm(`Give ${modelName(kind.model)} firmware ${kind.version} to the AP for every ${modelName(kind.model)} tag` +
+        ` (${n === 1 ? "1 tag" : n + " tags"} not on it yet)? Each updates itself over its next polls.`)) return;
     }
     const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${modelName(kind.model)}`
       : `${kind.kind === "radio" ? "radio" : "AP"} firmware${kind.version ? " " + kind.version : ""}`;

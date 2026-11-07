@@ -1,7 +1,7 @@
 // One tag first for new tag firmware (js/rollout.js, #306)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { verNum, trackRollout, pollsOn, modelTrial, firstTag, apCanChoose, rolloutQuestion, ROLLOUT_POLLS } from "../js/rollout.js";
+import { verNum, trackRollout, pollsOn, modelTrial, firstTag, apCanChoose, rolloutQuestion, ROLLOUT_POLLS, TRIAL_POLLS } from "../js/rollout.js";
 
 const NEW = 1100, OLD = 1000; // 0.11.0, 0.10.0
 const tag = (mac, fw, polls, more = {}) => ({ mac, model: "2.9", fw, ota: true, rssi: -60, seen_s_ago: 10, signal: polls == null ? null : { polls }, ...more });
@@ -118,4 +118,40 @@ test("asks only for several tags of a version no tag has run long enough", () =>
   // one more tag, but tags have had problems with it: asks too
   assert.match(rolloutQuestion("2.9", NEW, 1, { tried: 1, failed: 1, bad: [], proven: false, text: "x" }), /^1 2\.9" tag would get .*have had problems/);
   assert.equal(rolloutQuestion("2.9", NEW, 0, { tried: 1, failed: 1, bad: [], proven: false, text: "x" }), null);
+});
+
+test("a tag that installed the new firmware and went silent counts against the new version", () => {
+  const upd = { version: "0.11.0", received: 50000, size: 50000 };
+  const list = read([tag("A", OLD, 40, { fw_update: upd }), tag("B", OLD, 40), tag("C", OLD, 40)]);
+  let s = trackRollout({}, list, null, 10000);
+  s = trackRollout(s, list, { problems: [{ mac: "A", problems: ["silent"] }] }, 11000);
+  const t = modelTrial("2.9", NEW, list, s);
+  assert.equal(t.proven, false);
+  assert.deepEqual(t.bad, [{ mac: "A", problems: ["silent_installing"] }]);
+  assert.match(t.text, /A: silent since it installed it/);
+  assert.match(rolloutQuestion("2.9", NEW, 2, t), /have had problems/);
+  // not the old version's problem
+  assert.deepEqual(modelTrial("2.9", OLD, list, s).bad, []);
+  // it comes back on the new version: the problem stays with it
+  s = trackRollout(s, read([tag("A", NEW, 41), tag("B", OLD, 41), tag("C", OLD, 41)]), null, 11600);
+  assert.deepEqual(s.A.bad, ["silent"]);
+  // still fetching (not all of it yet): problems are the old version's
+  let f = trackRollout({}, read([tag("D", OLD, 5, { fw_update: { version: "0.11.0", received: 10, size: 50000 } })]), { problems: [{ mac: "D", problems: ["silent"] }] }, 10000);
+  assert.deepEqual(f.D.bad, ["silent"]);
+  assert.equal(f.D.next, undefined);
+});
+
+test("problems after the trial are not the firmware's", () => {
+  let s = trackRollout({}, read([tag("A", NEW, 0)]), null, 10000);
+  s = trackRollout(s, read([tag("A", NEW, TRIAL_POLLS + 1)]), { problems: [{ mac: "A", problems: ["silent"] }] }, 20000);
+  assert.deepEqual(s.A.bad, []);
+});
+
+test("one first never picks a tag on newer firmware", () => {
+  const rows = [
+    { tag: tag("A", 1200, 1, { rssi: -40 }), problems: [], next: null },
+    { tag: tag("B", OLD, 1, { rssi: -80 }), problems: [], next: null },
+    { tag: tag("C", null, 1, { rssi: -30 }), problems: [], next: null },
+  ];
+  assert.equal(firstTag(rows, "2.9", NEW).mac, "B");
 });
