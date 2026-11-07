@@ -498,6 +498,193 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(rc, 0, out)
             self.assertEqual(FakeAp.calls[-1][:2], ("/api/tags/00000123456789A8/image", "application/octet-stream"))
 
+    def test_battery(self):
+        # a 2.9" tag read every day for 30 days: 2600 (2.6 V or more) for 10 days, 2550 from day 10,
+        # 2450 from day 20 (a bounce back to 2550 on day 25 must not count as a new step), and three
+        # screen updates; a 1.54" tag that reports 0; a round the AP did not answer
+        def row(day, mac, model, mv, shown):
+            return [f"2026-11-{day:02d} 08:00:00", str(day * 86400), "", mac, model, "30", mv, "-60",
+                    shown, shown, "0", "0", ""]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2600" if day <= 10 else "2550" if day <= 20 or day == 25 else "2450"
+                    w.writerow(row(day, "00000123456789A8", "2.9", mv, "1" if day < 5 else "2" if day < 15 else "3"))
+                    w.writerow(row(day, "00000123456789B9", "1.54", "0", "7"))
+                w.writerow(["2026-11-30 09:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
+            out_csv = os.path.join(d, "batt.csv")
+            out_html = os.path.join(d, "batt.html")
+            rc, out = self.run_cli("battery", path, "--csv", out_csv, "--low-mv", "2400", "--html", out_html)
+            with open(out_csv, newline="") as f:
+                table = {r["mac"]: r for r in csv.DictReader(f)}
+            with open(out_html, encoding="utf-8") as f:
+                html = f.read()
+        self.assertEqual(rc, 0)
+        self.assertIn("2600 mV since the log started, 2550 mV from 2026-11-11 08:00, 2450 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)          # 100 mV in the 10 days between the two steps
+        self.assertIn("about 5 days until 2400 mV", out)   # (2450 - 2400) / 10
+        self.assertIn("no battery reading (0 = the tag cannot measure it)", out)
+        a8 = table["00000123456789A8"]
+        self.assertEqual((a8["first_mv"], a8["last_mv"], a8["min_mv"], a8["steps"], a8["draws"]), ("2600", "2450", "2450", "2", "2"))
+        self.assertEqual(a8["days"], "29.0")
+        self.assertEqual(a8["polls"], str(29 * 1440))
+        self.assertEqual(table["00000123456789B9"]["first_mv"], "")
+        self.assertEqual(html.count("<svg"), 1)                  # a chart for the 2.9" only
+        self.assertEqual(html.count("<circle"), 3)               # its three steps
+        self.assertEqual(html.count("<polygon"), 2)              # its two screen updates
+        self.assertIn("about 5.0 days to low", html)
+        self.assertIn("<td>00000123456789B9</td>", html)         # the 1.54" is in the table
+        # a log that starts below 2600: the first reading has no known time, so one more step gives no rate
+        # (the tag may have sat at 2500 for weeks); the second does, and "already below" shows up in the HTML
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2550" if day <= 10 else "2450" if day <= 20 else "2350"
+                    w.writerow(row(day, "00000123456789A8", "" if day == 1 else "2.9", mv, "1"))
+            rc, out = self.run_cli("battery", path, "--low-mv", "2450", "--html", os.path.join(d, "b.html"))
+            with open(os.path.join(d, "b.html"), encoding="utf-8") as f:
+                html2 = f.read()
+        self.assertIn("2550 mV since the log started, 2450 mV from 2026-11-11 08:00, 2350 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)                # from the two steps seen, not from the log start
+        self.assertIn("already below 2450 mV", out)
+        self.assertIn("already below the low line", html2)
+        self.assertIn("<td>2.9</td>", html2)                     # the model from the first row that has one
+
+    LOG_HEADER = ["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                  "content_id", "shown_content_id", "pending", "draw_failed", "problems"]
+
+    def write_log(self, d, rows, header=None):
+        path = os.path.join(d, "log.csv")
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(header or self.LOG_HEADER)
+            w.writerows(rows)
+        return path
+
+    def test_battery_figures_match_power_budget(self):
+        # the charge count must use the same figures as tools/power-budget, or the two disagree
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "power_budget", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "power-budget", "power_budget.py"))
+        pb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pb)
+        p = pb.defaults()
+        self.assertAlmostEqual(esl_client.BATT_POLL_MC, pb.per_poll_mc(p, True), places=2)
+        self.assertAlmostEqual(esl_client.BATT_DRAW_MC, pb.per_update_mc(p), delta=0.5)
+        self.assertEqual(esl_client.BATT_SLEEP_UA, p["sleep_ua"])
+        self.assertEqual(esl_client.BATT_CELL_MAH, p["cell_mah"])
+
+    def test_battery_charge_count(self):
+        # one 2.9" tag over exactly one day at 60 s with one screen update:
+        # 1440 polls * 0.08 + 22 + 3 uA * 86400 s = 396.4 mC = 0.110 mAh, 4.59 uA on average
+        rows = [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2600", "-60", "1", "1", "0", "0", ""],
+                ["2026-11-02 08:00:00", "2", "", "00000123456789A8", "2.9", "30", "2600", "-60", "2", "2", "0", "0", ""]]
+        with tempfile.TemporaryDirectory() as d:
+            lines, table, series = esl_client.battery_analysis(esl_client.read_log(self.write_log(d, rows)))
+        row = table[0]
+        self.assertEqual((row["polls"], row["draws"], row["charge_mah"], row["avg_ua"]), (1440, 1, 0.11, 4.59))
+        # 2 cells * 620 mAh * 0.7, with 1 % a year self-discharge on top of the average current
+        self.assertEqual(row["years_at_this_rate"], 16.5)
+        self.assertIsNone(row["mv_per_day"])
+        self.assertIn("2.6 V or more for the whole log", "\n".join(lines))
+        # --poll-s changes the poll count
+        _, table, _ = esl_client.battery_analysis([dict(zip(self.LOG_HEADER, r)) for r in rows], poll_s=300)
+        self.assertEqual(table[0]["polls"], 288)
+
+    def test_battery_edge_cases(self):
+        with tempfile.TemporaryDirectory() as d:
+            # no tags: only rounds the AP did not answer
+            path = self.write_log(d, [["2026-11-01 08:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"]])
+            rc, out = self.run_cli("battery", path)
+            self.assertEqual(rc, 0)
+            self.assertIn("no tags in the log", out)
+            # a single round: no time span, so no average and no years, and nothing divides by zero
+            path = self.write_log(d, [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2450", "-60",
+                                       "1", "1", "0", "0", ""]])
+            rc, out = self.run_cli("battery", path, "--html", os.path.join(d, "one.html"))
+            self.assertEqual(rc, 0, out)
+            self.assertIn("2450 mV since the log started", out)
+            self.assertIn("the rate needs two steps seen in the log", out)
+            # an older log without the battery and content columns still reads
+            path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"],
+                                      ["2026-11-03 08:00:00", "00000123456789A8", "2.9"]], header=["time", "mac", "model"])
+            rc, out = self.run_cli("battery", path)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("2.0 days in the log", out)
+            self.assertIn("no battery reading", out)
+            # errors: a missing file, a CSV that is not a log, a bad time stamp
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, _ = self.run_cli("battery", os.path.join(d, "missing.csv"))
+                self.assertEqual(rc, 2)
+                rc, _ = self.run_cli("battery", self.write_log(d, [["1", "2"]], header=["a", "b"]))
+                self.assertEqual(rc, 2)
+                rc, _ = self.run_cli("battery", self.write_log(d, [["yesterday", "00000123456789A8"]], header=["time", "mac"]))
+                self.assertEqual(rc, 2)
+            self.assertIn("not a time from esl_client.py log: 'yesterday'", err.getvalue())
+
+    def test_battery_long_log(self):
+        # a row a minute for 4 days: 2600 for a day, then 2550, a bounce to 2600 for an hour, 2450 from
+        # day 3. Only the change points are kept, and the result is the same as for a log with one row
+        # per change (apart from the time span, which both have)
+        start = datetime.datetime(2026, 11, 1, 8, 0, 0)
+        def mv_at(m):
+            if m < 1440:
+                return "2600"
+            if 2000 <= m < 2060:
+                return "2600"
+            return "2550" if m < 2 * 1440 else "2450"
+        full, changes, last = [], [], None
+        for m in range(4 * 1440 + 1):
+            r = [(start + datetime.timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M:%S"), str(m * 60), "",
+                 "00000123456789A8", "2.9", "30", mv_at(m), "-60", "1", "1", "0", "0", ""]
+            full.append(r)
+            if r[6] != last or m == 4 * 1440:
+                changes.append(r)
+                last = r[6]
+        with tempfile.TemporaryDirectory() as d:
+            rows = esl_client.iter_log(self.write_log(d, full))
+            self.assertNotIsInstance(rows, list)              # read lazily, not all into memory
+            lines_full, table_full, series_full = esl_client.battery_analysis(rows)
+        lines_ch, table_ch, series_ch = esl_client.battery_analysis([dict(zip(self.LOG_HEADER, r)) for r in changes])
+        self.assertEqual(len(series_full["00000123456789A8"]["mv"]), 5)   # 2600, 2550, 2600, 2550, 2450
+        self.assertEqual(series_full["00000123456789A8"]["mv"], series_ch["00000123456789A8"]["mv"])
+        self.assertEqual(table_full[0]["steps"], 2)
+        self.assertEqual(table_full[0]["min_mv"], 2450)
+        self.assertEqual({k: v for k, v in table_full[0].items()}, {k: v for k, v in table_ch[0].items()})
+        self.assertEqual(lines_full[1:], lines_ch[1:])     # the first line counts the rounds
+
+    def test_battery_poll_s(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"]], header=["time", "mac", "model"])
+            for bad in ("0", "-60"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, _ = self.run_cli("battery", path, "--poll-s", bad)
+                self.assertEqual(rc, 2)
+                self.assertIn("--poll-s must be 1 or more", err.getvalue())
+
+    def test_battery_html_escapes(self):
+        # the page is built from the log's text: a hostile model or MAC must not become markup
+        rows = [{"time": "2026-11-01 08:00:00", "mac": "<script>x</script>", "model": "\"><img src=x>",
+                 "battery_mv": "2550", "ap_reset": "", "shown_content_id": "1"},
+                {"time": "2026-11-02 08:00:00", "mac": "<script>x</script>", "model": "2.9",
+                 "battery_mv": "2450", "ap_reset": "", "shown_content_id": "1"}]
+        _, table, series = esl_client.battery_analysis(rows)
+        page = esl_client.battery_html(table, series)
+        self.assertNotIn("<script>", page)
+        self.assertNotIn("<img", page)
+        self.assertIn("&lt;script&gt;x&lt;/script&gt;", page)
+        self.assertIn("aria-label=\"battery of &lt;script&gt;", page)
+
     def test_backup_and_restore(self):
         layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
                   "layouts": [{"name": "shelf", "fields": ["a"], "elements": [{"type": "text", "field": "a",
