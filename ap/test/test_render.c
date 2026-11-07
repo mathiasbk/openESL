@@ -297,8 +297,97 @@ static void test_red(void)
     CHECK(ink(blk, PLANE) > 50);
 }
 
+/* Ellipses and polygons, pixel by pixel */
+static void test_ellipse_polygon(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"s\","
+        "\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"ellipse\",\"x\":10,\"y\":10,\"w\":21,\"h\":21},"
+        "{\"type\":\"ellipse\",\"x\":40,\"y\":10,\"w\":21,\"h\":21,\"border\":2},"
+        "{\"type\":\"ellipse\",\"x\":70,\"y\":10,\"w\":61,\"h\":21},"
+        "{\"type\":\"rect\",\"x\":150,\"y\":0,\"w\":40,\"h\":40},"
+        "{\"type\":\"ellipse\",\"x\":160,\"y\":10,\"w\":20,\"h\":20,\"color\":\"white\"},"
+        "{\"type\":\"polygon\",\"x\":10,\"y\":50,\"w\":41,\"h\":21,\"points\":[[20,0],[40,20],[0,20]]},"
+        "{\"type\":\"polygon\",\"x\":60,\"y\":50,\"w\":41,\"h\":21,\"border\":1,"
+        "\"points\":[[20,0],[40,20],[0,20]]},"
+        "{\"type\":\"polygon\",\"x\":110,\"y\":50,\"w\":21,\"h\":21,\"points\":[[0,0],[20,0],[20,20],[0,20]]}"
+        "]},{\"name\":\"t\",\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"ellipse\",\"x\":140,\"y\":10,\"w\":1,\"h\":1},"
+        "{\"type\":\"polygon\",\"x\":140,\"y\":50,\"w\":21,\"h\":21,\"points\":[[0,0],[20,20],[20,0],[0,20]]}"
+        "]}]}";
+    static uint8_t img[296 * 16];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    unsigned x, y, n;
+
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    esl_content_init_named(&c, "s", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"x", 1);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+
+    /* a filled circle: the middle of each side touches the box, the corners do not; it is
+       the same turned by 90 degrees and mirrored */
+    CHECK(px(img, 20, 10) && px(img, 20, 30) && px(img, 10, 20) && px(img, 30, 20) && px(img, 20, 20));
+    CHECK(!px(img, 10, 10) && !px(img, 30, 30) && !px(img, 20, 9) && !px(img, 9, 20) && !px(img, 31, 20));
+    for (x = 10; x <= 30; x++)
+        for (y = 10; y <= 30; y++) {
+            CHECK(px(img, x, y) == px(img, y, x));
+            CHECK(px(img, x, y) == px(img, 40 - x, y) && px(img, x, y) == px(img, x, 40 - y));
+        }
+    /* a ring 2 px wide: across the middle row, 2 on each side, empty inside */
+    for (n = 0, x = 39; x <= 61; x++)
+        n += px(img, x, 20);
+    CHECK(n == 4 && px(img, 40, 20) && px(img, 41, 20) && !px(img, 42, 20) && px(img, 59, 20) && px(img, 60, 20));
+    CHECK(px(img, 50, 10) && px(img, 50, 11) && !px(img, 50, 12) && !px(img, 50, 20));
+    /* a wide ellipse: the whole middle row, only the middle of the top row */
+    for (x = 70; x <= 130; x++)
+        CHECK(px(img, x, 20));
+    CHECK(px(img, 100, 10) && !px(img, 72, 10) && !px(img, 69, 20) && !px(img, 131, 20));
+    /* white on a black rect */
+    CHECK(px(img, 155, 20) && !px(img, 170, 20) && px(img, 160, 10) && px(img, 179, 29));
+
+    /* a filled triangle: its corners and edges are drawn, one span per column */
+    CHECK(px(img, 30, 50) && px(img, 50, 70) && px(img, 10, 70) && px(img, 30, 60));
+    CHECK(!px(img, 29, 50) && !px(img, 31, 50) && !px(img, 30, 49) && !px(img, 10, 69) && !px(img, 30, 71));
+    for (x = 10; x <= 50; x++) {
+        unsigned top = 50 + (x <= 30 ? 30 - x : x - 30);
+        for (y = 45; y <= 75; y++)
+            CHECK(px(img, x, y) == (y >= top && y <= 70));
+    }
+    /* its outline, 1 px: the corners and edge pixels, none inside */
+    CHECK(px(img, 80, 50) && px(img, 100, 70) && px(img, 60, 70) && px(img, 70, 60) && px(img, 80, 70));
+    CHECK(!px(img, 80, 60) && !px(img, 80, 69) && !px(img, 80, 52));
+    /* a square polygon is the same as a rect */
+    for (x = 105; x <= 135; x++)
+        for (y = 45; y <= 75; y++)
+            CHECK(px(img, x, y) == (x >= 110 && x <= 130 && y >= 50 && y <= 70));
+    esl_content_init_named(&c, "t", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"x", 1);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 140, 10) && !px(img, 141, 10) && !px(img, 140, 11) && !px(img, 139, 10)); /* 1 x 1 */
+    /* a damaged file: a corner below the box is not drawn (the compiler never makes one) */
+    {
+        static esl_layout_bin_t bad;
+        static uint8_t img2[296 * 16];
+        int found = 0;
+        bad = bin;
+        for (unsigned i = ESL_LBIN_HDR_LEN; i + ESL_POLY_PT_LEN * 4 <= bad.size; i++)
+            if (bad.bin[i] == 12 && memcmp(&bad.bin[i + 1], "\0\0\0\x14\0\x14\x14\0\0\0\0\x14", 12) == 0)
+                bad.bin[i + 3] = 250, found = 1; /* corner 0's y of the bow tie */
+        CHECK(found);
+        CHECK(esl_render(ESL_MODEL_29, &bad, &c, img2, sizeof(img2)) == sizeof(img2));
+        CHECK(!px(img2, 150, 60) && px(img2, 140, 10));
+    }
+    /* a bow tie (edges that cross, even-odd): the two triangles, nothing above and below the crossing */
+    CHECK(px(img, 141, 60) && px(img, 159, 60) && px(img, 150, 60) && !px(img, 150, 52) && !px(img, 150, 68));
+    CHECK(px(img, 140, 50) && px(img, 160, 70) && px(img, 140, 70) && px(img, 160, 50));
+}
+
 void test_render(void)
 {
+    test_ellipse_polygon();
     test_icon_field();
     test_rotate();
     static uint8_t img[8192], img2[8192];

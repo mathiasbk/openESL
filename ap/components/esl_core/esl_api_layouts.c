@@ -133,11 +133,12 @@ static int handle_layouts(const esl_api_t *api, const char *method, const char *
         esl_sb_printf(out,
                       "\"board\":\"%s\",\"limits\":{\"runs\":%u,\"rects\":%u,\"lines\":%u,\"icons\":%u,"
                       "\"barcodes\":%u,\"qrs\":%u,\"fileBytes\":%u,\"jsonBytes\":%u,\"fields\":%u,"
-                      "\"fixedTextBytes\":%u,\"textBytes\":%u},\"layouts\":[",
+                      "\"fixedTextBytes\":%u,\"textBytes\":%u,\"shapes\":%u,\"polygonPoints\":%u},\"layouts\":[",
                       ESL_BOARD, (unsigned)esl_limits.runs, (unsigned)esl_limits.rects, (unsigned)esl_limits.lines,
                       (unsigned)esl_limits.icons, (unsigned)ESL_DRAW_MAX_BARCODES, (unsigned)ESL_DRAW_MAX_QR,
                       (unsigned)esl_limits.file_bytes, (unsigned)esl_limits.json_bytes, (unsigned)ESL_MAX_FIELDS,
-                      (unsigned)ESL_LBIN_TEXT_LEN_MAX, (unsigned)ESL_CONTENT_FIELD_SPACE);
+                      (unsigned)ESL_LBIN_TEXT_LEN_MAX, (unsigned)ESL_CONTENT_FIELD_SPACE,
+                      (unsigned)esl_limits.shapes, (unsigned)ESL_POLY_MAX);
         for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
             if (m > 1)
                 esl_sb_putc(out, ',');

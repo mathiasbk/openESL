@@ -466,6 +466,70 @@ static void test_shapes(void)
     CHECK_INT(ESL_GET_U16(e + ESL_LE_OFF_W), 296);
     CHECK_INT(e[ESL_LE_OFF_H], 1);
 
+    /* an ellipse: its border in opts */
+    CHECK(compile_el("{\"type\":\"ellipse\",\"x\":10,\"y\":20,\"w\":31,\"h\":21,\"border\":2,\"color\":\"white\"}"));
+    {
+        static const uint8_t expect[] = {ESL_LE_ELLIPSE, 0, 0xFF, 0xFF, 0xFF, 2, 0, ESL_LE_WHITE, 10, 0, 20, 31, 0, 21};
+        CHECK_MEM(e, expect, sizeof(expect));
+    }
+    CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":10,\"y\":20,\"w\":31,\"h\":21,\"border\":11}"));
+    CHECK(HAS(err, "border must be a whole number from 0 to 10"));
+    CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"color\":\"invert\"}"));
+    CHECK(HAS(err, "an ellipse can be black, white or red"));
+    CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"radius\":2}"));
+    CHECK(HAS(err, "radius is only for rect elements"));
+    CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"points\":[]}"));
+    CHECK(HAS(err, "points is only for polygon elements"));
+
+    /* a polygon: its corners in a fixed text, 3 bytes each (u16 x, u8 y in the box) */
+    CHECK(compile_el("{\"type\":\"polygon\",\"x\":4,\"y\":8,\"w\":300,\"h\":40,\"points\":[[150,0],[299,39],[0,39]]}") == false);
+    CHECK(HAS(err, "past the right edge"));
+    CHECK(compile_el(TEXT_XYW ",\"h\":30,\"text\":\"kr\",\"fonts\":[\"small\"]},"
+                     "{\"type\":\"polygon\",\"x\":4,\"y\":8,\"w\":290,\"h\":40,\"border\":1,"
+                     "\"points\":[[145,0],[289,39],[0,39]]},"
+                     "{\"type\":\"polygon\",\"x\":0,\"y\":60,\"w\":290,\"h\":40,\"color\":\"black\","
+                     "\"points\":[[145,0],[289,39],[0,39]]}"));
+    {
+        static const uint8_t expect[] = {ESL_LE_POLYGON, 1, 0xFF, 0xFF, 0xFF, 1, 0, ESL_LE_BLACK, 4, 0, 8, 34, 1, 40};
+        static const uint8_t texts[] = {2, 'k', 'r', 9, 145, 0, 0, 33, 1, 39, 0, 0, 39};
+        CHECK_MEM(e + ESL_LE_SIZE, expect, sizeof(expect));
+        CHECK_INT(e[2 * ESL_LE_SIZE + ESL_LE_OFF_FIELD], 1); /* the same corners are kept once */
+        CHECK_INT(bin.bin[ESL_LBIN_OFF_NTEXT], 2);
+        CHECK_MEM(e + 3 * ESL_LE_SIZE, texts, sizeof(texts));
+    }
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9]]}"));
+    CHECK(HAS(err, "points must be a list of 3 to 8 corners"));
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,"
+                      "\"points\":[[0,0],[1,1],[2,2],[3,3],[4,4],[5,5],[6,6],[7,7],[8,8]]}"));
+    CHECK(HAS(err, "points must be a list of 3 to 8 corners"));
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10}"));
+    CHECK(HAS(err, "points must be a list"));
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[10,0]]}"));
+    CHECK(HAS(err, "point 2 must be [x, y] in the box"));
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[1]]}"));
+    CHECK(HAS(err, "point 2 must be [x, y]"));
+    CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[-1,2]]}"));
+    CHECK(HAS(err, "point 2 must be [x, y]"));
+    /* ellipses and polygons count together against the board's limit */
+    {
+        char els[2048];
+        size_t n = 0;
+        for (int i = 0; i <= ESL_DRAW_MAX_SHAPES; i++)
+            n += (size_t)snprintf(els + n, sizeof(els) - n, "%s{\"type\":\"%s\",\"x\":%d,\"y\":0,\"w\":10,\"h\":10%s}",
+                                  i ? "," : "", i & 1 ? "polygon" : "ellipse", i * 10,
+                                  i & 1 ? ",\"points\":[[0,0],[9,0],[5,9]]" : "");
+        CHECK(!compile_el(els));
+        CHECK(HAS(err, "the AP draws at most 8 ellipses and polygons per screen"));
+        els[n - (size_t)strlen(strrchr(els, '{')) - 1] = '\0'; /* one fewer */
+        CHECK(compile_el(els));
+        /* the web page's renderer, set to an AP that reports no shapes limit (older firmware) */
+        esl_limits_t keep = esl_limits;
+        esl_limits.shapes = 0;
+        CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9}"));
+        CHECK(HAS(err, "too old for ellipses and polygons"));
+        esl_limits = keep;
+    }
+
     /* a plain rect compiles as in format 1; radius and border in lines and opts */
     CHECK(compile_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":40,\"h\":20,\"radius\":6,\"border\":2}"));
     CHECK_INT(e[ESL_LE_OFF_RADIUS], 6);

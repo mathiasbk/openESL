@@ -515,7 +515,7 @@ export class DemoAp {
       max_size: MAX_LAYOUT_JSON, max_binary_size: x.fileBytes, board: "demo",
       limits: { runs: x.runs, rects: x.rects, lines: x.lines, icons: x.icons, barcodes: x.barcodes, qrs: x.qrs,
                 fileBytes: x.fileBytes, jsonBytes: x.jsonBytes, fields: x.fields, fixedTextBytes: x.fixedTextBytes,
-                textBytes: x.textBytes },
+                textBytes: x.textBytes, shapes: x.shapes, polygonPoints: x.polygonPoints },
       layouts: Object.keys(MODELS).filter((m) => layoutModel(m) === m).map((m) => this.fileEntry(m)),
     };
   }

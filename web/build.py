@@ -75,7 +75,8 @@ EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "
 # (the limit's own macro there gives its default)
 LIMIT_CAPS = {"runs": ("ESL_DRAW_MAX_RUNS", "ESL_DRAW_CAP_RUNS"), "rects": ("ESL_DRAW_MAX_RECTS", "ESL_DRAW_CAP_RECTS"),
               "lines": ("ESL_DRAW_MAX_LINES", "ESL_DRAW_CAP_LINES"), "icons": ("ESL_DRAW_MAX_ICONS", "ESL_DRAW_CAP_ICONS"),
-              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None)}
+              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None),
+              "shapes": ("ESL_DRAW_MAX_SHAPES", "ESL_DRAW_CAP_SHAPES")}
 DEFAULT_BOARD = "c6-supermini"     # ap/CMakeLists.txt
 
 
