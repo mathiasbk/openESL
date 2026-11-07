@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """check_openapi.py - docs/openapi.yaml against the AP code.
 
-Builds api_host (the AP's esl_api.c on the host) and checks that the spec and the code
+Builds api_host (the AP's esl_api*.c on the host) and checks that the spec and the code
 say the same:
   - every example in the spec fits its schema, and so do the example layout files;
   - every request example gets 200 from the code, and every reply fits the schema the
@@ -28,7 +28,7 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", "..", ".."))
 SPEC = os.path.join(ROOT, "docs", "openapi.yaml")
-API_C = os.path.join(ROOT, "ap", "components", "esl_core", "esl_api.c")
+API_PATHS = os.path.join(ROOT, "ap", "components", "esl_core", "esl_api_int.h")  # the PATH_* defines
 APP_MAIN = os.path.join(ROOT, "ap", "main", "app_main.c")
 LAYOUTS = os.path.join(ROOT, "tag", "designs", "layouts")
 AUTH = "Bearer s3cret"
@@ -394,11 +394,11 @@ def main():
     status, _ = ap.req("get", "/api/nothing")
     if status != 404:
         fail(f"GET /api/nothing: expected 404, got {status}")
-    with open(API_C) as f:
+    with open(API_PATHS) as f:
         code_paths = re.findall(r'#define PATH_\w+ "(/api/[^"]*)"', f.read())
     for cp in code_paths:
         if not any(p == cp or p.startswith(cp + "/") for p in spec["paths"]):
-            fail(f"{cp} is in esl_api.c but not in the spec")
+            fail(f"{cp} is in esl_api_int.h but not in the spec")
     ap.close()
 
     # the reset reasons the AP can give are the ones the spec lists

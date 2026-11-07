@@ -32,7 +32,7 @@ TAG_SRCS := $(TAG)/src/app.c $(TAG)/src/proto.c $(TAG)/src/font.c $(TAG)/src/dra
             $(TAG)/test/fake_xflash.c sim_tag.c
 # esl_screen.c (the optional LCD on the C6) is left out: it shares the tag's font code
 AP_SRCS  := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c)) sim_ap.c e2e.c main.c png.c
-DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(ROOT)/shared/*.h) \
+DEPS     := $(wildcard *.h $(TAG)/src/*.h $(TAG)/boot/*.h $(TAG)/src/hal/*.h $(CORE)/include/*.h $(CORE)/*.h $(ROOT)/shared/*.h) \
             $(TAG_SRCS) $(AP_SRCS) $(ROOT)/VERSION
 
 BINS   := $(MODELS:%=build/%/esl-sim)
