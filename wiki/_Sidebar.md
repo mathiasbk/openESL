@@ -4,6 +4,7 @@
 - [How it works](How-it-works)
 - [Getting started](Getting-started)
 - [What you need](What-you-need)
+- [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink)
 - [Roadmap](Roadmap)
 - [Glossary](Glossary)
 

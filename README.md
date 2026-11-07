@@ -62,7 +62,7 @@ The list is made from [shared/models.json](shared/models.json). **Have a label t
 
 ## Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. The step-by-step guide is [Getting started](https://github.com/mathiasbk/openESL/wiki/Getting-started) in the wiki.
+Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. The step-by-step guide is [Getting started](https://github.com/mathiasbk/openESL/wiki/Getting-started) in the wiki. Already running OpenEPaperLink? See [Coming from OpenEPaperLink](https://github.com/mathiasbk/openESL/wiki/Coming-from-OpenEPaperLink).
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, and give it your WiFi and an API token.
 2. **Flash the labels** in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware first.
