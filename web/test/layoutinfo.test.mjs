@@ -32,3 +32,12 @@ test("tagLayouts asks every tag by default, also past 200 (#302)", async () => {
   assert.deepEqual(countByLayout(tags, m, "2.9"), { shelf: 266, rare: 1 });
   assert.equal(Object.keys(await tagLayouts(client, tags, {}, { max: 10 })).length, 10);
 });
+
+test("tagLayouts takes the layout from GET /api/tags rows and asks only an older AP (#302, #305)", async () => {
+  const asked = [];
+  const client = { call: async (m, path) => { asked.push(path.split("/").pop()); return { layout: "shelf" }; } };
+  const tags = [{ mac: "A", layout: "sign" }, { mac: "B", layout: null }, { mac: "C" }, { mac: "D", layout: "price" }];
+  const m = await tagLayouts(client, tags, { A: "old", D: "price" });
+  assert.deepEqual(asked, ["C"]);
+  assert.deepEqual(m, { A: "sign", B: "", C: "shelf", D: "price" });
+});

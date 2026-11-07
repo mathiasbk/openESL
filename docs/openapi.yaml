@@ -1927,7 +1927,11 @@ components:
         - { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 12, connected: false, via: wifi, lost: true, lost_s: 340 }
 
     Tag:
-      allOf: [{ $ref: "#/components/schemas/TagFields" }]
+      allOf:
+        - $ref: "#/components/schemas/TagFields"
+        - type: object
+          properties:
+            layout: { type: [string, "null"], description: "The layout of the tag's content, as in `GET /api/tags/{mac}` (`price`, `text`, `image` for a picture, or a name from the layout file); null without content. not sent by older firmware, where a client asks `GET /api/tags/{mac}`" }
       unevaluatedProperties: false
 
     TagDetail:
@@ -1978,6 +1982,7 @@ components:
             content_id: 2914470401
             shown_content_id: 2914470401
             pending: false
+            layout: prusa
             poll_s: 120
             config: { poll_s: 120, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null }
             config_pending: false

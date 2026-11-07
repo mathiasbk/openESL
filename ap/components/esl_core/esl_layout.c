@@ -195,6 +195,34 @@ uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout
     return v ^ esl_clock_stamp(res);
 }
 
+/* The index of the layout whose name hashes to layout_hash in l, -1 when it has none. Under the lock. */
+static int name_of(const esl_layout_t *l, uint32_t layout_hash)
+{
+    for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
+        if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
+            return (int)i;
+    return -1;
+}
+
+bool esl_layouts_name(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash, char name[ESL_LAYOUT_NAME_MAX + 1])
+{
+    if (!ls || !layout_hash)
+        return false;
+    bool found = false;
+    lock(ls);
+    const esl_layout_t *l = slot(ls, model);
+    int i = name_of(l, layout_hash);
+    for (unsigned m = 0; i < 0 && m < ESL_MODEL_COUNT - 1; m++)
+        if (ls->models[m] != l)
+            i = name_of(l = ls->models[m], layout_hash);
+    if (i >= 0) {
+        memcpy(name, l->bin.names[i], ESL_LAYOUT_NAME_MAX + 1);
+        found = true;
+    }
+    unlock(ls);
+    return found;
+}
+
 bool esl_layouts_write(esl_layouts_t *ls, uint8_t model, esl_sb_t *out)
 {
     if (!ls)

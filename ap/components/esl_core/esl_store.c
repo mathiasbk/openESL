@@ -161,6 +161,7 @@ static void set_content(esl_store_t *st, unsigned slot, const esl_content_t *c)
     t->layout_hash = esl_content_layout_hash(c);
     t->has_content = true;
     t->has_image = c->layout == ESL_LAYOUT_IMAGE;
+    t->layout_price = c->layout == ESL_LAYOUT_PRICE;
     t->content_err = ESL_CERR_NONE;
     t->content_unfit = false;
     t->content_check = true;  /* against the file at its next POLL (esl_store_check_tag): it may come
@@ -437,6 +438,7 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
         t->content_id = old.content_id;
         t->layout_hash = old.layout_hash;
         t->has_image = old.has_image;
+        t->layout_price = old.layout_price;
         t->image_id = old.image_id;
         t->image_failed = old.image_failed;
         t->content_err = old.content_err;
