@@ -178,8 +178,10 @@ jobs:
           pattern: ap-build-*
           path: fw
           merge-multiple: true
-      # The base branch is not built on push (web.yml), so its images are those of the CI run of
-      # the newest pull request merged into it (a squash merge has the same files)
+      # The base branch is not built on push (web.yml), so its images are those of the CI runs of
+      # the newest pull requests merged into it (a squash merge has the same files). A pull request
+      # that built only some boards (ap: web) leaves the others to an older one: each image is
+      # taken from the newest build that has it, looking through up to 5 builds.
       - name: The base branch's images
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -187,19 +189,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.base_ref }}
         run: |
+          mkdir -p base
+          # an image has a base once base/ has its size.json or its app (-ota.bin, older builds)
+          missing() {
+            for f in fw/*.size.json; do
+              a=$(basename "$f" .size.json)
+              [ -f "base/$a.size.json" ] || [ -f "base/$a-ota.bin" ] || echo "$a"
+            done
+          }
           git fetch -q --depth 30 origin "$BASE_REF"
+          used="" builds=0
           for sha in $(git rev-list --first-parent -n 30 FETCH_HEAD); do
+            [ -n "$(missing)" ] && [ "$builds" -lt 5 ] || break
             pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.merged_at != null)][0] | "\(.number) \(.head.sha)"' 2>/dev/null) || continue
             set -- $pr
             [ "$#" = 2 ] && [ "$1" != null ] || continue
             for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$2" --jq '.workflow_runs[] | select(.path | startswith(".github/workflows/web.yml")) | .id'); do
-              if gh run download "$run" --repo "$GITHUB_REPOSITORY" --name ap-firmware --dir base 2>/dev/null; then
-                echo "BUDGET_BASE_NAME=$BASE_REF at ${sha:0:7} (the build of #$1)" >> "$GITHUB_ENV"
-                exit 0
+              rm -rf one
+              if gh run download "$run" --repo "$GITHUB_REPOSITORY" --name ap-firmware --dir one 2>/dev/null; then
+                cp -r --update=none one/. base/    # the newer build's image wins
+                used="$used #$1"
+                builds=$((builds + 1))
+                break
               fi
             done
           done
-          echo "No images of a pull request merged into $BASE_REF lately to compare with"
+          if [ -n "$used" ]; then
+            echo "BUDGET_BASE_NAME=$BASE_REF (the builds of$used, newest first)" >> "$GITHUB_ENV"
+          else
+            echo "No images of a pull request merged into $BASE_REF lately to compare with"
+          fi
+          echo "Without a base: $(missing | tr '\n' ' ')"
       - name: Flash budget (fails under 64 KB free)
         run: python3 ap/build.py --sizes fw --base base
 
