@@ -59,6 +59,7 @@ The ESP32-C6 alone is the simple choice and the one tried most. For more tags, t
 | ESP32-C6 Super Mini, with or without a 0.96" screen | about 400 | supported |
 | ESP32-C5 N16R8 | 1000 | experimental |
 | ESP32-S3 N16R8 + ESP32-C6 as its radio, with or without a screen on the C6 | 1000 | supported (with the screen on the C6: experimental) |
+| ESP32-S3 N16R8 + up to four ESP32-C6 radios over WiFi ([docs/ap-netradio.md](docs/ap-netradio.md)) | 500 per radio | experimental, no password on the link yet |
 
 ## Supported tags
 
@@ -96,8 +97,8 @@ The label picks the new content up at its next poll. The wiki page [WiFi and API
 The [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make), so you can try the API before you buy anything:
 
 ```bash
-make -C sim                                      # builds both label models and runs the tests
-sim/build/154/esl-sim serve --png /tmp/screen.png   # a simulated AP with one label on a serial port
+make -C sim                                                # builds every label model and runs the tests
+sim/build/154/esl-sim serve --speed 60 --png /tmp/screen.png  # a simulated AP with one label, 60 times faster than real time
 ```
 
 `serve` prints the serial port it opened; [esl-client](tools/esl-client/README.md) talks to it as to a real AP, and the label's screen is saved to the PNG. The details are in [sim/README.md](sim/README.md#serial-port-esl-sim-serve).

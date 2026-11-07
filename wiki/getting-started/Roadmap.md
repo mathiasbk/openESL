@@ -17,6 +17,7 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
 
 - **Security on the radio:** content and label firmware that only your AP can send (see [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md) for what is not protected today) ([#260](https://github.com/mathiasbk/openESL/issues/260)). A first version with pairing was in 0.9.0 and taken out again in 0.9.2, because a label could only be brought back in the jig if the AP's key was lost; it is kept for later ([#289](https://github.com/mathiasbk/openESL/issues/289)). The wireless C6 radio also needs a password on its link to the S3.
 - **More than one image per label**, so a scheduled price switches at its time without a download, and a button can page between screens ([#179](https://github.com/mathiasbk/openESL/issues/179)).
+- **Measured battery life and range:** the figures in the [power budget](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md) are still estimates; they will be measured on real labels with a current meter, and the range per antenna and transmit power measured too.
 - **Try it without hardware in one step:** one command that starts the simulator, the bridge and the dashboard ([#326](https://github.com/mathiasbk/openESL/issues/326)).
 
 ## Some day
