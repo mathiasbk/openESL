@@ -105,7 +105,6 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     uint8_t *img = malloc(raw + ESL_IMAGE_STORED_MAX(raw));
     if (!img)
         return api_error(out, 503, "no memory for the picture");
-    uint8_t *stored = img + raw;
     body_t body = {read, ctx, len};
     if (hold)
         hold(false);
@@ -146,23 +145,28 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
         free(img);
         return status;
     }
-    uint8_t model = t.model;
-    if (!esl_store_get(api->store, mac, &t) || t.model != model) {
-        free(img);
+    status = api_store_picture(api, mac, t.model, img, out);
+    free(img);
+    return status;
+}
+
+int api_store_picture(const esl_api_t *api, uint64_t mac, uint8_t model, uint8_t *img, esl_sb_t *out)
+{
+    esl_tag_t t;
+    uint8_t *stored = img + esl_render_size(model);
+    if (!esl_store_get(api->store, mac, &t) || t.model != model)
         return api_error(out, 409, "the tag was deleted or changed while the picture came in");
-    }
-    size_t n = esl_image_pack(mac, t.model, img, stored);
+    size_t n = esl_image_pack(mac, model, img, stored);
     esl_content_t c;
     esl_set_result_t r;
-    esl_content_init_image(&c, t.model, esl_crc32(stored, n));
+    esl_content_init_image(&c, model, esl_crc32(stored, n));
     api_leave_source(api, mac); /* first: a source's run cannot overwrite the picture after this */
     esl_store_err_t serr = esl_store_set_image(api->store, mac, stored, n, &c, &r);
-    free(img);
     if (serr)
         return api_error(out, 507, serr == ESL_STORE_NOT_SAVED ? "no room to save the picture: NVS is full, or nearly (some is kept for content)"
                                                                : api_store_err_text(serr));
     api_write_set_result(out, mac, &r);
-    return status;
+    return 200;
 }
 
 static bool mem_read(void *ctx, uint8_t *buf, size_t n)

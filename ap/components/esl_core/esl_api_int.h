@@ -84,6 +84,9 @@ void api_write_content(esl_sb_t *out, const esl_content_t *c);
 fwu_t api_tag_fw_update(const esl_api_t *api, const esl_tag_t *t, const esl_tagfw_img_t *img, uint16_t *got);
 bool api_seen_s_ago(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, uint64_t *s);
 const char *api_store_err_text(esl_store_err_t err);
+int api_content_fields(const json_t *j, int arr, const char *lname, unsigned max_fields,
+                       int (*index_of)(void *ctx, const char *key, size_t klen, char *msg), void *ctx,
+                       esl_content_t *c, char *msg);
 
 /* esl_api_radios.c */
 const esl_radio_link_t *api_radio_links(const esl_api_t *api, unsigned *n);
@@ -95,3 +98,10 @@ bool api_several_radios(const esl_api_t *api);
 
 /* esl_api_image.c: GET and PUT /api/tags/{mac}/image */
 int api_tag_image(const esl_api_t *api, uint64_t mac, const esl_api_req_t *rq, esl_sb_t *out);
+/* Stores the raw screen image img (esl_render_size(model) bytes, followed by room for
+   ESL_IMAGE_STORED_MAX of it) as the picture of the tag mac, which must still be of model:
+   the reply in out, 200 or an error status. */
+int api_store_picture(const esl_api_t *api, uint64_t mac, uint8_t model, uint8_t *img, esl_sb_t *out);
+
+/* esl_api_draw.c: PUT /api/tags/{mac}/draw */
+int api_tag_draw(const esl_api_t *api, uint64_t mac, const esl_api_req_t *rq, esl_sb_t *out);

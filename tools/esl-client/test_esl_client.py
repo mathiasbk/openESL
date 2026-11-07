@@ -202,6 +202,13 @@ class FakeAp(BaseHTTPRequestHandler):
                 return self._send(200, {"received": len(FakeAp.tagfw["data"]), "total": int(q["total"])})
             return self._send(200, {"model": "1.54", "version": "0.3.0", "size": n, "crc": "00000000",
                                     "received": int(q["total"]), "total": int(q["total"])})
+        if self.path.startswith("/api/tags/") and self.path.endswith("/draw"):
+            body = self._body()
+            mac = self.path.split("/")[3]
+            self.calls.append((self.path, body))
+            if mac not in self.tags:
+                return self._send(404, {"error": "unknown tag"})
+            return self._send(200, self._set(mac, {"layout": "image", "fields": [], "picture": len(json.dumps(body))}))
         if self.path.startswith("/api/tags/") and "/image" in self.path:
             n = int(self.headers.get("Content-Length", 0))
             data = self.rfile.read(n)
@@ -478,6 +485,40 @@ class ClientTest(unittest.TestCase):
         self.assertIn("low_battery|silent", a8)
         b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
         self.assertIn("     3 ", b9)         # 3 rounds, no problems
+
+    def test_draw(self):
+        lay = {"name": "room", "fields": ["room", "next"],
+               "elements": [{"type": "ellipse", "x": 0, "y": 0, "w": 20, "h": 20}]}
+        # draw_body: a layout file (by name, with its icons), one layout, a draw body; --field by name
+        f = {"format": "esl-layouts", "version": 1, "model": "2.9", "icons": {"i": {"w": 8, "h": 1, "data": "/w=="}},
+             "layouts": [lay, dict(lay, name="other")]}
+        self.assertEqual(esl_client.draw_body(f, "room"), {"layout": lay, "icons": f["icons"]})
+        with self.assertRaisesRegex(ValueError, "--layout"):
+            esl_client.draw_body(f)
+        with self.assertRaisesRegex(ValueError, "no layout x"):
+            esl_client.draw_body(f, "x")
+        self.assertEqual(esl_client.draw_body(lay, None, {"room": "R2"}), {"layout": lay, "fields": {"room": "R2"}})
+        body = {"layout": lay, "fields": ["R1", "Free"]}
+        self.assertEqual(esl_client.draw_body(body, None, {"next": "Busy"})["fields"], {"room": "R1", "next": "Busy"})
+        self.assertEqual(esl_client.draw_body(body), body)
+
+        self.run_cli("text", "00000123456789A8", "x")
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            json.dump(f, tf)
+        try:
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room", "--field", "room=Rom 2")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("changed", out)
+            self.assertEqual(FakeAp.calls[-1], ("/api/tags/00000123456789A8/draw",
+                                                {"layout": lay, "icons": f["icons"], "fields": {"room": "Rom 2"}}))
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name)
+            self.assertEqual(rc, 2)
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room", "--field", "room")
+            self.assertEqual(rc, 2)
+            rc, out = self.run_cli("draw", "00000123456789FF", tf.name, "--layout", "room")
+            self.assertEqual(rc, 2)
+        finally:
+            os.unlink(tf.name)
 
     def test_image(self):
         self.run_cli("text", "00000123456789A8", "x")

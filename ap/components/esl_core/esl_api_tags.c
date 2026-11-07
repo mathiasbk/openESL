@@ -153,51 +153,21 @@ static int field_by_name(const esl_api_t *api, uint64_t mac, const esl_content_t
     return found;
 }
 
-/* Fills c from {layout, fields, price_highlight, frame} for the tag mac. fields is a list
- * (by position) or an object keyed by the layout's field names (#182).
- * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
-static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
+/* The fields of content c from the "fields" token arr of j (-1 = none): a list (by position)
+ * or an object keyed by field name, which index_of turns into the field's index (or -1 with
+ * msg set). lname names the layout in messages; at most max_fields fields. The text is
+ * converted to Latin-1 and added to c, empty fields at the end dropped. Returns 0 or an HTTP
+ * status with msg (MSG_MAX bytes) set. */
+int api_content_fields(const json_t *j, int arr, const char *lname, unsigned max_fields,
+                       int (*index_of)(void *ctx, const char *key, size_t klen, char *msg), void *ctx,
+                       esl_content_t *c, char *msg)
 {
-    int lt = esl_json_obj_get(j->js, j->tok, obj, "layout");
-    uint8_t layout = ESL_LAYOUT_NAMED;
-    unsigned max_fields = ESL_MAX_FIELDS;
-    if (lt < 0 || j->tok[lt].type != ESL_JSON_STRING) {
-        snprintf(msg, MSG_MAX, "layout must be \"price\", \"text\" or the name of a layout in a layout file");
-        return 422;
-    }
-    const char *name = &j->js[j->tok[lt].start];
-    size_t nl = (size_t)(j->tok[lt].end - j->tok[lt].start);
-    if (esl_json_str_eq(j->js, &j->tok[lt], "price"))
-        layout = ESL_LAYOUT_PRICE;
-    else if (esl_json_str_eq(j->js, &j->tok[lt], "text"))
-        layout = ESL_LAYOUT_TEXT;
-    else {
-        int st = check_named(api, mac, name, nl, &max_fields, msg);
-        if (st)
-            return st;
-    }
-
-    bool price_highlight, frame;
-    if (api_parse_bool(j, obj, "price_highlight", &price_highlight) < 0 || api_parse_bool(j, obj, "frame", &frame) < 0) {
-        snprintf(msg, MSG_MAX, "price_highlight and frame must be true or false");
-        return 422;
-    }
-    uint8_t flags = (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0));
-    if (layout == ESL_LAYOUT_NAMED)
-        esl_content_init_named(c, name, nl, flags);
-    else {
-        esl_content_init(c, layout, flags);
-        max_fields = (unsigned)esl_content_max_fields(layout);
-    }
-
     /* The token of each field's text, in the layout's order; -1 for none (an empty field) */
     int vt[ESL_MAX_FIELDS];
     unsigned nf = 0;
-    int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
     if (arr >= 0 && j->tok[arr].type == ESL_JSON_ARRAY) {
         if (j->tok[arr].size > max_fields) {
-            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields",
-                     layout == ESL_LAYOUT_NAMED ? c->name : layout == ESL_LAYOUT_PRICE ? "price" : "text", max_fields);
+            snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", lname, max_fields);
             return 422;
         }
         nf = j->tok[arr].size;
@@ -215,8 +185,8 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
             }
             if (kl < 0)
                 kl = (int)sizeof(key); /* longer than any field name: not found */
-            int f = field_by_name(api, mac, c, kl < (int)sizeof(key) ? key : &j->js[j->tok[i].start],
-                                  kl < (int)sizeof(key) ? (size_t)kl : (size_t)(j->tok[i].end - j->tok[i].start), msg);
+            int f = index_of(ctx, kl < (int)sizeof(key) ? key : &j->js[j->tok[i].start],
+                             kl < (int)sizeof(key) ? (size_t)kl : (size_t)(j->tok[i].end - j->tok[i].start), msg);
             if (f < 0)
                 return 422;
             if (vt[f] >= 0) {
@@ -279,6 +249,65 @@ static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_
     for (unsigned k = 0; k < nf; used += len[k++])
         if (esl_content_add_field(c, text + used, len[k]) != ESL_CONTENT_OK)
             return text_too_long(msg);
+
+    return 0;
+}
+
+typedef struct {
+    const esl_api_t *api;
+    uint64_t mac;
+    const esl_content_t *c;
+} field_ctx_t;
+
+static int field_index(void *ctx, const char *key, size_t klen, char *msg)
+{
+    const field_ctx_t *fc = ctx;
+    return field_by_name(fc->api, fc->mac, fc->c, key, klen, msg);
+}
+
+/* Fills c from {layout, fields, price_highlight, frame} for the tag mac. fields is a list
+ * (by position) or an object keyed by the layout's field names (#182).
+ * Returns 0 or an HTTP status with msg (MSG_MAX bytes) set. */
+static int parse_content(const esl_api_t *api, const json_t *j, int obj, uint64_t mac, esl_content_t *c, char *msg)
+{
+    int lt = esl_json_obj_get(j->js, j->tok, obj, "layout");
+    uint8_t layout = ESL_LAYOUT_NAMED;
+    unsigned max_fields = ESL_MAX_FIELDS;
+    if (lt < 0 || j->tok[lt].type != ESL_JSON_STRING) {
+        snprintf(msg, MSG_MAX, "layout must be \"price\", \"text\" or the name of a layout in a layout file");
+        return 422;
+    }
+    const char *name = &j->js[j->tok[lt].start];
+    size_t nl = (size_t)(j->tok[lt].end - j->tok[lt].start);
+    if (esl_json_str_eq(j->js, &j->tok[lt], "price"))
+        layout = ESL_LAYOUT_PRICE;
+    else if (esl_json_str_eq(j->js, &j->tok[lt], "text"))
+        layout = ESL_LAYOUT_TEXT;
+    else {
+        int st = check_named(api, mac, name, nl, &max_fields, msg);
+        if (st)
+            return st;
+    }
+
+    bool price_highlight, frame;
+    if (api_parse_bool(j, obj, "price_highlight", &price_highlight) < 0 || api_parse_bool(j, obj, "frame", &frame) < 0) {
+        snprintf(msg, MSG_MAX, "price_highlight and frame must be true or false");
+        return 422;
+    }
+    uint8_t flags = (uint8_t)((price_highlight ? ESL_CFLAG_PRICE_HIGHLIGHT : 0) | (frame ? ESL_CFLAG_FRAME : 0));
+    if (layout == ESL_LAYOUT_NAMED)
+        esl_content_init_named(c, name, nl, flags);
+    else {
+        esl_content_init(c, layout, flags);
+        max_fields = (unsigned)esl_content_max_fields(layout);
+    }
+
+    const char *lname = layout == ESL_LAYOUT_NAMED ? c->name : layout == ESL_LAYOUT_PRICE ? "price" : "text";
+    field_ctx_t fc = {api, mac, c};
+    int arr = esl_json_obj_get(j->js, j->tok, obj, "fields");
+    int st = api_content_fields(j, arr, lname, max_fields, field_index, &fc, c, msg);
+    if (st)
+        return st;
 
     /* A barcode field must be one the tag can draw: for the tag's model, or for every
        model with this layout while the model is not known */
@@ -930,7 +959,7 @@ static int tag_config(const esl_api_t *api, const char *method, uint64_t mac, co
     return status;
 }
 
-/* /api/tags, /api/tags/{mac}, /api/tags/{mac}/config and /api/tags/{mac}/image */
+/* /api/tags, /api/tags/{mac}, /api/tags/{mac}/config, /api/tags/{mac}/image and /api/tags/{mac}/draw */
 int api_route_tags(const esl_api_t *api, const esl_api_req_t *rq, esl_sb_t *out)
 {
     const char *method = rq->method, *uri = rq->uri, *body = rq->body;
@@ -938,14 +967,14 @@ int api_route_tags(const esl_api_t *api, const esl_api_req_t *rq, esl_sb_t *out)
     uint64_t now_ms = rq->now_ms;
     const size_t base = sizeof(PATH_TAGS) - 1;
 
-    bool collection = false, item = false, item_cfg = false, item_image = false;
+    bool collection = false, item = false, item_cfg = false, item_image = false, item_draw = false;
     uint64_t mac = 0;
     {
         if (plen == base || (plen == base + 1 && uri[base] == '/'))
             collection = true;
         else if (uri[base] == '/') {
-            static const char cfg_suffix[] = "/config", img_suffix[] = "/image";
-            const size_t sl = sizeof(cfg_suffix) - 1, il = sizeof(img_suffix) - 1;
+            static const char cfg_suffix[] = "/config", img_suffix[] = "/image", draw_suffix[] = "/draw";
+            const size_t sl = sizeof(cfg_suffix) - 1, il = sizeof(img_suffix) - 1, dl = sizeof(draw_suffix) - 1;
             size_t ml = plen - base - 1;
             if (ml == 17 && uri[base + 17] == '/')
                 ml = 16;
@@ -957,10 +986,14 @@ int api_route_tags(const esl_api_t *api, const esl_api_req_t *rq, esl_sb_t *out)
                        (ml == 16 + il || uri[base + 17 + il] == '/')) {
                 ml = 16;
                 item_image = true;
+            } else if ((ml == 16 + dl || ml == 17 + dl) && memcmp(&uri[base + 17], draw_suffix, dl) == 0 &&
+                       (ml == 16 + dl || uri[base + 17 + dl] == '/')) {
+                ml = 16;
+                item_draw = true;
             }
             if (!esl_mac_parse(&uri[base + 1], ml, &mac))
                 return api_error(out, 400, "mac must be 16 hex digits");
-            item = !item_cfg && !item_image;
+            item = !item_cfg && !item_image && !item_draw;
         }
     }
 
@@ -969,6 +1002,8 @@ int api_route_tags(const esl_api_t *api, const esl_api_req_t *rq, esl_sb_t *out)
         status = tag_config(api, method, mac, body, body_len, out);
     else if (item_image)
         status = api_tag_image(api, mac, rq, out);
+    else if (item_draw)
+        status = api_tag_draw(api, mac, rq, out);
     else if (collection && strcmp(method, "GET") == 0)
         status = get_all(api, uri, now_ms, out);
     else if (collection && strcmp(method, "PUT") == 0)

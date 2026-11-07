@@ -1975,6 +1975,121 @@ static void test_image_clock(void)
     esl_clock_set_today(-1);
 }
 
+
+/* ---- one-off designs (PUT /api/tags/{mac}/draw) ---- */
+
+static int put_draw(const char *mac, const char *body)
+{
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/api/tags/%s/draw", mac);
+    return esl_api_handle(&api, "PUT", uri, AUTH, body, body ? strlen(body) : 0, 0, &out);
+}
+
+#define DRAW_ELEMENTS                                                                                                 \
+    "[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":296,\"h\":30,\"color\":\"black\"},"                                     \
+    "{\"type\":\"text\",\"field\":\"title\",\"x\":4,\"y\":0,\"w\":200,\"h\":30,\"fonts\":[\"medium\",\"small\"],"       \
+    "\"valign\":\"middle\",\"lines\":1,\"color\":\"white\"},"                                                          \
+    "{\"type\":\"ellipse\",\"x\":230,\"y\":40,\"w\":60,\"h\":60,\"border\":3},"                                        \
+    "{\"type\":\"polygon\",\"x\":150,\"y\":40,\"w\":66,\"h\":58,\"points\":[[33,0],[65,57],[0,57]]},"                \
+    "{\"type\":\"text\",\"field\":\"price\",\"x\":4,\"y\":40,\"w\":140,\"h\":60,\"fonts\":[\"large\",\"medium\"],"     \
+    "\"lines\":1},"                                                                                                    \
+    "{\"type\":\"qr\",\"field\":\"link\",\"x\":250,\"y\":2,\"w\":26,\"h\":26}]"
+
+static void test_draw(void)
+{
+    static uint8_t want[5000], back[5000];
+    const size_t raw29 = esl_render_size(ESL_MODEL_29);
+    memset(&nvs, 0, sizeof(nvs));
+    esl_layouts_init(&layouts, NULL);
+    ap_boot();
+
+    const char *body = "{\"layout\":{\"fields\":[\"title\",\"price\",\"link\"],\"elements\":" DRAW_ELEMENTS "},"
+                       "\"fields\":{\"price\":\"12,50\",\"title\":\"Hei p\\u00e5 deg\",\"link\":\"x\"}}";
+
+    /* the tag must be known and have polled */
+    CHECK_INT(put_draw("00000000000002B1", body), 404);
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"x\"]}"), 200);
+    CHECK_INT(put_draw("00000000000002B1", body), 409);
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x2B1, 1, 3000, ESL_MODEL_29);
+    a.images = a.img_rle = true;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    int pic_writes = nvs.img_writes;
+
+    /* errors: method, body, keys, the compiler's own messages, field names */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002B1/draw", AUTH, NULL, 0, 0, &out), 405);
+    CHECK_INT(put_draw("00000000000002B1", NULL), 400);
+    CHECK_INT(put_draw("00000000000002B1", "[]"), 400);
+    CHECK_INT(put_draw("00000000000002B1", "{}"), 422);
+    CHECK(HAS(resp, "layout must be one layout"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[]},\"colour\":1}"), 422);
+    CHECK(HAS(resp, "unknown key \\\"colour\\\""));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{}}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":"
+                                           "[{\"type\":\"blob\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}}"), 422);
+    CHECK(HAS(resp, "type must be"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":"
+                                           "[{\"type\":\"rect\",\"x\":290,\"y\":0,\"w\":20,\"h\":1}]}}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,"
+                                           "\"y\":0,\"w\":1,\"h\":1}]},\"fields\":{\"b\":\"x\"}}"), 422);
+    CHECK(HAS(resp, "no field \\\"b\\\""));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,"
+                                           "\"y\":0,\"w\":1,\"h\":1}]},\"fields\":[\"x\",\"y\"]}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"name\":\"Bad name\",\"fields\":[\"a\"],\"elements\":[]}}"),
+              422);
+    CHECK_INT(nvs.img_writes, pic_writes);
+
+    /* drawn once and kept as the tag's picture */
+    CHECK_INT(put_draw("00000000000002B1", body), 200);
+    CHECK(HAS(resp, "\"changed\":true,\"pending\":true"));
+    CHECK_INT(nvs.img_writes, pic_writes + 1);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002B1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout\":\"image\",\"fields\":[],"));
+
+    /* the same pixels as the same layout from a layout file, with the same fields */
+    {
+        const char *file = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"d\","
+                           "\"fields\":[\"title\",\"price\",\"link\"],\"elements\":" DRAW_ELEMENTS "}]}";
+        esl_layout_bin_t *bin = malloc(sizeof(*bin));
+        char err[ESL_LAYOUT_ERR_MAX];
+        CHECK(bin && esl_layout_compile(file, strlen(file), ESL_MODEL_29, bin, err, sizeof(err)));
+        esl_content_t c;
+        esl_content_init_named(&c, "d", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)"Hei p\xe5 deg", 10);
+        esl_content_add_field(&c, (const uint8_t *)"12,50", 5);
+        esl_content_add_field(&c, (const uint8_t *)"x", 1);
+        CHECK_INT((int)esl_render(ESL_MODEL_29, bin, &c, want, sizeof(want)), (int)raw29);
+        free(bin);
+    }
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IMG);
+    CHECK(a.shown == image_id_of("00000000000002B1"));
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, want, raw29) == 0);
+    size_t ink = 0;
+    for (size_t i = 0; i < raw29; i++)
+        ink += want[i] != 0;
+    CHECK(ink > 100); /* it drew something */
+
+    /* the same drawing again changes nothing; fields by position, a name and icons work */
+    CHECK_INT(put_draw("00000000000002B1", body), 200);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"name\":\"door\",\"fields\":[\"t\"],\"elements\":["
+                                           "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0},"
+                                           "{\"type\":\"text\",\"field\":\"t\",\"x\":20,\"y\":0,\"w\":200,\"h\":30,"
+                                           "\"fonts\":[\"small\"]}]},"
+                                           "\"icons\":{\"dot\":{\"w\":8,\"h\":8,\"data\":\"//////////8=\"}},"
+                                           "\"fields\":[\"Meeting room\"]}"),
+              200);
+    CHECK(HAS(resp, "\"changed\":true"));
+
+    /* an AP that keeps no pictures cannot keep a drawing */
+    esl_store_ops_t ops = st.ops;
+    st.ops.persist_image = NULL;
+    st.ops.load_image = NULL;
+    CHECK_INT(put_draw("00000000000002B1", body), 501);
+    st.ops = ops;
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1987,6 +2102,7 @@ void test_radio(void)
     test_image_send();
     test_image_rle();
     test_picture();
+    test_draw();
     test_image_choice();
     test_image_2d();
     test_image_clock();

@@ -579,6 +579,93 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/tags/{mac}/draw:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    put:
+      tags: [Tags]
+      operationId: drawTag
+      summary: Draw a one-off design on a tag, without a layout file
+      description: |
+        For a screen made for one tag at one time (a dashboard from home automation, a
+        door sign, a message): the body holds one layout as a layout file has it (`fields`
+        and `elements`, every element type a layout file takes), the `icons` it uses and the
+        text of its fields. Nothing has to be uploaded first.
+
+        The AP checks the layout for the tag's model with the same rules and limits as
+        `PUT /api/layouts/{model}` (the same 422 messages), draws it at once and keeps the
+        screen as the tag's picture, as `PUT /api/tags/{mac}/image` does: the same NVS
+        cost (about 5 KB a tag, less for screens with large areas of one colour), the same
+        `content_id` and `changed` rules, and `GET /api/tags/{mac}` then shows `layout:
+        "image"`. So date fields (`{date}`, `{week}`, ...) are filled in when it is drawn and
+        are not redrawn every day; use a layout file for that. Content set later replaces it.
+
+        The layout's `name` may be left out. `fields` is a list (in the layout's order) or
+        an object keyed by the layout's field names, as for `PUT /api/tags/{mac}`; it may be
+        left out when the layout only draws shapes and fixed text. The tag must have polled
+        once, so its model is known. An AP older than 0.11.0 answers 400 ("mac must be 16 hex digits"), as it reads `draw` as part of the MAC.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DrawRequest" }
+            examples:
+              door:
+                summary: A meeting room sign with a ring and a heading
+                value:
+                  layout:
+                    name: room
+                    fields: [room, next]
+                    elements:
+                      - { type: rect, x: 0, y: 0, w: 296, h: 30, color: black }
+                      - { type: text, field: room, x: 4, y: 0, w: 288, h: 30, fonts: [medium, small], valign: middle, lines: 1, color: white }
+                      - { type: ellipse, x: 8, y: 40, w: 60, h: 60, border: 3 }
+                      - { type: polygon, x: 20, y: 52, w: 36, h: 36, points: [[18, 0], [35, 35], [0, 35]] }
+                      - { type: text, field: next, x: 80, y: 40, w: 210, h: 60, fonts: [medium, small], lines: 2 }
+                  fields: { room: Meeting room 2, next: "Free until 14:00" }
+      responses:
+        "200":
+          description: Drawn and stored; the tag fetches it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetResult" }
+        "400":
+          description: A bad MAC, no body, broken JSON, or a body that is not an object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409":
+          description: The tag's model is not known yet (it has not polled), or the tag was deleted or changed while it was drawn
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422":
+          description: |
+            An unknown key, a layout the AP cannot draw on this model (the message is the
+            layout compiler's, as for `PUT /api/layouts/{model}`), a field the layout does not
+            have, or a barcode, QR code or number that does not fit its box
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This AP keeps no pictures
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No memory to draw it
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: No room in NVS for the picture (32 KB is kept free for other content), or the tag table is full
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/tags/{mac}/config:
     parameters:
       - $ref: "#/components/parameters/mac"
@@ -2654,6 +2741,29 @@ components:
       required: [refreshing]
       properties:
         refreshing: { type: integer, minimum: 0, description: "The number of sources" }
+
+    DrawRequest:
+      type: object
+      additionalProperties: false
+      required: [layout]
+      properties:
+        layout:
+          $ref: "#/components/schemas/Layout"
+          description: One layout as in a layout file; its `name` may be left out
+        icons:
+          type: object
+          maxProperties: 16
+          description: Small pictures that `icon` elements draw, by name, as in a layout file
+          propertyNames: { pattern: "^[a-z][a-z0-9_]{0,15}$" }
+          additionalProperties: { $ref: "#/components/schemas/Icon" }
+        fields:
+          description: The text of the layout's fields, by position or by name, as for `PUT /api/tags/{mac}`
+          oneOf:
+            - type: array
+              maxItems: 16
+              items: { type: [string, "null"] }
+            - type: object
+              additionalProperties: { type: [string, "null"] }
 
     LayoutFile:
       type: object
