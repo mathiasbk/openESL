@@ -26,14 +26,17 @@ export function compareLayouts(file, apFile) {
   return { states, gone };
 }
 
-// The layout each tag shows, by MAC. GET /api/tags leaves the content out, so this asks for
-// each tag not in `known` yet (a few at a time); a tag without content maps to "". A tag whose
-// answer did not come is left out, so callers can tell it from one that shows no layout.
+// The layout each tag shows, by MAC; a tag without content maps to "". A row of GET /api/tags
+// has it as `layout` (#302, #305); an older AP leaves it out, so this asks for each such tag
+// not in `known` yet (a few at a time). A tag whose answer did not come is left out, so callers
+// can tell it from one that shows no layout.
 // client: anything with call(method, path), an ApClient or a SerialAp. Every tag is asked by
 // default: a count that leaves tags out can call a layout in use unused (#302).
 export async function tagLayouts(client, tags, known = {}, { max = Infinity, parallel = 3 } = {}) {
-  const todo = tags.filter((t) => !(t.mac in known)).slice(0, max);
   const out = { ...known };
+  // null with content: the AP could not tell (its content was not read back), so it is asked
+  for (const t of tags) if ("layout" in t && (t.layout || !t.content_id)) out[t.mac] = t.layout || "";
+  const todo = tags.filter((t) => !(t.mac in out)).slice(0, max);
   let next = 0;
   const worker = async () => {
     while (next < todo.length) {

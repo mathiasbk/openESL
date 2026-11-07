@@ -99,7 +99,10 @@ typedef struct {
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
-    uint8_t content_err;      /* ESL_CERR_*: why the content is not shown (from the last POLL) */
+    uint8_t content_err : 7;  /* ESL_CERR_*: why the content is not shown (from the last POLL) */
+    uint8_t layout_price : 1; /* its content has the built-in layout "price" (ESL_LAYOUT_PRICE): with
+                                 layout_hash, what GET /api/tags shows as its layout. A bit here, as
+                                 the bools above fill their two bytes: one more grows every slot by 8 */
     uint16_t battery_mv;
     uint64_t last_seen_ms;
     uint32_t content_id;      /* 0 when no content is set */

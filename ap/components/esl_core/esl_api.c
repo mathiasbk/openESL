@@ -796,6 +796,30 @@ static bool several_radios(const esl_api_t *api)
     return n > 1;
 }
 
+/* ,"layout":"<name>", from what the tag's record has in RAM: a name from the layout files
+   by its hash, the content read back only when no file has it; null without content */
+static void write_tag_layout(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t)
+{
+    char name[ESL_LAYOUT_NAME_MAX + 1];
+    esl_content_t c;
+    const char *l = NULL;
+    if (t->has_content) {
+        if (t->has_image)
+            l = "image";
+        else if (!t->layout_hash)
+            l = t->layout_price ? "price" : "text";
+        else if (esl_layouts_name(api->layouts, t->model, t->layout_hash, name))
+            l = name;
+        else if (esl_store_get_content(api->store, t->mac, &c) && esl_content_id(&c) == t->content_id)
+            l = layout_name(&c);
+    }
+    esl_sb_puts(out, ",\"layout\":");
+    if (l)
+        esl_sb_json_str(out, l);
+    else
+        esl_sb_puts(out, "null");
+}
+
 /* fingerprint: for the change fingerprint (esl_api_changes_t), when the tag was last
    heard instead of how long ago, which changes every second */
 static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, uint64_t now_ms,
@@ -875,6 +899,10 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     } else {
         esl_sb_puts(out, ",\"fw_update\":null");
     }
+    /* its content's layout (#302, #305), as GET /api/tags/{mac} has it; not fingerprinted:
+       content_id changes with it; with_content: with the content's fields below */
+    if (!fingerprint && !with_content)
+        write_tag_layout(api, out, t);
 
     esl_content_t c;
     if (with_content && t->has_content && esl_store_get_content(api->store, t->mac, &c))

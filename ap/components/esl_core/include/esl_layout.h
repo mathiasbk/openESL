@@ -202,6 +202,11 @@ uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout
 /* ESL_CLOCK_* of the tag's layout (layout_hash as esl_tag_t has it): whether it has date fields */
 uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
 
+/* The name of the layout whose name hashes to layout_hash (esl_tag_t has it), looked up in
+ * the file for model first, then in the other models' files (a tag whose model is not known
+ * yet), into name. False when no file has it, or layout_hash is 0. ls may be NULL. */
+bool esl_layouts_name(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash, char name[ESL_LAYOUT_NAME_MAX + 1]);
+
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);
 

@@ -46,6 +46,20 @@ static uint32_t json_u32(const char *s, const char *key)
     return p ? (uint32_t)strtoul(p + strlen(key), NULL, 10) : 0;
 }
 
+/* True when the row of mac in a GET /api/tags reply s has ,"layout":<want> (want is JSON) */
+static bool row_layout(const char *s, const char *mac, const char *want)
+{
+    char key[40], lay[64];
+    snprintf(key, sizeof(key), "{\"mac\":\"%s\"", mac);
+    snprintf(lay, sizeof(lay), ",\"layout\":%s}", want);
+    const char *row = strstr(s, key);
+    if (!row)
+        return false;
+    const char *next = strstr(row + 1, "{\"mac\":");
+    const char *l = strstr(row, lay);
+    return l && (!next || l < next);
+}
+
 /* The tag shows the image of content id shown: here the image id is the content id,
    as if the AP had drawn it (esl_image does that on the radio path) */
 static void drawn(uint64_t mac, uint32_t shown)
@@ -444,8 +458,8 @@ static void test_batch_and_list(void)
                     "\"content_error\":null,\"ota\":false,"
                     "\"signal\":{\"rssi\":[-61],\"lost\":[0],\"retry\":[0],\"polls\":1,\"lost_total\":0,"
                     "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
-                    "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null}"));
-    CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
+                    "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null,\"layout\":null}"));
+    CHECK(!HAS(resp, "\"fields\"")); /* list has no content */
 
     /* delete */
     CHECK_INT(req("DELETE", "/api/tags/0000000000ABCDEF", AUTH, NULL, 0), 200);
@@ -562,6 +576,8 @@ static void test_layouts(void)
     const char *only29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"only-29\","
                          "\"fields\":[\"t\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, only29, 0), 200);
+    const char *only29_154 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"1.54\",\"layouts\":[{\"name\":\"other\","
+                             "\"fields\":[\"t\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}]}]}";
     poll_model(0x154, ESL_MODEL_154, true);
     CHECK_INT(req("PUT", "/api/tags/0000000000000154", AUTH, "{\"layout\":\"only-29\",\"fields\":[]}", 0), 422);
     CHECK_STR(resp, "{\"error\":\"layout \\\"only-29\\\" is not in the layout file for model 1.54\"}");
@@ -573,6 +589,29 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_error\":\"the tag cannot show images drawn by the AP (old firmware, or no SPI flash)\""));
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"price\",\"fields\":[]}", 0), 200);
+    /* GET /api/tags names each row's layout (#302, #305): the tag's model's file, or another
+       model's when the model is not known yet, or the content when no file has the name */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000030", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, MAC1, "\"shelf\"")); /* model not known: the 1.54 file */
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK(row_layout(resp, "0000000000000029", "\"price\""));
+    CHECK(row_layout(resp, "0000000000000030", "\"text\""));
+    CHECK_INT(req("GET", "/api/tags?since=0", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, only29_154, 0), 200);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, MAC1, "\"shelf\""));            /* in no file now: from its content */
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
+    {   /* a picture */
+        esl_content_t pic;
+        esl_set_result_t res;
+        esl_content_init_image(&pic, ESL_MODEL_29, 0x12345678u);
+        CHECK_INT(esl_store_set(&st, 0x31, &pic, &res), ESL_STORE_OK);
+        CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+        CHECK(row_layout(resp, "0000000000000031", "\"image\""));
+    }
     /* batch: the row is named */
     CHECK_INT(req("PUT", "/api/tags", AUTH,
                   "{\"tags\":[{\"mac\":\"0000000000000154\",\"layout\":\"sign\",\"fields\":[\"a\"]},"
