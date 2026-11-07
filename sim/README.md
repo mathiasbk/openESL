@@ -16,8 +16,13 @@ The tag firmware and the AP run together on the PC, with no hardware:
   without the AP take milliseconds.
 
 What the simulation does not cover: the radio drivers and their timing, the display
-controller, deep sleep and power, and more than one tag at a time (the tag code is written
-for one tag per program).
+controller, deep sleep and power, and radio collisions. The tag code is written for one tag
+per program, so the scenarios have one tag; `serve --tags N` runs each further tag in a
+program of its own (below).
+
+The quickest way to see it all is `python3 tools/demo.py` at the top of the repository: it
+builds the simulator, starts `serve` with six tags, the esl-client bridge and the web page,
+gives the tags some content and opens the dashboard connected to it (`--docker` on Windows).
 
 ## Running it
 
@@ -56,7 +61,7 @@ One tag goes through all of them in order, about 4 simulated hours, driven throu
 | 11 | Content with `at`, poll interval 300 s | Shown just after it is due (the AP shortens the tag's sleep), not at the next 300 s poll |
 | 12 | Tag firmware over the air (`PUT /api/tag-firmware`, a 4 KB test image in two parts) | Downloaded, copied into the chip by the bootloader, restarted with the same screen, confirmed |
 
-The simulated tag always reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the AP host tests, not end to end here.
+The simulated tag reports 2950 mV and 20 °C. The scenarios use the `shelf` layout, so barcodes, fixed texts and five or six fields are covered by the AP host tests, not end to end here.
 
 `sim/layouts/` holds layouts made only for this comparison: a short last word that has to
 wrap, `invert` and `highlight` text, and barcodes centred or right-aligned with an odd number of
@@ -86,3 +91,17 @@ tools/esl-client/esl_client.py --serial /dev/pts/5 serve    # "Test request" in 
 ```
 
 `test_serial.py` does this in CI.
+
+### More tags (`--tags N`)
+
+```
+sim/build/154/esl-sim serve --speed 10 --tags 6 --sims sim/build/29/esl-sim,sim/build/293/esl-sim,sim/build/154/esl-sim
+```
+
+starts five more tags (at most 16 in all), `00000123456789A9` and up, each as `esl-sim tag`
+in a program of its own, so each can be another model: the programs in `--sims` are taken in
+turn (default: the same one). Each has its own battery, temperature and signal (the RSSI the
+AP measures for its frames), one with a low battery and one with a weak signal, so the
+dashboard has something to show. Their frames go to the AP in `serve` over a socket; they stop
+when it stops. `--png` is the first tag's screen only; the dashboard shows the others as the
+AP draws them.

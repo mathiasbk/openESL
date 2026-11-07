@@ -19,6 +19,9 @@ uint64_t sim_tag_mac = 0x00000123456789A8ull;
 const char *sim_tag_model = MODEL_NAME;
 bool sim_verbose;
 void (*sim_on_draw)(void);
+uint16_t sim_tag_battery_mv = 2950;
+int8_t sim_tag_temp_c = 20;
+uint8_t (*sim_tag_link)(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply) = sim_link;
 
 #define AIR_MS 2   /* one frame out and the reply back, roughly as measured on the jig */
 
@@ -46,8 +49,8 @@ void hal_mac_read(uint8_t *mac8)
         mac8[i] = (uint8_t)(sim_tag_mac >> (8 * i));   /* least significant byte first, as on air */
 }
 
-uint16_t battery_read_mv(void) { return 2950; }
-int8_t hal_temp_c(void) { return 20; }
+uint16_t battery_read_mv(void) { return sim_tag_battery_mv; }
+int8_t hal_temp_c(void) { return sim_tag_temp_c; }
 void power_sleep_s(uint16_t s) { sim_now_ms += (uint64_t)s * 1000; }
 bool hal_doze_1s(void) { sim_now_ms += 1000; return true; }
 /* the radio's RSSI byte and LQI for every answer (not a measured scale) */
@@ -81,7 +84,7 @@ bool radio_tx(const uint8_t *frame, uint8_t len)
 {
     if (!radio_is_on)
         return false;
-    rx_len = sim_link(radio_channel, frame, len, rx_frame);
+    rx_len = sim_tag_link(radio_channel, frame, len, rx_frame);
     return true;
 }
 
