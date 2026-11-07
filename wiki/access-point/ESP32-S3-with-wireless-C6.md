@@ -1,6 +1,6 @@
 # ESP32-S3 with a wireless C6 radio
 
-**Status:** experimental, and **not secure yet**. It has run on one S3 and one C6 with two labels, and new prices reached both screens, but it is not in a release. The link between the two chips has no password yet: any device on your network could pretend to be the radio or the AP. Use it only on a network you trust until that is done.
+**Status:** experimental, and **not secure yet**. It has run on one S3 and one C6 with two labels, and new prices reached both screens. It is in every release since 0.6.0, and since 0.10.0 one S3 can have up to four wireless C6 radios (not tried on hardware with several yet). The link between the two chips has no password yet: any device on your network could pretend to be the radio or the AP. Use it only on a network you trust until that is done.
 
 A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32-S3 runs the AP, and the ESP32-C6 that talks to the labels sits somewhere else on the same WiFi network, each on its own USB charger, with no wire between them. Useful when the labels are in a room the S3 cannot be in. The S3 can fetch the [weather](Weather) for labels by itself, as on a cable.
 

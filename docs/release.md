@@ -1,6 +1,6 @@
 # Making a release
 
-How a release goes from `development` to the tags: the pull requests, the checks on real hardware, the rollout and what to do when a release is bad. How versions work is in the README, "Releases".
+How a release goes from `development` to the tags: the pull requests, the checks on real hardware, the rollout and what to do when a release is bad. How versions work and what the release files are is in [Versions and release files](#7-versions-and-release-files).
 
 ## 1. Pull requests
 
@@ -13,7 +13,7 @@ How a release goes from `development` to the tags: the pull requests, the checks
 
 3. Do the checklist below, then merge with a merge commit (not squash), so `master` keeps the history of `development`.
 
-The usual way [release.yml](../.github/workflows/release.yml) starts is a merge to `master` that changes `VERSION`, so step 1 must be merged before step 3. It can also be started by hand or by pushing a tag `v<VERSION>` (README, "Releases"). It builds the firmware, publishes the GitHub release with the files and `SHA256SUMS.txt`, and publishes the web page again. The same push to `master` publishes `wiki/` to the GitHub wiki ([wiki.yml](../.github/workflows/wiki.yml)).
+The usual way [release.yml](../.github/workflows/release.yml) starts is a merge to `master` that changes `VERSION`, so step 1 must be merged before step 3. It can also be started by hand or by pushing a tag `v<VERSION>` ([Versions and release files](#7-versions-and-release-files)). It builds the firmware, publishes the GitHub release with the files and `SHA256SUMS.txt`, and publishes the web page again. The same push to `master` publishes `wiki/` to the GitHub wiki ([wiki.yml](../.github/workflows/wiki.yml)).
 
 ## 2. Checklist before merging to master
 
@@ -26,6 +26,7 @@ The release template has this list; tick it off in the release pull request. Cha
 - [ ] The notes read: a short summary, the changes, then short upgrade instructions (docs/release.md, "Summary of X.Y.Z" and the first paragraph of "Upgrading from A to X.Y.Z": the order and what to watch out for)
 - [ ] One-way changes in this release are listed, and each was tested on hardware
 - [ ] The wiki (wiki/) describes this release: new features, changed steps, upgrade notes
+- [ ] The wiki's Roadmap (wiki/getting-started/Roadmap.md): what this release finished is moved to "Done recently"
 AP (if the AP firmware changed):
 - [ ] OTA to a real AP (esl-client ota ... --wait); GET /api/ota says confirmed
 - [ ] The dashboard loads, tags check in, sending text to a tag works
@@ -231,3 +232,11 @@ A patch release for the tags. Tag firmware 0.9.0 could draw a grey, half-finishe
 ### Summary of 0.9.0
 
 Radio security: tags can be paired with the AP, so only that AP can change them, and the AP's radio key is shown after flashing and kept in the backup. The radio channel can be changed, and tags that missed the move find the AP again by scanning. Tags use less battery and report their signal, and layouts get date fields and whole-krone prices (`199,-`).
+
+## 7. Versions and release files
+
+The release's version is in [VERSION](../VERSION). The AP firmware and the firmware of each tag model carry the version of the release they last changed in, worked out by [tools/fw_version.py](../tools/fw_version.py) from the release tags (`python3 tools/fw_version.py --all`): a release that changes only the AP, or only one tag model, gives the other tags the same firmware as before, with the same version, so the dashboard offers them nothing and no tag downloads an update over the radio for no reason. Nothing is bumped by hand; the script lists which files belong to which part. The tag firmware shows its version on its start screen and sends it in POLL (1.2.3 as 10203), and the AP reports its own as `ap.fw` in `GET /api/tags`. A checkout without the release tags (a download of the sources, a shallow clone) builds with the version in `VERSION`. The AP build and the simulation read the version when they configure: after new tags or source changes, a local build that only recompiles keeps the earlier version until `idf.py reconfigure` or a clean build.
+
+When a change to `VERSION` is merged to `master`, [release.yml](../.github/workflows/release.yml) makes the release `v<VERSION>` from that commit: it builds the firmware and publishes a GitHub release with the tag firmware for each model, the merged AP image for a new board, one per board in [ap/boards](../ap/boards/README.md) (written at 0x0 it erases what an AP in use has stored, see [ap/README.md](../ap/README.md#build-and-flash)), the app image alone for OTA (`...-ota.bin` for each board, `esl-client ota`), `SHA256SUMS.txt`, and notes from [tools/release_notes.py](../tools/release_notes.py): the pull requests since the previous release sorted by what they changed (AP firmware, tag firmware, web page, the rest), with the version each firmware carries and "unchanged" where nothing was. The files are named after the release even when a part is unchanged. The same script writes the body of the release pull request: `python3 tools/release_notes.py v0.4.5 origin/development`. The web page is then published again, and its flashers serve that release.
+
+The same workflow can be started by hand (Actions → Release → Run workflow) to release the current `VERSION` if that release does not exist yet, or by pushing a tag that matches `VERSION` (`git tag v0.2.0 && git push origin v0.2.0`). A tag with a suffix (`v0.2.0-rc1`) becomes a pre-release, which the web page does not use.

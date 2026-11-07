@@ -8,7 +8,8 @@ each on its own power supply, with no wire between them. Short name in code and 
 
 **Status: experimental, not secure yet.** Both ends have firmware: the S3 board `s3-n16r8-netradio` and the
 radio in `ap/netradio/`. It has run on one S3 and one C6 with two tags (below, "On hardware"), and new
-prices reached both screens. It is not in a release. **The link is plain TCP without a password**: any
+prices reached both screens. Its files are in every release since 0.6.0, and several radios per S3 (#259)
+since 0.10.0. **The link is plain TCP without a password**: any
 device on the network can connect to the S3 as its radio, or answer the radio as its AP. Use it only on a
 network you trust until pairing and TLS are done (step 3d, at the end).
 
@@ -270,7 +271,7 @@ WiFi RSSI −74 to −77 dBm, coex at the default, power save MIN (MAX made no d
 | 5 | Several radios per S3 (#259): up to 4, each on its own channel, each tag served by the radio that last heard it ("Several radios" above) | done on the PC, not tried on hardware |
 | 5b | Pick the radio that hears a tag best (by RSSI), never switched mid-image | |
 
-Release files will have their own names so they are not mixed up with the cabled radio:
+The release files have their own names so they are not mixed up with the cabled radio:
 `openesl-ap-esp32s3-n16r8-netradio-<version>.bin` and `openesl-ap-netradio-esp32c6-<version>.bin`.
 
 **Alternative: Ethernet.** A C6 with a W5500 (SPI Ethernet, possibly PoE) uses no 2.4 GHz for the link,
