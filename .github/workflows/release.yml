@@ -67,6 +67,9 @@ jobs:
     needs: check
     if: needs.check.outputs.release == 'true'
     uses: ./.github/workflows/firmware.yml
+    permissions:
+      contents: read
+      actions: read   # firmware.yml's ap-size job asks for it
 
   release:
     needs: [check, firmware]
