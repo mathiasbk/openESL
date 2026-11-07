@@ -29,6 +29,7 @@ For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
                        (the web flasher and esptool)
   <artifact>-ota.bin   the app alone, for POST /api/ota (esl-client ota, the dashboard)
+  <artifact>.elf       the symbols of that app, to decode a panic backtrace (not released)
 with <artifact> from board.json (openesl-ap for the C6 Super Mini, as before). Releases
 name them after "release" in board.json (openesl-ap-esp32c6-<version>.bin, ...).
 
@@ -181,7 +182,10 @@ def build(b):
     bdir = "build-" + b["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"], "build"])
     merge(b["target"], bdir, "esl_ap.bin", b["artifact"])
-    print("%s: out/%s.bin and out/%s-ota.bin" % (b["id"], b["artifact"], b["artifact"]))
+    # the symbols for this image: a panic backtrace (the AP is built with silent assertions,
+    # sdkconfig.defaults) is decoded with it, e.g. idf.py monitor --elf or addr2line
+    shutil.copyfile(os.path.join(HERE, bdir, "esl_ap.elf"), os.path.join(OUT, b["artifact"] + ".elf"))
+    print("%s: out/%s.bin, out/%s-ota.bin and out/%s.elf" % (b["id"], b["artifact"], b["artifact"], b["artifact"]))
     return record_size(b["id"], b["artifact"], bdir, "esl_ap.bin")
 
 

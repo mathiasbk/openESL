@@ -2,13 +2,27 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esl_api.h"
 #include "esl_image.h"
 #include "esl_layout.h"
 #include "esl_radio.h"
 #include "esl_screen.h"
 #include "esl_store.h"
+
+/* ESP_ERROR_CHECK that still says what failed. The AP is built with silent assertions
+ * (sdkconfig.defaults), which make ESP_ERROR_CHECK a bare abort(): a step at boot that
+ * fails every time would then restart the AP over and over without a word. This logs the
+ * file, line and error name first, then aborts the same way. */
+#define ESL_CHECK(x) do {                                                                  \
+        esp_err_t esl_rc_ = (x);                                                           \
+        if (esl_rc_ != ESP_OK) {                                                           \
+            ESP_LOGE("check", "%s:%d: %s", __FILE_NAME__, __LINE__, esp_err_to_name(esl_rc_)); \
+            abort();                                                                       \
+        }                                                                                  \
+    } while (0)
 
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
 esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s);

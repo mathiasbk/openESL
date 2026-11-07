@@ -42,10 +42,10 @@ void app_main(void)
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition reformatted, stored tag content is lost");
-        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESL_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(err);
+    ESL_CHECK(err);
 
     const char *version = esp_app_get_description()->version;
     ESP_LOGI(TAG, "OpenESL AP %s, PAN 0x%04X, max %d tags", version, CONFIG_ESL_PAN_ID, CONFIG_ESL_MAX_TAGS);
@@ -55,11 +55,11 @@ void app_main(void)
     else
         ESP_LOGW(TAG, "reset reason: %s", why);
 
-    ESP_ERROR_CHECK(store_nvs_init(&store, CONFIG_ESL_MAX_TAGS, CONFIG_ESL_NEXT_POLL_S));
+    ESL_CHECK(store_nvs_init(&store, CONFIG_ESL_MAX_TAGS, CONFIG_ESL_NEXT_POLL_S));
 
 #if CONFIG_ESL_RADIO_SNIFFER
     /* Sniffer only: no WiFi, so nothing competes with the radio. */
-    ESP_ERROR_CHECK(radio_start(&store, NULL, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    ESL_CHECK(radio_start(&store, NULL, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
     return;
 #endif
 
@@ -115,8 +115,8 @@ void app_main(void)
     /* A pointer per model; each stored file takes its JSON and its compiled size from the heap. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
-        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-    ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
+        ESL_CHECK(ESP_ERR_NO_MEM);
+    ESL_CHECK(layouts_nvs_init(api.layouts));
     /* Content that does not fit the stored files is held back, as after an upload (#186) */
     for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
         unsigned bad = esl_store_check_layout(&store, api.layouts, m, NULL, NULL);
@@ -146,9 +146,9 @@ void app_main(void)
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);
 #endif
-    ESP_ERROR_CHECK(http_api_start(&api));
+    ESL_CHECK(http_api_start(&api));
 #if CONFIG_ESL_SERIAL_API
-    ESP_ERROR_CHECK(serial_api_start(&api));
+    ESL_CHECK(serial_api_start(&api));
 #endif
 
 #if CONFIG_ESL_DISPLAY || CONFIG_ESL_RADIO_DRIVER_UART
@@ -159,7 +159,7 @@ void app_main(void)
 
     esl_channel_state_t ch;
     esl_store_channel_state(&store, 0, &ch);
-    ESP_ERROR_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
+    ESL_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
     /* The tag table is the one thing that grows with the number of tags (store_nvs.c
        stops it before WiFi and HTTP run short); this shows how much
        room is left for it. */
