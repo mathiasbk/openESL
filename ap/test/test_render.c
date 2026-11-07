@@ -367,6 +367,19 @@ static void test_ellipse_polygon(void)
     esl_content_add_field(&c, (const uint8_t *)"x", 1);
     CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
     CHECK(px(img, 140, 10) && !px(img, 141, 10) && !px(img, 140, 11) && !px(img, 139, 10)); /* 1 x 1 */
+    /* a damaged file: a corner below the box is not drawn (the compiler never makes one) */
+    {
+        static esl_layout_bin_t bad;
+        static uint8_t img2[296 * 16];
+        int found = 0;
+        bad = bin;
+        for (unsigned i = ESL_LBIN_HDR_LEN; i + ESL_POLY_PT_LEN * 4 <= bad.size; i++)
+            if (bad.bin[i] == 12 && memcmp(&bad.bin[i + 1], "\0\0\0\x14\0\x14\x14\0\0\0\0\x14", 12) == 0)
+                bad.bin[i + 3] = 250, found = 1; /* corner 0's y of the bow tie */
+        CHECK(found);
+        CHECK(esl_render(ESL_MODEL_29, &bad, &c, img2, sizeof(img2)) == sizeof(img2));
+        CHECK(!px(img2, 150, 60) && px(img2, 140, 10));
+    }
     /* a bow tie (edges that cross, even-odd): the two triangles, nothing above and below the crossing */
     CHECK(px(img, 141, 60) && px(img, 159, 60) && px(img, 150, 60) && !px(img, 150, 52) && !px(img, 150, 68));
     CHECK(px(img, 140, 50) && px(img, 160, 70) && px(img, 140, 70) && px(img, 160, 50));

@@ -1320,6 +1320,11 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
                 for (uint8_t i = 0; sh && i < n; i++, p += ESL_POLY_PT_LEN) {
                     sh->px[i] = (int16_t)(e->x + ESL_GET_U16(p));
                     sh->py[i] = (int16_t)(e->y + p[2]);
+                    /* a corner outside the box (only in a damaged file) draws nothing */
+                    if (ESL_GET_U16(p) >= e->w || p[2] >= e->h) {
+                        s->nshapes--;
+                        sh = 0;
+                    }
                 }
                 if (sh)
                     sh->n = n;
