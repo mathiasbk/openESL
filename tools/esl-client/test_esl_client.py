@@ -547,14 +547,14 @@ class ClientTest(unittest.TestCase):
                 w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
                             "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
                 for day in range(1, 31):
-                    mv = "2500" if day <= 10 else "2400" if day <= 20 else "2300"
+                    mv = "2550" if day <= 10 else "2450" if day <= 20 else "2350"
                     w.writerow(row(day, "00000123456789A8", "" if day == 1 else "2.9", mv, "1"))
-            rc, out = self.run_cli("battery", path, "--low-mv", "2400", "--html", os.path.join(d, "b.html"))
+            rc, out = self.run_cli("battery", path, "--low-mv", "2450", "--html", os.path.join(d, "b.html"))
             with open(os.path.join(d, "b.html"), encoding="utf-8") as f:
                 html2 = f.read()
-        self.assertIn("2500 mV since the log started, 2400 mV from 2026-11-11 08:00, 2300 mV from 2026-11-21 08:00", out)
+        self.assertIn("2550 mV since the log started, 2450 mV from 2026-11-11 08:00, 2350 mV from 2026-11-21 08:00", out)
         self.assertIn("falling 10.0 mV/day", out)                # from the two steps seen, not from the log start
-        self.assertIn("already below 2400 mV", out)
+        self.assertIn("already below 2450 mV", out)
         self.assertIn("already below the low line", html2)
         self.assertIn("<td>2.9</td>", html2)                     # the model from the first row that has one
 
@@ -607,11 +607,11 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("no tags in the log", out)
             # a single round: no time span, so no average and no years, and nothing divides by zero
-            path = self.write_log(d, [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2400", "-60",
+            path = self.write_log(d, [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2450", "-60",
                                        "1", "1", "0", "0", ""]])
             rc, out = self.run_cli("battery", path, "--html", os.path.join(d, "one.html"))
             self.assertEqual(rc, 0, out)
-            self.assertIn("2400 mV since the log started", out)
+            self.assertIn("2450 mV since the log started", out)
             self.assertIn("the rate needs two steps seen in the log", out)
             # an older log without the battery and content columns still reads
             path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"],
@@ -631,12 +631,53 @@ class ClientTest(unittest.TestCase):
                 self.assertEqual(rc, 2)
             self.assertIn("not a time from esl_client.py log: 'yesterday'", err.getvalue())
 
+    def test_battery_long_log(self):
+        # a row a minute for 4 days: 2600 for a day, then 2550, a bounce to 2600 for an hour, 2450 from
+        # day 3. Only the change points are kept, and the result is the same as for a log with one row
+        # per change (apart from the time span, which both have)
+        start = datetime.datetime(2026, 11, 1, 8, 0, 0)
+        def mv_at(m):
+            if m < 1440:
+                return "2600"
+            if 2000 <= m < 2060:
+                return "2600"
+            return "2550" if m < 2 * 1440 else "2450"
+        full, changes, last = [], [], None
+        for m in range(4 * 1440 + 1):
+            r = [(start + datetime.timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M:%S"), str(m * 60), "",
+                 "00000123456789A8", "2.9", "30", mv_at(m), "-60", "1", "1", "0", "0", ""]
+            full.append(r)
+            if r[6] != last or m == 4 * 1440:
+                changes.append(r)
+                last = r[6]
+        with tempfile.TemporaryDirectory() as d:
+            rows = esl_client.iter_log(self.write_log(d, full))
+            self.assertNotIsInstance(rows, list)              # read lazily, not all into memory
+            lines_full, table_full, series_full = esl_client.battery_analysis(rows)
+        lines_ch, table_ch, series_ch = esl_client.battery_analysis([dict(zip(self.LOG_HEADER, r)) for r in changes])
+        self.assertEqual(len(series_full["00000123456789A8"]["mv"]), 5)   # 2600, 2550, 2600, 2550, 2450
+        self.assertEqual(series_full["00000123456789A8"]["mv"], series_ch["00000123456789A8"]["mv"])
+        self.assertEqual(table_full[0]["steps"], 2)
+        self.assertEqual(table_full[0]["min_mv"], 2450)
+        self.assertEqual({k: v for k, v in table_full[0].items()}, {k: v for k, v in table_ch[0].items()})
+        self.assertEqual(lines_full[1:], lines_ch[1:])     # the first line counts the rounds
+
+    def test_battery_poll_s(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"]], header=["time", "mac", "model"])
+            for bad in ("0", "-60"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, _ = self.run_cli("battery", path, "--poll-s", bad)
+                self.assertEqual(rc, 2)
+                self.assertIn("--poll-s must be 1 or more", err.getvalue())
+
     def test_battery_html_escapes(self):
         # the page is built from the log's text: a hostile model or MAC must not become markup
         rows = [{"time": "2026-11-01 08:00:00", "mac": "<script>x</script>", "model": "\"><img src=x>",
-                 "battery_mv": "2500", "ap_reset": "", "shown_content_id": "1"},
+                 "battery_mv": "2550", "ap_reset": "", "shown_content_id": "1"},
                 {"time": "2026-11-02 08:00:00", "mac": "<script>x</script>", "model": "2.9",
-                 "battery_mv": "2400", "ap_reset": "", "shown_content_id": "1"}]
+                 "battery_mv": "2450", "ap_reset": "", "shown_content_id": "1"}]
         _, table, series = esl_client.battery_analysis(rows)
         page = esl_client.battery_html(table, series)
         self.assertNotIn("<script>", page)

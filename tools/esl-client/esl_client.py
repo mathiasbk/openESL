@@ -1119,6 +1119,15 @@ def log_loop(cli, path, every_s, rounds=None, sleep=time.sleep):
     return 0
 
 
+def iter_log(path):
+    """The rows of a log from "log", one at a time, so a long log is not held in memory."""
+    with open(path, newline="", encoding="utf-8") as f:
+        rd = csv.DictReader(f)
+        if rd.fieldnames is not None and "mac" not in rd.fieldnames:
+            raise CsvError(f"{path}: not a log from esl_client.py log (no mac column)")
+        yield from rd
+
+
 def read_log(path):
     with open(path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -1197,7 +1206,7 @@ BATT_CEILING_MV = 2600                       # the panel only says "above every 
 
 def battery_analysis(rows, poll_s=60, low_mv=2500):
     """Per tag, from a log written by "log": the battery readings over time (the 2.9"
-    panel reports 100 mV steps from 2250 up to "2600 or more"; the 1.54" reports 0), when
+    panel reports 100 mV steps 2150..2550 and "2600 or more"; the 1.54" reports 0), when
     each lower step was first reached, the rate in mV per day worked out from those
     steps, the time left until low_mv at that rate, and a rough charge count from the
     power budget (polls at poll_s, and one update per change of shown_content_id). A log
@@ -1222,15 +1231,18 @@ def battery_analysis(rows, poll_s=60, low_mv=2500):
         if not r.get("mac") or r.get("ap_reset") == "no answer":
             continue
         t = per.setdefault(r["mac"], {"model": "", "first": None, "last": None, "mv": [],
-                                       "draws": 0, "shown": None, "rounds": 0, "draws_at": []})
+                                       "draws": 0, "shown": None, "rounds": 0, "draws_at": [], "mv_last": None})
         t["model"] = t["model"] or r.get("model")
         ts = when(r.get("time") or "")
         t["first"] = ts if t["first"] is None else min(t["first"], ts)
         t["last"] = ts if t["last"] is None else max(t["last"], ts)
         t["rounds"] += 1
         mv = num(r.get("battery_mv"))
-        if mv:
+        if mv and mv != t["mv_last"]:
+            # only the change points: a week at 60 s is ~10k rows per tag, nearly all the same
+            # value, and steps, minimum, rate and chart need only where the value changed
             t["mv"].append((ts, mv))
+            t["mv_last"] = mv
         shown = r.get("shown_content_id")
         if shown and shown != "0" and shown != t["shown"]:
             if t["shown"] is not None:
@@ -1888,8 +1900,11 @@ def main(argv=None):
         print("\n".join(lines))
         return 0 if ok else 1
     if args.cmd == "battery":
+        if args.poll_s < 1:
+            print("error: --poll-s must be 1 or more", file=sys.stderr)
+            return 2
         try:
-            lines, table, series = battery_analysis(read_log(args.file), args.poll_s, args.low_mv)
+            lines, table, series = battery_analysis(iter_log(args.file), args.poll_s, args.low_mv)
             if args.csv:
                 with open(args.csv, "w", newline="", encoding="utf-8") as f:
                     w = csv.DictWriter(f, fieldnames=BATTERY_COLUMNS)
