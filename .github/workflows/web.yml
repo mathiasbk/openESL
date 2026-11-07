@@ -87,6 +87,9 @@ jobs:
     needs: source
     if: needs.source.outputs.firmware == 'yes'
     uses: ./.github/workflows/firmware.yml
+    permissions:
+      contents: read
+      actions: read   # firmware.yml's ap-size compares with the base branch's images
     with:
       ap: ${{ needs.source.outputs.ap }}
 
