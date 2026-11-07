@@ -13,6 +13,7 @@ import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
+import { openRenderer, draw, LAYOUT_TEXT, FLAG_FRAME } from "./renderframe.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
@@ -39,7 +40,9 @@ const store = {
   set: (k, v) => { try { localStorage.setItem("openesl." + k, v); } catch { /* private window */ } },
 };
 
-export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
+// firmwareBase: where the firmware files are ("" next to the page); rendererBase: where the
+// previews' renderer comes from ("" the page's own, js/renderframe.js)
+export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererBase = "" } = {}) {
   let client = null;      // anything with call(method, path)
   const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
@@ -58,7 +61,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
-  const layoutCard = initLayouts({ client: () => client, refresh: () => refresh(), firmwareBase, sameOrigin });
+  const layoutCard = initLayouts({ client: () => client, refresh: () => refresh(), rendererBase, pageInfo: () => pageInfo, sameOrigin });
 
   const msg = (text, cls = "") => {
     $("dash-msg").textContent = text;
@@ -788,16 +791,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     const seq = ++stSeq;
     if (!row) return ($("st-preview").hidden = true);
     try {
-      // On the AP's own page the renderer comes from the published page
-      const R = await import(firmwareBase ? new URL("js/renderer.js", firmwareBase).href : "./renderer.js");
-      const r = await R.loadRenderer(model, firmwareBase ? new URL("wasm/", firmwareBase) : undefined);
+      // On the AP's own page without a renderer of its own, the published page's, in a frame
+      const r = await openRenderer(model, rendererBase);
+      const out = await draw(r, { layout: LAYOUT_TEXT, flags: row.frame ? FLAG_FRAME : 0, fields: row.fields });
       if (seq !== stSeq) return;
-      const out = r.render(R.LAYOUT_TEXT, row.frame ? R.FLAG_FRAME : 0, row.fields);
-      if (!out.ok) {
+      if (!out?.ok) {
         $("st-preview").hidden = true;
         return;
       }
-      const { width: w, height: h } = R.MODELS[model];
+      const { width: w, height: h } = r;
       const c = $("st-screen");
       if (c.width !== w || c.height !== h) [c.width, c.height] = [w, h];
       const ctx = c.getContext("2d");

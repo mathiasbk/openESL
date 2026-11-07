@@ -154,7 +154,7 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 
 - Each row has a tick box; the header's ticks every tag the table shows. A box then shows the count (and how many of them Find or a filter hides) and the form to send them text or firmware.
 - **Forget** removes the ticked tags from the AP (`DELETE /api/tags/{mac}`: content, settings and scheduled content), after asking twice. A broken tag stays gone; one that still polls comes back as a new tag.
-- **Text** with the built-in layout `text`: the AP's address and WiFi, the tag's own info, today's date, or your own four lines. A preview is drawn by the AP's own code (on the AP's page the renderer is loaded from the published page), with a list of what each tag gets.
+- **Text** with the built-in layout `text`: the AP's address and WiFi, the tag's own info, today's date, or your own four lines. A preview is drawn by the AP's own code (on the AP's page as in the Layouts card), with a list of what each tag gets.
 - A word in braces in your own lines is filled in for each tag: `{ap_ip}`, `{ap_name}`, `{wifi}`, `{ap_fw}`, `{channel}`, `{tags}` from the AP, `{mac}`, `{model}`, `{battery}`, `{rssi}`, `{fw}`, `{seen}` from the tag, and `{weekday}`, `{date}` (Norwegian) and `{time}`. Buttons put them in.
 - When the lines have the date, the next days go to the AP as scheduled content for midnight (at most 50 rows in one `PUT /api/tags`), after the AP's clock is checked and, if it has none, set from the computer. `esl_client.py text` and `date` do the same for one tag.
 - **Tag firmware** published with the page: the AP gets the image for the first ticked tag of a model that needs it and gives it to the others too. The list says what each tag gets or why it gets nothing (already has it, no radio updates).
@@ -162,6 +162,7 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 **Layouts card** (`js/aplayouts.js`)
 
 - Per tag model: the built-in layouts and the AP's layout file drawn with the renderer, with how many tags show each (`js/layoutinfo.js` asks each tag whose content changed for its layout).
+- On the AP's page, a board with the Design tab draws with the renderer it packs. One without it (the C6) loads the published page's renderer in a sandboxed frame that cannot reach the page's token (`js/renderframe.js`). The card says when the previews could not be loaded, or come from a renderer built for other AP firmware than the AP runs.
 - The templates of the library the AP lacks, each sent with one press (`addTemplate` from `js/catalog.js`, then `PUT /api/layouts/{model}`).
 - A layout no tag uses can be removed. Edit opens it in the designer where the page has one (an `openesl-edit-layout` event to `js/editor.js`).
 - Picking a layout shows its fields in order, the template's text for each, examples for curl, JSON, an `esl_client.py sync` CSV and Home Assistant, and the tags that show it. Tags whose layout the AP lacks are named at the top.
@@ -213,6 +214,8 @@ The compiler limits the number of boxes (inverted and highlighted text count as 
 1. builds the tag firmware (SDCC 4.5.0, every model) and the AP (ESP-IDF v5.5.5, every board, each merged into one image at offset 0) through `firmware.yml`;
 2. builds the page and the renderer and runs the tests;
 3. publishes `web/dist` to GitHub Pages.
+
+A fork that publishes its own page sets its address in `SITE` in `js/site.js`: the AP's page and the designer take it from there.
 
 The firmware the flash tabs offer is the latest GitHub release (`firmware/info.json` says which); before the first release it is the firmware built from that commit. Pull requests build and test only, and attach the page, with the firmware built from the pull request, as an artifact. See "Versions and release files" in [docs/release.md](../docs/release.md#7-versions-and-release-files).
 

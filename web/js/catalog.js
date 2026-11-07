@@ -6,7 +6,8 @@
 
 // Where the published catalog is: next to the page (GitHub Pages, a local build), and on
 // GitHub Pages for a page that has none (the AP's own designer, ap/main/webui.py)
-export const PAGES = "https://mathiasbk.github.io/openESL/";
+import { SITE } from "./site.js";
+export const PAGES = SITE;
 
 // The variant of template t for a model, with "same_as" followed: { layout, icons, note }, or null
 export function variantFor(t, model) {

@@ -11,13 +11,14 @@
 // Save there, with the token that page already has. It takes messages only from the
 // published web page, or from a page on this computer (a local build).
 import { modelName } from "./models.js";
+import { SITE_ORIGIN } from "./site.js";
 
 export const READY = "openesl-ready";
 export const LAYOUTS = "openesl-layouts";
 export const SAVED = "openesl-saved";
 export const VERSION = 1;
 export const QUERY = "from=designer";
-export const WEB_ORIGIN = "https://mathiasbk.github.io";
+export const WEB_ORIGIN = SITE_ORIGIN;
 
 // What the user typed as the AP's address -> { url } of its page that receives, or { error }.
 // The AP serves http only; "openesl.local" or "192.168.1.20" get http:// in front.
