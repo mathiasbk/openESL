@@ -1,8 +1,11 @@
 # AP firmware (ESP32-C6, ESP-IDF)
 
-One ESP32-C6 is the whole AP (other boards, such as an ESP32-S3 with a C6 as its radio, are in [boards/](boards/README.md)): an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. The AP holds no business logic, only text fields per tag, and draws each tag's screen from them. Plan and requirements: [docs/history/ap-firmware-plan.md](../docs/history/ap-firmware-plan.md). API and radio protocol: [docs/protocol.md](../docs/protocol.md).
+The access point: an HTTP API over WiFi for any client software, and an 802.15.4 radio towards the tags. It holds no business logic, only text fields per tag, and draws each tag's screen from them. One ESP32-C6 is the whole AP; other boards, such as an ESP32-S3 with a C6 as its radio, are in [boards/](boards/README.md).
 
-**Status:** the core, the HTTP API (including layout files, per-tag settings and the setup form), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
+- **Build:** `python build.py` (one or every board, ESP-IDF v5.5.5), or `idf.py build flash monitor` for the default board. See [Build and flash](#build-and-flash).
+- **Test:** `make` in `test/`, on the PC with no hardware. See [Tests on the PC](#tests-on-the-pc).
+- **Start in the code:** `components/esl_core/` is plain C and holds the logic (API, store, drawing, radio replies); `main/` is the ESP-IDF glue. The [code map](../docs/code-map.md) says where to start for a change.
+- **Reference:** the API in [docs/openapi.yaml](../docs/openapi.yaml), the radio protocol and layout format in [docs/protocol.md](../docs/protocol.md).
 
 ## Layout
 
@@ -51,6 +54,65 @@ ap/
   test/                   host unit tests (Makefile)
 ```
 
+## Build and flash
+
+- **ESP-IDF v5.5.5**, pinned (requirement G5 in [docs/requirements.md](../docs/requirements.md)). `dependencies.lock` pins the managed components for the ESP32-C6. Other chips get `dependencies.lock.<chip>` on their first build, to be committed too; the C5 and S3 ones are not committed yet, so those builds are not pinned.
+- **Boards:** each board in `boards/` has its chip, flash size, partition table and options; see [boards/README.md](boards/README.md).
+- **Partition table:** the C6 Super Mini's (`boards/c6-supermini/partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB).
+- **Older tables:** a board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web page's Flash AP tab, which offers it), since the partitions moved. Erasing takes the stored tags, layout files and settings with it: `esl-client backup ap.json` before and `esl-client restore ap.json` after keeps them (`tools/esl-client/README.md`).
+
+```bash
+cd ap
+idf.py menuconfig                  # the ESP32-C6 Super Mini (boards/c6-supermini), as before
+idf.py build flash monitor
+python build.py --list             # the boards
+python web/build.py --wasm         # the renderer for the Design tab (the S3 and C5 boards; Emscripten)
+python build.py c5-wroom-1u-n16r8  # one board: build-<board>/, and out/<artifact>.bin + -ota.bin
+idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
+```
+
+The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed.
+
+A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than what it is built from (`renderer_inputs()` in `web/build.py`: `web/wasm/web_api.c`, the AP's layout and drawing code, the tag's fonts and headers, the boards' `limits`), also on an incremental `idf.py build`, so run `python web/build.py --wasm` again after changing those.
+
+**Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:
+
+| Way | NVS (tags, layouts, WiFi, token) |
+|---|---|
+| The web page's Flash AP tab, on an AP that runs OpenESL | kept: it writes the bootloader, the partition table, blank `otadata` and the app in `ota_0`, nothing else |
+| `esl-client --serial <port> ota openesl-ap-...-ota.bin --wait` (Linux and macOS: the serial client needs `termios`) | kept: the same as an OTA update over WiFi, through the USB port (`POST /api/ota` in parts); the partition table is not changed |
+| `esptool --port <port> erase-region 0x7E000 0x2000`, then `esptool --port <port> write-flash 0x90000 openesl-ap-...-v<version>-ota.bin` (also on Windows) | kept: the app goes to `ota_0` and the blank `otadata` makes the AP boot it; the partition table is not changed. Writing 0x90000 alone is not enough: after an OTA update the AP may boot `ota_1` (0x210000 on the C6), and would keep running the old app. The offsets are the same on every board in `boards/` |
+| `idf.py flash` | kept, as the web page |
+| A release's single `openesl-ap-...-v<version>.bin` (without `-ota`, for any board) written at 0x0 (`esptool write-flash 0x0 ...`) | **erased**: the file is one image from 0x0 to the end of the app, and the gap between the partition table and the app (NVS and `otadata`) is blank bytes |
+
+So the single file is only for a new board or one that is erased anyway. When a release needs a new partition table (as when `tagfw` came), use the web page's Flash AP tab, or take `esl-client backup ap.json` first.
+
+## Tests on the PC
+
+```bash
+cd ap/test
+make          # build and run (needs cc/gcc/clang)
+make SAN=1    # with AddressSanitizer and UBSan (needs libasan/libubsan; on Fedora: dnf install libasan libubsan)
+```
+
+Without gcc/clang on Windows: `pip install ziglang`, then build for Linux with `python -m ziglang cc -target x86_64-linux-musl ...` (zig's native Windows target fails in its mingw libc). Run the binary in WSL.
+
+What the tests cover:
+
+- **Core:** CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence).
+- **Layout files:** the compiler with the example files in `tag/designs/layouts/` and every error message, and storage.
+- **The API:** auth, validation, batches, limits, layouts and named content, settings, the token lockout (also for the `/setup` form), OTA routing, the field limit.
+- **WiFi setup:** form decoding, the setup page and its escaping, token rules, `/api/wifi`.
+- **The status screen:** every WiFi state, the tag line in its three colours, long text cut before the edge, odd sizes.
+- **The radio path end to end with fake tags:** new tag, same content (no redraw), new content, a lost first IMG block, AP restart, tag restart, a tag without images, next_poll_s, frames that must be ignored, 24 tags in one batch (G3).
+- **Per-tag settings over CONFIG:** the fake tag uses the new interval, confirms with `cfg_ver`, gets them again after a tag restart but not after an AP restart; an old-firmware fake tag never gets CONFIG but still gets its interval. Also the run-time default interval in NVS.
+- **Images:** drawn when the tag shows another, sent in blocks in one wake-up, named layouts drawn from the file, a new or deleted file, lost blocks, busy buffers, drawing after the reply with many tags waiting at once and on an IMG_REQ for content changed meanwhile, RLE and the 2D code (with a decoder of its own written from the protocol, in place and not, and edge cases).
+- **Scheduled content and the clock** (`test_sched.c`), the health report and the webhook body.
+
+The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`.
+
+Not covered here: the ESP-IDF glue in `main/` (built in CI and run on hardware), radio timing (must be measured on hardware, requirement A3), WiFi and coexistence, and OTA writing and rollback on real flash.
+
 ## How content and diffing work
 
 - `content_id` = CRC32 of layout, flags and text fields (never 0). The same content twice gives `changed:false`, no NVS write and no redraw on the tag. A tag that shows images reports the image id (CRC-32 of the image bytes) in POLL instead; the API shows it as `shown_image_id`, and `shown_content_id` is the content's id while the tag shows that content's image.
@@ -76,7 +138,10 @@ Choices: **Highlighted price:** `price_highlight` gives white digits in a black 
 
 ## HTTP API
 
-The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protocol.md](../docs/protocol.md) part 2 has an overview. `make openapi` in `test/` checks the spec against the code. The API lives in `components/esl_core/esl_api*.c`: `esl_api.c` has the route table, and each resource has its own file (`esl_api_tags.c`, `esl_api_layouts.c`, `esl_api_config.c` ...); to add an endpoint, add a line to the table, the handler in its resource file and the path in `docs/openapi.yaml`. Every call requires `Authorization: Bearer <token>` (an empty token always gives `401`). Five wrong tokens in a row lock the API for 60 s: every request, also with the right token, gets `429` until then, and `POST /api/ota` counts the same way (`esl_api_auth_check()`, `esl_api_lock_t`). The USB port has no token and no lockout.
+The reference is [docs/openapi.yaml](../docs/openapi.yaml), shown with test requests in the API tab of the web page; [docs/protocol.md](../docs/protocol.md) part 2 has an overview. `make openapi` in `test/` checks the spec against the code.
+
+- **Code:** the API lives in `components/esl_core/esl_api*.c`: `esl_api.c` has the route table, and each resource has its own file (`esl_api_tags.c`, `esl_api_layouts.c`, `esl_api_config.c` ...); to add an endpoint, add a line to the table, the handler in its resource file and the path in `docs/openapi.yaml`.
+- **Token:** every call requires `Authorization: Bearer <token>` (an empty token always gives `401`). Five wrong tokens in a row lock the API for 60 s: every request, also with the right token, gets `429` until then, and `POST /api/ota` counts the same way (`esl_api_auth_check()`, `esl_api_lock_t`). The USB port has no token and no lockout.
 
 ```bash
 curl -X PUT http://openesl.local/api/tags/00000123456789A8 \
@@ -106,6 +171,17 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8 -H "Authorization: Be
 - A stored file takes its JSON and its compiled size from the heap (plus about 0.7 KB for the names and limits), not `ESL_LBIN_MAX` per model.
 - `layout` in `PUT /api/tags` may name a layout in the file (A14). It must be in the file for the tag's model once the model is known, or in either file before that; otherwise `422`.
 
+### Over the USB port
+
+With `ESL_SERIAL_API` (on by default; the console is on the built-in USB-Serial-JTAG port) the same API also answers on the USB port, for setups without WiFi. Requests and replies are framed lines in the log stream:
+
+```
+host -> AP:  @ESL <seq> <METHOD> <uri> <len>\n<len bytes body>
+AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
+```
+
+A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to 23 KB: every piece but the last has `+` after its length (`@ESL 7 200 22912+ {"ap":...`), and the host joins them; log lines can come between pieces, never inside one. No token is needed there, since whoever has the cable has the device. WiFi can be set this way too: `esl-client --serial /dev/ttyACM0 wifi "Network" --password ...` (`PUT /api/wifi`). `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
+
 ## Tag settings (poll interval and CONFIG)
 
 Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll_s`, `max_poll_s`, `lost_ap_s`), and the AP has a default interval for tags without their own `poll_s`, set with `PUT /api/config`. Details: [docs/protocol.md](../docs/protocol.md) parts 1 and 2.
@@ -130,32 +206,60 @@ Each tag can have its own settings, set with `PUT /api/tags/{mac}/config` (`poll
 
 `GET /api/health` lists the tags that need attention, for monitoring: `silent` (no poll for `silent_s`, default 3 x the interval the AP sends the tag), `unseen` (in the table from NVS, but no poll since the AP started for that long), `draw_failed`, `low_battery` (below `battery_mv`, default 2500; a tag that reports 0 cannot measure it) and `content_error`. `?silent_s=600&battery_mv=2400` changes the thresholds for one call, and `ok` says whether anything is listed. `esl-client health` prints it and exits 1 when there are problems.
 
-With `PUT /api/config {"webhook":"http://host:port/path"}` (`esl-client config --webhook ...`, kept in NVS `cfg/webhook`) the AP posts the same report, with `changed` = how many tags' problems differ from the last report, to that URL whenever it changes; `health.c` checks every `ESL_HEALTH_PERIOD_S` (30 s). Plain HTTP, no retries: a failed POST is logged and the change goes out with the next one. The logic is in `esl_health.c` and `esl_api_health()` (host-tested); the task and `esp_http_client` are the ESP-IDF side (`ESL_WEBHOOK`, on by default).
+With `PUT /api/config {"webhook":"http://host:port/path"}` (`esl-client config --webhook ...`, kept in NVS `cfg/webhook`) the AP posts the same report, with `changed` = how many tags' problems differ from the last report, to that URL whenever it changes.
+
+- `health.c` checks every `ESL_HEALTH_PERIOD_S` (30 s).
+- Plain HTTP, no retries: a failed POST is logged and the change goes out with the next one.
+- The logic is in `esl_health.c` and `esl_api_health()` (host-tested); the task and `esp_http_client` are the ESP-IDF side (`ESL_WEBHOOK`, on by default).
 
 ## Data sources
 
-On the S3 boards (`ESL_DATASOURCES`) the AP fetches content for itself: the weather forecast for a place from MET Norway, every 30 minutes or less often, filled into the source's field templates and set on its tags as `PUT /api/tags` would (`GET`/`PUT /api/sources`, `POST /api/sources/refresh`, the Dashboard's "Weather and data sources" card). The list is kept in NVS `cfg/sources`; the last answer of each source is kept in PSRAM, sent back with `If-Modified-Since`, and used again when only the layout, fields or tags changed. The AP never asks MET before an answer's `Expires`. The configuration, the API, MET's JSON and the content are in `esl_source.c` (host-tested, `test_source.c`); `datasrc.c` is the task with `esp_http_client`. Details, every value and MET's terms: [docs/data-sources.md](../docs/data-sources.md).
+On the S3 boards (`ESL_DATASOURCES`) the AP fetches content for itself: the weather forecast for a place from MET Norway, every 30 minutes or less often, filled into the source's field templates and set on its tags as `PUT /api/tags` would. Details, every value and MET's terms: [docs/data-sources.md](../docs/data-sources.md).
 
-### Over the USB port
-
-With `ESL_SERIAL_API` (on by default; the console is on the built-in USB-Serial-JTAG port) the same API also answers on the USB port, for setups without WiFi. Requests and replies are framed lines in the log stream:
-
-```
-host -> AP:  @ESL <seq> <METHOD> <uri> <len>\n<len bytes body>
-AP -> host:  @ESL <seq> <status> <len> <len bytes body>\n
-```
-
-A reply that grows with the tag table (`GET /api/tags`) comes in pieces of up to 23 KB: every piece but the last has `+` after its length (`@ESL 7 200 22912+ {"ap":...`), and the host joins them; log lines can come between pieces, never inside one. No token is needed there, since whoever has the cable has the device. WiFi can be set this way too: `esl-client --serial /dev/ttyACM0 wifi "Network" --password ...` (`PUT /api/wifi`). `tools/esl-client --serial /dev/ttyACM0 ...` speaks this. HTTP and serial requests take turns through one mutex (`api_handle()` in http_api.c).
+- **API:** `GET`/`PUT /api/sources`, `POST /api/sources/refresh`, and the Dashboard's "Weather and data sources" card.
+- **Storage:** the list is kept in NVS `cfg/sources`. The last answer of each source is kept in PSRAM, sent back with `If-Modified-Since`, and used again when only the layout, fields or tags changed. The AP never asks MET before an answer's `Expires`.
+- **Code:** the configuration, the API, MET's JSON and the content are in `esl_source.c` (host-tested, `test_source.c`); `datasrc.c` is the task with `esp_http_client`.
 
 ## OTA: new AP firmware (requirement A10)
 
-`POST /api/ota` with the app image as the body (`esl-client ota build/esl_ap.bin`, or `openesl-ap-esp32c6-<version>-ota.bin` from a release, `openesl-ap-esp32c6-lcd-<version>-ota.bin` on a board with the LCD; not the merged `openesl-ap...bin`, which has the bootloader in front) writes it to the app slot that is not running (`ota.c`, `esp_ota_*`). The last byte makes that slot the boot slot and the AP restarts a second after the reply; tag content, settings, every tag's last poll (saved just before the restart) and layout files stay, since they are in NVS. `GET /api/ota` shows which slot runs and what the other holds. Over WiFi the whole image goes in one request; over the USB port it goes in parts (`?offset=N&total=T`, `esl-client` sends 16 KB at a time), since the serial driver drops bytes when its buffer is full. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the new image must confirm itself: once everything in `app_main` has started, it is kept as soon as WiFi has an address or the API has answered a request over WiFi or USB (`ota_watch_running()`, `ota_confirm_running()`). If it never gets there within three minutes (it broke WiFi, say), the AP restarts into the old slot, so an update over WiFi cannot leave the AP reachable only over USB; if it crashes before, the next reset boots the old slot. Without a WiFi network to join it is kept once it has started. `GET /api/ota` says whether the running image is kept yet (`confirmed`) and whether it has the status screen (`display`), which the dashboard uses to offer the right release image. Flashing over USB (`idf.py flash`, the web flasher) still works and always writes `ota_0`; `ESL_OTA` (on by default) turns the endpoint off, and a one-slot partition table answers `501`.
+`POST /api/ota` with the app image as the body writes it to the app slot that is not running (`ota.c`, `esp_ota_*`).
 
-**Tag firmware.** `PUT /api/tag-firmware` (`esl-client tag-ota openesl-tag-<model>-<version>-ota.bin`) stores firmware for one tag model in the `tagfw` partition (64 KB per model, `tagfw.c`, `esl_tagfw.c`), and the AP sends it to the tags of that model over the radio, block by block, when they have nothing else waiting ([docs/tag-ota.md](../docs/tag-ota.md), [docs/protocol.md](../docs/protocol.md) "Firmware transfer"). `GET /api/tag-firmware` shows each image and how many tags run it, still need it, rejected it or cannot take updates. The image survives restarts. The partition sits after `ota_1` in space that was free, so nothing else moves; an AP that got its firmware through `POST /api/ota` still has the old table without it and answers `404` until it is flashed over USB once. On the C6 boards the partition is 448 KB (7 models) since 0.5.0 and was 128 KB (2 models) before; an AP updated over the air keeps its 2 slots, which is enough for the 2.9" and the 1.54", and the web page's Flash AP tab gives it the 7 and keeps what it has stored.
+- **Which file:** `esl-client ota build/esl_ap.bin`, or `openesl-ap-esp32c6-<version>-ota.bin` from a release (`openesl-ap-esp32c6-lcd-<version>-ota.bin` on a board with the LCD). Not the merged `openesl-ap...bin`, which has the bootloader in front.
+- **What stays:** the last byte makes that slot the boot slot and the AP restarts a second after the reply. Tag content, settings, every tag's last poll (saved just before the restart) and layout files stay, since they are in NVS.
+- **WiFi or USB:** over WiFi the whole image goes in one request. Over the USB port it goes in parts (`?offset=N&total=T`; `esl-client` sends 16 KB at a time), since the serial driver drops bytes when its buffer is full.
+- **Rollback:** with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the new image must confirm itself. Once everything in `app_main` has started, it is kept as soon as WiFi has an address or the API has answered a request over WiFi or USB (`ota_watch_running()`, `ota_confirm_running()`). If it never gets there within three minutes (it broke WiFi, say), the AP restarts into the old slot, so an update over WiFi cannot leave the AP reachable only over USB. If it crashes before, the next reset boots the old slot. Without a WiFi network to join it is kept once it has started.
+- **`GET /api/ota`** shows which slot runs and what the other holds, whether the running image is kept yet (`confirmed`) and whether it has the status screen (`display`), which the dashboard uses to offer the right release image.
+- Flashing over USB (`idf.py flash`, the web flasher) still works and always writes `ota_0`. `ESL_OTA` (on by default) turns the endpoint off, and a one-slot partition table answers `501`.
+
+### Tag firmware
+
+`PUT /api/tag-firmware` (`esl-client tag-ota openesl-tag-<model>-<version>-ota.bin`) stores firmware for one tag model in the `tagfw` partition (64 KB per model, `tagfw.c`, `esl_tagfw.c`). The AP sends it to the tags of that model over the radio, block by block, when they have nothing else waiting ([docs/tag-ota.md](../docs/tag-ota.md), [docs/protocol.md](../docs/protocol.md) "Firmware transfer").
+
+- `GET /api/tag-firmware` shows each image and how many tags run it, still need it, rejected it or cannot take updates. The image survives restarts.
+- The partition sits after `ota_1` in space that was free, so nothing else moves. An AP that got its firmware through `POST /api/ota` still has the old table without it and answers `404` until it is flashed over USB once.
+- On the C6 boards the partition is 448 KB (7 models) since 0.5.0 and was 128 KB (2 models) before. An AP updated over the air keeps its 2 slots, which is enough for the 2.9" and the 1.54"; the web page's Flash AP tab gives it the 7 and keeps what it has stored.
 
 ## WiFi setup
 
-With no network saved (first start, or after `PUT /api/wifi {"ssid":null}`), the AP opens its own network `openesl-XXXX` and a form at `http://192.168.4.1/setup` (`/` redirects there): pick the network from the menu of networks the AP found (strongest first; a plain `<select>`, since the datalist it used before only showed while typing and phones' sign-in windows never showed it), enter the password, and choose the API token if none is set. The AP saves both in NVS (`cfg/ssid`, `cfg/pass`, `cfg/token`) and joins at once. If the saved network gives no IP for `ESL_WIFI_SETUP_AFTER_S` (180 s), the setup network opens again next to it, so a changed WiFi password can be fixed without a cable; it closes a minute after the AP has joined. While it is open the AP is a captive portal (`ESL_WIFI_CAPTIVE`, `main/captive.c`): a small DNS server on 192.168.4.1 answers every name with that address, and any page the AP does not have, asked for by another name, redirects to the form, so a phone that joins `openesl-XXXX` shows its "sign in to network" page with the form in it. The DNS server runs only while the setup network is open. While the setup network is open the AP retries the saved one every 20 s (joining hops channels, which drops phones on the setup network). Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet, and wrong tokens in the form count in the same lockout as the API (five in a row lock both for 60 s); set `ESL_WIFI_SETUP_PASSWORD` for WPA2 on it. The same settings are in `GET/PUT /api/wifi` and over the USB port: `PUT /api/wifi` also takes `"token"` for a new API token (with or without the network), and `GET` says whether one is set (`"token_set"`, never the token). `"hostname"` sets the AP's name on the network, which it gives the router over DHCP and uses for mDNS (`<name>.local`; NVS `cfg/hostname`, `openesl` from `ESL_MDNS_HOSTNAME` until changed); the AP rejoins at once so the router learns it. Over the USB port that needs no old token, so a lost token is replaced with `esl_client.py --serial /dev/ttyACM0 wifi --new-token ...`, and the web page sets the WiFi and the token over the same cable right after flashing (Flash AP tab, step 3). The checks, the form and the pages are in `esl_wifi.c` (host-tested); `wifi.c` is the ESP-IDF side.
+With no network saved (first start, or after `PUT /api/wifi {"ssid":null}`), the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there). The checks, the form and the pages are in `esl_wifi.c` (host-tested); `wifi.c` is the ESP-IDF side.
+
+**The form**
+
+- Pick the network from the menu of networks the AP found (strongest first; a plain `<select>`, since a datalist only showed while typing and phones' sign-in windows never showed it), enter the password, and choose the API token if none is set.
+- The AP saves both in NVS (`cfg/ssid`, `cfg/pass`, `cfg/token`) and joins at once.
+- Once a token is set, the form asks for it before changing anything, so an open setup network only lets strangers configure an AP that has no token yet. Wrong tokens in the form count in the same lockout as the API (five in a row lock both for 60 s). Set `ESL_WIFI_SETUP_PASSWORD` for WPA2 on the setup network.
+
+**When the setup network opens**
+
+- If the saved network gives no IP for `ESL_WIFI_SETUP_AFTER_S` (180 s), the setup network opens again next to it, so a changed WiFi password can be fixed without a cable. It closes a minute after the AP has joined.
+- While it is open the AP retries the saved network every 20 s (joining hops channels, which drops phones on the setup network).
+- While it is open the AP is a captive portal (`ESL_WIFI_CAPTIVE`, `main/captive.c`): a small DNS server on 192.168.4.1 answers every name with that address, and any page the AP does not have, asked for by another name, redirects to the form. A phone that joins `openesl-XXXX` then shows its "sign in to network" page with the form in it. The DNS server runs only while the setup network is open.
+
+**The same over the API and USB**
+
+- `GET/PUT /api/wifi` has the same settings. `PUT` also takes `"token"` for a new API token (with or without the network), and `GET` says whether one is set (`"token_set"`, never the token).
+- `"hostname"` sets the AP's name on the network, which it gives the router over DHCP and uses for mDNS (`<name>.local`; NVS `cfg/hostname`, `openesl` from `ESL_MDNS_HOSTNAME` until changed). The AP rejoins at once so the router learns it.
+- Over the USB port no old token is needed, so a lost token is replaced with `esl_client.py --serial /dev/ttyACM0 wifi --new-token ...`. The web page sets the WiFi and the token over the same cable right after flashing (Flash AP tab, step 3).
 
 ## Status screen (boards with an LCD)
 
@@ -175,13 +279,23 @@ python build.py c6-supermini-lcd
 idf.py -B build-c6-supermini-lcd -p /dev/ttyACM0 flash monitor
 ```
 
-CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in `boards/c6-supermini-lcd/sdkconfig.defaults` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are those of the Waveshare ESP32-C6-LCD layout; they work on the common "ESP32-C6 LCD 0.96 inch ST7789 160x80" board with an SD slot (the SD slot is not used). On other boards, check them against the silkscreen or schematic. At start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`. The text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
+CI builds the same as `openesl-ap-lcd.bin` (and releases attach it).
+
+- **Pins:** the ones in `boards/c6-supermini-lcd/sdkconfig.defaults` (MOSI 6, SCLK 7, CS 14, DC 15, RST 21, backlight 22) are those of the Waveshare ESP32-C6-LCD layout; they work on the common "ESP32-C6 LCD 0.96 inch ST7789 160x80" board with an SD slot (the SD slot is not used). On other boards, check them against the silkscreen or schematic.
+- **Checking the panel:** at start the screen shows a yellow frame around the edge for two seconds: if a side is missing or doubled, change `ESL_LCD_GAP_X`/`ESL_LCD_GAP_Y` (default 1/26, the usual offset of 80x160 panels); wrong colours mean `ESL_LCD_BGR` or `ESL_LCD_INVERT`, upside down means `ESL_LCD_ROTATE_270`.
+- **Code:** the text comes from `esl_screen.c` in the tag's small font (`tag/fonts/font_small.c`), host-tested; `ESL_SCREEN_DUMP=dir make` in `test/` writes the test screens as pictures. `display.c` only drives the panel (`esp_lcd`).
 
 ## How many tags
 
 `ESL_MAX_TAGS` (menuconfig, default 1000, at most 4096) is the most tags the AP keeps. The table starts empty and grows 32 slots at a time as tags turn up. What each tag costs:
 
-- **RAM:** 112 bytes per slot (`sizeof(esl_tag_t)`): 112 KB at 1000. 24 of them are the signal history of the last 8 POLLs (`ESL_LINK_HIST`; 32 POLLs and 160 bytes per slot on boards with PSRAM, set from `psram_mb` in `board.json`), which is in RAM only and starts empty after a restart. A tag's content (text and layout name) is not in RAM: it is read from NVS when the AP draws the tag's image or the API shows it. On the C6 the table stops growing while it would leave less than 40 KB of internal RAM free, or 16 KB at the lowest it has been since boot (`TABLE_RESERVE` and `TABLE_LOW_MARK` in `main/store_nvs.c`), which is about 400 tags next to WiFi, measured on hardware: a C6 on 0.9.2 with WiFi, the dashboard and Home Assistant reading `GET /api/tags` stopped at 416 (13 chunks). The estimate before that was 550. Since the second check counts the lowest point since boot, one peak (two `GET /api/tags` at once with their 23 KB buffers, a TLS handshake to an https webhook, an OTA upload) can stop it lower until the next restart; the log line `no room for more tags (free heap N bytes, lowest M)` says which of the two it was. `max_tags` in `GET /api/tags` is `ESL_MAX_TAGS`, not this limit, so the dashboard shows "416 of 1000" with "full" next to it; tags that already have a slot always come back at boot. A new tag that finds no room is then not added (`"table_full": true` under `"ap"` in `GET /api/tags`, shown on the dashboard and the LCD, and logged once), and a new tag with content takes the slot of the longest-unseen tag without content or settings. On the C5 with PSRAM the table goes in PSRAM; finding a tag is a linear search, so measure the POLL reply time there before going far past 1000 tags. The boot log ends with `free heap N bytes, tag table S slots of 112 bytes`.
+- **RAM:** 112 bytes per slot (`sizeof(esl_tag_t)`): 112 KB at 1000. 24 of them are the signal history of the last 8 POLLs (`ESL_LINK_HIST`; 32 POLLs and 160 bytes per slot on boards with PSRAM, set from `psram_mb` in `board.json`), which is in RAM only and starts empty after a restart. A tag's content (text and layout name) is not in RAM: it is read from NVS when the AP draws the tag's image or the API shows it. The boot log ends with `free heap N bytes, tag table S slots of 112 bytes`.
+- **The C6's limit, about 400 tags:** the table stops growing while it would leave less than 40 KB of internal RAM free, or 16 KB at the lowest it has been since boot (`TABLE_RESERVE` and `TABLE_LOW_MARK` in `main/store_nvs.c`).
+  - Measured on hardware: a C6 on 0.9.2 with WiFi, the dashboard and Home Assistant reading `GET /api/tags` stopped at 416 (13 chunks). The estimate before that was 550.
+  - Since the second check counts the lowest point since boot, one peak (two `GET /api/tags` at once with their 23 KB buffers, a TLS handshake to an https webhook, an OTA upload) can stop it lower until the next restart. The log line `no room for more tags (free heap N bytes, lowest M)` says which of the two it was.
+  - `max_tags` in `GET /api/tags` is `ESL_MAX_TAGS`, not this limit, so the dashboard shows "416 of 1000" with "full" next to it. Tags that already have a slot always come back at boot.
+  - A new tag that finds no room is not added (`"table_full": true` under `"ap"` in `GET /api/tags`, shown on the dashboard and the LCD, and logged once), and a new tag with content takes the slot of the longest-unseen tag without content or settings.
+- **The C5 with PSRAM** keeps the table in PSRAM. Finding a tag is a linear search, so measure the POLL reply time there before going far past 1000 tags.
 - **NVS:** up to about 400 bytes per tag with content, settings and its last poll (three blobs, 32-byte NVS entries), plus one layout file of up to 8 KB per tag model that has one (in RAM too: a model without a file holds none) and up to about 160 bytes per waiting scheduled entry (40 KB at the default 256, "Scheduled content"). The NVS partition is 468 KB, so about 1000 tags with content fit. When it is full, `PUT /api/tags` answers 507 `no room to save it (NVS full)` and the tag keeps the content it had (settings are not checked that way yet: they stay in RAM until a restart).
 - **`GET /api/tags?since=`** (only the tags that changed, for Home Assistant): 12 bytes per slot, a CRC of each tag's row, when it last changed and which tag it was, allocated 32 slots at a time on the first such read (about 2.4 KB at 200 tags). Each such read renders every row once more to take its CRC, without a buffer for it. Every poll changes a tag's row (last seen, signal), so the saving depends on the tags' `poll_s` against the client's interval: with `poll_s` 600 and a read every 120 s about a fifth of the tags are in each reply, with the built-in 60 s nearly all of them.
 - **API replies:** `GET /api/tags` is streamed (HTTP chunks, `+` pieces on the USB port) through one 23 KB buffer per request, so it does not grow with the table. So is the webhook's report (a chunked POST through a 2 KB buffer). A batch (`PUT /api/tags`) is still at most 50 tags.
@@ -195,9 +309,9 @@ CI builds the same as `openesl-ap-lcd.bin` (and releases attach it). The pins in
 
 `http://openesl.local/dashboard` is the web page's Dashboard tab, served by the AP itself: the AP's state and WiFi, every tag with its screen as the AP draws it and what needs attention, and the firmware card (AP OTA and tag firmware: the latest release, fetched from the web page, or a file). A page on https (GitHub Pages) may not call the AP's plain http API, which is why the page on the web needs USB or the bridge in `tools/esl-client`; a page that comes from the AP may. It asks for the API token once and keeps it in that browser for that address (localStorage). The setup form links to it, and `/` leads to it.
 
-The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 45 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
+**How it is packed.** The files are not a copy: `main/webui.py` takes the `<main id="tab-dashboard">` part of `web/index.html`, `web/css/style.css` and the dashboard's modules from `web/js/` (`apdash.js` starts it) at build time, gzips them (about 45 KB) into a C table in flash, and `http_api.c` serves `/dashboard` and `/ui/...` with `Content-Encoding: gzip`. No RAM is used for them. `ESL_WEB_DASHBOARD` in menuconfig turns it off. A change to the dashboard on the web page reaches the AP with its next firmware.
 
-Each tab is a module (`MODULES` in `main/webui.py`), and the board's Kconfig picks the ones its firmware has room for. A board with flash and PSRAM to spare (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) also turns on `ESL_WEB_DESIGNER`: the page then has the Design tab next to the Dashboard (`js/aptabs.js` switches them, `#design` in the address opens it). There the designer opens the layout file stored on this AP for each model (`GET /api/layouts/{model}`), *Save to AP* writes it back, *Reload from the AP* drops changes made in the browser, and *Send to tag* works as on the web page; the token is the Dashboard's. Its renderer (WebAssembly, `render-<build>.js/.wasm` per tag model, about 45 KB gzipped each) is packed too, at `/ui/wasm/`, built from the same sources as the firmware: the preview and the checks match what this AP draws, and the tab works without the internet. Building such a board therefore needs Emscripten 3.1.74 and `python web/build.py --wasm` first (see Build and flash). The USB flashers stay on the web page, since a browser only allows Web Serial on https.
+**The Design tab on boards with room.** Each tab is a module (`MODULES` in `main/webui.py`), and the board's Kconfig picks the ones its firmware has room for. A board with flash and PSRAM to spare (`s3-n16r8-c6`, `c5-wroom-1u-n16r8`) also turns on `ESL_WEB_DESIGNER`: the page then has the Design tab next to the Dashboard (`js/aptabs.js` switches them, `#design` in the address opens it). There the designer opens the layout file stored on this AP for each model (`GET /api/layouts/{model}`), *Save to AP* writes it back, *Reload from the AP* drops changes made in the browser, and *Send to tag* works as on the web page; the token is the Dashboard's. Its renderer (WebAssembly, `render-<build>.js/.wasm` per tag model, about 45 KB gzipped each) is packed too, at `/ui/wasm/`, built from the same sources as the firmware: the preview and the checks match what this AP draws, and the tab works without the internet. Building such a board therefore needs Emscripten 3.1.74 and `python web/build.py --wasm` first (see Build and flash). The USB flashers stay on the web page, since a browser only allows Web Serial on https.
 
 ## Tag model in POLL
 
@@ -205,9 +319,24 @@ Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF
 
 ## Configuration
 
-`idf.py menuconfig` -> «OpenESL AP»: WiFi, setup network (`ESL_WIFI_SETUP_AFTER_S`, `ESL_WIFI_SETUP_PASSWORD`, `ESL_WIFI_CAPTIVE`), token (`ESL_API_TOKEN`: a token built into the firmware, used when NVS has none; there is no default, and with no token every API request gets `401`), mDNS name (`openesl`), channel (25), PAN ID (0x4553), `ESL_NEXT_POLL_S` (0 = the tags keep their own interval), max tags, TX power, radio mode (`ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub), the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), data sources (`ESL_DATASOURCES`, on for the S3 boards; [docs/data-sources.md](../docs/data-sources.md)), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`). `ESL_NEXT_POLL_S` is the built-in default interval and `ESL_TX_POWER_DBM` (10; about 13 is the EU limit for 802.15.4) the built-in transmit power, and `ESL_CHANNEL` the built-in channel; `PUT /api/config` overrides them at run time (`poll_s`, `tx_power`, `channel`, kept in NVS). A new channel goes to the tags in their CONFIG first, and the AP moves once they have it ([docs/protocol.md](../docs/protocol.md#changing-the-channel)). SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`), which the setup page and `PUT /api/wifi` write.
+`idf.py menuconfig` -> «OpenESL AP» has:
 
-Radio modes: `AP` (normal), `Sniffer` (logs every frame on the channel with its channel number, does not answer, no WiFi; `ESL_SNIFFER_HOP_MS` > 0 hops through channels 11-26 instead, that many ms per channel, and stays 10 s on a channel where it heard a frame, for finding a device whose channel is unknown, see [docs/solum-remote.md](../docs/solum-remote.md)), `Stub` (simulated tags `00000000FAC70001`..., for testing the API with curl before the tag radio works; their frames go through the same `esl_radio_handle()` as real ones, and they download images like the tag firmware does).
+- **WiFi and the setup network:** `ESL_WIFI_SETUP_AFTER_S`, `ESL_WIFI_SETUP_PASSWORD`, `ESL_WIFI_CAPTIVE`, and the mDNS name (`openesl`).
+- **Token:** `ESL_API_TOKEN`, a token built into the firmware, used when NVS has none. There is no default, and with no token every API request gets `401`.
+- **Radio:** channel (`ESL_CHANNEL`, 25), PAN ID (0x4553), TX power (`ESL_TX_POWER_DBM`, 10; about 13 is the EU limit for 802.15.4), the radio mode (below; `ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub).
+- **Tags:** `ESL_NEXT_POLL_S` (the built-in default interval; 0 = the tags keep their own), max tags.
+- **Features:** the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), data sources (`ESL_DATASOURCES`, on for the S3 boards; [docs/data-sources.md](../docs/data-sources.md)), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`).
+
+What can change at run time:
+
+- `PUT /api/config` overrides the interval, the transmit power and the channel (`poll_s`, `tx_power`, `channel`, kept in NVS). A new channel goes to the tags in their CONFIG first, and the AP moves once they have it ([docs/protocol.md](../docs/protocol.md#changing-the-channel)).
+- SSID, password and token can be overridden in NVS (namespace `cfg`, keys `ssid`, `pass`, `token`), which the setup page and `PUT /api/wifi` write.
+
+Radio modes:
+
+- `AP`: normal.
+- `Sniffer`: logs every frame on the channel with its channel number, does not answer, no WiFi. `ESL_SNIFFER_HOP_MS` > 0 hops through channels 11-26 instead, that many ms per channel, and stays 10 s on a channel where it heard a frame, for finding a device whose channel is unknown (see [docs/solum-remote.md](../docs/solum-remote.md)).
+- `Stub`: simulated tags `00000000FAC70001`..., for testing the API with curl with no tags; their frames go through the same `esl_radio_handle()` as real ones, and they download images like the tag firmware does.
 
 ## Watchdog
 
@@ -215,52 +344,18 @@ The ESP-IDF task watchdog restarts the AP when a watched task has not checked in
 
 A `sdkconfig` made before this change keeps its old watchdog settings (no restart, only a log line); delete it or set them in menuconfig (Component config -> ESP System Settings).
 
-## Build and flash
+## Notes
 
-Pinned to ESP-IDF v5.5.5 (requirement G5); `dependencies.lock` pins the managed components (for the ESP32-C6; other chips get `dependencies.lock.<chip>` on their first build, to be committed too: the C5 and S3 ones are not committed yet, so those builds are not pinned). Each board in `boards/` has its chip, flash size, partition table and options; see [boards/README.md](boards/README.md). The C6 Super Mini's partition table (`boards/c6-supermini/partitions.csv`) needs 4 MB flash (the ESP32-C6FH4 of the Super Mini and the LCD boards): 468 KB NVS and two 1.5 MB app slots `ota_0`/`ota_1` for OTA (the image is about 1 MB). A board flashed with an older table (one app slot, or 84 KB NVS with the app at 0x20000) must have its flash erased first (`idf.py erase-flash`, or the web page's Flash AP tab, which offers it), since the partitions moved. Erasing takes the stored tags, layout files and settings with it: `esl-client backup ap.json` before and `esl-client restore ap.json` after keeps them (`tools/esl-client/README.md`).
+These are notes from development. Some may be out of date; the code and the tests are the reference.
 
-```bash
-cd ap
-idf.py menuconfig                  # the ESP32-C6 Super Mini (boards/c6-supermini), as before
-idf.py build flash monitor
-python build.py --list             # the boards
-python web/build.py --wasm         # the renderer for the Design tab (the S3 and C5 boards; Emscripten)
-python build.py c5-wroom-1u-n16r8  # one board: build-<board>/, and out/<artifact>.bin + -ota.bin
-idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
-```
+**Status (October 2026).** The core, the HTTP API (including layout files, per-tag settings and the setup form), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
 
-The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed. A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than what it is built from (`renderer_inputs()` in `web/build.py`: `web/wasm/web_api.c`, the AP's layout and drawing code, the tag's fonts and headers, the boards' `limits`), also on an incremental `idf.py build`, so run `python web/build.py --wasm` again after changing those.
-
-**Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:
-
-| Way | NVS (tags, layouts, WiFi, token) |
-|---|---|
-| The web page's Flash AP tab, on an AP that runs OpenESL | kept: it writes the bootloader, the partition table, blank `otadata` and the app in `ota_0`, nothing else |
-| `esl-client --serial <port> ota openesl-ap-...-ota.bin --wait` (Linux and macOS: the serial client needs `termios`) | kept: the same as an OTA update over WiFi, through the USB port (`POST /api/ota` in parts); the partition table is not changed |
-| `esptool --port <port> erase-region 0x7E000 0x2000`, then `esptool --port <port> write-flash 0x90000 openesl-ap-...-v<version>-ota.bin` (also on Windows) | kept: the app goes to `ota_0` and the blank `otadata` makes the AP boot it; the partition table is not changed. Writing 0x90000 alone is not enough: after an OTA update the AP may boot `ota_1` (0x210000 on the C6), and would keep running the old app. The offsets are the same on every board in `boards/` |
-| `idf.py flash` | kept, as the web page |
-| A release's single `openesl-ap-...-v<version>.bin` (without `-ota`, for any board) written at 0x0 (`esptool write-flash 0x0 ...`) | **erased**: the file is one image from 0x0 to the end of the app, and the gap between the partition table and the app (NVS and `otadata`) is blank bytes |
-
-So the single file is only for a new board or one that is erased anyway. When a release needs a new partition table (as when `tagfw` came), use the web page's Flash AP tab, or take `esl-client backup ap.json` first.
-
-## Tests on the PC
-
-```bash
-cd ap/test
-make          # build and run (needs cc/gcc/clang)
-make SAN=1    # with AddressSanitizer and UBSan (needs libasan/libubsan; on Fedora: dnf install libasan libubsan)
-```
-
-Without gcc/clang on Windows: `pip install ziglang`, then build for Linux with `python -m ziglang cc -target x86_64-linux-musl ...` (zig's native Windows target fails in its mingw libc). Run the binary in WSL.
-
-Covers CRC32, text conversion, content, messages and frames, the NVS format, JSON, the table (including locking and persistence), layout files (the compiler with the example files in `tag/designs/layouts/` and every error message, storage), the whole API (auth, validation, batches, limits, layouts and named content, settings), WiFi setup (form decoding, the setup page and its escaping, token rules, `/api/wifi`), the status screen (every WiFi state, the tag line in its three colours, long text cut before the edge, odd sizes), and the radio path end to end with fake tags: new tag, same content (no redraw), new content, a lost first IMG block, AP restart, tag restart, a tag without images, next_poll_s, per-tag settings over CONFIG (the fake tag uses the new interval, confirms with `cfg_ver`, gets them again after a tag restart but not after an AP restart; an old-firmware fake tag never gets CONFIG but still gets its interval), the run-time default interval in NVS, 24 tags in one batch (G3), frames that must be ignored, scheduled content and the clock (`test_sched.c`), the health report and the webhook body, the token lockout (also for the `/setup` form), OTA routing, the six-field limit, and images: drawn when the tag shows another, sent in blocks in one wake-up, named layouts drawn from the file, a new or deleted file, lost blocks, busy buffers, drawing after the reply with many tags waiting at once and on an IMG_REQ for content changed meanwhile, RLE and the 2D code (with a decoder of its own written from the protocol, in place and not, and edge cases). The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`. Not covered here: the ESP-IDF glue in `main/` (built in CI, run on the jig in phase 5), radio timing (must be measured on hardware, requirement A3), WiFi and coexistence (phase 4), and OTA writing and rollback on real flash.
-
-## Open points
+**Open points.**
 
 - **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5, 1.54" jig tag):** the phase 5 test matrix, see "Results on hardware" in [docs/history/work-plan.md](../docs/history/work-plan.md). CONFIG and per-tag settings are not tested on hardware yet.
 - **WiFi on the jig's C6 Super Mini is weak:** it was not dead but turned off by 802.15.4 until coexistence was switched on (v0.3.1). The board's chip antenna still hears the router at only -75 to -85 dBm where a PC hears -65, so place it near the router, on a USB extension cable away from the computer's USB 3 ports.
 - **Battery in POLL:** the 1.54" tag reports 0 mV (= unknown), since its panel does not answer the voltage-detector reads; see issue #4.
-- **Another model** only needs a new `ESL_MODEL_*` value and screen size in `shared/proto.h`, and a name in `esl_model_name()` / `esl_model_size()`.
+- **Another model** is described in `shared/models.json` (see the wiki page "Adding hardware").
 - **Validation per model (A13):** layout files are checked against the model's screen and what the AP can draw, and named content against the tag's model. The text limit (256 bytes with the length bytes, 255 in one field) is the same for both sizes; there is no other per-field or per-line length check (the AP shrinks and truncates text that does not fit).
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
 - **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`, the captive portal) is host-tested and builds, but not tried on hardware: the jig's C6 has dead WiFi.
