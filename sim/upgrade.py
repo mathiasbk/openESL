@@ -109,7 +109,14 @@ def main(argv):
                 bin_dir = os.path.join(HERE, "build", "upgrade", f"{release}-{model}")
                 old = os.path.join(bin_dir, "esl-sim-tag-" + release)
                 new = os.path.join(bin_dir, "esl-sim-tag-today")
-                build_tag(src, model, old_v, old, san)
+                try:
+                    build_tag(src, model, old_v, old, san)
+                except subprocess.CalledProcessError:
+                    print(f"upgrade.py: esl-sim-tag does not build from {release} (sim_tag.c or tagstep.c uses "
+                          "something that release's tag/ lacks: add a SIM_TAG_NO_* switch, as for image.mark)",
+                          flush=True)
+                    failed.append(f"tag-{model} {release} build")
+                    continue
                 build_tag(ROOT, model, new_v, new, san)
                 sim = os.path.join(HERE, "build", model, "esl-sim")
                 if not os.path.exists(sim):

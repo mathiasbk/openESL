@@ -127,14 +127,15 @@ AP core and drives it step by step over a socket (`tagstep.h`), with simulated t
 gives the same result every time:
 
 1. A new tag on the release's firmware registers with today's AP, gets content and its own
-   poll interval (120 s), and draws what the AP draws.
-2. The AP offers today's firmware (`PUT /api/tag-firmware`, a made-up 4 KB application with
-   today's version). The release's firmware downloads it and its bootloader copies it into the
+   settings (each one set, none the default, no two the same), and draws what the AP draws.
+2. The AP offers today's firmware (`PUT /api/tag-firmware`, a made-up 52 KB application, about
+   the size of a real one, with today's version). The release's firmware downloads it and its bootloader copies it into the
    chip; the program then saves what a restart keeps (the settings record, the SPI flash, the
    chip's code flash and the e-paper image, not RAM) and stops.
 3. Today's firmware starts from that in a second program, and must: show the same screen, find
-   the AP at once, keep its settings (no CONFIG when both keep them in the same record format,
-   `STORE_FORMAT` in `tag/src/app.c`; at most the one CONFIG `app.c` allows when not), confirm the
+   the AP at once, keep its settings (when both keep them in the same record format,
+   `STORE_FORMAT` in `tag/src/app.c`: start with exactly the old firmware's `app.cfg`, before the
+   AP says anything, and get no CONFIG; when not, at most the one CONFIG `app.c` allows), confirm the
    update (no rollback; the AP counts the tag as updated, not failed), not be sent its image
    again, and draw new content as the AP draws it.
 
@@ -146,5 +147,7 @@ take the update, so today's is tested as the next patch version. The screens are
 
 What it does not cover: the bootloader is never updated over the air, and the one that installs
 the update is the first program's, as on a real tag; a further restart in the second program
-would run that program's own. The update is not today's real image built with SDCC
+would run that program's own. `esl-sim-tag` is built from an old release's `tag/` with today's
+`sim_tag.c` and `tagstep.c`: when those come to use something an old release lacks, `upgrade.py`
+says so, and a `SIM_TAG_NO_*` switch (as `SIM_TAG_NO_MARK` for the "no AP" mark) keeps it building. The update is not today's real image built with SDCC
 (`tools/check.py tag-fw` builds that), so its size and the code on the chip are not part of it.

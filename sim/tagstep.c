@@ -82,6 +82,7 @@ static void send_status(char kind)
         .misses = sim_tag_misses(),
         .app_is = expect ? sim_tag_app_is(expect, expect_len) : -1,
     };
+    st.cfg_len = (uint8_t)sim_tag_cfg(st.cfg, sizeof(st.cfg));
     write_all(&kind, 1);
     write_all(&st, sizeof(st));
 }

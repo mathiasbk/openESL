@@ -31,6 +31,8 @@ typedef struct {
     uint16_t fw_version, last_sleep_s, interval_s;
     uint8_t model_code, ota_confirmed, misses;
     int8_t app_is;        /* -1 = no 'A' yet */
+    uint8_t cfg_len;      /* app.cfg as bytes (sim_tag_cfg), in the layout of the firmware */
+    uint8_t cfg[32];
 } tagstep_status_t;
 
 #endif

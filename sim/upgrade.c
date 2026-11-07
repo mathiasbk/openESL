@@ -254,6 +254,13 @@ static long fw_count(const char *model, const char *key)
     return strtol(q + strlen(k), NULL, 10);
 }
 
+/* A tag's own settings, none of them the default and no two the same, so a field read from
+   another's place in the settings record shows */
+static const char OWN_CFG[] =
+    "{\"poll_s\":120,\"max_poll_s\":900,\"lost_ap_s\":5400,\"long_poll_s\":2700,\"long_after_min\":720}";
+/* A made-up application as big as a real one (about 52 KB: many flash sectors to erase and copy) */
+#define APP_LEN (52u * 1024u)
+
 static const char PRICE_1[] = "{\"layout\":\"price\",\"fields\":[\"Milk 1 L\",\"24.90\",\"per l 24.90\"]}";
 static const char PRICE_2[] = "{\"layout\":\"price\",\"fields\":[\"Milk 1 L\",\"19.90\",\"Offer\"]}";
 
@@ -285,8 +292,8 @@ int upgrade_run(int argc, char **argv)
     printf("  model %s, firmware %u -> %u\n", model_name, from_ver, to_ver);
     CHECK(from_ver != to_ver, "the versions differ, or the tag would not take it");
 
-    step("2. Content and its own settings (poll_s 120)");
-    CHECK(api("PUT", "/config", "{\"poll_s\":120}") == 200, "PUT config");
+    step("2. Content and its own settings (every one other than the default, and each different)");
+    CHECK(api("PUT", "/config", OWN_CFG) == 200, "PUT config");
     CHECK(api("PUT", "", PRICE_1) == 200, "PUT content");
     CHECK(run_until_draw(320), "drawn");
     run_for(250);
@@ -297,15 +304,16 @@ int upgrade_run(int argc, char **argv)
     CHECK(screen_matches(), "the screen is what the AP draws");
     tag_png(out, "1-before");
     uint32_t shown = st.shown_id;
+    tagstep_status_t before = st;
 
     step("3. Firmware over the air (PUT /api/tag-firmware): the old bootloader installs it");
-    /* A made-up 4 KB application as build.py packs it: the simulated chip only keeps it, the
-       next program runs TO in its place */
-    static uint8_t file[ESL_FWF_HDR_LEN + 4096];
+    /* A made-up application as build.py packs it: the simulated chip only keeps it, the next
+       program runs TO in its place */
+    static uint8_t file[ESL_FWF_HDR_LEN + APP_LEN];
     uint8_t *img = file + ESL_FWF_HDR_LEN;
     uint32_t crc = 0xFFFFFFFFu;
-    for (int i = 0; i < 4096; i++) {
-        img[i] = (uint8_t)(i * 13 + to_ver);
+    for (unsigned i = 0; i < APP_LEN; i++) {
+        img[i] = (uint8_t)(i * 13 + (i >> 8) + to_ver);
         crc ^= img[i];
         for (int b = 0; b < 8; b++)
             crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
@@ -316,15 +324,15 @@ int upgrade_run(int argc, char **argv)
     file[ESL_FWF_OFF_MODEL] = model;
     file[ESL_FWF_OFF_VER] = (uint8_t)to_ver;
     file[ESL_FWF_OFF_VER + 1] = (uint8_t)(to_ver >> 8);
-    ESL_PUT_U32(file + ESL_FWF_OFF_SIZE, 4096u);
+    ESL_PUT_U32(file + ESL_FWF_OFF_SIZE, APP_LEN);
     ESL_PUT_U32(file + ESL_FWF_OFF_CRC, crc);
     char uri[96];
     snprintf(uri, sizeof(uri), "/api/tag-firmware?offset=0&total=%u", (unsigned)sizeof(file));
     CHECK(sim_api_bin("PUT", uri, file, sizeof(file), &resp) == 200, "PUT /api/tag-firmware");
-    tag_expect_app(img, 4096);
+    tag_expect_app(img, APP_LEN);
     CHECK(st.app_is == 0, "not in the chip yet");
     sim_stats_t s0 = sim_stats;
-    for (int i = 0; i < 20 && !installed; i++)
+    for (int i = 0; i < 30 && !installed; i++)
         run_for(60);
     CHECK(installed, "the tag downloaded the update and restarted");
     if (!installed) {
@@ -340,9 +348,15 @@ int upgrade_run(int argc, char **argv)
     s0 = sim_stats;
     tag_start(to, state, NULL);
     CHECK(st.fw_version == to_ver, "runs firmware %u, got %u", to_ver, st.fw_version);
-    tag_expect_app(img, 4096);
+    tag_expect_app(img, APP_LEN);
     CHECK(st.app_is == 1, "the chip holds the update");
     CHECK(st.shown_id == shown, "the same screen after the restart (T12): %u, was %u", st.shown_id, shown);
+    /* Read from the settings record before the AP says anything: the AP's answers set the
+       next sleep, so a field read from the wrong place would otherwise only show once the AP
+       is gone (backoff, "no AP" mark, long polls) */
+    if (same_store)
+        CHECK(st.cfg_len == before.cfg_len && !memcmp(st.cfg, before.cfg, st.cfg_len),
+              "starts with the settings the old firmware had (app.cfg, %u bytes)", st.cfg_len);
     run_for(250);
     CHECK(st.ota_confirmed, "talked to the AP and kept the update (no rollback)");
     CHECK(st.restarts == 0, "no further restart (%d)", st.restarts);

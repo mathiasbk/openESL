@@ -197,6 +197,12 @@ bool sim_tag_ota_confirmed(void)
 }
 int sim_tag_draws(void) { return fake_draw_count; }
 uint16_t sim_tag_interval_s(void) { return app.interval_s; }
+size_t sim_tag_cfg(uint8_t *out, size_t cap)
+{
+    size_t n = sizeof(app.cfg) < cap ? sizeof(app.cfg) : cap;
+    memcpy(out, &app.cfg, n);
+    return n;
+}
 uint16_t sim_tag_last_sleep_s(void) { return last_sleep_s; }
 uint8_t sim_tag_misses(void) { return app.misses; }
 uint64_t sim_tag_next_wake_ms(void) { return next_wake_ms; }

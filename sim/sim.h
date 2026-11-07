@@ -128,6 +128,8 @@ size_t sim_tag_screen(uint8_t *out, size_t cap);
    flash, code flash, e-paper image) and the simulated time, to a file and back; load
    before sim_tag_boot(). */
 bool sim_tag_state_save(const char *path);
+/* The settings the firmware works with (app.cfg as bytes, its layout that of the firmware) */
+size_t sim_tag_cfg(uint8_t *out, size_t cap);
 bool sim_tag_state_load(const char *path);
 /* Called after the bootloader has run for a firmware update, before the application
    starts again (NULL: it starts here) */

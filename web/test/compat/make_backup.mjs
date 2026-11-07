@@ -63,7 +63,9 @@ async function main(release) {
       return 1;
     }
     const { makeBackup } = await import(pathToFileURL(js).href);
-    const b = await makeBackup(compatAp(), { now: () => TAKEN });
+    const ap = compatAp();
+    ap.fw = release.slice(1); // the files of v0.9.2 and v0.10.0 were written before this, with "0.8.1"
+    const b = await makeBackup(ap, { now: () => TAKEN });
     const out = join(HERE, `${release}-dashboard-backup.json`);
     writeFileSync(out, JSON.stringify(b, null, 2) + "\n");
     console.log(`web/test/compat/${release}-dashboard-backup.json written`);

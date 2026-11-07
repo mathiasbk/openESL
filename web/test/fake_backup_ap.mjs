@@ -14,6 +14,7 @@ export class FakeAp {
     this.time = 1792065600;
     this.calls = [];
     this.fonts = null;   // name -> font file; null: an AP without font files
+    this.fw = "0.8.1";   // the AP's firmware, as GET /api/tags gives it
   }
   tag(mac) {
     if (!this.tags.has(mac)) this.tags.set(mac, { mac, model: null, content: null, config: {} });
@@ -36,7 +37,7 @@ export class FakeAp {
     let m;
     if (method === "GET" && path === "/api/tags")
       return {
-        ap: { fw: "0.8.1", board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable", channel: 25, time: this.time, poll_s: this.config.poll_s },
+        ap: { fw: this.fw, board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable", channel: 25, time: this.time, poll_s: this.config.poll_s },
         tags: [...this.tags.values()].map((t) => ({ mac: t.mac, model: t.model, content_id: t.content ? 7 : 0,
           config: { poll_s: null, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null, ...t.config } })),
       };
