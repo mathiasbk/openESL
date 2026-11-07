@@ -35,7 +35,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `ap/test/` | Host tests of the AP core | [ap/README.md](../ap/README.md#tests-on-the-pc) |
 | `tag/src/` | The tag firmware: `app.c` is the state machine with no hardware code, `hal/` is everything chip specific | [tag/README.md](../tag/README.md) |
 | `tag/boot/` | The tag bootloader that installs firmware received over the air | [tag-ota.md](tag-ota.md) |
-| `tag/fonts/`, `tag/src/barcode.c` | Fonts and barcodes. They are compiled into the AP's drawing, not into the tag | [tag/README.md](../tag/README.md) |
+| `tag/fonts/`, `tag/src/barcode.c` | Fonts and barcodes for the AP's drawing. The tag keeps only the small and medium fonts (with `font.c` and `draw.c`) for its own status screens; `barcode.c` and the other fonts are compiled into the AP alone | [tag/README.md](../tag/README.md) |
 | `tag/test/` | Host tests of the tag firmware against fake hardware | [tag/README.md](../tag/README.md#build-and-test) |
 | `shared/` | `proto.h` (radio messages) and `models.json` (tag models) | [shared/README.md](../shared/README.md) |
 | `sim/` | The tag firmware and the AP core together on the PC, with a simulated radio and clock | [sim/README.md](../sim/README.md) |
@@ -74,3 +74,5 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `web/test/` (`check.py web`) | The web page's modules, the renderer against the native build, the flasher against a simulated ZBS_Flasher |
 | `tools/` (`check.py tools`) | esl-client against a fake AP, the power budget, the release notes |
 | `check.py openapi`, `check.py wiki` | `openapi.yaml` against the AP code, and the links in the wiki |
+| `check.py models` | The generated model files match `shared/models.json` |
+| `check.py tag-fw`, `check.py ap-fw` | The tag firmware for every model (SDCC) and the AP firmware for every board (ESP-IDF) build |
