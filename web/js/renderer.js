@@ -49,6 +49,13 @@ export function loadRenderer(model, base = new URL("../wasm/", import.meta.url))
   return cache[model];
 }
 
+// A renderer of its own instead of the shared one: js/demoap.js keeps the pretend AP's layout
+// files loaded in it while the designer loads its own file into the shared one
+export function newRenderer(model, base = new URL("../wasm/", import.meta.url)) {
+  if (!MODELS[model]) throw new Error("unknown model " + model);
+  return create(model, base);
+}
+
 async function create(model, base) {
   const file = MODELS[model].file;
   const mod = await import(new URL("render-" + file + ".js", base).href);

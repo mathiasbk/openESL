@@ -20,6 +20,7 @@ import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFi
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
 const REFRESH_UPDATING_MS = 5000; // while tags fetch firmware, so the bars move
+const DEMO_WHERE = "this browser";
 
 // A bar for a download: fraction 0..1, or null for one that moves to and fro (nothing to count yet)
 function progressBar({ fraction, text }) {
@@ -42,8 +43,9 @@ const store = {
 };
 
 // firmwareBase: where the firmware files are ("" next to the page); rendererBase: where the
-// previews' renderer comes from ("" the page's own, js/renderframe.js)
-export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererBase = "" } = {}) {
+// previews' renderer comes from ("" the page's own, js/renderframe.js); demoAp: the browser
+// demo's pretend AP (js/demoap.js, from main.js on ?demo=browser), used instead of a real one
+export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererBase = "", demoAp = null } = {}) {
   let client = null;      // anything with call(method, path)
   const sources = initSources(); // the data sources card (apsources.js)
   let timer = null;
@@ -1642,7 +1644,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     }
     $("dash-connect").disabled = true;
     try {
-      if (src() === "serial") {
+      if (demoAp) setConnected(demoAp, DEMO_WHERE);
+      else if (src() === "serial") {
         if (!hasSerial()) throw new Error("this browser has no Web Serial. Use Chrome or Edge on a computer, or the bridge.");
         msg("Waiting for the AP ...");
         setConnected(serialAp() || (await connectSerial()), "the AP over USB");
@@ -1668,9 +1671,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   // ?demo (tools/demo.py): the bridge to the simulator, connected at once. ?demo=<address> names
   // another bridge than http://localhost:8080, on this computer only, so a link cannot connect the
   // page to some other server. Nothing is remembered, so the next visit is as before.
-  const demo = sameOrigin ? null : new URLSearchParams(location.search).get("demo");
+  const demo = sameOrigin || demoAp ? null : new URLSearchParams(location.search).get("demo");
   const localDemo = (a) => !a || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(a);
-  if (demo !== null && !localDemo(demo)) msg("?demo only connects to a bridge on this computer (localhost).", "error");
+  // The browser demo: its pretend AP, connected at once
+  if (demoAp) setConnected(demoAp, DEMO_WHERE);
+  else if (demo !== null && !localDemo(demo)) msg("?demo only connects to a bridge on this computer (localhost).", "error");
   else if (demo !== null) {
     $("dash-src").value = "http";
     showSrc();

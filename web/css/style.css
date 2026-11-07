@@ -157,6 +157,15 @@ a:hover { text-decoration-thickness: 2px; }
 }
 .top :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* the browser demo's bar under the tabs (js/demoap.js) */
+.demo-bar {
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline;
+  padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm);
+}
+.demo-bar[hidden] { display: none; }
+.demo-bar strong { background: var(--accent); color: var(--accent-text); border-radius: var(--radius-sm); padding: 0 var(--space-2); }
+.demo-bar a { margin-left: auto; }
+
 .tab { padding: var(--space-4); max-width: 1400px; margin: 0 auto; }
 .sep { flex: 1; }
 

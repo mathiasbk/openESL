@@ -7,6 +7,7 @@ import { initWifiSetup } from "./wifisetup.js";
 import { initApWizard } from "./apwizard.js";
 import { initDashboard } from "./dashboard.js";
 import { MODELS, modelName, modelLabel } from "./models.js";
+import { DemoAp, demoWanted } from "./demoap.js";
 
 // The board picked on the Flash AP tab and the like, kept between visits
 const store = {
@@ -43,11 +44,25 @@ window.addEventListener("hashchange", () => {
   showTab(location.hash.slice(1));
   window.scrollTo(0, 0);
 });
-showTab(location.hash.slice(1));
+const startTab = location.hash.slice(1);   // before showTab() fills in #home
+showTab(startTab);
 initWifiSetup("wifi");
-initDashboard();
 
-initEditor().catch((e) => {
+// ---------- the browser demo (?demo=browser): a pretend AP with six tags in this page ----------
+
+const demoAp = demoWanted() ? new DemoAp() : null;
+if (demoAp) {
+  $("demo-bar").hidden = false;
+  // leaving keeps the tab: the same address without ?demo
+  $("demo-leave").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    location.href = location.pathname + location.hash;
+  });
+  if (!startTab) showTab("dashboard");
+}
+initDashboard({ demoAp });
+
+initEditor({ demoAp }).catch((e) => {
   const s = $("status");
   s.textContent = "Could not start the renderer: " + e.message;
   s.className = "status error";

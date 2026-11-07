@@ -28,6 +28,12 @@
     </nav>
     <a class="repo" href="https://github.com/mathiasbk/openesl">Source</a>
   </header>
+  <!-- the browser demo (?demo=browser, js/demoap.js): shown by main.js -->
+  <div id="demo-bar" class="demo-bar" role="status" hidden>
+    <strong>Demo</strong>
+    <span>A pretend AP with six tags runs in this page. Nothing is sent anywhere, and a reload starts over.</span>
+    <a id="demo-leave" href="./">Leave the demo</a>
+  </div>
 
   <!-- ===================== Overview ===================== -->
   <main id="tab-home" class="tab" role="tabpanel">
@@ -37,6 +43,7 @@
         <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP.</p>
         <div class="hero-go">
           <a class="button primary big" href="#ap">Flash the firmware</a>
+          <a class="button big" href="?demo=browser#dashboard" title="A pretend AP with six tags in this page, no hardware needed">Try the demo</a>
           <a class="button big" href="https://github.com/mathiasbk/openESL/wiki/">Read the wiki</a>
           <a class="button big" href="https://github.com/mathiasbk/openesl">GitHub</a>
         </div>

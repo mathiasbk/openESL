@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://mathiasbk.github.io/openESL/"><b>Web page</b></a> ·
+  <a href="https://mathiasbk.github.io/openESL/?demo=browser#dashboard"><b>Try the demo</b></a> ·
   <a href="https://mathiasbk.github.io/openESL/#ap">Flash the AP</a> ·
   <a href="https://mathiasbk.github.io/openESL/#tag">Flash a tag</a> ·
   <a href="https://mathiasbk.github.io/openESL/#design">Label designer</a> ·
@@ -79,7 +80,9 @@ The label shows it at its next check-in.
 
 ## Try it without hardware
 
-The [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make):
+**[Open the demo](https://mathiasbk.github.io/openESL/?demo=browser#dashboard)** in your browser: a pretend AP with six labels runs in the page, so the dashboard and the label designer work as with a real one, with nothing to install. Send text or a layout and watch the label change at its next check-in.
+
+For the real firmware, the [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make):
 
 ```bash
 make -C sim                                                # builds every label model and runs the tests
