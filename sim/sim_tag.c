@@ -19,6 +19,7 @@ uint64_t sim_tag_mac = 0x00000123456789A8ull;
 const char *sim_tag_model = MODEL_NAME;
 bool sim_verbose;
 void (*sim_on_draw)(void);
+void (*sim_on_restart)(void);
 uint16_t sim_tag_battery_mv = 2950;
 int8_t sim_tag_temp_c = 20;
 uint8_t (*sim_tag_link)(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply) = sim_link;
@@ -140,6 +141,8 @@ static void wake(void)
         if (sim_verbose)
             printf("  [%7.1f s] tag restarts for a firmware update\n", sim_now_ms / 1000.0);
         boot_core_run();
+        if (sim_on_restart)
+            sim_on_restart();   /* esl-sim-tag: the next firmware goes on in another program */
         sim_tag_boot();
         return;
     }
@@ -176,7 +179,11 @@ bool sim_tag_run_until_draw(uint64_t t_ms)
 }
 
 uint32_t sim_tag_shown_id(void) { return app.shown_id; }
+#ifdef SIM_TAG_NO_MARK   /* tag firmware from before the "no AP" mark (#98), for esl-sim-tag */
+bool sim_tag_marked(void) { return false; }
+#else
 bool sim_tag_marked(void) { return image.mark != 0; }
+#endif
 uint16_t sim_tag_fw_version(void) { return FW_VERSION; }
 uint8_t sim_tag_model_code(void) { return MODEL_CODE; }
 int sim_tag_restarts(void) { return restarts; }
@@ -190,10 +197,74 @@ bool sim_tag_ota_confirmed(void)
 }
 int sim_tag_draws(void) { return fake_draw_count; }
 uint16_t sim_tag_interval_s(void) { return app.interval_s; }
+size_t sim_tag_cfg(uint8_t *out, size_t cap)
+{
+    size_t n = sizeof(app.cfg) < cap ? sizeof(app.cfg) : cap;
+    memcpy(out, &app.cfg, n);
+    return n;
+}
 uint16_t sim_tag_last_sleep_s(void) { return last_sleep_s; }
 uint8_t sim_tag_misses(void) { return app.misses; }
 uint64_t sim_tag_next_wake_ms(void) { return next_wake_ms; }
 uint64_t sim_tag_last_draw_ms(void) { return last_draw_ms; }
+
+/* ---- what a restart keeps, for the upgrade test (esl-sim-tag, upgrade.c) ----
+ *
+ * The file holds what is still there when the chip restarts into other firmware: the
+ * settings record, the SPI flash, the chip's code flash and the e-paper image, each as
+ * a 32-bit length and the bytes, after the simulated time. RAM is not in it. */
+
+#define STATE_MAGIC "ESLSIMT1"
+
+static bool put_blob(FILE *f, const void *p, uint32_t n)
+{
+    return fwrite(&n, 4, 1, f) == 1 && fwrite(p, 1, n, f) == n;
+}
+
+/* The next blob into p: exactly cap bytes, or (shorter) up to cap if short_ok; its length in got */
+static bool get_blob(FILE *f, void *p, uint32_t cap, bool short_ok, uint32_t *got)
+{
+    uint32_t n;
+    if (fread(&n, 4, 1, f) != 1 || n > cap || (!short_ok && n != cap) || fread(p, 1, n, f) != n) {
+        fprintf(stderr, "sim_tag_state_load: a part of %u bytes does not fit here (%u)\n", (unsigned)n, (unsigned)cap);
+        return false;
+    }
+    if (got)
+        *got = n;
+    return true;
+}
+
+bool sim_tag_state_save(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    uint8_t present = fake_xflash_present;
+    bool ok = f && fwrite(STATE_MAGIC, 8, 1, f) == 1 && fwrite(&sim_now_ms, 8, 1, f) == 1 &&
+              put_blob(f, flash_rec, flash_rec_len) && put_blob(f, &present, 1) &&
+              put_blob(f, fake_xflash, sizeof(fake_xflash)) && put_blob(f, fake_code, sizeof(fake_code)) &&
+              put_blob(f, fake_fb, sizeof(fake_fb));
+    if (f && fclose(f))
+        ok = false;
+    return ok;
+}
+
+bool sim_tag_state_load(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    char magic[8];
+    uint8_t present = 0;
+    uint32_t n = 0;
+    bool ok = f && fread(magic, 8, 1, f) == 1 && !memcmp(magic, STATE_MAGIC, 8) &&
+              fread(&sim_now_ms, 8, 1, f) == 1 && get_blob(f, flash_rec, sizeof(flash_rec), true, &n) &&
+              get_blob(f, &present, 1, false, NULL) && get_blob(f, fake_xflash, sizeof(fake_xflash), false, NULL) &&
+              get_blob(f, fake_code, sizeof(fake_code), false, NULL) && get_blob(f, fake_fb, sizeof(fake_fb), false, NULL);
+    if (f)
+        fclose(f);
+    flash_rec_len = (uint8_t)n;
+    fake_xflash_present = present;
+    fake_xflash_is_open = false;
+    fake_resets = 0;
+    return ok;
+}
 
 /* ---- the tag's screen, for the comparison with esl_render ---- */
 

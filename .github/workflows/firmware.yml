@@ -16,7 +16,9 @@
 # The AP is built one job per board and per radio (ap/build.py --jobs), side by side, and
 # collected into the ap-firmware artifact. ccache keeps the compiled objects between runs
 # (most of them are ESP-IDF's own, which do not change), so a build need not compile them
-# again. web.yml asks for fewer AP builds on pull requests that
+# again. The ap-size job adds the flash budget table (each image's free space in its app slot,
+# ap/build.py --sizes) to the run's summary and fails an image with less than 64 KB free.
+# web.yml asks for fewer AP builds on pull requests that
 # cannot change the AP (inputs.ap); release.yml always builds them all.
 # tools/check.py runs the same steps locally: change both together.
 name: Firmware
@@ -59,11 +61,15 @@ jobs:
         run: |
           make -C sim SAN=1
           make -C sim serial
+      - name: Tag firmware over the air from each release and back (sim/upgrade.py, #307)
+        run: make -C sim upgrade SAN=1
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sim-screens
-          path: sim/build/*/screens/
+          path: |
+            sim/build/*/screens/
+            sim/build/upgrade/**/*.png
       - name: Versions (tools/fw_version.py)
         run: python3 tools/fw_version.py --all
       - name: Build firmware (every model in shared/models.json)
@@ -82,11 +88,11 @@ jobs:
           # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
           python3 -m pip install --user zxing-cpp==3.1.1 pillow
           make -C ap/test SAN=1
-      - name: Tool tests (esl-client against a fake AP, power budget, release notes)
+      - name: Tool tests (esl-client against a fake AP, power budget, release notes, AP flash budget)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget test_measure)
-          (cd tools && python3 -m unittest -v test_release_notes)   # docs/release.md has a summary and upgrade instructions for VERSION
+          (cd tools && python3 -m unittest -v test_release_notes test_ap_budget)   # docs/release.md has a summary and upgrade instructions for VERSION; the AP flash budget
 
   # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:
   # one after another they took 13 minutes, about 1.5 minutes each
@@ -146,10 +152,76 @@ jobs:
           path: ap
           extra_docker_args: -e IDF_CCACHE_ENABLE=1 -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e CCACHE_MAXSIZE=200M
           command: python build.py ${{ matrix.job.args }} && ccache -s
+      # also when the build failed the flash budget (ap/build.py), so ap-size can show the table
       - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
         with:
           name: ap-build-${{ matrix.job.name }}
           path: ap/out/
+          if-no-files-found: ignore
+
+  # The flash budget (ap/build.py --sizes): how much of its app slot each image leaves free,
+  # in the run's summary, with the change against the base branch on a pull request. The
+  # partition table cannot change on an AP in the field without a USB flash, so the 4 MB C6
+  # has to keep room: under 64 KB free fails (each build job fails too), under 128 KB warns.
+  ap-size:
+    needs: [ap-jobs, ap-build]
+    if: ${{ !cancelled() && needs.ap-jobs.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read   # the images of the base branch's last pull request, to compare with
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ap-build-*
+          path: fw
+          merge-multiple: true
+      # The base branch is not built on push (web.yml), so its images are those of the CI runs of
+      # the newest pull requests merged into it (a squash merge has the same files). A pull request
+      # that built only some boards (ap: web) leaves the others to an older one: each image is
+      # taken from the newest build that has it, looking through up to 5 builds.
+      - name: The base branch's images
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          mkdir -p base
+          # an image has a base once base/ has its size.json or its app (-ota.bin, older builds)
+          missing() {
+            for f in fw/*.size.json; do
+              a=$(basename "$f" .size.json)
+              [ -f "base/$a.size.json" ] || [ -f "base/$a-ota.bin" ] || echo "$a"
+            done
+          }
+          git fetch -q --depth 30 origin "$BASE_REF"
+          used="" builds=0
+          for sha in $(git rev-list --first-parent -n 30 FETCH_HEAD); do
+            [ -n "$(missing)" ] && [ "$builds" -lt 5 ] || break
+            pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.merged_at != null)][0] | "\(.number) \(.head.sha)"' 2>/dev/null) || continue
+            set -- $pr
+            [ "$#" = 2 ] && [ "$1" != null ] || continue
+            for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$2" --jq '.workflow_runs[] | select(.path | startswith(".github/workflows/web.yml")) | .id'); do
+              rm -rf one
+              if gh run download "$run" --repo "$GITHUB_REPOSITORY" --name ap-firmware --dir one 2>/dev/null; then
+                cp -r --update=none one/. base/    # the newer build's image wins
+                used="$used #$1"
+                builds=$((builds + 1))
+                break
+              fi
+            done
+          done
+          if [ -n "$used" ]; then
+            echo "BUDGET_BASE_NAME=$BASE_REF (the builds of$used, newest first)" >> "$GITHUB_ENV"
+          else
+            echo "No images of a pull request merged into $BASE_REF lately to compare with"
+          fi
+          echo "Without a base: $(missing | tr '\n' ' ')"
+      - name: Flash budget (fails under 64 KB free)
+        run: python3 ap/build.py --sizes fw --base base
 
   # the images of every board and radio in one artifact, as web.yml and release.yml take them
   ap-firmware:

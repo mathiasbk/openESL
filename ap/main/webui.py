@@ -4,6 +4,8 @@
     webui.py WEB_DIR OUT.c [--wasm DIR] [MODULE ...]          (default: dashboard)
     webui.py --renderer-deps DIR      the files a packed renderer in DIR depends on, one per
                                       line, for ap/main/CMakeLists.txt
+    webui.py --check WEB_DIR          every module packs, and nothing that is only for the web
+                                      page (PAGES_ONLY) is in it (tools/check.py ap-pack)
 
 One page, one source: each module is a tab of WEB_DIR/index.html (MODULES below), and the
 board's Kconfig picks which ones its firmware has room for (ESL_WEB_DASHBOARD,
@@ -12,7 +14,10 @@ also gets the Design tab. The page shows the chosen tabs (js/aptabs.js) and link
 page for the rest; each module's js/ap*.js starts it against the AP's own /api/. The Design
 tab also gets the renderer (render-<build>.js/.wasm per tag model, built by
 `python web/build.py --wasm` into web/dist/wasm/, or the DIR given), so its preview is the
-same code as the firmware and works without the internet. Every file
+same code as the firmware and works without the internet. What only the web page on GitHub
+Pages needs (the browser demo, the gallery, pictures for the README and the front page) is
+never packed: the C6's app slot has little room left (ap/build.py, the flash budget), so
+page_files refuses it (PAGES_ONLY). Every file
 is gzipped (fixed mtime, so the build is reproducible) into a C table that http_api.c serves
 with Content-Encoding: gzip from flash. Run by ap/main/CMakeLists.txt.
 """
@@ -50,6 +55,11 @@ MODULES = {
         "wasm": True,
     },
 }
+# What only the web page on GitHub Pages needs, never packed into the AP (page_files): the
+# browser demo (js/demoap.js), the gallery (docs/images/gallery/) and pictures in general,
+# which the AP takes from the web page (site_url) when it shows any
+PAGES_ONLY = re.compile(r"demo|gallery", re.I)
+PAGES_ONLY_MIME = ("image/",)
 PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -161,9 +171,9 @@ def c_bytes(data):
     return ",".join(str(b) for b in data)
 
 
-def page_files(web, modules, wasm=None):
+def page_files(web, modules, wasm=None, renderer=True):
     """[(path, MIME type, bytes)] the AP serves for these modules (wasm: where the renderer is,
-    default WEB_DIR/dist/wasm)"""
+    default WEB_DIR/dist/wasm; renderer False leaves it out, for --check without Emscripten)"""
     for name in modules:
         if name not in MODULES:
             sys.exit(f"webui.py: no module {name} (there are {', '.join(MODULES)})")
@@ -188,8 +198,12 @@ def page_files(web, modules, wasm=None):
     for t in dict.fromkeys(t for name in modules for t in MODULES[name].get("templates", [])):
         with open(os.path.join(ROOT, "templates", t), "rb") as f:
             files.append((f"/ui/templates/{t}", "application/json", f.read()))
-    if any(MODULES[name].get("wasm") for name in modules):
+    if renderer and any(MODULES[name].get("wasm") for name in modules):
         files += renderer_files(wasm or os.path.join(web, "dist", "wasm"))
+    pages_only = [path for path, mime, _ in files if PAGES_ONLY.search(path) or mime.startswith(PAGES_ONLY_MIME)]
+    if pages_only:
+        sys.exit("webui.py: only for the web page, not the AP, which has no flash to spare (PAGES_ONLY): "
+                 + ", ".join(pages_only))
     return files
 
 
@@ -200,6 +214,12 @@ def main():
         # files there now: a missing one would stop ninja before this script can say why)
         built = [p for _, _, p in renderer_paths(sys.argv[2]) if os.path.isfile(p)]
         print("\n".join(built + web_build().renderer_inputs()))
+        return
+    if sys.argv[1:2] == ["--check"]:
+        files = page_files(sys.argv[2], list(MODULES), renderer=False)
+        total = sum(len(gzip.compress(d, 9, mtime=0)) for _, _, d in files)
+        print(f"webui.py: every module packs, {len(files)} files (without the renderer), {total} bytes "
+              "gzipped, none of them only for the web page")
         return
     web, out, args = sys.argv[1], sys.argv[2], sys.argv[3:]
     wasm = None

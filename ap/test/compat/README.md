@@ -7,7 +7,9 @@ An AP is updated in place: it keeps what it stored in NVS, and its tags, some of
 | File | Written by | Checked by | What |
 |------|------------|------------|------|
 | `v<release>.txt` | `make_golden.py` (runs `gen_golden.c` against the AP core of that release) | `../test_compat.c` (`make` in `ap/test`) | What that AP left in NVS (layout file, content, tag settings, the "seen" record) and how it answered its tags after a restart from it |
-| `tools/esl-client/compat/v<release>-backup.json` | `tools/esl-client/compat/make_backup.py` (that release's `esl_client.py backup` against the fake AP of its own tests) | `test_restore_backup_from_releases` in `tools/esl-client/test_esl_client.py` | That today's `restore` takes the file |
+| `tools/esl-client/compat/v<release>-backup.json` | `tools/esl-client/compat/make_backup.py` (that release's `esl_client.py backup` against the fake AP of its own tests) | `test_restore_backup_from_releases` in `tools/esl-client/test_esl_client.py`, and `web/test/backup_compat.test.mjs` | That today's `restore` takes the file, and so does today's dashboard (the same format) |
+| `web/test/compat/v<release>-dashboard-backup.json` (from 0.9.0) | `web/test/compat/make_backup.mjs` (that release's dashboard backup, `web/js/backup.js`, against today's simulated AP in `web/test/fake_backup_ap.mjs`) | `web/test/backup_compat.test.mjs`, and `test_restore_dashboard_backups_from_releases` in `tools/esl-client/test_esl_client.py` | That today's dashboard puts everything in the file back on a new AP (settings, font and layout files, content, the picture, a tag's own settings, scheduled content), and so does `esl_client.py restore` |
+| (none: built from the release tag) | `sim/upgrade.py` (`make -C sim upgrade`) | `esl-sim upgrade` (`sim/upgrade.c`) | A tag on that release's firmware gets today's over the air from today's AP, and today's goes on from what the release's bootloader left: same screen, its settings, the update confirmed, not sent its image again. Then the same back to the release ([sim/README.md](../../../sim/README.md#upgrade-from-a-release-make-upgrade)) |
 
 For each `v<release>.txt`, today's AP core must:
 
@@ -35,8 +37,7 @@ In the VERSION pull request of the next release, add the files of the release be
 ```
 python3 ap/test/compat/make_golden.py v0.10.0
 python3 tools/esl-client/compat/make_backup.py v0.10.0
+node web/test/compat/make_backup.mjs v0.10.0
 ```
 
-Both take that release's code from git without touching the working tree. Commit the new files and never write them again for the same release: the point is that they hold what that release wrote, not what today's code would write. A file that fails after a change means the change breaks an update from that release; change the code, not the file. A "would be sent a new image" note means every tag with such content redraws once after the update, which costs battery: say so in the release's upgrade notes.
-
-Not covered yet (#307): firmware updates of the tags in the simulator from the previous release's tag firmware, and backup files from the dashboard.
+All three take that release's code from git without touching the working tree. The new `v<release>.txt` also adds the release to the simulated tag firmware updates (`sim/upgrade.py` tests every release that has one), and `backup_compat.test.mjs` fails until the release has its dashboard file. Commit the new files and never write them again for the same release: the point is that they hold what that release wrote, not what today's code would write. A file that fails after a change means the change breaks an update from that release; change the code, not the file. A "would be sent a new image" note means every tag with such content redraws once after the update, which costs battery: say so in the release's upgrade notes.

@@ -15,13 +15,19 @@ Steps:
   wiki      the links in the wiki pages in wiki/ (tools/check_wiki.py)
   tag       tag host tests (tag/tools/build.py test), for every model
   sim       end-to-end simulation, with sanitizers, and the serial port test (sim/)
+  upgrade   tag firmware over the air from each release to today's and back, with sanitizers
+            (make -C sim upgrade; needs the release tags: git fetch --tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
-  tools     esl-client, power-budget and release notes tests (the upgrade instructions for VERSION)
+  tools     esl-client, power-budget, release notes (the upgrade instructions for VERSION) and AP
+            flash budget tests
   openapi   docs/openapi.yaml against the AP code
+  ap-pack   the AP's web pack holds nothing that is only for the web page, such as the browser
+            demo or the gallery (ap/main/webui.py --check)
   ap-fw     AP firmware with ESP-IDF v5.5.5 for every board in ap/boards/ (ap/build.py; idf.py
             on PATH, otherwise the espressif/idf:v5.5.5 Docker image), after the renderer the
-            Design tab packs (web/build.py --wasm, Emscripten 3.1.74)
+            Design tab packs (web/build.py --wasm, Emscripten 3.1.74), and the flash budget: the
+            free space in each image's app slot (ap/build.py --sizes; fails under 64 KB)
   web       the stylesheets keep to the design scale (tools/check_css.py), the web page and
             renderer (Emscripten 3.1.74) and the web tests (Node)
 
@@ -32,6 +38,7 @@ or WSL, and this script finds them there. Exit code: 1 when a step failed, other
 import argparse
 import glob
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -129,6 +136,17 @@ def step_sim():
     run(["make", "-C", "sim", "serial"])
 
 
+def step_upgrade():
+    need_san()
+    need("git", "git")
+    releases = [f[:-4] for f in os.listdir(os.path.join(ROOT, "ap", "test", "compat")) if re.match(r"v[\d.]+\.txt$", f)]
+    have = subprocess.run(["git", "-C", ROOT, "tag", "--list", "v*"], capture_output=True, text=True).stdout.split()
+    missing = [r for r in releases if r not in have]
+    if missing:
+        raise Skip("release tags missing here: %s (git fetch --tags)" % ", ".join(sorted(missing)))
+    run(["make", "-C", "sim", "upgrade", "SAN=1"])
+
+
 def step_tag_fw():
     sdcc = need("sdcc", "SDCC %s, tools/dev/setup.sh" % SDCC_VERSION)
     version = subprocess.run([sdcc, "--version"], capture_output=True, text=True).stdout
@@ -150,7 +168,7 @@ def step_ap_test():
 def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
-    run([PY, "-m", "unittest", "test_release_notes"], cwd=os.path.join(ROOT, "tools"))
+    run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget"], cwd=os.path.join(ROOT, "tools"))
 
 
 def step_openapi():
@@ -158,6 +176,10 @@ def step_openapi():
     need_host_cc()
     need_python("yaml", "pyyaml")
     run(["make", "-C", "ap/test", "openapi"])
+
+
+def step_ap_pack():
+    run([PY, "ap/main/webui.py", "--check", "web"])
 
 
 AP_BUILD = "python3 build.py"     # ap/build.py: every board in ap/boards/
@@ -192,6 +214,8 @@ def step_ap_fw():
             raise Skip("emcc not found (Emscripten %s), which every board needs for its Design tab" % EMSCRIPTEN_VERSION)
         build = " ".join([AP_BUILD] + rest)
     os.makedirs(os.path.join(ROOT, "ap", "out"), exist_ok=True)
+    for old in glob.glob(os.path.join(ROOT, "ap", "out", "*.size.json")):
+        os.remove(old)      # the budget table shows this build only
     if shutil.which("idf.py") and not WINDOWS:
         idf = subprocess.run(["idf.py", "--version"], capture_output=True, text=True).stdout.strip()
         if "v5.5.5" not in idf:
@@ -203,6 +227,7 @@ def step_ap_fw():
         run(docker_args(IDF_IMAGE, "/src/ap") + ["bash", "-c", build])
     for name in sorted(os.listdir(os.path.join(ROOT, "ap", "out"))):
         copy_out(os.path.join("ap", "out", name), name)
+    run([PY, "ap/build.py", "--sizes", os.path.join("ap", "out")])   # the flash budget table
     if left_out:
         raise Skip("emcc not found (Emscripten %s): built all but %s (the Design tab) and their radio "
                    "coprocessor images" % (EMSCRIPTEN_VERSION, ", ".join(left_out)))
@@ -229,10 +254,12 @@ STEPS = {
     "wiki": (step_wiki, "Python"),
     "tag": (step_tag, "C compiler"),
     "sim": (step_sim, "make, gcc/clang with sanitizers (not native Windows)"),
+    "upgrade": (step_upgrade, "make, gcc/clang with sanitizers (not native Windows), git with the release tags"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
+    "ap-pack": (step_ap_pack, "Python"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
     "web": (step_web, "Emscripten %s, Node 22" % EMSCRIPTEN_VERSION),
 }
