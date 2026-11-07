@@ -8,26 +8,28 @@ OpenESL is a separate project, written from scratch. It is not a fork of OEPL an
 
 | | OpenESL |
 |---|---|
-| **Labels** | SoluM labels on the ZBS243 chip (the ones OEPL calls M2): the 2.9" and the 1.54" black/white, and the 2.9" black/white/red as experimental. [Supported labels](Supported-labels) |
+| **Labels** | SoluM M2 labels on the ZBS243 chip: the 2.9" and the 1.54" black/white, and the 2.9" black/white/red as experimental. [Supported labels](Supported-labels) |
 | **Moving a label over** | Once in a [flashing jig](Flashing-jig), with its original firmware backed up first. After that, updates go over the air. |
-| **Access point** | An ESP32-C6 is enough (about 400 labels); the C5 or an S3 + C6 take 1000. [Choosing a board](Access-point-boards) |
+| **Access point** | An ESP32-C6 is enough (about 400 labels); an S3 + C6 takes 1000 (the C5 too, experimental). [Choosing a board](Access-point-boards) |
 | **Radio** | Its own protocol on 802.15.4, channel 25 by default. |
 | **Content** | Your software sends text fields; the AP draws them into a layout you made in the [designer](Label-designer). A PNG works too. |
 | **API** | A documented [HTTP API](HTTP-API) with a token ([OpenAPI](https://github.com/mathiasbk/openESL/blob/master/docs/openapi.yaml)). |
 | **Home Assistant** | Its own [integration](Home-Assistant), installed with HACS. |
 | **Licence** | [MIT](https://github.com/mathiasbk/openESL/blob/master/LICENSE): use it at home, in a shop or in a product. |
 
-## What is different
+## What stays the same
+
+The same SoluM labels on the ZBS243 chip, the same kind of jig with ZBS_Flasher, an ESP32 board as the access point, an 802.15.4 radio, and updates over the air once a label runs the firmware.
+
+## How OpenESL does it
 
 **The AP draws from layouts and fields.** You design a layout once (boxes for text, a price, a barcode or QR code, an icon, a date) in the [label designer](Label-designer), or pick one from the [template library](Label-templates). After that your software sends only the text: `{"layout": "price", "fields": ["Milk 1 L", "1.29", "1.29/L"]}`. The AP draws the screen, and the designer shows exactly the pixels the label will get. When you would rather draw the screen yourself, send a PNG of the label's size ([HTTP API](HTTP-API)).
 
 **One token, one API.** Every change goes through the same HTTP API, protected by an API token you choose. The dashboard, the designer, [esl-client](esl-client), the [CSV price lists](Price-lists-from-CSV) and the Home Assistant integration all use it, so whatever they can do, your own script can do too.
 
-**Setup in the browser.** The AP and the labels are flashed from the [web page](https://mathiasbk.github.io/openESL/) over Web Serial, with nothing to install, and the AP gets its WiFi and token in the same steps.
+**Updates in a safe order.** The release notes always say in which order to update the AP, its radio and the labels ([Upgrading from older versions](Upgrading-from-older-versions)).
 
-**Updates over the air, in a safe order.** The AP updates itself over WiFi and passes new firmware to the labels over the radio. The release notes always say in which order to update ([Upgrading from older versions](Upgrading-from-older-versions)).
-
-**Backups of everything.** The AP's settings, layouts, fonts and every label's content are one backup file, and a new AP takes over the labels from it without flashing them again ([Backup and restore](Backup-and-restore), [Moving to a new AP](Moving-to-a-new-AP)).
+**One backup file.** Most of the AP's settings, the layouts, fonts and every label's content are one backup file, and a new AP takes over the labels from it without flashing them again ([Backup and restore](Backup-and-restore), [Moving to a new AP](Moving-to-a-new-AP)).
 
 **Try it first without hardware.** The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API and your layouts before you flash anything.
 
@@ -35,7 +37,7 @@ OpenESL is a separate project, written from scratch. It is not a fork of OEPL an
 
 Be honest with yourself about these before you move a whole shop or house:
 
-- **Fewer label models.** Only the labels on [Supported labels](Supported-labels). Other SoluM M2 sizes and the red labels are next on the [Roadmap](Roadmap); labels with other chips come later. A label that is not on the list stays on OEPL for now.
+- **Fewer label models.** Only the labels on [Supported labels](Supported-labels). Other SoluM M2 sizes are next on the [Roadmap](Roadmap), and the 2.9" red is experimental; labels with other chips come later. A label that is not on the list stays on OEPL for now.
 - **No buttons, LED or NFC** on the labels yet.
 - **No moving a label over the air.** See [below](#why-the-jig).
 - **Several APs do not work together yet.** Each AP has its own labels on its own channel; one AP with several radios is being tested ([#259](https://github.com/mathiasbk/openESL/issues/259)).
@@ -66,7 +68,7 @@ You need an OpenESL access point and a [flashing jig](Flashing-jig). The jig is 
 4. **Check it.** Put the battery back. The label shows its start screen, finds the AP within about a minute, and turns up on the [Dashboard](Dashboard). Send it something.
 5. **Do the rest.** With **Keep going** on, the Flash tag tab waits for the next label after each one. Export the backups when you are done ([Label backups](Label-backups)).
 
-The label keeps its MAC: the flasher builds it from the label's own info page, the same way ZBS_Flasher does, and shows the barcode number next to it.
+The label keeps its MAC: OpenESL reads the one OEPL already wrote to the label's info page and leaves it there, so the label has the same MAC in both systems. The barcode column stays empty for these labels, since the barcode is read from the original SoluM firmware.
 
 ### Why the jig
 
