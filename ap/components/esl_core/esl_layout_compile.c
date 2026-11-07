@@ -199,8 +199,7 @@ static int fixed_bytes(cc_t *c, const uint8_t *b, size_t n)
         if (c->tlen[i] == n && memcmp(c->text[i], b, n) == 0)
             return (int)i;
     if (c->ntext >= ESL_LBIN_TEXT_MAX)
-        return fail(c, "at most %d different fixed texts in a file (with the corners of the polygons)",
-                    ESL_LBIN_TEXT_MAX), -1;
+        return fail(c, "at most %d different fixed texts in a file", ESL_LBIN_TEXT_MAX), -1;
     memcpy(c->text[c->ntext], b, n);
     c->tlen[c->ntext] = (uint8_t)n;
     return (int)c->ntext++;
@@ -434,7 +433,7 @@ static bool shape_element(cc_t *c, int e, lay_t *lay, uint8_t *out, bool polygon
     if (!esl_limits.shapes)
         /* only in the web page's renderer, set to the limits of an AP that does not report any:
            firmware from before ellipses and polygons, which would refuse the file */
-        return fail(c, "the AP's firmware is too old for ellipses and polygons (update it to 0.11.0 or later)");
+        return fail(c, "the AP's firmware is too old for ellipses and polygons (needs 0.11.0)");
     if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
         return fail(c, "a%s can be black, white or red", polygon ? " polygon" : "n ellipse");
     if (!opt_uint(c, e, "border", 0, half > 255 ? 255 : half, 0, &border))
@@ -444,18 +443,16 @@ static bool shape_element(cc_t *c, int e, lay_t *lay, uint8_t *out, bool polygon
         uint8_t pts[ESL_POLY_MAX * ESL_POLY_PT_LEN];
         int p = esl_json_obj_get(c->js, c->tok, e, "points");
         if (p < 0 || T(c, p)->type != ESL_JSON_ARRAY || T(c, p)->size < ESL_POLY_MIN || T(c, p)->size > ESL_POLY_MAX)
-            return fail(c, "points must be a list of %d to %d corners, each [x, y] in pixels from the box's "
-                           "top-left corner", ESL_POLY_MIN, ESL_POLY_MAX);
+            return fail(c, "points must be a list of %d to %d corners", ESL_POLY_MIN, ESL_POLY_MAX);
         unsigned n = T(c, p)->size;
         int k = p + 1;
         for (unsigned i = 0; i < n; i++, k = T(c, k)->next) {
             unsigned px, py;
             if (T(c, k)->type != ESL_JSON_ARRAY || T(c, k)->size != 2 || !get_uint(c, k + 1, &px) ||
                 !get_uint(c, T(c, k + 1)->next, &py))
-                return fail(c, "point %u must be [x, y]: whole numbers of pixels from the box's top-left corner", i);
+                return fail(c, "point %u must be [x, y] in the box", i);
             if (px >= w || py >= h)
-                return fail(c, "point %u [%u, %u] is outside the box: x must be 0 to %u and y 0 to %u", i, px, py,
-                            w - 1, h - 1);
+                return fail(c, "point %u must be [x, y] in the box", i);
             pts[i * ESL_POLY_PT_LEN] = (uint8_t)px;
             pts[i * ESL_POLY_PT_LEN + 1] = (uint8_t)(px >> 8);
             pts[i * ESL_POLY_PT_LEN + 2] = (uint8_t)py;

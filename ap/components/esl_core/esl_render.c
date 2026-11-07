@@ -463,7 +463,7 @@ static bool in_polygon(const rd_shape_t *sh, int32_t x, int32_t y)
         int32_t yi = sh->py[i], yj = sh->py[j];
         if ((yi > y) != (yj > y)) {
             /* the edge crosses row y right of x: x - xi < (y - yi) (xj - xi) / (yj - yi) */
-            int64_t l = (int64_t)(x - sh->px[i]) * (yj - yi), r = (int64_t)(y - yi) * (sh->px[j] - sh->px[i]);
+            int32_t l = (x - sh->px[i]) * (yj - yi), r = (y - yi) * (sh->px[j] - sh->px[i]); /* < 2^20 */
             if (yj > yi ? l < r : l > r)
                 in = !in;
         }

@@ -505,7 +505,7 @@ static void test_shapes(void)
     CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10}"));
     CHECK(HAS(err, "points must be a list"));
     CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[10,0]]}"));
-    CHECK(HAS(err, "point 2 [10, 0] is outside the box: x must be 0 to 9 and y 0 to 9"));
+    CHECK(HAS(err, "point 2 must be [x, y] in the box"));
     CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[1]]}"));
     CHECK(HAS(err, "point 2 must be [x, y]"));
     CHECK(!compile_el("{\"type\":\"polygon\",\"x\":0,\"y\":0,\"w\":10,\"h\":10,\"points\":[[0,0],[9,9],[-1,2]]}"));
