@@ -148,7 +148,7 @@ static void radio_task(void *arg)
 #else
     const TickType_t wait = pdMS_TO_TICKS(1000);
 #endif
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+    ESL_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
         if (xQueueReceive(rx_queue, &f, wait ? wait : 1) == pdTRUE) {

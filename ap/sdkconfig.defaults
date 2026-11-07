@@ -47,7 +47,9 @@ CONFIG_LWIP_TCP_WND_DEFAULT=2880
 # 1.5 MB (partitions.csv) and cannot grow without a USB flash of every AP, so the image
 # must fit in it. -Os takes about 130 KB off the C6 image and about 20 KB off the code
 # kept in IRAM, which the tag table then gets as heap. Assertions stay on, but a failed
-# one no longer prints its expression, file and line (about 60 KB of strings): the panic
-# backtrace still shows where it was (decode it with the build's esl_ap.elf).
+# one no longer prints its expression, file and line (about 60 KB of strings), and
+# ESP_ERROR_CHECK becomes a bare abort(): the AP's own code uses ESL_CHECK (main/app.h),
+# which still logs what failed. The panic backtrace shows where it was; decode it with
+# out/<artifact>.elf from the same build (build.py, the ap-firmware CI artifact).
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
