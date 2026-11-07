@@ -15,11 +15,13 @@ A label running older firmware than the web page has gets a small arrow in its f
 ## From the terminal
 
 ```sh
-python3 esl_client.py tag-ota                      # each model: which image, how many labels have it
-python3 esl_client.py tag-ota openesl-tag-1.54-<version>-ota.bin
+python3 esl_client.py tag-ota openesl-tag-1.54-<version>-ota.bin --to <MAC>   # one label first
+python3 esl_client.py tag-ota                      # each model: which image, for whom, how many labels have it
+python3 esl_client.py tag-ota --to <MAC>,<MAC>     # a few more labels
+python3 esl_client.py tag-ota --model 1.54 --all   # every 1.54 label, once the first one runs it
 ```
 
-`tag-ota <file>` sends to **every** label of that model at once, so use it only when you are sure. `tag-ota --delete MODEL` stops the updates.
+`tag-ota <file>` sends nothing unless you say who gets it: `--to` with one or more MACs (at most 16), or `--all` for every label of that model at once. `--model ... --all` without a file is refused while no label runs the new version yet. `tag-ota --delete MODEL` stops the updates.
 
 ## Good to know
 

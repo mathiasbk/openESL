@@ -34,7 +34,7 @@ python3 esl_client.py show 00000123456789A8
 | `config --tz "CET-1CEST,M3.5.0,M10.5.0/3"` / `config --ntp HOST` | The AP's time zone / NTP server |
 | `layouts`, `layout-put 2.9 FILE` | List or upload layout files |
 | `ota FILE --wait` | New AP firmware, or the C6 radio's on an S3 + C6 ([Updating the AP](Updating-the-access-point)) |
-| `tag-ota FILE` | New label firmware ([Updating labels](Updating-labels)) |
+| `tag-ota FILE --to MAC` | New label firmware, to one label first; `--all` for every label of the model ([Updating labels](Updating-labels)) |
 | `backup FILE`, `restore FILE` | [Backup and restore](Backup-and-restore) |
 | `log week.csv`, `report week.csv` | Long-term test: a row per label per minute, then a summary |
 | `mac 020663461013` | A label's MAC from the number under its barcode |
