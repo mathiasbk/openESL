@@ -24,6 +24,32 @@ export function demoWanted(search = globalThis.location?.search || "") {
   return new URLSearchParams(search).get("demo") === "browser";
 }
 
+// Storage that forgets: in the demo, localStorage and sessionStorage are this, so the demo's
+// drafts, picks and settings never touch what the page keeps for real use (the designer's
+// drafts, the dashboard's Send text). seed: keys copied in at the start.
+export function memoryStorage(seed = {}) {
+  const m = new Map(Object.entries(seed));
+  return {
+    get length() { return m.size; },
+    key: (i) => [...m.keys()][i] ?? null,
+    getItem: (k) => (m.has(String(k)) ? m.get(String(k)) : null),
+    setItem: (k, v) => { m.set(String(k), String(v)); },
+    removeItem: (k) => { m.delete(String(k)); },
+    clear: () => m.clear(),
+  };
+}
+
+// Puts memoryStorage() in place of the browser's storage for this page. Runs when this module
+// is loaded, so main.js imports it first, before any module reads storage. The light/dark choice
+// is copied in, so the demo looks as the page does.
+function forgetStorage() {
+  let theme = null;
+  try { theme = localStorage.getItem("openesl.theme"); } catch { /* blocked */ }
+  for (const [name, seed] of [["localStorage", theme ? { "openesl.theme": theme } : {}], ["sessionStorage", {}]])
+    Object.defineProperty(globalThis, name, { value: memoryStorage(seed), configurable: true });
+}
+if (demoWanted()) forgetStorage();
+
 export const DEMO_FW = "demo";
 const TAG_FW = 1000;                    // 0.10.0, as fmtTagFw() shows it
 const DEMO_POLL_S = 10;                 // the AP's poll interval in the demo (a real tag's default is 60 s)

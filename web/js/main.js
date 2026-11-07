@@ -1,4 +1,6 @@
 // main.js - tabs, the tag backups, and the two flasher wizards (js/tagwizard.js, js/apwizard.js).
+// demoap.js comes first: on ?demo=browser it swaps the page's storage before anything reads it
+import { DemoAp, demoWanted } from "./demoap.js";
 import { initEditor } from "./editor.js";
 import { BackupStore, modelOfMac, MODELS as TAG_MODELS } from "./tagflash.js";
 import { initTagWizard } from "./tagwizard.js";
@@ -7,7 +9,6 @@ import { initWifiSetup } from "./wifisetup.js";
 import { initApWizard } from "./apwizard.js";
 import { initDashboard } from "./dashboard.js";
 import { MODELS, modelName, modelLabel } from "./models.js";
-import { DemoAp, demoWanted } from "./demoap.js";
 
 // The board picked on the Flash AP tab and the like, kept between visits
 const store = {

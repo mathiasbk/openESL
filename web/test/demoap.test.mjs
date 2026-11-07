@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { DemoAp, DEMO_TAGS, demoWanted, crc32 } from "../js/demoap.js";
+import { DemoAp, DEMO_TAGS, demoWanted, crc32, memoryStorage } from "../js/demoap.js";
 import { decodeTagImage, healthLine, mergeTagList } from "../js/dashdata.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -39,6 +39,19 @@ test("only ?demo=browser starts it", () => {
   assert.equal(demoWanted("?demo"), false);
   assert.equal(demoWanted("?demo=http://localhost:8080"), false);
   assert.equal(demoWanted(""), false);
+});
+
+test("the demo's storage forgets and keeps only its seed", () => {
+  const s = memoryStorage({ "openesl.theme": "dark" });
+  assert.equal(s.getItem("openesl.theme"), "dark");
+  assert.equal(s.getItem("openesl.doc.2.9"), null);
+  s.setItem("openesl.doc.2.9", 1);
+  assert.equal(s.getItem("openesl.doc.2.9"), "1");
+  assert.equal(s.length, 2);
+  s.removeItem("openesl.doc.2.9");
+  assert.equal(s.key(1), null);
+  s.clear();
+  assert.equal(s.length, 0);
 });
 
 test("crc32 is the usual one", () => {

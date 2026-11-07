@@ -2016,8 +2016,9 @@ function apButtons(busy = false) {
 
 function apShow() {
   if (!doc()) return;    // before the first model is loaded
-  $("ap-setup").hidden = ap.connected;
+  $("ap-setup").hidden = ap.connected || !!demoAp;   // the demo has no USB, bridge or address to choose
   $("ap-conn").hidden = $("ap-pick").hidden = $("ap-buttons").hidden = !ap.connected;
+  $("ap-change").hidden = !!demoAp;
   $("ap-conn-text").textContent = ap.info;
   $("send-h").textContent = `Send "${layoutName()}" to your AP`;
   if (!onAp) {

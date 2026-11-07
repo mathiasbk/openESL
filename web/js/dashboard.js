@@ -123,7 +123,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     since = "0";
     seenAt.clear();
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
-    $("dash-src").disabled = !!c;
+    $("dash-src").disabled = !!c || !!demoAp;
     $("dash-conn").classList.toggle("connected", !!c);
     $("dash-live").hidden = !c;
     connectedTo = c ? "Connected to " + where : "";
@@ -1627,7 +1627,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
 
   // The USB port opened or closed elsewhere (the WiFi card on the Set up tab)
   onSerialChange((ap) => {
-    if (src() !== "serial") return;
+    if (demoAp || src() !== "serial") return;   // the demo never takes a real AP over USB
     if (ap && !client) setConnected(ap, "the AP over USB");
     else if (!ap && client) {
       setConnected(null);
@@ -1637,7 +1637,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
 
   $("dash-connect").addEventListener("click", async () => {
     if (client) {
-      if (src() === "serial") await disconnectSerial();
+      if (!demoAp && src() === "serial") await disconnectSerial();
       setConnected(null);
       msg("Disconnected.");
       return;
