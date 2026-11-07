@@ -1565,9 +1565,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   });
 
   // ?demo (tools/demo.py): the bridge to the simulator, connected at once. ?demo=<address> names
-  // another bridge than http://localhost:8080. Nothing is remembered, so the next visit is as before.
+  // another bridge than http://localhost:8080, on this computer only, so a link cannot connect the
+  // page to some other server. Nothing is remembered, so the next visit is as before.
   const demo = sameOrigin ? null : new URLSearchParams(location.search).get("demo");
-  if (demo !== null) {
+  const localDemo = (a) => !a || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(a);
+  if (demo !== null && !localDemo(demo)) msg("?demo only connects to a bridge on this computer (localhost).", "error");
+  else if (demo !== null) {
     $("dash-src").value = "http";
     showSrc();
     $("dash-url").value = demo || "http://localhost:8080";
