@@ -4,7 +4,7 @@ How a release goes from `development` to the tags: the pull requests, the checks
 
 ## 1. Pull requests
 
-1. Branch `version-X.Y.Z` from `development`, change [VERSION](../VERSION), add the section "Upgrading from A to X.Y.Z" to [Upgrade instructions](#4-upgrade-instructions) (and the user guide's page) and "Summary of X.Y.Z" to [Summaries](#6-summaries), and merge it to `development`. CI fails without those sections.
+1. Branch `version-X.Y.Z` from `development`, change [VERSION](../VERSION), add the section "Upgrading from A to X.Y.Z" to [Upgrade instructions](#4-upgrade-instructions) (and the user guide's page) and "Summary of X.Y.Z" to [Summaries](#6-summaries), and the compatibility files of the release before it, if they are not there yet (`python3 ap/test/compat/make_golden.py v<previous>` and `python3 tools/esl-client/compat/make_backup.py v<previous>`, [ap/test/compat/README.md](../ap/test/compat/README.md); if `make` in `ap/test` prints "is sent a new image" notes, say in the upgrade instructions that those tags redraw once), and merge it to `development`. CI fails without those sections.
 2. Open the pull request `development` → `master` titled "Release X.Y.Z" with the release template: add `?template=release.md` to the address of the new pull request ([.github/PULL_REQUEST_TEMPLATE/release.md](../.github/PULL_REQUEST_TEMPLATE/release.md)). Its notes are the output of
 
    ```
