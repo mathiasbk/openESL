@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -51,6 +51,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
   let stale = false;      // the last refresh got no answer: what is shown is from lastAt
   let failed = false;     // the last refresh got no answer, and nothing was read before it
   let sending = false;
+  // GET /api/tags?since= (#305): the AP's since from the last reply ("0" gets every tag), and
+  // when each tag last polled, for the tags a reply leaves out (mergeTagList)
+  let since = "0";
+  const seenAt = new Map();
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
@@ -103,6 +107,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     settings.reset();
     screens.clear();
     screenQueue.length = 0;
+    since = "0";
+    seenAt.clear();
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
     $("dash-src").disabled = !!c;
     $("dash-conn").classList.toggle("connected", !!c);
@@ -155,7 +161,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     loading = true;
     try {
       const c = client;
-      const list = await c.call("GET", "/api/tags");
+      // only the tags that changed since the last read, the whole list from an AP without since
+      const reply = await c.call("GET", "/api/tags?since=" + encodeURIComponent(since));
+      const replyAt = Date.now(); // seen_s_ago is from now, not after the calls below
       const health = await optional("/api/health");
       const wifi = await optional("/api/wifi");
       const ota = await optional("/api/ota");
@@ -163,6 +171,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
       if (c !== client) return;
+      const list = mergeTagList(last?.list, reply, seenAt, replyAt);
+      since = reply.since || "0";
       last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
       stale = failed = false;
@@ -173,6 +183,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
       layoutCard.render(last);
     } catch (e) {
       msg(e.message.charAt(0).toUpperCase() + e.message.slice(1), "error");
+      since = "0"; // the whole list again once it answers
       if (last) setStale(true); // the line above says since when
       else {
         failed = true;
@@ -400,6 +411,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
 
     const rows = filterRows(all, filter, $("dash-find").value);
     $("dash-count").textContent = rows.length === list.tags.length ? `(${list.tags.length})` : `(${rows.length} of ${list.tags.length})`;
+    screenView?.disconnect(); // the rows below replace the ones it watches
     $("dash-tags").replaceChildren(...rows.flatMap(({ tag, state, next }) => {
       const tr = document.createElement("tr");
       tr.setAttribute("role", "row");
@@ -526,10 +538,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     }
     const key = screenKey(tag, last?.layouts);
     const s = screens.get(tag.mac);
-    if ((!s || s.want !== key || (s.retry_ms && Date.now() >= s.retry_ms)) && !screenQueue.some((q) => q.mac === tag.mac)) {
-      screenQueue.push({ mac: tag.mac, key });
-      fetchScreens();
-    }
+    if (!s || s.want !== key || (s.retry_ms && Date.now() >= s.retry_ms)) wantScreen(td, tag.mac, key);
     if (!s?.canvas) {
       if (s && !s.retry_ms) td.textContent = "–";
       return td;
@@ -543,6 +552,28 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     return td;
   }
 
+  // Only rows in view (or close to it) fetch their screen (#305): a table of many tags does
+  // not ask the AP for every image at once, and a hidden column (a phone) asks for none
+  const screenWant = new WeakMap(); // td -> { mac, key }
+  const queueScreen = ({ mac, key }) => {
+    const q = screenQueue.find((x) => x.mac === mac);
+    if (q) q.key = key;
+    else screenQueue.push({ mac, key });
+    fetchScreens();
+  };
+  const screenView = typeof IntersectionObserver === "function" ? new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      screenView.unobserve(e.target);
+      queueScreen(screenWant.get(e.target));
+    }
+  }, { rootMargin: "300px 0px" }) : null;
+  function wantScreen(td, mac, key) {
+    if (!screenView) return queueScreen({ mac, key });
+    screenWant.set(td, { mac, key });
+    screenView.observe(td);
+  }
+
   async function fetchScreens() {
     if (screenBusy) return;
     screenBusy = true;
@@ -550,6 +581,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "" } = {}) {
     try {
       while (screenQueue.length && client) {
         const { mac, key } = screenQueue.shift();
+        // a row the table no longer shows (filtered out, or the tag gone): asked again if it comes back
+        if (!$("dash-tags").querySelector(`tr[data-mac="${CSS.escape(mac)}"]`)) continue;
         const c = client;
         const old = screens.get(mac);
         let s;

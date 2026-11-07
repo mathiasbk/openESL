@@ -392,3 +392,37 @@ export function decodeTagImage({ width, height, red, data }) {
   }
   return { width, height, pixels };
 }
+
+// GET /api/tags?since= (#305): the whole list from a reply that may hold only the tags that
+// changed. prev: the list made last time (null: none). seenAt: mac -> when the tag last
+// polled (ms), kept by the caller between replies, since the AP leaves out a tag whose only
+// change is seen_s_ago going up. An AP without since, or a reply with full: true, gives
+// the whole list as it is. A tag the reply leaves out keeps its row with seen_s_ago counted
+// on from seenAt; a tag it has replaces its row, and a new tag goes last.
+export function mergeTagList(prev, reply, seenAt, now = Date.now()) {
+  const note = (t) => {
+    if (t.seen_s_ago == null) seenAt.delete(t.mac);
+    else seenAt.set(t.mac, now - t.seen_s_ago * 1000);
+  };
+  if (reply.full !== false || !prev) {
+    seenAt.clear();
+    reply.tags.forEach(note);
+    return reply;
+  }
+  const changed = new Map(reply.tags.map((t) => [t.mac, t]));
+  const tags = prev.tags.map((t) => {
+    const c = changed.get(t.mac);
+    if (c) {
+      changed.delete(t.mac);
+      note(c);
+      return c;
+    }
+    const at = seenAt.get(t.mac);
+    return at == null ? t : { ...t, seen_s_ago: Math.max(0, Math.round((now - at) / 1000)) };
+  });
+  for (const t of changed.values()) {
+    note(t);
+    tags.push(t);
+  }
+  return { ...reply, tags };
+}
