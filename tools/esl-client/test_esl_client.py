@@ -3,6 +3,7 @@
 import base64
 import datetime
 import csv
+import glob
 import io
 import json
 import os
@@ -661,6 +662,27 @@ class ClientTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("error: 00000123456789A8: HTTP 415", lines[-1])
         self.assertIn("0 tags were restored before it", lines[-1])
+
+    def test_restore_backup_from_releases(self):
+        """#307: what "backup" of every release since 0.8.2 wrote (compat/, make_backup.py) still restores."""
+        files = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "compat", "v*-backup.json")))
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(os.path.basename(path)):
+                self.setUp()  # a fresh AP, as after erase-flash; the tag with the picture has polled it
+                FakeAp.tags["00000123456789B1"] = {"mac": "00000123456789B1", "content_id": 0, "model": "2.9"}
+                rc, out = self.run_cli("restore", path)
+                self.assertEqual(rc, 0, out)
+                self.assertIn("restored: 1 layout files, 1 tag settings, 4 tags, 1 scheduled", out)
+                self.assertEqual(FakeAp.config["poll_s"], 120)
+                self.assertEqual(FakeAp.layouts["2.9"]["layouts"][0]["name"], "shelf")
+                self.assertEqual(FakeAp.tag_cfg, {"00000123456789A9": {"poll_s": 300}})
+                self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk 1 L", "24.90"])
+                self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
+                self.assertTrue(FakeAp.tags["00000123456789A9"]["frame"])
+                self.assertEqual(FakeAp.tags["00000123456789AA"]["layout"], "shelf")
+                self.assertEqual(FakeAp.images["00000123456789B1"], bytes(range(256)) * 18 + bytes(128))
+                self.assertEqual([(e["mac"], e["at"]) for e in FakeAp.sched], [("00000123456789A8", 4102444800)])
 
     def test_tag_ota(self):
         rc, out = self.run_cli("tag-ota")

@@ -28,6 +28,7 @@ void test_png(void);
 void test_source(void);
 void test_clock(void);
 void test_font(void);
+void test_compat(void);
 
 static const struct {
     const char *name;
@@ -59,6 +60,7 @@ static const struct {
     {"source", test_source},
     {"clock", test_clock},
     {"font", test_font},
+    {"compat", test_compat},
 };
 
 int main(void)
