@@ -157,7 +157,7 @@ static void lang_set(void *ctx, const char *lang)
 {
     (void)ctx;
     int l = esl_lang_parse(lang, strlen(lang));
-    snprintf(clock_cfg.lang, sizeof(clock_cfg.lang), "%s", l < 0 ? "" : lang);
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     cfg_set_str("lang", clock_cfg.lang);
     esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
     ESP_LOGI(TAG, "date fields in %s", esl_lang_name(esl_clock_lang()));
@@ -239,7 +239,7 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     cfg_get_str("lang", "", lang, sizeof(lang));
     int l = esl_lang_parse(lang, strlen(lang));
     esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
-    snprintf(clock_cfg.lang, sizeof(clock_cfg.lang), "%s", l < 0 ? "" : lang);
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     clock_cfg.set = clock_set;
     clock_cfg.set_lang = lang_set;
     /* a scheduled content, and setting it (the old content and its NVS blob), on the stack:
