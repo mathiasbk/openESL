@@ -8,7 +8,8 @@ the weather forecast for a place from [MET Norway](https://api.met.no/) (the dat
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
 client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
-electricity price in Norway and a countdown to a date (below).
+electricity price in Norway, a countdown to a date and the headlines of a news feed
+(below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -287,6 +288,33 @@ the time. Good for Christmas, a holiday, a birthday, or "days since".
 | `{years}` | With `yearly`: the years since `date` at the next time |
 
 The default fields, three lines on `text`, are `{place}`, `{left}` and `{weekday} {date}`.
+
+## Headlines from a news feed
+
+A source of type `rss` (AP 0.11.0 and later) reads the newest headlines of an RSS 2.0 or Atom
+feed: a news site, a blog, a status page. Only the titles are used.
+
+```json
+{"sources": [{"id": "news", "type": "rss", "url": "https://news.example/top.rss",
+              "layout": "text", "tags": ["00000123456789B2"]}]}
+```
+
+- `url`: `http://` or `https://`, up to 159 bytes, without a login, as for a picture.
+  Redirects are not followed. Of a feed longer than 128 KB the first 128 KB are read, which
+  hold the newest items.
+- `every_min`: from 15 (the default) to 1440. An `Expires` from the server is waited for.
+
+| Value | What it is |
+|---|---|
+| `{title}` | The feed's own title |
+| `{h1}` ... `{h6}` | The first six headlines, newest first as the feed lists them; empty when the feed has fewer |
+| `{count}` | How many headlines there were (at most 6) |
+
+A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags (also Atom's
+`type="html"`), XML entities, numeric references and the usual typographic ones (`&rsquo;`,
+`&hellip;`) are handled, and a feed in ISO-8859-1 or windows-1252 is read as such. The default fields, for `text`, are `{title}`,
+`{h1}`, `{h2}` and `{h3}`. Each new headline wakes the source's tags: for a busy feed, a
+longer `every_min` saves battery.
 
 ## MET Norway's terms
 

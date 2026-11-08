@@ -2,6 +2,7 @@
  * forecast as values, and the content of the tags) */
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "tinytest.h"
 #include "esl_api.h"
 #include "esl_source.h"
@@ -157,7 +158,7 @@ static void test_parse(void)
         {"[]", "must be a JSON object"},
         {"{}", "sources: a list of up to 8"},
         {"{\"sources\":[{\"id\":\"A\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].id: 1 to 16"},
-        {"{\"sources\":[{\"id\":\"a\",\"type\":\"rss\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\""},
+        {"{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\", \"rss\""},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":91,\"lon\":1,\"layout\":\"w\"}]}", "lat: a number from -90"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"layout\":\"w\"}]}", "lon: a number from -180"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\",\"every_min\":10}]}",
@@ -1121,6 +1122,124 @@ static void test_countdown(void)
     CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
 }
 
+/* ---- type "rss": the newest headlines of a feed ---- */
+
+static void test_rss(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    uint32_t data_at;
+    static const char ok[] = "{\"sources\":[{\"id\":\"news\",\"type\":\"rss\",\"url\":\"https://news.example/top.rss\","
+                             "\"layout\":\"text\",\"tags\":[\"" MAC1 "\"]}]}";
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(n == 1 && cfg[0].type == ESL_SOURCE_RSS && cfg[0].every_min == 15 && cfg[0].nfields == 4);
+    CHECK(esl_source_url(&cfg[0], url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://news.example/top.rss");
+    static const char *const bad[] = {"\"url\":\"ftp://x/a\"", "\"url\":\"http://u:p@x/a\"", "\"url\":\"http://x/a b\"",
+                                      "\"url\":1"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char js[256];
+        snprintf(js, sizeof(js), "{\"sources\":[{\"id\":\"r\",\"type\":\"rss\",\"layout\":\"text\",%s}]}", bad[i]);
+        CHECK(!esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+        CHECK(HAS(err, "sources[0].url: an http:// or https:// URL of an RSS or Atom feed"));
+    }
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+
+    /* RSS 2.0: the channel's title, then each item's; CDATA, entities, tags inside */
+    static const char rss[] =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"><channel>\n"
+        "  <title>Nyheter &amp; sport</title><link>https://news.example/</link>\n"
+        "  <image><title>logo</title></image>\n"
+        "  <item><title><![CDATA[Første sak: <b>regn</b> i Bergen]]></title><link>x</link></item>\n"
+        "  <item>\n    <title>Pris &#248;ker &#x2013; igjen</title>\n  </item>\n"
+        "  <item><title/></item>\n"
+        "  <item><title>En veldig lang overskrift som ikke får plass på en linje i det hele tatt</title></item>\n"
+        "</channel></rss>";
+    CHECK(esl_source_values(&cfg[0], rss, sizeof(rss) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "title"), "Nyheter & sport");
+    CHECK_STR(esl_values_get(&v, "h1"), "Første sak: regn i Bergen");
+    CHECK_STR(esl_values_get(&v, "h2"), "Pris øker – igjen");
+    CHECK_STR(esl_values_get(&v, "h3"), "En veldig lang overskrift som ikke f...");
+    CHECK(strlen(esl_values_get(&v, "h3")) <= ESL_VALUE_MAX);
+    CHECK_STR(esl_values_get(&v, "h4"), "");
+    CHECK_STR(esl_values_get(&v, "count"), "3");
+    esl_content_t c;
+    CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
+
+    /* Atom, with more entries than are given */
+    static const char atom[] =
+        "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title type=\"text\">Blogg</title>"
+        "<entry><title>1</title></entry><entry><title>2</title></entry><entry><title>3</title></entry>"
+        "<entry><title>4</title></entry><entry><title>5</title></entry><entry><title>6</title></entry>"
+        "<entry><title>7</title></entry></feed>";
+    CHECK(esl_source_values(&cfg[0], atom, sizeof(atom) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "title"), "Blogg");
+    CHECK_STR(esl_values_get(&v, "h6"), "6");
+    CHECK_STR(esl_values_get(&v, "count"), "6");
+    /* a feed with no items yet, and not a feed */
+    static const char empty[] = "<rss><channel><title>Tom</title></channel></rss>";
+    CHECK(esl_source_values(&cfg[0], empty, sizeof(empty) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "count"), "0");
+    CHECK_STR(esl_values_get(&v, "h1"), "");
+    CHECK(!esl_source_values(&cfg[0], "<html><body>404</body></html>", 29, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer is not an RSS or Atom feed");
+    /* broken input reads no further than the body */
+    static const char cut[] = "<rss><channel><item><title><![CDATA[abc";
+    CHECK(esl_source_values(&cfg[0], cut, sizeof(cut) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    static const char cut2[] = "<rss><item><title>a &#x";
+    CHECK(esl_source_values(&cfg[0], cut2, sizeof(cut2) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    static const char cut3[] = "<rss><item><title>a <b";
+    CHECK(esl_source_values(&cfg[0], cut3, sizeof(cut3) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+
+    /* hostile bodies are read in linear time: 128 KB of "<item>" or "<item><title>" without
+       closing tags (each item is read only up to the next) */
+    {
+        static const char *const unit[] = {"<item>", "<item><title>", "<entry><title>x"};
+        static char big[ESL_SOURCE_BODY_MAX];
+        for (size_t u = 0; u < 3; u++) {
+            size_t ul = strlen(unit[u]), bl = 0;
+            memcpy(big, "<rss>", 5);
+            bl = 5;
+            while (bl + ul <= sizeof(big)) {
+                memcpy(big + bl, unit[u], ul);
+                bl += ul;
+            }
+            clock_t t0 = clock();
+            CHECK(esl_source_values(&cfg[0], big, bl, T0, cet, &v, &data_at, err, sizeof(err)));
+            double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
+            if (ms > 200)
+                printf("  rss hostile %zu: %.0f ms\n", u, ms);
+            CHECK(ms < 200);
+            CHECK_STR(esl_values_get(&v, "count"), "0");
+        }
+    }
+    /* what feeds really hold: HTML in CDATA and type="html" read twice, typographic entities,
+       control characters, surrogates and the BOM left out, comments skipped, Latin-1 */
+    static const char real[] =
+        "<?xml version=\"1.0\"?><rss><channel><title>T</title>"
+        "<!-- <item><title>old</title></item> -->"
+        "<item><title><![CDATA[Rock &amp; roll &rsquo;n&hellip;]]></title></item>"
+        "<item><title>a&#1;b&#x7f;c&#xD800;d&#xFEFF;e&#0;f</title></item>"
+        "<item><title>raw \xff\xfe bytes</title></item>"
+        "</channel></rss>";
+    CHECK(esl_source_values(&cfg[0], real, sizeof(real) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "h1"), "Rock & roll \xe2\x80\x99n\xe2\x80\xa6");
+    CHECK_STR(esl_values_get(&v, "h2"), "abcdef");
+    CHECK_STR(esl_values_get(&v, "h3"), "raw ?? bytes");
+    CHECK_STR(esl_values_get(&v, "count"), "3");
+    static const char html[] = "<feed><title type=\"html\">Tom &amp;amp; Jerry &lt;b&gt;x&lt;/b&gt;</title>"
+                               "<entry><title type='html'>&lt;i&gt;Ny&lt;/i&gt; sak</title></entry></feed>";
+    CHECK(esl_source_values(&cfg[0], html, sizeof(html) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "title"), "Tom & Jerry x");
+    CHECK_STR(esl_values_get(&v, "h1"), "Ny sak");
+    static const char l1[] = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><rss><item><title>Bl\xe5" "b\xe6" "r</title></item></rss>";
+    CHECK(esl_source_values(&cfg[0], l1, sizeof(l1) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "h1"), "Bl\xc3\xa5" "b\xc3\xa6r");
+    CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
+}
+
 void test_source(void)
 {
     test_parse();
@@ -1131,5 +1250,6 @@ void test_source(void)
     test_image();
     test_power();
     test_countdown();
+    test_rss();
     test_api();
 }

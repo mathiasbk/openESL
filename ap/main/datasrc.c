@@ -127,8 +127,8 @@ static int host_len(const char *url)
 
 /* GETs url into a new buffer (*body, *len): the HTTP status, 0 when there was no answer
    (err says why) */
-static int fetch(const char *url, const char *if_modified, heads_t *h, char **body, size_t *len, char *err,
-                 size_t errlen)
+static int fetch(const char *url, const char *if_modified, bool prefix, heads_t *h, char **body, size_t *len,
+                 char *err, size_t errlen)
 {
     char ua[80];
     snprintf(ua, sizeof(ua), "openESL/%s github.com/mathiasbk/openESL", esp_app_get_description()->version);
@@ -176,7 +176,7 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
             } else if (!b) {
                 snprintf(err, errlen, "no memory for the answer");
                 status = 0;
-            } else if (r < 0 || n == ESL_SOURCE_BODY_MAX) {
+            } else if (r < 0 || (n == ESL_SOURCE_BODY_MAX && !prefix)) {
                 snprintf(err, errlen, r < 0 ? "the answer was cut off" : "the answer is over %d KB",
                          ESL_SOURCE_BODY_MAX / 1024);
                 free(b);
@@ -264,7 +264,8 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     if (want_fetch || !cached) {
         char *body;
         size_t len;
-        status = fetch(url, cached ? lm : NULL, &heads, &body, &len, err, sizeof(err));
+        /* a feed longer than the limit: its start holds the newest items */
+        status = fetch(url, cached ? lm : NULL, esl_source_prefix(cfg), &heads, &body, &len, err, sizeof(err));
         expires = esl_http_date(heads.expires);
         /* MET's terms: spread the requests, not all at the Expires every AP for this place got */
         if (expires)
