@@ -10,12 +10,12 @@ Use this to replace the AP with a new board, of the same kind or another (a C6 t
 
 ## What happens to the labels
 
-The labels need nothing: the radio channel and PAN ID are the same on every board, and a label does not remember which AP it belongs to. A label that polls the new AP before the restore keeps showing what it has, and after the restore it gets the same content back, usually without drawing its screen again (another AP firmware version may draw it slightly differently, and then it is drawn once). Labels that hear no AP for more than two hours (by default) put a small crossed-out signal mark in their top right corner (older label firmware shows "No AP found" instead); the mark goes away, or the content comes back, after the restore, so keep the move short.
+The labels need nothing: the radio channel and PAN ID are the same on every board, and the restore gives the new AP the old AP's id (from 0.11.0; labels with label firmware 0.11.0 answer only the AP with their id, see [Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). A label that polls the new AP before the restore keeps showing what it has, and after the restore it gets the same content back, usually without drawing its screen again (another AP firmware version may draw it slightly differently, and then it is drawn once). Labels that hear no AP for more than two hours (by default) put a small crossed-out signal mark in their top right corner (older label firmware shows "No AP found" instead); the mark goes away, or the content comes back, after the restore, so keep the move short.
 
 ## Steps
 
 1. **Back up the old AP:** `esl_client.py --url http://openesl.local backup ap.json`. Check that the line it prints counts your labels with content.
-2. **Turn the old AP off.** Two APs on the same channel would both answer the labels.
+2. **Turn the old AP off.** Two APs on the same channel would both answer the labels. While the old AP still answers them, `restore` does not give the new AP its id.
 3. **Flash the new board** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab ([Flashing the access point](Flashing-the-access-point)). Going to an [S3 + C6](ESP32-S3-and-C6), the old C6 can be the radio: the page erases it and flashes the radio firmware, so take the backup first.
 4. **Set WiFi and token** ([WiFi and API token](WiFi-and-API-token)). On an S3 or C5 over USB, use the port marked **USB**; without it, use the setup network `openesl-XXXX` from a phone.
 5. **Restore:** `esl_client.py --url http://openesl-xxxx.local restore ap.json`, with the new AP's name. Take the token you set in step 4.
@@ -26,6 +26,10 @@ The labels need nothing: the radio channel and PAN ID are the same on every boar
 7. **Run `restore` once more** after the labels have polled the new AP if it said pictures are waiting. That can take up to 10 minutes: labels that heard no AP while the old one was off poll less often, up to every 600 s, and `restore` says which are still waiting. A picture needs the label's model, which the AP learns from its first poll.
 
 Restoring the same file twice changes nothing, so running it again in step 7 is safe.
+
+To set up a second AP with the same layouts and settings instead, restore with `--copy` (on the dashboard: *A second AP with the same setup*): it keeps its own id, and the old AP keeps its labels.
+
+**No backup?** A new AP takes over lost labels of any AP for its first 14 days, once each has been without its own AP for an hour. The content has to be put on again.
 
 ## What does not move
 

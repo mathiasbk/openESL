@@ -34,6 +34,7 @@ class FakeAp(BaseHTTPRequestHandler):
     ap_fw = "0.1.0"
     images = {}
     fonts = None   # name -> font file; None: an AP without font files (404)
+    other_aps = []
 
     def log_message(self, *a):
         pass
@@ -169,7 +170,7 @@ class FakeAp(BaseHTTPRequestHandler):
                          "battery_mv": t["battery_mv"]} for m, t in self.tags.items() if t["battery_mv"] < 2500]
             self._send(200, {"problems": problems, "ok": not problems, "tags": len(self.tags),
                              "with_problems": len(problems), "silent": 0, "unseen": 0, "draw_failed": 0,
-                             "low_battery": len(problems), "content_error": 0})
+                             "low_battery": len(problems), "content_error": 0, "other_aps": FakeAp.other_aps})
         elif self.path == "/api/tags":
             self._send(200, {"ap": {"fw": FakeAp.ap_fw, "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
@@ -250,6 +251,12 @@ class FakeAp(BaseHTTPRequestHandler):
                 if "lang" not in FakeAp.config:
                     return self._send(422, {"error": "this AP has no language setting"})
                 FakeAp.config["lang"] = body["lang"] or "en"
+            if ("ap_id" in body or "adopt" in body) and "ap_id" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no AP id"})
+            if "ap_id" in body:
+                FakeAp.config["ap_id"] = body["ap_id"]
+            if "adopt" in body:
+                FakeAp.config["adopt"] = body["adopt"]
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -354,6 +361,7 @@ class ClientTest(unittest.TestCase):
         FakeAp.tagfw = {}
         FakeAp.ap_fw = "0.1.0"
         FakeAp.fonts = None
+        FakeAp.other_aps = []
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -471,6 +479,59 @@ class ClientTest(unittest.TestCase):
         lines, ok = esl_client.restore(cli, b)
         self.assertTrue(ok, lines)
         self.assertIn("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)", lines)
+
+    def test_backup_and_restore_ap_id(self):
+        # #390: the id goes in the backup and back on a new AP, which then needs no adopt
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["ap"]["ap_id"], "1A2B3C4D")
+        self.setUp()
+        FakeAp.config.update({"ap_id": "99990000", "adopt": "all", "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("AP id: 1A2B3C4D", lines)
+        self.assertEqual((FakeAp.config["ap_id"], FakeAp.config["adopt"]), ("1A2B3C4D", None))
+        # the AP the backup came from still answers its tags here: refused, unless --force
+        self.setUp()
+        FakeAp.config.update({"ap_id": "77778888", "adopt": None, "adopt_until": None})
+        FakeAp.other_aps = [{"ap_id": "1A2B3C4D", "tags": 5, "polls": 40, "seen_s_ago": 30, "lost_long": False,
+                             "answered_s_ago": 30}]
+        lines, ok = esl_client.restore(cli, b)
+        self.assertFalse(ok)
+        self.assertEqual(FakeAp.config["ap_id"], "77778888")
+        self.assertTrue(any("still answers its tags here" in line for line in lines), lines)
+        # turned off a few minutes ago: its tags poll here without an answer (lost 1 and more), so it is taken
+        FakeAp.other_aps[0].update({"answered_s_ago": 400})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
+        FakeAp.config["ap_id"] = "77778888"
+        FakeAp.other_aps[0].update({"answered_s_ago": 30})
+        lines, ok = esl_client.restore(cli, b, force=True)
+        self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
+        # the same AP again: nothing sent, so an adopt that runs stays
+        FakeAp.config["adopt"] = "BEEF0002"
+        lines, ok = esl_client.restore(cli, b)
+        self.assertEqual(FakeAp.config["adopt"], "BEEF0002")
+        # a second AP with the same setup keeps its own
+        self.setUp()
+        FakeAp.config.update({"ap_id": "55556666", "adopt": None, "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b, copy=True)
+        self.assertEqual(FakeAp.config["ap_id"], "55556666")
+        self.assertTrue(any("keeps its own id 55556666" in line for line in lines), lines)
+        # an AP without it: a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("has no AP id" in line for line in lines), lines)
+        # config --adopt, and what config shows
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        _, out = self.run_cli("config", "--adopt", "BEEF0002")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": "BEEF0002"}))
+        self.assertIn("AP id 1A2B3C4D, adopting the lost tags of AP BEEF0002", out)
+        self.run_cli("config", "--adopt", "null")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": None}))
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")

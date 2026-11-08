@@ -151,3 +151,45 @@ test("the date language (AP 0.11.0) is kept, and left out on an AP without it", 
   await restoreBackup(old, b);
   assert.ok(!("lang" in old.config));
 });
+
+test("the AP id (#390): kept in the backup, put back on replace, kept as it is on copy", async () => {
+  const src = filledAp();
+  Object.assign(src.config, { ap_id: "1A2B3C4D", adopt: null, adopt_until: null });
+  const b = parseBackup(JSON.stringify(await makeBackup(src)));
+  assert.equal(b.ap.ap_id, "1A2B3C4D");
+
+  // a new AP: the id of the old one, and the adopt a new AP starts with is ended
+  const ap = new FakeAp();
+  Object.assign(ap.config, { ap_id: "99990000", adopt: "all", adopt_until: null });
+  let r = await restoreBackup(ap, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.deepEqual(r.failed, []);
+  assert.equal(ap.config.ap_id, "1A2B3C4D");
+  assert.equal(ap.config.adopt, null);
+  assert.ok(r.done.some((l) => /AP id: 1A2B3C4D/.test(l)));
+  r = await restoreBackup(ap, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.ok(r.done.some((l) => /already 1A2B3C4D/.test(l)), "run again: nothing to change");
+
+  // the AP the backup came from still answers its labels here: the id is not taken
+  const near = new FakeAp();
+  Object.assign(near.config, { ap_id: "77778888", adopt: null, adopt_until: null });
+  near.health = { other_aps: [{ ap_id: "1A2B3C4D", tags: 5, polls: 40, seen_s_ago: 30, lost_long: false, answered_s_ago: 30 }] };
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "77778888");
+  assert.ok(r.failed.some((l) => /still answers its labels here/.test(l)));
+  near.health.other_aps[0].answered_s_ago = 400; // turned off a few minutes ago: its labels miss it, taken
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "1A2B3C4D");
+
+  // a second AP with the same setup keeps its own id
+  const two = new FakeAp();
+  Object.assign(two.config, { ap_id: "55556666", adopt: null, adopt_until: null });
+  r = await restoreBackup(two, b, { parts: { layouts: false, tags: false, scheduled: false, ap_id: "copy" } });
+  assert.equal(two.config.ap_id, "55556666");
+  assert.ok(r.notes.some((l) => /keeps its own id 55556666/.test(l)));
+
+  // an AP without the id: a note, nothing sent
+  const old = new FakeAp();
+  r = await restoreBackup(old, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.ok(!("ap_id" in old.config));
+  assert.ok(r.notes.some((l) => /no AP id/.test(l)));
+});

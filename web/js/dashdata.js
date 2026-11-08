@@ -162,6 +162,49 @@ export function healthLine(h) {
   return `${who} attention: ${parts.join(", ")}.`;
 }
 
+// Labels of other openESL APs that poll this one and get no answer (#390, GET /api/health
+// other_aps): one line, "" when there are none. Adopt under Settings, Radio takes them over.
+export function otherApsLine(h) {
+  const o = h?.other_aps || [];
+  if (!o.length) return "";
+  const lost = o.filter((a) => a.lost_long);
+  if (!lost.length) {
+    // a neighbour that runs: its labels are heard here, which is fine
+    const aps = o.length === 1 ? `AP ${o[0].ap_id}` : `${o.length} other APs`;
+    return `Labels of ${aps} are heard here; they belong to ${o.length === 1 ? "that AP" : "those APs"}.`;
+  }
+  const aps = lost.length === 1 ? `another AP (${lost[0].ap_id})` : `${lost.length} other APs`;
+  return `Labels of ${aps} poll here and get no answer, and have been without their own AP for over an hour. ` +
+    "To take them over, see Settings, Radio.";
+}
+
+// Whether the other APs' labels are a problem: only those lost for an hour (a neighbour that runs is not)
+export function otherApsLost(h) {
+  return (h?.other_aps || []).some((a) => a.lost_long);
+}
+
+// How many of its labels were heard: the AP counts at most 16, shared by every other AP
+function otherApTags(a) {
+  if (a.tags >= 16) return "16 or more labels";
+  if (!a.tags) return a.polls ? "some labels" : "no labels";
+  return a.tags === 1 ? "1 label" : `${a.tags} labels`;
+}
+
+// One other AP for the adopt list: "AP 1A2B3C4D: 3 labels lately, last 2 min ago"
+export function otherApText(a) {
+  const tags = otherApTags(a);
+  return `AP ${a.ap_id}: ${tags} lately, last ${fmtAgo(a.seen_s_ago)} ago${a.lost_long ? ", lost for over an hour" : ""}`;
+}
+
+// What adopt does now (GET /api/config adopt, adopt_until), "" when it is off
+export function adoptText(c) {
+  if (!c?.adopt) return "";
+  const who = c.adopt === "all" ? "any other AP" : `AP ${c.adopt}`;
+  const until = c.adopt_until ? ` until ${new Date(c.adopt_until * 1000).toLocaleDateString()}`
+    : " for 14 days from when the AP knows the time";
+  return `Taking over the labels of ${who} once they have been without their own AP for an hour,${until}.`;
+}
+
 // The AP's own figures as [label, value] pairs
 export function apFacts(ap, ota) {
   if (!ap) return [];

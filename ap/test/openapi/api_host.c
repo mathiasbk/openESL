@@ -188,11 +188,14 @@ static int forget_radio(void *ctx, uint64_t id)
     return 404;
 }
 
+static bool apid_set_id(void *ctx, uint32_t id, uint32_t prev) { (void)ctx; (void)id; (void)prev; return true; }
+static void apid_set_adopt(void *ctx, bool all, uint32_t id) { (void)ctx; (void)all; (void)id; }
+
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
@@ -211,6 +214,9 @@ int main(void)
     static esl_sources_t sources;   /* data sources, as on an S3: kept in RAM, never fetched */
     esl_sources_init(&sources, NULL);
     api.sources = &sources;
+    static esl_apid_cfg_t apid = {0, apid_set_id, apid_set_adopt, NULL};
+    api.apid = &apid; /* "ap_id" and "adopt" in /api/config (#390) */
+    esl_store_set_ap_id(&st, 0x1A2B3C4Dul);
     uint64_t now_ms = 1000;
     char line[512];
 

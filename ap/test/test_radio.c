@@ -116,7 +116,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -182,6 +182,34 @@ static int put(const char *mac, const char *body)
     char uri[64];
     snprintf(uri, sizeof(uri), "/api/tags/%s", mac);
     return esl_api_handle(&api, "PUT", uri, AUTH, body, strlen(body), 0, &out);
+}
+
+/* The glue of the AP id for the API tests (main/store_nvs.c on the AP) */
+static uint32_t saved_id, saved_prev, saved_adopt_id;
+static bool saved_adopt_all, id_save_fails;
+static unsigned id_saves, adopt_saves;
+static bool fake_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx;
+    if (id_save_fails)
+        return false;
+    saved_id = id;
+    saved_prev = prev;
+    id_saves++;
+    return true;
+}
+static void fake_set_adopt(void *ctx, bool all, uint32_t id)
+{
+    (void)ctx;
+    saved_adopt_all = all;
+    saved_adopt_id = id;
+    adopt_saves++;
+}
+static esl_apid_cfg_t apid_cfg = {0, fake_set_id, fake_set_adopt, NULL};
+
+static int cfg_put(const char *body)
+{
+    return esl_api_handle(&api, "PUT", "/api/config", AUTH, body, strlen(body), 0, &out);
 }
 
 /* The AP id (#390): a label that belongs to another AP is not answered, unless it is lost for long
@@ -289,6 +317,80 @@ static void test_ap_id(void)
     }
     CHECK(!esl_store_refused(&st, 0xF0000000ull));
     CHECK(esl_store_refused(&st, 0xF0000000ull + ESL_STORE_FOREIGN));
+
+    /* Health lists the other APs whose labels poll here, newest first */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 20000, &out), 200);
+    CHECK(HAS(resp, "\"other_aps\":[{\"ap_id\":\"BEEF0009\",\"tags\":16,\"polls\":17,\"seen_s_ago\":9,\"lost_long\":false,"
+                    "\"answered_s_ago\":9}"));
+    CHECK(HAS(resp, "{\"ap_id\":\"BEEF0003\"") == 0 && HAS(resp, "\"ap_id\":\"BEEF0002\""));
+    /* labels of an AP that is off: they poll with lost 1 and more, so it is not answering them */
+    {
+        esl_poll_t p = {.has_link = true, .lost = 2, .has_apid = true, .ap_id = 0xBEEF000Aul};
+        CHECK(!esl_store_poll_welcome(&st, 0xF00000AAull, &p, 21000));
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 22000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":1,\"seen_s_ago\":1,\"lost_long\":false,"
+                        "\"answered_s_ago\":null}"));
+        p.lost = 0; /* one its AP answered: the AP runs */
+        esl_store_poll_welcome(&st, 0xF00000AAull, &p, 23000);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 25000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":2,\"seen_s_ago\":2,\"lost_long\":false,"
+                        "\"answered_s_ago\":2}"));
+    }
+
+    /* GET/PUT /api/config: the id and adopt */
+    api.apid = &apid_cfg;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"ap_id\":\"BEEF0001\",\"prev_ap_id\":null,\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 200);
+    CHECK(st.adopt_all && saved_adopt_all && adopt_saves == 1);
+    CHECK(HAS(resp, "\"adopt\":\"all\""));
+    apid_cfg.adopt_until = 1800000000ul;
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0009\"}"), 200);
+    CHECK(!st.adopt_all && st.adopt_id == 0xBEEF0009ul && saved_adopt_id == 0xBEEF0009ul);
+    CHECK(HAS(resp, "\"adopt\":\"BEEF0009\",\"adopt_until\":1800000000"));
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
+    CHECK(!st.adopt_all && !st.adopt_id && !saved_adopt_all && !saved_adopt_id);
+    CHECK(HAS(resp, "\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"some\"}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"00000000\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"FFFFFFFF\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF00\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":12345678}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0001\"}"), 422);                     /* its own id */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"0A0B0C0D\"}"), 422);
+    CHECK_INT(adopt_saves, 3);
+
+    /* the id cannot be saved: 500, and nothing changes (not the poll interval either) */
+    id_save_fails = true;
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"all\"}"), 500);
+    CHECK(st.ap_id == 0xBEEF0001ul && !st.prev_id && !st.adopt_all && id_saves == 0);
+    id_save_fails = false;
+
+    /* a new id (a restore): this AP's labels carry the old one. It is still answered, at once
+       (no LOST_LONG), and the CONFIG moves them to the new id; the adopt asked for is apart */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":null}"), 200);
+    CHECK(st.ap_id == 0x0A0B0C0Dul && saved_id == 0x0A0B0C0Dul && id_saves == 1);
+    CHECK(st.prev_id == 0xBEEF0001ul && saved_prev == 0xBEEF0001ul && !st.adopt_id && !st.adopt_all);
+    CHECK(HAS(resp, "\"ap_id\":\"0A0B0C0D\",\"prev_ap_id\":\"BEEF0001\",\"adopt\":null"));
+    own.link_flags = 0;
+    CHECK_INT(air(&own, 70000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 130000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 130000, &out), 200);
+    CHECK(!HAS(resp, "\"ap_id\":\"BEEF0001\""));                     /* its own old id is no other AP */
+    /* the same id again changes nothing */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0a0b0c0d\"}"), 200);
+    CHECK_INT(id_saves, 1);
+    /* back again: the id before is answered now */
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF0001\"}"), 200);
+    CHECK(st.ap_id == 0xBEEF0001ul && st.prev_id == 0x0A0B0C0Dul && saved_prev == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 190000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0xBEEF0001ul);
+    /* when its days are up (the glue): the old id is another AP's again */
+    esl_store_set_prev_id(&st, 0);
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
+    api.apid = NULL;
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 422);
     esl_store_set_ap_id(&st, 0);
 }
 

@@ -759,8 +759,9 @@ paths:
         that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone). A key
         left out keeps its value; at least one must be there. All are stored in NVS
         (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
-        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`). An AP that restarts during a
-        move comes up on the old channel and waits for the tags again.
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/ap_id`, `cfg/prev_id`,
+        `cfg/prev_end`, `cfg/adopt_end` and `cfg/adopt_id`). An AP that restarts during a move comes up on the old channel and waits
+        for the tags again. `ap_id` and `adopt` (#390): see "AP id" in docs/protocol.md.
       requestBody:
         required: true
         content:
@@ -788,6 +789,12 @@ paths:
               channel-now:
                 summary: Move to channel 20 at once, without waiting for the tags that have not confirmed it
                 value: { channel: 20, channel_now: true }
+              replace:
+                summary: In place of a broken AP, whose backup has id 1A2B3C4D (its tags come here at once)
+                value: { ap_id: "1A2B3C4D", adopt: null }
+              adopt:
+                summary: Take over the lost tags of AP 5E6F7A8B for 14 days
+                value: { adopt: "5E6F7A8B" }
               clock:
                 summary: Norwegian time and dates, from a Norwegian NTP server
                 value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3", lang: nb }
@@ -813,6 +820,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/health:
     get:
@@ -2264,6 +2272,26 @@ components:
             esl-client keep writing their dates in the browser's or computer's language. Tags showing such a field are drawn again in the new language at their
             next poll. The Dashboard uses it for the dates it writes too. From AP firmware
             0.11.0; an older AP answers 422.
+        ap_id:
+          type: string
+          pattern: "^[0-9A-Fa-f]{8}$"
+          description: |
+            This AP's id (docs/protocol.md "AP id", #390), 8 hex digits, not `00000000` or
+            `FFFFFFFF`. Tags from firmware 0.11.0 answer only the AP with their id, so set it to
+            the id of a broken AP (from its backup) on the AP that replaces it, and its tags
+            take the new AP at once. The AP's own tags carry the old id: it stays answered as
+            this AP's own for 14 days (`prev_ap_id`), and each tag gets the new id at its next
+            poll. 500 when the id cannot be saved (nothing in the request is set then). From AP
+            firmware 0.11.0; an older AP answers 422.
+        adopt:
+          type: [string, "null"]
+          pattern: "^([0-9A-Fa-f]{8}|all)$"
+          description: |
+            Take over the tags of another AP: its id (as in `other_aps` in `GET /api/health`), or
+            `all` for any AP. A tag is taken once it has had no answer from its own AP for an
+            hour, so an AP that only restarts keeps its tags. It ends by itself after 14 days
+            (`adopt_until`). `null` = off. Not this AP's own id (422). A new AP (an empty table
+            and a new id) starts with `all`. From AP firmware 0.11.0; an older AP answers 422.
 
     ApConfigReply:
       type: object
@@ -2288,6 +2316,10 @@ components:
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
         lang: { type: [string, "null"], enum: [en, nb, null], description: "The language of the date fields (`{weekday}`, `{date}`); null until chosen, when the AP writes English and the Dashboard and esl-client write in the browser's or computer's language. Left out by an AP from before 0.11.0, which writes them in English" }
+        ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id (#390); null when it has none (NVS could not be read). Left out by an AP from before 0.11.0" }
+        prev_ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id before the last change, still answered as its own for 14 days after it; null = none" }
+        adopt: { type: [string, "null"], pattern: "^([0-9A-F]{8}|all)$", description: "The AP whose lost tags this one takes over, `all` for any, null = none" }
+        adopt_until: { type: [integer, "null"], minimum: 0, description: "With adopt: when it ends (Unix seconds); null while the AP does not know the time yet (the 14 days start then)" }
 
     Health:
       type: object
@@ -2322,6 +2354,20 @@ components:
               via: { type: string, enum: [uart, wifi] }
               problems: { type: array, minItems: 1, items: { type: string, enum: [radio_lost] } }
               lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started" }
+        other_aps:
+          type: array
+          description: "Other openESL APs whose tags poll here and get no answer (#390), newest first, at most 8. Adopt them with `adopt` in `PUT /api/config`. Not sent by firmware before 0.11.0"
+          items:
+            type: object
+            additionalProperties: false
+            required: [ap_id, tags, polls, seen_s_ago, lost_long, answered_s_ago]
+            properties:
+              ap_id: { type: string, pattern: "^[0-9A-F]{8}$" }
+              tags: { type: integer, minimum: 0, maximum: 16, description: "Its tags among the last 16 this AP turned away" }
+              polls: { type: integer, minimum: 0, description: "POLLs from its tags since this AP started" }
+              seen_s_ago: { type: integer, minimum: 0, description: "Seconds since the last one" }
+              lost_long: { type: boolean, description: "The last one came from a tag without an answer for an hour or more: adopt would take it" }
+              answered_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since a POLL from a tag its own AP had answered (no round lost): that AP still runs. null = none since this AP started. A restore keeps its own id while this is under 180 s" }
         ok: { type: boolean, description: "No tag has a problem, and no radio is lost" }
         tags: { type: integer, minimum: 0, description: Tags in the table }
         with_problems: { type: integer, minimum: 0, description: Length of `problems` }
@@ -2337,6 +2383,7 @@ components:
           - { mac: "00000123456789A8", problems: [silent], seen_s_ago: 1260, battery_mv: 2950 }
           - { mac: "00000123456789A9", problems: [draw_failed, low_battery], seen_s_ago: 12, battery_mv: 2380 }
         radio_problems: []
+        other_aps: []
         ok: false
         tags: 12
         with_problems: 2

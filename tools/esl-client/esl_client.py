@@ -804,6 +804,11 @@ def print_health(h):
     for t in h.get("problems", []):
         print(f"  {t.get('mac')}  {', '.join(t.get('problems', [])):28}  seen {fmt_ago(t.get('seen_s_ago')):>7}"
               + (f"  {t['battery_mv']} mV" if t.get("battery_mv") else ""))
+    for a in h.get("other_aps", []):  # #390: tags of another AP poll here and get no answer
+        n = a.get("tags") or 0  # the AP counts at most 16, shared by every other AP
+        n = "16 or more" if n >= 16 else str(n) if n else "some" if a.get("polls") else "0"
+        print(f"  tags of AP {a.get('ap_id')} poll here: {n} lately, last {fmt_ago(a.get('seen_s_ago'))} ago"
+              + (", lost for over an hour" if a.get("lost_long") else "") + " (config --adopt takes them over)")
     return 0 if h.get("ok") else 1
 
 
@@ -826,6 +831,13 @@ def print_config(c):
             line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
+    if c.get("ap_id"):  # 0.11.0 and later (#390)
+        line += f", AP id {c['ap_id']}"
+        if c.get("adopt"):
+            who = "any AP" if c["adopt"] == "all" else f"AP {c['adopt']}"
+            until = (datetime.datetime.fromtimestamp(c["adopt_until"]).strftime(" until %Y-%m-%d")
+                     if c.get("adopt_until") else " (14 days from when the clock is set)")
+            line += f", adopting the lost tags of {who}{until}"
     if "lang" in c:  # 0.11.0 and later: the language of the date fields, None until chosen
         line += {"nb": ", dates in Norwegian", "en": ", dates in English"}.get(c["lang"], ", date language not chosen (English)")
     print(line)
@@ -1589,6 +1601,12 @@ def backup(cli, now=None, warn=None):
     ap = {"fw": st.get("ap", {}).get("fw"), "channel": st.get("ap", {}).get("channel")}
     if st.get("ap", {}).get("board"):
         ap["board"] = st["ap"]["board"]
+    try:  # the AP id (#390): the tags of this AP answer only an AP with it
+        if (apid := cli.config().get("ap_id")):
+            ap["ap_id"] = apid
+    except ApiError as e:
+        if e.status != 404:
+            raise
     try:
         if (name := cli.wifi().get("hostname")):
             ap["hostname"] = name
@@ -1715,11 +1733,13 @@ def read_backup(path):
     return b
 
 
-def restore(cli, b, dry_run=False, now=None):
+def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
     """Puts a backup onto an AP, in the order the AP needs: config, layout files, tag
     settings, content, then the scheduled content (entries whose time has passed are
     skipped, since the AP would set them now). Tags the backup does not have are left
-    as they are. Returns (lines, ok)."""
+    as they are. The AP id of the backup (#390) is put on the AP too, so the old AP's tags
+    take it at once, unless copy (a second AP with the same setup keeps its own id, and the
+    tags stay with the old AP). Returns (lines, ok)."""
     now = int(now or time.time())
     lines = []
     ok = True
@@ -1739,6 +1759,9 @@ def restore(cli, b, dry_run=False, now=None):
     if want:
         lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
                      + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
+    ap_id = (b.get("ap") or {}).get("ap_id")
+    if ap_id:
+        lines.append(f"AP id: {ap_id}" + (" (not put on this AP: --copy)" if copy else ""))
     if fonts:
         lines.append(f"font files: {', '.join(fonts)}")
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
@@ -1774,6 +1797,27 @@ def restore(cli, b, dry_run=False, now=None):
             if e.status != 422:
                 raise
             lines.append("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)")
+    if ap_id:
+        cur = cli.config()
+        if "ap_id" not in cur:
+            lines.append(f"note: the backup has AP id {ap_id}, but this AP's firmware has no AP id (0.11.0 and later)")
+        elif copy:
+            lines.append(f"note: this AP keeps its own id {cur['ap_id']}; the tags of AP {ap_id} stay with that AP "
+                         "(config --adopt takes them over)")
+        elif cur["ap_id"] != ap_id:  # the same id: the same AP, and an adopt that runs stays
+            # a label of an AP that is off polls with lost 0 only once (an interval at most): 3 min tells them apart
+            alive = [a for a in (cli.health().get("other_aps") or []) if a.get("ap_id") == ap_id
+                     and not a.get("lost_long") and a.get("answered_s_ago") is not None and a["answered_s_ago"] < 180]
+            if alive and not force:
+                ok = False
+                lines.append(f"error: AP id not changed: the AP the backup came from ({ap_id}) still answers its tags "
+                             "here. Turn it off and restore again, use --copy for a second AP, or --force")
+            else:
+                try:
+                    cli.set_config(ap_id=ap_id, adopt=None)  # its tags are back: no adopt
+                except ApiError as e:
+                    ok = False
+                    lines.append(f"error: AP id {ap_id} not set: {e}")
     for name, f in fonts.items():  # first: a layout file may draw with them
         try:
             cli.put_font(name, json.dumps(f).encode("utf-8"))
@@ -1921,6 +1965,9 @@ def main(argv=None):
                                                        "cannot follow and are left behind")
     s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
     s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
+    s.add_argument("--adopt", help="take over the tags of another AP once they have been without it for an hour, "
+                                   "for 14 days: its AP id (8 hex digits), \"all\" for any AP, \"null\" = off")
+    s.add_argument("--ap-id", help="set this AP's id (8 hex digits); its own tags carry the old one, which is then adopted")
     s.add_argument("--lang", choices=["en", "nb", ""],
                    help="language of the date fields {weekday} and {date}: en or nb; \"\" = English (AP 0.11.0 and later)")
 
@@ -1963,6 +2010,10 @@ def main(argv=None):
     s = sub.add_parser("restore", help="put a backup from \"backup\" onto an AP (a new one, or after erase-flash)")
     s.add_argument("file")
     s.add_argument("--dry-run", action="store_true", help="show what would be restored")
+    s.add_argument("--copy", action="store_true", help="a second AP with the same setup: keep this AP's own id, "
+                                                      "so the old AP's tags stay with it (#390)")
+    s.add_argument("--force", action="store_true", help="take the backup's AP id even while that AP still answers "
+                                                       "its tags here")
 
     s = sub.add_parser("mac", help="the MAC of a tag from the number under the barcode on its label (no AP needed)")
     s.add_argument("barcode", help="the 12 digits on the label, e.g. 020663461013")
@@ -2090,6 +2141,10 @@ def main(argv=None):
             for k in ("tz", "ntp", "lang"):
                 if getattr(args, k) is not None:
                     kw[k] = getattr(args, k) or None
+            if args.adopt is not None:
+                kw["adopt"] = None if args.adopt in ("null", "") else args.adopt
+            if args.ap_id is not None:
+                kw["ap_id"] = args.ap_id
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)
@@ -2141,7 +2196,7 @@ def main(argv=None):
             except (OSError, BackupError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1
-            lines, ok = restore(cli, b, args.dry_run)
+            lines, ok = restore(cli, b, args.dry_run, copy=args.copy, force=args.force)
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":

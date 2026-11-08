@@ -21,6 +21,14 @@ On an ESP32-S3 AP the labels' radio is an ESP32-C6, [on a cable](ESP32-S3-and-C6
 "radio_lost": 1
 ```
 
+## Labels of other APs
+
+From 0.11.0 an AP does not answer the labels of another AP ([Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). When such labels poll it, the report lists their AP under `other_aps`: its id, how many of its labels were heard lately, whether they have been without their own AP for over an hour (`lost_long`), and when one of them last had an answer from its own AP (`answered_s_ago`; null when none has since this AP started). The dashboard says so under the health line. To take them over, choose that AP under **Settings → Radio → Labels of other APs**, or `esl_client.py config --adopt 1A2B3C4D`.
+
+```json
+"other_aps": [{"ap_id": "1A2B3C4D", "tags": 3, "polls": 12, "seen_s_ago": 40, "lost_long": true, "answered_s_ago": null}]
+```
+
 ## Asking for it
 
 ```sh

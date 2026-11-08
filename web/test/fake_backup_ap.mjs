@@ -42,6 +42,7 @@ export class FakeAp {
           config: { poll_s: null, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null, ...t.config } })),
       };
     if (method === "GET" && path === "/api/config") return { ...this.config };
+    if (method === "GET" && path === "/api/health" && this.health) return this.health;
     if (method === "PUT" && path === "/api/config") {
       for (const k of Object.keys(body)) {
         if (!(k in this.config) || k.startsWith("builtin")) throw new Error("422: unknown");

@@ -23,11 +23,18 @@ openESL is built around one rule: you should not lose a label. A label that fall
 | You update a label | The new firmware is written next to the running one and checked before the label switches. The label keeps its content and settings. | See [Updating labels](Updating-labels). |
 | You move to a new AP | The backup holds the settings, layouts, every label's content and the scheduled content, and a restore puts them on the new AP. Data sources (weather, calendar and the rest), the WiFi password and the API token are not in it. | See [Backup and restore](Backup-and-restore) and [Moving to a new AP](Moving-to-a-new-AP). |
 
-## One limit: more than one AP
+## More than one AP
 
-Every openESL AP uses the same network id, and a label does not remember which AP it belongs to. That is what lets a new AP take over your labels from a backup. It also means that if you run more than one openESL AP, a label whose own AP is gone for a few minutes can be answered by another AP in range while it looks around. That AP has no content for it and takes it on as a new label, and the label stays with it.
+From 0.11.0 every AP has its own id, and a label with label firmware 0.11.0 or newer remembers the id of its AP. While a label looks for its AP after a power cut or an update, a neighbouring openESL AP leaves it alone, so it finds its own AP again when that is back, on whatever channel ([#390](https://github.com/mathiasbk/openESL/issues/390)).
 
-A label that looks for its AP tries every channel, so separate channels do not prevent this. Keep APs out of each other's range, and keep an AP's downtime short. Labels that stay with their own AP are planned ([#390](https://github.com/mathiasbk/openESL/issues/390)).
+To move labels on purpose:
+
+- **A new AP in place of a broken one:** restore the old AP's backup and choose *In place of the AP the backup came from*. Turn the old AP off first. The new AP gets the old id, and the labels take it at once; labels it had already taken over keep working too ([Moving to a new AP](Moving-to-a-new-AP)).
+- **Without a backup:** a new AP (or one whose memory was erased) takes over lost labels of any AP for its first 14 days. A label is taken once it has been without its own AP for an hour, so expect an hour without updates, and put the content on again.
+- **From one AP to another:** on the AP that should get them, choose **Settings → Radio → Labels of other APs** and the other AP's id, then turn the other AP off. Its labels come here an hour later: adopt takes only labels that have been without their own AP for an hour, so it does nothing while the other AP still runs. It ends after 14 days. The other AP's labels show up in [Health](Health-and-webhook) when they poll here.
+- **The last way out:** a label that has heard nothing from its own AP for a week takes any AP.
+
+Labels with older firmware (and APs before 0.11.0) work as before: every AP answers them, so on a site with several APs such a label can still end up with a neighbour. Update the labels to 0.11.0 to stop that. Taking a battery out does not help: the label keeps its AP's id, and the restart only starts its hour again.
 
 ## How you notice a problem early
 

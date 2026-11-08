@@ -55,6 +55,18 @@ typedef struct {
     void (*set)(void *ctx, int8_t dbm, bool builtin);
     void *ctx;
 } esl_tx_power_t;
+/* The AP id (#390, docs/protocol.md "AP id"), "ap_id" and "adopt" in GET/PUT /api/config. The
+ * API sets them in the store (esl_store_set_ap_id, esl_store_set_adopt); the glue
+ * (main/store_nvs.c) keeps them in NVS and ends an adopt after ESL_API_ADOPT_DAYS. */
+#define ESL_API_ADOPT_DAYS 14
+typedef struct {
+    uint32_t adopt_until;   /* unix s when the adopt ends; 1 = its days start once the clock is known; 0 = none */
+    /* Saves a new id, with the one it replaces (prev, 0 = none) answered too for ESL_API_ADOPT_DAYS
+       (esl_store_set_prev_id). Called before the store changes; false: not saved, nothing changes */
+    bool (*set_id)(void *ctx, uint32_t id, uint32_t prev);
+    void (*set_adopt)(void *ctx, bool all, uint32_t id); /* all or id: on for ESL_API_ADOPT_DAYS; neither: off */
+    void *ctx;
+} esl_apid_cfg_t;
 /* The AP's clock settings, "ntp", "tz" and "lang" in GET/PUT /api/config, kept by the glue
  * (main/sched.c) in NVS. */
 #define ESL_NTP_MAX 63 /* an NTP server's name */
@@ -129,6 +141,7 @@ typedef struct {
                                       GET /api/tags, and each tag's "radio" when more than one is known */
     unsigned n_links;
     const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
+    esl_apid_cfg_t *apid;   /* the AP id and adopt (GET/PUT /api/config); NULL: shown from the store, PUT 422 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

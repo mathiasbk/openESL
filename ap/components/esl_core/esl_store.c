@@ -930,6 +930,13 @@ void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id)
     unlock(st);
 }
 
+void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id)
+{
+    lock(st);
+    st->prev_id = prev_id;
+    unlock(st);
+}
+
 void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id)
 {
     lock(st);
@@ -946,12 +953,66 @@ static int foreign_find(const esl_store_t *st, uint64_t mac)
     return -1;
 }
 
-bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll)
+static void note_other_ap(esl_store_t *st, uint32_t id, bool lost_long, bool answered, uint64_t now_ms)
+{
+    esl_other_ap_t *a = NULL, *oldest = &st->other_aps[0];
+    for (unsigned i = 0; i < ESL_STORE_OTHER_APS && !a; i++) {
+        esl_other_ap_t *o = &st->other_aps[i];
+        if (o->ap_id == id)
+            a = o;
+        else if (!o->ap_id || (oldest->ap_id && o->last_ms < oldest->last_ms))
+            oldest = o;
+    }
+    if (!a) {
+        a = oldest;
+        memset(a, 0, sizeof(*a));
+        a->ap_id = id;
+    }
+    a->polls++;
+    a->last_ms = now_ms;
+    a->lost_long = lost_long;
+    if (answered)
+        a->answered_ms = now_ms ? now_ms : 1;
+}
+
+unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max)
+{
+    esl_other_ap_t all[ESL_STORE_OTHER_APS];
+    unsigned n = 0;
+    lock(st);
+    for (unsigned i = 0; i < ESL_STORE_OTHER_APS; i++) {
+        const esl_other_ap_t *o = &st->other_aps[i];
+        if (!o->ap_id || o->ap_id == st->ap_id || o->ap_id == st->prev_id)
+            continue;
+        all[n] = *o;
+        all[n].tags = 0;
+        for (unsigned k = 0; k < ESL_STORE_FOREIGN; k++)
+            if (st->foreign[k].mac && st->foreign[k].ap_id == o->ap_id)
+                all[n].tags++;
+        n++;
+    }
+    unlock(st);
+    for (unsigned i = 1; i < n; i++) /* newest first */
+        for (unsigned k = i; k > 0 && all[k - 1].last_ms < all[k].last_ms; k--) {
+            esl_other_ap_t t = all[k];
+            all[k] = all[k - 1];
+            all[k - 1] = t;
+        }
+    if (n > max)
+        n = max;
+    memcpy(out, all, n * sizeof(*out));
+    return n;
+}
+
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms)
 {
     lock(st);
     uint32_t id = poll->has_apid ? poll->ap_id : ESL_APID_NONE;
-    bool ok = !st->ap_id || id == ESL_APID_NONE || id == st->ap_id || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
+    bool own = id == st->ap_id || (st->prev_id && id == st->prev_id);
+    bool ok = !st->ap_id || id == ESL_APID_NONE || own || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
               ((poll->link_flags & ESL_POLL_LF_LOST_LONG) && (st->adopt_all || id == st->adopt_id));
+    if (st->ap_id && id != ESL_APID_NONE && !own)
+        note_other_ap(st, id, (poll->link_flags & ESL_POLL_LF_LOST_LONG) != 0, poll->lost == 0, now_ms);
     int i = foreign_find(st, mac);
     if (ok && i >= 0) {
         st->foreign[i].mac = 0;

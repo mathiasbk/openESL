@@ -367,6 +367,8 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); fon
 .set-page .hint.error { color: var(--error); }
 .set-page .hint.ok { color: var(--ok); }
 .bk-ask { display: grid; gap: 10px; background: var(--bg); border-radius: var(--radius-sm); padding: var(--space-3); }
+.bk-apid { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bk-apid legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
 #bk-log { margin: 6px 0 0; padding-left: 18px; }
 #bk-log .bad { color: var(--error); }
 #dash-body.stale .set-page .set-pane { opacity: 0.45; }
