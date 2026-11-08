@@ -107,11 +107,10 @@ typedef struct {
 extern const esl_source_def_t esl_source_met;
 extern const esl_source_def_t esl_source_image;
 
-/* For type "image": the picture for one tag (mac, model) from the PNG body, in img
-   (esl_render_size(model) + ESL_IMAGE_STORED_MAX of it), packed after the raw image, with
-   its content in *content. The packed length, or 0 with a message in err. */
-size_t esl_source_image_picture(const esl_source_cfg_t *c, const char *body, size_t len, uint64_t mac,
-                                uint8_t model, uint8_t *img, esl_content_t *content, char *err, size_t errlen);
+/* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
+   (esl_render_size(model) bytes, esl_render's format). False with a message in err. */
+bool esl_source_image_decode(const esl_source_cfg_t *c, const char *body, size_t len, uint8_t model, uint8_t *img,
+                             char *err, size_t errlen);
 
 /* For the types: a JSON number, and a number rounded half away from zero (no libm) */
 bool esl_source_num(const char *js, const esl_jtok_t *t, double *out);

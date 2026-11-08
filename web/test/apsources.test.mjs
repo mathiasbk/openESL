@@ -59,6 +59,10 @@ test("a picture from a URL keeps its settings, and loses tags that get the weath
   assert.deepEqual(p.sources[1], { id: "chart", type: "image", url: "http://ha.local/chart.png", dither: false, place: "", lang: "nb", every_min: 5, tags: [C] });
   p = weatherPlan([oslo, chart], [C], "oslo");
   assert.deepEqual(p.sources.map((s) => s.id), ["oslo"]);
+  // a picture source saved without tags yet stays; its tags are not weather places
+  p = weatherPlan([oslo, { ...chart, tags: [] }], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo", "chart"]);
+  assert.deepEqual([...placeOf([oslo, chart])], [[A, "Oslo"], [B, "Oslo"]]);
 });
 
 test("the models whose layout file lacks the weather layout", () => {

@@ -143,7 +143,9 @@ export function weatherPlan(sources, macs, to) {
   if (!target) return { error: `There is no place called ${id} on the AP` };
   target.tags = [...target.tags, ...macs];
   if (target.tags.length > TAGS_MAX) return { error: `A place can have at most ${TAGS_MAX} tags (${target.place || id} would have ${target.tags.length})` };
-  list = list.filter((s) => s.tags.length || s.id === id);
+  // a source the move emptied goes; a picture source that had no tags yet stays
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s.id === id || (s.type === "image" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} places: give the tags one it has` };
   return { sources: list, id };
 }
@@ -161,10 +163,10 @@ export function missingModels(tags, layouts) {
   return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
 
-// The place each tag is in now, by MAC
+// The weather place each tag is in now, by MAC (not a picture from a URL)
 export function placeOf(sources) {
   const out = new Map();
-  for (const s of sources || []) for (const m of s.tags || []) out.set(m, s.place || s.id);
+  for (const s of sources || []) if (s.type !== "image") for (const m of s.tags || []) out.set(m, s.place || s.id);
   return out;
 }
 

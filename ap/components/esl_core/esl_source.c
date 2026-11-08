@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esl_crc32.h"
 #include "esl_image.h"
 #include "esl_proto.h"
 #include "esl_render.h"
@@ -893,8 +894,11 @@ void esl_source_apply_body(const esl_source_cfg_t *c, const char *body, size_t l
 {
     st->tags_set = st->tags_changed = st->tags_failed = 0;
     st->error[0] = '\0';
-    uint8_t *img = NULL;
+    /* the PNG is read once for each model (it only depends on the screen), and packed for
+       each tag's MAC */
+    uint8_t *img = NULL, img_model = ESL_MODEL_UNKNOWN;
     size_t cap = 0;
+    char img_err[ESL_SOURCE_ERR_MAX] = "";
     for (unsigned i = 0; i < c->ntags; i++) {
         esl_tag_t t;
         char msg[ESL_SOURCE_ERR_MAX] = "";
@@ -910,19 +914,30 @@ void esl_source_apply_body(const esl_source_cfg_t *c, const char *body, size_t l
         }
         if (!esl_store_takes_images(store))
             snprintf(msg, sizeof(msg), "this AP keeps no pictures");
-        else if (model == ESL_MODEL_UNKNOWN || !(raw = esl_render_size(model)))
+        else if (model == ESL_MODEL_UNKNOWN)
             snprintf(msg, sizeof(msg), "a tag has not polled yet, so its screen is not known");
-        if (!msg[0] && cap < raw + ESL_IMAGE_STORED_MAX(raw)) {
-            free(img);
-            cap = raw + ESL_IMAGE_STORED_MAX(raw);
-            img = malloc(cap);
-            if (!img) {
-                cap = 0;
-                snprintf(msg, sizeof(msg), "no memory for the picture");
+        else if (!(raw = esl_render_size(model)))
+            snprintf(msg, sizeof(msg), "this AP cannot draw model %s", esl_model_name(model) ? esl_model_name(model) : "?");
+        if (!msg[0] && model != img_model) {
+            size_t need = raw + ESL_IMAGE_STORED_MAX(raw);
+            if (cap < need) {
+                free(img);
+                img = malloc(need);
+                cap = img ? need : 0;
             }
+            img_err[0] = '\0';
+            if (!img)
+                snprintf(img_err, sizeof(img_err), "no memory for the picture");
+            else
+                esl_source_image_decode(c, body, len, model, img, img_err, sizeof(img_err));
+            img_model = model; /* its picture in img, or its error in img_err */
         }
-        if (!msg[0])
-            n = esl_source_image_picture(c, body, len, c->tags[i], model, img, &content, msg, sizeof(msg));
+        if (!msg[0] && img_err[0])
+            copy_str(msg, sizeof(msg), img_err);
+        if (!msg[0]) {
+            n = esl_image_pack(c->tags[i], model, img, img + raw);
+            esl_content_init_image(&content, model, esl_crc32(img + raw, n));
+        }
         esl_set_result_t r;
         bool gone = false;
         if (n) {

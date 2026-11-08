@@ -17,6 +17,7 @@ curl -X PUT http://openesl.local/api/sources \
 - The PNG must be exactly the label's screen size: 296x128 for a 2.9", 200x200 for a 1.54". Use one source for each size.
 - `"dither": true` suits photos. Without it each pixel becomes the nearest colour the label has.
 - `every_min` is 5 to 1440 minutes. The AP asks with `If-Modified-Since`, so an unchanged file costs almost nothing.
+- Redirects are not followed. On your own network use `http://`: `https://` needs a certificate from a public authority.
 - The address must work without a login. Files in Home Assistant's `www` folder are served at `/local/`.
 
 The Dashboard lists the source in its **Weather** card, with its address and how the last fetch went. **Remove** stops it, and the labels keep what they show. Sending other content to a label takes it out of the source.

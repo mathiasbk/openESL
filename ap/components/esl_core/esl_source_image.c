@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "esl_crc32.h"
 #include "esl_image.h"
 #include "esl_render.h"
 
@@ -29,6 +28,10 @@ static bool url_ok(const char *u)
         return false;
     if (n <= host || u[host] == '/')
         return false;
+    /* no user:password@ (it would be kept in NVS, shown by GET and printed in messages) */
+    size_t auth = strcspn(u + host, "/?#");
+    if (memchr(u + host, '@', auth))
+        return false;
     for (size_t i = 0; i < n; i++)
         if ((unsigned char)u[i] <= ' ' || (unsigned char)u[i] >= 0x7f)
             return false;
@@ -44,7 +47,7 @@ static bool image_parse(const char *js, const esl_jtok_t *tok, int obj, esl_sour
     if (n >= 0)
         c->image.url[n] = '\0';
     if (n < 0 || !url_ok(c->image.url)) {
-        snprintf(err, errlen, "url: an http:// or https:// URL of a PNG, up to %d bytes, without spaces",
+        snprintf(err, errlen, "url: an http:// or https:// URL of a PNG, up to %d bytes, without spaces or a login",
                  ESL_SOURCE_URL_MAX - 1);
         return false;
     }
@@ -114,34 +117,28 @@ static bool mem_read(void *ctx, uint8_t *buf, size_t n)
     return true;
 }
 
-/* The picture for one tag of model, decoded from the PNG and packed for mac, into img
-   (raw + ESL_IMAGE_STORED_MAX(raw) bytes; the stored form after the raw image). Its
-   stored length, or 0 with a message. */
-size_t esl_source_image_picture(const esl_source_cfg_t *c, const char *body, size_t len, uint64_t mac,
-                                uint8_t model, uint8_t *img, esl_content_t *content, char *err, size_t errlen)
+/* The picture for a tag of model from the PNG, in img (esl_render_size(model) bytes, in
+   esl_render's format); false with a message */
+bool esl_source_image_decode(const esl_source_cfg_t *c, const char *body, size_t len, uint8_t model, uint8_t *img,
+                             char *err, size_t errlen)
 {
-    size_t raw = esl_render_size(model);
     mem_t m = {(const uint8_t *)body, len};
     esl_pic_err_t e = esl_image_picture(model, c->image.dither, len, mem_read, &m, img);
-    if (e) {
-        uint16_t w = 0, h = 0;
-        bool red;
-        esl_render_model(model, &w, &h, &red);
-        if (e == ESL_PIC_ERR_SIZE && len >= 24)
-            snprintf(err, errlen, "the picture is %lux%lu pixels, the screen of model %s is %ux%u",
-                     (unsigned long)be32((const uint8_t *)body + 16), (unsigned long)be32((const uint8_t *)body + 20),
-                     esl_model_name(model), (unsigned)w, (unsigned)h);
-        else
-            snprintf(err, errlen, "%s",
-                     e == ESL_PIC_ERR_NOMEM         ? "no memory to read the picture"
-                     : e == ESL_PIC_ERR_UNSUPPORTED ? "this kind of PNG is not taken (interlaced, or an unknown colour type or chunk)"
-                                                    : "a broken PNG file");
-        return 0;
-    }
-    uint8_t *stored = img + raw;
-    size_t n = esl_image_pack(mac, model, img, stored);
-    esl_content_init_image(content, model, esl_crc32(stored, n));
-    return n;
+    if (!e)
+        return true;
+    uint16_t w = 0, h = 0;
+    bool red;
+    esl_render_model(model, &w, &h, &red);
+    if (e == ESL_PIC_ERR_SIZE && len >= 24)
+        snprintf(err, errlen, "the picture is %lux%lu pixels, the screen of model %s is %ux%u",
+                 (unsigned long)be32((const uint8_t *)body + 16), (unsigned long)be32((const uint8_t *)body + 20),
+                 esl_model_name(model), (unsigned)w, (unsigned)h);
+    else
+        snprintf(err, errlen, "%s",
+                 e == ESL_PIC_ERR_NOMEM         ? "no memory to read the picture"
+                 : e == ESL_PIC_ERR_UNSUPPORTED ? "this kind of PNG is not taken (interlaced, or an unknown colour type or chunk)"
+                                                : "a broken PNG file");
+    return false;
 }
 
 const esl_source_def_t esl_source_image = {

@@ -695,6 +695,7 @@ static void test_image(void)
         {"\"url\":\"ftp://x/a.png\"", "sources[0].url: an http:// or https:// URL"},
         {"\"url\":\"https://x/a b.png\"", "sources[0].url: "},
         {"\"url\":\"https:///a.png\"", "sources[0].url: "},
+        {"\"url\":\"http://me:secret@ha.local/a.png\"", "sources[0].url: "},
         {"\"url\":7", "sources[0].url: "},
         {"\"lat\":1", "sources[0].lat: unknown key"},
         {"\"url\":\"https://x/a.png\",\"dither\":1", "sources[0].dither: true or false"},

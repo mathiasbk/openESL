@@ -27,6 +27,7 @@ static const char *TAG = "datasrc";
 #define NS "cfg"
 #define KEY "sources"
 #define URL_MAX ESL_SOURCE_URL_MAX
+#define BODY_DEADLINE_S 30 /* longest time to read one answer */
 #define IDLE_S 300 /* longest wait between looks at the clock and the sources */
 
 static esl_sources_t *sources; /* about 16 KB: in PSRAM */
@@ -159,9 +160,18 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
                 b = malloc(ESL_SOURCE_BODY_MAX);
             size_t n = 0;
             int r = 0;
-            while (b && n < ESL_SOURCE_BODY_MAX && (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n)) > 0)
+            /* timeout_ms is for each read: a server that trickles would hold this task, and
+               with it every other source, so the whole answer has a deadline too */
+            int64_t end = esp_timer_get_time() + (int64_t)BODY_DEADLINE_S * 1000000;
+            bool late = false;
+            while (b && n < ESL_SOURCE_BODY_MAX && !(late = esp_timer_get_time() > end) &&
+                   (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n)) > 0)
                 n += (size_t)r;
-            if (!b) {
+            if (b && late) {
+                snprintf(err, errlen, "the answer took over %d s", BODY_DEADLINE_S);
+                free(b);
+                status = 0;
+            } else if (!b) {
                 snprintf(err, errlen, "no memory for the answer");
                 status = 0;
             } else if (r < 0 || n == ESL_SOURCE_BODY_MAX) {

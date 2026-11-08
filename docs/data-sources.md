@@ -192,7 +192,12 @@ that comes back the same is not sent to the tags again.
 - `every_min`: from 5 (the default) to 1440. An `Expires` from the server is not waited
   for: the source is fetched every `every_min`.
 - It has no `layout` or `fields`. Its `values` in `GET` are the PNG's `width` and `height`.
-- Answers of up to 128 KB are read.
+- Answers of up to 128 KB, read within 30 s, are taken. Redirects (301, 302) are not
+  followed: give the final address.
+- `https://` needs a certificate from a public authority (the AP's certificate bundle); a
+  server on the LAN with a self-signed certificate fails. Use `http://` on the LAN.
+- A login in the URL (`user:password@`) is refused: it would be kept in NVS and shown by
+  `GET /api/sources`.
 - The URL must not need a login. Home Assistant serves the files in its `www` folder
   at `/local/` without one.
 
