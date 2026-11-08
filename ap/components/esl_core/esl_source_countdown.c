@@ -145,7 +145,8 @@ static bool cd_values(const esl_source_cfg_t *c, const char *body, size_t len, u
     /* the target day, and the moment (local s) it is reached: its time, or its start */
     int ty = c->countdown.year;
     int32_t day = days_of(ty, c->countdown.month, c->countdown.day);
-    if (c->countdown.yearly) {
+    /* yearly: the date itself while it is still ahead ({years} 0), then each year's */
+    if (c->countdown.yearly && day <= today) {
         ty = y0;
         day = days_in_year(ty, c->countdown.month, c->countdown.day);
         int64_t at = (int64_t)day * 86400 + (minute >= 0 ? minute * 60 : 0);
@@ -157,7 +158,14 @@ static bool cd_values(const esl_source_cfg_t *c, const char *body, size_t len, u
     }
     int64_t at = (int64_t)day * 86400 + (minute >= 0 ? minute * 60 : 0);
     int32_t diff = day - today;
-    int64_t secs = at - local;
+    /* the moment in UTC, with the offset at that moment (a summer time switch between now and
+       then changes the hours left); two rounds settle it */
+    int64_t at_utc = at - o;
+    if (off) {
+        at_utc = at - off((uint32_t)at_utc);
+        at_utc = at - off((uint32_t)at_utc);
+    }
+    int64_t secs = at_utc - (int64_t)now;
     char buf[ESL_VALUE_MAX + 1];
     v->n = 0;
     esl_values_set(v, "place", c->place);
@@ -167,9 +175,11 @@ static bool cd_values(const esl_source_cfg_t *c, const char *body, size_t len, u
     else if (diff == 1)
         snprintf(buf, sizeof(buf), "%s", en ? "tomorrow" : "i morgen");
     else if (diff == 0 && minute >= 0 && secs > 0) {
-        long mins = (long)((secs + 59) / 60), h = mins / 60;
-        if (h)
-            snprintf(buf, sizeof(buf), en ? "in %ld h %ld min" : "om %ld t %ld min", h, mins % 60);
+        /* whole hours, and minutes only in the last hour: the text changes about 24 + 60 times
+           on the day, not every minute */
+        long mins = (long)((secs + 59) / 60);
+        if (mins > 60)
+            snprintf(buf, sizeof(buf), en ? "in %ld h" : "om %ld t", (long)(secs / 3600));
         else
             snprintf(buf, sizeof(buf), en ? "in %ld min" : "om %ld min", mins);
     } else if (diff == 0)

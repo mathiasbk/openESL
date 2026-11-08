@@ -266,20 +266,22 @@ the time. Good for Christmas, a holiday, a birthday, or "days since".
 
 - `date`: the local date, `YYYY-MM-DD`, 1900 to 2100.
 - `time`: a local time `HH:MM` on that date (a departure, the start of an event). On the
-  last day `{left}` counts down in hours and minutes. Without it the date holds for its
-  whole day.
+  last day `{left}` counts down in whole hours, and in minutes in the last hour (about 24 + 60
+  changes that day). Without it the date holds for its whole day.
 - `yearly`: count to the next time the date comes round, so Christmas or a birthday never
   runs out. 29 February is 28 February in other years. `{years}` is how many years it will
   be since `date`: give the birth date to get the age the person turns.
 - `place`: the name shown as `{place}`.
-- `every_min`: from 1 (the default). A tag only wakes when its text changed: once a day for
-  a date, every minute in the last hours for a `time`. Set it higher to wake tags less often.
+- `every_min`: from 1 (the default). The values are made every minute, but a tag only wakes
+  when its text changed: once a day for a date alone (at midnight), plus each hour and each
+  minute of the last hour on the day of a `time`. A higher value does not save battery; it
+  only makes the change at midnight later.
 
 | Value | What it is |
 |---|---|
 | `{place}` | The source's name |
-| `{left}` | In words: `om 58 dager`, `i morgen`, `i dag`, `om 5 t 10 min`, `i går`, `for 10 dager siden` (`lang` `en`: `in 58 days`, `tomorrow`, `today`, `in 5 h 10 min`, `yesterday`, `10 days ago`) |
-| `{days}`, `{weeks}`, `{hours}` | Whole days, weeks and hours left (0 once passed) |
+| `{left}` | In words: `om 58 dager`, `i morgen`, `i dag`, `om 5 t`, `om 10 min`, `i går`, `for 10 dager siden` (`lang` `en`: `in 58 days`, `tomorrow`, `today`, `in 5 h`, `in 10 min`, `yesterday`, `10 days ago`) |
+| `{days}`, `{weeks}`, `{hours}` | Whole days, weeks and hours left (0 once passed). `{hours}` counts to `time`, or to the start of the day without one |
 | `{since}` | Days since the date (0 before it) |
 | `{date}`, `{weekday}` | The date counted to (`24.12.2026`) and its weekday |
 | `{years}` | With `yearly`: the years since `date` at the next time |

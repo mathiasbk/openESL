@@ -15,13 +15,13 @@ curl -X PUT http://openesl.local/api/sources \
 ```
 
 - `date` is `YYYY-MM-DD`, in local time. Set the time zone under Settings.
-- `"time": "18:30"` makes the last day count down in hours and minutes.
+- `"time": "18:30"` makes the last day count down in hours, and in minutes in the last hour.
 - `"yearly": true` counts to the next time the date comes round. With a birth date, `{years}` is the age the person turns.
 - `"lang": "en"` gives English words; the default `nb` gives Norwegian.
 
 ## What a label can show
 
-`{place}`, `{left}` (in words: "in 58 days", "tomorrow", "today", "in 5 h 10 min", "10 days ago"), `{days}`, `{weeks}`, `{hours}`, `{since}`, `{date}`, `{weekday}` and `{years}`. Without `fields`, the built-in `text` layout shows the name, the time left and the day. Your own fields, for example:
+`{place}`, `{left}` (in words: "in 58 days", "tomorrow", "today", "in 5 h", "in 10 min", "10 days ago"), `{days}`, `{weeks}`, `{hours}`, `{since}`, `{date}`, `{weekday}` and `{years}`. Without `fields`, the built-in `text` layout shows the name, the time left and the day. Your own fields, for example:
 
 ```json
 "fields": ["Ola turns {years}", "{left}", "{weekday} {date}"]

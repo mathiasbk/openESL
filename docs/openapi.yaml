@@ -2695,13 +2695,13 @@ components:
       oneOf:
         - properties: { type: { const: met }, every_min: { minimum: 30 } }
           required: [lat, lon, layout]
-          not: { anyOf: [{ required: [url] }, { required: [dither] }] }
+          not: { anyOf: [{ required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
         - properties: { type: { const: image }, every_min: { minimum: 5 } }
           required: [url]
-          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [layout] }, { required: [fields] }] }
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [layout] }, { required: [fields] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
         - properties: { type: { const: power }, every_min: { minimum: 15 } }
           required: [area, layout]
-          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }] }
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
         - properties: { type: { const: countdown } }
           required: [date, layout]
           not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }] }

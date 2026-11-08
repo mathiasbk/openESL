@@ -1065,11 +1065,40 @@ static void test_countdown(void)
 
     /* with a time, the last day counts in hours and minutes */
     CHECK(esl_source_values(&cfg[1], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
-    CHECK_STR(esl_values_get(&v, "left"), "in 5 h 10 min");
+    CHECK_STR(esl_values_get(&v, "left"), "in 5 h"); /* whole hours until the last one */
     CHECK_STR(esl_values_get(&v, "hours"), "5");
     CHECK_STR(esl_values_get(&v, "weekday"), "Tuesday");
     CHECK(esl_source_values(&cfg[1], NULL, 0, at + 5 * 3600 + 9 * 60 + 30, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(esl_values_get(&v, "left"), "in 1 min");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 4 * 3600 + 20 * 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 50 min");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 4 * 3600 + 9 * 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 1 h");
+    /* a summer time switch between now and the time: the real hours left */
+    {
+        static const char sw[] = "{\"sources\":[{\"id\":\"a\",\"type\":\"countdown\",\"date\":\"2026-10-25\","
+                                 "\"time\":\"12:00\",\"lang\":\"en\",\"layout\":\"text\"},"
+                                 "{\"id\":\"b\",\"type\":\"countdown\",\"date\":\"2026-03-29\",\"time\":\"12:00\","
+                                 "\"lang\":\"en\",\"layout\":\"text\"},"
+                                 "{\"id\":\"c\",\"type\":\"countdown\",\"date\":\"2030-05-01\",\"yearly\":true,"
+                                 "\"layout\":\"text\"}]}";
+        static esl_source_cfg_t sc[ESL_SOURCE_MAX];
+        CHECK(esl_sources_parse(sw, sizeof(sw) - 1, sc, &n, err, sizeof(err)));
+        /* 01:00 CEST on 25 October: 12 hours to 12:00 CET */
+        CHECK(esl_source_values(&sc[0], NULL, 0, 1792882800u, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "left"), "in 12 h");
+        CHECK_STR(esl_values_get(&v, "hours"), "12");
+        /* three days before: 72 + 12 */
+        CHECK(esl_source_values(&sc[0], NULL, 0, 1792882800u - 3 * 86400, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "hours"), "84");
+        /* 01:00 CET on 29 March: 10 hours to 12:00 CEST */
+        CHECK(esl_source_values(&sc[1], NULL, 0, 1774742400u, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "left"), "in 10 h");
+        /* yearly from a date still ahead: that date, 0 years */
+        CHECK(esl_source_values(&sc[2], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "date"), "01.05.2030");
+        CHECK_STR(esl_values_get(&v, "years"), "0");
+    }
     CHECK(esl_source_values(&cfg[1], NULL, 0, at + 6 * 3600, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(esl_values_get(&v, "left"), "today");
     CHECK_STR(esl_values_get(&v, "hours"), "0");
