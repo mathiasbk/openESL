@@ -179,13 +179,15 @@ static unsigned long latin1_cp(unsigned char b)
 }
 
 /* Whether the '<' at p starts a tag, a comment or an end tag: "a < b" in a CDATA title is
-   text */
+   text, and so is a '<' with no '>' after it ("x <y" would else lose the rest) */
 static bool tag_start(const char *p, const char *end)
 {
     if (end - p < 2)
         return false;
     char c = p[1];
-    return c == '/' || c == '!' || c == '?' || ((c | 0x20) >= 'a' && (c | 0x20) <= 'z');
+    if (!(c == '/' || c == '!' || c == '?' || ((c | 0x20) >= 'a' && (c | 0x20) <= 'z')))
+        return false;
+    return memchr(p, '>', (size_t)(end - p)) != NULL;
 }
 
 /* Text from [p, end): entities decoded, tags left out, CDATA read the same way (it mostly
