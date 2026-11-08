@@ -184,10 +184,118 @@ static int put(const char *mac, const char *body)
     return esl_api_handle(&api, "PUT", uri, AUTH, body, strlen(body), 0, &out);
 }
 
+/* The AP id (#390): a label that belongs to another AP is not answered, unless it is lost for long
+   and this AP adopts that AP's labels, or it has been lost for a week (ANY_AP) */
+static void test_ap_id(void)
+{
+    esl_faketag_t own, other, old, any;
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    size_t n;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_faketag_init(&own, 0xA1D00001, 0x0B00, 3000, ESL_MODEL_29);
+    esl_faketag_init(&other, 0xA1D00002, 0x0B00, 3000, ESL_MODEL_29);
+    esl_faketag_init(&old, 0xA1D00003, 0x0900, 3000, ESL_MODEL_29);
+    esl_faketag_init(&any, 0xA1D00004, 0x0B00, 3000, ESL_MODEL_29);
+    own.apid = other.apid = any.apid = true;
+    other.ap_id = 0xBEEF0002ul;
+
+    /* an AP without an id answers everyone, as before */
+    CHECK_INT(air(&other, 1000, false), ESL_MSG_IDLE);
+    CHECK(other.ap_id == 0xBEEF0002ul);
+    CHECK(esl_store_delete(&st, other.mac));
+
+    /* with an id: a label without one (new, or firmware before #390) is answered and learns it
+       from CONFIG; so is one that already has it */
+    esl_store_set_ap_id(&st, 0xBEEF0001ul);
+    CHECK_INT(air(&own, 2000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0xBEEF0001ul);
+    CHECK_INT(air(&own, 62000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&old, 2000, false), ESL_MSG_IDLE);     /* no id in its POLL: answered, no CONFIG */
+
+    /* the 0.6.0 labels (14-byte POLL, no link block) and the oldest (12 bytes): answered as before,
+       with no CONFIG, and their content still goes out */
+    {
+        esl_faketag_t l6, l0;
+        esl_faketag_init(&l6, 0xA1D00006, 600, 3000, ESL_MODEL_29);
+        esl_faketag_init(&l0, 0xA1D00007, 1, 3000, ESL_MODEL_29);
+        l6.no_link = true;
+        l6.images = true;
+        l0.legacy = true;
+        CHECK_INT(air(&l6, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(air(&l0, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(l6.configs, 0);
+        CHECK_INT(put("00000000A1D00006", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+        air(&l6, 2200, false);
+        CHECK(l6.img_shown > 0);
+        CHECK_INT(l6.configs, 0);
+    }
+
+    /* another AP's label: no answer, not added, and its requests get none either */
+    unsigned count = esl_store_count(&st);
+    CHECK_INT(air(&other, 3000, false), 0);
+    CHECK_INT(esl_store_count(&st), count);
+    CHECK(esl_store_refused(&st, other.mac));
+    n = esl_faketag_img_request(&other, PAN, rx);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 3100, tx, NULL), 0);
+    n = esl_faketag_fw_request(&other, PAN, rx);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 3200, tx, NULL), 0);
+
+    /* lost for an hour, but this AP does not adopt that id: still no answer (the labels of an
+       AP that only restarted stay with it) */
+    other.link_flags = ESL_POLL_LF_LOST_LONG;
+    CHECK_INT(air(&other, 4000, false), 0);
+    esl_store_set_adopt(&st, false, 0xBEEF0003ul);
+    CHECK_INT(air(&other, 5000, false), 0);
+
+    /* adopting that id: taken over, with this AP's id. Content waiting for it (a restored backup)
+       comes after CONFIG, so its next POLL already has this AP's id */
+    other.images = true;
+    CHECK_INT(put("00000000A1D00002", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+    esl_store_set_adopt(&st, false, 0xBEEF0002ul);
+    n = esl_faketag_poll(&other, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 6000, tx, NULL);
+    CHECK_INT(esl_faketag_receive(&other, tx, m), ESL_MSG_CONFIG);
+    CHECK_INT(air(&other, 6100, false) != 0, 1);
+    CHECK(other.img_shown > 0);
+    CHECK(other.ap_id == 0xBEEF0001ul);
+    CHECK(!esl_store_refused(&st, other.mac));
+    CHECK_INT(esl_store_count(&st), count + 1);
+
+    /* adopt all: any id, but only once lost for long */
+    esl_store_set_adopt(&st, true, 0);
+    any.ap_id = 0xBEEF0005ul;
+    CHECK_INT(air(&any, 7000, false), 0);
+    any.link_flags = ESL_POLL_LF_LOST_LONG;
+    CHECK_INT(air(&any, 8000, false), ESL_MSG_CONFIG);
+    CHECK(any.ap_id == 0xBEEF0001ul);
+
+    /* lost for a week (ANY_AP): answered with no adopt at all */
+    esl_store_set_adopt(&st, false, 0);
+    CHECK(esl_store_delete(&st, any.mac));
+    any.ap_id = 0xBEEF0006ul;
+    any.link_flags = ESL_POLL_LF_LOST_LONG | ESL_POLL_LF_ANY_AP;
+    CHECK_INT(air(&any, 9000, false), ESL_MSG_CONFIG);
+    CHECK(any.ap_id == 0xBEEF0001ul);
+
+    /* the refused list is a ring: the oldest is forgotten */
+    for (unsigned i = 0; i < ESL_STORE_FOREIGN + 1; i++) {
+        esl_faketag_t f;
+        esl_faketag_init(&f, 0xF0000000ull + i, 0x0B00, 3000, ESL_MODEL_29);
+        f.apid = true;
+        f.ap_id = 0xBEEF0009ul;
+        CHECK_INT(air(&f, 10000 + i, false), 0);
+    }
+    CHECK(!esl_store_refused(&st, 0xF0000000ull));
+    CHECK(esl_store_refused(&st, 0xF0000000ull + ESL_STORE_FOREIGN));
+    esl_store_set_ap_id(&st, 0);
+}
+
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -2136,4 +2244,5 @@ void test_radio(void)
     test_image_clock();
     test_draw_later();
     test_link();
+    test_ap_id();
 }

@@ -152,7 +152,7 @@ void esl_rhost_replay(esl_rhost_t *h, const esl_rsync_t *req, const esl_rlog_t *
 static bool same(const esl_rtag_state_t *a, const esl_rtag_state_t *b)
 {
     return a->mac == b->mac && a->next_poll_s == b->next_poll_s && a->has_cfg == b->has_cfg &&
-           (!a->has_cfg || esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg)) &&
+           (!a->has_cfg || (esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg) && a->cfg.ap_id == b->cfg.ap_id)) &&
            a->image_id == b->image_id && a->fw_ver == b->fw_ver && a->image_failed == b->image_failed &&
            a->fw_failed == b->fw_failed;
 }

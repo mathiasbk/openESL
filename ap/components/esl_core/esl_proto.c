@@ -4,7 +4,9 @@
 
 _Static_assert(ESL_POLL_OFF_CFG_VER == ESL_POLL_LEN && ESL_POLL_LEN_CFG == ESL_POLL_LEN + 2, "POLL extension");
 _Static_assert(ESL_POLL_OFF_RX_RSSI == ESL_POLL_LEN_CFG && ESL_POLL_LEN_LINK == ESL_POLL_LEN_CFG + 4, "POLL link block");
-_Static_assert(ESL_CONFIG_OFF_LONG_AFTER + 2 == ESL_CONFIG_OFF_CHANNEL && ESL_CONFIG_OFF_CHANNEL + 2 == ESL_CONFIG_LEN,
+_Static_assert(ESL_POLL_OFF_APID == ESL_POLL_LEN_LINK && ESL_POLL_LEN_APID == ESL_POLL_LEN_LINK + 4, "POLL AP id");
+_Static_assert(ESL_CONFIG_OFF_LONG_AFTER + 2 == ESL_CONFIG_OFF_CHANNEL && ESL_CONFIG_OFF_CHANNEL + 2 == ESL_CONFIG_LEN_CHANNEL &&
+               ESL_CONFIG_OFF_APID == ESL_CONFIG_LEN_CHANNEL && ESL_CONFIG_OFF_APID + 4 == ESL_CONFIG_LEN,
                "CONFIG layout");
 _Static_assert(ESL_MHR_LEN == 15 && ESL_PSDU_MAX == 127, "802.15.4 frame");
 
@@ -60,6 +62,8 @@ bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out)
     out->rx_lqi = out->has_link ? p[ESL_POLL_OFF_RX_LQI] : 0;
     out->lost = out->has_link ? p[ESL_POLL_OFF_LOST] : 0;
     out->link_flags = out->has_link ? p[ESL_POLL_OFF_LINKF] : 0;
+    out->has_apid = len >= ESL_POLL_LEN_APID;
+    out->ap_id = out->has_apid ? get32(&p[ESL_POLL_OFF_APID]) : 0;
     return true;
 }
 
@@ -81,7 +85,10 @@ size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll)
     out[ESL_POLL_OFF_RX_LQI] = poll->rx_lqi;
     out[ESL_POLL_OFF_LOST] = poll->lost;
     out[ESL_POLL_OFF_LINKF] = poll->link_flags;
-    return ESL_POLL_LEN_LINK;
+    if (!poll->has_apid)
+        return ESL_POLL_LEN_LINK;
+    put32(&out[ESL_POLL_OFF_APID], poll->ap_id);
+    return ESL_POLL_LEN_APID;
 }
 
 bool esl_fw_req_parse(const uint8_t *p, size_t len, esl_fw_req_t *out)
@@ -184,7 +191,9 @@ uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c)
     put16(&b[10], c->channel);
     /* without the long backoff or a channel set, the version an AP from before them gave the same
        settings, so tags that have them are not sent CONFIG again after an update */
-    uint32_t crc = esl_crc32(b, c->channel ? sizeof(b) : c->long_poll_s || c->long_after_min ? 10 : 6);
+    /* The AP id (#390) is not in it: a tag whose POLL has another id, or none, gets CONFIG anyway
+       (other_ap_id in esl_store.c), and older tags and radios keep the version they had */
+    uint32_t crc = esl_crc32(b, c->channel ? 12 : c->long_poll_s || c->long_after_min ? 10 : 6);
     uint16_t v = (uint16_t)(crc ^ (crc >> 16));
     return v ? v : 1;
 }
@@ -201,6 +210,7 @@ size_t esl_config_msg_build(uint8_t *out, uint16_t next_poll_s, const esl_tag_cf
     put16(&out[ESL_CONFIG_OFF_LONG_POLL], c->long_poll_s);
     put16(&out[ESL_CONFIG_OFF_LONG_AFTER], c->long_after_min);
     put16(&out[ESL_CONFIG_OFF_CHANNEL], c->channel);
+    put32(&out[ESL_CONFIG_OFF_APID], c->ap_id);
     return ESL_CONFIG_LEN;
 }
 
@@ -278,8 +288,10 @@ bool esl_reply_parse(const uint8_t *p, size_t len, esl_reply_t *out)
         bool has_long = len >= ESL_CONFIG_OFF_CHANNEL; /* 12 bytes from an AP before the long backoff */
         out->cfg.long_poll_s = has_long ? get16(&p[ESL_CONFIG_OFF_LONG_POLL]) : 0;
         out->cfg.long_after_min = has_long ? get16(&p[ESL_CONFIG_OFF_LONG_AFTER]) : 0;
-        if (len >= ESL_CONFIG_LEN) /* 16 bytes from an AP before the channel */
+        if (len >= ESL_CONFIG_LEN_CHANNEL) /* 16 bytes from an AP before the channel */
             out->cfg.channel = get16(&p[ESL_CONFIG_OFF_CHANNEL]);
+        if (len >= ESL_CONFIG_LEN) /* 18 bytes from an AP before the AP id */
+            out->cfg.ap_id = get32(&p[ESL_CONFIG_OFF_APID]);
         return true;
     }
     return false;

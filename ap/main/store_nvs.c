@@ -10,6 +10,9 @@
 #include "esp_timer.h"
 #include "sdkconfig.h"
 #include "nvs.h"
+#include "esp_random.h"
+#include "esp_mac.h"
+#include "esl_crc32.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
  * (key "t<slot>"), so a tag keeps its slot across reboots (requirements A4, G4 in docs/requirements.md). A
@@ -294,11 +297,115 @@ static uint32_t unix_now(void *ctx)
     return clock_ref ? esl_sched_now(clock_ref, (uint64_t)esp_timer_get_time() / 1000, NULL) : 0;
 }
 
+/* ---- The AP id (#390, docs/protocol.md "AP id") ----
+ *
+ * cfg/ap_id is made once, at random, the first time this firmware starts, and sent to the
+ * tags in CONFIG. A tag that has it is then answered only by this AP (and by one that adopts
+ * this id, or by any AP once it has been lost for a week).
+ * An AP that makes its id with an empty tag table (new, or NVS erased) adopts every tag that
+ * has been lost for an hour, for ADOPT_AUTO_S: its old tags carry the id it had before.
+ * cfg/adopt_end is when that ends (unix s), 1 = it starts when the clock is known. */
+#define ADOPT_AUTO_S (14ul * 24 * 3600)
+static uint32_t adopt_end;
+
+static void adopt_end_save(uint32_t v)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = v ? nvs_set_u32(h, "adopt_end", v) : nvs_erase_key(h, "adopt_end");
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/adopt_end failed: %s", esp_err_to_name(err));
+    adopt_end = v;
+}
+
+/* Starts the automatic adopt time once the clock is known, and ends it */
+static void adopt_tick(void)
+{
+    uint32_t now = unix_now(NULL);
+    if (!adopt_end)
+        return;
+    if (!now) {
+        /* never a clock: the uptime counts instead, so it ends all the same */
+        if (adopt_end == 1 && (uint64_t)esp_timer_get_time() / 1000000 >= ADOPT_AUTO_S) {
+            esl_store_set_adopt(store_ref, false, 0);
+            adopt_end_save(0);
+            ESP_LOGI(TAG, "automatic adopt ended (14 days up, no clock)");
+        }
+        return;
+    }
+    if (adopt_end == 1) {
+        adopt_end_save(now + ADOPT_AUTO_S);
+    } else if (now >= adopt_end) {
+        esl_store_set_adopt(store_ref, false, 0);
+        adopt_end_save(0);
+        ESP_LOGI(TAG, "automatic adopt ended");
+    }
+}
+
+static void ap_id_init(esl_store_t *st)
+{
+    nvs_handle_t h;
+    uint32_t id = 0, end = 0;
+    esp_err_t rd = nvs_open("cfg", NVS_READONLY, &h);
+    if (rd == ESP_OK) {
+        rd = nvs_get_u32(h, "ap_id", &id);
+        if (nvs_get_u32(h, "adopt_end", &end) != ESP_OK)
+            end = 0;
+        nvs_close(h);
+    }
+    if (rd != ESP_OK && rd != ESP_ERR_NVS_NOT_FOUND) {
+        /* the id may be there but cannot be read: a new one would turn this AP's own tags away,
+           so this start runs without one (every tag is answered, as before #390) */
+        ESP_LOGE(TAG, "reading cfg/ap_id failed (%s): running without an AP id", esp_err_to_name(rd));
+        return;
+    }
+    if (rd == ESP_ERR_NVS_NOT_FOUND || !id || id == 0xFFFFFFFFul) {
+        /* esp_random() is only pseudo-random before the radio or WiFi runs, so the factory MAC is
+           mixed in: two boards do not get the same id even if their generators start alike */
+        uint8_t mac[6] = {0};
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        uint32_t salt = esl_crc32(mac, sizeof(mac));
+        do
+            id = esp_random() ^ salt;
+        while (!id || id == 0xFFFFFFFFul);
+        esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+        if (err == ESP_OK) {
+            err = nvs_set_u32(h, "ap_id", id);
+            if (err == ESP_OK)
+                err = nvs_commit(h);
+            nvs_close(h);
+        }
+        if (err != ESP_OK) {
+            /* not kept: a new one at every start would turn the AP's own tags away */
+            ESP_LOGE(TAG, "saving cfg/ap_id failed (%s): running without an AP id", esp_err_to_name(err));
+            return;
+        }
+        ESP_LOGI(TAG, "new AP id %08lX", (unsigned long)id);
+        if (!esl_store_count(st)) {
+            ESP_LOGI(TAG, "empty table: adopting lost tags of any AP for %lu days", ADOPT_AUTO_S / 86400);
+            adopt_end_save(1);
+            end = 1;
+        }
+    }
+    esl_store_set_ap_id(st, id);
+    adopt_end = end;
+    if (end)
+        esl_store_set_adopt(st, true, 0);
+}
+
 static void seen_task(void *arg)
 {
     (void)arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(SEEN_SAVE_S * 1000));
+        adopt_tick();
         unsigned n = esl_store_save_seen(store_ref);
         if (n)
             ESP_LOGI(TAG, "saved %u tags' last poll", n);
@@ -504,6 +611,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
     if (nvs_open(NS_TAGS, NVS_READONLY, &h) != ESP_OK) {
         ESP_LOGI(TAG, "no stored tags yet");
         restore_channel(st, ch, ch_next);
+        ap_id_init(st);
         return ESP_OK;
     }
     /* Only the keys that are there (the table can be large): content, then
@@ -518,6 +626,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
     ESP_LOGI(TAG, "loaded %u tags with content, %u tag settings and %u tags' last poll from NVS", loaded.ok,
              configs.ok, heard.ok);
     restore_channel(st, ch, ch_next);   /* after the tags: a move waits for all of them */
+    ap_id_init(st);                     /* after the tags: an empty table adopts */
     return ESP_OK;
 }
 

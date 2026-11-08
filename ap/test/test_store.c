@@ -93,7 +93,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -159,7 +159,7 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
 
     /* other firmware: saved at once */
-    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
     CHECK_INT(g.writes, 3);
     CHECK_INT(g.rec.fw, 4);
@@ -193,7 +193,7 @@ static void test_store_seen(void)
     CHECK(!t.has_content);
     /* its first POLL with the same model and firmware writes nothing at once */
     int w = g.writes;
-    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0, false, 0};
     g.clock = 1792003600;
     esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
     CHECK_INT(g.writes, w);
@@ -335,7 +335,7 @@ static void test_store_signal(void)
 
     esl_store_init(&st, 4, NULL, 0);
     /* a POLL without the link block: only the AP's RSSI */
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, A, &p, -50, 0, NULL, reply);
     CHECK(esl_store_get(&st, A, &t));
     CHECK_INT(esl_tag_signal(&t, rssi, info), 1);
@@ -460,7 +460,7 @@ void test_store(void)
     CHECK_INT(t.image_id, 0);
 
     /* a tag without images cannot show content */
-    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     CHECK_INT(esl_store_on_poll(&st, A, &old, -61, 3500, NULL, reply), ESL_IDLE_LEN);
     esl_store_get(&st, A, &t);
     CHECK_INT(t.content_err, ESL_CERR_NO_IMAGE);
@@ -551,7 +551,7 @@ void test_store(void)
     esl_cfg_result_t cr;
     esl_store_free(&st);
     esl_store_init(&st, CAP, &cops, 0);
-    esl_tag_cfg_t c120 = {120, 0, 0, 0, 0, 0}, none = {0, 0, 0, 0, 0, 0};
+    esl_tag_cfg_t c120 = {120, 0, 0, 0, 0, 0, 0}, none = {0, 0, 0, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
     CHECK(cr.changed);
     CHECK(!cr.pending); /* not seen yet */
@@ -564,7 +564,7 @@ void test_store(void)
     /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
     n = poll(&st, A, 0, 100, reply);
     CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
-    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
     CHECK_INT(n, ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
