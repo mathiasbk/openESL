@@ -126,6 +126,31 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
+### Upgrading from 0.10.0 to 0.11.0
+
+Order: `esl-client backup ap.json`, the AP over the air, then a new backup (it now holds the AP id), then the tags, one of each model first. **An ESP32-S3 with a C6 over WiFi (netradio): flash the C6 to 0.11.0 together with the S3** (Flash AP tab, without "Erase"): an older C6 keeps working, but leaves the AP's own tags "settings pending" and still answers other APs' tags. The C6 on a cable needs nothing. No tag draws again after the AP update. Before restoring a backup onto a new AP, turn the old AP off. Going back below 0.11.0 drops some new things (below): remove ellipses and polygons from the layout files and note your data sources first.
+
+The AP: update it over the air as usual. It keeps its tags, layouts, settings and name, and converts nothing. New in what it stores: its AP id (`cfg/ap_id`, #390), made at the first start, and the data sources added in this release. APs on 0.10.0 or older give the published web renderer in the dashboard access to the API token; from 0.11.0 the C6's dashboard runs it in a sandboxed frame (#308), so update every AP. The C6 AP image is built for size (`-Os`, #373), which frees flash; nothing changes for the tags.
+
+AP id (#390). Every AP gets a random id at its first start on 0.11.0 and sends it to the tags in CONFIG. Tags on 0.11.0 keep it and send it in every POLL, and an AP stays silent for tags that belong to another AP, so on a site with several APs a tag that looks for its AP is no longer taken by a neighbour (docs/protocol.md, "AP id"). Tags from before 0.11.0 send no id and are answered by every AP as before. Things to know:
+
+- Take a new `esl-client backup` after the update: only a backup from 0.11.0 holds the AP id, and a restore onto a new board gives it the old id, so the tags stay with it. A backup from 0.10.0 restores as before; the new AP then takes the old AP's lost tags by itself for 14 days ("adopt").
+- Turn the old AP off before restoring its backup onto a new one. The restore leaves the id alone while the old AP still answers its tags nearby (two APs with one id would both answer them), and says so.
+- After an id change (a restore, or `ap_id` in `PUT /api/config`) the AP still answers its previous id for 14 days, so tags that carry it come along at their next poll.
+- An S3 with a C6 over WiFi: the C6 answers the tags itself and has to know the id. A C6 from before 0.11.0 never sends it, so the AP's own tags stay "settings pending", it still answers the tags of other APs from its cache, and `GET /api/health` lists it under `old_radios`. Flash it to 0.11.0 together with the S3.
+
+The tags: tag image 0.11.0 sends the AP id and keeps two image slots (#392): a download goes into the slot the tag does not show, so a tag that restarts or loses the AP during a download keeps its old picture until the new one is whole. Roll it out one tag of each model first ([section 3](#3-rollout-to-the-tags)); a tag that misses the update keeps working on 0.10.0. Tags on 0.10.0 or older are answered by a 0.11.0 AP as before.
+
+New on the AP and the web page: ellipses, circles, triangles and polygons in layouts (#374), drawing a one-off design on a tag without a layout file (`PUT /api/tags/{mac}/draw`, #375), data sources for a picture from a URL (#376), today's electricity price in Norway (#378), a countdown (#379), news headlines (#380) and the next events of a calendar (#382), started from the Dashboard on the ticked tags (#383), one date language for the AP (`lang` in `PUT /api/config`, en or nb, #385), with a decimal point for numbers the AP formats when it is `en` (#402), the euro sign drawn as EUR (#384), a pretend AP to try the dashboard and designer in the browser (#326), and rollout of tag firmware to one tag of a model first (#306). Not tried on hardware yet: the calendar with Google and iCloud on an S3, and the electricity price fetched live on an S3.
+
+Home Assistant: the integration 0.5.0, released together with this release, can draw a design on one tag (`openesl.draw`); it needs an AP on 0.11.0 for that, and works with older APs for everything else.
+
+Going back below 0.11.0:
+
+- The AP: before going back, remove ellipses and polygons from its layout files: an older AP refuses at boot a file that has them, and the layouts of that model are gone until a file without them is uploaded. Data sources of the types image, power, countdown, rss and ical (and every source stored with them) are lost: an older AP does not read them, so note them first and set them up again after coming back. The AP id stays in NVS unused; an AP back on 0.11.0 has the same id. An AP on 0.10.0 answers every tag again, also those of other APs.
+- The C6 over WiFi: take it back together with the S3, from the Flash AP tab without "Erase".
+- The tags: a tag taken back below 0.11.0 cannot read its settings record and starts with the built-in settings; it finds the AP again by the scan and gets CONFIG. It may show its previous picture until the AP sends the current one, and a tag taken up, down and up again shows a stale picture from its second slot until its first poll.
+
 ### Upgrading from 0.9.2 to 0.10.0
 
 Order: the AP, then the tags when you want the new "no AP" mark; neither C6 radio needs an update. Nothing has to be done on the tags: a tag on 0.9.2 or older works with a 0.10.0 AP as before, and a tag that is out of range during the update simply keeps working on the firmware it has. No tag draws again after the AP update. Use font files, rotated text, more than 6 fields or 96 bytes of text, and several radios over WiFi only once the AP will stay on 0.10.0: an AP that goes back to 0.9.2 drops such content and layout files, and knows only one radio (the tags keep their screen and stay under control).
@@ -216,6 +241,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 ## 6. Summaries
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 0.11.0
+
+Tags now stay with their own AP: every AP has an id, and tags on 0.11.0 are answered only by the AP they belong to, so a site with several APs no longer loses tags to a neighbour; a backup carries the id to a new board. Tags keep their old picture until a new one is fully downloaded. New on the AP: circles, ellipses and polygons in layouts, a one-off design on a tag, data sources for a picture from a URL, the Norwegian electricity price, a countdown, news headlines and calendar events, and one date language for the AP. The update is safe for tags out of range: update the AP (and a C6 over WiFi with it), take a new backup, then roll out the tag firmware slowly.
 
 ### Summary of 0.10.0
 

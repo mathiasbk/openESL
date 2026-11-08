@@ -18,6 +18,20 @@ Go straight to the newest release: you do not have to install the ones in betwee
 3. The labels to the label firmware of the 0.10.0 release (never 0.9.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0.
 
+## From 0.10.0 to 0.11.0
+
+Take a backup, update the AP over the air, then **take a new backup**: only a backup made on 0.11.0 holds the AP's id. If your AP is an ESP32-S3 with a C6 over WiFi, **flash the C6 to 0.11.0 together with the S3** (Flash AP tab, without "Erase"). A C6 on a cable needs nothing. Then roll out the new label firmware, one label of each model first. No label draws again after the AP update.
+
+- Every AP now has an id, and labels on the 0.11.0 firmware are answered only by their own AP, so with several APs a label no longer ends up with a neighbour ([Why labels stay connected](Why-labels-stay-connected)). Labels on older firmware are answered by every AP as before.
+- Moving to a new AP board: turn the old AP off before you restore its backup onto the new one. After the restore the new AP answers the old id for 14 days, so the labels follow at their next check-in. A new AP without a backup takes the old AP's lost labels by itself for 14 days.
+- An S3 whose C6 over WiFi is older than 0.11.0 leaves its own labels "settings pending"; `GET /api/health` lists it under `old_radios`.
+- The 0.11.0 label firmware keeps the old picture until a new one is fully downloaded.
+- Update every AP: on 0.10.0 or older, the published renderer in a C6's dashboard can read the API token.
+- New: circles, ellipses and polygons in layouts; a one-off design on a label; data sources for a picture from a URL, the Norwegian electricity price, a countdown, news headlines and calendar events; one date language for the AP under Settings, General (English also gives prices with a decimal point). The Home Assistant integration 0.5.0 can draw a design on one label and needs this AP release for that.
+- Going back below 0.11.0: first remove ellipses and polygons from your layout files, and note your data sources of the new types: an older AP loses them. Take a C6 over WiFi back together with the S3. A label taken back below 0.11.0 starts with its built-in settings and finds the AP again by itself.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0100-to-0110).
+
 ## From 0.9.2 to 0.10.0
 
 Update the AP over the air. That is all you have to do: labels on 0.9.2 work with it as before, and neither C6 radio needs flashing. The new label firmware is optional and safe to roll out slowly, so labels that are out of range during the update keep working.
