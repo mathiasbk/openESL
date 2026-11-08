@@ -152,6 +152,17 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
     }
 }
 
+/* "" = not chosen: English, and GET /api/config says null */
+static void lang_set(void *ctx, const char *lang)
+{
+    (void)ctx;
+    int l = esl_lang_parse(lang, strlen(lang));
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
+    cfg_set_str("lang", clock_cfg.lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    ESP_LOGI(TAG, "date fields in %s", esl_lang_name(esl_clock_lang()));
+}
+
 esl_clock_cfg_t *sched_clock(void)
 {
     return clock_cfg.set ? &clock_cfg : NULL;
@@ -224,7 +235,13 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     tz_use(tz);
     ntp_start(ntp);
     clock_cfg.builtin_ntp = CONFIG_ESL_NTP_SERVER;
+    char lang[4];
+    cfg_get_str("lang", "", lang, sizeof(lang));
+    int l = esl_lang_parse(lang, strlen(lang));
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     clock_cfg.set = clock_set;
+    clock_cfg.set_lang = lang_set;
     /* a scheduled content, and setting it (the old content and its NVS blob), on the stack:
        about 1 KB more since #182 */
     if (xTaskCreate(tick_task, "sched", 7168, st, 3, NULL) != pdPASS) {

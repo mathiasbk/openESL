@@ -24,6 +24,8 @@
  *                                2 = drawn, but the AP would refuse the content (web_error)
  *   web_set_today(days)          today for date fields in layouts ({date}, {week}; esl_clock.h):
  *                                local days since 1970-01-01, -1 = unknown (drawn empty)
+ *   web_set_lang(lang)           the language of {weekday} and {date}: 0 = English, 1 = Norwegian
+ *                                (ESL_LANG_* in esl_clock.h; "lang" in the AP's /api/config)
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
  *                                1 = black, 2 = red
  */
@@ -118,6 +120,7 @@ EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
 }
 
 EMSCRIPTEN_KEEPALIVE void web_set_today(int days) { esl_clock_set_today(days); }
+EMSCRIPTEN_KEEPALIVE void web_set_lang(int lang) { esl_clock_set_lang((uint8_t)lang); }
 
 /* The compiled file, as the AP stores it. Valid after web_load_layouts() returned 1. */
 EMSCRIPTEN_KEEPALIVE const uint8_t *web_layout_bin(void) { return bin.bin; }

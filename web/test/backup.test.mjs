@@ -137,3 +137,17 @@ test("font files go in the backup and back before the layout files", async () =>
   assert.ok(ap.calls.indexOf("PUT /api/fonts/text28") < ap.calls.indexOf("PUT /api/layouts/2.9"));
   assert.throws(() => parseBackup(JSON.stringify({ ...b, fonts: [] })), /fonts/);
 });
+
+test("the date language (AP 0.11.0) is kept, and left out on an AP without it", async () => {
+  const from = filledAp();
+  from.config.lang = "nb";
+  const b = parseBackup(JSON.stringify(await makeBackup(from)));
+  assert.equal(b.config.lang, "nb");
+  const ap = new FakeAp();
+  ap.config.lang = "en";
+  await restoreBackup(ap, b);
+  assert.equal(ap.config.lang, "nb");
+  const old = new FakeAp(); // firmware before 0.11.0: no lang, and nothing sent for it
+  await restoreBackup(old, b);
+  assert.ok(!("lang" in old.config));
+});

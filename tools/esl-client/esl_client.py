@@ -39,6 +39,7 @@ import datetime
 import html
 import io
 import json
+import locale
 import os
 import re
 import select
@@ -569,28 +570,53 @@ def content(layout, fields, highlight=False, frame=False):
     return c
 
 
-WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
-MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
-          "oktober", "november", "desember")
+WEEKDAYS = {"nb": ("Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"),
+            "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")}
+MONTHS = {"nb": ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
+                 "oktober", "november", "desember"),
+          "en": ("January", "February", "March", "April", "May", "June", "July", "August", "September",
+                 "October", "November", "December")}
 
 
-def date_fields(d, extra=()):
-    """Layout text for the date command: "Lørdag", "17. oktober 2026", then the caller's lines."""
-    return [WEEKDAYS[d.weekday()].capitalize(), f"{d.day}. {MONTHS[d.month - 1]} {d.year}", *extra]
+def date_lang(cfg, env=None):
+    """The language of the date command, as the dashboard: the AP's "lang" (0.11.0 and later,
+    the language of its own date fields), else this computer's (LANG), Norwegian for nb, nn, no."""
+    if (cfg or {}).get("lang") in ("en", "nb"):
+        return cfg["lang"]
+    env = os.environ if env is None else env
+    loc = env.get("LC_ALL") or env.get("LC_TIME") or env.get("LANG") or ""
+    if not loc and env is os.environ:  # Windows sets none of them: its locale, "Norwegian_Norway"
+        try:
+            loc = locale.getlocale()[0] or ""
+        except ValueError:
+            loc = ""
+    return "nb" if re.match(r"(nb|nn|no)([_.@-]|$)|norw", loc, re.I) else "en"
+
+
+def date_fields(d, extra=(), lang="nb"):
+    """Layout text for the date command: "Lørdag", "17. oktober 2026" (nb) or "Saturday",
+    "17 October 2026" (en), then the caller's lines."""
+    lang = "en" if lang == "en" else "nb"
+    sep = "." if lang == "nb" else ""
+    return [WEEKDAYS[lang][d.weekday()], f"{d.day}{sep} {MONTHS[lang][d.month - 1]} {d.year}", *extra]
 
 
 def send_date(cli, args, today=None):
     """Today's date now; with --days N also the next N-1 days, scheduled on the AP for
     local midnight, so the tag changes by itself without this computer."""
     today = today or datetime.date.today()
+    try:
+        lang = date_lang(cli.config())
+    except ApiError:
+        lang = date_lang(None)
     if args.days == 1:
         args.at = None
-        return set_one(cli, args, content("text", date_fields(today, args.lines), False, args.frame))
+        return set_one(cli, args, content("text", date_fields(today, args.lines, lang), False, args.frame))
     ensure_time(cli)
     rows = []
     for i in range(args.days):
         d = today + datetime.timedelta(days=i)
-        r = {"mac": args.mac, **content("text", date_fields(d, args.lines), False, args.frame)}
+        r = {"mac": args.mac, **content("text", date_fields(d, args.lines, lang), False, args.frame)}
         if i:
             r["at"] = int(datetime.datetime.combine(d, datetime.time()).timestamp())
         rows.append(r)
@@ -800,6 +826,8 @@ def print_config(c):
             line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
+    if "lang" in c:  # 0.11.0 and later: the language of the date fields, None until chosen
+        line += {"nb": ", dates in Norwegian", "en": ", dates in English"}.get(c["lang"], ", date language not chosen (English)")
     print(line)
 
 
@@ -1577,13 +1605,15 @@ def backup(cli, now=None, warn=None):
 
 
 def backup_config(cfg):
-    """The AP's settings for a backup: the poll interval and the webhook, and the time zone and
-    NTP server from an AP that has them (the NTP server set in menuconfig as None, so another
+    """The AP's settings for a backup: the poll interval and the webhook, and the time zone,
+    NTP server and date language from an AP that has them (the NTP server set in menuconfig as None, so another
     AP keeps its own)."""
     out = {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")}
     if "tz" in cfg:
         out["tz"] = cfg.get("tz")
         out["ntp"] = None if cfg.get("ntp") == cfg.get("builtin_ntp") else cfg.get("ntp")
+    if "lang" in cfg:  # 0.11.0 and later
+        out["lang"] = cfg["lang"]
     return out
 
 
@@ -1737,6 +1767,13 @@ def restore(cli, b, dry_run=False, now=None):
             if e.status != 422:
                 raise
             lines.append("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings")
+    if cfg.get("lang") in ("en", "nb"):
+        try:
+            cli.set_config(lang=cfg["lang"])
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)")
     for name, f in fonts.items():  # first: a layout file may draw with them
         try:
             cli.put_font(name, json.dumps(f).encode("utf-8"))
@@ -1837,7 +1874,7 @@ def main(argv=None):
     s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
     s.add_argument("--wait-s", type=int, default=120)
 
-    s = sub.add_parser("date", help="layout text: today's date (\"Lørdag\", \"17. oktober 2026\") and up to two lines")
+    s = sub.add_parser("date", help="layout text: today's date (\"Saturday\", \"17 October 2026\", in the AP's date language) and up to two lines")
     s.add_argument("mac", type=norm_mac)
     s.add_argument("lines", nargs="*", help="up to two more lines under the date")
     s.add_argument("--days", type=int, default=1, metavar="N",
@@ -1884,6 +1921,8 @@ def main(argv=None):
                                                        "cannot follow and are left behind")
     s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
     s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
+    s.add_argument("--lang", choices=["en", "nb", ""],
+                   help="language of the date fields {weekday} and {date}: en or nb; \"\" = English (AP 0.11.0 and later)")
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
@@ -2048,7 +2087,7 @@ def main(argv=None):
                     kw["force"] = True
             elif args.channel_now or args.force:
                 p.error("--channel-now and --force need --channel")
-            for k in ("tz", "ntp"):
+            for k in ("tz", "ntp", "lang"):
                 if getattr(args, k) is not None:
                     kw[k] = getattr(args, k) or None
             print_config(cli.set_config(**kw) if kw else cli.config())

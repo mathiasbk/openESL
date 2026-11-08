@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esl_api.h"
+#include "esl_clock.h"
 
 #define CAP 8
 
@@ -147,7 +148,7 @@ static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NU
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
 /* The clock settings as on the AP (main/sched.c): ntp "" goes back to the built-in server */
-static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL};
+static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL, NULL, ""};
 
 static void clock_set(void *ctx, const char *ntp, const char *tz)
 {
@@ -156,6 +157,14 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->ntp, sizeof(c->ntp), "%s", ntp[0] ? ntp : c->builtin_ntp);
     if (tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
+}
+
+static void lang_set(void *ctx, const char *lang)
+{
+    esl_clock_cfg_t *c = ctx;
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
 }
 
 static esl_radio_link_t links[ESL_STORE_RADIOS] = {
@@ -189,6 +198,7 @@ int main(void)
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
     api.tx_power = &tx_power; /* "tx_power" in /api/config, as on a C6 */
     clock_cfg.set = clock_set;
+    clock_cfg.set_lang = lang_set; /* "lang" in /api/config */
     static const esl_link_stats_t radio_stats = {.polls = 12, .blocks = 340, .tx_failed = 1, .slow = 2, .worst_us = 6100};
     api.radio_stats = &radio_stats; /* "replies" in GET /api/tags, as on a C6 */
     /* radios over WiFi, as on an S3 with C6 radios (docs/ap-netradio.md): one connected on the

@@ -5,7 +5,7 @@
 //       base "" (the web page, an AP with the Design tab): js/renderer.js next to this file
 //       base a URL (the AP's own page on a board without the renderer, the C6): the published
 //       page's js/renderer.js and wasm/, run in a sandboxed frame
-//   draw(r, { file, limits, fonts, layout, flags, fields })
+//   draw(r, { file, limits, fonts, layout, flags, fields, lang })
 //       -> { ok, pixels } (r.width x r.height, 1 = black, 2 = red) or { ok: false, error },
 //       straight away from the page's own renderer, as a promise from the frame
 //
@@ -35,6 +35,7 @@ function drawWith(r, job) {
     const res = r.loadLayouts(JSON.stringify(job.file));
     if (!res.ok) return { ok: false, error: res.error };
   }
+  r.lang = job.lang === "nb" ? "nb" : "en"; // the AP's date language
   const out = r.render(job.layout, job.flags || 0, job.fields || []);
   return out.ok ? { ok: true, pixels: out.pixels } : { ok: false, error: out.error };
 }

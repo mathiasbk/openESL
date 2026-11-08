@@ -15,14 +15,28 @@ export function textLimit(limits) {
   return limits?.textBytes ?? OLD_TEXT_BYTES;
 }
 
-const WEEKDAYS = ["søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag"];
-const MONTHS = ["januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
-  "oktober", "november", "desember"];
+const WEEKDAYS = {
+  nb: ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"],
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+};
+const MONTHS = {
+  nb: ["januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "desember"],
+  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+};
 
-// "Lørdag", "17. oktober 2026" for a Date (local time)
-export function dateLines(d) {
-  const w = WEEKDAYS[d.getDay()];
-  return [w[0].toUpperCase() + w.slice(1), `${d.getDate()}. ${MONTHS[d.getMonth()]} ${d.getFullYear()}`];
+// The language for the dates the Dashboard writes: the AP's "lang" (GET /api/config, as its own
+// date fields, esl_clock.c), else (not chosen, or an AP from before 0.11.0) the browser's,
+// Norwegian for nb, nn and no
+export function dateLang(config, browser = globalThis.navigator?.language) {
+  if (config?.lang === "nb" || config?.lang === "en") return config.lang;
+  return /^(nb|nn|no)\b/i.test(browser || "") ? "nb" : "en";
+}
+
+// "Lørdag", "17. oktober 2026" (nb) or "Saturday", "17 October 2026" (en) for a Date (local
+// time), as the AP writes {weekday} and {date}
+export function dateLines(d, lang = "nb") {
+  const l = lang === "en" ? "en" : "nb";
+  return [WEEKDAYS[l][d.getDay()], `${d.getDate()}${l === "nb" ? "." : ""} ${MONTHS[l][d.getMonth()]} ${d.getFullYear()}`];
 }
 
 // The fields as sent: empty lines at the end are left out
@@ -48,12 +62,12 @@ export function midnight(d) {
 
 // The rows for PUT /api/tags: today without "at", then each next day at midnight.
 // lines: the four inputs; with date, the first two are replaced by the day's date.
-export function contentRows(mac, lines, { date = false, days = 1, frame = false, today = new Date() } = {}) {
+export function contentRows(mac, lines, { date = false, days = 1, frame = false, today = new Date(), lang = "nb" } = {}) {
   const n = date ? Math.max(1, Math.min(MAX_DAYS, days | 0)) : 1;
   const rows = [];
   for (let i = 0; i < n; i++) {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
-    const l = date ? [...dateLines(d), ...lines.slice(2)] : lines;
+    const l = date ? [...dateLines(d, lang), ...lines.slice(2)] : lines;
     const r = { mac, layout: "text", fields: textFields(l) };
     if (frame) r.frame = true;
     if (i) r.at = midnight(d);
@@ -104,8 +118,8 @@ export const PLACEHOLDERS = [
   ["rssi", "the tag's signal"],
   ["fw", "the tag's firmware"],
   ["seen", "how long since the tag last polled"],
-  ["weekday", "the weekday (Norwegian)"],
-  ["date", "the date (Norwegian)"],
+  ["weekday", "the weekday (in the AP's language, Settings)"],
+  ["date", "the date (in the AP's language, Settings)"],
   ["time", "the time it is sent"],
 ];
 
@@ -129,8 +143,8 @@ const dash = (v) => (v == null || v === "" ? "-" : String(v));
 const pad = (n) => String(n).padStart(2, "0");
 
 // The values for one tag on one day. tag: a row of GET /api/tags; ap: its "ap"; wifi: GET /api/wifi
-export function infoValues(tag, { ap = null, wifi = null, tags = null, day = new Date(), now = new Date() } = {}) {
-  const [weekday, date] = dateLines(day);
+export function infoValues(tag, { ap = null, wifi = null, tags = null, day = new Date(), now = new Date(), lang = "nb" } = {}) {
+  const [weekday, date] = dateLines(day, lang);
   return {
     ap_ip: dash(wifi?.connected ? wifi.ip : null),
     ap_name: dash(wifi?.hostname),
@@ -157,13 +171,13 @@ export function fillLine(line, values) {
 
 // The rows for PUT /api/tags for every tag in tags (rows of GET /api/tags): today without
 // "at", then, when a line has the date, each next day at midnight. Tag by tag, day by day.
-export function infoRows(tags, lines, { days = 1, frame = false, ap = null, wifi = null, total = null, today = new Date() } = {}) {
+export function infoRows(tags, lines, { days = 1, frame = false, ap = null, wifi = null, total = null, today = new Date(), lang = "nb" } = {}) {
   const n = usesDate(lines) ? Math.max(1, Math.min(maxDays(tags.length), days | 0)) : 1;
   const rows = [];
   for (const tag of tags) {
     for (let i = 0; i < n; i++) {
       const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
-      const values = infoValues(tag, { ap, wifi, tags: total, day, now: today });
+      const values = infoValues(tag, { ap, wifi, tags: total, day, now: today, lang });
       const r = { mac: tag.mac, layout: "text", fields: textFields(lines.map((l) => fillLine(l, values))) };
       if (frame) r.frame = true;
       if (i) r.at = midnight(day);

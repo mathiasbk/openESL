@@ -67,7 +67,7 @@ STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_load_font", "web_clear_fonts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "malloc", "free"]
+           "web_clear_layouts", "web_load_font", "web_clear_fonts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "web_set_lang", "malloc", "free"]
 
 
 # The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and

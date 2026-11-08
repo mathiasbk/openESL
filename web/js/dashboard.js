@@ -7,7 +7,7 @@ import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
 import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
-import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, PLACEHOLDERS, PRESETS } from "./sendtext.js";
+import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, dateLang, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
@@ -645,7 +645,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
   const stRows = (tags = stTags()) => infoRows(tags, stLines(), {
     days: Number($("st-days").value) || 1, frame: $("st-frame").checked,
-    ap: last?.list.ap, wifi: last?.wifi, total: last?.list.tags.length,
+    ap: last?.list.ap, wifi: last?.wifi, total: last?.list.tags.length, lang: dateLang(last?.config),
   });
   const stSave = () => {
     store.set("st.macs", [...stSel].join(","));

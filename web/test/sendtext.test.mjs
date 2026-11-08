@@ -1,7 +1,7 @@
 // The "Send info to tags" card (js/sendtext.js), against a fake AP client.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dateLines, textFields, textBytes, midnight, contentRows, ensureTime, sendRows, MAX_DAYS,
+import { dateLines, dateLang, textFields, textBytes, midnight, contentRows, ensureTime, sendRows, MAX_DAYS,
   infoValues, fillLine, infoRows, usesDate, maxDays, PRESETS, PLACEHOLDERS } from "../js/sendtext.js";
 
 const fakeAp = (time = null) => {
@@ -20,6 +20,29 @@ const fakeAp = (time = null) => {
 test("date lines in Norwegian", () => {
   assert.deepEqual(dateLines(new Date(2026, 9, 17)), ["Lørdag", "17. oktober 2026"]);
   assert.deepEqual(dateLines(new Date(2027, 0, 3)), ["Søndag", "3. januar 2027"]);
+});
+
+test("date lines in English, as the AP writes {weekday} and {date}", () => {
+  assert.deepEqual(dateLines(new Date(2026, 9, 17), "en"), ["Saturday", "17 October 2026"]);
+  assert.deepEqual(dateLines(new Date(2026, 9, 29), "en"), ["Thursday", "29 October 2026"]);
+  const [row] = infoRows([{ mac: "M" }], ["{weekday}, {date}"], { today: new Date(2026, 9, 29), lang: "en" });
+  assert.deepEqual(row.fields, ["Thursday, 29 October 2026"]);
+  assert.deepEqual(contentRows("M", ["", "", "x"], { date: true, today: new Date(2026, 9, 29), lang: "en" })[0].fields,
+    ["Thursday", "29 October 2026", "x"]);
+});
+
+test("the dates' language: the AP's, else the browser's", () => {
+  assert.equal(dateLang({ lang: "nb" }, "en-US"), "nb");
+  assert.equal(dateLang({ lang: "en" }, "nb-NO"), "en");
+  // an AP from before 0.11.0 has no lang, and one where it is not chosen says null
+  assert.equal(dateLang({ tz: null }, "nb-NO"), "nb");
+  assert.equal(dateLang({ lang: null }, "nb-NO"), "nb");
+  assert.equal(dateLang({ lang: null }, "en-US"), "en");
+  assert.equal(dateLang(null, "nn"), "nb");
+  assert.equal(dateLang(undefined, "no"), "nb");
+  assert.equal(dateLang({}, "en-GB"), "en");
+  assert.equal(dateLang({}, "nbx"), "en");
+  assert.equal(dateLang({}, ""), "en");
 });
 
 test("fields and bytes", () => {

@@ -1,4 +1,5 @@
 #include "tinytest.h"
+#include "esl_clock.h"
 #include "esl_api.h"
 #include <stdlib.h>
 
@@ -1087,7 +1088,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang or channel"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1197,9 +1198,20 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
 }
 
+static int lang_sets;
+
+static void lang_set(void *ctx, const char *lang)
+{
+    esl_clock_cfg_t *c = ctx;
+    lang_sets++;
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+}
+
 static void test_clock_config(void)
 {
-    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set};
+    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set, NULL, ""};
     esl_store_free(&st);
     esl_store_init(&st, CAP, NULL, 0);
     notify.url[0] = '\0';
@@ -1212,7 +1224,7 @@ static void test_clock_config(void)
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
                     "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang or channel"));
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
@@ -1256,6 +1268,39 @@ static void test_clock_config(void)
     CHECK(esl_tz_ok("<-03>3", 6));
     CHECK(!esl_tz_ok("Europe/Oslo", 11));
     CHECK(!esl_tz_ok("", 0));
+
+    /* lang: an AP without the setting says so, and its GET has no lang */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 422);
+    CHECK(HAS(resp, "no language setting"));
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(!HAS(resp, "lang"));
+    clock.set_lang = lang_set;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    /* not chosen yet: null, so the Dashboard and esl-client keep their own language */
+    CHECK(HAS(resp, "\"tz\":null,\"lang\":null}"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":\"nb\"}"));
+    CHECK_INT(lang_sets, 1);
+    CHECK_INT(esl_clock_lang(), ESL_LANG_NB);
+    CHECK_INT(clock_sets, 4); /* lang alone leaves ntp and tz alone */
+    static const char *const bad_lang[] = {"{\"lang\":\"no\"}", "{\"lang\":\"NB\"}", "{\"lang\":\"nb-NO\"}",
+                                           "{\"lang\":1}", "{\"lang\":\"\"}", "{\"lang\":\"nb\",\"tz\":\"x\"}"};
+    for (unsigned i = 0; i < sizeof(bad_lang) / sizeof(bad_lang[0]); i++) {
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad_lang[i], 0), 422);
+    }
+    CHECK(HAS(resp, "tz must be"));
+    CHECK_INT(lang_sets, 1);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"bad\"}", 0), 422);
+    CHECK(HAS(resp, "lang must be null, \\\"en\\\" or \\\"nb\\\""));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"en\"}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":\"en\"}"));
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    /* null: not chosen again, English */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":null}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":null}"));
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    CHECK_INT(lang_sets, 4);
     api.clock = NULL;
 }
 
