@@ -4,7 +4,9 @@ An AP with PSRAM (the [ESP32-S3 + C6](ESP32-S3-and-C6), [ESP32-S3 + wireless C6]
 
 ## Setting it up
 
-Send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include the ones you have (read them first with `GET /api/sources`):
+In the **Dashboard** (AP firmware 0.11.0 or newer): tick the tags, choose **Price, countdown, news or calendar** under *Send to the ticked tags*, and fill in the dialog. The AP keeps the tags up to date from then on.
+
+Or send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include the ones you have (read them first with `GET /api/sources`):
 
 ```bash
 curl -X PUT http://openesl.local/api/sources \

@@ -434,7 +434,7 @@
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), a picture, new firmware, or, on an AP that fetches it, the weather.</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), a picture, new firmware, or, on an AP that fetches it, the weather, the electricity price, a countdown, news headlines or a calendar.</p>
         <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
@@ -446,6 +446,7 @@
               <option value="text">Your own text</option>
               <option value="pic">A picture</option>
               <option value="weather" disabled hidden>The weather (MET Norway)</option>
+              <option value="feed" disabled hidden>Price, countdown, news or calendar</option>
               <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
@@ -535,6 +536,49 @@
               <button type="button" id="wx-cancel">Cancel</button>
               <span class="sep"></span>
               <button type="submit" id="wx-ok" class="primary">Show the weather</button>
+            </div>
+          </form>
+        </dialog>
+        <dialog id="feed-dlg" class="wx-dlg" aria-labelledby="feed-h">
+          <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+          <h3 id="feed-h">The AP fills in <span id="feed-n"></span></h3>
+          <form id="feed-form" novalidate>
+            <p class="hint">The AP fetches or works it out by itself and keeps the tags up to date on the built-in layout <code>text</code>, with nothing else running. A tag only wakes when its text changes.</p>
+            <div class="form">
+              <label>Show <select id="feed-type">
+                <option value="power">Today's electricity price (Norway)</option>
+                <option value="countdown">A countdown to a date</option>
+                <option value="rss">News headlines (RSS or Atom)</option>
+                <option value="ical">The next events of a calendar (.ics)</option>
+              </select></label>
+              <div id="feed-power" class="form">
+                <label>Price area <select id="feed-area">
+                  <option value="NO1">NO1 Oslo / East</option>
+                  <option value="NO2">NO2 Kristiansand / South</option>
+                  <option value="NO3">NO3 Trondheim / Central</option>
+                  <option value="NO4">NO4 Tromsø / North (no VAT)</option>
+                  <option value="NO5">NO5 Bergen / West</option>
+                </select></label>
+                <label class="check"><input type="checkbox" id="feed-vat" checked> With 25 % VAT</label>
+                <p class="hint">Prices from <a href="https://www.hvakosterstrommen.no/">hvakosterstrommen.no</a>, updated each quarter hour.</p>
+              </div>
+              <div id="feed-countdown" class="form" hidden>
+                <label>Name <input id="feed-place" maxlength="32" autocomplete="off" placeholder="Christmas" title="Shown on the tag"></label>
+                <label>Date <input id="feed-date" type="date" min="1900-01-01" max="2100-12-31"></label>
+                <label>Time <input id="feed-time" type="time" title="Optional: the last day counts down in hours and minutes"></label>
+                <label class="check"><input type="checkbox" id="feed-yearly"> Every year (a birthday, Christmas)</label>
+              </div>
+              <div id="feed-url-box" class="form" hidden>
+                <label>Address <input id="feed-url" inputmode="url" maxlength="159" autocomplete="off" spellcheck="false"></label>
+                <p id="feed-url-hint" class="hint"></p>
+              </div>
+              <label id="feed-lang-label">Words in <select id="feed-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
+            </div>
+            <p id="feed-msg" class="hint" role="status"></p>
+            <div class="dlg-buttons">
+              <button type="button" id="feed-cancel">Cancel</button>
+              <span class="sep"></span>
+              <button type="submit" id="feed-ok" class="primary">Start</button>
             </div>
           </form>
         </dialog>

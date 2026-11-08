@@ -160,7 +160,7 @@ export function weatherPlan(sources, macs, to) {
 export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = false }) {
   url = String(url || "").trim();
   // as the AP checks it (esl_source_image.c): 159 bytes of UTF-8, no user:password@
-  if (!/^https?:\/\/[^/?#\s]+\S*$/.test(url) || new TextEncoder().encode(url).length > 159) return { error: "The address must start with http:// or https:// (up to 159 bytes, no spaces)" };
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: "The address must start with http:// or https:// (up to 159 characters, no spaces or letters outside ASCII: use %-escapes)" };
   if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
   const every = Number(every_min);
   if (!Number.isInteger(every) || every < 5 || every > 1440) return { error: "Every: 5 to 1440 minutes" };
@@ -181,6 +181,84 @@ export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = fal
   const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
   list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources (weather places and pictures)` };
+  return { sources: list, id: target.id };
+}
+
+// The kinds of content the AP makes by itself on the built-in layout "text" (AP 0.11.0 and
+// later): the id a new source gets, and what to call it in messages
+export const FEEDS = {
+  power: { id: "power", what: "the electricity price" },
+  countdown: { id: "countdown", what: "the countdown" },
+  rss: { id: "news", what: "the headlines" },
+  ical: { id: "calendar", what: "the calendar" },
+};
+
+const utf8Len = (t) => new TextEncoder().encode(t).length;
+
+// A source of one of FEEDS from what the dialog gives, checked as the AP checks it; { error }
+export function feedSource(spec) {
+  const t = spec?.type;
+  if (!FEEDS[t]) return { error: "Choose what the tags show" };
+  const lang = spec.lang === "en" ? "en" : "nb";
+  if (t === "power") {
+    const area = String(spec.area || "");
+    if (!/^NO[1-5]$/.test(area)) return { error: "Choose a price area, NO1 to NO5" };
+    return { type: t, area, vat: spec.vat === undefined ? area !== "NO4" : !!spec.vat, lang };
+  }
+  if (t === "countdown") {
+    const place = String(spec.place || "").trim();
+    if (!place) return { error: "Give it a name: it is shown on the tag (Christmas, Holiday)" };
+    if (utf8Len(place) > 32) return { error: "The name: at most 32 bytes" };
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(spec.date || "");
+    const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    if (!m || +m[1] < 1900 || +m[1] > 2100 || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return { error: "The date: a day from 1900 to 2100" };
+    const src = { type: t, place, date: spec.date, yearly: !!spec.yearly, lang };
+    if (spec.time) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(spec.time)) return { error: "The time: HH:MM, or leave it empty" };
+      src.time = spec.time;
+    }
+    return src;
+  }
+  let url = String(spec.url || "").trim();
+  if (t === "ical") url = url.replace(/^webcal:\/\//i, "https://");
+  // as esl_source_url_ok: printable ASCII only
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: `The address must start with http:// or https://${t === "ical" ? " (or webcal://)" : ""}, up to 159 characters, no spaces or letters outside ASCII (use %-escapes)` };
+  if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
+  return t === "ical" ? { type: t, url, lang } : { type: t, url };
+}
+
+// Whether two sources of FEEDS show the same thing: then one source takes both sets of tags
+function sameFeed(a, b) {
+  if (a.type !== b.type) return false;
+  if (a.type === "power") return a.area === b.area && !!a.vat === !!b.vat && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "countdown") return a.place === b.place && a.date === b.date && (a.time || "") === (b.time || "") && !!a.yearly === !!b.yearly && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "rss") return a.url === b.url; // rss has no language
+  return a.url === b.url && (a.lang || "nb") === (b.lang || "nb");
+}
+
+// The sources with `macs` showing a source of FEEDS (spec: as feedSource takes it) on the
+// built-in layout "text". As weatherPlan, the tags leave every other source, and a source left
+// without tags goes. { sources, id } or { error }.
+export function feedPlan(sources, macs, spec) {
+  const src = feedSource(spec);
+  if (src.error) return src;
+  const moving = new Set(macs);
+  let list = sources.map(({ status, ...s }) => ({ ...s, tags: (s.tags || []).filter((m) => !moving.has(m)) }));
+  let target = list.find((s) => sameFeed(s, src));
+  if (!target) {
+    const taken = new Set(list.map((s) => s.id));
+    // a countdown is named after what it counts to
+    const base = src.type === "countdown" ? placeId(src.place, new Set()) : FEEDS[src.type].id;
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 16 - String(n).length - 1)}-${n}`;
+    target = { id, ...src, layout: "text", tags: [] };
+    list.push(target);
+  }
+  target.tags = [...target.tags, ...macs];
+  if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one in the Weather and pictures card` };
   return { sources: list, id: target.id };
 }
 
@@ -243,11 +321,11 @@ export function initSources() {
     $(id).textContent = text;
     $(id).className = "hint" + (cls ? " " + cls : "");
   };
-  const option = () => $("st-what").querySelector('option[value="weather"]');
-  // The choice in the Send form, only on an AP with data sources
+  const options = () => $("st-what").querySelectorAll('option[value="weather"], option[value="feed"]');
+  // The choices in the Send form, only on an AP with data sources
   const offer = (on) => {
-    option().hidden = option().disabled = !on;
-    if (!on && $("st-what").value === "weather") {
+    for (const o of options()) o.hidden = o.disabled = !on;
+    if (!on && ["weather", "feed"].includes($("st-what").value)) {
       $("st-what").value = "ap";
       $("st-what").dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -560,6 +638,63 @@ export function initSources() {
   $("wx-place").addEventListener("focus", () => hits.length && !$("wx-coords").value && show());
   $("wx-form").addEventListener("change", dialogChanged);
   $("wx-cancel").addEventListener("click", () => $("wx-dlg").close());
+
+  // ---- Send → Price, countdown, news or calendar: one of FEEDS on the ticked tags ----
+
+  let feedFor = null; // { tags, done } while the dialog is open
+  const URL_HINTS = {
+    rss: ["https://news.example/top.rss", "Most news sites, blogs and status pages have a feed: look for RSS, or an address ending in .rss, .xml or /feed. The first 128 KB of a long feed are read."],
+    ical: ["webcal://calendar.example/family.ics", "The calendar's address in iCal format (Google: Settings, the calendar, Secret address in iCal format). Anyone who has it can read the calendar, and the AP's API shows it: protect the API with a token."],
+  };
+  function feedChanged() {
+    const t = $("feed-type").value;
+    $("feed-power").hidden = t !== "power";
+    $("feed-countdown").hidden = t !== "countdown";
+    $("feed-url-box").hidden = t !== "rss" && t !== "ical";
+    $("feed-lang-label").hidden = t === "rss";
+    if (URL_HINTS[t]) {
+      $("feed-url").placeholder = URL_HINTS[t][0];
+      $("feed-url-hint").textContent = URL_HINTS[t][1];
+    }
+    msg("feed-msg", "");
+  }
+  function feedSpec() {
+    const t = $("feed-type").value;
+    return { type: t, lang: $("feed-lang").value, area: $("feed-area").value, vat: $("feed-vat").checked,
+      place: $("feed-place").value, date: $("feed-date").value, time: $("feed-time").value,
+      yearly: $("feed-yearly").checked, url: $("feed-url").value };
+  }
+  function openFeed(tags, done) {
+    feedFor = { tags, done };
+    $("feed-n").textContent = tags.length === 1 ? "1 tag" : `${tags.length} tags`;
+    feedChanged();
+    $("feed-ok").disabled = false;
+    $("feed-dlg").showModal();
+    $("feed-type").focus();
+  }
+  $("feed-type").addEventListener("change", feedChanged);
+  // NO4 has no VAT on electricity: the box follows the area
+  $("feed-area").addEventListener("change", () => ($("feed-vat").checked = $("feed-area").value !== "NO4"));
+  $("feed-cancel").addEventListener("click", () => $("feed-dlg").close());
+  $("feed-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!feedFor) return;
+    const spec = feedSpec();
+    const check = feedSource(spec);
+    if (check.error) return msg("feed-msg", check.error, "error");
+    $("feed-ok").disabled = true;
+    msg("feed-msg", "Saving …");
+    try {
+      const s = await api.addFeed(feedFor.tags.map((t) => t.mac), spec);
+      const n = feedFor.tags.length;
+      $("feed-dlg").close();
+      feedFor.done?.(`The AP shows ${FEEDS[spec.type].what} on ${n === 1 ? "the tag" : `${n} tags`} (source ${s?.id ?? "saved"}); they get it within a few minutes.`);
+      feedFor = null;
+    } catch (e) {
+      msg("feed-msg", "Not saved: " + e.message, "error");
+      $("feed-ok").disabled = false;
+    }
+  });
   $("src-refresh").addEventListener("click", async () => {
     try {
       await client.call("POST", "/api/sources/refresh");
@@ -570,7 +705,7 @@ export function initSources() {
     }
   });
 
-  return {
+  const api = {
     // The dashboard connected to an AP (or disconnected: null)
     connected(c) {
       client = c;
@@ -586,12 +721,33 @@ export function initSources() {
     pictureOf: () => pictureOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
+    // Send → Price, countdown, news or calendar: the dialog for these tags; done(message)
+    openFeed: (tags, done) => openFeed(tags, done),
     // Other content was sent to tags: the AP took them out of their places, so read the list again
     reload: () => load(),
     // Whether the AP has data sources (a picture from a URL needs them)
     available: () => !!data,
     // The PNG at opts.url ({ url, every_min, dither }) on these tags, fetched by the AP: the
     // source as the AP saved it. Throws with a message when it cannot be done.
+    // A source of FEEDS (spec as feedSource takes it) on these tags: the source as the AP saved
+    // it. Throws with a message when it cannot be done.
+    async addFeed(macs, spec) {
+      const c = client;
+      if (!c || !data) throw new Error("this AP cannot fetch content by itself");
+      const now = await c.call("GET", "/api/sources");
+      const plan = feedPlan(now.sources || [], macs, spec);
+      if (plan.error) throw new Error(plan.error);
+      try {
+        data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      } catch (e) {
+        // an AP that does not know the type names the ones it knows
+        if (/type: one of /.test(e.message) && !e.message.includes(`"${spec.type}"`)) throw new Error(`this AP needs newer firmware (0.11.0 or later) for ${FEEDS[spec.type].what}`);
+        throw e;
+      }
+      render();
+      setTimeout(load, 5000);
+      return data.sources.find((x) => x.id === plan.id);
+    },
     async addPicture(macs, opts) {
       const c = client;
       if (!c || !data) throw new Error("this AP cannot fetch pictures by itself");
@@ -610,4 +766,5 @@ export function initSources() {
       return data.sources.find((x) => x.id === plan.id);
     },
   };
+  return api;
 }
