@@ -3,7 +3,7 @@
   "version": 1,
   "id": "vare-priser",
   "category": "retail",
-  "title": "Product with two prices",
+  "title": "Product with two prices (Norwegian VAT text)",
   "description": "Brand band, product name, a note, the price without VAT and the highlighted price with VAT, both sent as fields.",
   "tags": ["price", "product", "vat"],
   "fields": {
@@ -19,7 +19,7 @@
         "name": "vare-priser",
         "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
         "fields": ["brand", "name", "info", "price", "price_ex"],
-        "_sample": ["Brand", "Product name", "1234-5678", "3910,36", "3128,29"],
+        "_sample": ["Brand", "Product name", "1234-5678", "48,88", "39,10"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
@@ -38,7 +38,7 @@
         "name": "vare-priser",
         "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
         "fields": ["brand", "name", "info", "price", "price_ex"],
-        "_sample": ["Brand", "Product name", "1234-5678", "3910,36", "3128,29"],
+        "_sample": ["Brand", "Product name", "1234-5678", "48,88", "39,10"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
@@ -57,7 +57,7 @@
         "name": "vare-priser",
         "description": "Product label with the price both ex. and inc. VAT, both sent by the client: brand band, name, a note (e.g. the article number), price ex. VAT and the highlighted price inc. VAT",
         "fields": ["brand", "name", "info", "price", "price_ex"],
-        "_sample": ["Brand", "Product name", "1234-5678", "3910,36", "3128,29"],
+        "_sample": ["Brand", "Product name", "1234-5678", "48,88", "39,10"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 24, "color": "black" },
           { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 188, "h": 24, "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },

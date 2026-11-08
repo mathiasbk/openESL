@@ -200,7 +200,7 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 What a layout can draw:
 
 - Text in a box from a field: six fonts, alignment, up to 3 lines, black, white, inverted or highlighted. The client sends the fields with each update, e.g. `price` and `price_ex` for the price inc. and ex. VAT (the AP does not work out VAT).
-- Fixed texts that are part of the layout (such as "inkl. mva").
+- Fixed texts that are part of the layout (such as "incl. VAT").
 - Boxes in black or white, filled or only a border, with round corners if you like. A black area with white text is a black box with white text on it, or inverted text.
 - Straight and slanted lines, 1 to 16 px wide.
 - Small pictures (icons) made from a PNG, JPEG, GIF or SVG with the Icon button: dark pixels are drawn, up to 128 px.

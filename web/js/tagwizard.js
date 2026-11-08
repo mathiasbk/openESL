@@ -217,7 +217,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     g.textAlign = "right";
     g.font = `bold ${Math.round(h * 0.36)}px system-ui, sans-serif`;
     g.fillStyle = ink;
-    g.fillText("49,90", w - Math.round(w * 0.04), h - h * 0.24);
+    g.fillText("49.90", w - Math.round(w * 0.04), h - h * 0.24);
   }
 
   function wire() {
