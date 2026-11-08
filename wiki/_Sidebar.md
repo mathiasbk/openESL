@@ -52,6 +52,7 @@
 
 **Running it**
 - [Dashboard](Dashboard)
+- [Why labels stay connected](Why-labels-stay-connected)
 - [Health and webhook](Health-and-webhook)
 - [Updating the AP](Updating-the-access-point)
 - [Updating labels](Updating-labels)

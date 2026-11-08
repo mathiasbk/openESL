@@ -18,6 +18,6 @@ flowchart TB
 3. **The label asks, the AP answers.** Every 60 seconds the label wakes, asks "anything new?", and goes back to sleep. When its screen has changed, the AP sends the new image over the 802.15.4 radio in small blocks. The image is compressed column against column, the way a fax compresses a page, so a typical price label is about 500 bytes: six radio blocks instead of 52.
 4. **The label shows it.** It stores the image in its SPI flash and draws it on the e-paper panel. After a restart it shows the last image again, even without the AP.
 
-An image that has not changed is never sent again, and a label only redraws when its screen really changed. That is what keeps the batteries going.
+An image that has not changed is never sent again, and a label only redraws when its screen really changed. That is what keeps the batteries going. What happens when the AP restarts, goes away or changes channel: [Why labels stay connected](Why-labels-stay-connected).
 
 The design in more depth: [docs/README.md](https://github.com/mathiasbk/openESL/blob/master/docs/README.md#the-main-choices-short-version) and [docs/architecture.md](https://github.com/mathiasbk/openESL/blob/master/docs/architecture.md).

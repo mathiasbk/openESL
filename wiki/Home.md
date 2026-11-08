@@ -44,6 +44,8 @@ flowchart LR
 
 Your software sends text, the access point (AP) draws the screen from a layout you choose, and each label fetches its new screen by radio about once a minute. The details: [How it works](How-it-works).
 
+The labels keep their screen and settings through restarts, channel changes and updates, and find the AP again by themselves: [Why labels stay connected](Why-labels-stay-connected).
+
 ## New here?
 
 1. [What you need](What-you-need): the labels, the access point and the flashing jig.
@@ -74,7 +76,7 @@ Your software sends text, the access point (AP) draws the screen from a layout y
 [Overview](Sending-content) · [HTTP API](HTTP-API) · [esl-client](esl-client) · [Price lists from CSV](Price-lists-from-CSV) · [Scheduled prices](Scheduled-prices) · [Home Assistant](Home-Assistant) · [Weather](Weather) · [Picture from a URL](Picture-from-a-URL) · [Electricity price](Electricity-price) · [Countdown](Countdown) · [News headlines](News-headlines) · [Calendar](Calendar)
 
 **Running it**
-[Dashboard](Dashboard) · [Health and webhook](Health-and-webhook) · [Updating the AP](Updating-the-access-point) · [Updating labels](Updating-labels) · [Upgrading from older versions](Upgrading-from-older-versions) · [Backup and restore](Backup-and-restore) · [Moving to a new AP](Moving-to-a-new-AP)
+[Dashboard](Dashboard) · [Health and webhook](Health-and-webhook) · [Updating the AP](Updating-the-access-point) · [Updating labels](Updating-labels) · [Upgrading from older versions](Upgrading-from-older-versions) · [Backup and restore](Backup-and-restore) · [Moving to a new AP](Moving-to-a-new-AP) · [Why labels stay connected](Why-labels-stay-connected)
 
 **Help**
 [Troubleshooting](Troubleshooting) · [FAQ](FAQ)
