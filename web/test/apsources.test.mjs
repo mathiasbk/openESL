@@ -86,9 +86,9 @@ test("tags to a picture from a URL: a new source, or the one with that URL", () 
   assert.match(picturePlanUrl([], [A], { url: "http://u:p@ha.local/c.png" }).error, /user name or password/);
   assert.match(picturePlanUrl([], [A], { url: "http://u@ha.local" }).error, /user name or password/);
   assert.equal(picturePlanUrl([], [A], { url: "http://ha.local/a@b.png" }).id, "picture");
-  // 159 bytes of UTF-8, as on the AP
+  // 159 characters of printable ASCII, as on the AP
   assert.equal(picturePlanUrl([], [A], { url: "http://h/" + "a".repeat(150) }).id, "picture");
-  assert.match(picturePlanUrl([], [A], { url: "http://h/" + "å".repeat(76) }).error, /159 bytes/);
+  assert.match(picturePlanUrl([], [A], { url: "http://h/" + "a".repeat(151) }).error, /159 characters/);
 });
 
 test("the electricity price: its own line, not a weather place", () => {
@@ -219,6 +219,11 @@ test("feedSource checks a price, a countdown, a feed and a calendar as the AP do
   assert.match(feedSource({ type: "rss", url: "ftp://x/a" }).error, /http:\/\//);
   assert.match(feedSource({ type: "ical", url: "https://u:p@x/a.ics" }).error, /user name/);
   assert.match(feedSource({ type: "weather" }).error, /Choose/);
+  // the AP takes printable ASCII only (esl_source_url_ok)
+  assert.match(feedSource({ type: "rss", url: "https://nyheter.example/blåbær.rss" }).error, /ASCII/);
+  assert.match(feedSource({ type: "ical", url: "https://cal.example/a\u0007.ics" }).error, /ASCII/);
+  assert.match(picturePlanUrl([], ["m"], { url: "https://x.example/bilde-ø.png" }).error, /ASCII/);
+  assert.equal(feedSource({ type: "rss", url: "https://x.example/" + "a".repeat(141) }).url.length, 159);
 });
 
 test("feedPlan moves the tags to one source on the text layout", () => {
@@ -235,6 +240,9 @@ test("feedPlan moves the tags to one source on the text layout", () => {
   assert.ok(!("status" in p.sources[0]));
   // the same feed takes the tag; the source it left goes
   p = feedPlan(have, [A], { type: "rss", url: "https://other.example/x.rss" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["news", [B, A]]]);
+  // a feed has no language, so one made through the API with "lang" still matches
+  p = feedPlan([{ ...have[1], lang: "en" }], [A], { type: "rss", url: "https://other.example/x.rss" });
   assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["news", [B, A]]]);
   // a countdown is named after what it counts to
   p = feedPlan([], [A], { type: "countdown", place: "Sommerferie", date: "2027-06-20" });

@@ -160,7 +160,7 @@ export function weatherPlan(sources, macs, to) {
 export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = false }) {
   url = String(url || "").trim();
   // as the AP checks it (esl_source_image.c): 159 bytes of UTF-8, no user:password@
-  if (!/^https?:\/\/[^/?#\s]+\S*$/.test(url) || new TextEncoder().encode(url).length > 159) return { error: "The address must start with http:// or https:// (up to 159 bytes, no spaces)" };
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: "The address must start with http:// or https:// (up to 159 characters, no spaces or letters outside ASCII: use %-escapes)" };
   if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
   const every = Number(every_min);
   if (!Number.isInteger(every) || every < 5 || every > 1440) return { error: "Every: 5 to 1440 minutes" };
@@ -221,7 +221,8 @@ export function feedSource(spec) {
   }
   let url = String(spec.url || "").trim();
   if (t === "ical") url = url.replace(/^webcal:\/\//i, "https://");
-  if (!/^https?:\/\/[^/?#\s]+\S*$/.test(url) || utf8Len(url) > 159) return { error: `The address must start with http:// or https://${t === "ical" ? " (or webcal://)" : ""}, up to 159 bytes, no spaces` };
+  // as esl_source_url_ok: printable ASCII only
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: `The address must start with http:// or https://${t === "ical" ? " (or webcal://)" : ""}, up to 159 characters, no spaces or letters outside ASCII (use %-escapes)` };
   if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
   return t === "ical" ? { type: t, url, lang } : { type: t, url };
 }
@@ -231,6 +232,7 @@ function sameFeed(a, b) {
   if (a.type !== b.type) return false;
   if (a.type === "power") return a.area === b.area && !!a.vat === !!b.vat && (a.lang || "nb") === (b.lang || "nb");
   if (a.type === "countdown") return a.place === b.place && a.date === b.date && (a.time || "") === (b.time || "") && !!a.yearly === !!b.yearly && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "rss") return a.url === b.url; // rss has no language
   return a.url === b.url && (a.lang || "nb") === (b.lang || "nb");
 }
 
