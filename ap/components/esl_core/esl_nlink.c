@@ -345,7 +345,9 @@ static void host_clear(void *ctx)
 static bool host_tag(void *ctx, const esl_rtag_state_t *s)
 {
     esl_nlink_host_t *n = ctx;
-    uint8_t b[40];
+    /* 39 bytes now. Room to spare: a field added later that did not fit would fail send_buf,
+       which marks the link broken, so the radio would reconnect over and over */
+    uint8_t b[64];
     wbuf_t w = {b, 0, sizeof(b)};
     put64(&w, s->mac);
     put16(&w, s->next_poll_s);
