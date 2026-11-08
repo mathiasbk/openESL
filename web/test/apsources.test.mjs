@@ -102,6 +102,12 @@ test("the electricity price: its own line, not a weather place", () => {
   assert.deepEqual(picturePlanUrl([oslo, { ...power, tags: [] }], [C], { url: "http://h/a.png" }).sources.map((s) => s.id), ["oslo", "power", "picture"]);
 });
 
+test("headlines: the newest as its state, not a weather place", () => {
+  const rss = { id: "news", type: "rss", url: "https://news.example/top.rss", tags: [C], status: { fetched_at: 1, values: { h1: "Regn i Bergen" } } };
+  assert.match(sourceSummary(rss, 61).text, /^Regn i Bergen · fetched/);
+  assert.deepEqual([...placeOf([rss])], []);
+});
+
 test("a picture's address, short", () => {
   assert.equal(shortUrl("http://ha.local:8123/local/charts/power.png?v=2"), "ha.local:8123/…/power.png");
   assert.equal(shortUrl("https://x.example/b.png"), "x.example/b.png");

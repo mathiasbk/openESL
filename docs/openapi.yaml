@@ -1427,6 +1427,15 @@ paths:
                       fields: ["Power {area} {date}", "Now {now} kr/kWh", "{level}", "Cheapest {minat}: {min}"]
                       lang: en
                       tags: ["00000123456789B2"]
+              news:
+                summary: The newest headlines of a news feed on the built-in text layout
+                value:
+                  sources:
+                    - id: news
+                      type: rss
+                      url: "https://news.example/top.rss"
+                      layout: text
+                      tags: ["00000123456789B2"]
               none:
                 summary: No data sources
                 value: { sources: [] }
@@ -2690,11 +2699,14 @@ components:
         - properties: { type: { const: power }, every_min: { minimum: 15 } }
           required: [area, layout]
           not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }] }
+        - properties: { type: { const: rss }, every_min: { minimum: 15 } }
+          required: [url, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [dither] }, { required: [area] }, { required: [vat] }] }
       properties:
         id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
         type:
           type: string
-          enum: [met, image, power]
+          enum: [met, image, power, rss]
           description: |
             `met`: the forecast from MET Norway (api.met.no locationforecast 2.0), as values in
             the fields of a layout. `image` (0.11.0 and later): a PNG fetched from `url`, kept as
@@ -2702,8 +2714,11 @@ components:
             `fields`. The PNG must have the size of each tag's screen (`GET /api/tags`: a tag of
             another size is counted in `tags_failed`); use one source for each screen size.
             `power` (0.11.0 and later): today's electricity spot price in a Norwegian price area
-            from hvakosterstrommen.no, as values in the fields of a layout like `met`. `{now}`
-            follows the clock: the values are made again at each run, also from a 304.
+            from hvakosterstrommen.no, as values in the fields of a layout like `met`. A day's file
+            is fetched once (again after 6 hours); the values are made again from it at each
+            quarter hour, so `{now}` follows the clock. Dates and times are Norway's.
+            `rss` (0.11.0 and later): the newest headlines of an RSS 2.0 or Atom feed at `url`, as
+            values in the fields of a layout like `met`.
         lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
         lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
         url:
@@ -2714,12 +2729,13 @@ components:
             `image`: where the PNG is, `http://` or `https://` (a certificate from the usual
             public authorities). Fetched with `If-Modified-Since`, so a picture that did not
             change costs a 304; a picture that comes back the same is not sent to the tags again.
+            `rss`: the feed's address, the same rules. Feeds up to 128 KB are read.
         area: { type: string, enum: [NO1, NO2, NO3, NO4, NO5], description: "`power`: the price area (NO1 Oslo, NO2 Kristiansand, NO3 Trondheim, NO4 Tromsø, NO5 Bergen)" }
         vat: { type: boolean, description: "`power`: add 25 % VAT to the prices; by default true, except in NO4 (no VAT on electricity in Northern Norway)" }
         dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
         place: { type: string, maxLength: 32, default: "", description: "The place's name, value `{place}` (at most 32 bytes of UTF-8)" }
         lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), and of the decimal mark and `{level}` (`power`)" }
-        every_min: { type: integer, minimum: 5, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15" }
+        every_min: { type: integer, minimum: 5, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `rss`: at least and by default 15" }
         layout:
           type: string
           description: |

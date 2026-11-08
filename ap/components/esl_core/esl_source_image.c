@@ -17,27 +17,6 @@ static const char *const image_keys[] = {"width", "height", NULL};
 static const char *const image_fields[] = {NULL};
 static const char *const image_cfg_keys[] = {"url", "dither", NULL};
 
-static bool url_ok(const char *u)
-{
-    size_t n = strlen(u), host;
-    if (!strncmp(u, "https://", 8))
-        host = 8;
-    else if (!strncmp(u, "http://", 7))
-        host = 7;
-    else
-        return false;
-    if (n <= host || u[host] == '/')
-        return false;
-    /* no user:password@ (it would be kept in NVS, shown by GET and printed in messages) */
-    size_t auth = strcspn(u + host, "/?#");
-    if (memchr(u + host, '@', auth))
-        return false;
-    for (size_t i = 0; i < n; i++)
-        if ((unsigned char)u[i] <= ' ' || (unsigned char)u[i] >= 0x7f)
-            return false;
-    return true;
-}
-
 static bool image_parse(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen)
 {
     int t = esl_json_obj_get(js, tok, obj, "url");
@@ -46,7 +25,7 @@ static bool image_parse(const char *js, const esl_jtok_t *tok, int obj, esl_sour
                 : -1;
     if (n >= 0)
         c->image.url[n] = '\0';
-    if (n < 0 || !url_ok(c->image.url)) {
+    if (n < 0 || !esl_source_url_ok(c->image.url)) {
         snprintf(err, errlen, "url: an http:// or https:// URL of a PNG, up to %d bytes, without spaces or a login",
                  ESL_SOURCE_URL_MAX - 1);
         return false;

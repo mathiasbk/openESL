@@ -252,6 +252,31 @@ labels, for example `["Strøm nå {now} kr", "Billigst {minat}: {min}"]`.
 Where the price is shown to others, credit hvakosterstrommen.no, which gets the prices from
 ENTSO-E.
 
+## Headlines from a news feed
+
+A source of type `rss` (AP 0.11.0 and later) reads the newest headlines of an RSS 2.0 or Atom
+feed: a news site, a blog, a status page. Only the titles are used.
+
+```json
+{"sources": [{"id": "news", "type": "rss", "url": "https://news.example/top.rss",
+              "layout": "text", "tags": ["00000123456789B2"]}]}
+```
+
+- `url`: `http://` or `https://`, up to 159 bytes, without a login, as for a picture. Feeds
+  of up to 128 KB are read, and redirects are not followed.
+- `every_min`: from 15 (the default) to 1440. An `Expires` from the server is waited for.
+
+| Value | What it is |
+|---|---|
+| `{title}` | The feed's own title |
+| `{h1}` ... `{h6}` | The first six headlines, newest first as the feed lists them; empty when the feed has fewer |
+| `{count}` | How many headlines there were (at most 6) |
+
+A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags and entities
+(`&amp;`, `&#248;`) in titles are handled. The default fields, for `text`, are `{title}`,
+`{h1}`, `{h2}` and `{h3}`. Each new headline wakes the source's tags: for a busy feed, a
+longer `every_min` saves battery.
+
 ## MET Norway's terms
 
 The AP follows MET's [terms of service](https://api.met.no/doc/TermsOfService):

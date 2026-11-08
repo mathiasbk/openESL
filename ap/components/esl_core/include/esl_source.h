@@ -24,6 +24,7 @@
  * settings, its URL, and how its answer becomes values. esl_source.c lists the types.
  *   "met"    esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
  *   "power"  esl_source_power.c: today's electricity price in a Norwegian price area.
+ *   "rss"    esl_source_rss.c: the newest headlines of an RSS or Atom feed.
  *   "image"  esl_source_image.c: a PNG from a URL, kept as the tags' picture (no layout,
  *            no fields: its values only describe the picture).
  *
@@ -43,7 +44,7 @@
 #define ESL_SOURCE_CFG_MAX    16384        /* the configuration as JSON (NVS, GET /api/sources) */
 #define ESL_SOURCE_URL_MAX    160
 
-typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3 } esl_source_type_t;
+typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3, ESL_SOURCE_RSS = 5 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
@@ -60,6 +61,9 @@ typedef struct {
             uint8_t area;                 /* price area NO1 to NO5 */
             bool vat;                     /* prices with 25 % VAT */
         } power;
+        struct {
+            char url[ESL_SOURCE_URL_MAX]; /* http:// or https:// */
+        } rss;
     };
     char place[ESL_SOURCE_PLACE_MAX + 1]; /* the name shown for it: value "place" */
     char lang[3];                         /* "nb" or "en": the language of words in the values */
@@ -120,6 +124,7 @@ typedef struct {
 extern const esl_source_def_t esl_source_met;
 extern const esl_source_def_t esl_source_image;
 extern const esl_source_def_t esl_source_power;
+extern const esl_source_def_t esl_source_rss;
 
 /* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
    (esl_render_size(model) bytes, esl_render's format). False with a message in err. */
@@ -238,6 +243,8 @@ bool esl_source_is_picture(const esl_source_cfg_t *c);
 
 /* Whether source c is fetched every every_min even before its last answer's Expires */
 bool esl_source_own_pace(const esl_source_cfg_t *c);
+/* For types with a URL setting: http:// or https://, a host, no spaces, no user:password@ */
+bool esl_source_url_ok(const char *u);
 /* Whether c's fetch URL names a file that does not change (type "power") */
 bool esl_source_dated(const esl_source_cfg_t *c);
 #define ESL_SOURCE_DATED_S (6 * 3600) /* a dated file is still asked for again after this */

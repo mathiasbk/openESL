@@ -70,6 +70,7 @@ static const esl_source_def_t *const types[] = {
     &esl_source_met,
     &esl_source_image,
     &esl_source_power,
+    &esl_source_rss,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -898,6 +899,28 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
         st->tags_set++;
         st->tags_changed += r.changed;
     }
+}
+
+/* An http:// or https:// URL with a host, no spaces or control characters, and no
+   user:password@ (it would be kept in NVS, shown by GET and printed in messages) */
+bool esl_source_url_ok(const char *u)
+{
+    size_t n = strlen(u), host;
+    if (!strncmp(u, "https://", 8))
+        host = 8;
+    else if (!strncmp(u, "http://", 7))
+        host = 7;
+    else
+        return false;
+    if (n <= host || u[host] == '/')
+        return false;
+    size_t auth = strcspn(u + host, "/?#");
+    if (memchr(u + host, '@', auth))
+        return false;
+    for (size_t i = 0; i < n; i++)
+        if ((unsigned char)u[i] <= ' ' || (unsigned char)u[i] >= 0x7f)
+            return false;
+    return true;
 }
 
 bool esl_source_own_pace(const esl_source_cfg_t *c)

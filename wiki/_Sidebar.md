@@ -46,6 +46,7 @@
 - [Weather on a label](Weather)
 - [Picture from a URL](Picture-from-a-URL)
 - [Electricity price](Electricity-price)
+- [News headlines](News-headlines)
 
 **Running it**
 - [Dashboard](Dashboard)
