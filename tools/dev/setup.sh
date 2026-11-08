@@ -6,7 +6,8 @@
 #   SDCC 4.5.0          tag firmware (tag/tools/build.py: another version gives different code)
 #   Emscripten 3.1.74   the web page's renderer (web/build.py)
 #   Node 22             web tests, only when no node 22 or newer is on PATH
-#   zxing-cpp, pillow, pyyaml   host tests (barcode read-back) and the API spec check
+#   the Python packages in requirements.txt next to this script: host tests (barcode
+#                       read-back), the API spec check, flash-tui and its tests
 #
 # ESP-IDF v5.5.5 is not installed here: tools/check.py uses idf.py when it is on PATH
 # (ESP-IDF's export.sh / export.ps1), otherwise the espressif/idf:v5.5.5 Docker image.
@@ -62,13 +63,13 @@ BINARYEN_ROOT = '$DIR/$EM/install'
 NODE_JS = '$NODE'
 EOF
 
-PY_PACKAGES="zxing-cpp==3.1.1 pillow pyyaml"
-if ! python3 -c "import zxingcpp, PIL, yaml" 2> /dev/null; then
-  echo "Installing $PY_PACKAGES"
+REQUIREMENTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/requirements.txt"
+if ! python3 -c "import zxingcpp, PIL, yaml, textual, serial, rich" 2> /dev/null; then
+  echo "Installing the Python packages in $REQUIREMENTS"
   # --user, except in a virtual environment (such as ESP-IDF's, in the Docker image)
   USER_FLAG=$(python3 -c 'import sys; print("" if sys.prefix != sys.base_prefix else "--user")')
-  python3 -m pip install $USER_FLAG --quiet $PY_PACKAGES 2> /dev/null ||
-    python3 -m pip install $USER_FLAG --quiet --break-system-packages $PY_PACKAGES
+  python3 -m pip install $USER_FLAG --quiet -r "$REQUIREMENTS" 2> /dev/null ||
+    python3 -m pip install $USER_FLAG --quiet --break-system-packages -r "$REQUIREMENTS"
 fi
 
 cat > env.sh << EOF

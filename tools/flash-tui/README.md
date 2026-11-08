@@ -7,7 +7,7 @@ For each tag it reads the MAC, saves a backup of the stock flash (first time onl
 OpenESL firmware and verifies it by reading it back. Every tag goes into a table on screen and a
 line in `backup/flash_log.csv` (the `backup/` folder at the repo root, which git ignores; `--backup-dir` changes it).
 
-Needs Python 3 with `textual`, `pyserial` and `rich`. Works in a normal terminal.
+Needs Python 3 with `textual`, `pyserial` and `rich` (`pip install --user -r tools/dev/requirements.txt`). Works in a normal terminal.
 
 ```sh
 python tools/flash-tui/flash_tui.py            # with the flasher plugged in
