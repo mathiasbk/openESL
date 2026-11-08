@@ -639,6 +639,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     brightness: Number($("st-bright").value), contrast: Number($("st-contrast").value),
   });
   const stWeather = () => stWhat() === "weather"; // apsources.js: a dialog chooses the place
+  const stFeed = () => stWhat() === "feed"; // apsources.js: a dialog chooses price, countdown, news or calendar
   let stBusy = false; // text going to the ticked tags
   const stSel = new Set(store.get("st.macs").split(",").filter(Boolean)); // kept across refreshes
   const stTags = () => (last?.list.tags || []).filter((t) => stSel.has(t.mac));
@@ -728,8 +729,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const tags = stTags();
     const lines = stLines();
     $("st-own").hidden = stWhat() !== "text";
-    $("st-days-label").hidden = stFw() || stPic() || stWeather() || !usesDate(lines);
-    $("st-frame-label").hidden = stFw() || stPic() || stWeather();
+    $("st-days-label").hidden = stFw() || stPic() || stWeather() || stFeed() || !usesDate(lines);
+    $("st-frame-label").hidden = stFw() || stPic() || stWeather() || stFeed();
     $("st-days").max = maxDays(tags.length);
     $("st-send").disabled = !client || !tags.length || sending || stBusy;
     $("st-send").textContent = !tags.length ? "Send" : tags.length > 1 ? `Send to ${tags.length} tags` : "Send to 1 tag";
@@ -754,6 +755,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       $("st-count").textContent = "";
       $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? "The weather for " + where.get(t.mac) : "No weather yet", where.has(t.mac) ? "" : "muted")));
       if (tags.length) $("st-send").textContent = "Choose the place …";
+      return;
+    }
+
+    // Price, countdown, news or calendar: what each tag shows now; the dialog chooses
+    if (stFeed()) {
+      ++stSeq;
+      $("st-preview").hidden = true;
+      const where = sources.placeOf(), picFrom = sources.pictureOf();
+      $("st-count").textContent = "";
+      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? `Now: the weather for ${where.get(t.mac)}` : picFrom.has(t.mac) ? `Now: the picture from ${picFrom.get(t.mac)}` : "", "muted")));
+      if (tags.length) $("st-send").textContent = "Choose what …";
       return;
     }
 
@@ -880,6 +892,12 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     if (!client || !tags.length || sending || stBusy) return;
     if (stFw()) return sendTagFw(tags);
     if (stPic()) return picOpen();
+    if (stFeed()) {
+      return sources.openFeed(tags, (text) => {
+        stMsg(text, "ok");
+        refresh();
+      });
+    }
     if (stWeather()) {
       return sources.open(tags, (text, err) => {
         stMsg(err ? "Not done: " + err.message : text, err ? "error" : "ok");

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, pictureOf, shortUrl, hostOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, pictureOf, shortUrl, hostOf, feedSource, feedPlan, FEEDS } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -200,4 +200,50 @@ test("places suggested as you type", () => {
   m = mergePlaces("Berg", [bergen, bergsoya], [belgium]);
   assert.deepEqual(m.map((h) => h.name), ["Bergen", "Berg", "Bergsøya"]);
   assert.equal(mergePlaces("berg", [bergen, bergsoya], [belgium], 1).length, 1);
+});
+
+test("feedSource checks a price, a countdown, a feed and a calendar as the AP does", () => {
+  assert.deepEqual(feedSource({ type: "power", area: "NO5" }), { type: "power", area: "NO5", vat: true, lang: "nb" });
+  assert.equal(feedSource({ type: "power", area: "NO4" }).vat, false);
+  assert.equal(feedSource({ type: "power", area: "NO4", vat: true }).vat, true);
+  assert.match(feedSource({ type: "power", area: "SE3" }).error, /price area/);
+  assert.deepEqual(feedSource({ type: "countdown", place: " Jul ", date: "2026-12-24", time: "", yearly: true }),
+    { type: "countdown", place: "Jul", date: "2026-12-24", yearly: true, lang: "nb" });
+  assert.equal(feedSource({ type: "countdown", place: "x", date: "2026-12-24", time: "18:00" }).time, "18:00");
+  assert.match(feedSource({ type: "countdown", place: "x", date: "2026-02-30" }).error, /date/);
+  assert.match(feedSource({ type: "countdown", place: "", date: "2026-12-24" }).error, /name/);
+  assert.match(feedSource({ type: "countdown", place: "x", date: "2026-12-24", time: "25:00" }).error, /time/);
+  assert.match(feedSource({ type: "countdown", place: "æ".repeat(17), date: "2026-12-24" }).error, /32 bytes/);
+  assert.deepEqual(feedSource({ type: "rss", url: " https://news.example/top.rss ", lang: "en" }), { type: "rss", url: "https://news.example/top.rss" });
+  assert.deepEqual(feedSource({ type: "ical", url: "webcal://cal.example/a.ics", lang: "en" }), { type: "ical", url: "https://cal.example/a.ics", lang: "en" });
+  assert.match(feedSource({ type: "rss", url: "ftp://x/a" }).error, /http:\/\//);
+  assert.match(feedSource({ type: "ical", url: "https://u:p@x/a.ics" }).error, /user name/);
+  assert.match(feedSource({ type: "weather" }).error, /Choose/);
+});
+
+test("feedPlan moves the tags to one source on the text layout", () => {
+  const A = "00000123456789B2", B = "00000123456789B9";
+  const have = [
+    { id: "bergen", type: "met", lat: 60.39, lon: 5.32, place: "Bergen", layout: "weather", tags: [A], status: {} },
+    { id: "news", type: "rss", url: "https://other.example/x.rss", layout: "text", tags: [B] },
+  ];
+  // a new feed: named, the weather place it emptied goes, the other feed keeps its tag
+  let p = feedPlan(have, [A], { type: "rss", url: "https://news.example/top.rss" });
+  assert.deepEqual(p.sources.map((s) => s.id), ["news", "news-2"]);
+  assert.equal(p.id, "news-2");
+  assert.deepEqual(p.sources[1], { id: "news-2", type: "rss", url: "https://news.example/top.rss", layout: "text", tags: [A] });
+  assert.ok(!("status" in p.sources[0]));
+  // the same feed takes the tag; the source it left goes
+  p = feedPlan(have, [A], { type: "rss", url: "https://other.example/x.rss" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["news", [B, A]]]);
+  // a countdown is named after what it counts to
+  p = feedPlan([], [A], { type: "countdown", place: "Sommerferie", date: "2027-06-20" });
+  assert.equal(p.id, "sommerferie");
+  p = feedPlan([], [A, B], { type: "ical", url: "webcal://cal.example/a.ics" });
+  assert.equal(p.id, "calendar");
+  assert.equal(p.sources[0].url, "https://cal.example/a.ics");
+  assert.match(feedPlan([], [A], { type: "power", area: "NO9" }).error, /price area/);
+  const full = Array.from({ length: 8 }, (_, i) => ({ id: "s" + i, type: "rss", url: `https://x.example/${i}`, layout: "text", tags: [String(i)] }));
+  assert.match(feedPlan(full, [A], { type: "power", area: "NO1" }).error, /at most 8/);
+  assert.equal(Object.keys(FEEDS).length, 4);
 });
