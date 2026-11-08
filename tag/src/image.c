@@ -34,32 +34,53 @@ static bool size_ok(uint8_t fmt, uint16_t size)
     return (fmt == ESL_IMG_FMT_RLE || fmt == ESL_IMG_FMT_2D) && size && size < IMG_RAW_SIZE;
 }
 
-/* The id of the image the slot holds whole, or 0. The flash must be open. */
-static uint32_t slot_check(void)
+static uint32_t slot_base(uint8_t b)
 {
+    return b ? IMG_SLOT_B : IMG_SLOT;
+}
+
+/* The id of the image slot b holds whole, or 0; its format and sequence number in
+   chk_fmt and chk_seq. The flash must be open. */
+static uint8_t chk_fmt, chk_seq;
+
+static uint32_t slot_check(uint8_t b)
+{
+    uint32_t a = slot_base(b);
     uint16_t size;
     uint32_t id;
 
-    hal_xflash_read(IMG_SLOT, page, IMG_HDR_LEN);
+    hal_xflash_read(a, page, IMG_HDR_LEN);
     size = ESL_GET_U16(page + IMG_HDR_OFF_SIZE);
     id = ESL_GET_U32(page + IMG_HDR_OFF_ID);
-    image.slot_fmt = page[IMG_HDR_OFF_FMT];
+    chk_fmt = page[IMG_HDR_OFF_FMT];
+    chk_seq = page[IMG_HDR_OFF_SEQ];
     if (ESL_GET_U32(page + IMG_HDR_OFF_MAGIC) != IMG_HDR_MAGIC || page[IMG_HDR_OFF_FORMAT] != IMG_HDR_FORMAT ||
-        page[IMG_HDR_OFF_MODEL] != MODEL_CODE || !size_ok(image.slot_fmt, size) || id == 0)
+        page[IMG_HDR_OFF_MODEL] != MODEL_CODE || !size_ok(chk_fmt, size) || id == 0)
         return 0;
-    return xflash_crc(IMG_SLOT + IMG_DATA_OFF, size) == id ? id : 0;
+    return xflash_crc(a + IMG_DATA_OFF, size) == id ? id : 0;
 }
 
 void image_init(uint8_t present)
 {
     uint8_t i;
+    uint32_t id;
 
     for (i = 0; i < sizeof(image); i++)
         ((uint8_t __xdata *)&image)[i] = 0;
     image.present = present;
     if (!present || !hal_xflash_open())
         return;
-    image.slot_id = slot_check();
+    /* The newer of the two whole ones: B if A has none, or B's number is ahead of A's */
+    image.slot_id = slot_check(0);
+    image.slot_fmt = chk_fmt;
+    image.slot_seq = chk_seq;
+    id = slot_check(1);
+    if (id && (!image.slot_id || (int8_t)(uint8_t)(chk_seq - image.slot_seq) > 0)) {
+        image.slot_id = id;
+        image.slot_fmt = chk_fmt;
+        image.slot_seq = chk_seq;
+        image.slot_b = 1;
+    }
     hal_xflash_close();
 }
 
@@ -90,7 +111,8 @@ static bool write_header(void)
     page[IMG_HDR_OFF_FMT] = image.dl_fmt;
     ESL_PUT_U16(page + IMG_HDR_OFF_SIZE, image.dl_size);
     ESL_PUT_U32(page + IMG_HDR_OFF_ID, image.dl_id);
-    return hal_xflash_write(IMG_SLOT, page, IMG_HDR_LEN);
+    page[IMG_HDR_OFF_SEQ] = (uint8_t)(image.slot_seq + 1);
+    return hal_xflash_write(slot_base(image.dl_b), page, IMG_HDR_LEN);
 }
 
 /* Programs page[] (filled up to n bytes) at a, the start of a flash page. */
@@ -104,7 +126,7 @@ static bool flush_at(uint32_t a, uint16_t n)
 /* ... as the downloaded image page that starts at pos. */
 static bool flush(uint16_t pos, uint16_t n)
 {
-    return flush_at(IMG_SLOT + IMG_DATA_OFF + pos, n);
+    return flush_at(slot_base(image.dl_b) + IMG_DATA_OFF + pos, n);
 }
 
 /* A coded image (shorter than the screen) ends before IMG_RAW_OFF, and the decoded one
@@ -127,7 +149,7 @@ static bool rd(uint8_t *b)
         if (rd_pos >= image.dl_size)
             return false;
         rd_n = image.dl_size - rd_pos < (uint16_t)sizeof(rd_buf) ? (uint8_t)(image.dl_size - rd_pos) : sizeof(rd_buf);
-        hal_xflash_read(IMG_SLOT + IMG_DATA_OFF + rd_pos, rd_buf, rd_n);
+        hal_xflash_read(slot_base(image.dl_b) + IMG_DATA_OFF + rd_pos, rd_buf, rd_n);
         rd_pos += rd_n;
         rd_i = 0;
     }
@@ -141,7 +163,7 @@ static bool wr(uint8_t b)
         return false;
     page[wr_pos & (IMG_DATA_OFF - 1)] = b;
     wr_pos++;
-    return (wr_pos & (IMG_DATA_OFF - 1)) || flush_at(IMG_SLOT + IMG_RAW_OFF + wr_pos - IMG_DATA_OFF, IMG_DATA_OFF);
+    return (wr_pos & (IMG_DATA_OFF - 1)) || flush_at(slot_base(image.dl_b) + IMG_RAW_OFF + wr_pos - IMG_DATA_OFF, IMG_DATA_OFF);
 }
 
 /* The last, partial page of the image; false unless it is exactly IMG_RAW_SIZE bytes */
@@ -152,7 +174,7 @@ static bool wr_end(void)
     if (wr_pos != IMG_RAW_SIZE)
         return false;
     n = wr_pos & (IMG_DATA_OFF - 1);
-    return !n || flush_at(IMG_SLOT + IMG_RAW_OFF + (wr_pos & ~(IMG_DATA_OFF - 1)), n);
+    return !n || flush_at(slot_base(image.dl_b) + IMG_RAW_OFF + (wr_pos & ~(IMG_DATA_OFF - 1)), n);
 }
 
 static bool rle_decode(void)
@@ -377,8 +399,9 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d)
         image.dl_size = r->size;
         image.dl_fmt = r->img_fmt;
         image.dl_got = 0;
-        image.slot_id = 0;                     /* the download overwrites the slot */
-        if (!hal_xflash_erase(IMG_SLOT))       /* the header sector, so no old header survives */
+        /* Into the slot not shown, which keeps the one shown until this is whole */
+        image.dl_b = image.slot_id ? !image.slot_b : 0;
+        if (!hal_xflash_erase(slot_base(image.dl_b)))   /* the header sector, so no old header survives */
             return fail(r->img_id);
     }
     pos = r->pos;
@@ -397,12 +420,14 @@ uint8_t image_block(const proto_reply_t *r, const uint8_t *d)
        header, which marks the slot as whole. */
     if (((image.dl_got & (IMG_DATA_OFF - 1)) != 0 &&
          !flush(image.dl_got & ~(IMG_DATA_OFF - 1), image.dl_got & (IMG_DATA_OFF - 1))) ||
-        xflash_crc(IMG_SLOT + IMG_DATA_OFF, image.dl_size) != image.dl_id ||
+        xflash_crc(slot_base(image.dl_b) + IMG_DATA_OFF, image.dl_size) != image.dl_id ||
         (image.dl_fmt == ESL_IMG_FMT_RLE && !rle_decode()) || (image.dl_fmt == ESL_IMG_FMT_2D && !decode_2d()) ||
         !write_header())
         return fail(image.dl_id);
     image.slot_id = image.dl_id;
     image.slot_fmt = image.dl_fmt;
+    image.slot_b = image.dl_b;
+    image.slot_seq++;
     image.dl_id = 0;
     return IMAGE_DONE;
 }
@@ -420,7 +445,7 @@ bool image_show(void)
 
 void image_column(uint16_t x, uint8_t __xdata *black, uint8_t __xdata *red)
 {
-    uint32_t a = IMG_SLOT + (image.slot_fmt != ESL_IMG_FMT_RAW ? IMG_RAW_OFF : IMG_DATA_OFF) +
+    uint32_t a = slot_base(image.slot_b) + (image.slot_fmt != ESL_IMG_FMT_RAW ? IMG_RAW_OFF : IMG_DATA_OFF) +
                  (uint32_t)x * DRAW_COL_BYTES;
     uint8_t i;
 

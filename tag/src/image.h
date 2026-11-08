@@ -20,9 +20,14 @@
 #define IMAGE_DONE   1     /* the image is whole and checked (or already in the slot): image_show() */
 #define IMAGE_STOP   2     /* refused, or the download failed */
 
-/* The slot: a 16-byte header (written last, so a half-downloaded image has none) and
-   the image from IMG_DATA_OFF. 64 KB, like the firmware slots. */
+/* Two slots, A and B (#391): a new image goes into the one not shown, so the old one
+   stays up (and is what the tag reports) until the new one is whole and checked. Each
+   is a 16-byte header (written last, so a half-downloaded image has none) and the image
+   from IMG_DATA_OFF, 64 KB like the firmware slots. The header's sequence number says
+   which is newer; firmware before #391 had slot A only and wrote 0 there, and still
+   finds its image in A after a downgrade (the AP sends the right one if that is old). */
 #define IMG_SLOT            0xB0000ul
+#define IMG_SLOT_B          0xC0000ul
 #define IMG_DATA_OFF        0x100u
 #define IMG_HDR_LEN         16
 #define IMG_HDR_MAGIC       0x4D49534Fu   /* "OSIM" */
@@ -31,6 +36,7 @@
 #define IMG_HDR_OFF_FORMAT  4             /* u8 = IMG_HDR_FORMAT */
 #define IMG_HDR_OFF_MODEL   5             /* u8 MODEL_CODE */
 #define IMG_HDR_OFF_FMT     6             /* u8 ESL_IMG_FMT_* */
+#define IMG_HDR_OFF_SEQ     7             /* u8, one more than the other slot's when written */
 #define IMG_HDR_OFF_SIZE    8             /* u16 bytes from IMG_DATA_OFF */
 #define IMG_HDR_OFF_ID      12            /* u32 image_id = CRC-32 of those bytes */
 
@@ -57,6 +63,9 @@ typedef struct {
     uint16_t dl_got;
     uint8_t dl_fmt;
     uint8_t slot_fmt;       /* ESL_IMG_FMT_* of the image in the slot */
+    uint8_t slot_b;         /* the image shown is in slot B (else A) */
+    uint8_t slot_seq;       /* its header's sequence number */
+    uint8_t dl_b;           /* the download goes into slot B (else A): the one not shown */
     uint8_t mark;           /* image_show() draws the "no AP" mark over it (#98, status.h); set by app.c */
 } image_state_t;
 
