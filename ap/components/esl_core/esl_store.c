@@ -1028,6 +1028,14 @@ bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *pol
     return ok;
 }
 
+bool esl_store_req_welcome(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    bool ok = foreign_find(st, mac) < 0 && (!st->ap_id || find(st, mac) >= 0);
+    unlock(st);
+    return ok;
+}
+
 bool esl_store_refused(esl_store_t *st, uint64_t mac)
 {
     lock(st);

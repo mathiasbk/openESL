@@ -222,6 +222,11 @@ void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id);
 /* The AP's own id before a change (a restore, PUT /api/config "ap_id"): tags that still carry it
    are this AP's, answered at once (no LOST_LONG), and move to the new id with the CONFIG. 0 = none */
 void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id);
+/* Whether the AP answers this tag's IMG_REQ and FW_REQ: not one it turned away lately, and,
+   when the AP has an id, one in its table (a tag adds itself with a POLL). So the tags of a
+   neighbour on the same channel get no IDLE that would cut their download off, however many
+   there are, nor this AP's firmware (#398) */
+bool esl_store_req_welcome(esl_store_t *st, uint64_t mac);
 /* True when the AP answers this POLL; false notes the MAC as refused */
 bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms);
 /* The other APs heard of (refused tags), newest first; returns how many went into out */

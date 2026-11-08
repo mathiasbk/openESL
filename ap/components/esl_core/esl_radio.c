@@ -81,8 +81,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         return 0;
     memset(&poll, 0, sizeof(poll));
 
-    if ((f.payload_len && f.payload[ESL_OFF_TYPE] != ESL_MSG_POLL) && esl_store_refused(st, f.src_mac))
-        return 0; /* a tag of another AP (#390): its FW_REQ and IMG_REQ get no answer either */
+    if ((f.payload_len && f.payload[ESL_OFF_TYPE] != ESL_MSG_POLL) && !esl_store_req_welcome(st, f.src_mac))
+        return 0; /* a tag of another AP (#390, #398): its FW_REQ and IMG_REQ get no answer either */
     if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_fw_taken(st, f.src_mac, freq.ver);

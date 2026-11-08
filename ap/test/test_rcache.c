@@ -306,6 +306,19 @@ static void test_rcache_ap_id(void)
     CHECK(esl_store_get(&st, 0x0F, &t));
     CHECK_INT(round_rc(&f, 370000), ESL_MSG_CONFIG);
     CHECK(f.ap_id == 0xBEEF0001ul);
+
+    /* an IMG_REQ or FW_REQ from a tag the radio has no state for (another AP's, fetching from
+       it): no IDLE that would cut its download off (#398) */
+    {
+        esl_faketag_t g;
+        uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+        esl_faketag_init(&g, 0x10, 0x0B00, 3000, ESL_MODEL_29);
+        g.img_dl_id = 77;
+        size_t n = esl_faketag_img_request(&g, PAN, rx);
+        CHECK_INT(esl_rcache_handle(&rc, rx, n, -60, 380000, tx), 0);
+        n = esl_faketag_fw_request(&g, PAN, rx);
+        CHECK_INT(esl_rcache_handle(&rc, rx, n, -60, 380100, tx), 0);
+    }
     esl_store_set_ap_id(&st, 0);
     esl_store_set_adopt(&st, false, 0);
 }

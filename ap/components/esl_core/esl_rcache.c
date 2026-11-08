@@ -369,14 +369,21 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 t->image_taken = im->id;
             n = image_block(rc, im, ireq.id == im->id ? ireq.pos : 0, ireq.max, t->s.next_poll_s, reply);
             rc->mid_mac = f.src_mac;
+        } else if (!t) {
+            /* not told of it: maybe another AP's tag (#398), whose download an IDLE would cut
+               off. Silent; the host hears of it, and its own tag is answered next round */
+            want(rc, f.src_mac, 0, 0);
+            return 0;
         } else {
-            if (!t || t->s.image_id)
-                want(rc, f.src_mac, t ? t->s.image_id : 0, 0);
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
+            if (t->s.image_id)
+                want(rc, f.src_mac, t->s.image_id, 0);
+            n = esl_idle_build(reply, t->s.next_poll_s);
         }
         esl_blocks_poll_soon(reply, n); /* as esl_radio_handle() */
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         rc->stats.blocks++;
+        if (!t)
+            return 0; /* as IMG_REQ above: maybe another AP's tag (#398) */
         const esl_rfw_t *fw = fw_for(rc, freq.model);
         if (t && fw && t->s.fw_ver == fw->ver) {
             bool same = freq.ver == fw->ver && freq.crc == fw->crc;
