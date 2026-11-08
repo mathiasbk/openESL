@@ -86,6 +86,9 @@ static bool screen_is_picture(void)
     return true;
 }
 
+/* The flash address of the slot the tag shows (#391: A or B) */
+#define SHOWN (image.slot_b ? IMG_SLOT_B : IMG_SLOT)
+
 static void setup(bool present)
 {
     fake_xflash_clear(present);
@@ -172,10 +175,10 @@ static void test_download(void)
     CHECK_EQ(download(), IMAGE_DONE);
     CHECK(image.slot_id == img_id);
     CHECK_EQ(image.dl_id, 0);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_DATA_OFF, img, IMG_RAW_SIZE) == 0);
-    CHECK(ESL_GET_U32(fake_xflash + IMG_SLOT + IMG_HDR_OFF_MAGIC) == IMG_HDR_MAGIC);
-    CHECK_EQ(ESL_GET_U16(fake_xflash + IMG_SLOT + IMG_HDR_OFF_SIZE), IMG_RAW_SIZE);
-    CHECK(ESL_GET_U32(fake_xflash + IMG_SLOT + IMG_HDR_OFF_ID) == img_id);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_DATA_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(ESL_GET_U32(fake_xflash + SHOWN + IMG_HDR_OFF_MAGIC) == IMG_HDR_MAGIC);
+    CHECK_EQ(ESL_GET_U16(fake_xflash + SHOWN + IMG_HDR_OFF_SIZE), IMG_RAW_SIZE);
+    CHECK(ESL_GET_U32(fake_xflash + SHOWN + IMG_HDR_OFF_ID) == img_id);
     CHECK_EQ(fake_xflash[IMG_SLOT + IMG_HDR_OFF_MODEL], MODEL_CODE);
     /* The firmware slots are untouched */
     CHECK_EQ(fake_xflash[0x80000], 0xFF);
@@ -289,8 +292,8 @@ static void test_rle(void)
     CHECK_EQ(download_code(), IMAGE_DONE);
     CHECK(image.slot_id == img_id);
     CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_RLE);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_DATA_OFF, code, code_len) == 0);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_DATA_OFF, code, code_len) == 0);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
     CHECK(image_show());
     CHECK(screen_is_picture());
 
@@ -376,7 +379,7 @@ static void test_2d(void)
     CHECK_EQ(download_code(), IMAGE_DONE);
     CHECK(image.slot_id == img_id);
     CHECK_EQ(image.slot_fmt, ESL_IMG_FMT_2D);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
     CHECK(image_show());
     CHECK(screen_is_picture());
 
@@ -398,7 +401,7 @@ static void test_2d(void)
                 img[i * DRAW_COL_BYTES + x / 8] |= 0x80 >> (x & 7);
     code_2d();
     CHECK_EQ(download_code(), IMAGE_DONE);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_RAW_OFF, img, IMG_RAW_SIZE) == 0);
     CHECK(image_show());
     CHECK(screen_is_picture());
 
@@ -440,8 +443,73 @@ static void test_2d(void)
 }
 
 /* Blocks out of order, repeated, and a download that stops halfway and goes on */
+/* #391: downloads go A, B, A ..., the newer slot is found at start-up, and a header
+   from firmware before #391 (A only, sequence 0) is still found */
+static void restart(void)
+{
+    ota_init();
+    image_init(ota.present);
+}
+
+static void test_two_slots(void)
+{
+    uint32_t a_id, b_id;
+
+    make_picture(20);
+    setup(true);
+    CHECK_EQ(download(), IMAGE_DONE);
+    CHECK_EQ(image.slot_b, 0);
+    a_id = img_id;
+    make_picture(21);
+    CHECK_EQ(download(), IMAGE_DONE);
+    CHECK_EQ(image.slot_b, 1);
+    b_id = img_id;
+    CHECK(ESL_GET_U32(fake_xflash + IMG_SLOT + IMG_HDR_OFF_ID) == a_id);   /* A untouched */
+    CHECK_EQ(fake_xflash[IMG_SLOT_B + IMG_HDR_OFF_SEQ], (uint8_t)(fake_xflash[IMG_SLOT + IMG_HDR_OFF_SEQ] + 1));
+    restart();
+    CHECK(image.slot_id == b_id);
+    CHECK_EQ(image.slot_b, 1);
+    CHECK(image_show());
+    CHECK(screen_is_picture());
+
+    /* the next goes into A again */
+    make_picture(22);
+    CHECK_EQ(download(), IMAGE_DONE);
+    CHECK_EQ(image.slot_b, 0);
+    a_id = img_id;
+    restart();
+    CHECK(image.slot_id == a_id);
+
+    /* the numbers wrap: 0 is newer than 255 */
+    fake_xflash[IMG_SLOT + IMG_HDR_OFF_SEQ] = 0;
+    fake_xflash[IMG_SLOT_B + IMG_HDR_OFF_SEQ] = 255;
+    restart();
+    CHECK(image.slot_id == a_id);
+    fake_xflash[IMG_SLOT + IMG_HDR_OFF_SEQ] = 255;
+    fake_xflash[IMG_SLOT_B + IMG_HDR_OFF_SEQ] = 0;
+    restart();
+    CHECK(image.slot_id == b_id);
+
+    /* B broken: A, whatever the numbers say */
+    fake_xflash[IMG_SLOT_B + IMG_DATA_OFF + 5] ^= 0x10;
+    restart();
+    CHECK(image.slot_id == a_id);
+    CHECK_EQ(image.slot_b, 0);
+
+    /* firmware before #391: A only, sequence 0, B never written */
+    make_picture(23);
+    setup(true);
+    CHECK_EQ(download(), IMAGE_DONE);
+    fake_xflash[IMG_SLOT + IMG_HDR_OFF_SEQ] = 0;
+    restart();
+    CHECK(image.slot_id == img_id);
+    CHECK_EQ(image.slot_b, 0);
+    CHECK_EQ(fake_xflash_misuse, 0);
+}
+
 static void test_download_blocks(void)
 {
+    uint32_t first;
     uint16_t half = (IMG_RAW_SIZE / 2 / ESL_IMG_CHUNK_MAX) * ESL_IMG_CHUNK_MAX;
 
     make_picture(4);
@@ -464,14 +532,15 @@ static void test_download_blocks(void)
     CHECK_EQ(image.dl_got, half);
     image_close();
     CHECK_EQ(download(), IMAGE_DONE);
-    CHECK(memcmp(fake_xflash + IMG_SLOT + IMG_DATA_OFF, img, IMG_RAW_SIZE) == 0);
+    CHECK(memcmp(fake_xflash + SHOWN + IMG_DATA_OFF, img, IMG_RAW_SIZE) == 0);
 
     /* The AP changes the picture halfway: start over */
+    first = image.slot_id;
     make_picture(5);
     image_open();
     CHECK_EQ(feed(img_id, IMG_RAW_SIZE, 0, MODEL_CODE, ESL_IMG_FMT_RAW), IMAGE_MORE);
     CHECK_EQ(image.dl_got, ESL_IMG_CHUNK_MAX);
-    CHECK_EQ(image.slot_id, 0);
+    CHECK(image.slot_id == first);                 /* the old one stays until the new one is whole */
     make_picture(6);
     CHECK_EQ(feed(img_id, IMG_RAW_SIZE, ESL_IMG_CHUNK_MAX, MODEL_CODE, ESL_IMG_FMT_RAW), IMAGE_MORE); /* not from 0: ignored */
     CHECK_EQ(image.dl_got, 0);
@@ -484,7 +553,7 @@ static void test_download_blocks(void)
     img[10] ^= 1;
     CHECK_EQ(download(), IMAGE_STOP);
     CHECK(image.rejected == img_id);
-    CHECK_EQ(image.slot_id, 0);
+    CHECK(image.slot_id != 0 && image.slot_id != img_id);   /* the one before is still there */
     CHECK_EQ(fake_xflash_misuse, 0);
 }
 
@@ -657,6 +726,7 @@ static void push_idle(void)
 static void test_app_lost_mark(void)
 {
     int draws, i;
+    uint32_t old_id;
 
     fake_store_clear();
     fake_radio_reset();
@@ -717,6 +787,7 @@ static void test_app_lost_mark(void)
     lose_rounds_until_draw();
     CHECK(screen_is_marked());
     draws = fake_draw_count;
+    old_id = img_id;
     make_picture(13);
     fake_radio_reset();
     i = make_img_block(pl, 0, img_id, IMG_RAW_SIZE, 0, MODEL_CODE, ESL_IMG_FMT_RAW, img, ESL_IMG_CHUNK_MAX);
@@ -725,21 +796,37 @@ static void test_app_lost_mark(void)
     CHECK_EQ(fake_draw_count, draws);
     CHECK_EQ(image.mark, 1);
     CHECK_EQ(app.lost_shown, 0);
-    /* ... and the AP then sends nothing more: the old picture left the slot, so the
-       waiting screen, and no id, so the AP offers its picture again */
+    /* ... and the AP then sends nothing more: the old picture is still in its slot
+       (#391), so it is drawn again without the mark, and its id is what the tag reports */
     fake_radio_reset();
     push_idle();
     app_poll_once();
     CHECK_EQ(fake_draw_count, draws + 1);
-    CHECK_EQ(app.shown_id, 0);
+    CHECK(app.shown_id == old_id);
+    CHECK(image.slot_id == old_id);
     CHECK_EQ(image.mark, 0);
-    CHECK(!screen_is_picture());
+    CHECK(!screen_is_picture());                   /* not the new one, which is half here */
 
-    /* Gone with a half-downloaded picture: "No AP found", as without a picture */
+    /* Gone with a half-downloaded picture: the old one with the mark, not "No AP found" */
     lose_rounds_until_draw();
-    CHECK_EQ(app.shown_id, 0);
-    CHECK_EQ(image.mark, 0);
+    CHECK(app.shown_id == old_id);
+    CHECK_EQ(image.mark, 1);
     CHECK_EQ(app.lost_shown, 1);
+
+    /* A restart in the middle keeps the old one too, and the AP then sends the new one
+       whole: it is shown, and a restart finds the new one */
+    fake_radio_reset();
+    app_init();
+    CHECK(image.slot_id == old_id);
+    CHECK(app.shown_id == old_id);
+    push_img_blocks();
+    app_poll_once();
+    CHECK(app.shown_id == img_id);
+    CHECK(screen_is_picture());
+    fake_radio_reset();
+    app_init();
+    CHECK(image.slot_id == img_id);
+    CHECK(screen_is_picture());
 
     /* A restart while marked shows the picture without the mark */
     make_picture(14);
@@ -770,6 +857,7 @@ void test_image(void)
     RUN(test_refused);
     RUN(test_crc_zero);
     RUN(test_download);
+    RUN(test_two_slots);
     RUN(test_download_blocks);
     RUN(test_rle);
     RUN(test_2d);
