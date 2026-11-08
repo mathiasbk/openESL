@@ -81,7 +81,13 @@ int api_parse_json(const char *body, size_t len, esl_jtok_t **tok, esl_sb_t *out
     if (!*tok)
         return api_error(out, 500, "out of memory");
     int n = esl_json_parse(body, len, *tok, ESL_API_MAX_TOKENS);
-    if (n == ESL_JSON_ERR_NOMEM || n == ESL_JSON_ERR_TOO_BIG)
+    if (n == ESL_JSON_ERR_NOMEM) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "body too large: more than %d JSON values (strings, numbers, lists, objects)",
+                 ESL_API_MAX_TOKENS);
+        return api_error(out, 413, msg);
+    }
+    if (n == ESL_JSON_ERR_TOO_BIG)
         return api_error(out, 413, "body too large");
     if (n < 0)
         return api_error(out, 400, "invalid JSON");

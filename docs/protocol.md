@@ -283,6 +283,7 @@ In short:
 | `DELETE /api/tags/{mac}` | Forget a tag: its content, settings and scheduled content |
 | `GET /api/tags/{mac}/image` | The screen the AP draws for the tag's content (base64), for previews |
 | `PUT /api/tags/{mac}/image` | A picture as the tag's content, for what a layout cannot show: a PNG of the screen's size (296 x 128 on the 2.9"), which the AP turns into the tag's colours (nearest colour, or `?dither=true` for photos), keeps in NVS and sends like any other screen. The tag must have polled once |
+| `PUT /api/tags/{mac}/draw` | A one-off design as the tag's content: one layout as in a layout file (part 3), its icons and its fields' text in one body. The AP compiles it for the tag's model with the layout file's rules and limits, draws it once and keeps the screen as the tag's picture, like `PUT /api/tags/{mac}/image`, so nothing new is stored. Date fields are filled in when it is drawn. The tag must have polled once. 0.11.0 and later |
 | `GET`/`PUT /api/tags/{mac}/config` | Poll interval, longest interval and "No AP found" time for one tag |
 | `GET`/`PUT /api/config` | The AP-wide default poll interval, the webhook the AP posts the health report to, the radio's transmit power (`tx_power`, dBm), and the clock (`ntp`, `tz`) |
 | `GET /api/health` | The tags that need attention (silent, never seen, drawing failed, battery low, content that cannot be shown), for monitoring |

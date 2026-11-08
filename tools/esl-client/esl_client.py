@@ -183,6 +183,19 @@ class Client:
             raise ApiError(status, payload.decode("utf-8", "replace"))
         return json.loads(payload)
 
+    def draw(self, mac, body):
+        """A one-off design as the tag's content (PUT /api/tags/{mac}/draw, AP 0.11.0 and later):
+        body is {"layout": {...}, "icons": {...}, "fields": [...] or {...}}, see draw_body()"""
+        # compact: the AP takes about as much as a layout file
+        data = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        try:
+            return self._request("PUT", f"/api/tags/{mac}/draw", data)
+        except ApiError as e:
+            # an AP before 0.11.0 reads ".../draw" as part of the tag's MAC
+            if e.status == 400 and "mac must be 16 hex digits" in str(e):
+                raise ApiError(400, "this AP is older than 0.11.0 and cannot draw a design: upgrade it") from e
+            raise
+
     def tag_config(self, mac):
         return self._request("GET", f"/api/tags/{mac}/config")
 
@@ -1405,9 +1418,43 @@ BATTERY_COLUMNS = ["mac", "model", "days", "first_mv", "last_mv", "min_mv", "ste
                    "days_to_low", "polls", "draws", "charge_mah", "avg_ua", "years_at_this_rate"]
 
 
-def set_one(cli, args, c, image=None):
+def draw_body(doc, layout=None, fields=None):
+    """The body of PUT /api/tags/{mac}/draw from a JSON document: a draw body as it is, one
+    layout ({"fields", "elements"}), or a layout file from the designer, of which the layout
+    called layout (or its only one) is taken, with the file's icons. fields ({name: text})
+    is laid over the body's fields by name."""
+    if not isinstance(doc, dict):
+        raise ValueError("the file must hold a JSON object")
+    if "layouts" in doc:
+        ls = doc["layouts"]
+        if not isinstance(ls, list) or not all(isinstance(l, dict) for l in ls):
+            raise ValueError("layouts must be a list of layouts (objects)")
+        pick = [l for l in ls if l.get("name") == layout] if layout else ls
+        if len(pick) != 1:
+            names = ", ".join(l.get("name", "?") for l in ls)
+            raise ValueError(f"name the layout with --layout (the file has {names})" if not layout
+                             else f"no layout {layout} in the file (it has {names})")
+        body = {"layout": pick[0]}
+        if doc.get("icons"):
+            body["icons"] = doc["icons"]
+    elif "elements" in doc:
+        body = {"layout": doc}
+    else:
+        body = dict(doc)
+    if fields:
+        old = body.get("fields")
+        if isinstance(old, list):
+            names = body.get("layout", {}).get("fields", [])
+            old = {n: v for n, v in zip(names, old)}
+        body["fields"] = dict(old or {}, **fields)
+    return body
+
+
+def set_one(cli, args, c, image=None, draw=None):
     if image:
         r = cli.set_image(args.mac, *image)
+    elif draw is not None:
+        r = cli.draw(args.mac, draw)
     else:
         if args.at:
             ensure_time(cli)
@@ -1782,6 +1829,14 @@ def main(argv=None):
     s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
     s.add_argument("--wait-s", type=int, default=120)
 
+    s = sub.add_parser("draw", help="a one-off design as the tag's content, drawn once by the AP (AP 0.11.0 and later)")
+    s.add_argument("mac", type=norm_mac)
+    s.add_argument("file", help="JSON: a layout file from the designer, one layout, or {\"layout\", \"icons\", \"fields\"}")
+    s.add_argument("--layout", help="which layout of a layout file")
+    s.add_argument("--field", action="append", default=[], metavar="NAME=TEXT", help="a field's text (repeat)")
+    s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
+    s.add_argument("--wait-s", type=int, default=120)
+
     s = sub.add_parser("date", help="layout text: today's date (\"Lørdag\", \"17. oktober 2026\") and up to two lines")
     s.add_argument("mac", type=norm_mac)
     s.add_argument("lines", nargs="*", help="up to two more lines under the date")
@@ -1940,6 +1995,18 @@ def main(argv=None):
             with open(args.file, "rb") as f:
                 data = f.read()
             return set_one(cli, args, None, image=(data, args.dither))
+        elif args.cmd == "draw":
+            try:
+                with open(args.file, encoding="utf-8") as f:
+                    doc = json.load(f)
+                bad = [x for x in args.field if "=" not in x]
+                if bad:
+                    raise ValueError(f"--field takes NAME=TEXT, not {bad[0]}")
+                body = draw_body(doc, args.layout, dict(x.split("=", 1) for x in args.field))
+            except (OSError, ValueError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 2
+            return set_one(cli, args, None, draw=body)
         elif args.cmd == "date":
             return send_date(cli, args)
         elif args.cmd == "sync":

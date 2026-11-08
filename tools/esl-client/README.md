@@ -26,6 +26,7 @@ python3 esl_client.py ota build/esl_ap.bin      # new AP firmware over the API (
 python3 esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin --to 00000123456789A8   # new tag firmware to one tag first
 python3 esl_client.py tag-ota --model 1.54 --all  # ... then to every 1.54 tag, once that one runs it
 python3 esl_client.py image 00000123456789A8 chart.png   # a picture (PNG of the screen's size) as the content
+python3 esl_client.py draw 00000123456789A8 layouts.json --layout room --field room="Room 2"   # a one-off design
 python3 esl_client.py backup ap.json            # the AP's tags, settings, layout files and schedule to a file
 python3 esl_client.py restore ap.json           # ... and back onto an AP (a new one, or after erase-flash)
 python3 esl_client.py --serial /dev/ttyACM0 status   # over the AP's USB port, no token
@@ -40,6 +41,7 @@ Network errors are retried with backoff; an HTTP error from the AP (401, 422, ..
 - `price` and `text` send content with the built-in layouts. `--highlight` inverts the price, `--frame` draws a frame.
 - `date MAC [LINE [LINE]]` sends today's date with layout `text`: the weekday and the date in Norwegian, then up to two lines of your own. With `--days N` the next N-1 days are scheduled on the AP for local midnight (as `--at`), so the tag changes date by itself without this computer; `--days 7` once a week keeps it going.
 - `image MAC FILE` sends a picture as the tag's content (`PUT /api/tags/{mac}/image`): a PNG of exactly the tag's screen size (296x128 for the 2.9", 200x200 for the 1.54"), or the raw image bytes. The AP takes the nearest of the tag's colours for each pixel; `--dither` mixes them for shades of grey, for photos.
+- `draw MAC FILE` sends a one-off design (`PUT /api/tags/{mac}/draw`, AP 0.11.0 and later): the AP draws it once and keeps it as the tag's picture, so no layout file has to be uploaded first. FILE is a layout file from the designer (pick the layout with `--layout NAME`; its icons go along), one layout (`{"fields": [...], "elements": [...]}`) or a whole body (`{"layout", "icons", "fields"}`). `--field NAME=TEXT` sets a field (repeat it). Date fields are filled in when it is drawn and are not redrawn every day; use a layout file for that.
 - `--wait` polls the tag until it reports the new content as shown (requirement G1 in [docs/requirements.md](../../docs/requirements.md): within 2 minutes).
 - `show MAC` and `delete MAC` read or remove one tag.
 

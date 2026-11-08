@@ -307,6 +307,17 @@ size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t 
     return n;
 }
 
+size_t esl_layouts_render_bin(esl_layouts_t *ls, uint8_t model, const esl_layout_bin_t *bin, const esl_content_t *c,
+                              uint8_t *out, size_t cap)
+{
+    if (ls)
+        lock(ls);
+    size_t n = esl_render(model, bin, c, out, cap);
+    if (ls)
+        unlock(ls);
+    return n;
+}
+
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env)
 {
     memset(env, 0, sizeof(*env));

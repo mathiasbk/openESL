@@ -193,6 +193,10 @@ bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_conte
  * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when
  * cap is too small. ls may be NULL (no file). */
 size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap);
+/* Draws content c with a compiled file that is not stored (PUT /api/tags/{mac}/draw), under
+ * the same lock, as the font files it may use are shared. ls may be NULL. */
+size_t esl_layouts_render_bin(esl_layouts_t *ls, uint8_t model, const esl_layout_bin_t *bin, const esl_content_t *c,
+                              uint8_t *out, size_t cap);
 
 /* The version a tag's image is drawn with (esl_store image_layout_ver): the model's file's
  * version, with the day or the week mixed in when the tag's layout (layout_hash, as
