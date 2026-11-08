@@ -110,10 +110,16 @@ static esp_err_t on_event(esp_http_client_event_t *e)
     return ESP_OK;
 }
 
-/* The length of the host in an https:// URL, for messages */
+/* Where the host starts in an http:// or https:// URL */
+static const char *host_of(const char *url)
+{
+    return url + (strncmp(url, "https://", 8) ? 7 : 8);
+}
+
+/* The length of the host in an http:// or https:// URL, for messages */
 static int host_len(const char *url)
 {
-    const char *h = url + 8, *e = strchr(h, '/');
+    const char *h = host_of(url), *e = strchr(h, '/');
     return e ? (int)(e - h) : (int)strlen(h);
 }
 
@@ -170,7 +176,7 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
             }
         }
     } else {
-        snprintf(err, errlen, "no answer from %.*s: %s", host_len(url), url + 8, esp_err_to_name(e == ESP_OK ? ESP_FAIL : e));
+        snprintf(err, errlen, "no answer from %.*s: %s", host_len(url), host_of(url), esp_err_to_name(e == ESP_OK ? ESP_FAIL : e));
     }
     esp_http_client_close(c);
     esp_http_client_cleanup(c);
@@ -233,12 +239,15 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         /* MET's terms: spread the requests, not all at the Expires every AP for this place got */
         if (expires)
             expires += esp_random() % 300;
+        /* a picture's server may say it holds for days; its every_min is what the user asked for */
+        if (esl_source_is_picture(cfg))
+            expires = 0;
         if (status == 200 || status == 203) {
             /* 203: the data is good, but this version of the API is deprecated (it ends about a
                month later): shown as the source's error until then */
             if (status == 203)
                 snprintf(err, sizeof(err), "%.*s says this API version is deprecated (HTTP 203): update the AP",
-                         host_len(url), url + 8);
+                         host_len(url), host_of(url));
             k = cache_slot(url);
             free(cache[k].body);
             snprintf(cache[k].url, sizeof(cache[k].url), "%s", url);
@@ -248,11 +257,27 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
             /* not changed: the last answer again, for the time that has passed since */
         } else {
             if (status)
-                snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), url + 8);
+                snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), host_of(url));
             ESP_LOGW(TAG, "%s: %s", cfg->id, err);
             esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
             return;
         }
+    }
+    if (esl_source_is_picture(cfg)) {
+        /* type "image": the answer is the tags' picture */
+        if (!esl_source_values(cfg, cache[k].body, cache[k].len, now, utc_offset, &values, &data_at, err,
+                               sizeof(err))) {
+            ESP_LOGW(TAG, "%s: %s", cfg->id, err);
+            esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, NULL, 0, NULL, err);
+            return;
+        }
+        esl_source_apply_body(cfg, cache[k].body, cache[k].len, store, sources, &result);
+        if (result.error[0])
+            ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
+        ESP_LOGI(TAG, "%s: picture, %u tag(s), %u changed", cfg->id, (unsigned)result.tags_set,
+                 (unsigned)result.tags_changed);
+        esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, 0, &result, NULL);
+        return;
     }
     if (!esl_source_values(cfg, cache[k].body, cache[k].len, now, utc_offset, &values, &data_at, err, sizeof(err))) {
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);

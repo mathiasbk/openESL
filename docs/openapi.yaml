@@ -1407,6 +1407,15 @@ paths:
                       layout: text
                       fields: ["{place} {temp}°", "{desc}", "{min}° to {max}°", "Tomorrow {tmin}°/{tmax}°"]
                       tags: ["00000123456789A8"]
+              chart:
+                summary: A chart from another program on a 2.9" tag, fetched every 10 minutes
+                value:
+                  sources:
+                    - id: chart
+                      type: image
+                      url: "http://homeassistant.local:8123/local/chart-296x128.png"
+                      every_min: 10
+                      tags: ["00000123456789A8"]
               none:
                 summary: No data sources
                 value: { sources: [] }
@@ -2659,19 +2668,43 @@ components:
       type: object
       additionalProperties: false
       patternProperties: { "^_": true }
-      required: [id, type, lat, lon, layout]
+      required: [id, type]
+      oneOf:
+        - properties: { type: { const: met }, every_min: { minimum: 30 } }
+          required: [lat, lon, layout]
+          not: { anyOf: [{ required: [url] }, { required: [dither] }] }
+        - properties: { type: { const: image } }
+          required: [url]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [layout] }, { required: [fields] }] }
       properties:
         id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
-        type: { type: string, enum: [met], description: "`met`: the forecast from MET Norway (api.met.no locationforecast 2.0)" }
-        lat: { type: number, minimum: -90, maximum: 90, description: "Degrees north, kept to 4 decimals" }
-        lon: { type: number, minimum: -180, maximum: 180, description: "Degrees east, kept to 4 decimals" }
+        type:
+          type: string
+          enum: [met, image]
+          description: |
+            `met`: the forecast from MET Norway (api.met.no locationforecast 2.0), as values in
+            the fields of a layout. `image` (0.11.0 and later): a PNG fetched from `url`, kept as
+            the tags' picture as `PUT /api/tags/{mac}/image` keeps one; it has no `layout` or
+            `fields`. The PNG must have the size of each tag's screen (`GET /api/tags`: a tag of
+            another size is counted in `tags_failed`); use one source for each screen size.
+        lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
+        lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
+        url:
+          type: string
+          maxLength: 159
+          pattern: "^https?://[^/\\s]+\\S*$"
+          description: |
+            `image`: where the PNG is, `http://` or `https://` (a certificate from the usual
+            public authorities). Fetched with `If-Modified-Since`, so a picture that did not
+            change costs a 304; a picture that comes back the same is not sent to the tags again.
+        dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
         place: { type: string, maxLength: 32, default: "", description: "The place's name, value `{place}` (at most 32 bytes of UTF-8)" }
         lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}`" }
-        every_min: { type: integer, minimum: 30, maximum: 1440, default: 30, description: "Minutes between fetches; never before the last answer's `Expires`" }
+        every_min: { type: integer, minimum: 5, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5" }
         layout:
           type: string
           description: |
-            A layout in the layout file of each tag's model, or `text` (built in, four lines).
+            `met`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
             A tag whose model has no such layout, or whose content does not fit it, is
             counted in `tags_failed` and keeps what it shows.
         fields:
@@ -2725,7 +2758,7 @@ components:
     Source:
       allOf:
         - { $ref: "#/components/schemas/SourceConfig" }
-      required: [id, type, lat, lon, place, lang, every_min, layout, fields, tags, status]
+      required: [id, type, place, lang, every_min, tags, status]
 
     SourcesReply:
       type: object

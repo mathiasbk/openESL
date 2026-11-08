@@ -229,7 +229,9 @@ export function initSources() {
     $("src-list").replaceChildren(...list.map((s) => {
       const tr = document.createElement("tr");
       const sum = sourceSummary(s, now);
-      const cells = [[`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
+      const pic = s.type === "image";
+      const cells = [[pic ? `${s.id} (picture)` : `${s.place || s.id}`, pic ? s.url : `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -251,13 +253,13 @@ export function initSources() {
   }
 
   async function remove(s) {
-    if (!confirm(`Stop the weather for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
+    if (!confirm(`Stop ${s.type === "image" ? "fetching the picture" : "the weather"} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old
       const now = await client.call("GET", "/api/sources");
       data = await client.call("PUT", "/api/sources", { sources: now.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
-      msg("src-msg", `Stopped the weather for ${s.place || s.id}.`, "ok");
+      msg("src-msg", `Stopped ${s.type === "image" ? "the picture" : "the weather"} for ${s.place || s.id}.`, "ok");
     } catch (e) {
       msg("src-msg", "Not changed: " + e.message, "error");
     }
@@ -268,7 +270,7 @@ export function initSources() {
   let layouts = null; // GET /api/layouts when the dialog opened
 
   function placesShown() {
-    const list = data?.sources || [];
+    const list = (data?.sources || []).filter((s) => s.type === "met");
     const radios = list.map((s) => {
       const l = document.createElement("label");
       const r = document.createElement("input");

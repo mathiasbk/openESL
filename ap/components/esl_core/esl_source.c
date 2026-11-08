@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esl_image.h"
 #include "esl_proto.h"
+#include "esl_render.h"
 #include "esl_text.h"
 
 /* Data sources: the configuration, /api/sources, when each source runs, and the content made
@@ -65,6 +67,7 @@ const char *esl_values_get(const esl_values_t *v, const char *key)
 /* Every type of source: one file each (esl_source_<name>.c), one line here */
 static const esl_source_def_t *const types[] = {
     &esl_source_met,
+    &esl_source_image,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -229,6 +232,13 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
         src->every_min = (uint16_t)d;
     }
 
+    if (ty->picture) {
+        /* the answer is the picture: nothing to lay out */
+        if (esl_json_obj_get(js, tok, o, "layout") >= 0 || esl_json_obj_get(js, tok, o, "fields") >= 0)
+            return fail(c, "%s: a source of type %s gives its tags a picture, without a layout or fields",
+                        esl_json_obj_get(js, tok, o, "layout") >= 0 ? "layout" : "fields", ty->name);
+        goto tags;
+    }
     t = esl_json_obj_get(js, tok, o, "layout");
     if (t < 0 || !get_str(c, t, src->layout, sizeof(src->layout)) ||
         (strcmp(src->layout, "text") && !esl_layout_name_valid(src->layout, strlen(src->layout))))
@@ -250,6 +260,7 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
         }
     }
 
+tags:
     t = esl_json_obj_get(js, tok, o, "tags");
     if (t >= 0) {
         if (tok[t].type != ESL_JSON_ARRAY || tok[t].size > ESL_SOURCE_TAGS_MAX)
@@ -328,15 +339,19 @@ void esl_source_write_cfg(const esl_source_cfg_t *c, esl_sb_t *out)
     esl_sb_json_str(out, c->place);
     esl_sb_puts(out, ",\"lang\":");
     esl_sb_json_str(out, c->lang);
-    esl_sb_printf(out, ",\"every_min\":%u,\"layout\":", (unsigned)c->every_min);
-    esl_sb_json_str(out, c->layout);
-    esl_sb_puts(out, ",\"fields\":[");
-    for (unsigned i = 0; i < c->nfields; i++) {
-        if (i)
-            esl_sb_putc(out, ',');
-        esl_sb_json_str(out, c->fields[i]);
+    esl_sb_printf(out, ",\"every_min\":%u", (unsigned)c->every_min);
+    if (!t || !t->picture) {
+        esl_sb_puts(out, ",\"layout\":");
+        esl_sb_json_str(out, c->layout);
+        esl_sb_puts(out, ",\"fields\":[");
+        for (unsigned i = 0; i < c->nfields; i++) {
+            if (i)
+                esl_sb_putc(out, ',');
+            esl_sb_json_str(out, c->fields[i]);
+        }
+        esl_sb_putc(out, ']');
     }
-    esl_sb_puts(out, "],\"tags\":[");
+    esl_sb_puts(out, ",\"tags\":[");
     for (unsigned i = 0; i < c->ntags; i++) {
         char m[17];
         esl_mac_format(c->tags[i], m);
@@ -865,4 +880,76 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
         st->tags_set++;
         st->tags_changed += r.changed;
     }
+}
+
+bool esl_source_is_picture(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->picture;
+}
+
+void esl_source_apply_body(const esl_source_cfg_t *c, const char *body, size_t len, esl_store_t *store,
+                           esl_sources_t *s, esl_source_state_t *st)
+{
+    st->tags_set = st->tags_changed = st->tags_failed = 0;
+    st->error[0] = '\0';
+    uint8_t *img = NULL;
+    size_t cap = 0;
+    for (unsigned i = 0; i < c->ntags; i++) {
+        esl_tag_t t;
+        char msg[ESL_SOURCE_ERR_MAX] = "";
+        esl_content_t content;
+        size_t n = 0, raw = 0;
+        uint8_t model = esl_store_get(store, c->tags[i], &t) && t.seen ? t.model : ESL_MODEL_UNKNOWN;
+        if (s) { /* left the source: not even an error about it */
+            lock(s);
+            bool left = !still_in(s, c->id, c->tags[i]);
+            unlock(s);
+            if (left)
+                continue;
+        }
+        if (!esl_store_takes_images(store))
+            snprintf(msg, sizeof(msg), "this AP keeps no pictures");
+        else if (model == ESL_MODEL_UNKNOWN || !(raw = esl_render_size(model)))
+            snprintf(msg, sizeof(msg), "a tag has not polled yet, so its screen is not known");
+        if (!msg[0] && cap < raw + ESL_IMAGE_STORED_MAX(raw)) {
+            free(img);
+            cap = raw + ESL_IMAGE_STORED_MAX(raw);
+            img = malloc(cap);
+            if (!img) {
+                cap = 0;
+                snprintf(msg, sizeof(msg), "no memory for the picture");
+            }
+        }
+        if (!msg[0])
+            n = esl_source_image_picture(c, body, len, c->tags[i], model, img, &content, msg, sizeof(msg));
+        esl_set_result_t r;
+        bool gone = false;
+        if (n) {
+            /* as in esl_source_apply: the check and the set under the lock */
+            if (s)
+                lock(s);
+            gone = s && !still_in(s, c->id, c->tags[i]);
+            esl_store_err_t e = gone ? ESL_STORE_OK : esl_store_set_image(store, c->tags[i], img + raw, n, &content, &r);
+            if (e != ESL_STORE_OK)
+                snprintf(msg, sizeof(msg), "no room for the picture of a tag (NVS full, or nearly)");
+            if (s)
+                unlock(s);
+        }
+        if (gone)
+            continue;
+        if (msg[0]) {
+            st->tags_failed++;
+            if (!st->error[0]) {
+                char m[17];
+                esl_mac_format(c->tags[i], m);
+                size_t k = (size_t)snprintf(st->error, sizeof(st->error), "%.16s: ", m);
+                copy_str(st->error + k, sizeof(st->error) - k, msg);
+            }
+            continue;
+        }
+        st->tags_set++;
+        st->tags_changed += r.changed;
+    }
+    free(img);
 }

@@ -53,6 +53,14 @@ test("ticked tags move to a place, and a place left without tags goes", () => {
   assert.match(weatherPlan(eight, [C], { place: "X", lat: 1, lon: 1 }).error, /at most 8 places/);
 });
 
+test("a picture from a URL keeps its settings, and loses tags that get the weather", () => {
+  const chart = { id: "chart", type: "image", url: "http://ha.local/chart.png", dither: false, place: "", lang: "nb", every_min: 5, tags: [C], status: { ok: true } };
+  let p = weatherPlan([oslo, chart], [A], "oslo");
+  assert.deepEqual(p.sources[1], { id: "chart", type: "image", url: "http://ha.local/chart.png", dither: false, place: "", lang: "nb", every_min: 5, tags: [C] });
+  p = weatherPlan([oslo, chart], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo"]);
+});
+
 test("the models whose layout file lacks the weather layout", () => {
   const tags = [{ mac: A, model: "2.9" }, { mac: B, model: "1.54" }, { mac: C, model: "2.9" }, { mac: "x", model: "" }];
   assert.deepEqual(missingModels(tags, { layouts: [{ model: "2.9", layouts: ["shelf", "weather"] }] }), ["1.54"]);

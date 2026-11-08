@@ -5,6 +5,10 @@
 #include "tinytest.h"
 #include "esl_api.h"
 #include "esl_source.h"
+#include "esl_crc32.h"
+#include "esl_image.h"
+#include "esl_png.h"
+#include "esl_render.h"
 
 #define CAP 8
 #define AUTH "Bearer s3cret"
@@ -556,6 +560,225 @@ static void test_api(void)
     esl_store_free(&st);
 }
 
+
+/* ---- type "image": a PNG from a URL as the tags' picture ---- */
+
+static uint8_t pics[CAP][ESL_IMAGE_STORED_MAX(5000)];
+static size_t pic_len[CAP];
+
+static bool pic_save(void *ctx, unsigned slot, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    if (slot >= CAP || len > sizeof(pics[0]))
+        return false;
+    if (data)
+        memcpy(pics[slot], data, len);
+    pic_len[slot] = data ? len : 0;
+    return true;
+}
+
+static size_t pic_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
+{
+    (void)ctx;
+    if (slot >= CAP || !pic_len[slot] || pic_len[slot] > cap)
+        return 0;
+    memcpy(buf, pics[slot], pic_len[slot]);
+    return pic_len[slot];
+}
+
+static void put32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+static size_t chunk(uint8_t *out, const char *type, const uint8_t *data, size_t len)
+{
+    put32(out, (uint32_t)len);
+    memcpy(out + 4, type, 4);
+    if (len)
+        memcpy(out + 8, data, len);
+    put32(out + 8 + len, esl_crc32(out + 4, 4 + len));
+    return 12 + len;
+}
+
+/* An 8-bit grey PNG of w x h, black where (x / 8 + y / 8) is odd, in stored deflate blocks */
+static size_t checker_png(uint8_t *out, uint32_t w, uint32_t h)
+{
+    static uint8_t rows[297 * 128], z[297 * 128 + 64];
+    size_t n = 0, o = 0;
+    for (uint32_t y = 0; y < h; y++) {
+        rows[n++] = 0;
+        for (uint32_t x = 0; x < w; x++)
+            rows[n++] = ((x / 8 + y / 8) & 1) ? 0 : 255;
+    }
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < n; i++) {
+        a = (a + rows[i]) % 65521;
+        b = (b + a) % 65521;
+    }
+    z[o++] = 0x78;
+    z[o++] = 0x01;
+    for (size_t i = 0; i < n; i += 65535) {
+        size_t l = n - i < 65535 ? n - i : 65535;
+        z[o++] = i + l == n;
+        z[o++] = (uint8_t)l;
+        z[o++] = (uint8_t)(l >> 8);
+        z[o++] = (uint8_t)~l;
+        z[o++] = (uint8_t)(~l >> 8);
+        memcpy(z + o, rows + i, l);
+        o += l;
+    }
+    put32(z + o, b << 16 | a);
+    o += 4;
+    uint8_t hdr[13] = {0};
+    put32(hdr, w);
+    put32(hdr + 4, h);
+    hdr[8] = 8;
+    size_t m = 8;
+    memcpy(out, esl_png_signature, 8);
+    m += chunk(out + m, "IHDR", hdr, 13);
+    m += chunk(out + m, "IDAT", z, o);
+    m += chunk(out + m, "IEND", NULL, 0);
+    return m;
+}
+
+struct mem {
+    const uint8_t *p;
+    size_t left;
+};
+
+static bool mem_read(void *ctx, uint8_t *buf, size_t n)
+{
+    struct mem *m = ctx;
+    if (n > m->left)
+        return false;
+    memcpy(buf, m->p, n);
+    m->p += n;
+    m->left -= n;
+    return true;
+}
+
+static void test_image(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    static uint8_t png[297 * 128 + 256];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+
+    /* the configuration: url and dither; no layout or fields */
+    static const char ok[] = "{\"sources\":[{\"id\":\"chart\",\"type\":\"image\",\"url\":\"http://ha.local:8123/local/"
+                             "chart.png\",\"dither\":true,\"every_min\":5,\"tags\":[\"" MAC1 "\",\"" MAC2 "\"]}]}";
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(n == 1 && cfg[0].type == ESL_SOURCE_IMAGE && cfg[0].image.dither && cfg[0].every_min == 5 && cfg[0].ntags == 2);
+    CHECK(esl_source_is_picture(&cfg[0]));
+    CHECK(esl_source_url(&cfg[0], url, sizeof(url)) > 0);
+    CHECK_STR(url, "http://ha.local:8123/local/chart.png");
+    {
+        /* written as it is read, without a layout or fields */
+        static char js[ESL_SOURCE_CFG_MAX];
+        static esl_source_cfg_t again[ESL_SOURCE_MAX];
+        esl_sb_t sb;
+        esl_sb_init(&sb, js, sizeof(js));
+        esl_sb_puts(&sb, "{\"sources\":[");
+        esl_source_write_cfg(&cfg[0], &sb);
+        esl_sb_puts(&sb, "]}");
+        CHECK(!HAS(js, "layout") && !HAS(js, "fields") && HAS(js, "\"dither\":true"));
+        CHECK(esl_sources_parse(js, sb.len, again, &n, err, sizeof(err)));
+        CHECK(n == 1 && !strcmp(again[0].image.url, cfg[0].image.url) && again[0].image.dither);
+    }
+    static const struct {
+        const char *src, *msg;
+    } bad[] = {
+        {"\"url\":\"ftp://x/a.png\"", "sources[0].url: an http:// or https:// URL"},
+        {"\"url\":\"https://x/a b.png\"", "sources[0].url: "},
+        {"\"url\":\"https:///a.png\"", "sources[0].url: "},
+        {"\"url\":7", "sources[0].url: "},
+        {"\"lat\":1", "sources[0].lat: unknown key"},
+        {"\"url\":\"https://x/a.png\",\"dither\":1", "sources[0].dither: true or false"},
+        {"\"url\":\"https://x/a.png\",\"layout\":\"weather\"", "sources[0].layout: a source of type image gives"},
+        {"\"url\":\"https://x/a.png\",\"fields\":[\"{temp}\"]", "sources[0].fields: a source of type image gives"},
+        {"\"url\":\"https://x/a.png\",\"every_min\":4", "sources[0].every_min: a whole number from 5"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char js[256];
+        snprintf(js, sizeof(js), "{\"sources\":[{\"id\":\"c\",\"type\":\"image\",%s}]}", bad[i].src);
+        CHECK(!esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+        if (strncmp(err, bad[i].msg, strlen(bad[i].msg)) != 0)
+            printf("  image cfg %zu: %s\n", i, err);
+        CHECK(strncmp(err, bad[i].msg, strlen(bad[i].msg)) == 0);
+    }
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+
+    /* the answer's values: its size, and only a PNG is taken */
+    esl_values_t v;
+    uint32_t data_at;
+    size_t len = checker_png(png, 296, 128);
+    CHECK(!esl_source_values(&cfg[0], "<html>", 6, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer is not a PNG file");
+    CHECK(esl_source_values(&cfg[0], (const char *)png, len, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "width"), "296");
+    CHECK_STR(esl_values_get(&v, "height"), "128");
+
+    /* the picture on the tags: MAC1 a 2.9", MAC2 not heard yet */
+    static const esl_store_ops_t ops = {.persist_image = pic_save, .load_image = pic_load};
+    esl_source_state_t run;
+    esl_tag_t t;
+    esl_store_free(&st);
+    memset(pic_len, 0, sizeof(pic_len));
+    esl_store_init(&st, CAP, &ops, 0);
+    esl_layouts_init(&layouts, NULL);
+    poll(0x00000123456789A8ull, ESL_MODEL_29);
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, NULL, &run);
+    CHECK(run.tags_set == 1 && run.tags_changed == 1 && run.tags_failed == 1);
+    CHECK_STR(run.error, MAC2 ": a tag has not polled yet, so its screen is not known");
+    CHECK(esl_store_get(&st, 0x00000123456789A8ull, &t) && t.has_content && t.has_image);
+    {
+        /* the same picture as PUT /api/tags/{mac}/image makes of this PNG (dithered) */
+        static uint8_t want[5000], packed[ESL_IMAGE_STORED_MAX(5000)];
+        size_t raw = esl_render_size(ESL_MODEL_29), ink = 0;
+        struct mem m = {png, len};
+        esl_content_t c, w;
+        uint32_t crc;
+        uint8_t model;
+        CHECK(esl_image_picture(ESL_MODEL_29, true, len, mem_read, &m, want) == ESL_PIC_OK);
+        esl_content_init_image(&w, ESL_MODEL_29,
+                               esl_crc32(packed, esl_image_pack(0x00000123456789A8ull, ESL_MODEL_29, want, packed)));
+        CHECK(esl_store_get_content(&st, 0x00000123456789A8ull, &c) && esl_content_image(&c, &model, &crc));
+        CHECK(esl_content_equal(&c, &w));
+        for (size_t i = 0; i < raw; i++)
+            ink += want[i] != 0;
+        CHECK(ink > raw / 4); /* the checkers */
+    }
+    /* the same picture again: not changed; a 1.54" gets a message about the size */
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, NULL, &run);
+    CHECK(run.tags_set == 1 && run.tags_changed == 0);
+    poll(0x00000123456789B9ull, ESL_MODEL_154);
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, NULL, &run);
+    CHECK(run.tags_set == 1 && run.tags_failed == 1);
+    CHECK_STR(run.error, MAC2 ": the picture is 296x128 pixels, the screen of model 1.54 is 200x200");
+    /* a tag that left the source while it was fetched is left alone */
+    static esl_sources_t s;
+    esl_sources_init(&s, NULL);
+    s.cfg[s.n++] = cfg[0];
+    CHECK(esl_sources_release(&s, 0x00000123456789B9ull));
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, &s, &run);
+    CHECK(run.tags_set == 1 && run.tags_failed == 0 && !run.error[0]);
+    /* not a picture the decoder takes, and an AP that keeps no pictures */
+    png[30] ^= 0xff;
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, NULL, &run);
+    CHECK(run.tags_set == 0 && run.tags_failed == 2);
+    png[30] ^= 0xff;
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
+    poll(0x00000123456789A8ull, ESL_MODEL_29);
+    esl_source_apply_body(&cfg[0], (const char *)png, len, &st, NULL, &run);
+    CHECK(run.tags_set == 0 && run.tags_failed == 2 && HAS(run.error, "keeps no pictures"));
+    esl_layouts_free(&layouts);
+}
+
 void test_source(void)
 {
     test_parse();
@@ -563,5 +786,6 @@ void test_source(void)
     test_met();
     test_content();
     test_apply();
+    test_image();
     test_api();
 }
