@@ -63,7 +63,9 @@ typedef struct {
 #define ESL_API_ADOPT_DAYS 14
 typedef struct {
     uint32_t adopt_until;   /* unix s when the adopt ends; 1 = its days start once the clock is known; 0 = none */
-    void (*set_id)(void *ctx, uint32_t id);
+    /* Saves a new id, with the one it replaces (prev, 0 = none) answered too for ESL_API_ADOPT_DAYS
+       (esl_store_set_prev_id). Called before the store changes; false: not saved, nothing changes */
+    bool (*set_id)(void *ctx, uint32_t id, uint32_t prev);
     void (*set_adopt)(void *ctx, bool all, uint32_t id); /* all or id: on for ESL_API_ADOPT_DAYS; neither: off */
     void *ctx;
 } esl_apid_cfg_t;

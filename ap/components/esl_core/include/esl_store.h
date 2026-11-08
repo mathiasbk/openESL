@@ -203,6 +203,7 @@ typedef struct {
     uint32_t ap_id;           /* this AP's, sent in CONFIG; 0 = none (every tag is answered, as before #390) */
     uint32_t adopt_id;        /* tags of this other AP are taken once they are lost (LOST_LONG), 0 = none */
     bool adopt_all;           /* ... and so are those of any other AP */
+    uint32_t prev_id;         /* this AP's id before the last change: its tags are answered at once, 0 = none */
     struct { uint64_t mac; uint32_t ap_id; } foreign[ESL_STORE_FOREIGN]; /* recently refused, newest at foreign_at */
     unsigned foreign_at;
     esl_other_ap_t other_aps[ESL_STORE_OTHER_APS]; /* ap_id 0 = free; the oldest goes when full */
@@ -217,6 +218,9 @@ typedef struct {
  * FW_REQ get no answer either. A store without an id (0) answers every tag. */
 void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id);
 void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id);
+/* The AP's own id before a change (a restore, PUT /api/config "ap_id"): tags that still carry it
+   are this AP's, answered at once (no LOST_LONG), and move to the new id with the CONFIG. 0 = none */
+void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id);
 /* True when the AP answers this POLL; false notes the MAC as refused */
 bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms);
 /* The other APs heard of (refused tags), newest first; returns how many went into out */

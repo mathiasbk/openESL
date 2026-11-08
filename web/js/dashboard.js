@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, otherApsLine, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, otherApsLine, otherApsLost, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, dateLang, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -387,7 +387,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const health_ = stale
       ? [`The figures below are from ${new Date(lastAt).toLocaleTimeString()}, the AP's last answer.`, "bad"]
       : [[healthLine(health), otherApsLine(health)].filter(Boolean).join(" "),
-        !health ? "" : (health.ok || !health.with_problems) && !health.other_aps?.length ? "ok" : "bad"]; // a lost radio: #dash-radio
+        !health ? "" : (health.ok || !health.with_problems) && !otherApsLost(health) ? "ok" : "bad"]; // a lost radio: #dash-radio
     // only a change is read out (aria-live)
     if ($("dash-health").textContent !== health_[0]) $("dash-health").textContent = health_[0];
     $("dash-health").className = health_[1];

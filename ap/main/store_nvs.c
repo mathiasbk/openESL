@@ -306,8 +306,15 @@ static uint32_t unix_now(void *ctx)
  * has been lost for an hour, for ADOPT_AUTO_S: its old tags carry the id it had before.
  * cfg/adopt_end is when that ends (unix s), 1 = it starts when the clock is known. */
 #define ADOPT_AUTO_S ((uint32_t)ESL_API_ADOPT_DAYS * 24 * 3600)
-/* cfg/adopt_end mirrored, 0 = no adopt; cfg/adopt_id is the id adopted, none = every id */
+/* cfg/adopt_end mirrored, 0 = no adopt; cfg/adopt_id is the id adopted, none = every id.
+ * cfg/prev_id is the AP's own id before the last change (a restore, PUT "ap_id"), answered for
+ * ADOPT_AUTO_S too: cfg/prev_end, as adopt_end. Both ends are unix s; 1 = the days start once
+ * the clock is known. With no clock at all, the uptime since it was set counts instead (a
+ * restart starts the days over). */
 static esl_apid_cfg_t apid_cfg;
+static SemaphoreHandle_t apid_mutex; /* the HTTP task (PUT) and seen_task (the ends) */
+static uint32_t prev_end;
+static uint64_t adopt_from_us, prev_from_us; /* uptime when set, for the no-clock fallback */
 
 static esp_err_t set_or_erase_u32(nvs_handle_t h, const char *key, uint32_t v)
 {
@@ -315,14 +322,15 @@ static esp_err_t set_or_erase_u32(nvs_handle_t h, const char *key, uint32_t v)
     return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
 }
 
+/* the id first: a power cut between the two writes leaves the narrower of the two adopts */
 static void adopt_save(uint32_t end, uint32_t id)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
     if (err == ESP_OK) {
-        err = set_or_erase_u32(h, "adopt_end", end);
+        err = set_or_erase_u32(h, "adopt_id", end ? id : 0);
         if (err == ESP_OK)
-            err = set_or_erase_u32(h, "adopt_id", end ? id : 0);
+            err = set_or_erase_u32(h, "adopt_end", end);
         if (err == ESP_OK)
             err = nvs_commit(h);
         nvs_close(h);
@@ -332,57 +340,104 @@ static void adopt_save(uint32_t end, uint32_t id)
     apid_cfg.adopt_until = end;
 }
 
-static void adopt_stop(const char *why)
+static void prev_save(uint32_t end)
 {
-    esl_store_set_adopt(store_ref, false, 0);
-    adopt_save(0, 0);
-    ESP_LOGI(TAG, "adopt ended (%s)", why);
-}
-
-/* Starts the adopt time once the clock is known, and ends it */
-static void adopt_tick(void)
-{
-    uint32_t now = unix_now(NULL), end = apid_cfg.adopt_until;
-    if (!end)
-        return;
-    if (!now) {
-        /* never a clock: the uptime counts instead, so it ends all the same */
-        if (end == 1 && (uint64_t)esp_timer_get_time() / 1000000 >= ADOPT_AUTO_S)
-            adopt_stop("14 days up, no clock");
-        return;
-    }
-    if (end == 1)
-        adopt_save(now + ADOPT_AUTO_S, store_ref->adopt_all ? 0 : store_ref->adopt_id);
-    else if (now >= end)
-        adopt_stop("14 days");
-}
-
-/* PUT /api/config "ap_id" and "adopt" (esl_api.h): the store is set already */
-static void api_set_id(void *ctx, uint32_t id)
-{
-    (void)ctx;
     nvs_handle_t h;
     esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
     if (err == ESP_OK) {
-        err = nvs_set_u32(h, "ap_id", id);
+        if (!end)
+            err = set_or_erase_u32(h, "prev_id", 0);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "prev_end", end);
         if (err == ESP_OK)
             err = nvs_commit(h);
         nvs_close(h);
     }
     if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/prev_end failed: %s", esp_err_to_name(err));
+    prev_end = end;
+}
+
+/* 1: the clock is known now, the days start; -1: they are up; 0: neither */
+static int days_check(uint32_t end, uint32_t now, uint64_t from_us)
+{
+    if (!end)
+        return 0;
+    if (!now)
+        return end == 1 && (uint64_t)esp_timer_get_time() - from_us >= (uint64_t)ADOPT_AUTO_S * 1000000 ? -1 : 0;
+    if (end == 1)
+        return 1;
+    return now >= end ? -1 : 0;
+}
+
+/* Starts the adopt and previous-id times once the clock is known, and ends them */
+static void adopt_tick(void)
+{
+    if (!apid_mutex)
+        return;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
+    uint32_t now = unix_now(NULL);
+    bool on = store_ref->adopt_all || store_ref->adopt_id; /* turned off meanwhile: not started again */
+    int a = days_check(apid_cfg.adopt_until, now, adopt_from_us);
+    if (a < 0 || (apid_cfg.adopt_until && !on)) {
+        esl_store_set_adopt(store_ref, false, 0);
+        adopt_save(0, 0);
+        ESP_LOGI(TAG, "adopt ended (%u days)", (unsigned)ESL_API_ADOPT_DAYS);
+    } else if (a > 0) {
+        adopt_save(now + ADOPT_AUTO_S, store_ref->adopt_all ? 0 : store_ref->adopt_id);
+    }
+    int p = days_check(prev_end, now, prev_from_us);
+    if (p < 0) {
+        esl_store_set_prev_id(store_ref, 0);
+        prev_save(0);
+        ESP_LOGI(TAG, "the previous AP id is no longer answered (%u days)", (unsigned)ESL_API_ADOPT_DAYS);
+    } else if (p > 0) {
+        prev_save(now + ADOPT_AUTO_S);
+    }
+    xSemaphoreGive(apid_mutex);
+}
+
+/* PUT /api/config "ap_id" (esl_api.h): saved before the store changes */
+static bool api_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
+    uint32_t now = unix_now(NULL), end = prev ? (now ? now + ADOPT_AUTO_S : 1) : 0;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = set_or_erase_u32(h, "prev_id", prev);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "prev_end", end);
+        if (err == ESP_OK)
+            err = nvs_set_u32(h, "ap_id", id);
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err == ESP_OK) {
+        prev_end = end;
+        prev_from_us = (uint64_t)esp_timer_get_time();
+        ESP_LOGI(TAG, "AP id set to %08lX (%08lX still answered for %u days)", (unsigned long)id,
+                 (unsigned long)prev, (unsigned)ESL_API_ADOPT_DAYS);
+    } else {
         ESP_LOGE(TAG, "saving cfg/ap_id failed: %s", esp_err_to_name(err));
-    else
-        ESP_LOGI(TAG, "AP id set to %08lX", (unsigned long)id);
+    }
+    xSemaphoreGive(apid_mutex);
+    return err == ESP_OK;
 }
 
 static void api_set_adopt(void *ctx, bool all, uint32_t id)
 {
     (void)ctx;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
     uint32_t now = unix_now(NULL);
     if (!all && !id)
         adopt_save(0, 0);
     else
         adopt_save(now ? now + ADOPT_AUTO_S : 1, all ? 0 : id);
+    adopt_from_us = (uint64_t)esp_timer_get_time();
+    xSemaphoreGive(apid_mutex);
     if (all)
         ESP_LOGI(TAG, "adopting lost tags of any AP");
     else if (id)
@@ -399,7 +454,9 @@ esl_apid_cfg_t *store_nvs_apid(void)
 static void ap_id_init(esl_store_t *st)
 {
     nvs_handle_t h;
-    uint32_t id = 0, end = 0, adopt_id = 0;
+    uint32_t id = 0, end = 0, adopt_id = 0, prev = 0, pend = 0;
+    if (!apid_mutex)
+        apid_mutex = xSemaphoreCreateMutex();
     apid_cfg.set_id = api_set_id;
     apid_cfg.set_adopt = api_set_adopt;
     esp_err_t rd = nvs_open("cfg", NVS_READONLY, &h);
@@ -409,6 +466,8 @@ static void ap_id_init(esl_store_t *st)
             end = 0;
         if (nvs_get_u32(h, "adopt_id", &adopt_id) != ESP_OK)
             adopt_id = 0;
+        if (nvs_get_u32(h, "prev_id", &prev) != ESP_OK || nvs_get_u32(h, "prev_end", &pend) != ESP_OK)
+            prev = pend = 0;
         nvs_close(h);
     }
     if (rd != ESP_OK && rd != ESP_ERR_NVS_NOT_FOUND) {
@@ -448,8 +507,13 @@ static void ap_id_init(esl_store_t *st)
     }
     esl_store_set_ap_id(st, id);
     apid_cfg.adopt_until = end;
+    adopt_from_us = prev_from_us = 0; /* no clock: counted from this start */
     if (end)
         esl_store_set_adopt(st, !adopt_id, adopt_id);
+    if (prev && pend && prev != id) {
+        prev_end = pend;
+        esl_store_set_prev_id(st, prev);
+    }
 }
 
 static void seen_task(void *arg)

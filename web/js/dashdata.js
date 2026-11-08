@@ -167,16 +167,32 @@ export function healthLine(h) {
 export function otherApsLine(h) {
   const o = h?.other_aps || [];
   if (!o.length) return "";
-  const n = o.reduce((s, a) => s + (a.tags || 0), 0);
-  const aps = o.length === 1 ? `another AP (${o[0].ap_id})` : `${o.length} other APs`;
-  const lost = o.some((a) => a.lost_long) ? " Some have been without their own AP for over an hour." : "";
-  return `${n === 1 ? "1 label" : `${n || "Some"} labels`} of ${aps} ${n === 1 ? "polls here and gets" : "poll here and get"} no answer.${lost} ` +
+  const lost = o.filter((a) => a.lost_long);
+  if (!lost.length) {
+    // a neighbour that runs: its labels are heard here, which is fine
+    const aps = o.length === 1 ? `AP ${o[0].ap_id}` : `${o.length} other APs`;
+    return `Labels of ${aps} are heard here; they belong to ${o.length === 1 ? "that AP" : "those APs"}.`;
+  }
+  const aps = lost.length === 1 ? `another AP (${lost[0].ap_id})` : `${lost.length} other APs`;
+  return `Labels of ${aps} poll here and get no answer, and have been without their own AP for over an hour. ` +
     "To take them over, see Settings, Radio.";
+}
+
+// Whether the other APs' labels are a problem: only those lost for an hour (a neighbour that runs is not)
+export function otherApsLost(h) {
+  return (h?.other_aps || []).some((a) => a.lost_long);
+}
+
+// How many of its labels were heard: the AP counts at most 16, shared by every other AP
+function otherApTags(a) {
+  if (a.tags >= 16) return "16 or more labels";
+  if (!a.tags) return a.polls ? "some labels" : "no labels";
+  return a.tags === 1 ? "1 label" : `${a.tags} labels`;
 }
 
 // One other AP for the adopt list: "AP 1A2B3C4D: 3 labels lately, last 2 min ago"
 export function otherApText(a) {
-  const tags = a.tags === 1 ? "1 label" : `${a.tags} labels`;
+  const tags = otherApTags(a);
   return `AP ${a.ap_id}: ${tags} lately, last ${fmtAgo(a.seen_s_ago)} ago${a.lost_long ? ", lost for over an hour" : ""}`;
 }
 

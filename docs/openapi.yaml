@@ -759,8 +759,8 @@ paths:
         that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone). A key
         left out keeps its value; at least one must be there. All are stored in NVS
         (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
-        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/ap_id`, `cfg/adopt_end` and
-        `cfg/adopt_id`). An AP that restarts during a move comes up on the old channel and waits
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/ap_id`, `cfg/prev_id`,
+        `cfg/prev_end`, `cfg/adopt_end` and `cfg/adopt_id`). An AP that restarts during a move comes up on the old channel and waits
         for the tags again. `ap_id` and `adopt` (#390): see "AP id" in docs/protocol.md.
       requestBody:
         required: true
@@ -793,8 +793,8 @@ paths:
                 summary: In place of a broken AP, whose backup has id 1A2B3C4D (its tags come here at once)
                 value: { ap_id: "1A2B3C4D", adopt: null }
               adopt:
-                summary: Take over the lost tags of AP 1A2B3C4D for 14 days
-                value: { adopt: "1A2B3C4D" }
+                summary: Take over the lost tags of AP 5E6F7A8B for 14 days
+                value: { adopt: "5E6F7A8B" }
               clock:
                 summary: Norwegian time and dates, from a Norwegian NTP server
                 value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3", lang: nb }
@@ -820,6 +820,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/health:
     get:
@@ -2278,9 +2279,10 @@ components:
             This AP's id (docs/protocol.md "AP id", #390), 8 hex digits, not `00000000` or
             `FFFFFFFF`. Tags from firmware 0.11.0 answer only the AP with their id, so set it to
             the id of a broken AP (from its backup) on the AP that replaces it, and its tags
-            take the new AP at once. The AP's own tags carry the old id, so a change on an AP
-            with tags adopts the old id for 14 days too (unless `adopt` is in the same request).
-            From AP firmware 0.11.0; an older AP answers 422.
+            take the new AP at once. The AP's own tags carry the old id: it stays answered as
+            this AP's own for 14 days (`prev_ap_id`), and each tag gets the new id at its next
+            poll. 500 when the id cannot be saved (nothing in the request is set then). From AP
+            firmware 0.11.0; an older AP answers 422.
         adopt:
           type: [string, "null"]
           pattern: "^([0-9A-Fa-f]{8}|all)$"
@@ -2288,8 +2290,8 @@ components:
             Take over the tags of another AP: its id (as in `other_aps` in `GET /api/health`), or
             `all` for any AP. A tag is taken once it has had no answer from its own AP for an
             hour, so an AP that only restarts keeps its tags. It ends by itself after 14 days
-            (`adopt_until`). `null` = off. A new AP (an empty table and a new id) starts with
-            `all`. From AP firmware 0.11.0; an older AP answers 422.
+            (`adopt_until`). `null` = off. Not this AP's own id (422). A new AP (an empty table
+            and a new id) starts with `all`. From AP firmware 0.11.0; an older AP answers 422.
 
     ApConfigReply:
       type: object
@@ -2315,6 +2317,7 @@ components:
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
         lang: { type: [string, "null"], enum: [en, nb, null], description: "The language of the date fields (`{weekday}`, `{date}`); null until chosen, when the AP writes English and the Dashboard and esl-client write in the browser's or computer's language. Left out by an AP from before 0.11.0, which writes them in English" }
         ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id (#390); null when it has none (NVS could not be read). Left out by an AP from before 0.11.0" }
+        prev_ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id before the last change, still answered as its own for 14 days after it; null = none" }
         adopt: { type: [string, "null"], pattern: "^([0-9A-F]{8}|all)$", description: "The AP whose lost tags this one takes over, `all` for any, null = none" }
         adopt_until: { type: [integer, "null"], minimum: 0, description: "With adopt: when it ends (Unix seconds); null while the AP does not know the time yet (the 14 days start then)" }
 

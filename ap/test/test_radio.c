@@ -185,10 +185,19 @@ static int put(const char *mac, const char *body)
 }
 
 /* The glue of the AP id for the API tests (main/store_nvs.c on the AP) */
-static uint32_t saved_id, saved_adopt_id;
-static bool saved_adopt_all;
+static uint32_t saved_id, saved_prev, saved_adopt_id;
+static bool saved_adopt_all, id_save_fails;
 static unsigned id_saves, adopt_saves;
-static void fake_set_id(void *ctx, uint32_t id) { (void)ctx; saved_id = id; id_saves++; }
+static bool fake_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx;
+    if (id_save_fails)
+        return false;
+    saved_id = id;
+    saved_prev = prev;
+    id_saves++;
+    return true;
+}
 static void fake_set_adopt(void *ctx, bool all, uint32_t id)
 {
     (void)ctx;
@@ -317,7 +326,7 @@ static void test_ap_id(void)
     /* GET/PUT /api/config: the id and adopt */
     api.apid = &apid_cfg;
     CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
-    CHECK(HAS(resp, "\"ap_id\":\"BEEF0001\",\"adopt\":null,\"adopt_until\":null"));
+    CHECK(HAS(resp, "\"ap_id\":\"BEEF0001\",\"prev_ap_id\":null,\"adopt\":null,\"adopt_until\":null"));
     CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 200);
     CHECK(st.adopt_all && saved_adopt_all && adopt_saves == 1);
     CHECK(HAS(resp, "\"adopt\":\"all\""));
@@ -333,18 +342,39 @@ static void test_ap_id(void)
     CHECK_INT(cfg_put("{\"ap_id\":\"FFFFFFFF\"}"), 422);
     CHECK_INT(cfg_put("{\"ap_id\":\"BEEF00\"}"), 422);
     CHECK_INT(cfg_put("{\"ap_id\":12345678}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0001\"}"), 422);                     /* its own id */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"0A0B0C0D\"}"), 422);
     CHECK_INT(adopt_saves, 3);
 
-    /* a new id on an AP with labels: they carry the old one, so it is adopted */
-    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\"}"), 200);
+    /* the id cannot be saved: 500, and nothing changes (not the poll interval either) */
+    id_save_fails = true;
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"all\"}"), 500);
+    CHECK(st.ap_id == 0xBEEF0001ul && !st.prev_id && !st.adopt_all && id_saves == 0);
+    id_save_fails = false;
+
+    /* a new id (a restore): this AP's labels carry the old one. It is still answered, at once
+       (no LOST_LONG), and the CONFIG moves them to the new id; the adopt asked for is apart */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":null}"), 200);
     CHECK(st.ap_id == 0x0A0B0C0Dul && saved_id == 0x0A0B0C0Dul && id_saves == 1);
-    CHECK(st.adopt_id == 0xBEEF0001ul && saved_adopt_id == 0xBEEF0001ul);
-    CHECK(HAS(resp, "\"ap_id\":\"0A0B0C0D\",\"adopt\":\"BEEF0001\""));
-    /* the same id again changes nothing; an id and adopt together: the adopt asked for */
+    CHECK(st.prev_id == 0xBEEF0001ul && saved_prev == 0xBEEF0001ul && !st.adopt_id && !st.adopt_all);
+    CHECK(HAS(resp, "\"ap_id\":\"0A0B0C0D\",\"prev_ap_id\":\"BEEF0001\",\"adopt\":null"));
+    own.link_flags = 0;
+    CHECK_INT(air(&own, 70000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 130000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 130000, &out), 200);
+    CHECK(!HAS(resp, "\"ap_id\":\"BEEF0001\""));                     /* its own old id is no other AP */
+    /* the same id again changes nothing */
     CHECK_INT(cfg_put("{\"ap_id\":\"0a0b0c0d\"}"), 200);
     CHECK_INT(id_saves, 1);
-    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF0001\",\"adopt\":null}"), 200);
-    CHECK(st.ap_id == 0xBEEF0001ul && !st.adopt_id && !st.adopt_all);
+    /* back again: the id before is answered now */
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF0001\"}"), 200);
+    CHECK(st.ap_id == 0xBEEF0001ul && st.prev_id == 0x0A0B0C0Dul && saved_prev == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 190000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0xBEEF0001ul);
+    /* when its days are up (the glue): the old id is another AP's again */
+    esl_store_set_prev_id(&st, 0);
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
     api.apid = NULL;
     CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 422);
     esl_store_set_ap_id(&st, 0);

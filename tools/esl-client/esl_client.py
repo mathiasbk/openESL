@@ -805,7 +805,9 @@ def print_health(h):
         print(f"  {t.get('mac')}  {', '.join(t.get('problems', [])):28}  seen {fmt_ago(t.get('seen_s_ago')):>7}"
               + (f"  {t['battery_mv']} mV" if t.get("battery_mv") else ""))
     for a in h.get("other_aps", []):  # #390: tags of another AP poll here and get no answer
-        print(f"  tags of AP {a.get('ap_id')} poll here: {a.get('tags')} lately, last {fmt_ago(a.get('seen_s_ago'))} ago"
+        n = a.get("tags") or 0  # the AP counts at most 16, shared by every other AP
+        n = "16 or more" if n >= 16 else str(n) if n else "some" if a.get("polls") else "0"
+        print(f"  tags of AP {a.get('ap_id')} poll here: {n} lately, last {fmt_ago(a.get('seen_s_ago'))} ago"
               + (", lost for over an hour" if a.get("lost_long") else "") + " (config --adopt takes them over)")
     for r in h.get("old_radios", []):  # #390: a C6 over WiFi from before 0.11.0 answers other APs' tags
         v = r.get("fw") or 0
@@ -1735,7 +1737,7 @@ def read_backup(path):
     return b
 
 
-def restore(cli, b, dry_run=False, now=None, copy=False):
+def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
     """Puts a backup onto an AP, in the order the AP needs: config, layout files, tag
     settings, content, then the scheduled content (entries whose time has passed are
     skipped, since the AP would set them now). Tags the backup does not have are left
@@ -1806,8 +1808,19 @@ def restore(cli, b, dry_run=False, now=None, copy=False):
         elif copy:
             lines.append(f"note: this AP keeps its own id {cur['ap_id']}; the tags of AP {ap_id} stay with that AP "
                          "(config --adopt takes them over)")
-        elif cur["ap_id"] != ap_id or cur.get("adopt") is not None:
-            cli.set_config(ap_id=ap_id, adopt=None)  # its tags are back: no adopt
+        elif cur["ap_id"] != ap_id:  # the same id: the same AP, and an adopt that runs stays
+            alive = [a for a in (cli.health().get("other_aps") or []) if a.get("ap_id") == ap_id
+                     and not a.get("lost_long") and (a.get("seen_s_ago") or 0) < 600]
+            if alive and not force:
+                ok = False
+                lines.append(f"error: AP id not changed: the AP the backup came from ({ap_id}) still answers its tags "
+                             "here. Turn it off and restore again, use --copy for a second AP, or --force")
+            else:
+                try:
+                    cli.set_config(ap_id=ap_id, adopt=None)  # its tags are back: no adopt
+                except ApiError as e:
+                    ok = False
+                    lines.append(f"error: AP id {ap_id} not set: {e}")
     for name, f in fonts.items():  # first: a layout file may draw with them
         try:
             cli.put_font(name, json.dumps(f).encode("utf-8"))
@@ -2002,6 +2015,8 @@ def main(argv=None):
     s.add_argument("--dry-run", action="store_true", help="show what would be restored")
     s.add_argument("--copy", action="store_true", help="a second AP with the same setup: keep this AP's own id, "
                                                       "so the old AP's tags stay with it (#390)")
+    s.add_argument("--force", action="store_true", help="take the backup's AP id even while that AP still answers "
+                                                       "its tags here")
 
     s = sub.add_parser("mac", help="the MAC of a tag from the number under the barcode on its label (no AP needed)")
     s.add_argument("barcode", help="the 12 digits on the label, e.g. 020663461013")
@@ -2184,7 +2199,7 @@ def main(argv=None):
             except (OSError, BackupError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1
-            lines, ok = restore(cli, b, args.dry_run, copy=args.copy)
+            lines, ok = restore(cli, b, args.dry_run, copy=args.copy, force=args.force)
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":
