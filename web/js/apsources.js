@@ -150,6 +150,32 @@ export function weatherPlan(sources, macs, to) {
   return { sources: list, id };
 }
 
+// The sources with `macs` showing the PNG at `url` (type "image", AP 0.11.0 and later): the
+// source that already fetches this URL takes them, else a new one. As weatherPlan, the tags
+// leave every other source, and a source left without tags goes. { sources, id } or { error }.
+export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = false }) {
+  url = String(url || "").trim();
+  if (!/^https?:\/\/[^/\s]+\S*$/.test(url) || url.length > 159) return { error: "The address must start with http:// or https:// (up to 159 characters, no spaces)" };
+  const every = Number(every_min);
+  if (!Number.isInteger(every) || every < 5 || every > 1440) return { error: "Every: 5 to 1440 minutes" };
+  const moving = new Set(macs);
+  let list = sources.map(({ status, ...s }) => ({ ...s, tags: (s.tags || []).filter((m) => !moving.has(m)) }));
+  let target = list.find((s) => s.type === "image" && s.url === url);
+  if (!target) {
+    const taken = new Set(list.map((s) => s.id));
+    let id = "picture";
+    for (let n = 2; taken.has(id); n++) id = `picture-${n}`;
+    target = { id, type: "image", url, tags: [] };
+    list.push(target);
+  }
+  Object.assign(target, { every_min: every, dither: !!dither });
+  target.tags = [...target.tags, ...macs];
+  if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
+  list = list.filter((s) => s.tags.length || s === target);
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources (weather places and pictures)` };
+  return { sources: list, id: target.id };
+}
+
 // The models of the tags whose layout file on the AP has no layout called "weather", from
 // GET /api/layouts
 // (a model whose same_as names another stands for that model: it is that model's file)
@@ -227,7 +253,7 @@ export function initSources() {
     const now = Date.now() / 1000;
     const list = data?.sources || [];
     $("src-box").hidden = !list.length;
-    $("src-sum").textContent = list.length ? `${list.length} place${list.length === 1 ? "" : "s"}` : "";
+    $("src-sum").textContent = list.length ? `${list.length} source${list.length === 1 ? "" : "s"}` : "";
     $("src-list").replaceChildren(...list.map((s) => {
       const tr = document.createElement("tr");
       const sum = sourceSummary(s, now);
@@ -526,5 +552,20 @@ export function initSources() {
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
     // Other content was sent to tags: the AP took them out of their places, so read the list again
     reload: () => load(),
+    // Whether the AP has data sources (a picture from a URL needs them)
+    available: () => !!data,
+    // The PNG at opts.url ({ url, every_min, dither }) on these tags, fetched by the AP: the
+    // source as the AP saved it. Throws with a message when it cannot be done.
+    async addPicture(macs, opts) {
+      const c = client;
+      if (!c || !data) throw new Error("this AP cannot fetch pictures by itself");
+      const now = await c.call("GET", "/api/sources");
+      const plan = picturePlanUrl(now.sources || [], macs, opts);
+      if (plan.error) throw new Error(plan.error);
+      data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      render();
+      setTimeout(load, 5000);
+      return data.sources.find((x) => x.id === plan.id);
+    },
   };
 }

@@ -421,6 +421,8 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 .st-drop:hover, .st-drop.over, .st-drop:focus-within { border-color: var(--accent); color: var(--text); }
 .st-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .st-pic input[type="range"] { width: 120px; }
+#pic-url { width: 22em; max-width: 100%; }
+#pic-url-every { width: 5.5em; }
 .st-pics { display: grid; gap: 10px; }
 .st-pics figure { margin: 0; }
 .st-pics canvas { width: 100%; cursor: grab; touch-action: none; }
