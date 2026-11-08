@@ -150,6 +150,7 @@ const esl_source_def_t esl_source_image = {
     .cfg_keys = image_cfg_keys,
     .every_min = 5,
     .picture = true,
+    .own_pace = true,
     .parse = image_parse,
     .write = image_write,
     .url = image_url,

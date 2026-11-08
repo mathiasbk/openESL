@@ -69,6 +69,7 @@ const char *esl_values_get(const esl_values_t *v, const char *key)
 static const esl_source_def_t *const types[] = {
     &esl_source_met,
     &esl_source_image,
+    &esl_source_power,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -197,9 +198,8 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
             ty = types[i];
     if (!ty) {
         char names[64] = "";
-        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]); i++)
-            n += (size_t)snprintf(names + n, n < sizeof(names) ? sizeof(names) - n : 0, "%s\"%s\" (%s)",
-                                  i ? ", " : "", types[i]->name, types[i]->about);
+        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]) && n < sizeof(names); i++)
+            n += (size_t)snprintf(names + n, sizeof(names) - n, "%s\"%s\"", i ? ", " : "", types[i]->name);
         return fail(c, "type: one of %s", names);
     }
     src->type = ty->type;
@@ -659,9 +659,17 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
     lock(s);
     if (i >= 0 && i < s->n && strcmp(s->cfg[i].id, id) == 0) {
         esl_source_state_t *st = &s->state[i];
+        const esl_source_def_t *ty = type_of(s->cfg[i].type);
         uint32_t every = (uint32_t)s->cfg[i].every_min * 60;
-        /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
-        if (status || !values) {
+        /* the next run: every_min from now, or at the next whole multiple of it (and a few s
+           after, so the interval that starts then is the one "now") */
+        uint32_t next = ty && ty->align ? (now / every + 1) * every + 2 : now + every;
+        if (status == ESL_SOURCE_HELD) {
+            /* nothing fetched: the values were made again from the answer held */
+            st->next_at = next;
+            status = 0;
+        } else if (status || !values) {
+            /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
             st->tried_at = now;
             st->http = (int16_t)status;
         }
@@ -672,7 +680,7 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
             st->expires_at = expires;
             if (status != 304)
                 copy_str(st->last_modified, sizeof(st->last_modified), last_modified ? last_modified : "");
-            st->next_at = now + every;
+            st->next_at = next;
             if (expires > st->next_at)
                 st->next_at = expires;
         } else if (status || !values) {
@@ -704,6 +712,15 @@ size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap)
 {
     const esl_source_def_t *t = type_of(c->type);
     size_t n = t ? t->url(c, buf, cap) : 0;
+    return n < cap ? n : 0;
+}
+
+size_t esl_source_fetch_url(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off, char *buf, size_t cap)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    if (!t || !t->url_at)
+        return esl_source_url(c, buf, cap);
+    size_t n = t->url_at(c, now, off, buf, cap);
     return n < cap ? n : 0;
 }
 
@@ -881,6 +898,18 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
         st->tags_set++;
         st->tags_changed += r.changed;
     }
+}
+
+bool esl_source_own_pace(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->own_pace;
+}
+
+bool esl_source_dated(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->dated;
 }
 
 bool esl_source_is_picture(const esl_source_cfg_t *c)

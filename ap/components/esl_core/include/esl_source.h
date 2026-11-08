@@ -23,6 +23,7 @@
  * Each type of source is one file that fills in an esl_source_def_t (below): its own
  * settings, its URL, and how its answer becomes values. esl_source.c lists the types.
  *   "met"    esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
+ *   "power"  esl_source_power.c: today's electricity price in a Norwegian price area.
  *   "image"  esl_source_image.c: a PNG from a URL, kept as the tags' picture (no layout,
  *            no fields: its values only describe the picture).
  *
@@ -42,7 +43,7 @@
 #define ESL_SOURCE_CFG_MAX    16384        /* the configuration as JSON (NVS, GET /api/sources) */
 #define ESL_SOURCE_URL_MAX    160
 
-typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2 } esl_source_type_t;
+typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
@@ -55,6 +56,10 @@ typedef struct {
             char url[ESL_SOURCE_URL_MAX]; /* http:// or https:// */
             bool dither;
         } image;
+        struct {
+            uint8_t area;                 /* price area NO1 to NO5 */
+            bool vat;                     /* prices with 25 % VAT */
+        } power;
     };
     char place[ESL_SOURCE_PLACE_MAX + 1]; /* the name shown for it: value "place" */
     char lang[3];                         /* "nb" or "en": the language of words in the values */
@@ -93,12 +98,20 @@ typedef struct {
     const char *const *cfg_keys; /* its own keys in a source's configuration, NULL-ended */
     uint16_t every_min;          /* the least minutes between fetches, and the default */
     bool picture;                /* its answer is the tags' picture: no layout, no fields */
+    bool own_pace;               /* fetched every every_min, whatever the answer's Expires says */
+    bool dated;                  /* url_at names a file that does not change (a day's prices): fetched
+                                    when not held yet, or after ESL_SOURCE_DATED_S; else the values are
+                                    made again from it */
+    bool align;                  /* runs at whole multiples of every_min (UTC), e.g. each quarter */
     /* Reads its own keys of the configuration object obj into c; false with a message */
     bool (*parse)(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen);
     /* Writes them, each as ,"key":value */
     void (*write)(const esl_source_cfg_t *c, esl_sb_t *out);
-    /* The URL of c's data into buf; 0 when it does not fit */
+    /* The URL of c's data into buf; 0 when it does not fit. It names the data: a source
+       whose URL stays the same keeps its last answer when its configuration changes. */
     size_t (*url)(const esl_source_cfg_t *c, char *buf, size_t cap);
+    /* The URL to fetch at Unix time now (e.g. with today's date in it); NULL = url */
+    size_t (*url_at)(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off, char *buf, size_t cap);
     /* Values from an answer at Unix time now; false with a message when it cannot be read */
     bool (*values)(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
                    esl_values_t *v, uint32_t *data_at, char *err, size_t errlen);
@@ -106,6 +119,7 @@ typedef struct {
 
 extern const esl_source_def_t esl_source_met;
 extern const esl_source_def_t esl_source_image;
+extern const esl_source_def_t esl_source_power;
 
 /* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
    (esl_render_size(model) bytes, esl_render's format). False with a message in err. */
@@ -198,6 +212,8 @@ uint32_t esl_sources_wait(esl_sources_t *s, uint32_t now, uint32_t max_s);
 
 /* The URL of a source's data into buf (cap bytes); 0 when it does not fit */
 size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap);
+/* The URL to fetch it from at Unix time now (local time from off); 0 when it does not fit */
+size_t esl_source_fetch_url(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off, char *buf, size_t cap);
 
 /* Values from an answer (body, len bytes) of source c's type, at Unix time now. False
  * with a message in err when it cannot be read. */
@@ -219,6 +235,15 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
 /* Whether source c's answer is its tags' picture (type "image"): then esl_source_apply_body
    sets it, not esl_source_apply */
 bool esl_source_is_picture(const esl_source_cfg_t *c);
+
+/* Whether source c is fetched every every_min even before its last answer's Expires */
+bool esl_source_own_pace(const esl_source_cfg_t *c);
+/* Whether c's fetch URL names a file that does not change (type "power") */
+bool esl_source_dated(const esl_source_cfg_t *c);
+#define ESL_SOURCE_DATED_S (6 * 3600) /* a dated file is still asked for again after this */
+/* The status for esl_sources_done when nothing was fetched and the values were made again
+   from the answer held (a dated file): when it runs next, but no fetch is counted */
+#define ESL_SOURCE_HELD 1
 
 /* Gives each of c's tags the picture in body (len bytes), as esl_source_apply does with
    content: counts and the first error in st, and a tag that left the source is skipped. */

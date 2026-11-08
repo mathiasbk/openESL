@@ -91,6 +91,17 @@ test("tags to a picture from a URL: a new source, or the one with that URL", () 
   assert.match(picturePlanUrl([], [A], { url: "http://h/" + "å".repeat(76) }).error, /159 bytes/);
 });
 
+test("the electricity price: its own line, not a weather place", () => {
+  const power = { id: "power", type: "power", area: "NO1", tags: [C], status: { fetched_at: 1, values: { now: "2,88" } } };
+  assert.match(sourceSummary(power, 61).text, /^2,88 kr\/kWh · fetched/);
+  assert.deepEqual([...placeOf([oslo, power])], [[A, "Oslo"], [B, "Oslo"]]);
+  // a weather move leaves a price source without tags in place
+  const p = weatherPlan([oslo, { ...power, tags: [] }], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo", "power"]);
+  // and a picture added in the Dashboard keeps it too
+  assert.deepEqual(picturePlanUrl([oslo, { ...power, tags: [] }], [C], { url: "http://h/a.png" }).sources.map((s) => s.id), ["oslo", "power", "picture"]);
+});
+
 test("a picture's address, short", () => {
   assert.equal(shortUrl("http://ha.local:8123/local/charts/power.png?v=2"), "ha.local:8123/…/power.png");
   assert.equal(shortUrl("https://x.example/b.png"), "x.example/b.png");

@@ -43,6 +43,7 @@ static struct {
     char url[URL_MAX];
     char *body;
     size_t len;
+    uint32_t at; /* when it was fetched, or last answered 304 */
 } cache[ESL_SOURCE_MAX];
 
 static void lock(void *ctx)
@@ -203,26 +204,26 @@ static int cache_find(const char *url)
 }
 
 /* Whether a source of the configuration now has this URL */
-static bool url_in_use(const char *url)
+static bool url_in_use(const char *url, uint32_t now)
 {
     char u[URL_MAX];
     bool used = false;
     lock(NULL);
     for (unsigned i = 0; i < sources->n && !used; i++)
-        used = esl_source_url(&sources->cfg[i], u, sizeof(u)) && !strcmp(u, url);
+        used = esl_source_fetch_url(&sources->cfg[i], now, utc_offset, u, sizeof(u)) && !strcmp(u, url);
     unlock(NULL);
     return used;
 }
 
 /* The slot for a new answer from url: its own, an empty one, or one no source uses any more */
-static int cache_slot(const char *url)
+static int cache_slot(const char *url, uint32_t now)
 {
     int k = cache_find(url);
     for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
         if (!cache[j].body)
             k = j;
     for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
-        if (!url_in_use(cache[j].url))
+        if (!url_in_use(cache[j].url, now))
             k = j;
     return k < 0 ? 0 : k;
 }
@@ -236,12 +237,17 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     uint32_t expires = 0, data_at = 0;
     int status = 0;
 
-    if (!esl_source_url(cfg, url, sizeof(url))) {
+    if (!esl_source_fetch_url(cfg, now, utc_offset, url, sizeof(url))) {
         esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no URL");
         return;
     }
     int k = cache_find(url);
-    bool cached = k >= 0;
+    bool cached = k >= 0, held = false;
+    /* a day's prices do not change: made again from the file held, asked for again after hours */
+    if (want_fetch && cached && esl_source_dated(cfg) && now - cache[k].at < ESL_SOURCE_DATED_S) {
+        want_fetch = false;
+        held = true;
+    }
     if (want_fetch || !cached) {
         char *body;
         size_t len;
@@ -250,8 +256,9 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         /* MET's terms: spread the requests, not all at the Expires every AP for this place got */
         if (expires)
             expires += esp_random() % 300;
-        /* a picture's server may say it holds for days; its every_min is what the user asked for */
-        if (esl_source_is_picture(cfg))
+        /* a picture's server may say it holds for days, and a price's "now" follows the clock:
+           their every_min is what decides */
+        if (esl_source_own_pace(cfg))
             expires = 0;
         if (status == 200 || status == 203) {
             /* 203: the data is good, but this version of the API is deprecated (it ends about a
@@ -259,19 +266,26 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
             if (status == 203)
                 snprintf(err, sizeof(err), "%.*s says this API version is deprecated (HTTP 203): update the AP",
                          host_len(url), host_of(url));
-            k = cache_slot(url);
+            k = cache_slot(url, now);
             free(cache[k].body);
             snprintf(cache[k].url, sizeof(cache[k].url), "%s", url);
             cache[k].body = body;
             cache[k].len = len;
+            cache[k].at = now;
         } else if (status == 304 && cached) {
             /* not changed: the last answer again, for the time that has passed since */
+            cache[k].at = now;
         } else {
             if (status)
                 snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), host_of(url));
             ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-            esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
-            return;
+            /* a dated file held still gives the values (the error is shown); asked for again at
+               the next run */
+            if (!cached || !esl_source_dated(cfg)) {
+                esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
+                return;
+            }
+            held = true;
         }
     }
     if (esl_source_is_picture(cfg)) {
@@ -303,8 +317,8 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
              (unsigned)result.tags_set, (unsigned)result.tags_changed);
     if (err[0])
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-    esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, data_at, &result,
-                     err[0] ? err : NULL);
+    esl_sources_done(sources, i, cfg->id, now, held ? ESL_SOURCE_HELD : status, expires, heads.last_modified,
+                     &values, data_at, &result, err[0] ? err : NULL);
 }
 
 static void datasrc_task(void *arg)
