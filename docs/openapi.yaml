@@ -789,8 +789,8 @@ paths:
                 summary: Move to channel 20 at once, without waiting for the tags that have not confirmed it
                 value: { channel: 20, channel_now: true }
               clock:
-                summary: Norwegian time, from a Norwegian NTP server
-                value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3" }
+                summary: Norwegian time and dates, from a Norwegian NTP server
+                value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3", lang: nb }
       responses:
         "200":
           description: The new default
@@ -2254,6 +2254,15 @@ components:
             for Norway; tzdata names such as `Europe/Oslo` are not understood). `null` or
             `""` = UTC. The clock itself and `at` stay in UTC; local time is for what the AP
             fills in itself (dates, data sources).
+        lang:
+          type: [string, "null"]
+          enum: [en, nb, null]
+          description: |
+            The language of the date fields the AP fills in, `{weekday}` and `{date}`:
+            `en` (Thursday, 29 October 2026) or `nb` (Torsdag, 29. oktober 2026). `null` =
+            English. Tags showing such a field are drawn again in the new language at their
+            next poll. The Dashboard uses it for the dates it writes too. From AP firmware
+            0.11.0; an older AP answers 422.
 
     ApConfigReply:
       type: object
@@ -2277,6 +2286,7 @@ components:
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
+        lang: { type: string, enum: [en, nb], description: "The language of the date fields (`{weekday}`, `{date}`). Left out by an AP from before 0.11.0, which writes them in English" }
 
     Health:
       type: object

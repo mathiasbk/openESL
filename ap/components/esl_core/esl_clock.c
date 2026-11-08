@@ -15,6 +15,32 @@ bool esl_clock_today(int32_t *days)
     return *days >= 0;
 }
 
+static volatile uint8_t lang = ESL_LANG_EN;
+
+void esl_clock_set_lang(uint8_t l)
+{
+    lang = l == ESL_LANG_NB ? ESL_LANG_NB : ESL_LANG_EN;
+}
+
+uint8_t esl_clock_lang(void)
+{
+    return lang;
+}
+
+int esl_lang_parse(const char *s, size_t n)
+{
+    if (n == 2 && !memcmp(s, "en", 2))
+        return ESL_LANG_EN;
+    if (n == 2 && !memcmp(s, "nb", 2))
+        return ESL_LANG_NB;
+    return -1;
+}
+
+const char *esl_lang_name(uint8_t l)
+{
+    return l == ESL_LANG_NB ? "nb" : "en";
+}
+
 typedef struct {
     const char *name;
     uint8_t res;
@@ -95,6 +121,10 @@ static unsigned iso_week(int32_t days)
 static const char *const weekdays[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
 static const char *const months[12] = {"January", "February", "March",     "April",   "May",      "June",
                                        "July",    "August",   "September", "October", "November", "December"};
+/* Latin-1, as the fonts: \xf8 is o with stroke */
+static const char *const weekdays_nb[7] = {"Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "L\xf8rdag", "S\xf8ndag"};
+static const char *const months_nb[12] = {"januar", "februar", "mars",      "april",   "mai",      "juni",
+                                          "juli",   "august",  "september", "oktober", "november", "desember"};
 
 size_t esl_clock_fill(const uint8_t *t, size_t n, int32_t days, uint8_t *out, size_t cap)
 {
@@ -113,10 +143,11 @@ size_t esl_clock_fill(const uint8_t *t, size_t n, int32_t days, uint8_t *out, si
         int32_t y;
         unsigned m, d;
         civil(days, &y, &m, &d);
+        bool nb = lang == ESL_LANG_NB;
         if (f == F_WEEKDAY)
-            snprintf(v, sizeof(v), "%s", weekdays[weekday(days)]);
+            snprintf(v, sizeof(v), "%s", (nb ? weekdays_nb : weekdays)[weekday(days)]);
         else if (f == F_DATE)
-            snprintf(v, sizeof(v), "%u %s %ld", d, months[m - 1], (long)y);
+            snprintf(v, sizeof(v), nb ? "%u. %s %ld" : "%u %s %ld", d, (nb ? months_nb : months)[m - 1], (long)y);
         else if (f == F_DATE_SHORT)
             snprintf(v, sizeof(v), "%02u.%02u.%ld", d, m, (long)y);
         else
@@ -139,5 +170,7 @@ uint32_t esl_clock_stamp(uint8_t res)
         v = (uint32_t)(days - (int32_t)weekday(days)); /* its Monday */
     else
         v = (uint32_t)days;
+    /* the language in bit 27, far above any day (2^27 days is 367 000 years) */
+    v ^= (uint32_t)lang << 27;
     return ((uint32_t)res << 28) ^ (v & 0x0FFFFFFFu);
 }

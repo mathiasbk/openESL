@@ -47,6 +47,17 @@ void esl_clock_set_today(int32_t days);
 /* False while it is unknown */
 bool esl_clock_today(int32_t *days);
 
+/* The language of {weekday} and {date}: "lang" in GET/PUT /api/config, set from outside as
+ * today is (main/sched.c on the AP, web_set_lang on the web page). English until set. */
+#define ESL_LANG_EN 0 /* Thursday, 29 October 2026 */
+#define ESL_LANG_NB 1 /* Torsdag, 29. oktober 2026 */
+void esl_clock_set_lang(uint8_t lang);
+uint8_t esl_clock_lang(void);
+/* "en" or "nb" to ESL_LANG_*, -1 for anything else (n bytes) */
+int esl_lang_parse(const char *s, size_t n);
+/* ESL_LANG_* to "en" or "nb" */
+const char *esl_lang_name(uint8_t lang);
+
 /* ESL_CLOCK_* for a fixed text (Latin-1, n bytes): the finest field it holds */
 uint8_t esl_clock_res(const uint8_t *t, size_t n);
 
@@ -55,5 +66,6 @@ uint8_t esl_clock_res(const uint8_t *t, size_t n);
 size_t esl_clock_fill(const uint8_t *t, size_t n, int32_t days, uint8_t *out, size_t cap);
 
 /* A value that changes when a text of resolution res would change: the day or the week
- * now, never 0; 0 for ESL_CLOCK_NONE */
+ * now, and the language, never 0; 0 for ESL_CLOCK_NONE (English gives the values from
+ * before the language setting) */
 uint32_t esl_clock_stamp(uint8_t res);

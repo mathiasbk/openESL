@@ -55,7 +55,7 @@ typedef struct {
     void (*set)(void *ctx, int8_t dbm, bool builtin);
     void *ctx;
 } esl_tx_power_t;
-/* The AP's clock settings, "ntp" and "tz" in GET/PUT /api/config, kept by the glue
+/* The AP's clock settings, "ntp", "tz" and "lang" in GET/PUT /api/config, kept by the glue
  * (main/sched.c) in NVS. */
 #define ESL_NTP_MAX 63 /* an NTP server's name */
 #define ESL_TZ_MAX  63 /* a POSIX TZ string, "CET-1CEST,M3.5.0,M10.5.0/3" */
@@ -67,6 +67,9 @@ typedef struct {
     /* Saves and uses them at once. ntp: NULL = unchanged, "" = back to builtin_ntp;
        tz: NULL = unchanged, "" = UTC. Fills in ntp and tz above. */
     void (*set)(void *ctx, const char *ntp, const char *tz);
+    /* "lang" (ESL_LANG_* in esl_clock.h, the language of the date fields): saves it and
+       calls esl_clock_set_lang. NULL: the AP has no language setting, and PUT answers 422. */
+    void (*set_lang)(void *ctx, uint8_t lang);
 } esl_clock_cfg_t;
 
 /* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name
