@@ -246,6 +246,10 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["tz"] = body["tz"] or None
             if "ntp" in body:
                 FakeAp.config["ntp"] = body["ntp"] or FakeAp.config["builtin_ntp"]
+            if "lang" in body:
+                if "lang" not in FakeAp.config:
+                    return self._send(422, {"error": "this AP has no language setting"})
+                FakeAp.config["lang"] = body["lang"] or "en"
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -427,6 +431,10 @@ class ClientTest(unittest.TestCase):
         self.assertIn("time zone CET-1CEST,M3.5.0,M10.5.0/3, NTP no.pool.ntp.org", out)
         rc, out = self.run_cli("config", "--tz", "", "--ntp", "")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tz": None, "ntp": None}))
+        FakeAp.config["lang"] = "en"
+        rc, out = self.run_cli("config", "--lang", "nb")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"lang": "nb"}))
+        self.assertIn("dates in Norwegian", out)
 
     def test_backup_and_restore_clock(self):
         FakeAp.config.update({"ntp": "no.pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"})
@@ -449,6 +457,20 @@ class ClientTest(unittest.TestCase):
         # the AP's own NTP server is kept as None
         FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
         self.assertEqual(esl_client.backup(cli)["config"], {"poll_s": 0, "webhook": None, "tz": None, "ntp": None})
+        # the date language (0.11.0): kept, and set again; an older AP gets a note
+        FakeAp.config["lang"] = "nb"
+        b = esl_client.backup(cli)
+        self.assertEqual(b["config"]["lang"], "nb")
+        self.setUp()
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None, "lang": "en"})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["lang"], "nb")
+        self.setUp()
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)", lines)
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")
@@ -1249,8 +1271,27 @@ class ClientTest(unittest.TestCase):
     def test_date_fields(self):
         self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 17), ["Velkommen"]),
                          ["Lørdag", "17. oktober 2026", "Velkommen"])
+        self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 29), ["Welcome"], "en"),
+                         ["Thursday", "29 October 2026", "Welcome"])
+
+    def test_date_lang(self):
+        # the AP's, as its own date fields; else this computer's
+        self.assertEqual(esl_client.date_lang({"lang": "nb"}, {"LANG": "en_US.UTF-8"}), "nb")
+        self.assertEqual(esl_client.date_lang({"lang": "en"}, {"LANG": "nb_NO.UTF-8"}), "en")
+        self.assertEqual(esl_client.date_lang({"tz": None}, {"LANG": "nb_NO.UTF-8"}), "nb")
+        self.assertEqual(esl_client.date_lang(None, {"LANG": "en_GB.UTF-8", "LC_TIME": "nn_NO"}), "nb")
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "no"}), "nb")
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "C.UTF-8"}), "en")
+        self.assertEqual(esl_client.date_lang({}, {}), "en")
+
+    def test_date_in_the_aps_language(self):
+        FakeAp.config["lang"] = "en"
+        rc, out = self.run_cli("date", "0000000000000001")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[-1][1]["fields"], esl_client.date_fields(datetime.date.today(), (), "en"))
 
     def test_date_today(self):
+        FakeAp.config["lang"] = "nb"
         rc, out = self.run_cli("date", "0000000000000001", "Velkommen", "--frame")
         self.assertEqual(rc, 0, out)
         path, body = FakeAp.calls[0]
@@ -1259,6 +1300,7 @@ class ClientTest(unittest.TestCase):
                                 "fields": esl_client.date_fields(datetime.date.today(), ["Velkommen"])})
 
     def test_date_days_are_scheduled_at_midnight(self):
+        FakeAp.config["lang"] = "nb"
         rc, out = self.run_cli("date", "0000000000000001", "--days", "3")
         self.assertEqual(rc, 0, out)
         self.assertEqual(FakeAp.calls[0][0], "/api/time")   # the AP's clock is checked first
