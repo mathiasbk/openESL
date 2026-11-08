@@ -1136,8 +1136,9 @@ function previewLang() {
 }
 
 // The decimal sign of formatted numbers in the preview (#402): a point only when the language
-// is set to English (the connected AP's "lang", otherwise the one picked), a comma as on an AP
-// that has no language set
+// is set to English (the connected AP's "lang", otherwise the one picked next to the date-field
+// buttons). Without either it is a comma on purpose: that is what an AP draws until its
+// language is set, as every AP upgraded from before 0.11.0 does
 function previewNumPoint() {
   return (ap.connected ? ap.lang : store.get("lang")) === "en";
 }
@@ -1202,13 +1203,13 @@ function dateFieldButtons(inp) {
   sel.value = previewLang();
   sel.disabled = ap.connected;
   lang.title = ap.connected ? "The connected AP's date language (Settings, General)"
-    : "The language the preview writes {weekday} and {date} in. The AP uses its own (Settings, General)";
+    : "The language the preview writes {weekday}, {date} and the decimal sign in. The AP uses its own (Settings, General)";
   sel.addEventListener("change", () => {
     store.set("lang", sel.value);
     applyLimits();
     refreshAll();
   });
-  lang.append("Preview dates in ", sel, ap.connected ? " (the AP's)" : "");
+  lang.append("Preview dates and numbers in ", sel, ap.connected ? " (the AP's)" : "");
   div.append(chips, lang, p);
   return div;
 }
@@ -1354,7 +1355,7 @@ function numberRows(e, row) {
   else if (dec)
     check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
   check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);
-  check(row(""), "Thousands separator", "A space between every three digits: 1 299 (1,299 when the AP's language is English)", !!e.thousands, (v) => set({ thousands: v }));
+  check(row(""), "Thousands separator", "A space between every three digits: 1 299", !!e.thousands, (v) => set({ thousands: v }));
   return true;
 }
 

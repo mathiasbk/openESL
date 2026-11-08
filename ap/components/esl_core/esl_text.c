@@ -224,7 +224,9 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
         dash = mode == ESL_LE_NUM_0_DASH;
     }
 
-    const uint8_t dsign = num_point ? '.' : ',', group = num_point ? ',' : ' ';
+    /* a space between thousands either way: a comma would be 1-4 px wider in every font,
+       so content checked to fit with the comma could no longer fit after a change of lang */
+    const uint8_t dsign = num_point ? '.' : ',';
     char digits[24];
     uint64_t whole = v / p, frac = v % p;
     unsigned nw = 0;
@@ -239,7 +241,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
     for (i = nw; i-- > 0;) {
         out[n++] = (uint8_t)digits[i];
         if ((opts & ESL_LE_NUM_THOUSANDS) && i && i % 3 == 0 && nw > 3)
-            out[n++] = group;
+            out[n++] = ' ';
     }
     if (nd) {
         out[n++] = dsign;

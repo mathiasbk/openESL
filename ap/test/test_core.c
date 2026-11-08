@@ -151,13 +151,13 @@ void test_number(void)
     num("-1234", ESL_LE_NUM_DASH | T, "-1 234,-");
     num("123456789012.999999", ESL_LE_NUM_2 | T, "123 456 789 013,00");
 
-    /* a decimal point and a comma between thousands when "lang" is "en" (#402); what comes
-       in is read the same way */
+    /* a decimal point when "lang" is "en" (#402), still a space between thousands (the same
+       width as before; the built-in fonts draw . and , equally wide); what comes in is read the same way */
     esl_number_set_point(true);
     CHECK(esl_number_point());
     num("1299,9", ESL_LE_NUM_2, "1299.90");
-    num("1 299,90", ESL_LE_NUM_2 | T, "1,299.90");
-    num("1234567.891", ESL_LE_NUM_2 | T, "1,234,567.89");
+    num("1 299,90", ESL_LE_NUM_2 | T, "1 299.90");
+    num("1234567.891", ESL_LE_NUM_2 | T, "1 234 567.89");
     num("199.5", ESL_LE_NUM_KEEP, "199.5");
     num("199", ESL_LE_NUM_DASH, "199.-");
     num("199,-", ESL_LE_NUM_0_DASH, "199.-");

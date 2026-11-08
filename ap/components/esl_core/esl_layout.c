@@ -161,6 +161,14 @@ bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_
 }
 
 /* ESL_CLOCK_* of the layout whose name hashes to layout_hash in l, NONE when it has none. Under the lock. */
+static uint8_t clock_of(const esl_layout_t *l, uint32_t layout_hash)
+{
+    for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
+        if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
+            return l->bin.clock[i];
+    return ESL_CLOCK_NONE;
+}
+
 /* Whether the layout whose name hashes to layout_hash formats numbers. Under the lock. */
 static bool nums_of(const esl_layout_t *l, uint32_t layout_hash)
 {
@@ -168,14 +176,6 @@ static bool nums_of(const esl_layout_t *l, uint32_t layout_hash)
         if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
             return l->bin.nums[i] != 0;
     return false;
-}
-
-static uint8_t clock_of(const esl_layout_t *l, uint32_t layout_hash)
-{
-    for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
-        if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
-            return l->bin.clock[i];
-    return ESL_CLOCK_NONE;
 }
 
 uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash)

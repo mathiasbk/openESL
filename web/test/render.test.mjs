@@ -169,7 +169,7 @@ for (const model of Object.keys(MODELS)) {
     assert.deepEqual(r.render(0x10, 0, ["1299.9"]).pixels, comma.pixels);
     assert.ok(r.loadLayouts(file({})).ok);   // as sent
     assert.deepEqual(comma.pixels, r.render(0x10, 0, ["1 299,90"]).pixels);
-    assert.deepEqual(point.pixels, r.render(0x10, 0, ["1,299.90"]).pixels);
+    assert.deepEqual(point.pixels, r.render(0x10, 0, ["1 299.90"]).pixels);
   });
 
   test(`turned text draws as the AP draws it, ${model}`, async () => {
