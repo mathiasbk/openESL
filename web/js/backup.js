@@ -12,7 +12,7 @@
 export const BACKUP_FORMAT = "openesl-backup";
 export const BACKUP_VERSION = 1;
 const CONTENT_KEYS = ["layout", "fields", "price_highlight", "frame"];
-const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz"];
+const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz", "lang"];
 const BATCH = 25; // tags per PUT /api/tags: well inside the AP's 50 and its 24 KB body over USB
 const MAC_RE = /^[0-9A-F]{16}$/;
 
@@ -78,11 +78,12 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
     version: BACKUP_VERSION,
     taken: now().toISOString().replace(/\.\d+Z$/, "+00:00"),
     ap,
-    // poll_s and webhook always, as esl-client writes them; ntp and tz from an AP that has them
+    // poll_s and webhook always, as esl-client writes them; ntp, tz and lang from an AP that has them
     // the NTP server set in menuconfig is kept as null, so another AP keeps its own
     config: { poll_s: config.poll_s ?? 0, webhook: config.webhook ?? null,
       ...("ntp" in config ? { ntp: config.ntp === config.builtin_ntp ? null : config.ntp } : {}),
-      ...("tz" in config ? { tz: config.tz ?? null } : {}) },
+      ...("tz" in config ? { tz: config.tz ?? null } : {}),
+      ...("lang" in config ? { lang: config.lang } : {}) },
     ...(fontNames.length ? { fonts } : {}),
     layouts: files_,
     tags,

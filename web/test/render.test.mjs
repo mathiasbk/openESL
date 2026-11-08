@@ -17,11 +17,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const WASM = new URL("../dist/wasm/", import.meta.url);
 const layoutPath = (m) => path.join(ROOT, "tag", "designs", "layouts", m + ".json");
 
-function native(model, layoutFile, layout, flags, fields) {
+function native(model, layoutFile, layout, flags, fields, env = {}) {
   const exe = path.join(ROOT, "tag", "build", "web-" + MODELS[model].file, "web_render");
   let out;
   try {
-    out = execFileSync(exe, [layoutFile || "-", String(layout), String(flags), ...fields], { encoding: "utf8" });
+    out = execFileSync(exe, [layoutFile || "-", String(layout), String(flags), ...fields],
+      { encoding: "utf8", env: { ...process.env, ...env } });
   } catch (e) {
     out = e.stdout;
   }
@@ -224,5 +225,33 @@ for (const model of Object.keys(MODELS)) {
     // an icon that is not in the file is the AP's message
     file.layouts[0].elements.push({ type: "icon", icon: "moon", x: 0, y: 0 });
     assert.match(r.loadLayouts(JSON.stringify(file)).error, /icon "moon" is not in the file's icons/);
+  });
+
+  test(`date fields in English and Norwegian, as the AP fills them in, ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const file = {
+      format: "esl-layouts", version: 1, model,
+      layouts: [{
+        name: "day", fields: ["a"],
+        elements: [{ type: "text", text: "{weekday} {date}", x: 0, y: 0, w: MODELS[model].width, h: 40, fonts: ["small"] }],
+      }],
+    };
+    const text = JSON.stringify(file);
+    assert.ok(r.loadLayouts(text).ok);
+    const tmp = path.join(mkdtempSync(path.join(tmpdir(), "esl-")), "day.json");
+    writeFileSync(tmp, text);
+    const day = new Date(2026, 9, 31); // a Saturday: Lørdag has the ø
+    const days = String(Math.round(Date.UTC(2026, 9, 31) / 86400000));
+    const drawn = {};
+    for (const lang of ["en", "nb"]) {
+      r.lang = lang;
+      const a = r.render(0x10, 0, [""], day);
+      const b = native(model, tmp, 0x10, 0, [""], { ESL_TODAY: days, ESL_LANG: lang });
+      assert.ok(a.ok && b.ok, a.error || b.error);
+      assert.deepEqual(a.pixels, b.pixels, lang);
+      drawn[lang] = a.pixels;
+    }
+    assert.notDeepEqual(drawn.en, drawn.nb);
+    r.lang = "en";
   });
 }

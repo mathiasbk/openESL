@@ -81,7 +81,7 @@ export function initLayouts({ client, refresh, rendererBase = "", pageInfo = () 
     // the renderer is shared with the designer: with this AP's limits and font files each time
     let out;
     try {
-      out = await drawPicture(r, { file, limits: last?.layouts?.limits || null, fonts: { files: fontState.files, slots: fontState.slots }, layout, flags, fields });
+      out = await drawPicture(r, { file, limits: last?.layouts?.limits || null, fonts: { files: fontState.files, slots: fontState.slots }, layout, flags, fields, lang: last?.config?.lang });
     } catch {
       return null;   // the frame's renderer failed or stopped answering: drawn without a picture
     }
@@ -210,7 +210,7 @@ export function initLayouts({ client, refresh, rendererBase = "", pageInfo = () 
     }
     drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy, pageInfo()?.ap_version]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy, pageInfo()?.ap_version, last.config?.lang]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);

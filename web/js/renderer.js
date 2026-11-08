@@ -111,6 +111,7 @@ async function create(model, base) {
     limits: readLimits({}),
     // An older renderer (the published one on an AP's own page) cannot take an AP's limits
     canSetLimits: typeof M._web_set_limit === "function",
+    lang: "en", // "en" or "nb": the date fields' language (render)
 
     setLimits(apLimits) {
       if (!this.canSetLimits) return;
@@ -178,6 +179,9 @@ async function create(model, base) {
       // a renderer from before them has no web_set_today and draws them as written
       if (typeof M._web_set_today === "function")
         call("web_set_today", null, ["number"], [localDays(today)]);
+      // the language of {weekday} and {date}: the AP's "lang" (GET /api/config), English as on
+      // an AP until set
+      if (typeof M._web_set_lang === "function") call("web_set_lang", null, ["number"], [this.lang === "nb" ? 1 : 0]);
       // the fields back to back, each NUL-terminated (web_render in web_api.c)
       const f = fields.map((x) => String(x ?? ""));
       const bytes = f.reduce((n, x) => n + M.lengthBytesUTF8(x) + 1, 0);

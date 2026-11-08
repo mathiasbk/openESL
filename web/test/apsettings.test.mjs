@@ -51,6 +51,9 @@ test("what the AP has, as the Settings page shows it", () => {
   assert.deepEqual(currentSettings({ list: { ap: { poll_s: 300 } }, wifi: null, config: { poll_s: 300, webhook: "http://ha:8123/x" } }),
     { poll_s: 300, webhook: "http://ha:8123/x" });
   assert.equal(currentSettings({ ...last, config: { ...last.config, ntp: "ntp.uio.no" } }).ntp, "ntp.uio.no");
+  // the date language from AP firmware 0.11.0; an older AP has none, so it is not offered
+  assert.equal(currentSettings({ ...last, config: { ...last.config, lang: "nb" } }).lang, "nb");
+  assert.ok(!("lang" in currentSettings(last)));
 });
 
 test("only what differs is saved, with built-in values as a reset", () => {
@@ -61,6 +64,8 @@ test("only what differs is saved, with built-in values as a reset", () => {
   assert.deepEqual(settingsChanges({ tz: "CET", poll_s: 0 }, { poll_s: 0 }), {});
   assert.deepEqual(configBody({ tz: "", ntp: "", webhook: "" }), { tz: null, ntp: null, webhook: null });
   assert.deepEqual(configBody({ poll_s: 60, hostname: "x" }, { builtin_poll_s: 60 }), { poll_s: null });
+  assert.deepEqual(configBody({ lang: "nb" }), { lang: "nb" });
+  assert.deepEqual(settingsChanges({ lang: "nb", tz: "" }, { lang: "en" }), { lang: "nb" });
   assert.deepEqual(configBody({ poll_s: 300, webhook: "http://ha/x" }, { builtin_poll_s: 60 }), { poll_s: 300, webhook: "http://ha/x" });
 });
 

@@ -19,6 +19,7 @@ const char *web_error(void);
 unsigned char *web_fb(void);
 int web_load_layouts(const char *json, int len);
 void web_set_today(int days);
+void web_set_lang(int lang);
 int web_render(int layout, int flags, int n, const char *fields);
 
 int main(int argc, char **argv)
@@ -47,6 +48,7 @@ int main(int argc, char **argv)
         }
     }
     web_set_today(getenv("ESL_TODAY") && *getenv("ESL_TODAY") ? atoi(getenv("ESL_TODAY")) : -1);
+    web_set_lang(getenv("ESL_LANG") && !strcmp(getenv("ESL_LANG"), "nb") ? 1 : 0);
     n = argc - 4;
     /* the fields back to back, each NUL-terminated, as the page passes them */
     for (i = 0; i < n; i++) {
