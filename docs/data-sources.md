@@ -3,11 +3,11 @@
 > A user guide. The short version is the wiki page [Weather](https://github.com/mathiasbk/openESL/wiki/Weather).
 
 An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its tags by itself, so no client has to run. A
-*data source* is something on the internet the AP reads every so often. The first type is
+*data source* is something on the network the AP reads every so often. One type is
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
-client had sent `PUT /api/tags`.
+client had sent `PUT /api/tags`. The other type is a picture from a URL (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -167,6 +167,39 @@ in [openapi.yaml](openapi.yaml) under *Data sources*. In short:
 
 Back up the list with `GET /api/sources` and restore it with `PUT` (the `status` of each
 source may be sent back as it came; it is ignored).
+
+## A picture from a URL
+
+A source of type `image` (AP 0.11.0 and later) fetches a PNG from a URL every so often and
+shows it on its tags as their picture, exactly as `PUT /api/tags/{mac}/image` does: a chart
+another program draws, a camera still, a dashboard rendered by Home Assistant or a script.
+The AP keeps the picture like any other picture (about 5 KB of NVS a tag), and a picture
+that comes back the same is not sent to the tags again.
+
+```json
+{"sources": [{"id": "chart", "type": "image",
+              "url": "http://homeassistant.local:8123/local/chart-296x128.png",
+              "every_min": 10, "tags": ["00000123456789A8"]}]}
+```
+
+- `url`: `http://` or `https://`, up to 159 bytes. It is fetched with `If-Modified-Since`,
+  so a server that keeps the file's date answers `304` when it did not change.
+- The PNG must have the size of each tag's screen (296x128 for a 2.9", 200x200 for a
+  1.54"). A tag of another size is counted in `tags_failed`, and `error` names it and both
+  sizes: use one source for each screen size.
+- `dither`: `true` dithers grey and colour, for photos (as `?dither=true` on the image API).
+  Left out, every pixel goes to the nearest colour the screen has.
+- `every_min`: from 5 (the default) to 1440. An `Expires` from the server is not waited
+  for: the source is fetched every `every_min`.
+- It has no `layout` or `fields`. Its `values` in `GET` are the PNG's `width` and `height`.
+- Answers of up to 128 KB, read within 30 s, are taken. Redirects (301, 302) are not
+  followed: give the final address.
+- `https://` needs a certificate from a public authority (the AP's certificate bundle); a
+  server on the LAN with a self-signed certificate fails. Use `http://` on the LAN.
+- A login in the URL (`user:password@`) is refused: it would be kept in NVS and shown by
+  `GET /api/sources`.
+- The URL must not need a login. Home Assistant serves the files in its `www` folder
+  at `/local/` without one.
 
 ## MET Norway's terms
 

@@ -22,7 +22,9 @@
  *
  * Each type of source is one file that fills in an esl_source_def_t (below): its own
  * settings, its URL, and how its answer becomes values. esl_source.c lists the types.
- *   "met"  esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
+ *   "met"    esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
+ *   "image"  esl_source_image.c: a PNG from a URL, kept as the tags' picture (no layout,
+ *            no fields: its values only describe the picture).
  *
  * Adding a type: an ESL_SOURCE_* number, a file esl_source_<name>.c with its
  * esl_source_def_t, its line in types[] in esl_source.c, the file in CMakeLists.txt, and a
@@ -40,7 +42,7 @@
 #define ESL_SOURCE_CFG_MAX    16384        /* the configuration as JSON (NVS, GET /api/sources) */
 #define ESL_SOURCE_URL_MAX    160
 
-typedef enum { ESL_SOURCE_MET = 1 } esl_source_type_t;
+typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
@@ -49,6 +51,10 @@ typedef struct {
         struct {
             int32_t lat, lon;             /* degrees * 10000 (MET takes 4 decimals) */
         } met;
+        struct {
+            char url[ESL_SOURCE_URL_MAX]; /* http:// or https:// */
+            bool dither;
+        } image;
     };
     char place[ESL_SOURCE_PLACE_MAX + 1]; /* the name shown for it: value "place" */
     char lang[3];                         /* "nb" or "en": the language of words in the values */
@@ -86,6 +92,7 @@ typedef struct {
     const char *const *fields;   /* the default field templates, NULL-ended */
     const char *const *cfg_keys; /* its own keys in a source's configuration, NULL-ended */
     uint16_t every_min;          /* the least minutes between fetches, and the default */
+    bool picture;                /* its answer is the tags' picture: no layout, no fields */
     /* Reads its own keys of the configuration object obj into c; false with a message */
     bool (*parse)(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen);
     /* Writes them, each as ,"key":value */
@@ -98,6 +105,12 @@ typedef struct {
 } esl_source_def_t;
 
 extern const esl_source_def_t esl_source_met;
+extern const esl_source_def_t esl_source_image;
+
+/* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
+   (esl_render_size(model) bytes, esl_render's format). False with a message in err. */
+bool esl_source_image_decode(const esl_source_cfg_t *c, const char *body, size_t len, uint8_t model, uint8_t *img,
+                             char *err, size_t errlen);
 
 /* For the types: a JSON number, and a number rounded half away from zero (no libm) */
 bool esl_source_num(const char *js, const esl_jtok_t *t, double *out);
@@ -202,6 +215,15 @@ bool esl_source_content(const esl_source_cfg_t *c, const esl_values_t *v, esl_co
  * skipped: the check and the set are made under s's lock. */
 void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_store_t *store, esl_layouts_t *ls,
                       esl_sources_t *s, esl_source_state_t *st);
+
+/* Whether source c's answer is its tags' picture (type "image"): then esl_source_apply_body
+   sets it, not esl_source_apply */
+bool esl_source_is_picture(const esl_source_cfg_t *c);
+
+/* Gives each of c's tags the picture in body (len bytes), as esl_source_apply does with
+   content: counts and the first error in st, and a tag that left the source is skipped. */
+void esl_source_apply_body(const esl_source_cfg_t *c, const char *body, size_t len, esl_store_t *store,
+                           esl_sources_t *s, esl_source_state_t *st);
 
 /* Records the result of a fetch of source i (same id as cfg, else ignored): status is
  * the HTTP status (0 = no answer), expires and last_modified from the answer's headers

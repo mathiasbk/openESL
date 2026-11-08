@@ -143,7 +143,9 @@ export function weatherPlan(sources, macs, to) {
   if (!target) return { error: `There is no place called ${id} on the AP` };
   target.tags = [...target.tags, ...macs];
   if (target.tags.length > TAGS_MAX) return { error: `A place can have at most ${TAGS_MAX} tags (${target.place || id} would have ${target.tags.length})` };
-  list = list.filter((s) => s.tags.length || s.id === id);
+  // a source the move emptied goes; a picture source that had no tags yet stays
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s.id === id || (s.type === "image" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} places: give the tags one it has` };
   return { sources: list, id };
 }
@@ -161,10 +163,10 @@ export function missingModels(tags, layouts) {
   return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
 
-// The place each tag is in now, by MAC
+// The weather place each tag is in now, by MAC (not a picture from a URL)
 export function placeOf(sources) {
   const out = new Map();
-  for (const s of sources || []) for (const m of s.tags || []) out.set(m, s.place || s.id);
+  for (const s of sources || []) if (s.type !== "image") for (const m of s.tags || []) out.set(m, s.place || s.id);
   return out;
 }
 
@@ -229,7 +231,9 @@ export function initSources() {
     $("src-list").replaceChildren(...list.map((s) => {
       const tr = document.createElement("tr");
       const sum = sourceSummary(s, now);
-      const cells = [[`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
+      const pic = s.type === "image";
+      const cells = [[pic ? `${s.id} (picture)` : `${s.place || s.id}`, pic ? s.url : `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -251,13 +255,13 @@ export function initSources() {
   }
 
   async function remove(s) {
-    if (!confirm(`Stop the weather for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
+    if (!confirm(`Stop ${s.type === "image" ? "fetching the picture" : "the weather"} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old
       const now = await client.call("GET", "/api/sources");
       data = await client.call("PUT", "/api/sources", { sources: now.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
-      msg("src-msg", `Stopped the weather for ${s.place || s.id}.`, "ok");
+      msg("src-msg", `Stopped ${s.type === "image" ? "the picture" : "the weather"} for ${s.place || s.id}.`, "ok");
     } catch (e) {
       msg("src-msg", "Not changed: " + e.message, "error");
     }
@@ -268,7 +272,7 @@ export function initSources() {
   let layouts = null; // GET /api/layouts when the dialog opened
 
   function placesShown() {
-    const list = data?.sources || [];
+    const list = (data?.sources || []).filter((s) => s.type === "met");
     const radios = list.map((s) => {
       const l = document.createElement("label");
       const r = document.createElement("input");
