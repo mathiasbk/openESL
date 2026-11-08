@@ -930,6 +930,13 @@ void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id)
     unlock(st);
 }
 
+void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id)
+{
+    lock(st);
+    st->prev_id = prev_id;
+    unlock(st);
+}
+
 void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id)
 {
     lock(st);
@@ -973,7 +980,7 @@ unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max)
     lock(st);
     for (unsigned i = 0; i < ESL_STORE_OTHER_APS; i++) {
         const esl_other_ap_t *o = &st->other_aps[i];
-        if (!o->ap_id || o->ap_id == st->ap_id)
+        if (!o->ap_id || o->ap_id == st->ap_id || o->ap_id == st->prev_id)
             continue;
         all[n] = *o;
         all[n].tags = 0;
@@ -999,9 +1006,10 @@ bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *pol
 {
     lock(st);
     uint32_t id = poll->has_apid ? poll->ap_id : ESL_APID_NONE;
-    bool ok = !st->ap_id || id == ESL_APID_NONE || id == st->ap_id || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
+    bool own = id == st->ap_id || (st->prev_id && id == st->prev_id);
+    bool ok = !st->ap_id || id == ESL_APID_NONE || own || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
               ((poll->link_flags & ESL_POLL_LF_LOST_LONG) && (st->adopt_all || id == st->adopt_id));
-    if (st->ap_id && id != ESL_APID_NONE && id != st->ap_id)
+    if (st->ap_id && id != ESL_APID_NONE && !own)
         note_other_ap(st, id, (poll->link_flags & ESL_POLL_LF_LOST_LONG) != 0, now_ms);
     int i = foreign_find(st, mac);
     if (ok && i >= 0) {

@@ -188,7 +188,7 @@ static int forget_radio(void *ctx, uint64_t id)
     return 404;
 }
 
-static void apid_set_id(void *ctx, uint32_t id) { (void)ctx; (void)id; }
+static bool apid_set_id(void *ctx, uint32_t id, uint32_t prev) { (void)ctx; (void)id; (void)prev; return true; }
 static void apid_set_adopt(void *ctx, bool all, uint32_t id) { (void)ctx; (void)all; (void)id; }
 
 int main(void)

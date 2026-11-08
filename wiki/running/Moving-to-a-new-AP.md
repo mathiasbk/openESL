@@ -15,7 +15,7 @@ The labels need nothing: the radio channel and PAN ID are the same on every boar
 ## Steps
 
 1. **Back up the old AP:** `esl_client.py --url http://openesl.local backup ap.json`. Check that the line it prints counts your labels with content.
-2. **Turn the old AP off.** Two APs on the same channel would both answer the labels.
+2. **Turn the old AP off.** Two APs on the same channel would both answer the labels. While the old AP still answers them, `restore` does not give the new AP its id.
 3. **Flash the new board** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab ([Flashing the access point](Flashing-the-access-point)). Going to an [S3 + C6](ESP32-S3-and-C6), the old C6 can be the radio: the page erases it and flashes the radio firmware, so take the backup first.
 4. **Set WiFi and token** ([WiFi and API token](WiFi-and-API-token)). On an S3 or C5 over USB, use the port marked **USB**; without it, use the setup network `openesl-XXXX` from a phone.
 5. **Restore:** `esl_client.py --url http://openesl-xxxx.local restore ap.json`, with the new AP's name. Take the token you set in step 4.

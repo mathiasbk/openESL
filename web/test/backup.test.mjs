@@ -169,6 +169,17 @@ test("the AP id (#390): kept in the backup, put back on replace, kept as it is o
   r = await restoreBackup(ap, b, { parts: { layouts: false, tags: false, scheduled: false } });
   assert.ok(r.done.some((l) => /already 1A2B3C4D/.test(l)), "run again: nothing to change");
 
+  // the AP the backup came from still answers its labels here: the id is not taken
+  const near = new FakeAp();
+  Object.assign(near.config, { ap_id: "77778888", adopt: null, adopt_until: null });
+  near.health = { other_aps: [{ ap_id: "1A2B3C4D", tags: 5, polls: 40, seen_s_ago: 30, lost_long: false }] };
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "77778888");
+  assert.ok(r.failed.some((l) => /still answers its labels here/.test(l)));
+  near.health.other_aps[0].lost_long = true; // gone for an hour: taken
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "1A2B3C4D");
+
   // a second AP with the same setup keeps its own id
   const two = new FakeAp();
   Object.assign(two.config, { ap_id: "55556666", adopt: null, adopt_until: null });

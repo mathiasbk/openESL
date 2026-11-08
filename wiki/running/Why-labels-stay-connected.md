@@ -29,9 +29,9 @@ From 0.11.0 every AP has its own id, and a label with label firmware 0.11.0 or n
 
 To move labels on purpose:
 
-- **A new AP in place of a broken one:** restore the old AP's backup and choose *In place of the AP the backup came from*. The new AP gets the old id, and the labels take it at once ([Moving to a new AP](Moving-to-a-new-AP)).
+- **A new AP in place of a broken one:** restore the old AP's backup and choose *In place of the AP the backup came from*. Turn the old AP off first. The new AP gets the old id, and the labels take it at once; labels it had already taken over keep working too ([Moving to a new AP](Moving-to-a-new-AP)).
 - **Without a backup:** a new AP (or one whose memory was erased) takes over lost labels of any AP for its first 14 days. A label is taken once it has been without its own AP for an hour, so expect an hour without updates, and put the content on again.
-- **From one AP to another:** on the AP that should get them, choose **Settings → Radio → Labels of other APs** and the other AP's id. Labels are taken once they have been without their own AP for an hour, for 14 days. The other AP's labels show up in [Health](Health-and-webhook) when they poll here.
+- **From one AP to another:** on the AP that should get them, choose **Settings → Radio → Labels of other APs** and the other AP's id, then turn the other AP off. Its labels come here an hour later: adopt takes only labels that have been without their own AP for an hour, so it does nothing while the other AP still runs. It ends after 14 days. The other AP's labels show up in [Health](Health-and-webhook) when they poll here.
 - **The last way out:** a label that has heard nothing from its own AP for a week takes any AP.
 
 Labels with older firmware (and APs before 0.11.0) work as before: every AP answers them, so on a site with several APs such a label can still end up with a neighbour. Update the labels to 0.11.0 to stop that. Taking a battery out does not help: the label keeps its AP's id, and the restart only starts its hour again.

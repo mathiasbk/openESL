@@ -246,7 +246,14 @@ async function putApId(client, id, how, note, notes) {
     notes.push(`This AP keeps its own id ${cur.ap_id}: the labels of the AP the backup came from (${id}) stay with that AP. To take them over, use Adopt under Settings, Radio.`);
     return;
   }
-  if (cur.ap_id === id && cur.adopt == null) return note(true, `AP id: already ${id}`);
+  if (cur.ap_id === id) return note(true, `AP id: already ${id}`); // the same AP: an adopt that runs stays
+  // the AP the backup came from still answers its labels here: two APs with one id would fight over them
+  const health = await client.call("GET", "/api/health").catch(() => null);
+  const alive = health?.other_aps?.find((a) => a.ap_id === id && !a.lost_long && a.seen_s_ago < 600);
+  if (alive) {
+    note(false, `AP id: not changed. The AP the backup came from (${id}) still answers its labels here. Turn it off and restore the settings again, or restore as "A second AP with the same setup".`);
+    return;
+  }
   await client.call("PUT", "/api/config", { ap_id: id, adopt: null });
   note(true, `AP id: ${id}, as on the AP the backup came from (its labels take this AP at once)`);
 }

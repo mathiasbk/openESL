@@ -489,7 +489,11 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     if (c.adopt && c.adopt !== "all" && !others.some((a) => a.ap_id === c.adopt))
       opts.push([c.adopt, `Take over lost labels of AP ${c.adopt}`]);
     const keep = document.activeElement === adoptSel ? adoptSel.value : c.adopt || "";
-    adoptSel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+    const key = JSON.stringify(opts);
+    if (adoptSel.dataset.opts !== key) { // rebuilt only when they change: that closes an open list
+      adoptSel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+      adoptSel.dataset.opts = key;
+    }
     adoptSel.value = keep;
     $("set-adopt-note").textContent = [`This AP's id is ${c.ap_id}.`, adoptText(c), ADOPT_NOTE].filter(Boolean).join(" ");
     $("set-adopt-others").replaceChildren(...others.map((a) => Object.assign(document.createElement("li"), { textContent: otherApText(a) })));
@@ -498,6 +502,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const client = getClient();
     if (!client) return;
     const v = adoptSel.value || null;
+    if (v === (last?.config?.adopt || null)) // again would start the 14 days over
+      return say("set-radio-msg", v ? "Already on: it ends by itself after 14 days." : "Already off.", "ok");
     try {
       await client.call("PUT", "/api/config", { adopt: v });
       say("set-radio-msg", v ? "Saved. Labels are taken over once they have been without their own AP for an hour." : "Saved. Only this AP's own labels are answered.", "ok");
