@@ -155,7 +155,9 @@ export function weatherPlan(sources, macs, to) {
 // leave every other source, and a source left without tags goes. { sources, id } or { error }.
 export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = false }) {
   url = String(url || "").trim();
-  if (!/^https?:\/\/[^/\s]+\S*$/.test(url) || url.length > 159) return { error: "The address must start with http:// or https:// (up to 159 characters, no spaces)" };
+  // as the AP checks it (esl_source_image.c): 159 bytes of UTF-8, no user:password@
+  if (!/^https?:\/\/[^/?#\s]+\S*$/.test(url) || new TextEncoder().encode(url).length > 159) return { error: "The address must start with http:// or https:// (up to 159 bytes, no spaces)" };
+  if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
   const every = Number(every_min);
   if (!Number.isInteger(every) || every < 5 || every > 1440) return { error: "Every: 5 to 1440 minutes" };
   const moving = new Set(macs);
@@ -187,6 +189,21 @@ export function missingModels(tags, layouts) {
     if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
   }
   return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
+}
+
+// "host/…/file.png" of a picture's address, to name it in lists
+export function shortUrl(url) {
+  const m = /^https?:\/\/([^/?#]+)([^?#]*)/.exec(url || "");
+  if (!m) return url || "";
+  const parts = m[2].split("/").filter(Boolean);
+  return !parts.length ? m[1] : parts.length === 1 ? `${m[1]}/${parts[0]}` : `${m[1]}/…/${parts[parts.length - 1]}`;
+}
+
+// The picture source each tag is in now, by MAC: what it shows instead of other content
+export function pictureOf(sources) {
+  const out = new Map();
+  for (const s of sources || []) if (s.type === "image") for (const m of s.tags || []) out.set(m, shortUrl(s.url));
+  return out;
 }
 
 // The weather place each tag is in now, by MAC (not a picture from a URL)
@@ -259,7 +276,7 @@ export function initSources() {
       const sum = sourceSummary(s, now);
       // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
       const pic = s.type === "image";
-      const cells = [[pic ? `${s.id} (picture)` : `${s.place || s.id}`, pic ? s.url : `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      const cells = [[pic ? `${s.id} · ${shortUrl(s.url)}` : `${s.place || s.id}`, pic ? s.url : `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -272,7 +289,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = "Stop fetching this place; its tags keep what they show until they get other content";
+      del.title = `Stop fetching ${pic ? "this picture" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -548,6 +565,7 @@ export function initSources() {
     },
     // The place each ticked tag shows now, for the Send form's list
     placeOf: () => placeOf(data?.sources),
+    pictureOf: () => pictureOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
     // Other content was sent to tags: the AP took them out of their places, so read the list again
@@ -562,7 +580,13 @@ export function initSources() {
       const now = await c.call("GET", "/api/sources");
       const plan = picturePlanUrl(now.sources || [], macs, opts);
       if (plan.error) throw new Error(plan.error);
-      data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      try {
+        data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      } catch (e) {
+        // an AP before 0.11.0 has sources of type "met" only
+        if (/type: one of "met" \([^)]*\)\s*$/.test(e.message)) throw new Error("this AP needs firmware 0.11.0 or later to fetch a picture from a web address");
+        throw e;
+      }
       render();
       setTimeout(load, 5000);
       return data.sources.find((x) => x.id === plan.id);

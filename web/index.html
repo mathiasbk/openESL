@@ -499,7 +499,7 @@
           <div id="st-pics" class="st-pics" hidden></div>
           <details id="pic-url-box" class="help" hidden>
             <summary>Or: a PNG the AP fetches from a web address</summary>
-            <p class="muted">The AP fetches it again every few minutes and shows it on the tags, with nothing else running. The PNG must be <span id="pic-url-size">the tags' screen size</span>, and the address must work without a login (Home Assistant serves its <code>www</code> folder at <code>/local/</code>).</p>
+            <p class="muted">The AP fetches it again every few minutes and shows it on the tags, with nothing else running. The PNG must be <span id="pic-url-size">the tags' screen size</span>, and the address must work without a login (Home Assistant serves its <code>www</code> folder at <code>/local/</code>). An address already in use keeps one source: its tags get these settings too.</p>
             <div class="form row">
               <label>Address <input id="pic-url" inputmode="url" maxlength="159" autocomplete="off" spellcheck="false" placeholder="http://homeassistant.local:8123/local/chart.png"></label>
               <label>Every <input id="pic-url-every" type="number" min="5" max="1440" value="10"> min</label>
@@ -610,7 +610,7 @@
         <p class="muted">The AP fetches the forecast for these places from MET Norway every half hour or so, and a tag is only sent something when the weather on it changed. To add a place or give it more tags, tick the tags above and choose Send → <em>The weather</em>. A PNG from a web address: Send → <em>A picture</em>. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>Place</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Source</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody id="src-list"></tbody>
           </table>
         </div>

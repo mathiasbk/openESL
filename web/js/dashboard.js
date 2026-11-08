@@ -792,9 +792,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const TEXT_BYTES = textLimit(last?.layouts?.limits);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    const where = sources.placeOf();
+    const where = sources.placeOf(), picFrom = sources.pictureOf();
     $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
-      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : picFrom.has(r.mac) ? ` (instead of the picture from ${picFrom.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -1092,7 +1092,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     picDialog();
     if (!pic) $("st-file").focus();
   }
-  $("pic-dlg").addEventListener("input", picChanged);
+  // typing an address or an interval changes no preview
+  $("pic-dlg").addEventListener("input", (e) => { if (!e.target.closest("#pic-url-box")) picChanged(); });
   $("pic-dlg").addEventListener("change", picChanged);
   $("pic-cancel").onclick = () => $("pic-dlg").close();
   $("pic-send").onclick = () => sendPic(stTags());
@@ -1107,7 +1108,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         url: $("pic-url").value, every_min: Number($("pic-url-every").value), dither: $("st-dither").checked });
       $("pic-dlg").close();
       stMsg(`The AP fetches the picture now and every ${s?.every_min ?? $("pic-url-every").value} minutes; ` +
-        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Weather card lists it.`, "ok");
+        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Weather and pictures card lists it.`, "ok");
     } catch (e) {
       picMsg("Not done: " + e.message, "error");
     } finally {

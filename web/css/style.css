@@ -332,7 +332,7 @@ h3.sub { margin-top: var(--space-4); }
 #dash-health.bad { color: var(--error); }
 #dash-health.ok { color: var(--ok); }
 .dash-alert { margin: 0 0 var(--space-3); padding: 10px 12px; border: 1px solid var(--error); border-left-width: 4px; border-radius: var(--radius); color: var(--error); font-weight: 600; }
-#dash-msg.error, #fw-msg.error, #dash-poll-msg.error { color: var(--error); }
+#dash-msg.error, #pic-msg.error, #fw-msg.error, #dash-poll-msg.error { color: var(--error); }
 #dash-body.stale #dash-tiles, #dash-body.stale #dash-ap, #dash-body.stale #dash-wifi, #dash-body.stale #dash-tags, #dash-body.stale #dash-tagfw { opacity: 0.45; }
 #fw-msg.ok, #dash-poll-msg.ok { color: var(--ok); }
 /* the dashboard's two views, and its Settings page: a menu of groups, one group at a time */
@@ -421,7 +421,8 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 .st-drop:hover, .st-drop.over, .st-drop:focus-within { border-color: var(--accent); color: var(--text); }
 .st-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .st-pic input[type="range"] { width: 120px; }
-#pic-url { width: 22em; max-width: 100%; }
+#pic-url-box .form.row label:first-child { flex: 1 1 22em; min-width: 0; }
+#pic-url { flex: 1 1 auto; width: auto; min-width: 0; }
 #pic-url-every { width: 5.5em; }
 .st-pics { display: grid; gap: 10px; }
 .st-pics figure { margin: 0; }

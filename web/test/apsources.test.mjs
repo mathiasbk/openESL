@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, pictureOf, shortUrl } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -81,6 +81,20 @@ test("tags to a picture from a URL: a new source, or the one with that URL", () 
   assert.match(picturePlanUrl([], [A], { url: "http://x/a b.png" }).error, /http/);
   assert.match(picturePlanUrl([], [A], { url: "http://x/a.png", every_min: 4 }).error, /5 to 1440/);
   assert.deepEqual([...placeOf(p.sources)], []); // pictures are not weather places
+  assert.deepEqual([...pictureOf(p.sources)], [[A, "ha.local/c.png"], [B, "ha.local/c.png"], [C, "x.example/b.png"]]);
+  // no login in the address (the AP refuses it); an @ later in the path is fine
+  assert.match(picturePlanUrl([], [A], { url: "http://u:p@ha.local/c.png" }).error, /user name or password/);
+  assert.match(picturePlanUrl([], [A], { url: "http://u@ha.local" }).error, /user name or password/);
+  assert.equal(picturePlanUrl([], [A], { url: "http://ha.local/a@b.png" }).id, "picture");
+  // 159 bytes of UTF-8, as on the AP
+  assert.equal(picturePlanUrl([], [A], { url: "http://h/" + "a".repeat(150) }).id, "picture");
+  assert.match(picturePlanUrl([], [A], { url: "http://h/" + "å".repeat(76) }).error, /159 bytes/);
+});
+
+test("a picture's address, short", () => {
+  assert.equal(shortUrl("http://ha.local:8123/local/charts/power.png?v=2"), "ha.local:8123/…/power.png");
+  assert.equal(shortUrl("https://x.example/b.png"), "x.example/b.png");
+  assert.equal(shortUrl("http://cam.lan"), "cam.lan");
 });
 
 test("the models whose layout file lacks the weather layout", () => {
