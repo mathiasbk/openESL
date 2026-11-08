@@ -237,6 +237,19 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     uint32_t expires = 0, data_at = 0;
     int status = 0;
 
+    if (esl_source_is_local(cfg)) {
+        /* type "countdown": nothing to fetch, the values come from the clock */
+        if (!esl_source_values(cfg, NULL, 0, now, utc_offset, &values, &data_at, err, sizeof(err))) {
+            esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, err);
+            return;
+        }
+        esl_source_apply(cfg, &values, store, layouts, sources, &result);
+        if (result.error[0])
+            ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
+        /* 200: it went as a fetch that got data would */
+        esl_sources_done(sources, i, cfg->id, now, 200, 0, NULL, &values, data_at, &result, NULL);
+        return;
+    }
     if (!esl_source_fetch_url(cfg, now, utc_offset, url, sizeof(url))) {
         esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no URL");
         return;
