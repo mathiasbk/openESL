@@ -11,12 +11,26 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.10.0, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.11.0, for example:
 
-1. Backup, then the AP to 0.10.0 over the air. It keeps `openesl.local`.
-2. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.10.0 release (never 0.9.0), one of each model first.
-4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0.
+1. Backup, then the AP to 0.11.0 over the air, then **a new backup** (only a backup made on 0.11.0 holds the AP's id). It keeps `openesl.local`.
+2. An S3 with a C6 over WiFi: flash that C6 to 0.11.0 together with the S3. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
+3. The labels to the label firmware of the 0.11.0 release (never 0.9.0), one of each model first.
+4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0. Use ellipses, circles, triangles, polygons and the new data sources only once the AP will stay on 0.11.0.
+
+## From 0.10.0 to 0.11.0
+
+Take a backup, update the AP over the air, then **take a new backup**: only a backup made on 0.11.0 holds the AP's id. If your AP is an ESP32-S3 with a C6 over WiFi, **flash the C6 to 0.11.0 together with the S3** (Flash AP tab, without "Erase"). A C6 on a cable needs nothing. Then roll out the new label firmware, one label of each model first. No label draws again after the AP update.
+
+- Every AP now has an id, and labels on the 0.11.0 firmware are answered only by their own AP, so with several APs a label no longer ends up with a neighbour ([Why labels stay connected](Why-labels-stay-connected)). Labels on older firmware are answered by every AP as before.
+- Moving to a new AP board: turn the old AP off before you restore its backup onto the new one. After the restore the new AP has the old AP's id, so the labels stay with it. A freshly flashed AP without a backup takes the old AP's labels by itself for 14 days, each once it has heard no answer for an hour.
+- An S3 whose C6 over WiFi is older than 0.11.0 leaves its own labels "settings pending"; `GET /api/health` lists it under `old_radios`.
+- The 0.11.0 label firmware keeps the old picture until a new one is fully downloaded.
+- Update every AP: on 0.10.0 or older, the published renderer in a C6's dashboard can read the API token.
+- New: circles, ellipses and polygons in layouts; a one-off design on a label; one date language for the AP under Settings, General (English also gives prices with a decimal point; switching to or from English redraws every label whose layout formats numbers once). Dates stay as they were until you choose a language. On an S3 or C5 AP (not a C6): data sources for a picture from a URL, the Norwegian electricity price, a countdown, news headlines and calendar events. The Home Assistant integration 0.5.0 can draw a design on one label and needs this AP release for that.
+- Going back below 0.11.0: first remove ellipses, circles, triangles and polygons from your layout files, and note your data sources: an older AP that finds one of the new types starts without any, until it is back on 0.11.0. Take a C6 over WiFi back together with the S3. A label taken back below 0.11.0 starts with its built-in settings and finds the AP again by itself; below 0.9.0 it cannot, unless the AP is on channel 25.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0100-to-0110).
 
 ## From 0.9.2 to 0.10.0
 
