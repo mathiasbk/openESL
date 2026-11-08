@@ -23,10 +23,10 @@ On an ESP32-S3 AP the labels' radio is an ESP32-C6, [on a cable](ESP32-S3-and-C6
 
 ## Labels of other APs
 
-From 0.11.0 an AP does not answer the labels of another AP ([Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). When such labels poll it, the report lists their AP under `other_aps`: its id, how many of its labels were heard lately, and whether they have been without their own AP for over an hour (`lost_long`). The dashboard says so under the health line. To take them over, choose that AP under **Settings → Radio → Labels of other APs**, or `esl_client.py config --adopt 1A2B3C4D`.
+From 0.11.0 an AP does not answer the labels of another AP ([Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). When such labels poll it, the report lists their AP under `other_aps`: its id, how many of its labels were heard lately, whether they have been without their own AP for over an hour (`lost_long`), and when one of them last had an answer from its own AP (`answered_s_ago`; null when none has since this AP started). The dashboard says so under the health line. To take them over, choose that AP under **Settings → Radio → Labels of other APs**, or `esl_client.py config --adopt 1A2B3C4D`.
 
 ```json
-"other_aps": [{"ap_id": "1A2B3C4D", "tags": 3, "polls": 12, "seen_s_ago": 40, "lost_long": true}]
+"other_aps": [{"ap_id": "1A2B3C4D", "tags": 3, "polls": 12, "seen_s_ago": 40, "lost_long": true, "answered_s_ago": null}]
 ```
 
 **An old radio over WiFi:** a C6 over WiFi with firmware from before 0.11.0 cannot pass the AP id on to the labels. This AP's own labels then show *settings pending* until the radio is updated, and the radio also answers the labels of other APs from its own memory, so they never get their settings from their own AP. The report lists such a radio under `old_radios` (it does not make `ok` false), and the dashboard warns about it at the top. Update it to the same version as the AP ([ESP32-S3 with wireless C6](ESP32-S3-with-wireless-C6)).

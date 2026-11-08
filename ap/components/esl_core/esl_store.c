@@ -953,7 +953,7 @@ static int foreign_find(const esl_store_t *st, uint64_t mac)
     return -1;
 }
 
-static void note_other_ap(esl_store_t *st, uint32_t id, bool lost_long, uint64_t now_ms)
+static void note_other_ap(esl_store_t *st, uint32_t id, bool lost_long, bool answered, uint64_t now_ms)
 {
     esl_other_ap_t *a = NULL, *oldest = &st->other_aps[0];
     for (unsigned i = 0; i < ESL_STORE_OTHER_APS && !a; i++) {
@@ -971,6 +971,8 @@ static void note_other_ap(esl_store_t *st, uint32_t id, bool lost_long, uint64_t
     a->polls++;
     a->last_ms = now_ms;
     a->lost_long = lost_long;
+    if (answered)
+        a->answered_ms = now_ms ? now_ms : 1;
 }
 
 unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max)
@@ -1010,7 +1012,7 @@ bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *pol
     bool ok = !st->ap_id || id == ESL_APID_NONE || own || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
               ((poll->link_flags & ESL_POLL_LF_LOST_LONG) && (st->adopt_all || id == st->adopt_id));
     if (st->ap_id && id != ESL_APID_NONE && !own)
-        note_other_ap(st, id, (poll->link_flags & ESL_POLL_LF_LOST_LONG) != 0, now_ms);
+        note_other_ap(st, id, (poll->link_flags & ESL_POLL_LF_LOST_LONG) != 0, poll->lost == 0, now_ms);
     int i = foreign_find(st, mac);
     if (ok && i >= 0) {
         st->foreign[i].mac = 0;

@@ -178,6 +178,7 @@ typedef struct {
     uint32_t polls;          /* POLLs heard from its tags since the AP started */
     uint64_t last_ms;        /* the last one */
     bool lost_long;          /* the last one was from a tag lost for an hour (it would be taken on adopt) */
+    uint64_t answered_ms;    /* the last one from a tag its own AP had answered (lost 0): that AP runs; 0 = none */
     unsigned tags;           /* filled in by esl_store_other_aps: its tags among the last refused */
 } esl_other_ap_t;
 

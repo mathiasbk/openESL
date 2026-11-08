@@ -247,9 +247,10 @@ async function putApId(client, id, how, note, notes) {
     return;
   }
   if (cur.ap_id === id) return note(true, `AP id: already ${id}`); // the same AP: an adopt that runs stays
-  // the AP the backup came from still answers its labels here: two APs with one id would fight over them
+  // the AP the backup came from still answers its labels here: two APs with one id would fight over them.
+  // A label of an AP that is off polls with lost 0 only once (an interval at most): 3 min tells them apart
   const health = await client.call("GET", "/api/health").catch(() => null);
-  const alive = health?.other_aps?.find((a) => a.ap_id === id && !a.lost_long && a.seen_s_ago < 600);
+  const alive = health?.other_aps?.find((a) => a.ap_id === id && !a.lost_long && a.answered_s_ago != null && a.answered_s_ago < 180);
   if (alive) {
     note(false, `AP id: not changed. The AP the backup came from (${id}) still answers its labels here. Turn it off and restore the settings again, or restore as "A second AP with the same setup".`);
     return;

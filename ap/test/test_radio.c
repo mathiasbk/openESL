@@ -320,8 +320,22 @@ static void test_ap_id(void)
 
     /* Health lists the other APs whose labels poll here, newest first */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 20000, &out), 200);
-    CHECK(HAS(resp, "\"other_aps\":[{\"ap_id\":\"BEEF0009\",\"tags\":16,\"polls\":17,\"seen_s_ago\":9,\"lost_long\":false}"));
+    CHECK(HAS(resp, "\"other_aps\":[{\"ap_id\":\"BEEF0009\",\"tags\":16,\"polls\":17,\"seen_s_ago\":9,\"lost_long\":false,"
+                    "\"answered_s_ago\":9}"));
     CHECK(HAS(resp, "{\"ap_id\":\"BEEF0003\"") == 0 && HAS(resp, "\"ap_id\":\"BEEF0002\""));
+    /* labels of an AP that is off: they poll with lost 1 and more, so it is not answering them */
+    {
+        esl_poll_t p = {.has_link = true, .lost = 2, .has_apid = true, .ap_id = 0xBEEF000Aul};
+        CHECK(!esl_store_poll_welcome(&st, 0xF00000AAull, &p, 21000));
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 22000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":1,\"seen_s_ago\":1,\"lost_long\":false,"
+                        "\"answered_s_ago\":null}"));
+        p.lost = 0; /* one its AP answered: the AP runs */
+        esl_store_poll_welcome(&st, 0xF00000AAull, &p, 23000);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 25000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":2,\"seen_s_ago\":2,\"lost_long\":false,"
+                        "\"answered_s_ago\":2}"));
+    }
 
     /* GET/PUT /api/config: the id and adopt */
     api.apid = &apid_cfg;

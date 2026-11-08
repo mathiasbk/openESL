@@ -87,10 +87,15 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
     esl_other_ap_t other[ESL_STORE_OTHER_APS];
     unsigned no = esl_store_other_aps(api->store, other, ESL_STORE_OTHER_APS);
     esl_sb_puts(out, "],\"other_aps\":[");
-    for (unsigned i = 0; i < no; i++)
+    for (unsigned i = 0; i < no; i++) {
         esl_sb_printf(out, "%s{\"ap_id\":\"%08" PRIX32 "\",\"tags\":%u,\"polls\":%" PRIu32 ",\"seen_s_ago\":%" PRIu64
-                      ",\"lost_long\":%s}", i ? "," : "", other[i].ap_id, other[i].tags, other[i].polls,
+                      ",\"lost_long\":%s,\"answered_s_ago\":", i ? "," : "", other[i].ap_id, other[i].tags, other[i].polls,
                       (now_ms - other[i].last_ms) / 1000, other[i].lost_long ? "true" : "false");
+        if (other[i].answered_ms)
+            esl_sb_printf(out, "%" PRIu64 "}", (now_ms - other[i].answered_ms) / 1000);
+        else
+            esl_sb_puts(out, "null}");
+    }
     /* a radio over WiFi from before 0.11.0 answers the tags of other APs from its cache: they
        get no settings from their own AP. It still works, so ok stays as it is. */
     esl_sb_puts(out, "],\"old_radios\":[");
