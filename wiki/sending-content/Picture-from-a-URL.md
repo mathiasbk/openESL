@@ -22,6 +22,6 @@ curl -X PUT http://openesl.local/api/sources \
 - Redirects are not followed. On your own network use `http://`: `https://` needs a certificate from a public authority.
 - The address must work without a login. Files in Home Assistant's `www` folder are served at `/local/`.
 
-The Dashboard lists the source in its **Weather and pictures** card, with its address and how the last fetch went. **Remove** stops it, and the labels keep what they show. Sending other content to a label takes it out of the source.
+The Dashboard lists the source in its **Data sources** card, with its address and how the last fetch went. **Remove** stops it, and the labels keep what they show. Sending other content to a label takes it out of the source.
 
 The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#a-picture-from-a-url).

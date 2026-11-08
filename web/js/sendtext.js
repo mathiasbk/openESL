@@ -32,9 +32,13 @@ export function textFields(lines) {
   return f.length ? f : [""];
 }
 
-// Bytes the AP counts: each character is one Latin-1 byte (others become "?"), plus one per field
+// Characters the AP writes as more than one byte (expand_codepoint in esl_text.c)
+const WIDE = { "\u2026": 3, "\u20ac": 3, "\u2122": 2, "\u0152": 2, "\u0153": 2, "\u2021": 2 };
+
+// Bytes the AP counts: each character is one Latin-1 byte (others become "?"), "…" and "€"
+// three ("...", "EUR"), plus one per field
 export function textBytes(fields) {
-  return fields.reduce((n, s) => n + [...s].length + 1, 0);
+  return fields.reduce((n, s) => n + [...s].reduce((k, c) => k + (WIDE[c] || 1), 0) + 1, 0);
 }
 
 // Unix seconds of local midnight at the start of d

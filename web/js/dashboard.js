@@ -762,9 +762,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     if (stFeed()) {
       ++stSeq;
       $("st-preview").hidden = true;
-      const where = sources.placeOf(), picFrom = sources.pictureOf();
+      const shows = sources.showsOf();
       $("st-count").textContent = "";
-      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, where.has(t.mac) ? `Now: the weather for ${where.get(t.mac)}` : picFrom.has(t.mac) ? `Now: the picture from ${picFrom.get(t.mac)}` : "", "muted")));
+      $("st-list").replaceChildren(...tags.map((t) => listRow(t.mac, shows.has(t.mac) ? `Now: ${shows.get(t.mac)}` : "", "muted")));
       if (tags.length) $("st-send").textContent = "Choose what …";
       return;
     }
@@ -804,9 +804,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const TEXT_BYTES = textLimit(last?.layouts?.limits);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    const where = sources.placeOf(), picFrom = sources.pictureOf();
+    const shows = sources.showsOf();
     $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
-      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : picFrom.has(r.mac) ? ` (instead of the picture from ${picFrom.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+      (shows.has(r.mac) ? ` (instead of ${shows.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -1126,7 +1126,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         url: $("pic-url").value, every_min: Number($("pic-url-every").value), dither: $("st-dither").checked });
       $("pic-dlg").close();
       stMsg(`The AP fetches the picture now and every ${s?.every_min ?? $("pic-url-every").value} minutes; ` +
-        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Weather and pictures card lists it.`, "ok");
+        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Data sources card lists it.`, "ok");
     } catch (e) {
       picMsg("Not done: " + e.message, "error");
     } finally {

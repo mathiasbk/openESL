@@ -29,6 +29,6 @@ curl -X PUT http://openesl.local/api/sources \
 "fields": ["Ola turns {years}", "{left}", "{weekday} {date}"]
 ```
 
-The Dashboard lists the source in its **Weather and pictures** card. **Remove** stops it, and the labels keep what they show.
+The Dashboard lists the source in its **Data sources** card. **Remove** stops it, and the labels keep what they show.
 
 The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#a-countdown).

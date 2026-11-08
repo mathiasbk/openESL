@@ -1241,11 +1241,14 @@ static void test_rss(void)
        character: dropped) */
     static const char w[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?><rss><item>"
                             "<title>\x93Hei\x94 \x96 \x80" "5\x81</title></item>"
-                            "<item><title><![CDATA[a < b, 2<3 &lt;ok]]></title></item></rss>";
+                            "<item><title><![CDATA[a < b, 2<3 &lt;ok]]></title></item>"
+                            "<item><title><![CDATA[x <y and more]]></title></item></rss>";
     CHECK(esl_source_values(&cfg[0], w, sizeof(w) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(esl_values_get(&v, "h1"), "\xe2\x80\x9cHei\xe2\x80\x9d \xe2\x80\x93 \xe2\x82\xac" "5");
     /* a '<' that starts no tag is text */
     CHECK_STR(esl_values_get(&v, "h2"), "a < b, 2<3 <ok");
+    /* nor does one with no '>' after it: the rest of the title stays */
+    CHECK_STR(esl_values_get(&v, "h3"), "x <y and more");
     CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
 }
 
