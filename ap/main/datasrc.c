@@ -135,12 +135,18 @@ static bool read_stream(esp_http_client_handle_t c, esl_source_stream_t *st, cha
     int r = 0;
     int64_t end = esp_timer_get_time() + (int64_t)BODY_DEADLINE_S * 1000000;
     bool late = false, over = false;
+    int64_t yielded = esp_timer_get_time();
     while (b && !(late = esp_timer_get_time() > end) && (r = esp_http_client_read(c, b, 4096)) > 0) {
         if ((total += (size_t)r) > ESL_SOURCE_STREAM_MAX) {
             over = true;
             break;
         }
         esl_source_stream_feed(st, b, (size_t)r);
+        /* a fast network and a busy reader: let the idle task run (the task watchdog) */
+        if (esp_timer_get_time() - yielded > 500000) {
+            vTaskDelay(1);
+            yielded = esp_timer_get_time();
+        }
     }
     free(b);
     if (!b || late || over || r < 0) {
@@ -295,8 +301,10 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     }
     int k = cache_find(url);
     bool cached = k >= 0, held = false;
-    /* a day's prices do not change: made again from the file held, asked for again after hours */
-    if (want_fetch && cached && esl_source_dated(cfg) && now - cache[k].at < ESL_SOURCE_DATED_S) {
+    /* a day's prices do not change, a calendar seldom does: made again from the answer held,
+       asked for again after a while */
+    uint32_t hold = esl_source_hold_s(cfg);
+    if (want_fetch && cached && hold && now - cache[k].at < hold) {
         want_fetch = false;
         held = true;
     }
@@ -306,6 +314,10 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         /* a calendar is read as it comes, and asked for whole each time: what it keeps depends
            on the time of the fetch, so a 304 would keep yesterday's "next" */
         esl_source_stream_t *st = esl_source_stream_new(cfg, now, utc_offset);
+        if (!st && esl_source_streams(cfg)) {
+            esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no memory to read the answer");
+            return;
+        }
         /* a feed longer than the limit: its start holds the newest items */
         status = fetch(url, cached && !st ? lm : NULL, esl_source_prefix(cfg), st, &heads, &body, &len, err,
                        sizeof(err));
@@ -336,9 +348,9 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
             if (status)
                 snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), host_of(url));
             ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-            /* a dated file held still gives the values (the error is shown); asked for again at
+            /* a held answer still gives the values (the error is shown); asked for again at
                the next run */
-            if (!cached || !esl_source_dated(cfg)) {
+            if (!cached || !hold) {
                 esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
                 return;
             }

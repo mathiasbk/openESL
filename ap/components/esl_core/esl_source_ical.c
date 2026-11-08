@@ -27,8 +27,11 @@
 #define LINE_MAX  1024                 /* bytes of one unfolded line (the rest is left out) */
 #define RULE_MAX  192                  /* bytes of an RRULE */
 #define HORIZON_S (400 * 86400)        /* occurrences further ahead are not kept */
-#define PERIODS   4000                 /* periods of one rule looked at, at most */
-#define BUDGET    2000000L             /* candidate days of all rules in one calendar */
+#define PERIODS   20000                /* periods of one rule looked at, at most */
+#define BUDGET    1000000L             /* work on all rules of one calendar: a candidate day
+                                          costs 1, one near now (time zone looked up) 16 */
+#define PAST_S    (2 * 86400)          /* before now - PAST_S nothing can be kept, whatever the
+                                          zone: no time zone lookups for it */
 
 static const char *const ical_keys[] = {"title", "today", "day1",  "time1", "what1", "day2", "time2",
                                         "what2", "day3",  "time3", "what3", "day4", "time4", "what4",
@@ -155,6 +158,7 @@ typedef struct {
     uint8_t nmday;
     int8_t mday[8];
     uint16_t months; /* bit m (1-12); 0: any */
+    uint8_t wkst;    /* the week's first day (WKST), 0 = Monday */
 } rule_t;
 
 typedef struct {
@@ -163,7 +167,7 @@ typedef struct {
     esl_utc_offset_fn off;
     char line[LINE_MAX];
     size_t len;
-    bool eol, calendar;
+    bool eol, calendar, closed;
     int depth, ev_depth;
     long budget;
     char title[ESL_VALUE_MAX + 1];
@@ -424,7 +428,13 @@ static void parse_rule(const ical_t *s, const char *r, rule_t *ru)
                 if (v < e && *v++ != ',')
                     ru->bad = true;
             }
-        } else if (!KEY("WKST")) {
+        } else if (KEY("WKST")) {
+            int wd = e - v == 2 ? weekday_of(v) : -1;
+            if (wd < 0)
+                ru->bad = true;
+            else
+                ru->wkst = (uint8_t)wd;
+        } else {
             ru->bad = true; /* BYSETPOS, BYWEEKNO, BYYEARDAY, BYHOUR, ... */
         }
 #undef KEY
@@ -540,6 +550,15 @@ static void occurrence(ical_t *s, int64_t w, int64_t dur)
     }
 }
 
+static int64_t latest(const ical_t *s)
+{
+    int64_t m = s->keep[0].start;
+    for (unsigned i = 1; i < s->nkeep; i++)
+        if (s->keep[i].start > m)
+            m = s->keep[i].start;
+    return m;
+}
+
 static void expand(ical_t *s, const rule_t *ru, int64_t dur)
 {
     dt_t st = s->ev.start;
@@ -571,13 +590,15 @@ static void expand(ical_t *s, const rule_t *ru, int64_t dur)
                 (!ru->nmday || mday_in(ru, y, m, d)))
                 days[nd++] = z;
         } else if (ru->freq == 2) {
-            int32_t ws = z0 - wday(z0) + (int32_t)(7 * step);
-            for (int wd = 0; wd < 7; wd++) {
-                int y;
+            /* weeks begin on WKST (Google writes SU): it decides which days share a week
+               when INTERVAL is over 1 */
+            int32_t ws = z0 - (wday(z0) - ru->wkst + 7) % 7 + (int32_t)(7 * step);
+            for (int i = 0; i < 7; i++) {
+                int y, wd = (ru->wkst + i) % 7;
                 unsigned m, d;
-                civil(ws + wd, &y, &m, &d);
+                civil(ws + i, &y, &m, &d);
                 if ((ru->nday ? day_in(ru, wd) : wd == wday(z0)) && (!ru->months || ru->months & (1u << m)))
-                    days[nd++] = ws + wd;
+                    days[nd++] = ws + i;
             }
         } else if (ru->freq == 3) {
             int64_t mm = (int64_t)(m0 - 1) + step;
@@ -602,9 +623,16 @@ static void expand(ical_t *s, const rule_t *ru, int64_t dur)
             if (ru->count && ++n > ru->count)
                 return;
             int64_t w = (int64_t)days[i] * 86400 + sod;
+            /* long over whatever the zone (offsets are within a day): counted, not looked at */
+            if (w + dur < (int64_t)s->now - PAST_S)
+                continue;
+            s->budget -= 16;
             dt_t t = {w, st.frame == F_DATE ? F_LOCAL : st.frame};
             int64_t u = to_utc(s, t);
             if ((ru->has_until && u > ru->until) || u > (int64_t)s->now + HORIZON_S)
+                return;
+            /* every later one would come after all that is kept */
+            if (s->nkeep == KEEP && u > latest(s))
                 return;
             occurrence(s, w, dur);
         }
@@ -613,6 +641,12 @@ static void expand(ical_t *s, const rule_t *ru, int64_t dur)
 
 static void end_event(ical_t *s)
 {
+    /* a moved (or cancelled) single time takes the series' one away: remembered before the
+       cancelled check, as Outlook cancels one time of a series this way */
+    if (s->ev.has_rid && s->novr < OVR_MAX) {
+        s->ovr[s->novr].uid = s->ev.uid;
+        s->ovr[s->novr++].rid = s->ev.rid;
+    }
     if (!s->ev.has_start || s->ev.cancelled)
         return;
     bool date = s->ev.start.frame == F_DATE;
@@ -632,10 +666,6 @@ static void end_event(ical_t *s)
         dur = 0;
     if (dur > 366 * 86400)
         dur = 366 * 86400;
-    if (s->ev.has_rid && s->novr < OVR_MAX) {
-        s->ovr[s->novr].uid = s->ev.uid;
-        s->ovr[s->novr++].rid = s->ev.rid;
-    }
     rule_t ru;
     if (s->ev.rule[0] && !s->ev.has_rid) {
         parse_rule(s, s->ev.rule, &ru);
@@ -700,6 +730,8 @@ static void line(ical_t *s, char *p, size_t n)
         return;
     }
     if (name_is(p, nl, "END")) {
+        if (s->depth == 1 && name_is(v, vn, "VCALENDAR"))
+            s->closed = true;
         if (s->ev.on && s->depth == s->ev_depth && name_is(v, vn, "VEVENT")) {
             end_event(s);
             s->ev.on = false;
@@ -738,7 +770,9 @@ static void line(ical_t *s, char *p, size_t n)
             if (t.frame == F_DATE)
                 t.frame = F_LOCAL;
             s->ev.rid = to_utc(s, t);
-            s->ev.has_rid = true;
+            /* only a recent one can matter: old ones would fill ovr[] (Google and Outlook
+               keep every moved time of a series' history) */
+            s->ev.has_rid = s->ev.rid >= (int64_t)s->now - PAST_S;
         }
     } else if (name_is(p, nl, "EXDATE")) {
         for (const char *a = v, *e = v + vn; a < e && s->ev.nexd < EXD_MAX;) {
@@ -747,7 +781,9 @@ static void line(ical_t *s, char *p, size_t n)
             if (parse_dt(a, (size_t)((c ? c : e) - a), date, &t)) {
                 if (t.frame == F_DATE)
                     t.frame = F_LOCAL;
-                s->ev.exd[s->ev.nexd++] = to_utc(s, t);
+                /* only those still ahead matter: a long series keeps one for each holiday */
+                if (t.wall >= (int64_t)s->now - PAST_S)
+                    s->ev.exd[s->ev.nexd++] = to_utc(s, t);
             }
             a = c ? c + 1 : e;
         }
@@ -804,6 +840,9 @@ static bool ical_end(void *st, char **body, size_t *len, char *err, size_t errle
             line(s, s->line, s->len);
         if (!s->calendar) {
             snprintf(err, errlen, "not an iCalendar file (no BEGIN:VCALENDAR)");
+        } else if (!s->closed) {
+            /* a connection that ended early: events would be missing without a word */
+            snprintf(err, errlen, "the calendar was cut off (no END:VCALENDAR)");
         } else {
             /* occurrences a moved one replaces */
             unsigned k = 0;
@@ -840,7 +879,7 @@ static bool ical_end(void *st, char **body, size_t *len, char *err, size_t errle
 static bool ical_values(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
                         esl_values_t *v, uint32_t *data_at, char *err, size_t errlen)
 {
-    if (len < 2 || body[0] != 'X' || body[1] != ' ') {
+    if (!body || len < 2 || body[0] != 'X' || body[1] != ' ') {
         snprintf(err, errlen, "not read as a calendar");
         return false;
     }
@@ -934,6 +973,8 @@ const esl_source_def_t esl_source_ical = {
     .every_min = 15,
     .own_pace = true, /* what is "next" follows the clock, whatever the server says */
     .align = true,    /* at each quarter, so "until 10:00" turns over when the meeting ends */
+    .hold_min = 60,   /* a 2 MB calendar is not fetched every quarter: the values are made
+                         again from the short body held */
     .parse = ical_parse,
     .write = ical_write,
     .url = ical_url,

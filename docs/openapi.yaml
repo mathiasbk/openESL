@@ -2751,7 +2751,8 @@ components:
             values in the fields of a layout like `met`.
             `ical` (0.11.0 and later): the next events of an iCalendar (.ics) file at `url`, as
             values in the fields of a layout like `met`. The file is read as it comes (up to 4 MB),
-            with repeating events, and fetched whole at each quarter hour.
+            with repeating events, and fetched at most once an hour; the values are made again
+            from it every `every_min`, so what is next follows the clock.
         lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
         lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
         url:
@@ -2774,7 +2775,7 @@ components:
         dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
         place: { type: string, maxLength: 32, default: "", description: "The place's name (`met`), or the name of what is counted to (`countdown`): value `{place}` (at most 32 bytes of UTF-8)" }
         lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), and of the decimal mark and `{level}` (`power`)" }
-        every_min: { type: integer, minimum: 1, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `countdown`: at least and by default 1 (a tag only wakes when its text changed). `rss`: at least and by default 15. `ical`: at least and by default 15, at whole multiples of it" }
+        every_min: { type: integer, minimum: 1, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `countdown`: at least and by default 1 (a tag only wakes when its text changed). `rss`: at least and by default 15. `ical`: at least and by default 15, at whole multiples of it (the values; the calendar is fetched at most once an hour)" }
         layout:
           type: string
           description: |

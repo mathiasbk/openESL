@@ -120,6 +120,8 @@ typedef struct {
                                     when not held yet, or after ESL_SOURCE_DATED_S; else the values are
                                     made again from it */
     bool align;                  /* runs at whole multiples of every_min (UTC), e.g. each quarter */
+    uint16_t hold_min;           /* an answer is held this long: the runs in between make the values
+                                    again from it (a calendar: what is next follows the clock) */
     bool prefix;                 /* an answer over ESL_SOURCE_BODY_MAX is read up to it, not refused */
     bool local;                  /* nothing is fetched: values() gets no body (url only names the data) */
     /* Reads its own keys of the configuration object obj into c; false with a message */
@@ -271,6 +273,9 @@ bool esl_source_own_pace(const esl_source_cfg_t *c);
 bool esl_source_url_ok(const char *u);
 /* Whether c's fetch URL names a file that does not change (type "power") */
 bool esl_source_dated(const esl_source_cfg_t *c);
+/* How long c's last answer is held without asking again (s): ESL_SOURCE_DATED_S for a dated
+   file, the type's hold_min, or 0. A held answer also gives the values when a fetch fails. */
+uint32_t esl_source_hold_s(const esl_source_cfg_t *c);
 /* Whether c takes the start of an answer that is too long (type "rss") */
 bool esl_source_prefix(const esl_source_cfg_t *c);
 /* For a type that reads its answer as it comes (type "ical"): a new reader for a fetch at
@@ -278,6 +283,7 @@ bool esl_source_prefix(const esl_source_cfg_t *c);
    answer, and the end: the body to cache (malloc'd, *len bytes), false with a message.
    With body NULL the end only frees (a fetch that failed). */
 typedef struct esl_source_stream esl_source_stream_t;
+bool esl_source_streams(const esl_source_cfg_t *c);
 esl_source_stream_t *esl_source_stream_new(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off);
 void esl_source_stream_feed(esl_source_stream_t *s, const char *p, size_t n);
 bool esl_source_stream_end(esl_source_stream_t *s, char **body, size_t *len, char *err, size_t errlen);

@@ -937,6 +937,12 @@ bool esl_source_dated(const esl_source_cfg_t *c)
     return t && t->dated;
 }
 
+uint32_t esl_source_hold_s(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return !t ? 0 : t->dated ? ESL_SOURCE_DATED_S : (uint32_t)t->hold_min * 60;
+}
+
 bool esl_source_prefix(const esl_source_cfg_t *c)
 {
     const esl_source_def_t *t = type_of(c->type);
@@ -947,6 +953,12 @@ struct esl_source_stream {
     const esl_source_def_t *t;
     void *s;
 };
+
+bool esl_source_streams(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->stream_new;
+}
 
 esl_source_stream_t *esl_source_stream_new(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off)
 {

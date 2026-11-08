@@ -332,10 +332,13 @@ Calendar, Outlook, iCloud and Nextcloud all give a calendar such an address (oft
   without a login. Redirects are not followed. A calendar's secret address lets anyone who
   has it read the calendar: the AP keeps it, and `GET /api/sources` shows it to anyone who
   may read the API (the Dashboard shows only the host). Protect the API with a token.
-- `every_min`: from 15 (the default) to 1440. The source runs at whole multiples of it
-  (:00, :15, :30, :45), so an event that ended goes away within a quarter of an hour.
-- The file is read as it comes, so a big calendar is fine: up to 4 MB within 30 s. It is
-  fetched whole each time (no `If-Modified-Since`), as the next events depend on the time.
+- `every_min`: from 15 (the default) to 1440. The values are made again at whole multiples
+  of it (:00, :15, :30, :45), so an event that ended goes away within a quarter of an hour.
+  The calendar itself is fetched at most once an hour: a change in it shows within the hour.
+  When a fetch fails, the last one held still gives the values (the error is shown).
+- The file is read as it comes, so a big calendar is fine: up to 4 MB within 30 s. A file
+  without its `END:VCALENDAR` (a connection that ended early) is refused, so no events go
+  missing without a word.
 
 | Value | What it is |
 |---|---|
@@ -354,7 +357,7 @@ What is read:
 - Single events, all-day events (also over several days) and repeating events: `RRULE` with
   `FREQ` daily, weekly, monthly or yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (also "the
   last Friday": `-1FR`), `BYMONTHDAY` and `BYMONTH`. A rule with other parts (`BYSETPOS`,
-  `BYWEEKNO`, `BYYEARDAY`, hourly) gives only the event's first time.
+  `BYWEEKNO`, `BYYEARDAY`, hourly) gives only the event's first time. `WKST` is followed.
 - `EXDATE` (left-out times), moved single times (`RECURRENCE-ID`) and cancelled events
   (`STATUS:CANCELLED`, left out).
 - Times in UTC (ending in `Z`) are right anywhere. Times with a `TZID`, and times without a

@@ -20,13 +20,13 @@ curl -X PUT http://openesl.local/api/sources \
 
 - A secret address lets anyone who has it read the calendar. The AP keeps it, and `GET /api/sources` shows it, so protect the API with a token.
 - Big calendars are fine: the AP reads the file as it comes (up to 4 MB).
-- `every_min` is 15 to 1440 minutes. The labels only wake when what they show changes.
+- The AP fetches the calendar once an hour, and updates the labels every `every_min` minutes (15 to 1440, default 15) as events start and end. The labels only wake when what they show changes.
 - Add `"lang": "en"` for English days and times.
 
 ## What a label can show
 
 `{title}` (the calendar's name), and for the next six events `{day1}` to `{day6}` (`i dag`, `i morgen`, `tor. 29. okt`), `{time1}` to `{time6}` (`09:00`, `til 10:00` while it is on, `hele dagen`) and `{what1}` to `{what6}` (the summary). `{today}` counts today's remaining events. Without `fields` the built-in `text` layout shows the calendar's name and the next three events.
 
-Repeating events, left-out and moved times, and all-day events are handled. Times with a time zone are shown in the AP's own time zone.
+Repeating events, left-out and moved times, and all-day events are handled. Times in UTC are right anywhere; a time with a time zone is read as the AP's own clock time, so a meeting set up in another time zone shows at the wrong hour.
 
 The Dashboard lists the source in its **Weather and pictures** card. **Remove** stops it, and the labels keep what they show. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#the-next-events-of-a-calendar).

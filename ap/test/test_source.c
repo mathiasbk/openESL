@@ -1240,6 +1240,14 @@ static void test_rss(void)
     CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
 }
 
+/* cet(), counting the calls: the time zone lookups an ical reader makes */
+static long offs;
+static int32_t cet_counted(uint32_t t)
+{
+    offs++;
+    return cet(t);
+}
+
 /* Feeds an answer to source c's reader k bytes at a time; its short body and the values */
 static bool ical_read(const esl_source_cfg_t *c, const char *ics, size_t k, uint32_t now, esl_values_t *v, char *err,
                       size_t errlen)
@@ -1398,6 +1406,58 @@ static void test_ical(void)
     CHECK_STR(esl_values_get(&v, "day3"), "man. 9. nov");
     CHECK_STR(esl_values_get(&v, "what4"), "");
 
+    /* a long series: its 30 EXDATEs and 40 moved times from the past do not push out the ones
+       that matter now (next Monday 2 November left out, then 9 November moved to 12:00); a
+       cancelled single time is left out */
+    {
+        static char big[16384];
+        size_t k = (size_t)sprintf(big, "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:w\r\n"
+                                        "DTSTART;TZID=Europe/Oslo:20200106T090000\r\nRRULE:FREQ=WEEKLY\r\n");
+        for (int i = 0; i < 29; i++)
+            k += (size_t)sprintf(big + k, "EXDATE;TZID=Europe/Oslo:2020%02d%02dT090000\r\n", 1 + i / 4,
+                                 6 + 7 * (i % 4));
+        k += (size_t)sprintf(big + k, "EXDATE;TZID=Europe/Oslo:20261102T090000\r\nSUMMARY:Ukentlig\r\nEND:VEVENT\r\n");
+        for (int i = 0; i < 40; i++)
+            k += (size_t)sprintf(big + k,
+                                 "BEGIN:VEVENT\r\nUID:w\r\nRECURRENCE-ID;TZID=Europe/Oslo:2021%02d%02dT090000\r\n"
+                                 "DTSTART;TZID=Europe/Oslo:2021%02d%02dT100000\r\nSUMMARY:Gammel flytting\r\nEND:VEVENT\r\n",
+                                 1 + i / 4, 4 + 7 * (i % 4), 1 + i / 4, 4 + 7 * (i % 4));
+        k += (size_t)sprintf(big + k,
+                             "BEGIN:VEVENT\r\nUID:w\r\nRECURRENCE-ID;TZID=Europe/Oslo:20261109T090000\r\n"
+                             "DTSTART;TZID=Europe/Oslo:20261109T120000\r\nSUMMARY:Ukentlig (flyttet)\r\nEND:VEVENT\r\n"
+                             "BEGIN:VEVENT\r\nUID:t\r\nDTSTART:20261020T090000Z\r\nRRULE:FREQ=WEEKLY\r\n"
+                             "SUMMARY:Tirsdag\r\nEND:VEVENT\r\n"
+                             "BEGIN:VEVENT\r\nUID:t\r\nRECURRENCE-ID:20261027T090000Z\r\nDTSTART:20261027T090000Z\r\n"
+                             "STATUS:CANCELLED\r\nSUMMARY:Tirsdag\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+        CHECK(k < sizeof(big));
+        CHECK(ical_read(&cfg[0], big, 4096, T0, &v, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "day1"), "tir. 3. nov");
+        CHECK_STR(esl_values_get(&v, "what1"), "Tirsdag");
+        CHECK_STR(esl_values_get(&v, "day2"), "man. 9. nov");
+        CHECK_STR(esl_values_get(&v, "time2"), "12:00");
+        CHECK_STR(esl_values_get(&v, "what2"), "Ukentlig (flyttet)");
+        CHECK_STR(esl_values_get(&v, "day3"), "tir. 10. nov");
+        CHECK_STR(esl_values_get(&v, "day4"), "man. 16. nov");
+        CHECK_STR(esl_values_get(&v, "time4"), "09:00");
+    }
+    /* WKST=SU: every other week from Sunday 1 November, Sundays and Tuesdays of the same week */
+    static const char wkst[] = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20261101T100000Z\r\n"
+                               "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU\r\nSUMMARY:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    CHECK(ical_read(&cfg[0], wkst, 4096, T0, &v, err, sizeof(err)));
+    static const char *const wk[] = {"søn. 1. nov", "tir. 3. nov", "søn. 15. nov", "tir. 17. nov", "søn. 29. nov",
+                                     "tir. 1. des"};
+    for (unsigned i = 0; i < 6; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "day%u", i + 1);
+        CHECK_STR(esl_values_get(&v, key), wk[i]);
+    }
+    /* a connection that ended early */
+    CHECK(!ical_read(&cfg[0], "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20261101T100000Z\r\nEND:VEVENT\r\n", 4096, T0,
+                     &v, err, sizeof(err)));
+    CHECK(HAS(err, "cut off"));
+    /* held an hour: the runs between make the values again from the short body */
+    CHECK(esl_source_hold_s(&cfg[0]) == 3600);
+
     /* in English, a day later: the meeting is over and the holiday under way */
     CHECK(ical_read(&cfg[1], ics, 4096, T0 + 86400, &v, err, sizeof(err)));
     CHECK_STR(esl_values_get(&v, "today"), "1");
@@ -1434,40 +1494,50 @@ static void test_ical(void)
     met.type = ESL_SOURCE_MET;
     CHECK(esl_source_stream_new(&met, T0, cet) == NULL);
 
-    /* hostile: 3 MB of events that each repeat 4000 times, a 200 KB line, deep nesting.
-       The work has a bound, so this takes well under a second. */
-    static const char ev[] = "BEGIN:VEVENT\r\nDTSTART:20261027T100000Z\r\nRRULE:FREQ=DAILY;COUNT=4000\r\n"
-                             "SUMMARY:x\r\nEND:VEVENT\r\n";
+    /* hostile: 3 MB of rules that each give thousands of times, in a time zone (each time near
+       now looks the zone up, which is slow on the AP), a 200 KB line, deep nesting. The work
+       has a bound: the zone lookups are counted, not timed. */
+    static const char *const evs[] = {
+        "BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Oslo:19000101T100000\r\n"
+        "RRULE:FREQ=YEARLY;COUNT=100000;BYMONTH=1,2,3,4,5,6,7,8,9,10,11,12;BYDAY=MO,TU,WE,TH,FR,SA,SU\r\n"
+        "SUMMARY:y\r\nEND:VEVENT\r\n",
+        "BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Oslo:19000101T100000\r\n"
+        "RRULE:FREQ=WEEKLY;COUNT=100000;BYDAY=MO,TU,WE,TH,FR,SA,SU\r\nSUMMARY:w\r\nEND:VEVENT\r\n",
+        "BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Oslo:20261027T100000\r\nRRULE:FREQ=DAILY\r\nSUMMARY:d\r\nEND:VEVENT\r\n",
+    };
     size_t big = 3u << 20;
     char *h = malloc(big + 1);
     CHECK(h != NULL);
-    if (h) {
+    for (size_t e = 0; h && e < sizeof(evs) / sizeof(evs[0]); e++) {
         size_t k = (size_t)sprintf(h, "BEGIN:VCALENDAR\r\nX-WR-CALNAME:");
         memset(h + k, 'a', 200000);
         k += 200000;
         memcpy(h + k, "\r\n", 2);
         k += 2;
-        for (int i = 0; i < 200; i++)
+        for (int i = 0; i < 90; i++)
             k += (size_t)sprintf(h + k, "BEGIN:X\r\n");
-        while (k + sizeof(ev) < big) {
-            memcpy(h + k, ev, sizeof(ev) - 1);
-            k += sizeof(ev) - 1;
+        for (int i = 0; i < 90; i++)
+            k += (size_t)sprintf(h + k, "END:X\r\n");
+        size_t el = strlen(evs[e]);
+        while (k + el + 32 < big) {
+            memcpy(h + k, evs[e], el);
+            k += el;
         }
-        h[k] = '\0';
-        clock_t t0 = clock();
-        st = esl_source_stream_new(&cfg[0], T0, cet);
+        k += (size_t)sprintf(h + k, "END:VCALENDAR\r\n");
+        offs = 0;
+        st = esl_source_stream_new(&cfg[0], T0, cet_counted);
         for (size_t i = 0; i < k; i += 4096)
             esl_source_stream_feed(st, h + i, k - i < 4096 ? k - i : 4096);
         body = NULL;
         CHECK(esl_source_stream_end(st, &body, &len, err, sizeof(err)));
-        double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
-        CHECK(ms < 1500);
+        CHECK(offs < 300000);
         CHECK(len < 4096);
         CHECK(esl_source_values(&cfg[0], body, len, T0, cet, &v, &data_at, err, sizeof(err)));
         CHECK(strlen(esl_values_get(&v, "title")) <= ESL_VALUE_MAX);
+        CHECK(esl_values_get(&v, "what1")[0]);
         free(body);
-        free(h);
     }
+    free(h);
 }
 
 void test_source(void)
