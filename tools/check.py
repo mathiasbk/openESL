@@ -21,6 +21,7 @@ Steps:
   ap-test   AP core host tests with sanitizers (ap/test)
   tools     esl-client, power-budget, release notes (the upgrade instructions for VERSION) and AP
             flash budget tests
+  flash-tui the flash-tui tests (tools/flash-tui/tests; pip: textual pyserial)
   openapi   docs/openapi.yaml against the AP code
   ap-pack   the AP's web pack holds nothing that is only for the web page, such as the browser
             demo or the gallery (ap/main/webui.py --check)
@@ -171,6 +172,12 @@ def step_tools():
     run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget"], cwd=os.path.join(ROOT, "tools"))
 
 
+def step_flash_tui():
+    need_python("serial", "pyserial")
+    need_python("textual", "textual")
+    run([PY, "-m", "unittest", "discover", "-s", "tests"], cwd=os.path.join(ROOT, "tools", "flash-tui"))
+
+
 def step_openapi():
     need("make", "GNU make")
     need_host_cc()
@@ -258,6 +265,7 @@ STEPS = {
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
     "tools": (step_tools, "Python"),
+    "flash-tui": (step_flash_tui, "pip: textual pyserial (tools/dev/requirements.txt)"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),
     "ap-pack": (step_ap_pack, "Python"),
     "ap-fw": (step_ap_fw, "ESP-IDF v5.5.5 (idf.py) or Docker, Emscripten %s" % EMSCRIPTEN_VERSION),
@@ -311,7 +319,7 @@ def main():
     a = p.parse_args()
     if a.list:
         for name, (_, needs) in STEPS.items():
-            print("%-8s %s" % (name, needs))
+            print("%-9s %s" % (name, needs))
         return
     unknown = [s for s in a.steps if s not in STEPS]
     if unknown:
@@ -335,7 +343,7 @@ def main():
 
     print("\n=== Summary")
     for name, state, why, secs in results:
-        print("%-8s %-8s %5.0fs  %s" % (name, state, secs, why))
+        print("%-9s %-8s %5.0fs  %s" % (name, state, secs, why))
     if any(r[1] == "FAILED" for r in results):
         sys.exit(1)
 
