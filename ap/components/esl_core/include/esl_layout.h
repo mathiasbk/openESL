@@ -66,6 +66,9 @@ typedef struct {
     uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
     /* ESL_CLOCK_* of each layout: whether its fixed texts have date fields (esl_clock.h) */
     uint8_t clock[ESL_LAYOUT_FILE_MAX];
+    /* Whether each layout has a text element with a number format (decimals, thousands), so
+     * a new decimal sign (esl_number_set_point) draws it again (esl_layouts_image_ver) */
+    uint8_t nums[ESL_LAYOUT_FILE_MAX];
     /* Bit n: a layout draws with font file n (esl_font.h). Its version is part of the file's. */
     uint8_t user_fonts;
     /* Where each layout's "fields" list (the JSON array) is in the JSON file that was
@@ -200,8 +203,10 @@ size_t esl_layouts_render_bin(esl_layouts_t *ls, uint8_t model, const esl_layout
 
 /* The version a tag's image is drawn with (esl_store image_layout_ver): the model's file's
  * version, with the day or the week mixed in when the tag's layout (layout_hash, as
- * esl_tag_t has it) has date fields (esl_clock.h), so a new day draws it again. 0 when the
- * model has no file. */
+ * esl_tag_t has it) has date fields (esl_clock.h), so a new day draws it again, and the
+ * decimal sign mixed in when it formats numbers and that is a point (esl_number_point), so
+ * a new "lang" draws it again; a comma mixes in nothing, as before #402. 0 when the model
+ * has no file. */
 uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
 
 /* ESL_CLOCK_* of the tag's layout (layout_hash as esl_tag_t has it): whether it has date fields */

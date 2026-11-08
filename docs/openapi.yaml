@@ -598,7 +598,8 @@ paths:
         cost (about 5 KB a tag, less for screens with large areas of one colour), the same
         `content_id` and `changed` rules, and `GET /api/tags/{mac}` then shows `layout:
         "image"`. So date fields (`{date}`, `{week}`, ...) are filled in when it is drawn and
-        are not redrawn every day; use a layout file for that. Content set later replaces it.
+        are not redrawn every day, and formatted numbers (`decimals`, `thousands`) keep the
+        decimal sign of `lang` at that moment; use a layout file for either to follow. Content set later replaces it.
 
         The layout's `name` may be left out. `fields` is a list (in the layout's order) or
         an object keyed by the layout's field names, as for `PUT /api/tags/{mac}`; it may be
@@ -2270,7 +2271,10 @@ components:
             `en` (Thursday, 29 October 2026) or `nb` (Torsdag, 29. oktober 2026). `null` =
             not chosen: the AP writes English, and GET says `null`, so the Dashboard and
             esl-client keep writing their dates in the browser's or computer's language. Tags showing such a field are drawn again in the new language at their
-            next poll. The Dashboard uses it for the dates it writes too. From AP firmware
+            next poll. `en` also makes the numbers the AP formats (`decimals`, `thousands` in a
+            layout) use a decimal point (1 299.90), and tags with such a layout are drawn again
+            when it changes to or from `en`; `nb` and `null` keep the decimal comma (1 299,90),
+            as before 0.11.0. The Dashboard uses it for the dates it writes too. From AP firmware
             0.11.0; an older AP answers 422.
         ap_id:
           type: string

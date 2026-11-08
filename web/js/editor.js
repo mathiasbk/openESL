@@ -401,7 +401,10 @@ function limitsSource() {
 // called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
-  if (state.renderer) state.renderer.lang = previewLang();   // the dashboard's cards set their own
+  if (state.renderer) {
+    state.renderer.lang = previewLang();   // the dashboard's cards set their own
+    state.renderer.numPoint = previewNumPoint();
+  }
   // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
   if (ap.connected) state.renderer?.setFonts?.(ap.fonts, ap.fontSlots);
 }
@@ -1132,6 +1135,13 @@ function previewLang() {
   return store.get("lang") === "nb" ? "nb" : "en";
 }
 
+// The decimal sign of formatted numbers in the preview (#402): with an AP, a point only when its
+// "lang" is "en" (an AP whose language is not set draws a comma, as every AP upgraded from
+// before 0.11.0 does); without one, the language picked next to the date-field buttons
+function previewNumPoint() {
+  return ap.connected ? ap.lang === "en" : previewLang() === "en";
+}
+
 // Today's value of a date field in lang, for the hover text: the names as the AP writes them
 // (esl_clock.c: a capital weekday, "29 October 2026" or "29. oktober 2026")
 function dateExample(f, lang, d = new Date()) {
@@ -1192,13 +1202,13 @@ function dateFieldButtons(inp) {
   sel.value = previewLang();
   sel.disabled = ap.connected;
   lang.title = ap.connected ? "The connected AP's date language (Settings, General)"
-    : "The language the preview writes {weekday} and {date} in. The AP uses its own (Settings, General)";
+    : "The language the preview writes {weekday}, {date} and the decimal sign in. The AP uses its own (Settings, General)";
   sel.addEventListener("change", () => {
     store.set("lang", sel.value);
     applyLimits();
     refreshAll();
   });
-  lang.append("Preview dates in ", sel, ap.connected ? " (the AP's)" : "");
+  lang.append("Preview dates and numbers in ", sel, ap.connected ? " (the AP's)" : "");
   div.append(chips, lang, p);
   return div;
 }
@@ -1340,7 +1350,7 @@ function numberRows(e, row) {
   if (!on) return false;
   check(row(""), "With decimals", "On: 199,90. Off: rounded to whole kroner, 199", dec, (v) => set({ dec: v, keep: false }));
   if (keep)
-    check(row(""), "As sent", "The decimals as sent, with a decimal comma: 199,5 stays 199,5", true, () => set({ keep: false }), false, true);
+    check(row(""), "As sent", "The decimals as sent: 199,5 stays 199,5 (199.5 when the AP's language is English)", true, () => set({ keep: false }), false, true);
   else if (dec)
     check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
   check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);

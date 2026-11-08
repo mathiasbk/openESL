@@ -36,6 +36,7 @@ function drawWith(r, job) {
     if (!res.ok) return { ok: false, error: res.error };
   }
   r.lang = job.lang === "nb" ? "nb" : "en"; // the AP's date language
+  r.numPoint = job.lang === "en"; // and decimal sign (#402): a comma until "lang" is set
   const out = r.render(job.layout, job.flags || 0, job.fields || []);
   return out.ok ? { ok: true, pixels: out.pixels } : { ok: false, error: out.error };
 }

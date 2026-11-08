@@ -14,6 +14,7 @@
 #include <string.h>
 #include "esl_api.h"
 #include "esl_clock.h"
+#include "esl_text.h"
 
 #define CAP 8
 
@@ -165,6 +166,7 @@ static void lang_set(void *ctx, const char *lang)
     int l = esl_lang_parse(lang, strlen(lang));
     snprintf(c->lang, sizeof(c->lang), "%s", lang);
     esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN);
 }
 
 static esl_radio_link_t links[ESL_STORE_RADIOS] = {

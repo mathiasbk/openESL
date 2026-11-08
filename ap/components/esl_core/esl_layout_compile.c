@@ -943,6 +943,7 @@ static bool layout(cc_t *c, int l, esl_layout_bin_t *out, size_t *pos)
     out->qr_ecc[c->li] = lay.qr_ecc;
     out->qr_cap[c->li] = lay.qr_cap;
     out->clock[c->li] = lay.clock;
+    out->nums[c->li] = lay.nums ? 1 : 0;
     return true;
 }
 

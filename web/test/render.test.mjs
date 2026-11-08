@@ -154,6 +154,24 @@ for (const model of Object.keys(MODELS)) {
     assert.notDeepEqual(got.pixels, r.render(0x10, 0, ["199,90"]).pixels);
   });
 
+  test(`numPoint draws formatted numbers with a decimal point, as an AP with lang en (#402), ${model}`, async () => {
+    const r = await loadRenderer(model, WASM);
+    const el = { type: "text", field: "price", x: 0, y: 0, w: 140, h: 40, fonts: ["medium"] };
+    const file = (extra) => JSON.stringify({ format: "esl-layouts", version: 1, model,
+      layouts: [{ name: "pr", fields: ["price"], elements: [{ ...el, ...extra }] }] });
+    assert.ok(r.loadLayouts(file({ decimals: 2, thousands: true })).ok);
+    const comma = r.render(0x10, 0, ["1299.9"]);
+    r.numPoint = true;
+    const point = r.render(0x10, 0, ["1299.9"]);
+    r.numPoint = false;
+    assert.ok(comma.ok && !comma.refused && point.ok && !point.refused);
+    assert.notDeepEqual(point.pixels, comma.pixels);
+    assert.deepEqual(r.render(0x10, 0, ["1299.9"]).pixels, comma.pixels);
+    assert.ok(r.loadLayouts(file({})).ok);   // as sent
+    assert.deepEqual(comma.pixels, r.render(0x10, 0, ["1 299,90"]).pixels);
+    assert.deepEqual(point.pixels, r.render(0x10, 0, ["1 299.90"]).pixels);
+  });
+
   test(`turned text draws as the AP draws it, ${model}`, async () => {
     const r = await loadRenderer(model, WASM);
     const { height } = MODELS[model];
