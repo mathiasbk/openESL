@@ -413,7 +413,7 @@ static bool connect_ap(void)
     unsigned slots = fwpart ? fwpart->size / ESL_TAGFW_SLOT : 0;
     esl_nlink_hello_t h = {rc.boot, version_number(), id, TAGS, IMAGES, (uint32_t)rc.image_cap,
                            (uint8_t)(slots < ESL_RCACHE_MODELS ? slots : ESL_RCACHE_MODELS),
-                           ESL_NLINK_F_CHANNEL};
+                           ESL_NLINK_F_CHANNEL | ESL_NLINK_F_APID};
     xSemaphoreTake(lock, portMAX_DELAY);
     txn = 0;
     bool ok = esl_nlink_radio_hello(&nl, &h);

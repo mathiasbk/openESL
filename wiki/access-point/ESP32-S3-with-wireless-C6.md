@@ -22,7 +22,7 @@ These come from measurements on a C6, not guesses.
 - **New labels and new images cost a little battery.** Until the radio has what a label needs, it tells the label to come back in 5 s, at most 3 times in a row.
 - **If WiFi or the S3 goes down,** the labels keep showing what they have and get nothing new. After a long outage the dashboard misses some battery readings.
 - **No password on the link yet** (see Status).
-- **Two chips to update:** the S3 over the air as usual, the radio separately.
+- **Two chips to update:** the S3 over the air as usual, the radio separately. Keep them on the same version: a radio from before 0.11.0 answers the labels of other APs as well, and the [health report](Health-and-webhook#labels-of-other-aps) lists it under `old_radios` until it is updated.
 
 ## Setting it up
 

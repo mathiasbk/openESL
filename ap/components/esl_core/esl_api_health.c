@@ -91,6 +91,17 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
         esl_sb_printf(out, "%s{\"ap_id\":\"%08" PRIX32 "\",\"tags\":%u,\"polls\":%" PRIu32 ",\"seen_s_ago\":%" PRIu64
                       ",\"lost_long\":%s}", i ? "," : "", other[i].ap_id, other[i].tags, other[i].polls,
                       (now_ms - other[i].last_ms) / 1000, other[i].lost_long ? "true" : "false");
+    /* a radio over WiFi from before 0.11.0 answers the tags of other APs from its cache: they
+       get no settings from their own AP. It still works, so ok stays as it is. */
+    esl_sb_puts(out, "],\"old_radios\":[");
+    for (unsigned i = 0, n = 0; i < nl; i++) {
+        const esl_radio_link_t *l = &links[i];
+        if (!l->up || l->uart || !l->no_ap_id)
+            continue;
+        char id[17];
+        esl_mac_format(l->id, id);
+        esl_sb_printf(out, "%s{\"radio\":%u,\"id\":\"%s\",\"fw\":%u}", n++ ? "," : "", i, id, (unsigned)l->ver);
+    }
     esl_sb_printf(out, "],\"ok\":%s,\"tags\":%u,\"with_problems\":%u,\"radio_lost\":%u",
                   problems || lost ? "false" : "true", tags, problems, lost);
     for (unsigned b = 0; b < 8; b++) {

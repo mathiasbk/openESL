@@ -231,7 +231,8 @@ export function radioText(r) {
 
 // The radios the AP has lost contact with (the C6 of an S3 AP, on the cable or over WiFi), as one
 // warning each for the top of the dashboard: from GET /api/health "radio_problems", or from "lost" in
-// GET /api/tags. [] when every radio answers, or with firmware that tells neither.
+// GET /api/tags. Then one for each radio over WiFi older than 0.11.0 ("old_radios", #390).
+// [] when every radio answers, or with firmware that tells neither.
 export function radioWarnings(ap, health) {
   let lost = health?.radio_problems;
   if (!lost) {
@@ -251,7 +252,12 @@ export function radioWarnings(ap, health) {
       ? "Check the cable between the S3 and the C6, and that the C6 has power."
       : "Check that the C6 has power and is on the WiFi.";
     return `No contact with ${which}${since}: ${who} from the AP until it answers again. ${fix}`;
-  });
+  }).concat((health?.old_radios || []).map((r) => {
+    const which = several ? `Radio ${r.radio} (C6 over WiFi)` : "The radio (C6 over WiFi)";
+    const fw = r.fw ? ` has firmware ${Math.floor(r.fw / 10000)}.${Math.floor(r.fw / 100) % 100}.${r.fw % 100}, which` : "";
+    return `${which}${fw} answers the tags of other APs too, so they get no settings from their own AP. ` +
+      "Update it to the same firmware version as the AP.";
+  }));
 }
 
 // Which AP board this is: its name from GET /api/tags (board_name, in firmware after 0.6.0), or for an

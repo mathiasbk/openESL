@@ -2364,6 +2364,17 @@ components:
               polls: { type: integer, minimum: 0, description: "POLLs from its tags since this AP started" }
               seen_s_ago: { type: integer, minimum: 0, description: "Seconds since the last one" }
               lost_long: { type: boolean, description: "The last one came from a tag without an answer for an hour or more: adopt would take it" }
+        old_radios:
+          type: array
+          description: "Connected radios over WiFi whose firmware is from before 0.11.0 (#390). Such a radio answers the tags of other APs from its cache, so those tags get no settings from their own AP: update it to the AP's version. It does not change `ok`. Not sent by firmware before 0.11.0"
+          items:
+            type: object
+            additionalProperties: false
+            required: [radio, id, fw]
+            properties:
+              radio: { type: integer, minimum: 0, maximum: 3, description: "Its number, as in `radios` in `GET /api/tags`" }
+              id: { type: string, description: "Its MAC, as its HELLO said" }
+              fw: { type: integer, minimum: 0, description: "Its firmware (major * 10000 + minor * 100 + patch), as `fw` of the radio in `GET /api/tags`" }
         ok: { type: boolean, description: "No tag has a problem, and no radio is lost" }
         tags: { type: integer, minimum: 0, description: Tags in the table }
         with_problems: { type: integer, minimum: 0, description: Length of `problems` }
@@ -2380,6 +2391,7 @@ components:
           - { mac: "00000123456789A9", problems: [draw_failed, low_battery], seen_s_ago: 12, battery_mv: 2380 }
         radio_problems: []
         other_aps: []
+        old_radios: []
         ok: false
         tags: 12
         with_problems: 2

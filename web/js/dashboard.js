@@ -377,7 +377,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
-    // the S3 has lost its C6: nothing reaches the tags, so it goes above everything else
+    // the S3 has lost its C6: nothing reaches the tags, so it goes above everything else; an old C6
+    // over WiFi (#390) goes there too
     const lostText = radioWarnings(ap, health).join(" ");
     if ($("dash-radio").textContent !== lostText) $("dash-radio").textContent = lostText;
     $("dash-radio").hidden = !lostText;
