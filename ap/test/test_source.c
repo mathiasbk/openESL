@@ -1237,6 +1237,15 @@ static void test_rss(void)
     static const char l1[] = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><rss><item><title>Bl\xe5" "b\xe6" "r</title></item></rss>";
     CHECK(esl_source_values(&cfg[0], l1, sizeof(l1) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(esl_values_get(&v, "h1"), "Bl\xc3\xa5" "b\xc3\xa6r");
+    /* windows-1252's curly quotes and dashes (0x91-0x97), its euro sign, and 0x81 (no
+       character: dropped) */
+    static const char w[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?><rss><item>"
+                            "<title>\x93Hei\x94 \x96 \x80" "5\x81</title></item>"
+                            "<item><title><![CDATA[a < b, 2<3 &lt;ok]]></title></item></rss>";
+    CHECK(esl_source_values(&cfg[0], w, sizeof(w) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "h1"), "\xe2\x80\x9cHei\xe2\x80\x9d \xe2\x80\x93 \xe2\x82\xac" "5");
+    /* a '<' that starts no tag is text */
+    CHECK_STR(esl_values_get(&v, "h2"), "a < b, 2<3 <ok");
     CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
 }
 
