@@ -56,8 +56,8 @@ info:
     | `507` | the tag table or the schedule is full, or NVS has no room for the content |
 
     **Text** is sent as UTF-8. The AP draws what its fonts have: they are Latin-1, so æøå,
-    `°`, `½` and the like work, dashes and curly quotes become their plain forms, and other
-    characters (`€`, emoji) become `?`. Text that is too long gives `422`: the fields share
+    `°`, `½` and the like work, dashes and curly quotes become their plain forms, `€` becomes
+    `EUR` and `™` `TM` (from 0.11.0; `?` before), and other characters (emoji) become `?`. Text that is too long gives `422`: the fields share
     256 bytes, one length byte per field plus the text after the conversion to Latin-1 (one
     byte per character), so at most 255 bytes in one field, 250 with six fields and 240 with
     sixteen (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`; `textBytes` in `GET

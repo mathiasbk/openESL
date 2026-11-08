@@ -76,6 +76,9 @@ AP_REPLACE.update({c: "'" for c in "\u2018\u2019\u201a\u2032"})
 AP_REPLACE.update({c: '"' for c in "\u201c\u201d\u201e\u2033"})
 AP_REPLACE["\u2022"] = "\u00b7"
 AP_REPLACE["\u2026"] = "..."
+AP_REPLACE.update({"\u20ac": "EUR", "\u2122": "TM", "\u0152": "OE", "\u0153": "oe", "\u2021": "++"})
+AP_REPLACE.update({"\u0160": "S", "\u0161": "s", "\u017d": "Z", "\u017e": "z", "\u0178": "Y", "\u0192": "f",
+                   "\u2039": "<", "\u203a": ">", "\u02c6": "^", "\u02dc": "~", "\u2020": "+", "\u2030": "%"})
 
 
 class DesignError(ValueError):

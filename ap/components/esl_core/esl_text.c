@@ -22,6 +22,19 @@ static uint8_t map_codepoint(uint32_t cp)
         return '"';
     case 0x2022:
         return 0xB7; /* bullet -> middle dot */
+    /* windows-1252 letters the tag font lacks (it has Latin-1 only) */
+    case 0x0160: return 'S';
+    case 0x0161: return 's';
+    case 0x017D: return 'Z';
+    case 0x017E: return 'z';
+    case 0x0178: return 'Y';
+    case 0x0192: return 'f';
+    case 0x2039: return '<';
+    case 0x203A: return '>';
+    case 0x02C6: return '^';
+    case 0x02DC: return '~';
+    case 0x2020: return '+';
+    case 0x2030: return '%'; /* per mille */
     default:
         return '?';
     }
@@ -31,10 +44,23 @@ static uint8_t map_codepoint(uint32_t cp)
  * to out (at most 3), or 0 if cp is not one of them. */
 static size_t expand_codepoint(uint32_t cp, uint8_t out[3])
 {
-    if (cp == 0x2026) { /* horizontal ellipsis -> "..." */
-        out[0] = out[1] = out[2] = '.';
-        return 3;
-    }
+    static const struct {
+        uint16_t cp;
+        char s[4];
+    } many[] = {
+        {0x2026, "..."}, /* horizontal ellipsis */
+        {0x20AC, "EUR"}, /* the tag font has no euro sign */
+        {0x2122, "TM"},
+        {0x0152, "OE"},
+        {0x0153, "oe"},
+        {0x2021, "++"},
+    };
+    for (size_t i = 0; i < sizeof(many) / sizeof(many[0]); i++)
+        if (many[i].cp == cp) {
+            size_t n = strlen(many[i].s);
+            memcpy(out, many[i].s, n);
+            return n;
+        }
     return 0;
 }
 

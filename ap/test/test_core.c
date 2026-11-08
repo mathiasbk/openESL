@@ -33,10 +33,14 @@ void test_text(void)
     CHECK_INT(n, 6);
     CHECK_MEM(out, "\xE6\xF8\xE5\xC6\xD8\xC5", 6);
 
-    /* curly quotes, no-break space, euro sign (not in Latin-1), emoji */
+    /* curly quotes, no-break space, euro sign (not in Latin-1: spelt out), emoji */
     n = to_l1("\xE2\x80\x9C" "a\xE2\x80\x9D\xC2\xA0\xE2\x82\xAC\xF0\x9F\x98\x80", out, sizeof(out), &ovf);
-    CHECK_INT(n, 6);
-    CHECK_MEM(out, "\"a\" ??", 6);
+    CHECK_INT(n, 8);
+    CHECK_MEM(out, "\"a\" EUR?", 8);
+    /* windows-1252's other letters the font lacks: Š ž Ÿ ™ Œ œ ‹› */
+    n = to_l1("\xC5\xA0\xC5\xBE\xC5\xB8\xE2\x84\xA2\xC5\x92\xC5\x93\xE2\x80\xB9\xE2\x80\xBA", out, sizeof(out), &ovf);
+    CHECK_INT(n, 11);
+    CHECK_MEM(out, "SzYTMOEoe<>", 11);
 
     /* invalid byte, truncated sequence, overlong '/', control char */
     n = to_l1("\xFF", out, sizeof(out), &ovf);
