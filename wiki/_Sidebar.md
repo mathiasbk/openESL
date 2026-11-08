@@ -45,6 +45,7 @@
 - [Home Assistant](Home-Assistant)
 - [Weather on a label](Weather)
 - [Picture from a URL](Picture-from-a-URL)
+- [Electricity price](Electricity-price)
 
 **Running it**
 - [Dashboard](Dashboard)

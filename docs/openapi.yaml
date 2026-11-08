@@ -1416,6 +1416,17 @@ paths:
                       url: "http://homeassistant.local:8123/local/chart-296x128.png"
                       every_min: 10
                       tags: ["00000123456789A8"]
+              power:
+                summary: Today's electricity price for Oslo on the built-in text layout
+                value:
+                  sources:
+                    - id: power
+                      type: power
+                      area: NO1
+                      layout: text
+                      fields: ["Power {area} {date}", "Now {now} kr/kWh", "{level}", "Cheapest {minat}: {min}"]
+                      lang: en
+                      tags: ["00000123456789B2"]
               none:
                 summary: No data sources
                 value: { sources: [] }
@@ -2676,17 +2687,23 @@ components:
         - properties: { type: { const: image } }
           required: [url]
           not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [layout] }, { required: [fields] }] }
+        - properties: { type: { const: power }, every_min: { minimum: 15 } }
+          required: [area, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }] }
       properties:
         id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
         type:
           type: string
-          enum: [met, image]
+          enum: [met, image, power]
           description: |
             `met`: the forecast from MET Norway (api.met.no locationforecast 2.0), as values in
             the fields of a layout. `image` (0.11.0 and later): a PNG fetched from `url`, kept as
             the tags' picture as `PUT /api/tags/{mac}/image` keeps one; it has no `layout` or
             `fields`. The PNG must have the size of each tag's screen (`GET /api/tags`: a tag of
             another size is counted in `tags_failed`); use one source for each screen size.
+            `power` (0.11.0 and later): today's electricity spot price in a Norwegian price area
+            from hvakosterstrommen.no, as values in the fields of a layout like `met`. `{now}`
+            follows the clock: the values are made again at each run, also from a 304.
         lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
         lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
         url:
@@ -2697,14 +2714,16 @@ components:
             `image`: where the PNG is, `http://` or `https://` (a certificate from the usual
             public authorities). Fetched with `If-Modified-Since`, so a picture that did not
             change costs a 304; a picture that comes back the same is not sent to the tags again.
+        area: { type: string, enum: [NO1, NO2, NO3, NO4, NO5], description: "`power`: the price area (NO1 Oslo, NO2 Kristiansand, NO3 Trondheim, NO4 Tromsø, NO5 Bergen)" }
+        vat: { type: boolean, description: "`power`: add 25 % VAT to the prices; by default true, except in NO4 (no VAT on electricity in Northern Norway)" }
         dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
         place: { type: string, maxLength: 32, default: "", description: "The place's name, value `{place}` (at most 32 bytes of UTF-8)" }
-        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}`" }
-        every_min: { type: integer, minimum: 5, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5" }
+        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), and of the decimal mark and `{level}` (`power`)" }
+        every_min: { type: integer, minimum: 5, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15" }
         layout:
           type: string
           description: |
-            `met`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
+            `met` and `power`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
             A tag whose model has no such layout, or whose content does not fit it, is
             counted in `tags_failed` and keeps what it shows.
         fields:
@@ -2714,7 +2733,7 @@ components:
           items: { type: string, maxLength: 48 }
           description: |
             The content's fields, each a template of text and `{value}`s (`types.met.values`
-            in `GET`). Left out: `types.met.fields`, the fields of the weather template.
+            in `GET`). Left out: `types.<type>.fields` (for `met`, the fields of the weather template).
         tags:
           type: array
           maxItems: 32

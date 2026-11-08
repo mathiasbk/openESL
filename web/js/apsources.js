@@ -29,7 +29,8 @@ export function sourceSummary(s, now) {
   const v = st.values || {};
   if (st.error) return { text: st.error, bad: true };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
-  const what = [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
+  const what = s.type === "power" ? (v.now ? `${v.now} kr/kWh` : "")
+    : [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
   return { text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)}`, bad: false };
 }
 
@@ -143,9 +144,9 @@ export function weatherPlan(sources, macs, to) {
   if (!target) return { error: `There is no place called ${id} on the AP` };
   target.tags = [...target.tags, ...macs];
   if (target.tags.length > TAGS_MAX) return { error: `A place can have at most ${TAGS_MAX} tags (${target.place || id} would have ${target.tags.length})` };
-  // a source the move emptied goes; a picture source that had no tags yet stays
+  // a weather place the move emptied goes; another type's source that had no tags yet stays
   const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
-  list = list.filter((s) => s.tags.length || s.id === id || (s.type === "image" && empty.has(s.id)));
+  list = list.filter((s) => s.tags.length || s.id === id || (s.type !== "met" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} places: give the tags one it has` };
   return { sources: list, id };
 }
@@ -209,7 +210,7 @@ export function pictureOf(sources) {
 // The weather place each tag is in now, by MAC (not a picture from a URL)
 export function placeOf(sources) {
   const out = new Map();
-  for (const s of sources || []) if (s.type !== "image") for (const m of s.tags || []) out.set(m, s.place || s.id);
+  for (const s of sources || []) if (s.type === "met") for (const m of s.tags || []) out.set(m, s.place || s.id);
   return out;
 }
 
@@ -276,7 +277,8 @@ export function initSources() {
       const sum = sourceSummary(s, now);
       // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
       const pic = s.type === "image";
-      const cells = [[pic ? `${s.id} · ${shortUrl(s.url)}` : `${s.place || s.id}`, pic ? s.url : `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      // the electricity price (type power) with its price area
+      const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -289,7 +291,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = `Stop fetching ${pic ? "this picture" : "the weather for this place"}; its tags keep what they show until they get other content`;
+      del.title = `Stop fetching ${pic ? "this picture" : s.type === "power" ? "the electricity price" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -298,13 +300,14 @@ export function initSources() {
   }
 
   async function remove(s) {
-    if (!confirm(`Stop ${s.type === "image" ? "fetching the picture" : "the weather"} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
+    const what = { image: "the picture", power: "the electricity price" }[s.type] || "the weather";
+    if (!confirm(`Stop ${what} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old
       const now = await client.call("GET", "/api/sources");
       data = await client.call("PUT", "/api/sources", { sources: now.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
-      msg("src-msg", `Stopped ${s.type === "image" ? "the picture" : "the weather"} for ${s.place || s.id}.`, "ok");
+      msg("src-msg", `Stopped ${what} for ${s.place || s.id}.`, "ok");
     } catch (e) {
       msg("src-msg", "Not changed: " + e.message, "error");
     }

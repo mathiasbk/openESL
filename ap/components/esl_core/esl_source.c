@@ -69,6 +69,7 @@ const char *esl_values_get(const esl_values_t *v, const char *key)
 static const esl_source_def_t *const types[] = {
     &esl_source_met,
     &esl_source_image,
+    &esl_source_power,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -197,9 +198,8 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
             ty = types[i];
     if (!ty) {
         char names[64] = "";
-        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]); i++)
-            n += (size_t)snprintf(names + n, n < sizeof(names) ? sizeof(names) - n : 0, "%s\"%s\" (%s)",
-                                  i ? ", " : "", types[i]->name, types[i]->about);
+        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]) && n < sizeof(names); i++)
+            n += (size_t)snprintf(names + n, sizeof(names) - n, "%s\"%s\"", i ? ", " : "", types[i]->name);
         return fail(c, "type: one of %s", names);
     }
     src->type = ty->type;
@@ -707,6 +707,15 @@ size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap)
     return n < cap ? n : 0;
 }
 
+size_t esl_source_fetch_url(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off, char *buf, size_t cap)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    if (!t || !t->url_at)
+        return esl_source_url(c, buf, cap);
+    size_t n = t->url_at(c, now, off, buf, cap);
+    return n < cap ? n : 0;
+}
+
 /* ---- time ---- */
 
 /* Days since 1970-01-01 of a date in the Gregorian calendar */
@@ -881,6 +890,12 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
         st->tags_set++;
         st->tags_changed += r.changed;
     }
+}
+
+bool esl_source_own_pace(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->own_pace;
 }
 
 bool esl_source_is_picture(const esl_source_cfg_t *c)

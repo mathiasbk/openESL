@@ -7,7 +7,8 @@ An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its ta
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
-client had sent `PUT /api/tags`. The other type is a picture from a URL (below).
+client had sent `PUT /api/tags`. The other types are a picture from a URL and today's
+electricity price in Norway (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -203,6 +204,49 @@ fetches from a web address*. The source then shows in the Weather and pictures c
   `GET /api/sources`.
 - The URL must not need a login. Home Assistant serves the files in its `www` folder
   at `/local/` without one.
+
+## The electricity price
+
+A source of type `power` (AP 0.11.0 and later) shows today's electricity spot price in a
+Norwegian price area, from [hvakosterstrommen.no](https://www.hvakosterstrommen.no/) (free,
+no key). Like the weather, it fills the fields of a layout, so the built-in `text` layout or
+one of your own shows it.
+
+```json
+{"sources": [{"id": "power", "type": "power", "area": "NO1", "layout": "text",
+              "tags": ["00000123456789B2"]}]}
+```
+
+- `area`: `NO1` (Oslo, East), `NO2` (Kristiansand, South), `NO3` (Trondheim, Central),
+  `NO4` (Tromsø, North) or `NO5` (Bergen, West).
+- `vat`: add 25 % VAT. By default `true`, except in `NO4`, where electricity has no VAT.
+- The price is the spot price only: no grid fee (nettleie), no supplier's markup and no
+  electricity tax.
+- The AP fetches today's file (by the local date: set the time zone under Settings) every
+  `every_min` minutes, from 15 (the default). The values are made again at each fetch from the
+  last answer, also when the server answers `304`, so `{now}` follows the clock. Prices given
+  for every 15 minutes and prices given for every hour both work.
+- `lang`: `nb` (the default) writes `2,88` and `lav`/`normal`/`høy`; `en` writes `2.88`
+  and `low`/`normal`/`high`.
+
+| Value | What it is |
+|---|---|
+| `{area}` | The price area, `NO1` |
+| `{now}` | The price now in kroner per kWh, two decimals (`2,88`) |
+| `{nowore}` | The price now in øre per kWh, whole (`288`) |
+| `{next}` | The price of the next interval |
+| `{min}`, `{minat}` | The day's lowest price, and when it starts (`03:00`) |
+| `{max}`, `{maxat}` | The day's highest price, and when it starts |
+| `{avg}` | The day's average |
+| `{level}` | The price now against the day's average: more than 10 % below is low, more than 10 % above is high |
+| `{date}` | The day the prices are for (`27.10.`) |
+
+The default fields, for the four lines of `text`, have no words of one language:
+`{area} {date}`, `{now} kr/kWh`, `{level}`, `{min} - {max} kr`. Give your own `fields` for
+labels, for example `["Strøm nå {now} kr", "Billigst {minat}: {min}"]`.
+
+Where the price is shown to others, credit hvakosterstrommen.no, which gets the prices from
+ENTSO-E.
 
 ## MET Norway's terms
 
