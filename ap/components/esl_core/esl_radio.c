@@ -81,6 +81,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
         return 0;
     memset(&poll, 0, sizeof(poll));
 
+    if ((f.payload_len && f.payload[ESL_OFF_TYPE] != ESL_MSG_POLL) && esl_store_refused(st, f.src_mac))
+        return 0; /* a tag of another AP (#390): its FW_REQ and IMG_REQ get no answer either */
     if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         uint16_t next = esl_store_tag_poll_s(st, f.src_mac);
         esl_store_fw_taken(st, f.src_mac, freq.ver);
@@ -103,6 +105,8 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             n = esl_idle_build(reply, next);
         esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
+        if (!esl_store_poll_welcome(st, f.src_mac, &poll))
+            return 0; /* it belongs to another AP that may only be restarting (#390): stay silent */
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */
         esl_layout_env_t env;
@@ -186,7 +190,7 @@ void esl_faketag_init(esl_faketag_t *t, uint64_t mac, uint16_t fw, uint16_t batt
 
 size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
 {
-    uint8_t payload[ESL_POLL_LEN_LINK];
+    uint8_t payload[ESL_POLL_LEN_APID];
     uint8_t flags = t->flags;
     if (t->ota)
         flags |= ESL_POLL_F_OTA;
@@ -200,8 +204,9 @@ size_t esl_faketag_poll(esl_faketag_t *t, uint16_t pan, uint8_t *psdu)
         flags |= ESL_POLL_F_IMG_2D;
     if (t->images && t->img_failed)
         flags |= ESL_POLL_F_DRAWFAIL;
-    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver, !t->legacy && !t->no_link,
-                    0, 0, 0, 0};
+    bool link = !t->legacy && !t->no_link;
+    esl_poll_t p = {t->fw, t->battery_mv, t->shown, flags, t->model, !t->legacy, t->cfg_ver, link,
+                    0, 0, 0, link ? t->link_flags : 0, link && t->apid, t->ap_id};
     size_t n = esl_poll_build(payload, &p);
     t->seq++;
     return esl_frame_build_from_tag(psdu, t->seq, pan, ESL_AP_SHORT_ADDR, t->mac, payload, n);
@@ -326,6 +331,8 @@ uint8_t esl_faketag_receive(esl_faketag_t *t, const uint8_t *psdu, size_t psdu_l
         /* new base settings first, then next_poll_s as for any reply */
         t->cfg = r.cfg;
         t->cfg_ver = r.cfg_ver;
+        if (r.cfg.ap_id)
+            t->ap_id = r.cfg.ap_id;
         t->interval_s = r.cfg.poll_s ? r.cfg.poll_s : ESL_FAKETAG_POLL_S;
         t->configs++;
     } else {

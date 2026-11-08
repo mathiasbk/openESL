@@ -211,7 +211,7 @@ static void test_rhost_content(void)
     CHECK_INT(host.stats.images, imgs);
 
     /* settings and the default interval */
-    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0, 0};
+    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0, 0, 0};
     esl_cfg_result_t cr;
     CHECK_INT(esl_store_set_cfg(&st, 0xA1, &cfg, &cr), ESL_STORE_OK);
     esl_store_set_next_poll(&st, 90);
@@ -638,7 +638,7 @@ static void test_rhost_two_radios(void)
         CHECK_INT(ap.channel, 20);
         CHECK(!esl_tag_cfg_pending(&t, &ap));
     }
-    CHECK(!esl_tag_cfg_pending(&t, &(esl_tag_cfg_t){0, 0, 0, 0, 0, 20}));
+    CHECK(!esl_tag_cfg_pending(&t, &(esl_tag_cfg_t){0, 0, 0, 0, 0, 20, 0}));
 
     /* the host restarts: nobody owns B, and t.radio is 0 again (RAM only); radio 2 still tells
        it radio 2's channel, not the AP's, so its cache sends B no CONFIG that moves it away */

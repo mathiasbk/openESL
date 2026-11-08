@@ -33,6 +33,14 @@ static void push_config_channel(uint16_t ver, uint16_t channel)
     fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
 }
 
+/* CONFIG from an AP with an id (#390) */
+static void push_config_apid(uint16_t ver, uint32_t ap_id)
+{
+    uint8_t n = make_config(pl, 0, ver, 0, 0, 0);
+    ESL_PUT_U32(pl + ESL_CONFIG_OFF_APID, ap_id);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, n));
+}
+
 /* A reply of the old firmware's kinds (CONTENT, LAYOUT): only its type and length matter */
 static void push_old(uint8_t type)
 {
@@ -67,8 +75,9 @@ static void test_boot(void)
     push_idle(0);
     CHECK_EQ(app_poll_once(), CFG_POLL_S);
     CHECK_EQ(fake_tx_count, 1);
-    CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_LINK);
+    CHECK_EQ(fake_tx_len[0], ESL_MAC_HDR_LEN + ESL_POLL_LEN_APID);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_CFG_VER), 0);      /* built-in settings */
+    CHECK_EQ(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_APID), 0);         /* no AP learned yet */
     CHECK_EQ(sent_poll(0)[0], ESL_MSG_POLL);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_FW), FW_VERSION);
     CHECK_EQ(ESL_GET_U16(sent_poll(0) + ESL_POLL_OFF_BATT), fake_batt_mv);
@@ -471,6 +480,77 @@ static void test_restart_bad_flash(void)
     CHECK(sent_poll(0)[ESL_POLL_OFF_FLAGS] & ESL_POLL_F_DRAWFAIL);
 }
 
+/* ---- The AP's id (#390, docs/protocol.md "AP id") ---- */
+
+static void test_ap_id(void)
+{
+    unsigned long total = 0;
+    int rounds = 0;
+    uint8_t lf;
+
+    /* learned from CONFIG, sent in every POLL and kept in flash */
+    fresh();
+    push_config_apid(0x3001, 0xCAFE0001ul);
+    app_poll_once();
+    CHECK(app.cfg.ap_id == 0xCAFE0001ul);
+    CHECK_EQ(fake_store_len, 19);
+    CHECK_EQ(fake_store[0], 5);
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_APID) == 0xCAFE0001ul);
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF] & (ESL_POLL_LF_LOST_LONG | ESL_POLL_LF_ANY_AP), 0);
+    app_init();
+    CHECK(app.cfg.ap_id == 0xCAFE0001ul);
+
+    /* an AP before #390 sends no id (18 bytes): the one we have is kept */
+    fake_radio_reset();
+    make_config(pl, 0, 0x3002, 0, 0, 0);
+    fake_rx_push(fr, make_ap_frame(fr, 0, CFG_PAN_ID, fake_mac, pl, ESL_CONFIG_LEN_CHANNEL));
+    app_poll_once();
+    CHECK_EQ(app.cfg.ver, 0x3002);
+    CHECK(app.cfg.ap_id == 0xCAFE0001ul);
+
+    /* format 4 (before the id) is still read, with no id: nothing is lost on the upgrade */
+    memset(fake_store, 0, sizeof(fake_store));
+    fake_store[0] = 4;
+    ESL_PUT_U16(fake_store + 1, 9);
+    ESL_PUT_U16(fake_store + 3, 90);
+    fake_store_len = 15;
+    app_init();
+    CHECK_EQ(app.cfg.ver, 9);
+    CHECK_EQ(app.interval_s, 90);
+    CHECK(app.cfg.ap_id == ESL_APID_NONE);
+
+    /* the AP is gone: LOST_LONG after an hour, ANY_AP after a week */
+    fresh();
+    push_config_apid(0x3003, 0xCAFE0002ul);
+    app_poll_once();
+    lf = 0;
+    while (total < ESL_APID_ANY_S + 4000ul && rounds < 5000) {
+        fake_radio_reset();
+        total += app_poll_once();
+        rounds++;
+        lf = sent_poll(0)[ESL_POLL_OFF_LINKF];
+        CHECK(ESL_GET_U32(sent_poll(0) + ESL_POLL_OFF_APID) == 0xCAFE0002ul);
+        if (app.lost_s < ESL_APID_LOST_LONG_S)
+            CHECK_EQ(lf & (ESL_POLL_LF_LOST_LONG | ESL_POLL_LF_ANY_AP), 0);
+    }
+    CHECK(lf & ESL_POLL_LF_LOST_LONG);
+    CHECK(lf & ESL_POLL_LF_ANY_AP);
+
+    /* a new AP answers: its id replaces the old one and the flags are gone */
+    fake_radio_reset();
+    fake_ap_channel = 0;
+    push_config_apid(0x3004, 0xCAFE0003ul);
+    app_poll_once();
+    CHECK(app.cfg.ap_id == 0xCAFE0003ul);
+    fake_radio_reset();
+    push_idle(0);
+    app_poll_once();
+    CHECK_EQ(sent_poll(0)[ESL_POLL_OFF_LINKF] & (ESL_POLL_LF_LOST_LONG | ESL_POLL_LF_ANY_AP), 0);
+}
+
 /* ---- A planned channel move (#256, docs/protocol.md "Channel") ---- */
 
 static void test_channel_move(void)
@@ -644,6 +724,7 @@ void test_app(void)
     RUN(test_restart_bad_flash);
     RUN(test_link_block);
     RUN(test_long_backoff);
+    RUN(test_ap_id);
     RUN(test_channel_move);
     RUN(test_channel_scan);
 }

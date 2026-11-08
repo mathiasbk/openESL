@@ -116,6 +116,7 @@ static void tag_defaults(const esl_store_t *st, esl_tag_cfg_t *out)
     memset(out, 0, sizeof(*out));
     out->poll_s = st->next_poll_s;
     out->channel = announced_channel(st);
+    out->ap_id = st->ap_id;
 }
 
 /* esl_store_tag_ap() under the lock */
@@ -255,13 +256,15 @@ void esl_tag_effective_cfg(const esl_tag_t *t, const esl_tag_cfg_t *ap, esl_tag_
     if (!out->poll_s)
         out->poll_s = ap->poll_s;
     out->channel = ap->channel;
+    out->ap_id = ap->ap_id;
 }
 
 bool esl_tag_cfg_pending(const esl_tag_t *t, const esl_tag_cfg_t *ap)
 {
     esl_tag_cfg_t eff;
     esl_tag_effective_cfg(t, ap, &eff);
-    return t->seen && t->cfg_capable && t->shown_cfg_ver != esl_tag_cfg_version(&eff);
+    return t->seen && t->cfg_capable &&
+           (t->shown_cfg_ver != esl_tag_cfg_version(&eff) || (ap->ap_id && t->other_ap_id));
 }
 
 void esl_store_init(esl_store_t *st, unsigned max, const esl_store_ops_t *ops, uint16_t next_poll_s)
@@ -602,6 +605,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->cfg_capable = poll->has_cfg_ver;
         t->channel_capable = poll->has_link;
         t->shown_cfg_ver = poll->cfg_ver;
+        t->other_ap_id = poll->has_apid && poll->ap_id != st->ap_id;
         t->polls++;
         note_signal(t, poll, rssi);
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
@@ -917,6 +921,58 @@ void esl_store_tag_defaults(esl_store_t *st, esl_tag_cfg_t *out)
     lock(st);
     tag_defaults(st, out);
     unlock(st);
+}
+
+void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id)
+{
+    lock(st);
+    st->ap_id = ap_id;
+    unlock(st);
+}
+
+void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id)
+{
+    lock(st);
+    st->adopt_all = all;
+    st->adopt_id = id;
+    unlock(st);
+}
+
+static int foreign_find(const esl_store_t *st, uint64_t mac)
+{
+    for (int i = 0; i < ESL_STORE_FOREIGN; i++)
+        if (st->foreign[i].mac == mac && mac)
+            return i;
+    return -1;
+}
+
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll)
+{
+    lock(st);
+    uint32_t id = poll->has_apid ? poll->ap_id : ESL_APID_NONE;
+    bool ok = !st->ap_id || id == ESL_APID_NONE || id == st->ap_id || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
+              ((poll->link_flags & ESL_POLL_LF_LOST_LONG) && (st->adopt_all || id == st->adopt_id));
+    int i = foreign_find(st, mac);
+    if (ok && i >= 0) {
+        st->foreign[i].mac = 0;
+    } else if (!ok) {
+        if (i < 0) {
+            i = (int)st->foreign_at;
+            st->foreign_at = (st->foreign_at + 1) % ESL_STORE_FOREIGN;
+        }
+        st->foreign[i].mac = mac;
+        st->foreign[i].ap_id = id;
+    }
+    unlock(st);
+    return ok;
+}
+
+bool esl_store_refused(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    bool r = foreign_find(st, mac) >= 0;
+    unlock(st);
+    return r;
 }
 
 void esl_store_set_builtin_channel(esl_store_t *st, uint8_t channel)

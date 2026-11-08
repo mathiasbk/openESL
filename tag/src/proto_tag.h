@@ -46,16 +46,17 @@ typedef struct {
     uint16_t cfg_long_poll_s;
     uint16_t cfg_long_after_min;
     uint8_t cfg_channel;     /* the AP's channel, 0 = ESL_DEFAULT_CHANNEL (also for one out of range) */
+    uint32_t cfg_ap_id;      /* the AP the tag belongs to (#390), 0 = none sent (an older AP) */
 } proto_reply_t;
 
-/* Writes POLL (ESL_POLL_LEN_LINK bytes: cfg_ver at 12, then the link block) to out, with
-   the image_id the tag shows in the content_id field. rx_rssi and rx_lqi are what the
+/* Writes POLL (ESL_POLL_LEN_APID bytes: cfg_ver at 12, the link block, the AP id) to out,
+   with the image_id the tag shows in the content_id field. rx_rssi and rx_lqi are what the
    radio measured on the AP's last answer, lost the rounds without an answer before this
-   one, link_flags ESL_POLL_LF_RETRY when the last answered round needed its retry.
+   one, link_flags ESL_POLL_LF_*, ap_id the AP the tag belongs to (#390, 0 = none yet).
    Returns the length. */
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
                          uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
-                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags);
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags, uint32_t ap_id);
 
 /* Writes FW_REQ (ESL_FREQ_LEN bytes) to out. Returns the length. */
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max);

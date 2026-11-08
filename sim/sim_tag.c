@@ -33,7 +33,10 @@ static uint64_t next_wake_ms;
 static uint16_t last_sleep_s;
 static uint64_t last_draw_ms;
 
-static uint8_t flash_rec[HAL_STORE_MAX];
+/* The record page holds more than HAL_STORE_MAX: a record written by newer firmware (with a
+   larger HAL_STORE_MAX) stays in it, and this firmware reads it as none, as on the chip */
+#define SIM_STORE_PAGE 64
+static uint8_t flash_rec[SIM_STORE_PAGE];
 static uint8_t flash_rec_len;
 
 /* ---- hal.h ---- */
@@ -69,7 +72,7 @@ bool hal_store_write(const uint8_t *data, uint8_t len)
 
 uint8_t hal_store_read(uint8_t *data, uint8_t maxlen)
 {
-    if (!flash_rec_len || flash_rec_len > maxlen)
+    if (!flash_rec_len || flash_rec_len > HAL_STORE_MAX || flash_rec_len > maxlen)
         return 0;
     memcpy(data, flash_rec, flash_rec_len);
     return flash_rec_len;
@@ -205,6 +208,11 @@ size_t sim_tag_cfg(uint8_t *out, size_t cap)
 }
 uint16_t sim_tag_last_sleep_s(void) { return last_sleep_s; }
 uint8_t sim_tag_misses(void) { return app.misses; }
+#ifdef SIM_TAG_NO_APID   /* a release before #390 (upgrade.py) */
+uint32_t sim_tag_ap_id(void) { return 0; }
+#else
+uint32_t sim_tag_ap_id(void) { return app.cfg.ap_id; }
+#endif
 uint64_t sim_tag_next_wake_ms(void) { return next_wake_ms; }
 uint64_t sim_tag_last_draw_ms(void) { return last_draw_ms; }
 

@@ -110,6 +110,7 @@ int sim_tag_draws(void);         /* times the display was drawn */
 uint16_t sim_tag_interval_s(void);
 uint16_t sim_tag_last_sleep_s(void);
 uint8_t sim_tag_misses(void);
+uint32_t sim_tag_ap_id(void);   /* the AP id it keeps (#390) */
 uint8_t sim_tag_channel(void);   /* the channel its radio is on (radio_init) */
 uint64_t sim_tag_next_wake_ms(void);
 uint64_t sim_tag_last_draw_ms(void);
