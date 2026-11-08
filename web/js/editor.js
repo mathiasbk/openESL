@@ -116,8 +116,8 @@ const iconByField = (e) => e.type === "icon" && e.field !== undefined;
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
-  if (/price|pris/i.test(name)) return "49,90";
-  if (/unit|enhet/i.test(name)) return "kr 99,80/kg";
+  if (/price|pris/i.test(name)) return "49.90";
+  if (/unit|enhet/i.test(name)) return "9.98/kg";
   if (/ean|gtin|barcode|strek|code/i.test(name)) return "7038010009457";
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
@@ -1074,7 +1074,7 @@ function refreshElement() {
     sel("Shows", [...lay.fields.map((f) => [f, "field " + f]), [FIXED, "a fixed text"]], e.text !== undefined ? FIXED : fieldLabel(e.field), (v) => {
       if (v === FIXED) {
         delete e.field;
-        e.text ??= "inkl. mva";
+        e.text ??= "incl. VAT";
       } else {
         delete e.text;
         e.field = v;
@@ -1730,7 +1730,7 @@ function addElement(kind) {
   const { width, height } = MODELS[state.model];
   const e = {
     text: { type: "text", field: lay.fields[0], x: 4, y: 4, w: Math.min(120, width - 4), h: 24, fonts: ["medium", "small"] },
-    fixed: { type: "text", text: "inkl. mva", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
+    fixed: { type: "text", text: "incl. VAT", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
     hline: { type: "line", x: 4, y: Math.floor(height / 2), w: width - 8, h: 1, width: 2 },
     barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },

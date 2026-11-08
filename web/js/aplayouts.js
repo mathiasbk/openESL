@@ -19,8 +19,8 @@ import { openRenderer, draw as drawPicture, rendererNote } from "./renderframe.j
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
 const BUILTIN = {
-  price: { id: 1, fields: ["name", "price", "subtitle"], sample: ["Semi-skimmed milk 1 L", "24,90", "kr 24,90/L"],
-           what: ["Product name", "Price, e.g. 24,90", "Small text under it"] },
+  price: { id: 1, fields: ["name", "price", "subtitle"], sample: ["Semi-skimmed milk 1 L", "2.49", "2.49/L"],
+           what: ["Product name", "Price, e.g. 2.49", "Small text under it"] },
   text: { id: 2, fields: ["line1", "line2", "line3", "line4"], sample: ["Welcome", "Open 9-21", "", ""],
           what: ["Line 1", "Line 2", "Line 3", "Line 4"] },
 };

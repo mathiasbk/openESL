@@ -9,7 +9,7 @@
   "fields": {
     "name": "Product name",
     "price": "Price",
-    "unit": "Unit price, as text (e.g. 9,98/kg)",
+    "unit": "Unit price, as text (e.g. 9.98/kg)",
     "info": "A short note, up to three lines"
   },
   "variants": {
@@ -18,7 +18,7 @@
         "name": "shelf",
         "description": "Name in a black band, highlighted price, a note and the unit price",
         "fields": ["name", "price", "unit", "info"],
-        "_sample": ["Product name", "49,90", "kr 99,80/kg", "Organic, 500 g"],
+        "_sample": ["Product name", "49.90", "99.80/kg", "Organic, 500 g"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "black" },
           { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
@@ -33,7 +33,7 @@
         "name": "shelf",
         "description": "Name in a red band, highlighted price, a note and the unit price",
         "fields": ["name", "price", "unit", "info"],
-        "_sample": ["Product name", "49,90", "kr 99,80/kg", "Organic, 500 g"],
+        "_sample": ["Product name", "49.90", "99.80/kg", "Organic, 500 g"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "red" },
           { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
@@ -48,7 +48,7 @@
         "name": "shelf",
         "description": "Name in a black band, highlighted price, a note and the unit price",
         "fields": ["name", "price", "unit", "info"],
-        "_sample": ["Product name", "49,90", "kr 99,80/kg", "Organic, 500 g"],
+        "_sample": ["Product name", "49.90", "99.80/kg", "Organic, 500 g"],
         "elements": [
           { "type": "rect", "x": 0, "y": 0, "w": 200, "h": 36, "color": "black" },
           { "type": "text", "field": "name", "x": 4, "y": 0, "w": 192, "h": 36, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
