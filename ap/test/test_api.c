@@ -73,7 +73,7 @@ static void drawn(uint64_t mac, uint32_t shown)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     drawn(mac, shown);
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
@@ -164,7 +164,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -482,7 +482,7 @@ static void poll_model(uint64_t mac, uint8_t model, bool images)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0, false, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -968,7 +968,7 @@ static void test_config_api(void)
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -986,7 +986,7 @@ static void test_config_api(void)
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
         CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535,"
                                       "\"long_poll_s\":65535,\"long_after_min\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF};
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF, false, 0};
         for (unsigned k = 0; k < ESL_LINK_HIST + 1; k++)
             esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
@@ -1307,7 +1307,7 @@ static void test_clock_config(void)
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     drawn(mac, shown);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);

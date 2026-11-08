@@ -51,6 +51,14 @@ static void boot(void)
     esl_rcache_init(&rc, PAN, rtags, TAGS, rimages, IMAGES, cap, rlog, LOG, &ops);
 }
 
+/* The radio restarts: its cache is empty, the host keeps its table */
+static void boot_radio_only(void)
+{
+    static const esl_rcache_ops_t ops = {NULL, fw_read};
+    size_t cap = esl_render_size(ESL_MODEL_29) + ESL_IMG_RLE_MARGIN(esl_render_size(ESL_MODEL_29));
+    esl_rcache_init(&rc, PAN, rtags, TAGS, rimages, IMAGES, cap, rlog, LOG, &ops);
+}
+
 static esl_content_t price(const char *name, const char *p)
 {
     esl_content_t c;
@@ -103,8 +111,11 @@ static unsigned host_sync(uint64_t now_ms, uint16_t fw_ver)
         }
     }
     esl_rcache_log_drop(&rc, n);
-    for (unsigned k = 0; k < nm; k++)
-        host_push(macs[k], now_ms, fw_ver);
+    for (unsigned k = 0; k < nm; k++) {
+        esl_tag_t t;
+        if (esl_store_get(&st, macs[k], &t))   /* the host syncs the tags in its table (a refused one is not) */
+            host_push(macs[k], now_ms, fw_ver);
+    }
     esl_rcache_want_clear(&rc);
     return n;
 }
@@ -222,7 +233,7 @@ static void test_rcache_config(void)
     CHECK_INT(round_rc(&a, 5000), ESL_MSG_IDLE);
 
     /* new settings on the host: CONFIG from the cache, then IDLE once the tag reports them */
-    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0, 0};
+    esl_tag_cfg_t cfg = {300, 0, 0, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, 0x0C, &cfg, &cr), ESL_STORE_OK);
     host_push(0x0C, 6000, 0);
     CHECK_INT(round_rc(&a, 10000), ESL_MSG_CONFIG);
@@ -244,6 +255,59 @@ static void test_rcache_config(void)
     CHECK_INT(esl_store_set_cfg(&st, 0x0D, &cfg, &cr), ESL_STORE_OK);
     host_push(0x0D, 200, 0);
     CHECK_INT(round_rc(&b, 5000), ESL_MSG_IDLE);
+}
+
+/* The AP id (#390): the radio stays silent for an unknown tag that belongs to an AP, the host
+   decides from the log, and a tag of this AP is answered once the host has synced it */
+static void test_rcache_ap_id(void)
+{
+    esl_faketag_t a, f;
+    boot();
+    esl_store_set_ap_id(&st, 0xBEEF0001ul);
+    esl_faketag_init(&a, 0x0E, 0x0B00, 3000, ESL_MODEL_29);
+    a.images = false;
+    a.apid = true;
+
+    /* a new tag (no id yet): the usual wait, then CONFIG with the id from the host's state */
+    round_rc(&a, 0);
+    host_sync(100, 0);
+    CHECK_INT(round_rc(&a, 5000), ESL_MSG_CONFIG);
+    CHECK(a.ap_id == 0xBEEF0001ul);
+    CHECK_INT(round_rc(&a, 65000), ESL_MSG_IDLE);
+    host_sync(65100, 0);
+    esl_tag_t t;
+    esl_tag_cfg_t ap;
+    esl_store_tag_defaults(&st, &ap);
+    CHECK(esl_store_get(&st, 0x0E, &t) && !esl_tag_cfg_pending(&t, &ap));
+
+    /* the radio restarts: its own tag is not answered until the host has synced it again */
+    boot_radio_only();
+    CHECK_INT(round_rc(&a, 125000), 0);
+    host_sync(125100, 0);
+    CHECK_INT(round_rc(&a, 185000), ESL_MSG_IDLE);
+
+    /* another AP's tag: silent on the radio, and the host does not take it */
+    esl_faketag_init(&f, 0x0F, 0x0B00, 3000, ESL_MODEL_29);
+    f.images = false;
+    f.apid = true;
+    f.ap_id = 0xBEEF0002ul;
+    CHECK_INT(round_rc(&f, 190000), 0);
+    host_sync(190100, 0);
+    CHECK(!esl_store_get(&st, 0x0F, &t));
+    f.link_flags = ESL_POLL_LF_LOST_LONG;
+    CHECK_INT(round_rc(&f, 250000), 0);
+    host_sync(250100, 0);
+    CHECK(!esl_store_get(&st, 0x0F, &t));
+
+    /* adopted: silent once more, then the host has it and the radio sends CONFIG */
+    esl_store_set_adopt(&st, false, 0xBEEF0002ul);
+    CHECK_INT(round_rc(&f, 310000), 0);
+    host_sync(310100, 0);
+    CHECK(esl_store_get(&st, 0x0F, &t));
+    CHECK_INT(round_rc(&f, 370000), ESL_MSG_CONFIG);
+    CHECK(f.ap_id == 0xBEEF0001ul);
+    esl_store_set_ap_id(&st, 0);
+    esl_store_set_adopt(&st, false, 0);
 }
 
 static void test_rcache_fw(void)
@@ -393,7 +457,7 @@ static void test_rcache_waits(void)
 static void test_rcache_bits(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN_CFG];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     boot();
 
     /* frames to another PAN or address: no reply, not in the log */
@@ -477,6 +541,7 @@ void test_rcache(void)
     test_rcache_refused();
     test_rcache_config();
     test_rcache_fw();
+    test_rcache_ap_id();
     test_rcache_waits();
     test_rcache_bits();
 }

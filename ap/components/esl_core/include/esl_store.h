@@ -82,6 +82,8 @@ typedef struct {
     bool has_content : 1;
     bool seen : 1;            /* has polled since boot */
     bool cfg_capable : 1;     /* the last POLL carried cfg_ver (tag understands CONFIG) */
+    bool other_ap_id : 1;     /* the last POLL carried an AP id that is not this AP's (#390): CONFIG
+                                 is sent whatever cfg_ver says */
     bool channel_capable : 1; /* ... and the link block (0.9.0 and later): it follows a channel move */
     bool fw_taken : 1;        /* the tag started on fw_offered (esl_store_fw_taken), so
                                  ESL_POLL_F_FWFAIL is about it (RAM only) */
@@ -167,6 +169,8 @@ const char *esl_content_err_text(uint8_t err);
 #define ESL_STORE_MAX_CHUNKS 128
 #define ESL_STORE_MAX_TAGS (ESL_STORE_CHUNK * ESL_STORE_MAX_CHUNKS)
 
+#define ESL_STORE_FOREIGN 16 /* tags of other APs remembered as refused (#390) */
+
 typedef struct {
     esl_tag_t *chunk[ESL_STORE_MAX_CHUNKS];
     esl_content_t *content[ESL_STORE_MAX_CHUNKS]; /* RAM copies, only without ops.load_content */
@@ -185,8 +189,27 @@ typedef struct {
     bool channel_force;       /* the planned move goes even with tags that cannot follow */
     uint16_t channel_stopped; /* tags with old firmware that stopped the last move (1 for an old radio), 0 = none */
     uint8_t radio_channel[ESL_STORE_RADIOS]; /* the channel of each extra radio, [0] unused (esl_store_set_radio_channel) */
+    /* The AP id (#390, esl_store_set_ap_id below) */
+    uint32_t ap_id;           /* this AP's, sent in CONFIG; 0 = none (every tag is answered, as before #390) */
+    uint32_t adopt_id;        /* tags of this other AP are taken once they are lost (LOST_LONG), 0 = none */
+    bool adopt_all;           /* ... and so are those of any other AP */
+    struct { uint64_t mac; uint32_t ap_id; } foreign[ESL_STORE_FOREIGN]; /* recently refused, newest at foreign_at */
+    unsigned foreign_at;
     esl_store_ops_t ops;
 } esl_store_t;
+
+/* ---- The AP id (#390, docs/protocol.md "The AP id") ----
+ * A tag sends the id of the AP it belongs to in its POLL and learns it from CONFIG. The AP
+ * answers a tag that reports another AP's id only when that tag takes any AP (ESL_POLL_LF_ANY_AP),
+ * or it has been lost for a while (ESL_POLL_LF_LOST_LONG) and the AP adopts that id or all
+ * ids. Otherwise the AP stays silent, and keeps the tag's MAC for a while so its IMG_REQ and
+ * FW_REQ get no answer either. A store without an id (0) answers every tag. */
+void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id);
+void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id);
+/* True when the AP answers this POLL; false notes the MAC as refused */
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll);
+/* True when the MAC was refused lately (its IMG_REQ and FW_REQ get no answer) */
+bool esl_store_refused(esl_store_t *st, uint64_t mac);
 
 typedef enum {
     ESL_STORE_OK = 0,

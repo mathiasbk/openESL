@@ -65,6 +65,9 @@ def build_tag(root, model, version, out, san):
              "-w"]   # the warnings of today's code show in the simulator's own build
     if not has_mark:
         flags.append("-DSIM_TAG_NO_MARK")
+    with open(os.path.join(tag, "src", "app.h"), encoding="utf-8") as f:
+        if re.search(r"\bap_id\b", f.read()) is None:
+            flags.append("-DSIM_TAG_NO_APID")
     if san:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
     srcs = [os.path.join(tag, s) for s in TAG_SRC] + sorted(glob.glob(os.path.join(tag, "fonts", "font_*.c")))

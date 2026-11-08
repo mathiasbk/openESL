@@ -11,7 +11,7 @@ A step whose tools are missing is skipped and says what it needs.
 
 ## Setting up
 
-- **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) and the Python packages. The AP is built with ESP-IDF v5.5.5 if it is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
+- **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) and the Python packages in `tools/dev/requirements.txt`. The AP is built with ESP-IDF v5.5.5 if it is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
 - **Windows or macOS:** with Docker Desktop running, `python tools/check.py --docker` runs every step in one image with all the tools.
 
 ## The parts one by one

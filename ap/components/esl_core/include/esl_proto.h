@@ -25,6 +25,8 @@ typedef struct {
     uint8_t rx_lqi;      /* ... and its LQI */
     uint8_t lost;        /* rounds without an answer before this POLL */
     uint8_t link_flags;  /* ESL_POLL_LF_* */
+    bool has_apid;       /* the AP id (POLL of ESL_POLL_LEN_APID bytes or more, #390) */
+    uint32_t ap_id;      /* the AP the tag belongs to, 0 = none yet */
 } esl_poll_t;
 
 /* Tag settings carried by CONFIG. 0 in a field = the tag's built-in default. */
@@ -37,6 +39,8 @@ typedef struct {
     uint16_t long_after_min; /* (ESL_CFG_LONG_AFTER_MIN_MIN.., ESL_CFG_LONG_NEVER = never) */
     uint16_t channel;    /* the AP's channel (ESL_CHANNEL_MIN..MAX), 0 = ESL_DEFAULT_CHANNEL. AP-wide, not
                           * set per tag: 0 in the store, filled in by esl_tag_effective_cfg() */
+    uint32_t ap_id;      /* the AP the tag belongs to (#390). AP-wide like channel; 0 = none (an AP
+                          * without one sends none, and the version stays what it was before) */
 } esl_tag_cfg_t;
 
 /* Version of a set of settings as sent in CONFIG and echoed in POLL: 0 when
@@ -48,9 +52,11 @@ bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c);
 
 /* Accepts payloads longer than 12 bytes so newer tags can append fields:
  * cfg_ver (bytes 12-13) is read from a POLL of at least 14 bytes, the link block
- * (14-17) from one of at least 18; anything after it is ignored. */
+ * (14-17) from one of at least 18, the AP id (18-21) from one of at least 22; anything
+ * after it is ignored. */
 bool esl_poll_parse(const uint8_t *p, size_t len, esl_poll_t *out);
-/* For tests and the fake tag: 18 bytes if has_link, 14 if has_cfg_ver, else 12. */
+/* For tests and the fake tag: 22 bytes if has_apid (with has_link), 18 if has_link, 14 if
+ * has_cfg_ver, else 12. */
 size_t esl_poll_build(uint8_t *out, const esl_poll_t *poll);
 
 /* FW_REQ (tag -> AP, firmware update; docs/tag-ota.md) */

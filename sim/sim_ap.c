@@ -202,6 +202,7 @@ void sim_ap_boot(void)
             esl_store_restore_cfg(&st, slot, mac, &cfg);
     }
     esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0);   /* after the tags, as store_nvs_init() */
+    esl_store_set_ap_id(&st, 0x5A11AB1Eul);   /* as cfg/ap_id (#390): tags from 0.11.0 belong to this AP */
     esl_sched_init(&sched, sched_entries, CAP, &sops);   /* as sched_start(): the time is unknown again */
     for (unsigned slot = 0; slot < CAP; slot++)
         if (nvs.sched_len[slot])

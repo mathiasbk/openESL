@@ -65,6 +65,20 @@
 #define ESL_POLL_LEN_LINK    18     /* POLL with cfg_ver and the link block */
 
 #define ESL_POLL_LF_RETRY    0x01   /* the round before this one was answered only on its second try (the retry itself is sent unchanged) */
+#define ESL_POLL_LF_LOST_LONG 0x02  /* the tag has heard no AP for ESL_APID_LOST_LONG_S or more (#390) */
+#define ESL_POLL_LF_ANY_AP   0x04   /* ... for ESL_APID_ANY_S or more: it takes any AP (#390) */
+
+/* The AP id (#390): the id of the AP the tag belongs to, which the tag learns from CONFIG and
+ * keeps in flash. An AP answers a tag that reports another AP's id only when it adopts that
+ * id and the tag has been lost for a while (LOST_LONG), or the tag takes any AP (ANY_AP);
+ * otherwise it stays silent, so a neighbour does not take a tag whose own AP is only
+ * restarting. Older APs read a POLL by its length and answer as before; older tags send no
+ * id, and are answered as before. */
+#define ESL_POLL_OFF_APID    18     /* u32 the tag's AP id, 0 = none yet */
+#define ESL_POLL_LEN_APID    22     /* POLL with cfg_ver, the link block and the AP id */
+#define ESL_APID_NONE        0u     /* no id; 0xFFFFFFFF is not used either */
+#define ESL_APID_LOST_LONG_S 3600u  /* LOST_LONG after an hour without an answer */
+#define ESL_APID_ANY_S       604800ul /* ANY_AP after 7 days */
 
 /* Tag model in POLL. 0 is what older firmware sends in the reserved byte, so
  * the AP reads it as "unknown" and everything works as before. The known models
@@ -77,11 +91,11 @@
 #define ESL_IDLE_LEN         4
 #define ESL_OFF_NEXT_POLL    2      /* u16 seconds to the next POLL (0 = keep), also in CONFIG, FW and IMG */
 
-/* CONFIG, 18 byte (12 before the long backoff, 16 before the channel; a tag reads missing fields as 0): tag settings. The same next_poll_s at byte 2 as IDLE.
+/* CONFIG, 22 byte (12 before the long backoff, 16 before the channel, 18 before the AP id; a tag reads missing fields as 0): tag settings. The same next_poll_s at byte 2 as IDLE.
  * Every setting is a u16, 0 = the tag's built-in default (tag/src/config.h).
  * New settings are only added at the end: the tag reads the fields it knows and
  * skips the rest, and a field missing from a shorter message is 0. */
-#define ESL_CONFIG_LEN       18
+#define ESL_CONFIG_LEN       22
 #define ESL_CONFIG_OFF_VER   4      /* u16 cfg_ver; the tag sends it back in POLL as a receipt */
 #define ESL_CONFIG_OFF_POLL  6      /* u16 normal interval in seconds (requirement T4) */
 #define ESL_CONFIG_OFF_MAX_POLL 8   /* u16 longest interval with no answer from the AP (requirement T11) */
@@ -92,6 +106,10 @@
                                      * 0 = ESL_DEFAULT_CHANNEL. The tag stays where it hears the
                                      * AP, and tries this channel first when the AP stops answering
                                      * (docs/protocol.md, "Changing the channel") */
+#define ESL_CONFIG_OFF_APID  18     /* u32 the id of the AP the tag belongs to (#390), which is not
+                                     * necessarily the sender: an AP can hand a tag to another one with
+                                     * the other's channel and id. 0 = keep the one it has */
+#define ESL_CONFIG_LEN_CHANNEL 18   /* CONFIG from an AP before the AP id */
 
 #define ESL_CFG_POLL_MIN_S   10     /* limits of poll_s and max_poll_s */
 #define ESL_CFG_POLL_MAX_S   3600

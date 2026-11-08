@@ -401,6 +401,7 @@ function limitsSource() {
 // called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
+  if (state.renderer) state.renderer.lang = previewLang();   // the dashboard's cards set their own
   // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
   if (ap.connected) state.renderer?.setFonts?.(ap.fonts, ap.fontSlots);
 }
@@ -1123,13 +1124,35 @@ function refreshElement() {
   box.append(xywh);
 }
 
+// The language of {weekday} and {date} in the preview (#386): the connected AP's ("lang" in
+// GET /api/config; English until it is set, and on an AP from before 0.11), otherwise the one
+// picked next to the date-field buttons, English by default as on an AP
+function previewLang() {
+  if (ap.connected) return ap.lang === "nb" ? "nb" : "en";
+  return store.get("lang") === "nb" ? "nb" : "en";
+}
+
+// Today's value of a date field in lang, for the hover text: the names as the AP writes them
+// (esl_clock.c: a capital weekday, "29 October 2026" or "29. oktober 2026")
+function dateExample(f, lang, d = new Date()) {
+  const loc = lang === "nb" ? "nb-NO" : "en-GB";
+  const name = (o) => new Intl.DateTimeFormat(loc, o).format(d);
+  const p2 = (n) => String(n).padStart(2, "0");
+  if (f === "{weekday}") { const w = name({ weekday: "long" }); return w[0].toUpperCase() + w.slice(1); }
+  if (f === "{date}") return `${d.getDate()}${lang === "nb" ? "." : ""} ${name({ month: "long" })} ${d.getFullYear()}`;
+  if (f === "{date_short}") return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`;
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));   // ISO week
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return String(Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7));
+}
+
 // Date fields the AP fills in when it draws a fixed text (esl_clock.h on the AP): a button for
 // each puts it in at the cursor, with today's value on hover as the preview draws it
 const DATE_FIELDS = [
-  ["{weekday}", "the weekday, Thursday"],
-  ["{date}", "the date, 29 October 2026"],
-  ["{date_short}", "the date, 29.10.2026"],
-  ["{week}", "the week number, 44"],
+  ["{weekday}", "the weekday"],
+  ["{date}", "the date"],
+  ["{date_short}", "the date"],
+  ["{week}", "the week number"],
 ];
 
 function dateFieldButtons(inp) {
@@ -1146,7 +1169,7 @@ function dateFieldButtons(inp) {
     b.type = "button";
     b.className = "chip";
     b.textContent = f;
-    b.title = "Put in " + what;
+    b.title = `Put in ${what}, ${dateExample(f, previewLang())}`;
     b.addEventListener("click", () => {
       const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
       const v = inp.value.slice(0, at) + f + inp.value.slice(end);
@@ -1161,7 +1184,22 @@ function dateFieldButtons(inp) {
     });
     chips.append(b);
   }
-  div.append(chips, p);
+  // The preview's date language: the AP's when connected, else picked here
+  const lang = document.createElement("label");
+  lang.className = "small";
+  const sel = document.createElement("select");
+  for (const [v, t] of [["en", "English"], ["nb", "Norsk"]]) sel.append(new Option(t, v));
+  sel.value = previewLang();
+  sel.disabled = ap.connected;
+  lang.title = ap.connected ? "The connected AP's date language (Settings, General)"
+    : "The language the preview writes {weekday} and {date} in. The AP uses its own (Settings, General)";
+  sel.addEventListener("change", () => {
+    store.set("lang", sel.value);
+    applyLimits();
+    refreshAll();
+  });
+  lang.append("Preview dates in ", sel, ap.connected ? " (the AP's)" : "");
+  div.append(chips, lang, p);
   return div;
 }
 
@@ -2120,7 +2158,7 @@ function initActions() {
 // own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
 const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
              tagLayouts: {},     // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
-             fonts: {}, fontSlots: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
+             fonts: {}, fontSlots: {}, lang: null };        // fonts: the AP's font files, name -> text (js/apfonts.js)
 const apFontFiles = apFonts();
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
@@ -2268,6 +2306,11 @@ async function apConnect() {
   ap.connected = true;
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
+  try {
+    ap.lang = (await apClient().call("GET", "/api/config")).lang ?? null;   // #386: the preview's date language
+  } catch {
+    ap.lang = null;   // not needed to connect: English, as the AP until set
+  }
   try {
     ({ files: ap.fonts, slots: ap.fontSlots } = await apFontFiles.read(apClient()));
   } catch (e) {

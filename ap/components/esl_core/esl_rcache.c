@@ -36,7 +36,7 @@ static esl_rtag_t *find_tag(esl_rcache_t *rc, uint64_t mac)
 static bool same_state(const esl_rtag_state_t *a, const esl_rtag_state_t *b)
 {
     return a->next_poll_s == b->next_poll_s && a->has_cfg == b->has_cfg &&
-           (!a->has_cfg || esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg)) &&
+           (!a->has_cfg || (esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg) && a->cfg.ap_id == b->cfg.ap_id)) &&
            a->image_id == b->image_id && a->fw_ver == b->fw_ver && a->image_failed == b->image_failed &&
            a->fw_failed == b->fw_failed;
 }
@@ -274,6 +274,13 @@ static uint8_t *unknown_waits(esl_rcache_t *rc, uint64_t mac)
 static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_poll_t *poll, uint8_t *out)
 {
     if (!t) {
+        /* A tag that belongs to an AP (#390) and is not lost for a week: the radio cannot tell
+           whether that AP is this one, or whether the host adopts it, so it stays silent. An
+           answer would end the tag's search for its own AP. The frame is in the log, so the host
+           sees it; when the tag is its own (or adopted) it is put in the table, and the radio has
+           its state for the next round. */
+        if (poll->has_apid && poll->ap_id && !(poll->link_flags & ESL_POLL_LF_ANY_AP))
+            return 0;
         /* a tag the host has not told it about (new, or the radio restarted); once it
            has waited enough, the default interval */
         if (rc->n_tags >= rc->max_tags) {
@@ -296,7 +303,9 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
     if (t->s.fw_ver && poll->fw_ver == t->s.fw_ver)
         t->fw_failed = 0;
 
-    if (t->s.has_cfg && poll->has_cfg_ver && poll->cfg_ver != esl_tag_cfg_version(&t->s.cfg))
+    if (t->s.has_cfg && poll->has_cfg_ver &&
+        (poll->cfg_ver != esl_tag_cfg_version(&t->s.cfg) ||
+         (t->s.cfg.ap_id && poll->has_apid && poll->ap_id != t->s.cfg.ap_id)))   /* as esl_tag_cfg_pending() */
         return esl_config_msg_build(out, next, &t->s.cfg);
 
     uint32_t id = t->s.image_id;

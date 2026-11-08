@@ -85,14 +85,16 @@ jobs:
       - uses: actions/checkout@v7
       - name: Host tests (AP core, with AddressSanitizer)
         run: |
-          # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py)
-          python3 -m pip install --user zxing-cpp==3.1.1 pillow
+          # zxing-cpp reads back the barcodes the AP draws (ap/test/test_barcode_decode.py); the
+          # same list also has what the tool tests below need (flash-tui)
+          python3 -m pip install --user -r tools/dev/requirements.txt
           make -C ap/test SAN=1
-      - name: Tool tests (esl-client against a fake AP, power budget, release notes, AP flash budget)
+      - name: Tool tests (esl-client against a fake AP, power budget, release notes, AP flash budget, flash-tui)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget test_measure)
           (cd tools && python3 -m unittest -v test_release_notes test_ap_budget)   # docs/release.md has a summary and upgrade instructions for VERSION; the AP flash budget
+          (cd tools/flash-tui && python3 -m unittest discover -v -s tests)
 
   # One build job per AP board and per radio firmware (ap/build.py --jobs), side by side:
   # one after another they took 13 minutes, about 1.5 minutes each

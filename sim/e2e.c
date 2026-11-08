@@ -311,7 +311,10 @@ int e2e_run(const char *out, const char *root)
         snprintf(want, sizeof(want), "\"model\":\"%s\"", sim_tag_model);
         CHECK(strstr(resp, want) != NULL, "model %s reported", sim_tag_model);
     }
-    CHECK(sim_stats.idle == 1, "the AP answered IDLE");
+    /* the AP's id (#390) comes with a CONFIG; the tag sends it from then on */
+    CHECK(sim_stats.config == 1 && sim_stats.idle == 0, "the AP answered CONFIG (its id), got %u CONFIG, %u IDLE",
+          sim_stats.config, sim_stats.idle);
+    CHECK(sim_tag_ap_id() == 0x5A11AB1Eul, "the tag keeps the AP's id, got %08lX", (unsigned long)sim_tag_ap_id());
 
     /* ------------------------------------------------------------------ */
     step("2. New content through the API");

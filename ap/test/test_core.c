@@ -376,7 +376,7 @@ void test_proto(void)
     CHECK_MEM(buf, longer, ESL_POLL_LEN_CFG);
 
     /* CONFIG: version 0 for all defaults, nonzero and value-derived otherwise */
-    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0, 0, 0}, cfg2;
     CHECK_INT(esl_tag_cfg_version(&cfg), 0);
     cfg.poll_s = 120;
     uint16_t v = esl_tag_cfg_version(&cfg);
@@ -395,18 +395,18 @@ void test_proto(void)
     CHECK(esl_tag_cfg_version(&cfg2) != esl_tag_cfg_version(&cfg));
     /* the version of settings without the long backoff is the one older APs gave them (CRC
        of the first three fields), so an update sends tags no CONFIG they already have */
-    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0, 0};
+    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0, 0, 0};
     uint8_t old_b[6] = {120, 0, 0, 0, 0, 0};
     uint32_t old_crc = esl_crc32(old_b, 6);
     CHECK_INT(esl_tag_cfg_version(&cfg2), (uint16_t)(old_crc ^ (old_crc >> 16)));
-    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60, 0};
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60, 0, 0};
     CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK(esl_tag_cfg_version(&cfg2) != 0);
     /* the channel is in the version only when it is not the default */
     v = esl_tag_cfg_version(&cfg);
     cfg.channel = 20;
     CHECK(esl_tag_cfg_version(&cfg) != v);
-    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 0, 20};
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 0, 20, 0};
     CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK_INT(esl_config_msg_build(buf, 120, &cfg), ESL_CONFIG_LEN);
     v = esl_tag_cfg_version(&cfg);
@@ -439,7 +439,7 @@ void test_proto(void)
     CHECK_MEM(buf, "\x02\x01\x3C\x00", 4);
 
     /* The link block (#261) after cfg_ver; a 14-byte POLL has none */
-    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0xC8, 0x6E, 3, ESL_POLL_LF_RETRY};
+    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0xC8, 0x6E, 3, ESL_POLL_LF_RETRY, false, 0};
     CHECK_INT(esl_poll_build(buf, &p3), ESL_POLL_LEN_LINK);
     CHECK_MEM(&buf[12], "\xEF\xBE\xC8\x6E\x03\x01", 6);
     CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LINK, &p));
@@ -507,7 +507,7 @@ void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);
@@ -656,7 +656,7 @@ void test_persist(void)
     blob[10] = 31;
     blob[11] = 'A'; /* not a valid name */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
-    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0, 0, 0}, cfg2;
     n = esl_persist_cfg_encode(0x1122334455667788ull, &cfg, blob);
     CHECK_INT(n, ESL_PERSIST_CFG_LEN);
     CHECK_MEM(blob, "\x02\x88\x77\x66\x55\x44\x33\x22\x11\x78\x00\x84\x03\xFF\xFF\x00\x00\x00\x00", n);

@@ -98,13 +98,18 @@ static uint16_t long_poll_s(void)
  * One record through hal_store_* (hal.h):
  *   0 STORE_FORMAT   1-2 cfg ver   3-4 poll_s   5-6 max_poll_s   7-8 lost_ap_s
  *   9-10 long_poll_s   11-12 long_after_min   13 cfg channel   14 the channel the tag last heard the AP on
+ *   15-18 the AP id (#390; format 5)
+ * Format 4 (15 bytes, no AP id) is still read. Firmware before format 5 reads no record of
+ * 19 bytes (HAL_STORE_MAX was 16), so a tag downgraded below it starts with the built-in
+ * settings and finds its AP again by the scan.
  * The settings are all of app_cfg_t, ver included: the tag reports ver in POLL, so a
  * stale or missing copy only costs one extra CONFIG from the AP. The screen itself comes
  * back from the image slot (image.h).
  * Written only when something changes, and with the radio off.
  */
-#define STORE_FORMAT     4        /* 3: without the channel, 1: without the long backoff; 2 was the firmware that drew content */
-#define STORE_LEN        15
+#define STORE_FORMAT     5        /* 4: without the AP id, 3: without the channel, 1: without the long backoff; 2 was the firmware that drew content */
+#define STORE_LEN        19
+#define STORE_LEN_4      15
 
 static uint8_t __xdata store_rec[STORE_LEN];
 
@@ -112,7 +117,8 @@ static void app_store_load(void)
 {
     uint8_t n = hal_store_read(store_rec, sizeof(store_rec));
 
-    if (n >= STORE_LEN && store_rec[0] == STORE_FORMAT) {
+    app.cfg.ap_id = ESL_APID_NONE;
+    if ((n >= STORE_LEN && store_rec[0] == STORE_FORMAT) || (n >= STORE_LEN_4 && store_rec[0] == 4)) {
         app.cfg.ver = ESL_GET_U16(store_rec + 1);
         app.cfg.poll_s = ESL_GET_U16(store_rec + 3);
         app.cfg.max_poll_s = ESL_GET_U16(store_rec + 5);
@@ -121,6 +127,8 @@ static void app_store_load(void)
         app.cfg.long_after_min = ESL_GET_U16(store_rec + 11);
         app.cfg.channel = store_rec[13];
         app.channel = store_rec[14];
+        if (store_rec[0] == STORE_FORMAT)
+            app.cfg.ap_id = ESL_GET_U32(store_rec + 15);
     } else {
         app.cfg.ver = 0;
         app.cfg.poll_s = 0;
@@ -148,6 +156,7 @@ static void app_store_save(void)
     ESL_PUT_U16(store_rec + 11, app.cfg.long_after_min);
     store_rec[13] = app.cfg.channel;
     store_rec[14] = app.channel;
+    ESL_PUT_U32(store_rec + 15, app.cfg.ap_id);
     /* a failed write only costs a CONFIG after a restart */
     hal_store_write(store_rec, STORE_LEN);
 }
@@ -168,7 +177,8 @@ static void apply_config(void)
     bool changed = app.cfg.ver != reply.cfg_ver || app.cfg.poll_s != poll ||
                    app.cfg.max_poll_s != max || app.cfg.lost_ap_s != lost ||
                    app.cfg.long_poll_s != lpoll || app.cfg.long_after_min != lafter ||
-                   app.cfg.channel != reply.cfg_channel;
+                   app.cfg.channel != reply.cfg_channel ||
+                   (reply.cfg_ap_id && app.cfg.ap_id != reply.cfg_ap_id);
 
     app.cfg.ver = reply.cfg_ver;
     app.cfg.poll_s = poll;
@@ -177,6 +187,8 @@ static void apply_config(void)
     app.cfg.long_poll_s = lpoll;
     app.cfg.long_after_min = lafter;
     app.cfg.channel = reply.cfg_channel;
+    if (reply.cfg_ap_id)                 /* an AP before #390 sends none: keep the one we have */
+        app.cfg.ap_id = reply.cfg_ap_id;
     app.interval_s = base_poll_s();
     if (changed || app.channel_moved)
         app_store_save();
@@ -253,9 +265,17 @@ static uint8_t build_poll_frame(void)
     uint8_t *pl = txbuf + ESL_MAC_HDR_LEN;
     uint8_t flags = app.poll_flags | ota_poll_flags() | image_poll_flags();
 
+    uint8_t lf = app.link_flags;
+
+    /* #390: how long the AP has been gone, so another AP that adopts our AP's id knows the
+       tag is really lost, not just waiting out a restart */
+    if (app.lost_s >= ESL_APID_LOST_LONG_S)
+        lf |= ESL_POLL_LF_LOST_LONG;
+    if (app.lost_s >= ESL_APID_ANY_S)
+        lf |= ESL_POLL_LF_ANY_AP;
     proto_build_poll(pl, FW_VERSION, battery_read_mv(), app.shown_id, flags, app.cfg.ver,
-                     app.rx_rssi, app.rx_lqi, app.misses, app.link_flags);
-    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_LINK);
+                     app.rx_rssi, app.rx_lqi, app.misses, lf, app.cfg.ap_id);
+    return proto_build_frame(txbuf, app.seq++, CFG_PAN_ID, app.mac, pl, ESL_POLL_LEN_APID);
 }
 
 /*
