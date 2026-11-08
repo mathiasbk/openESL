@@ -299,10 +299,10 @@ paths:
                 value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
               by_name:
                 summary: The fields by name, so a new field order in the layout file does not move them
-                value: { layout: vare-priser, fields: { price: "192.25", price_ex: "153.80", name: "Lower ball joint, cat. 3/2", brand: "Brand" } }
+                value: { layout: vare-priser, fields: { price: "192.25", price_ex: "153.80", name: "Garden hose 25 m", brand: "Brand" } }
               two_prices:
-                summary: Price inc. and ex. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
-                value: { layout: vare-priser, fields: ["Brand", "Lower ball joint, cat. 3/2", "1626-160602/439", "192.25", "153.80"], price_highlight: true }
+                summary: Price incl. and excl. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
+                value: { layout: vare-priser, fields: ["Brand", "Garden hose 25 m", "1234-5678", "192.25", "153.80"], price_highlight: true }
               scheduled:
                 summary: A new price from 13:00 UTC on 2026-10-15
                 value: { layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"], at: 1792069200 }
