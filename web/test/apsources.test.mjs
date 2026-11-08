@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, pictureOf, shortUrl } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, pictureOf, shortUrl, hostOf } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -112,6 +112,12 @@ test("headlines: the newest as its state, not a weather place", () => {
   const rss = { id: "news", type: "rss", url: "https://news.example/top.rss", tags: [C], status: { fetched_at: 1, values: { h1: "Regn i Bergen" } } };
   assert.match(sourceSummary(rss, 61).text, /^Regn i Bergen · fetched/);
   assert.deepEqual([...placeOf([rss])], []);
+  const cal = { id: "family", type: "ical", url: "https://calendar.example/private-abc/basic.ics", tags: [C],
+    status: { fetched_at: 1, values: { day1: "i morgen", time1: "09:00", what1: "Tannlege" } } };
+  assert.match(sourceSummary(cal, 61).text, /^i morgen 09:00 Tannlege · fetched/);
+  assert.match(sourceSummary({ ...cal, status: { fetched_at: 1, values: { day1: "" } } }, 61).text, /^No events ahead/);
+  assert.equal(hostOf(cal.url), "calendar.example");
+  assert.equal(hostOf("not a url"), "");
 });
 
 test("a picture's address, short", () => {
