@@ -326,11 +326,23 @@ static void test_ap_id(void)
         f.apid = true;
         f.ap_id = 0xBEEF0009ul;
         f.img_dl_id = 77;
+        f.img_dl_size = 4000;
+        f.fw_dl_ver = 0x0C00;
+        f.fw_dl_size = 0x8000;
         n = esl_faketag_img_request(&f, PAN, rx);
+        CHECK(n > 0);
         CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10100, tx, NULL), 0);
         n = esl_faketag_fw_request(&f, PAN, rx);
+        CHECK(n > 0);
         CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10200, tx, NULL), 0);
         CHECK(esl_store_req_welcome(&st, own.mac));      /* its own tags are answered */
+        own.img_dl_id = 77;
+        own.img_dl_size = 4000;
+        n = esl_faketag_img_request(&own, PAN, rx);
+        CHECK(n > 0);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10300, tx, NULL) > 0);
+        own.img_dl_id = 0;
+        own.img_dl_size = 0;
         uint32_t id = st.ap_id;
         esl_store_set_ap_id(&st, 0);                     /* an AP without an id: as before */
         CHECK(esl_store_req_welcome(&st, 0xF0000000ull));

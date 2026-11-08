@@ -314,9 +314,14 @@ static void test_rcache_ap_id(void)
         uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
         esl_faketag_init(&g, 0x10, 0x0B00, 3000, ESL_MODEL_29);
         g.img_dl_id = 77;
+        g.img_dl_size = 4000;
+        g.fw_dl_ver = 0x0C00;
+        g.fw_dl_size = 0x8000;
         size_t n = esl_faketag_img_request(&g, PAN, rx);
+        CHECK(n > 0);
         CHECK_INT(esl_rcache_handle(&rc, rx, n, -60, 380000, tx), 0);
         n = esl_faketag_fw_request(&g, PAN, rx);
+        CHECK(n > 0);
         CHECK_INT(esl_rcache_handle(&rc, rx, n, -60, 380100, tx), 0);
     }
     esl_store_set_ap_id(&st, 0);

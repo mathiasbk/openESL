@@ -371,8 +371,8 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
             rc->mid_mac = f.src_mac;
         } else if (!t) {
             /* not told of it: maybe another AP's tag (#398), whose download an IDLE would cut
-               off. Silent; the host hears of it, and its own tag is answered next round */
-            want(rc, f.src_mac, 0, 0);
+               off. Silent, and not asked for (a neighbour's download would fill the wants, as
+               its POLL does not): the host sees it in the log, and its own tag polls again */
             return 0;
         } else {
             if (t->s.image_id)
@@ -385,7 +385,7 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
         if (!t)
             return 0; /* as IMG_REQ above: maybe another AP's tag (#398) */
         const esl_rfw_t *fw = fw_for(rc, freq.model);
-        if (t && fw && t->s.fw_ver == fw->ver) {
+        if (fw && t->s.fw_ver == fw->ver) {
             bool same = freq.ver == fw->ver && freq.crc == fw->crc;
             if (same)
                 t->fw_taken = fw->ver;
@@ -394,9 +394,9 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 rc->mid_mac = f.src_mac;
         }
         if (!n) {
-            if (t && t->s.fw_ver)
+            if (t->s.fw_ver)
                 want(rc, f.src_mac, 0, freq.model);
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
+            n = esl_idle_build(reply, t->s.next_poll_s);
         }
         esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
