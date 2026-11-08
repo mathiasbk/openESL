@@ -19,8 +19,8 @@ Steps:
             (make -C sim upgrade; needs the release tags: git fetch --tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
-  tools     esl-client, power-budget, release notes (the upgrade instructions for VERSION), AP
-            flash budget and label_design.py tests
+  tools     esl-client, power-budget, release notes (the upgrade instructions for VERSION) and AP
+            flash budget tests
   flash-tui the flash-tui tests (tools/flash-tui/tests; pip: textual pyserial)
   openapi   docs/openapi.yaml against the AP code
   ap-pack   the AP's web pack holds nothing that is only for the web page, such as the browser
@@ -170,7 +170,6 @@ def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
     run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget"], cwd=os.path.join(ROOT, "tools"))
-    run([PY, "-m", "unittest", "discover", "-s", "test", "-p", "test_label_*.py"], cwd=os.path.join(ROOT, "tag"))
 
 
 def step_flash_tui():

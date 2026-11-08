@@ -15,6 +15,7 @@
 # Afterwards: source ~/.cache/openesl/env.sh, or just run tools/check.py (it looks there).
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # before the cd below
 DIR="${OPENESL_TOOLS:-$HOME/.cache/openesl}"
 SDCC_VERSION=4.5.0
 EMSCRIPTEN_VERSION=3.1.74
@@ -63,7 +64,7 @@ BINARYEN_ROOT = '$DIR/$EM/install'
 NODE_JS = '$NODE'
 EOF
 
-REQUIREMENTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/requirements.txt"
+REQUIREMENTS="$HERE/requirements.txt"
 if ! python3 -c "import zxingcpp, PIL, yaml, textual, serial, rich" 2> /dev/null; then
   echo "Installing the Python packages in $REQUIREMENTS"
   # --user, except in a virtual environment (such as ESP-IDF's, in the Docker image)
