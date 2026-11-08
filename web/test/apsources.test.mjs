@@ -98,6 +98,8 @@ test("the electricity price: its own line, not a weather place", () => {
   // a weather move leaves a price source without tags in place
   const p = weatherPlan([oslo, { ...power, tags: [] }], [C], "oslo");
   assert.deepEqual(p.sources.map((s) => s.id), ["oslo", "power"]);
+  // and a picture added in the Dashboard keeps it too
+  assert.deepEqual(picturePlanUrl([oslo, { ...power, tags: [] }], [C], { url: "http://h/a.png" }).sources.map((s) => s.id), ["oslo", "power", "picture"]);
 });
 
 test("a picture's address, short", () => {

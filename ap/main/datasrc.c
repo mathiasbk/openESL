@@ -43,6 +43,7 @@ static struct {
     char url[URL_MAX];
     char *body;
     size_t len;
+    uint32_t at; /* when it was fetched, or last answered 304 */
 } cache[ESL_SOURCE_MAX];
 
 static void lock(void *ctx)
@@ -241,7 +242,12 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
         return;
     }
     int k = cache_find(url);
-    bool cached = k >= 0;
+    bool cached = k >= 0, held = false;
+    /* a day's prices do not change: made again from the file held, asked for again after hours */
+    if (want_fetch && cached && esl_source_dated(cfg) && now - cache[k].at < ESL_SOURCE_DATED_S) {
+        want_fetch = false;
+        held = true;
+    }
     if (want_fetch || !cached) {
         char *body;
         size_t len;
@@ -265,14 +271,21 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
             snprintf(cache[k].url, sizeof(cache[k].url), "%s", url);
             cache[k].body = body;
             cache[k].len = len;
+            cache[k].at = now;
         } else if (status == 304 && cached) {
             /* not changed: the last answer again, for the time that has passed since */
+            cache[k].at = now;
         } else {
             if (status)
                 snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), host_of(url));
             ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-            esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
-            return;
+            /* a dated file held still gives the values (the error is shown); asked for again at
+               the next run */
+            if (!cached || !esl_source_dated(cfg)) {
+                esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
+                return;
+            }
+            held = true;
         }
     }
     if (esl_source_is_picture(cfg)) {
@@ -304,8 +317,8 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
              (unsigned)result.tags_set, (unsigned)result.tags_changed);
     if (err[0])
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-    esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, data_at, &result,
-                     err[0] ? err : NULL);
+    esl_sources_done(sources, i, cfg->id, now, held ? ESL_SOURCE_HELD : status, expires, heads.last_modified,
+                     &values, data_at, &result, err[0] ? err : NULL);
 }
 
 static void datasrc_task(void *arg)

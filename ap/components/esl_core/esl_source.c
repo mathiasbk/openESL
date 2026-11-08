@@ -659,9 +659,17 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
     lock(s);
     if (i >= 0 && i < s->n && strcmp(s->cfg[i].id, id) == 0) {
         esl_source_state_t *st = &s->state[i];
+        const esl_source_def_t *ty = type_of(s->cfg[i].type);
         uint32_t every = (uint32_t)s->cfg[i].every_min * 60;
-        /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
-        if (status || !values) {
+        /* the next run: every_min from now, or at the next whole multiple of it (and a few s
+           after, so the interval that starts then is the one "now") */
+        uint32_t next = ty && ty->align ? (now / every + 1) * every + 2 : now + every;
+        if (status == ESL_SOURCE_HELD) {
+            /* nothing fetched: the values were made again from the answer held */
+            st->next_at = next;
+            status = 0;
+        } else if (status || !values) {
+            /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
             st->tried_at = now;
             st->http = (int16_t)status;
         }
@@ -672,7 +680,7 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
             st->expires_at = expires;
             if (status != 304)
                 copy_str(st->last_modified, sizeof(st->last_modified), last_modified ? last_modified : "");
-            st->next_at = now + every;
+            st->next_at = next;
             if (expires > st->next_at)
                 st->next_at = expires;
         } else if (status || !values) {
@@ -896,6 +904,12 @@ bool esl_source_own_pace(const esl_source_cfg_t *c)
 {
     const esl_source_def_t *t = type_of(c->type);
     return t && t->own_pace;
+}
+
+bool esl_source_dated(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->dated;
 }
 
 bool esl_source_is_picture(const esl_source_cfg_t *c)

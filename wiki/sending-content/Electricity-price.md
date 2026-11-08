@@ -16,7 +16,8 @@ curl -X PUT http://openesl.local/api/sources \
 - `area` is `NO1` (East), `NO2` (South), `NO3` (Central), `NO4` (North) or `NO5` (West).
 - 25 % VAT is added, except in `NO4`. Set `"vat": false` or `true` to choose yourself.
 - It is the spot price only: no grid fee, no supplier markup, no electricity tax.
-- The AP asks every 15 minutes (`every_min`, 15 or more). Set the time zone under Settings, so "today" and the times are local.
+- The AP fetches the day's prices once and changes `{now}` at each quarter hour (`every_min`, 15 or more). Times are Norway's, whatever time zone the AP has.
+- Each change of the text wakes the labels. For fewer updates (longer battery life), set `"every_min": 60` or show `{min}`, `{max}` and `{avg}`, which change once a day.
 - `"lang": "en"` gives `2.88` and `low`/`normal`/`high`; the default `nb` gives `2,88` and `lav`/`normal`/`høy`.
 
 ## What a label can show

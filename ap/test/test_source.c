@@ -802,6 +802,47 @@ static char *power_json(unsigned step_min, size_t *len)
     return b;
 }
 
+static void test_civil(int32_t z, int *y, unsigned *m, unsigned *d)
+{
+    z += 719468;
+    int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+    unsigned doe = (unsigned)(z - era * 146097);
+    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    unsigned mp = (5 * doy + 2) / 153;
+    *d = doy - (153 * mp + 2) / 5 + 1;
+    *m = mp < 10 ? mp + 3 : mp - 9;
+    *y = (int)yoe + era * 400 + (*m <= 2);
+}
+
+/* A day of prices from start to end (Unix s) in steps of step_min, the times written in
+   Norway's time with their offset as hvakosterstrommen.no does; NOK 1.00 + 0.01 per step */
+static char *power_day(uint32_t start, uint32_t end, unsigned step_min, size_t *len)
+{
+    size_t cap = 200 * ((end - start) / 60 / step_min) + 16, n = 0;
+    char *b = malloc(cap);
+    n += (size_t)snprintf(b + n, cap - n, "[");
+    unsigned i = 0;
+    for (uint32_t t = start; t < end; t += step_min * 60, i++) {
+        char ts[2][64];
+        for (int k = 0; k < 2; k++) {
+            uint32_t u = t + (uint32_t)k * step_min * 60;
+            int32_t o = cet(u);
+            uint32_t l = u + (uint32_t)o;
+            int y;
+            unsigned mo, d;
+            test_civil((int32_t)(l / 86400), &y, &mo, &d);
+            snprintf(ts[k], sizeof(ts[k]), "%04d-%02u-%02uT%02u:%02u:00+%02d:00", y, mo, d, (unsigned)(l % 86400 / 3600),
+                     (unsigned)(l % 3600 / 60), (int)(o / 3600));
+        }
+        n += (size_t)snprintf(b + n, cap - n, "%s{\"NOK_per_kWh\":%.5f,\"time_start\":\"%s\",\"time_end\":\"%s\"}",
+                              i ? "," : "", 1.0 + 0.01 * i, ts[0], ts[1]);
+    }
+    n += (size_t)snprintf(b + n, cap - n, "]");
+    *len = n;
+    return b;
+}
+
 static void test_power(void)
 {
     static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
@@ -886,6 +927,62 @@ static void test_power(void)
     CHECK_STR(err, "the answer is not a JSON list of prices");
     CHECK(!esl_source_values(&cfg[0], "[]", 2, at, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(err, "the answer has no prices");
+
+    /* Norway's time whatever the AP's time zone (none: UTC): at 00:30 in Oslo the file is today's,
+       and the times shown are Oslo's */
+    CHECK(esl_source_fetch_url(&cfg[0], 1793057400u, NULL, url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://www.hvakosterstrommen.no/api/v1/prices/2026/10-27_NO1.json");
+    {
+        size_t len;
+        char *body = power_json(60, &len);
+        CHECK(esl_source_values(&cfg[0], body, len, 1793057400u, NULL, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "minat"), "03:00");
+        CHECK_STR(esl_values_get(&v, "date"), "27.10.");
+        free(body);
+    }
+    /* the days summer time ends (25 hours) and starts (23 hours), by the quarter and the hour */
+    static const struct {
+        uint32_t start, end, at;
+        unsigned step;
+        const char *now, *maxat, *url;
+    } dst[] = {
+        {1792879200u, 1792969200u, 1792888200u, 15, "1.10", "23:45", "2026/10-25_NO4"}, /* 02:30 CEST */
+        {1792879200u, 1792969200u, 1792891800u, 15, "1.14", "23:45", "2026/10-25_NO4"}, /* 02:30 CET */
+        {1792879200u, 1792969200u, 1792888200u, 60, "1.02", "23:00", "2026/10-25_NO4"},
+        {1792879200u, 1792969200u, 1792891800u, 60, "1.03", "23:00", "2026/10-25_NO4"},
+        {1774738800u, 1774821600u, 1774746000u, 15, "1.08", "23:45", "2026/03-29_NO4"}, /* 03:00 CEST */
+        {1774738800u, 1774821600u, 1774746000u, 60, "1.02", "23:00", "2026/03-29_NO4"},
+    };
+    for (size_t i = 0; i < sizeof(dst) / sizeof(dst[0]); i++) {
+        size_t len;
+        char *body = power_day(dst[i].start, dst[i].end, dst[i].step, &len);
+        CHECK(esl_source_values(&cfg[1], body, len, dst[i].at, NULL, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "now"), dst[i].now);
+        CHECK_STR(esl_values_get(&v, "minat"), "00:00");
+        CHECK_STR(esl_values_get(&v, "maxat"), dst[i].maxat);
+        CHECK_STR(esl_values_get(&v, "date"), dst[i].start == 1792879200u ? "25.10." : "29.03.");
+        CHECK(esl_source_fetch_url(&cfg[1], dst[i].at, NULL, url, sizeof(url)) > 0);
+        CHECK(HAS(url, dst[i].url));
+        free(body);
+    }
+
+    /* the next run is at the next quarter, a few s in; a held file (nothing fetched) counts no
+       fetch */
+    {
+        static esl_sources_t ss;
+        static const char one[] = "{\"sources\":[{\"id\":\"p\",\"type\":\"power\",\"area\":\"NO1\",\"layout\":\"text\"}]}";
+        esl_sources_init(&ss, NULL);
+        CHECK(esl_sources_restore(&ss, one, sizeof(one) - 1));
+        esl_values_set(&v, "now", "1");
+        esl_sources_done(&ss, 0, "p", 1793055600u + 7 * 60, 200, 0, NULL, &v, 0, NULL, NULL);
+        CHECK_INT((long)ss.state[0].next_at, (long)(1793055600u + 900 + 2));
+        CHECK_INT((long)ss.state[0].fetched_at, (long)(1793055600u + 7 * 60));
+        esl_sources_done(&ss, 0, "p", 1793055600u + 902, ESL_SOURCE_HELD, 0, NULL, &v, 0, NULL, NULL);
+        CHECK_INT((long)ss.state[0].next_at, (long)(1793055600u + 1800 + 2));
+        CHECK_INT((long)ss.state[0].fetched_at, (long)(1793055600u + 7 * 60));
+        CHECK_INT(ss.state[0].http, 200);
+        CHECK(esl_source_dated(&ss.cfg[0]) && esl_source_own_pace(&ss.cfg[0]));
+    }
 }
 
 void test_source(void)

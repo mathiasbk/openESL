@@ -174,7 +174,9 @@ export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = fal
   Object.assign(target, { every_min: every, dither: !!dither });
   target.tags = [...target.tags, ...macs];
   if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
-  list = list.filter((s) => s.tags.length || s === target);
+  // a source the move emptied goes; another type's source that had no tags yet stays
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources (weather places and pictures)` };
   return { sources: list, id: target.id };
 }

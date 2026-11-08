@@ -99,6 +99,10 @@ typedef struct {
     uint16_t every_min;          /* the least minutes between fetches, and the default */
     bool picture;                /* its answer is the tags' picture: no layout, no fields */
     bool own_pace;               /* fetched every every_min, whatever the answer's Expires says */
+    bool dated;                  /* url_at names a file that does not change (a day's prices): fetched
+                                    when not held yet, or after ESL_SOURCE_DATED_S; else the values are
+                                    made again from it */
+    bool align;                  /* runs at whole multiples of every_min (UTC), e.g. each quarter */
     /* Reads its own keys of the configuration object obj into c; false with a message */
     bool (*parse)(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen);
     /* Writes them, each as ,"key":value */
@@ -234,6 +238,12 @@ bool esl_source_is_picture(const esl_source_cfg_t *c);
 
 /* Whether source c is fetched every every_min even before its last answer's Expires */
 bool esl_source_own_pace(const esl_source_cfg_t *c);
+/* Whether c's fetch URL names a file that does not change (type "power") */
+bool esl_source_dated(const esl_source_cfg_t *c);
+#define ESL_SOURCE_DATED_S (6 * 3600) /* a dated file is still asked for again after this */
+/* The status for esl_sources_done when nothing was fetched and the values were made again
+   from the answer held (a dated file): when it runs next, but no fetch is counted */
+#define ESL_SOURCE_HELD 1
 
 /* Gives each of c's tags the picture in body (len bytes), as esl_source_apply does with
    content: counts and the first error in st, and a tag that left the source is skipped. */
