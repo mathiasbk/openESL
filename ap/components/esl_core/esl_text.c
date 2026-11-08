@@ -136,6 +136,11 @@ size_t esl_utf8_to_latin1(const char *in, size_t in_len, uint8_t *out, size_t ou
     return o;
 }
 
+static volatile bool num_point; /* esl_number_set_point */
+
+void esl_number_set_point(bool point) { num_point = point; }
+bool esl_number_point(void) { return num_point; }
+
 #define NUM_INT_MAX  12 /* digits before the decimal sign */
 #define NUM_FRAC_MAX 6  /* and after it: 10^18 still fits in 64 bits */
 
@@ -219,6 +224,7 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
         dash = mode == ESL_LE_NUM_0_DASH;
     }
 
+    const uint8_t dsign = num_point ? '.' : ',', group = num_point ? ',' : ' ';
     char digits[24];
     uint64_t whole = v / p, frac = v % p;
     unsigned nw = 0;
@@ -233,17 +239,17 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
     for (i = nw; i-- > 0;) {
         out[n++] = (uint8_t)digits[i];
         if ((opts & ESL_LE_NUM_THOUSANDS) && i && i % 3 == 0 && nw > 3)
-            out[n++] = ' ';
+            out[n++] = group;
     }
     if (nd) {
-        out[n++] = ',';
+        out[n++] = dsign;
         for (i = nd; i-- > 0;) {
             out[n + i] = (uint8_t)('0' + frac % 10);
             frac /= 10;
         }
         n += nd;
     } else if (dash) {
-        out[n++] = ',';
+        out[n++] = dsign;
         out[n++] = '-';
     }
     return n;

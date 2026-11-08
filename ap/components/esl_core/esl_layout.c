@@ -1,6 +1,7 @@
 #include "esl_clock.h"
 #include "esl_layout.h"
 #include "esl_render.h"
+#include "esl_text.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -160,6 +161,15 @@ bool esl_layouts_info(esl_layouts_t *ls, uint8_t model, uint32_t *version, size_
 }
 
 /* ESL_CLOCK_* of the layout whose name hashes to layout_hash in l, NONE when it has none. Under the lock. */
+/* Whether the layout whose name hashes to layout_hash formats numbers. Under the lock. */
+static bool nums_of(const esl_layout_t *l, uint32_t layout_hash)
+{
+    for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
+        if (esl_layout_name_hash(l->bin.names[i]) == layout_hash)
+            return l->bin.nums[i] != 0;
+    return false;
+}
+
 static uint8_t clock_of(const esl_layout_t *l, uint32_t layout_hash)
 {
     for (unsigned i = 0; l && layout_hash && i < l->bin.count; i++)
@@ -183,15 +193,20 @@ uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout
 {
     uint32_t v = 0;
     uint8_t res = ESL_CLOCK_NONE;
+    bool nums = false;
     if (ls) {
         lock(ls);
         esl_layout_t *l = slot(ls, model);
         if (l) {
             v = l->bin.version;
             res = clock_of(l, layout_hash);
+            nums = nums_of(l, layout_hash);
         }
         unlock(ls);
     }
+    /* bit 26: below the language (bit 27) and above any day of esl_clock_stamp */
+    if (v && nums && esl_number_point())
+        v ^= 0x04000000u;
     return v ^ esl_clock_stamp(res);
 }
 

@@ -1,5 +1,6 @@
 #include "tinytest.h"
 #include "esl_clock.h"
+#include "esl_text.h"
 #include "esl_layout.h"
 #include <stdio.h>
 #include <string.h>
@@ -142,6 +143,28 @@ static void test_compile(void)
     CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("a")) == a);
     CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("b")) != b);
     esl_clock_set_today(-1);
+    esl_layouts_free(&ls);
+
+    /* a decimal point (#402) draws again the layouts that format numbers, and only them; the
+       comma (no "lang", or "nb") keeps the version from before */
+    const char *nums = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+                       "{\"name\":\"p\",\"fields\":[\"x\"],\"elements\":[{\"type\":\"text\",\"field\":\"x\",\"x\":0,\"y\":0,\"w\":90,\"h\":24,\"fonts\":[\"medium\"],\"decimals\":2}]},"
+                       "{\"name\":\"q\",\"fields\":[\"x\"],\"elements\":[{\"type\":\"text\",\"field\":\"x\",\"x\":0,\"y\":0,\"w\":90,\"h\":24,\"fonts\":[\"medium\"]}]}]}";
+    CHECK(esl_layout_compile(nums, strlen(nums), ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK_INT(bin.nums[0], 1);
+    CHECK_INT(bin.nums[1], 0);
+    esl_layouts_init(&ls, NULL);
+    ver = esl_layouts_set(&ls, ESL_MODEL_29, nums, strlen(nums), &bin, &changed);
+    CHECK(ver != 0);
+    uint32_t p = esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p"));
+    CHECK(p == ver);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("q")) == ver);
+    esl_number_set_point(true);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p")) != p);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("q")) == ver);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_154, esl_layout_name_hash("p")) == 0); /* no file */
+    esl_number_set_point(false);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p")) == p);
     esl_layouts_free(&ls);
 }
 

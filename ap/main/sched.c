@@ -5,6 +5,7 @@
 #include <time.h>
 #include "app.h"
 #include "esl_clock.h"
+#include "esl_text.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
@@ -160,6 +161,7 @@ static void lang_set(void *ctx, const char *lang)
     strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     cfg_set_str("lang", clock_cfg.lang);
     esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN); /* #402: not chosen keeps the comma */
     ESP_LOGI(TAG, "date fields in %s", esl_lang_name(esl_clock_lang()));
 }
 
@@ -239,6 +241,7 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     cfg_get_str("lang", "", lang, sizeof(lang));
     int l = esl_lang_parse(lang, strlen(lang));
     esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN); /* #402: not chosen keeps the comma */
     strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     clock_cfg.set = clock_set;
     clock_cfg.set_lang = lang_set;

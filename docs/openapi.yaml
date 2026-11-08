@@ -2270,7 +2270,9 @@ components:
             `en` (Thursday, 29 October 2026) or `nb` (Torsdag, 29. oktober 2026). `null` =
             not chosen: the AP writes English, and GET says `null`, so the Dashboard and
             esl-client keep writing their dates in the browser's or computer's language. Tags showing such a field are drawn again in the new language at their
-            next poll. The Dashboard uses it for the dates it writes too. From AP firmware
+            next poll. `en` also makes the numbers the AP formats (`decimals`, `thousands` in a
+            layout) use a decimal point and a comma between thousands (1,299.90); `nb` and
+            `null` keep the decimal comma (1 299,90), as before 0.11.0. The Dashboard uses it for the dates it writes too. From AP firmware
             0.11.0; an older AP answers 422.
         ap_id:
           type: string
