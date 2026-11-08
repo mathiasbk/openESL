@@ -206,6 +206,8 @@ class FakeAp(BaseHTTPRequestHandler):
             body = self._body()
             mac = self.path.split("/")[3]
             self.calls.append((self.path, body))
+            if getattr(FakeAp, "before_draw", False):  # an AP before 0.11.0
+                return self._send(400, {"error": "mac must be 16 hex digits"})
             if mac not in self.tags:
                 return self._send(404, {"error": "unknown tag"})
             return self._send(200, self._set(mac, {"layout": "image", "fields": [], "picture": len(json.dumps(body))}))
@@ -501,6 +503,8 @@ class ClientTest(unittest.TestCase):
         body = {"layout": lay, "fields": ["R1", "Free"]}
         self.assertEqual(esl_client.draw_body(body, None, {"next": "Busy"})["fields"], {"room": "R1", "next": "Busy"})
         self.assertEqual(esl_client.draw_body(body), body)
+        with self.assertRaisesRegex(ValueError, "list of layouts"):
+            esl_client.draw_body({"layouts": ["room"]})
 
         self.run_cli("text", "00000123456789A8", "x")
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
@@ -517,6 +521,14 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(rc, 2)
             rc, out = self.run_cli("draw", "00000123456789FF", tf.name, "--layout", "room")
             self.assertEqual(rc, 2)
+            FakeAp.before_draw = True
+            try:
+                rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room")
+                self.assertEqual(rc, 2)
+                with self.assertRaisesRegex(esl_client.ApiError, "older than 0.11.0"):
+                    esl_client.Client(self.url, TOKEN).draw("00000123456789A8", {"layout": lay})
+            finally:
+                FakeAp.before_draw = False
         finally:
             os.unlink(tf.name)
 

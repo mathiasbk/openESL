@@ -604,6 +604,12 @@ paths:
         an object keyed by the layout's field names, as for `PUT /api/tags/{mac}`; it may be
         left out when the layout only draws shapes and fixed text. The tag must have polled
         once, so its model is known. An AP older than 0.11.0 answers 400 ("mac must be 16 hex digits"), as it reads `draw` as part of the MAC.
+
+        Size: the layout and its icons may take as many bytes as a layout file
+        (`max_size` in `GET /api/layouts`), but the whole body is read as at most 1024
+        JSON values (every string, number, list and object counts), which a very large
+        layout can pass before it reaches the byte limit. Either answers 413; upload a
+        design that big as a layout file instead.
       requestBody:
         required: true
         content:
@@ -642,7 +648,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "413": { $ref: "#/components/responses/TooLarge" }
+        "413":
+          description: The body is larger than a layout file, or has more than 1024 JSON values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "422":
           description: |
             An unknown key, a layout the AP cannot draw on this model (the message is the

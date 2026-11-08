@@ -52,6 +52,7 @@ curl -X PUT http://openesl.local/api/tags/00000123456789A8/draw \
 - `layout` is one layout as a layout file has it, with every element the [Label designer](Label-designer) makes ([Layout elements and limits](Layout-elements-and-limits)); `name` may be left out. `icons` are the icons it uses, as in a layout file. `fields` is a list or an object by name, as above.
 - The AP checks it against the label's screen and its limits, with the same messages as a layout file, draws it once and keeps it as the label's picture. It costs about 5 KB of the AP's storage per label, like a picture, against about 300 bytes for text in a layout.
 - Date fields (`{date}`, `{week}`) are filled in when it is drawn, not every day. For price labels and anything that should follow the date, use a layout file.
+- Size: the layout and icons may be as large as a layout file, but the body is read as at most 1024 JSON values (each string, number, list and object counts). A design bigger than that gets 413: upload it as a layout file instead.
 - The label must have polled once. Needs an AP with 0.11.0 or newer. [esl-client](esl-client) has `draw`, which also takes a layout file from the designer.
 
 ## Many labels

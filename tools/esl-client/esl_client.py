@@ -188,7 +188,13 @@ class Client:
         body is {"layout": {...}, "icons": {...}, "fields": [...] or {...}}, see draw_body()"""
         # compact: the AP takes about as much as a layout file
         data = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        return self._request("PUT", f"/api/tags/{mac}/draw", data)
+        try:
+            return self._request("PUT", f"/api/tags/{mac}/draw", data)
+        except ApiError as e:
+            # an AP before 0.11.0 reads ".../draw" as part of the tag's MAC
+            if e.status == 400 and "mac must be 16 hex digits" in str(e):
+                raise ApiError(400, "this AP is older than 0.11.0 and cannot draw a design: upgrade it") from e
+            raise
 
     def tag_config(self, mac):
         return self._request("GET", f"/api/tags/{mac}/config")
@@ -1421,6 +1427,8 @@ def draw_body(doc, layout=None, fields=None):
         raise ValueError("the file must hold a JSON object")
     if "layouts" in doc:
         ls = doc["layouts"]
+        if not isinstance(ls, list) or not all(isinstance(l, dict) for l in ls):
+            raise ValueError("layouts must be a list of layouts (objects)")
         pick = [l for l in ls if l.get("name") == layout] if layout else ls
         if len(pick) != 1:
             names = ", ".join(l.get("name", "?") for l in ls)

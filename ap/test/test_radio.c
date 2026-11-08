@@ -2037,6 +2037,34 @@ static void test_draw(void)
                                            "\"y\":0,\"w\":1,\"h\":1}]},\"fields\":[\"x\",\"y\"]}"), 422);
     CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"name\":\"Bad name\",\"fields\":[\"a\"],\"elements\":[]}}"),
               422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{ }}"), 422);
+    CHECK(!HAS(resp, "invalid JSON"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":\"a\",\"elements\":[]},\"fields\":{\"a\":\"x\"}}"),
+              422);
+    CHECK(HAS(resp, "fields must list"));
+    {
+        /* more field names than a layout may have, and text for one past the limit: refused,
+           and never an index past the AP's own field table */
+        static char big[2048];
+        size_t p = (size_t)snprintf(big, sizeof(big), "{\"layout\":{\"fields\":[");
+        for (int k = 0; k < 40; k++)
+            p += (size_t)snprintf(big + p, sizeof(big) - p, "%s\"f%d\"", k ? "," : "", k);
+        snprintf(big + p, sizeof(big) - p, "],\"elements\":[]},\"fields\":{\"f39\":\"x\",\"f20\":\"y\"}}");
+        CHECK_INT(put_draw("00000000000002B1", big), 422);
+        snprintf(big + p, sizeof(big) - p, "],\"elements\":[]},\"fields\":{\"f15\":\"x\"}}");
+        CHECK_INT(put_draw("00000000000002B1", big), 422);
+        CHECK(HAS(resp, "fields must list"));
+    }
+    {
+        /* more JSON values than the API parses: a 413 that says so */
+        static char many[8192];
+        size_t p = (size_t)snprintf(many, sizeof(many), "{\"layout\":{\"fields\":[\"a\"],\"elements\":[");
+        for (int k = 0; k < 1100; k++)
+            p += (size_t)snprintf(many + p, sizeof(many) - p, "%s1", k ? "," : "");
+        snprintf(many + p, sizeof(many) - p, "]}}");
+        CHECK_INT(put_draw("00000000000002B1", many), 413);
+        CHECK(HAS(resp, "more than 1024 JSON values"));
+    }
     CHECK_INT(nvs.img_writes, pic_writes);
 
     /* drawn once and kept as the tag's picture */

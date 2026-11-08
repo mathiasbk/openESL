@@ -28,7 +28,8 @@ static int name_index(void *ctx, const char *key, size_t klen, char *msg)
     const names_t *nm = ctx;
     const json_t *j = nm->j;
     if (nm->names >= 0 && j->tok[nm->names].type == ESL_JSON_ARRAY)
-        for (unsigned k = 0, i = (unsigned)nm->names + 1; k < j->tok[nm->names].size; k++, i = j->tok[i].next) {
+        for (unsigned k = 0, i = (unsigned)nm->names + 1; k < j->tok[nm->names].size && k < ESL_MAX_FIELDS;
+             k++, i = j->tok[i].next) {
             const esl_jtok_t *t = &j->tok[i];
             if (t->type == ESL_JSON_STRING && (size_t)(t->end - t->start) == klen &&
                 memcmp(&j->js[t->start], key, klen) == 0)
@@ -43,6 +44,7 @@ static int name_index(void *ctx, const char *key, size_t klen, char *msg)
 static char *make_file(const json_t *j, int lay, int icons, uint8_t model, size_t *len)
 {
     const esl_jtok_t *l = &j->tok[lay];
+    bool empty = l->size == 0; /* {} or { } */
     const char *mname = esl_model_name(model);
     bool named = esl_json_obj_get(j->js, j->tok, lay, "name") >= 0;
     size_t ll = (size_t)(l->end - l->start), il = icons >= 0 ? (size_t)(j->tok[icons].end - j->tok[icons].start) : 0;
@@ -59,9 +61,9 @@ static char *make_file(const json_t *j, int lay, int icons, uint8_t model, size_
     PUT(&j->js[l->start], 1); /* the layout's "{" */
     if (!named)
         PUT(name_key, sizeof(name_key) - 1);
-    /* the rest of the object; a layout of only "{}" gets no trailing comma problem, since
-       the compiler then fails it for its missing fields and elements anyway */
-    if (!named && ll == 2) {
+    /* the rest of the object; an empty layout gets the name alone (the compiler then
+       fails it for its missing fields and elements) */
+    if (!named && empty) {
         p--; /* drop the comma after the name */
         PUT("}", 1);
     } else
@@ -104,10 +106,6 @@ static int draw(const esl_api_t *api, uint64_t mac, const char *body, size_t len
     esl_content_t c;
     char *file = NULL;
     size_t flen = 0;
-    if (tok[0].type != ESL_JSON_OBJECT) {
-        free(tok);
-        return api_error(out, 400, "the body must be a JSON object");
-    }
     for (unsigned p = 0, i = 1; p < tok[0].size; p++, i = tok[i + 1].next) {
         bool known = false;
         for (unsigned k = 0; keys[k]; k++)
@@ -135,7 +133,7 @@ static int draw(const esl_api_t *api, uint64_t mac, const char *body, size_t len
         if (tok[nm].type != ESL_JSON_STRING ||
             !esl_layout_name_valid(&body[tok[nm].start], (size_t)(tok[nm].end - tok[nm].start))) {
             free(tok);
-            return api_error(out, 422, "the layout's name must be 1-31 of a-z 0-9 . _ - (starting with a letter or digit)");
+            return api_error(out, 422, "the layout's name must be 1-31 of a-z 0-9 . _ - (starting with a letter or digit), and not price or text");
         }
         esl_content_init_named(&c, &body[tok[nm].start], (size_t)(tok[nm].end - tok[nm].start), 0);
     } else
@@ -144,6 +142,12 @@ static int draw(const esl_api_t *api, uint64_t mac, const char *body, size_t len
     /* The text first, while the body's tokens are here; then they go before the compiler
        takes its own */
     names_t names = {&j, esl_json_obj_get(body, tok, lay, "fields")};
+    if (names.names >= 0 && tok[names.names].type != ESL_JSON_ARRAY) {
+        free(tok);
+        snprintf(msg, sizeof(msg), "fields must list the layout's 1 to %d text fields by name, in the order clients send them",
+                 ESL_MAX_FIELDS);
+        return api_error(out, 422, msg);
+    }
     if (fields >= 0)
         status = api_content_fields(&j, fields, c.name, ESL_MAX_FIELDS, name_index, &names, &c, msg);
     if (!status) {
@@ -163,6 +167,13 @@ static int draw(const esl_api_t *api, uint64_t mac, const char *body, size_t len
     if (!bin) {
         free(file);
         return api_error(out, 503, "out of memory");
+    }
+    if (flen > (size_t)esl_limits.json_bytes) {
+        free(file);
+        free(bin);
+        snprintf(msg, sizeof(msg), "the layout and its icons take %u bytes, more than a layout file may (%d)",
+                 (unsigned)flen, esl_limits.json_bytes);
+        return api_error(out, 413, msg);
     }
     char err[ESL_LAYOUT_ERR_MAX];
     bool ok = esl_layout_compile(file, flen, model, bin, err, sizeof(err));

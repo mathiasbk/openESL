@@ -189,6 +189,10 @@ int api_content_fields(const json_t *j, int arr, const char *lname, unsigned max
                              kl < (int)sizeof(key) ? (size_t)kl : (size_t)(j->tok[i].end - j->tok[i].start), msg);
             if (f < 0)
                 return 422;
+            if ((unsigned)f >= max_fields || f >= ESL_MAX_FIELDS) {
+                snprintf(msg, MSG_MAX, "layout %s takes at most %u fields", lname, max_fields);
+                return 422;
+            }
             if (vt[f] >= 0) {
                 snprintf(msg, MSG_MAX, "the field \"%s\" is given twice", key);
                 return 422;
