@@ -167,6 +167,27 @@ static unsigned long entity(const char *p, const char *end, const char **after)
     return 0;
 }
 
+/* A byte from 0x80 of a Latin-1 feed: windows-1252 has curly quotes, dashes and more in
+   0x80-0x9f, where ISO-8859-1 has only control characters (dropped) */
+static unsigned long latin1_cp(unsigned char b)
+{
+    static const unsigned short w1252[32] = {
+        0x20ac, 0,      0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160,
+        0x2039, 0x0152, 0,      0x017d, 0,      0,      0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+        0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0,      0x017e, 0x0178};
+    return b >= 0x80 && b < 0xa0 ? w1252[b - 0x80] : b;
+}
+
+/* Whether the '<' at p starts a tag, a comment or an end tag: "a < b" in a CDATA title is
+   text */
+static bool tag_start(const char *p, const char *end)
+{
+    if (end - p < 2)
+        return false;
+    char c = p[1];
+    return c == '/' || c == '!' || c == '?' || ((c | 0x20) >= 'a' && (c | 0x20) <= 'z');
+}
+
 /* Text from [p, end): entities decoded, tags left out, CDATA read the same way (it mostly
    holds HTML), white space made single */
 static void emit(txt_t *t, const char *p, const char *end, bool cdata)
@@ -176,7 +197,7 @@ static void emit(txt_t *t, const char *p, const char *end, bool cdata)
             const char *e = find_str(p + 9, end, "]]>");
             emit(t, p + 9, e ? e : end, true); /* once deep: CDATA does not nest */
             p = e ? e + 3 : end;
-        } else if (*p == '<') {
+        } else if (*p == '<' && tag_start(p, end)) {
             while (p < end && *p != '>')
                 p++;
             if (p < end)
@@ -192,7 +213,9 @@ static void emit(txt_t *t, const char *p, const char *end, bool cdata)
                 put(t, *p++);
             }
         } else if ((unsigned char)*p >= 0x80 && t->latin1) {
-            put_cp(t, (unsigned char)*p++);
+            unsigned long cp = latin1_cp((unsigned char)*p++);
+            if (cp)
+                put_cp(t, cp);
         } else {
             put(t, *p++);
         }
