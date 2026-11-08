@@ -70,6 +70,7 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
   const ap = { fw: list.ap.fw, channel: list.ap.channel };
   if (list.ap.board) ap.board = list.ap.board;
   if (wifi?.hostname) ap.hostname = wifi.hostname;
+  if (config.ap_id) ap.ap_id = config.ap_id; // the tags of this AP answer only an AP with it (#390)
   const tag_firmware = (tagfw?.images || []).filter((i) => i.version).map((i) => ({
     ...pick(i, ["model", "version", "crc", "to"]), waiting: (i.tags?.pending || 0) + (i.tags?.failed || 0),
   }));
@@ -141,11 +142,15 @@ export function backupSummary(b) {
 // Puts the backup on the AP, in the order the AP needs (as esl-client's restore): settings,
 // layout files, the tags' own settings, content, pictures, then the scheduled content whose time
 // has not passed. parts picks what: { settings, layouts, tags, scheduled }, all by default (tags
-// covers the tags' content, pictures and own settings). Tags the backup does not have are left
+// covers the tags' content, pictures and own settings). With settings, parts.ap_id says what
+// happens to the AP id (#390) of a backup that has one: "replace" (the default) gives this AP
+// the old one, so the old AP's tags take it at once, as for a new AP in place of a broken one;
+// "copy" keeps this AP's own id, for a second AP with the same setup, and the tags stay with the
+// old AP. Tags the backup does not have are left
 // as they are. Goes on past a failure; returns { done: [lines], failed: [lines], waiting: [MACs
 // of pictures for tags the AP has not heard yet], notes: [lines] }.
 export async function restoreBackup(client, b, { parts = {}, progress = () => {} } = {}) {
-  const want = { settings: true, layouts: true, tags: true, scheduled: true, ...parts };
+  const want = { settings: true, layouts: true, tags: true, scheduled: true, ap_id: "replace", ...parts };
   const done = [], failed = [], waiting = [], notes = [];
   const note = (ok, line) => (ok ? done : failed).push(line);
   const list = await client.call("GET", "/api/tags");
@@ -174,7 +179,10 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
   let n = 0;
   for (const [kind, arg] of steps) {
     try {
-      if (kind === "settings") await putSettings(client, b.config, note);
+      if (kind === "settings") {
+        await putSettings(client, b.config, note);
+        await putApId(client, b.ap?.ap_id, want.ap_id, note, notes);
+      }
       else if (kind === "font") {
         await client.call("PUT", "/api/fonts/" + encodeURIComponent(arg), b.fonts[arg]);
         note(true, `Font file "${arg}"`);
@@ -223,6 +231,24 @@ async function putSettings(client, config, note) {
   const body = Object.fromEntries(CONFIG_KEYS.filter((k) => k in config && k in cur && !same(k, config[k])).map((k) => [k, config[k]]));
   if (Object.keys(body).length) await client.call("PUT", "/api/config", body);
   note(true, "Settings: " + (Object.keys(body).join(", ") || "already as in the backup"));
+}
+
+// The AP id: "replace" takes the old one (and ends the adopt a new AP starts with: its tags are
+// back), "copy" keeps this AP's
+async function putApId(client, id, how, note, notes) {
+  if (!id) return;
+  const cur = await client.call("GET", "/api/config");
+  if (!("ap_id" in cur)) {
+    notes.push(`The backup has AP id ${id}, but this AP's firmware has no AP id: update it to 0.11.0 or newer, then restore the settings again.`);
+    return;
+  }
+  if (how === "copy") {
+    notes.push(`This AP keeps its own id ${cur.ap_id}: the labels of the AP the backup came from (${id}) stay with that AP. To take them over, use Adopt under Settings, Radio.`);
+    return;
+  }
+  if (cur.ap_id === id && cur.adopt == null) return note(true, `AP id: already ${id}`);
+  await client.call("PUT", "/api/config", { ap_id: id, adopt: null });
+  note(true, `AP id: ${id}, as on the AP the backup came from (its labels take this AP at once)`);
 }
 
 // The error text in an answer from send() (the body is the JSON as bytes)

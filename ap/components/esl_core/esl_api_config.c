@@ -125,6 +125,32 @@ static int channel_move_ok(const esl_channel_state_t *cs, uint8_t channel, bool 
     return 0;
 }
 
+/* An AP id as 8 hex digits ("1A2B3C4D"); not 0 or FFFFFFFF */
+static bool parse_ap_id(const char *body, const esl_jtok_t *t, uint32_t *id)
+{
+    if (t->type != ESL_JSON_STRING || t->end - t->start != 8)
+        return false;
+    uint32_t v = 0;
+    for (int i = t->start; i < t->end; i++) {
+        char ch = body[i];
+        int d = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 :
+                ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : -1;
+        if (d < 0)
+            return false;
+        v = v << 4 | (uint32_t)d;
+    }
+    if (!v || v == 0xFFFFFFFFul)
+        return false;
+    *id = v;
+    return true;
+}
+
+static void set_adopt(const esl_api_t *api, bool all, uint32_t id)
+{
+    esl_store_set_adopt(api->store, all, id);
+    api->apid->set_adopt(api->apid->ctx, all, id);
+}
+
 static int ap_config(const esl_api_t *api, const char *method, const char *body, size_t len, uint64_t now_ms,
                      esl_sb_t *out)
 {
@@ -143,6 +169,11 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int c = esl_json_obj_get(body, tok, 0, "channel");
             int cn = esl_json_obj_get(body, tok, 0, "channel_now");
             int cf = esl_json_obj_get(body, tok, 0, "force");
+            int ai = esl_json_obj_get(body, tok, 0, "ap_id");
+            int ad = esl_json_obj_get(body, tok, 0, "adopt");
+            uint32_t new_id = 0, adopt_id = 0;
+            bool adopt_all = ad >= 0 && tok[ad].type == ESL_JSON_STRING && tok[ad].end - tok[ad].start == 3 &&
+                             !memcmp(body + tok[ad].start, "all", 3);
             esl_channel_state_t cs;
             esl_store_channel_state(api->store, now_ms, &cs);
             uint16_t poll_s, channel = 0;
@@ -151,8 +182,15 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int ul = 0, lang = -1;
             if (lg >= 0 && tok[lg].type == ESL_JSON_STRING)
                 lang = esl_lang_parse(body + tok[lg].start, (size_t)(tok[lg].end - tok[lg].start));
-            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && lg < 0)
-                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz, lang or channel is required (null resets it)");
+            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && lg < 0 && ai < 0 && ad < 0)
+                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required "
+                                             "(null resets it)");
+            else if ((ai >= 0 || ad >= 0) && !api->apid)
+                status = api_error(out, 422, "this AP has no AP id");
+            else if (ai >= 0 && !parse_ap_id(body, &tok[ai], &new_id))
+                status = api_error(out, 422, "ap_id must be 8 hex digits, not 00000000 or FFFFFFFF");
+            else if (ad >= 0 && tok[ad].type != ESL_JSON_NULL && !adopt_all && !parse_ap_id(body, &tok[ad], &adopt_id))
+                status = api_error(out, 422, "adopt must be null, \"all\" or an AP id of 8 hex digits");
             else if (v >= 0 && tok[v].type != ESL_JSON_NULL &&
                      (api_parse_uint(&j, 0, "poll_s", 0, ESL_CFG_POLL_MAX_S, &poll_s) < 0 ||
                       (poll_s && poll_s < ESL_CFG_POLL_MIN_S)))
@@ -217,6 +255,16 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                     api->clock->set(api->clock->ctx, n >= 0 ? ntp : NULL, z >= 0 ? tz : NULL);
                 if (lg >= 0)
                     api->clock->set_lang(api->clock->ctx, lang < 0 ? "" : esl_lang_name((uint8_t)lang)); /* null: not chosen */
+                if (ai >= 0 && new_id != api->store->ap_id) {
+                    /* the tags of this AP carry the old id: adopt it, or they would be turned away */
+                    uint32_t old = api->store->ap_id;
+                    esl_store_set_ap_id(api->store, new_id);
+                    api->apid->set_id(api->apid->ctx, new_id);
+                    if (old && esl_store_count(api->store) && !api->store->adopt_all && ad < 0)
+                        set_adopt(api, false, old);
+                }
+                if (ad >= 0)
+                    set_adopt(api, adopt_all, adopt_id);
                 if (c >= 0)
                     esl_store_move_channel(api->store, (uint8_t)channel, cn >= 0 && tok[cn].type == ESL_JSON_TRUE,
                                            cf >= 0 && tok[cf].type == ESL_JSON_TRUE, now_ms);
@@ -250,6 +298,22 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         /* what stops a move: tags heard lately with firmware from before 0.9.0, an old radio on WiFi */
         esl_sb_printf(out, ",\"channel_old_tags\":%u,\"channel_unheard_tags\":%u,\"channel_radio_old\":%s"
                       ",\"channel_stopped\":%u", ch.old_tags, ch.unheard, ch.radio_old ? "true" : "false", ch.stopped);
+    }
+    if (api->apid && api->store->ap_id) {
+        esl_sb_printf(out, ",\"ap_id\":\"%08" PRIX32 "\"", api->store->ap_id);
+        if (api->store->adopt_all)
+            esl_sb_puts(out, ",\"adopt\":\"all\"");
+        else if (api->store->adopt_id)
+            esl_sb_printf(out, ",\"adopt\":\"%08" PRIX32 "\"", api->store->adopt_id);
+        else
+            esl_sb_puts(out, ",\"adopt\":null");
+        uint32_t until = (api->store->adopt_all || api->store->adopt_id) ? api->apid->adopt_until : 0;
+        if (until > 1)
+            esl_sb_printf(out, ",\"adopt_until\":%" PRIu32, until);
+        else
+            esl_sb_puts(out, ",\"adopt_until\":null");
+    } else if (api->apid) {
+        esl_sb_puts(out, ",\"ap_id\":null,\"adopt\":null,\"adopt_until\":null");
     }
     if (api->clock) {
         const esl_clock_cfg_t *c = api->clock;

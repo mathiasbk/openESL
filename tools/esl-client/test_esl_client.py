@@ -250,6 +250,12 @@ class FakeAp(BaseHTTPRequestHandler):
                 if "lang" not in FakeAp.config:
                     return self._send(422, {"error": "this AP has no language setting"})
                 FakeAp.config["lang"] = body["lang"] or "en"
+            if ("ap_id" in body or "adopt" in body) and "ap_id" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no AP id"})
+            if "ap_id" in body:
+                FakeAp.config["ap_id"] = body["ap_id"]
+            if "adopt" in body:
+                FakeAp.config["adopt"] = body["adopt"]
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -471,6 +477,37 @@ class ClientTest(unittest.TestCase):
         lines, ok = esl_client.restore(cli, b)
         self.assertTrue(ok, lines)
         self.assertIn("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)", lines)
+
+    def test_backup_and_restore_ap_id(self):
+        # #390: the id goes in the backup and back on a new AP, which then needs no adopt
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["ap"]["ap_id"], "1A2B3C4D")
+        self.setUp()
+        FakeAp.config.update({"ap_id": "99990000", "adopt": "all", "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("AP id: 1A2B3C4D", lines)
+        self.assertEqual((FakeAp.config["ap_id"], FakeAp.config["adopt"]), ("1A2B3C4D", None))
+        # a second AP with the same setup keeps its own
+        self.setUp()
+        FakeAp.config.update({"ap_id": "55556666", "adopt": None, "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b, copy=True)
+        self.assertEqual(FakeAp.config["ap_id"], "55556666")
+        self.assertTrue(any("keeps its own id 55556666" in line for line in lines), lines)
+        # an AP without it: a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("has no AP id" in line for line in lines), lines)
+        # config --adopt, and what config shows
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        _, out = self.run_cli("config", "--adopt", "BEEF0002")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": "BEEF0002"}))
+        self.assertIn("AP id 1A2B3C4D, adopting the lost tags of AP BEEF0002", out)
+        self.run_cli("config", "--adopt", "null")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": None}))
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")

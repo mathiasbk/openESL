@@ -6,11 +6,14 @@ On the [dashboard](Dashboard): **Settings → Backup → Download backup**, and 
 python3 esl_client.py backup ap.json     # to a file
 python3 esl_client.py restore ap.json    # back onto an AP
 python3 esl_client.py restore ap.json --dry-run
+python3 esl_client.py restore ap.json --copy   # a second AP: keeps its own AP id
 ```
 
 ## What is in it
 
-The default poll interval, the webhook, the time zone, NTP server and date language, the layout files and the [font files](Font-files) they draw with, each label's content (pictures too) and own settings, and the scheduled content.
+The default poll interval, the webhook, the time zone, NTP server and date language, the layout files and the [font files](Font-files) they draw with, each label's content (pictures too) and own settings, the scheduled content, and the AP's id (from 0.11.0).
+
+**The AP id:** labels with label firmware 0.11.0 or newer answer only the AP with their id ([Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). On restore, choose *In place of the AP the backup came from* (the default; esl-client without `--copy`): the AP gets the old id, and the labels take it at once. Choose *A second AP with the same setup* (`--copy`) to keep the AP's own id: the labels stay with the old AP. Take a backup after updating the AP to 0.11.0, so it has the id.
 
 **Not in it:** the WiFi password (it cannot be read back), the API token, and the radio's transmit power (it depends on the AP's antenna). Set those again on a new AP ([WiFi and API token](WiFi-and-API-token)). Labels that have only polled, with no content, are left out; they come back by themselves at their next poll.
 

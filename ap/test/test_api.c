@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static uint64_t forgot;
 static int forget_radio(void *ctx, uint64_t id)
@@ -375,7 +375,7 @@ static void test_batch_and_list(void)
     CHECK_INT((int)esl_api_radios_lost(&api, 86420000), 1);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86420000), 200);
     CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":null,\"via\":\"wifi\",\"problems\":[\"radio_lost\"],"
-                    "\"lost_s\":30}],\"ok\":false,"));
+                    "\"lost_s\":30}],\"other_aps\":[],\"ok\":false,"));
     CHECK(HAS(resp, "\"radio_lost\":1,"));
     /* the C6 on the cable: no address; never connected since boot counts from boot */
     esl_radio_link_t cable = {.uart = true, .id = 0xC60000000077C8ULL};
@@ -390,7 +390,7 @@ static void test_batch_and_list(void)
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 40000), 200);
     CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"uart\",\"lost\":false,\"seen_s\":1,\"fw\":257}}"));
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
-    CHECK(HAS(resp, "\"radio_problems\":[],\"ok\":true,"));
+    CHECK(HAS(resp, "\"radio_problems\":[],\"other_aps\":[],\"ok\":true,"));
     CHECK(HAS(resp, "\"radio_lost\":0,"));
     api.link = &link;
     /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
@@ -1088,7 +1088,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1224,7 +1224,7 @@ static void test_clock_config(void)
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
                     "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required"));
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
@@ -1324,7 +1324,7 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
+    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"other_aps\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
                     "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
@@ -1342,7 +1342,7 @@ static void test_health(void)
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
-                    "],\"radio_problems\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
+                    "],\"radio_problems\":[],\"other_aps\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
                     "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);

@@ -105,7 +105,7 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
             n = esl_idle_build(reply, next);
         esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {
-        if (!esl_store_poll_welcome(st, f.src_mac, &poll))
+        if (!esl_store_poll_welcome(st, f.src_mac, &poll, now_ms))
             return 0; /* it belongs to another AP that may only be restarting (#390): stay silent */
         /* The layout names and version are copied out first: the store and the
          * layout files may share one lock, and it is not taken twice. */

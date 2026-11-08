@@ -295,3 +295,17 @@ test("GET /api/tags?since= keeps the tags a reply leaves out (#305)", () => {
   assert.equal(mergeTagList(list, again, seenAt, 230000), again);
   assert.deepEqual([...seenAt.keys()], ["A"]);
 });
+
+test("labels of other APs (#390): the health line, the list and what adopt does", async () => {
+  const { otherApsLine, otherApText, adoptText } = await import("../js/dashdata.js");
+  assert.equal(otherApsLine({}), "");
+  assert.equal(otherApsLine({ other_aps: [] }), "");
+  const one = { other_aps: [{ ap_id: "1A2B3C4D", tags: 3, polls: 9, seen_s_ago: 120, lost_long: false }] };
+  assert.equal(otherApsLine(one), "3 labels of another AP (1A2B3C4D) poll here and get no answer. To take them over, see Settings, Radio.");
+  const two = { other_aps: [{ ap_id: "1A2B3C4D", tags: 1, polls: 1, seen_s_ago: 5, lost_long: true }, { ap_id: "00000002", tags: 0, polls: 4, seen_s_ago: 50, lost_long: false }] };
+  assert.match(otherApsLine(two), /^1 label of 2 other APs polls here and gets no answer\. Some have been without their own AP for over an hour\./);
+  assert.match(otherApText(two.other_aps[0]), /^AP 1A2B3C4D: 1 label lately, last .* ago, lost for over an hour$/);
+  assert.equal(adoptText({ adopt: null }), "");
+  assert.match(adoptText({ adopt: "all", adopt_until: null }), /any other AP .* for 14 days from when the AP knows the time\.$/);
+  assert.match(adoptText({ adopt: "1A2B3C4D", adopt_until: 1800000000 }), /labels of AP 1A2B3C4D .*, until /);
+});

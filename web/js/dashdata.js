@@ -162,6 +162,33 @@ export function healthLine(h) {
   return `${who} attention: ${parts.join(", ")}.`;
 }
 
+// Labels of other openESL APs that poll this one and get no answer (#390, GET /api/health
+// other_aps): one line, "" when there are none. Adopt under Settings, Radio takes them over.
+export function otherApsLine(h) {
+  const o = h?.other_aps || [];
+  if (!o.length) return "";
+  const n = o.reduce((s, a) => s + (a.tags || 0), 0);
+  const aps = o.length === 1 ? `another AP (${o[0].ap_id})` : `${o.length} other APs`;
+  const lost = o.some((a) => a.lost_long) ? " Some have been without their own AP for over an hour." : "";
+  return `${n === 1 ? "1 label" : `${n || "Some"} labels`} of ${aps} ${n === 1 ? "polls here and gets" : "poll here and get"} no answer.${lost} ` +
+    "To take them over, see Settings, Radio.";
+}
+
+// One other AP for the adopt list: "AP 1A2B3C4D: 3 labels lately, last 2 min ago"
+export function otherApText(a) {
+  const tags = a.tags === 1 ? "1 label" : `${a.tags} labels`;
+  return `AP ${a.ap_id}: ${tags} lately, last ${fmtAgo(a.seen_s_ago)} ago${a.lost_long ? ", lost for over an hour" : ""}`;
+}
+
+// What adopt does now (GET /api/config adopt, adopt_until), "" when it is off
+export function adoptText(c) {
+  if (!c?.adopt) return "";
+  const who = c.adopt === "all" ? "any other AP" : `AP ${c.adopt}`;
+  const until = c.adopt_until ? ` until ${new Date(c.adopt_until * 1000).toLocaleDateString()}`
+    : " for 14 days from when the AP knows the time";
+  return `Taking over the labels of ${who} once they have been without their own AP for an hour,${until}.`;
+}
+
 // The AP's own figures as [label, value] pairs
 export function apFacts(ap, ota) {
   if (!ap) return [];

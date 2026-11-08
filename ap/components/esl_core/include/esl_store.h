@@ -170,6 +170,16 @@ const char *esl_content_err_text(uint8_t err);
 #define ESL_STORE_MAX_TAGS (ESL_STORE_CHUNK * ESL_STORE_MAX_CHUNKS)
 
 #define ESL_STORE_FOREIGN 16 /* tags of other APs remembered as refused (#390) */
+#define ESL_STORE_OTHER_APS 8 /* other APs whose tags were heard here, for GET /api/health */
+
+/* An AP whose tags poll here and are turned away (or taken, when adopted), by its id */
+typedef struct {
+    uint32_t ap_id;
+    uint32_t polls;          /* POLLs heard from its tags since the AP started */
+    uint64_t last_ms;        /* the last one */
+    bool lost_long;          /* the last one was from a tag lost for an hour (it would be taken on adopt) */
+    unsigned tags;           /* filled in by esl_store_other_aps: its tags among the last refused */
+} esl_other_ap_t;
 
 typedef struct {
     esl_tag_t *chunk[ESL_STORE_MAX_CHUNKS];
@@ -195,6 +205,7 @@ typedef struct {
     bool adopt_all;           /* ... and so are those of any other AP */
     struct { uint64_t mac; uint32_t ap_id; } foreign[ESL_STORE_FOREIGN]; /* recently refused, newest at foreign_at */
     unsigned foreign_at;
+    esl_other_ap_t other_aps[ESL_STORE_OTHER_APS]; /* ap_id 0 = free; the oldest goes when full */
     esl_store_ops_t ops;
 } esl_store_t;
 
@@ -207,7 +218,9 @@ typedef struct {
 void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id);
 void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id);
 /* True when the AP answers this POLL; false notes the MAC as refused */
-bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll);
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms);
+/* The other APs heard of (refused tags), newest first; returns how many went into out */
+unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max);
 /* True when the MAC was refused lately (its IMG_REQ and FW_REQ get no answer) */
 bool esl_store_refused(esl_store_t *st, uint64_t mac);
 

@@ -305,59 +305,110 @@ static uint32_t unix_now(void *ctx)
  * An AP that makes its id with an empty tag table (new, or NVS erased) adopts every tag that
  * has been lost for an hour, for ADOPT_AUTO_S: its old tags carry the id it had before.
  * cfg/adopt_end is when that ends (unix s), 1 = it starts when the clock is known. */
-#define ADOPT_AUTO_S (14ul * 24 * 3600)
-static uint32_t adopt_end;
+#define ADOPT_AUTO_S ((uint32_t)ESL_API_ADOPT_DAYS * 24 * 3600)
+/* cfg/adopt_end mirrored, 0 = no adopt; cfg/adopt_id is the id adopted, none = every id */
+static esl_apid_cfg_t apid_cfg;
 
-static void adopt_end_save(uint32_t v)
+static esp_err_t set_or_erase_u32(nvs_handle_t h, const char *key, uint32_t v)
+{
+    esp_err_t err = v ? nvs_set_u32(h, key, v) : nvs_erase_key(h, key);
+    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
+}
+
+static void adopt_save(uint32_t end, uint32_t id)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
     if (err == ESP_OK) {
-        err = v ? nvs_set_u32(h, "adopt_end", v) : nvs_erase_key(h, "adopt_end");
-        if (err == ESP_ERR_NVS_NOT_FOUND)
-            err = ESP_OK;
+        err = set_or_erase_u32(h, "adopt_end", end);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "adopt_id", end ? id : 0);
         if (err == ESP_OK)
             err = nvs_commit(h);
         nvs_close(h);
     }
     if (err != ESP_OK)
         ESP_LOGE(TAG, "saving cfg/adopt_end failed: %s", esp_err_to_name(err));
-    adopt_end = v;
+    apid_cfg.adopt_until = end;
 }
 
-/* Starts the automatic adopt time once the clock is known, and ends it */
+static void adopt_stop(const char *why)
+{
+    esl_store_set_adopt(store_ref, false, 0);
+    adopt_save(0, 0);
+    ESP_LOGI(TAG, "adopt ended (%s)", why);
+}
+
+/* Starts the adopt time once the clock is known, and ends it */
 static void adopt_tick(void)
 {
-    uint32_t now = unix_now(NULL);
-    if (!adopt_end)
+    uint32_t now = unix_now(NULL), end = apid_cfg.adopt_until;
+    if (!end)
         return;
     if (!now) {
         /* never a clock: the uptime counts instead, so it ends all the same */
-        if (adopt_end == 1 && (uint64_t)esp_timer_get_time() / 1000000 >= ADOPT_AUTO_S) {
-            esl_store_set_adopt(store_ref, false, 0);
-            adopt_end_save(0);
-            ESP_LOGI(TAG, "automatic adopt ended (14 days up, no clock)");
-        }
+        if (end == 1 && (uint64_t)esp_timer_get_time() / 1000000 >= ADOPT_AUTO_S)
+            adopt_stop("14 days up, no clock");
         return;
     }
-    if (adopt_end == 1) {
-        adopt_end_save(now + ADOPT_AUTO_S);
-    } else if (now >= adopt_end) {
-        esl_store_set_adopt(store_ref, false, 0);
-        adopt_end_save(0);
-        ESP_LOGI(TAG, "automatic adopt ended");
+    if (end == 1)
+        adopt_save(now + ADOPT_AUTO_S, store_ref->adopt_all ? 0 : store_ref->adopt_id);
+    else if (now >= end)
+        adopt_stop("14 days");
+}
+
+/* PUT /api/config "ap_id" and "adopt" (esl_api.h): the store is set already */
+static void api_set_id(void *ctx, uint32_t id)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_u32(h, "ap_id", id);
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
     }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/ap_id failed: %s", esp_err_to_name(err));
+    else
+        ESP_LOGI(TAG, "AP id set to %08lX", (unsigned long)id);
+}
+
+static void api_set_adopt(void *ctx, bool all, uint32_t id)
+{
+    (void)ctx;
+    uint32_t now = unix_now(NULL);
+    if (!all && !id)
+        adopt_save(0, 0);
+    else
+        adopt_save(now ? now + ADOPT_AUTO_S : 1, all ? 0 : id);
+    if (all)
+        ESP_LOGI(TAG, "adopting lost tags of any AP");
+    else if (id)
+        ESP_LOGI(TAG, "adopting lost tags of AP %08lX", (unsigned long)id);
+    else
+        ESP_LOGI(TAG, "adopt off");
+}
+
+esl_apid_cfg_t *store_nvs_apid(void)
+{
+    return &apid_cfg;
 }
 
 static void ap_id_init(esl_store_t *st)
 {
     nvs_handle_t h;
-    uint32_t id = 0, end = 0;
+    uint32_t id = 0, end = 0, adopt_id = 0;
+    apid_cfg.set_id = api_set_id;
+    apid_cfg.set_adopt = api_set_adopt;
     esp_err_t rd = nvs_open("cfg", NVS_READONLY, &h);
     if (rd == ESP_OK) {
         rd = nvs_get_u32(h, "ap_id", &id);
         if (nvs_get_u32(h, "adopt_end", &end) != ESP_OK)
             end = 0;
+        if (nvs_get_u32(h, "adopt_id", &adopt_id) != ESP_OK)
+            adopt_id = 0;
         nvs_close(h);
     }
     if (rd != ESP_OK && rd != ESP_ERR_NVS_NOT_FOUND) {
@@ -389,15 +440,16 @@ static void ap_id_init(esl_store_t *st)
         }
         ESP_LOGI(TAG, "new AP id %08lX", (unsigned long)id);
         if (!esl_store_count(st)) {
-            ESP_LOGI(TAG, "empty table: adopting lost tags of any AP for %lu days", ADOPT_AUTO_S / 86400);
-            adopt_end_save(1);
+            ESP_LOGI(TAG, "empty table: adopting lost tags of any AP for %u days", (unsigned)ESL_API_ADOPT_DAYS);
+            adopt_save(1, 0);
             end = 1;
+            adopt_id = 0;
         }
     }
     esl_store_set_ap_id(st, id);
-    adopt_end = end;
+    apid_cfg.adopt_until = end;
     if (end)
-        esl_store_set_adopt(st, true, 0);
+        esl_store_set_adopt(st, !adopt_id, adopt_id);
 }
 
 static void seen_task(void *arg)

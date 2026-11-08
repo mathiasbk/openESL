@@ -89,6 +89,7 @@ void app_main(void)
     store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;
+    api.apid = store_nvs_apid();
     /* GET /api/tags?since= (#270): a since from before this restart gets the whole list */
     static esl_api_changes_t changes;
     changes.boot = esp_random();

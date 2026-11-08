@@ -6,7 +6,7 @@
 // has one Save, shown with Undo only once something in it differs from what the AP has.
 import { checkToken, newToken, checkHostname, checkWifi, describeWifi } from "./apserial.js";
 import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE,
-  channelOptions, channelMove, channelBlock, CHANNEL_NOTE } from "./dashdata.js";
+  channelOptions, channelMove, channelBlock, CHANNEL_NOTE, adoptText, otherApText } from "./dashdata.js";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName } from "./backup.js";
 import { modelName } from "./models.js";
 
@@ -475,6 +475,38 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     },
   });
 
+  // ---- Radio: labels of other APs (#390): this AP's id, and adopt ----
+  const adoptSel = $("set-adopt-sel");
+  const ADOPT_NOTE = "Each AP has its own id, and a label answers only to the AP it belongs to, so a neighbouring AP " +
+    "does not take it while its own is off for a while. To move labels here from an AP that is gone, take them over: " +
+    "a label is taken once it has been without its own AP for an hour. It stops by itself after 14 days.";
+  const renderAdopt = () => {
+    const c = last?.config, others = last?.health?.other_aps || [];
+    $("set-adopt-field").hidden = !c?.ap_id;
+    if (!c?.ap_id) return;
+    const opts = [["", "Off: only this AP's own labels"], ["all", "Take over lost labels of any AP"],
+      ...others.map((a) => [a.ap_id, `Take over lost labels of AP ${a.ap_id}`])];
+    if (c.adopt && c.adopt !== "all" && !others.some((a) => a.ap_id === c.adopt))
+      opts.push([c.adopt, `Take over lost labels of AP ${c.adopt}`]);
+    const keep = document.activeElement === adoptSel ? adoptSel.value : c.adopt || "";
+    adoptSel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+    adoptSel.value = keep;
+    $("set-adopt-note").textContent = [`This AP's id is ${c.ap_id}.`, adoptText(c), ADOPT_NOTE].filter(Boolean).join(" ");
+    $("set-adopt-others").replaceChildren(...others.map((a) => Object.assign(document.createElement("li"), { textContent: otherApText(a) })));
+  };
+  $("set-adopt-go").addEventListener("click", () => busy($("set-adopt-go"), async () => {
+    const client = getClient();
+    if (!client) return;
+    const v = adoptSel.value || null;
+    try {
+      await client.call("PUT", "/api/config", { adopt: v });
+      say("set-radio-msg", v ? "Saved. Labels are taken over once they have been without their own AP for an hour." : "Saved. Only this AP's own labels are answered.", "ok");
+      refresh();
+    } catch (e) {
+      say("set-radio-msg", "Not saved: " + e.message, "error");
+    }
+  }));
+
   // ---- Security: the API token ----
   $("set-token-gen").addEventListener("click", () => {
     $("set-token-new").value = newToken();
@@ -560,6 +592,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       `layout files for ${s.layouts.map(modelName).join(", ") || "no model"}, ` +
       (s.fonts.length ? `font files ${s.fonts.join(", ")}, ` : "") + `${s.scheduled} scheduled. ` +
       "What is on the AP for the same tags and models is replaced; other tags are left as they are.";
+    $("bk-apid").hidden = !loaded.ap?.ap_id;
+    $("bk-apid-replace").checked = true;
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;
     say("bk-msg", "");
@@ -572,6 +606,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const client = getClient();
     if (!client || !loaded) return;
     const parts = Object.fromEntries(["settings", "layouts", "tags", "scheduled"].map((k) => [k, $("bk-p-" + k).checked]));
+    parts.ap_id = $("bk-apid-copy").checked ? "copy" : "replace";
     say("bk-msg", "Restoring …");
     try {
       const r = await restoreBackup(client, loaded, { parts, progress: showProgress });
@@ -597,7 +632,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel);
+      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel) || !!last.config?.ap_id;
       $("set-tab-radio").hidden = !radioSet;
       if (!radioSet && !$("set-radio").hidden) showPane("general");
       renderClock();
@@ -605,6 +640,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       general.render();
       netcfg.render();
       radio.render();
+      renderAdopt();
     },
     // a new connection: what was typed for the old AP is dropped
     reset() {

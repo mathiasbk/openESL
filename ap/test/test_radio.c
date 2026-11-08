@@ -116,7 +116,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -182,6 +182,25 @@ static int put(const char *mac, const char *body)
     char uri[64];
     snprintf(uri, sizeof(uri), "/api/tags/%s", mac);
     return esl_api_handle(&api, "PUT", uri, AUTH, body, strlen(body), 0, &out);
+}
+
+/* The glue of the AP id for the API tests (main/store_nvs.c on the AP) */
+static uint32_t saved_id, saved_adopt_id;
+static bool saved_adopt_all;
+static unsigned id_saves, adopt_saves;
+static void fake_set_id(void *ctx, uint32_t id) { (void)ctx; saved_id = id; id_saves++; }
+static void fake_set_adopt(void *ctx, bool all, uint32_t id)
+{
+    (void)ctx;
+    saved_adopt_all = all;
+    saved_adopt_id = id;
+    adopt_saves++;
+}
+static esl_apid_cfg_t apid_cfg = {0, fake_set_id, fake_set_adopt, NULL};
+
+static int cfg_put(const char *body)
+{
+    return esl_api_handle(&api, "PUT", "/api/config", AUTH, body, strlen(body), 0, &out);
 }
 
 /* The AP id (#390): a label that belongs to another AP is not answered, unless it is lost for long
@@ -289,6 +308,45 @@ static void test_ap_id(void)
     }
     CHECK(!esl_store_refused(&st, 0xF0000000ull));
     CHECK(esl_store_refused(&st, 0xF0000000ull + ESL_STORE_FOREIGN));
+
+    /* Health lists the other APs whose labels poll here, newest first */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 20000, &out), 200);
+    CHECK(HAS(resp, "\"other_aps\":[{\"ap_id\":\"BEEF0009\",\"tags\":16,\"polls\":17,\"seen_s_ago\":9,\"lost_long\":false}"));
+    CHECK(HAS(resp, "{\"ap_id\":\"BEEF0003\"") == 0 && HAS(resp, "\"ap_id\":\"BEEF0002\""));
+
+    /* GET/PUT /api/config: the id and adopt */
+    api.apid = &apid_cfg;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"ap_id\":\"BEEF0001\",\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 200);
+    CHECK(st.adopt_all && saved_adopt_all && adopt_saves == 1);
+    CHECK(HAS(resp, "\"adopt\":\"all\""));
+    apid_cfg.adopt_until = 1800000000ul;
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0009\"}"), 200);
+    CHECK(!st.adopt_all && st.adopt_id == 0xBEEF0009ul && saved_adopt_id == 0xBEEF0009ul);
+    CHECK(HAS(resp, "\"adopt\":\"BEEF0009\",\"adopt_until\":1800000000"));
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
+    CHECK(!st.adopt_all && !st.adopt_id && !saved_adopt_all && !saved_adopt_id);
+    CHECK(HAS(resp, "\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"some\"}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"00000000\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"FFFFFFFF\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF00\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":12345678}"), 422);
+    CHECK_INT(adopt_saves, 3);
+
+    /* a new id on an AP with labels: they carry the old one, so it is adopted */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\"}"), 200);
+    CHECK(st.ap_id == 0x0A0B0C0Dul && saved_id == 0x0A0B0C0Dul && id_saves == 1);
+    CHECK(st.adopt_id == 0xBEEF0001ul && saved_adopt_id == 0xBEEF0001ul);
+    CHECK(HAS(resp, "\"ap_id\":\"0A0B0C0D\",\"adopt\":\"BEEF0001\""));
+    /* the same id again changes nothing; an id and adopt together: the adopt asked for */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0a0b0c0d\"}"), 200);
+    CHECK_INT(id_saves, 1);
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF0001\",\"adopt\":null}"), 200);
+    CHECK(st.ap_id == 0xBEEF0001ul && !st.adopt_id && !st.adopt_all);
+    api.apid = NULL;
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 422);
     esl_store_set_ap_id(&st, 0);
 }
 

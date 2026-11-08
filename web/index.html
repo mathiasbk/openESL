@@ -781,6 +781,14 @@
               </div>
               <small id="set-tx-note"></small>
             </div>
+            <div class="field" id="set-adopt-field" hidden><span>Labels of other APs</span>
+              <div class="row">
+                <select id="set-adopt-sel" aria-label="Take over the labels of another AP"></select>
+                <button type="button" id="set-adopt-go">Apply</button>
+              </div>
+              <small id="set-adopt-note"></small>
+              <ul id="set-adopt-others" class="hint"></ul>
+            </div>
           </div>
           <div class="savebar"><span id="set-radio-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
         </form>
@@ -811,6 +819,11 @@
                 <label class="check"><input type="checkbox" id="bk-p-tags" checked> Tags</label>
                 <label class="check"><input type="checkbox" id="bk-p-scheduled" checked> Scheduled</label>
               </div>
+              <fieldset id="bk-apid" class="bk-apid" hidden>
+                <legend>This AP is</legend>
+                <label class="check"><input type="radio" name="bk-apid" id="bk-apid-replace" value="replace" checked> In place of the AP the backup came from: its labels come here at once</label>
+                <label class="check"><input type="radio" name="bk-apid" id="bk-apid-copy" value="copy"> A second AP with the same setup: the labels stay with the old AP</label>
+              </fieldset>
               <div class="row"><button id="bk-go" type="button" class="primary">Restore</button><button id="bk-cancel" type="button">Cancel</button></div>
             </div>
             <progress id="bk-progress" max="1" value="0" hidden></progress>
