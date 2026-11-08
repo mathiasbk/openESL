@@ -29,7 +29,7 @@ From 0.11.0 an AP does not answer the labels of another AP ([Why labels stay con
 "other_aps": [{"ap_id": "1A2B3C4D", "tags": 3, "polls": 12, "seen_s_ago": 40, "lost_long": true}]
 ```
 
-**An old radio over WiFi:** a C6 over WiFi with firmware from before 0.11.0 still answers the labels of other APs from its own memory, so they never get their settings from their own AP. The report lists such a radio under `old_radios` (it does not make `ok` false), and the dashboard warns about it at the top. Update it to the same version as the AP ([ESP32-S3 with wireless C6](ESP32-S3-with-wireless-C6)).
+**An old radio over WiFi:** a C6 over WiFi with firmware from before 0.11.0 cannot pass the AP id on to the labels. This AP's own labels then show *settings pending* until the radio is updated, and the radio also answers the labels of other APs from its own memory, so they never get their settings from their own AP. The report lists such a radio under `old_radios` (it does not make `ok` false), and the dashboard warns about it at the top. Update it to the same version as the AP ([ESP32-S3 with wireless C6](ESP32-S3-with-wireless-C6)).
 
 ```json
 "old_radios": [{"radio": 0, "id": "00001A2B3C4D5E6F", "fw": 1002}]

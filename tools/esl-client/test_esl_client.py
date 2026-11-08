@@ -410,8 +410,13 @@ class ClientTest(unittest.TestCase):
             rc = esl_client.print_health({"problems": [], "ok": True, "tags": 1, "with_problems": 0,
                                           "old_radios": [{"radio": 0, "id": "000098880E71A3AC", "fw": 1002}]})
         self.assertEqual(rc, 0)
-        self.assertIn("  radio 0 (C6 over WiFi, 000098880E71A3AC) has firmware 0.10.2: it answers the tags of other APs"
-                      " too; update it to the AP's version\n", buf.getvalue())
+        self.assertIn("  radio 0 (C6 over WiFi, 000098880E71A3AC) has firmware 0.10.2, too old for the AP id: this AP's own"
+                      " tags show settings pending and it answers other APs' tags; update it to the AP's version\n",
+                      buf.getvalue())
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            esl_client.print_health({"ok": True, "old_radios": [{"radio": 1, "id": "000098880E71A3AD", "fw": 0}]})
+        self.assertIn("  radio 1 (C6 over WiFi, 000098880E71A3AD) too old for the AP id:", buf.getvalue())
 
         rc, out = self.run_cli("config")
         self.assertEqual((rc, out), (0, "poll_s 0 (menuconfig 0), webhook off\n"))

@@ -2369,7 +2369,7 @@ components:
               lost_long: { type: boolean, description: "The last one came from a tag without an answer for an hour or more: adopt would take it" }
         old_radios:
           type: array
-          description: "Connected radios over WiFi whose firmware is from before 0.11.0 (#390). Such a radio answers the tags of other APs from its cache, so those tags get no settings from their own AP: update it to the AP's version. It does not change `ok`. Not sent by firmware before 0.11.0"
+          description: "Connected radios over WiFi whose firmware is from before 0.11.0 (#390). Such a radio cannot pass the AP id on: this AP's own tags show settings pending until it is updated, and it answers the tags of other APs from its cache, so those get no settings from their own AP. Update it to the AP's version. It does not change `ok`. Not sent by firmware before 0.11.0"
           items:
             type: object
             additionalProperties: false

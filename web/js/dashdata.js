@@ -271,7 +271,8 @@ export function radioWarnings(ap, health) {
   }).concat((health?.old_radios || []).map((r) => {
     const which = several ? `Radio ${r.radio} (C6 over WiFi)` : "The radio (C6 over WiFi)";
     const fw = r.fw ? ` has firmware ${Math.floor(r.fw / 10000)}.${Math.floor(r.fw / 100) % 100}.${r.fw % 100}, which` : "";
-    return `${which}${fw} answers the tags of other APs too, so they get no settings from their own AP. ` +
+    return `${which}${fw} cannot pass on the AP id: this AP's own labels show settings pending until it is updated, ` +
+      "and it answers the labels of other APs too. " +
       "Update it to the same firmware version as the AP.";
   }));
 }

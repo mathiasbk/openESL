@@ -31,6 +31,7 @@ void sim_ap_boot(void);
 /* The channel in the AP's NVS (0 = none, menuconfig's), as if set without telling the tags:
    it is on it from its next boot (#258) */
 void sim_ap_set_nvs_channel(uint8_t channel);
+void sim_ap_set_id(uint32_t id); /* as another AP, with that id (#390); the previous id is not answered */
 /* Switches the AP off: frames from the tag get no answer, the API answers 503. */
 void sim_ap_off(void);
 bool sim_ap_up(void);

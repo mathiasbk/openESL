@@ -257,7 +257,7 @@ test("a lost radio: the warning at the top, the AP facts, and the tags line", ()
   // a radio over WiFi from before 0.11.0 (#390)
   const wifi = { fw: "0.11.0", radio: { connected: true, via: "wifi", lost: false, seen_s: 1, fw: 1002 } };
   assert.deepEqual(radioWarnings(wifi, { ok: true, tags: 1, radio_problems: [], old_radios: [{ radio: 0, id: "000098880E71A3AC", fw: 1002 }] }), [
-    "The radio (C6 over WiFi) has firmware 0.10.2, which answers the tags of other APs too, so they get no settings from their own AP. Update it to the same firmware version as the AP.",
+    "The radio (C6 over WiFi) has firmware 0.10.2, which cannot pass on the AP id: this AP's own labels show settings pending until it is updated, and it answers the labels of other APs too. Update it to the same firmware version as the AP.",
   ]);
   const up = { ...cable, radio: { connected: true, via: "uart", lost: false, seen_s: 1, fw: 257 } };
   assert.equal(Object.fromEntries(apFacts(up))["Radio (C6)"], "answering, last heard 1 s ago");

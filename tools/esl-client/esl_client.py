@@ -811,8 +811,9 @@ def print_health(h):
               + (", lost for over an hour" if a.get("lost_long") else "") + " (config --adopt takes them over)")
     for r in h.get("old_radios", []):  # #390: a C6 over WiFi from before 0.11.0 answers other APs' tags
         v = r.get("fw") or 0
-        print(f"  radio {r.get('radio')} (C6 over WiFi, {r.get('id')}) has firmware {v // 10000}.{v // 100 % 100}.{v % 100}:"
-              " it answers the tags of other APs too; update it to the AP's version")
+        fw = f" has firmware {v // 10000}.{v // 100 % 100}.{v % 100}," if v else ""
+        print(f"  radio {r.get('radio')} (C6 over WiFi, {r.get('id')}){fw} too old for the AP id: this AP's own tags"
+              " show settings pending and it answers other APs' tags; update it to the AP's version")
     return 0 if h.get("ok") else 1
 
 
