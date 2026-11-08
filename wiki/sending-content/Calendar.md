@@ -9,7 +9,7 @@ An AP with PSRAM (the [ESP32-S3 + C6](ESP32-S3-and-C6), [ESP32-S3 + wireless C6]
    - **Outlook.com / Microsoft 365**: Settings, Calendar, *Shared calendars*, **Publish a calendar**, the ICS link.
    - **iCloud**: share the calendar as a **Public Calendar** and copy the `webcal://` link.
    - **Nextcloud**: the calendar's menu, **Share link**, *Copy subscription link*.
-2. Send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include the ones you have (read them first with `GET /api/sources`):
+2. In the **Dashboard**: tick the tags, choose **Price, countdown, news or calendar** under *Send to the ticked tags*, pick *The next events of a calendar* and paste the address. Or send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include the ones you have (read them first with `GET /api/sources`):
 
 ```bash
 curl -X PUT http://openesl.local/api/sources \
