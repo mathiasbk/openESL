@@ -161,11 +161,12 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
             size_t n = 0;
             int r = 0;
             /* timeout_ms is for each read: a server that trickles would hold this task, and
-               with it every other source, so the whole answer has a deadline too */
+               with it every other source, so the whole answer has a deadline too. Reads of
+               at most 4 KB, as esp_http_client_read waits until it has all it was asked for */
             int64_t end = esp_timer_get_time() + (int64_t)BODY_DEADLINE_S * 1000000;
             bool late = false;
             while (b && n < ESL_SOURCE_BODY_MAX && !(late = esp_timer_get_time() > end) &&
-                   (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n)) > 0)
+                   (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n < 4096 ? ESL_SOURCE_BODY_MAX - n : 4096)) > 0)
                 n += (size_t)r;
             if (b && late) {
                 snprintf(err, errlen, "the answer took over %d s", BODY_DEADLINE_S);
