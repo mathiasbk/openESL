@@ -317,6 +317,38 @@ static void test_ap_id(void)
     }
     CHECK(!esl_store_refused(&st, 0xF0000000ull));
     CHECK(esl_store_refused(&st, 0xF0000000ull + ESL_STORE_FOREIGN));
+    /* ... but a tag the AP has not in its table gets no answer to IMG_REQ or FW_REQ all the
+       same (#398): with more than 16 neighbour tags on the channel, an IDLE would cut their
+       downloads off, or hand them this AP's firmware */
+    {
+        esl_faketag_t f;
+        esl_faketag_init(&f, 0xF0000000ull, 0x0B00, 3000, ESL_MODEL_29);
+        f.apid = true;
+        f.ap_id = 0xBEEF0009ul;
+        f.img_dl_id = 77;
+        f.img_dl_size = 4000;
+        f.fw_dl_ver = 0x0C00;
+        f.fw_dl_size = 0x8000;
+        n = esl_faketag_img_request(&f, PAN, rx);
+        CHECK(n > 0);
+        CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10100, tx, NULL), 0);
+        n = esl_faketag_fw_request(&f, PAN, rx);
+        CHECK(n > 0);
+        CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10200, tx, NULL), 0);
+        CHECK(esl_store_req_welcome(&st, own.mac));      /* its own tags are answered */
+        own.img_dl_id = 77;
+        own.img_dl_size = 4000;
+        n = esl_faketag_img_request(&own, PAN, rx);
+        CHECK(n > 0);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10300, tx, NULL) > 0);
+        own.img_dl_id = 0;
+        own.img_dl_size = 0;
+        uint32_t id = st.ap_id;
+        esl_store_set_ap_id(&st, 0);                     /* an AP without an id: as before */
+        CHECK(esl_store_req_welcome(&st, 0xF0000000ull));
+        CHECK(!esl_store_req_welcome(&st, 0xF0000000ull + ESL_STORE_FOREIGN)); /* still refused */
+        esl_store_set_ap_id(&st, id);
+    }
 
     /* Health lists the other APs whose labels poll here, newest first */
     CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 20000, &out), 200);
