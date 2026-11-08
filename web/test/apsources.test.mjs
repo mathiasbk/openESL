@@ -102,6 +102,12 @@ test("the electricity price: its own line, not a weather place", () => {
   assert.deepEqual(picturePlanUrl([oslo, { ...power, tags: [] }], [C], { url: "http://h/a.png" }).sources.map((s) => s.id), ["oslo", "power", "picture"]);
 });
 
+test("a countdown: the time left as its state", () => {
+  const cd = { id: "jul", type: "countdown", place: "Jul", date: "2026-12-24", tags: [C], status: { fetched_at: 1, values: { left: "om 58 dager" } } };
+  assert.equal(sourceSummary(cd, 61).text, "om 58 dager");
+  assert.deepEqual([...placeOf([cd])], []);
+});
+
 test("a picture's address, short", () => {
   assert.equal(shortUrl("http://ha.local:8123/local/charts/power.png?v=2"), "ha.local:8123/…/power.png");
   assert.equal(shortUrl("https://x.example/b.png"), "x.example/b.png");

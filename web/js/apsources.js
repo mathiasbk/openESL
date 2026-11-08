@@ -28,6 +28,8 @@ export function sourceSummary(s, now) {
   const st = s.status || {};
   const v = st.values || {};
   if (st.error) return { text: st.error, bad: true };
+  // a countdown fetches nothing: its time left
+  if (s.type === "countdown") return { text: v.left || "Not counted yet", bad: false };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
   const what = s.type === "power" ? (v.now ? `${v.now} kr/kWh` : "")
     : [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
@@ -280,7 +282,8 @@ export function initSources() {
       // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
       const pic = s.type === "image";
       // the electricity price (type power) with its price area
-      const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"]
+        : s.type === "countdown" ? [`${s.place || s.id} · countdown`, `${s.date}${s.time ? " " + s.time : ""}${s.yearly ? ", every year" : ""}`] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -293,7 +296,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = `Stop fetching ${pic ? "this picture" : s.type === "power" ? "the electricity price" : "the weather for this place"}; its tags keep what they show until they get other content`;
+      del.title = `Stop fetching ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -302,7 +305,7 @@ export function initSources() {
   }
 
   async function remove(s) {
-    const what = { image: "the picture", power: "the electricity price" }[s.type] || "the weather";
+    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown" }[s.type] || "the weather";
     if (!confirm(`Stop ${what} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old

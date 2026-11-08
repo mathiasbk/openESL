@@ -157,7 +157,7 @@ static void test_parse(void)
         {"[]", "must be a JSON object"},
         {"{}", "sources: a list of up to 8"},
         {"{\"sources\":[{\"id\":\"A\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].id: 1 to 16"},
-        {"{\"sources\":[{\"id\":\"a\",\"type\":\"rss\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\""},
+        {"{\"sources\":[{\"id\":\"a\",\"type\":\"rss\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\""},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":91,\"lon\":1,\"layout\":\"w\"}]}", "lat: a number from -90"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"layout\":\"w\"}]}", "lon: a number from -180"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\",\"every_min\":10}]}",
@@ -985,6 +985,113 @@ static void test_power(void)
     }
 }
 
+/* ---- type "countdown": the days to or since a date, with no network ---- */
+
+static void test_countdown(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    uint32_t data_at;
+    static const char ok[] =
+        "{\"sources\":[{\"id\":\"jul\",\"type\":\"countdown\",\"place\":\"Jul\",\"date\":\"2026-12-24\",\"layout\":\"text\","
+        "\"tags\":[\"" MAC1 "\"]},"
+        "{\"id\":\"fly\",\"type\":\"countdown\",\"date\":\"2026-10-27\",\"time\":\"18:30\",\"lang\":\"en\",\"layout\":\"text\"},"
+        "{\"id\":\"bday\",\"type\":\"countdown\",\"place\":\"Ola\",\"date\":\"1990-02-29\",\"yearly\":true,\"layout\":\"text\"}]}";
+    /* 29 February 1990 is not a date */
+    CHECK(!esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(HAS(err, "sources[2].date: a date"));
+    char js[sizeof(ok)];
+    memcpy(js, ok, sizeof(ok));
+    memcpy(strstr(js, "1990-02-29"), "1992-02-29", 10);
+    CHECK(esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+    CHECK(n == 3 && cfg[0].type == ESL_SOURCE_COUNTDOWN && esl_source_is_local(&cfg[0]) && esl_source_is_local(&cfg[1]));
+    CHECK(cfg[0].countdown.minute == -1 && cfg[1].countdown.minute == 18 * 60 + 30 && cfg[2].countdown.yearly);
+    CHECK(cfg[0].every_min == 1 && cfg[0].nfields == 3);
+    CHECK(esl_source_url(&cfg[1], url, sizeof(url)) > 0);
+    CHECK_STR(url, "countdown:2026-10-27/1110/0");
+    {
+        static char out[ESL_SOURCE_CFG_MAX];
+        esl_sb_t sb;
+        esl_sb_init(&sb, out, sizeof(out));
+        esl_source_write_cfg(&cfg[1], &sb);
+        CHECK(HAS(out, "\"date\":\"2026-10-27\",\"time\":\"18:30\",\"yearly\":false"));
+    }
+    static const struct {
+        const char *src, *msg;
+    } bad[] = {
+        {"\"date\":\"2026-13-01\"", "sources[0].date: a date"},
+        {"\"date\":\"2026-1-1\"", "sources[0].date: a date"},
+        {"\"date\":20261224", "sources[0].date: a date"},
+        {"\"date\":\"2026-12-24\",\"time\":\"24:00\"", "sources[0].time: a local time"},
+        {"\"date\":\"2026-12-24\",\"time\":\"9:00\"", "sources[0].time: a local time"},
+        {"\"date\":\"2026-12-24\",\"yearly\":1", "sources[0].yearly: true or false"},
+        {"\"date\":\"2026-12-24\",\"fields\":[\"{temp}\"]", "sources[0].fields[0]: {temp} is not a value of type countdown"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char b[256];
+        snprintf(b, sizeof(b), "{\"sources\":[{\"id\":\"c\",\"type\":\"countdown\",\"layout\":\"text\",%s}]}", bad[i].src);
+        CHECK(!esl_sources_parse(b, strlen(b), cfg, &n, err, sizeof(err)));
+        if (strncmp(err, bad[i].msg, strlen(bad[i].msg)) != 0)
+            printf("  countdown cfg %zu: %s\n", i, err);
+        CHECK(strncmp(err, bad[i].msg, strlen(bad[i].msg)) == 0);
+    }
+    CHECK(esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+
+    /* 2026-10-27 13:20 in Norway (CET) */
+    uint32_t at = 1793055600u + 13 * 3600 + 20 * 60;
+    CHECK(esl_source_values(&cfg[0], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "place"), "Jul");
+    CHECK_STR(esl_values_get(&v, "left"), "om 58 dager");
+    CHECK_STR(esl_values_get(&v, "days"), "58");
+    CHECK_STR(esl_values_get(&v, "weeks"), "8");
+    CHECK_STR(esl_values_get(&v, "since"), "0");
+    CHECK_STR(esl_values_get(&v, "date"), "24.12.2026");
+    CHECK_STR(esl_values_get(&v, "weekday"), "torsdag");
+    CHECK(esl_values_get(&v, "years") == NULL);
+    /* 23:59 local on the 23rd is tomorrow; 00:00 on the 24th today; then days since */
+    uint32_t xmas = 1793055600u + 58 * 86400; /* midnight 24 December, CET */
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas - 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i morgen");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i dag");
+    CHECK_STR(esl_values_get(&v, "days"), "0");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 86400 + 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i går");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 10 * 86400, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "for 10 dager siden");
+    CHECK_STR(esl_values_get(&v, "since"), "10");
+
+    /* with a time, the last day counts in hours and minutes */
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 5 h 10 min");
+    CHECK_STR(esl_values_get(&v, "hours"), "5");
+    CHECK_STR(esl_values_get(&v, "weekday"), "Tuesday");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 5 * 3600 + 9 * 60 + 30, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 1 min");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 6 * 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "today");
+    CHECK_STR(esl_values_get(&v, "hours"), "0");
+
+    /* yearly: the next 29 February is 28 February in 2027, when Ola turns 35 */
+    CHECK(esl_source_values(&cfg[2], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "date"), "28.02.2027");
+    CHECK_STR(esl_values_get(&v, "years"), "35");
+    CHECK_STR(esl_values_get(&v, "days"), "124");
+    /* a yearly date alone holds for its whole day, then the next year's */
+    cfg[0].countdown.yearly = true;
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 23 * 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i dag");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 86400, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "date"), "24.12.2027");
+    CHECK_STR(esl_values_get(&v, "days"), "364");
+    CHECK_STR(esl_values_get(&v, "years"), "1");
+    /* the built-in text layout takes the default fields */
+    esl_content_t c;
+    CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
+}
+
 void test_source(void)
 {
     test_parse();
@@ -994,5 +1101,6 @@ void test_source(void)
     test_apply();
     test_image();
     test_power();
+    test_countdown();
     test_api();
 }

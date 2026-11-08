@@ -7,8 +7,8 @@ An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its ta
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
-client had sent `PUT /api/tags`. The other types are a picture from a URL and today's
-electricity price in Norway (below).
+client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
+electricity price in Norway and a countdown to a date (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -251,6 +251,40 @@ labels, for example `["Strøm nå {now} kr", "Billigst {minat}: {min}"]`.
 
 Where the price is shown to others, credit hvakosterstrommen.no, which gets the prices from
 ENTSO-E.
+
+## A countdown
+
+A source of type `countdown` (AP 0.11.0 and later) counts the days to a date, or since it,
+on the AP itself: nothing is fetched, so it also works without the internet once the AP knows
+the time. Good for Christmas, a holiday, a birthday, or "days since".
+
+```json
+{"sources": [{"id": "christmas", "type": "countdown", "place": "Christmas",
+              "date": "2026-12-24", "yearly": true, "layout": "text",
+              "tags": ["00000123456789B2"]}]}
+```
+
+- `date`: the local date, `YYYY-MM-DD`, 1900 to 2100.
+- `time`: a local time `HH:MM` on that date (a departure, the start of an event). On the
+  last day `{left}` counts down in hours and minutes. Without it the date holds for its
+  whole day.
+- `yearly`: count to the next time the date comes round, so Christmas or a birthday never
+  runs out. 29 February is 28 February in other years. `{years}` is how many years it will
+  be since `date`: give the birth date to get the age the person turns.
+- `place`: the name shown as `{place}`.
+- `every_min`: from 1 (the default). A tag only wakes when its text changed: once a day for
+  a date, every minute in the last hours for a `time`. Set it higher to wake tags less often.
+
+| Value | What it is |
+|---|---|
+| `{place}` | The source's name |
+| `{left}` | In words: `om 58 dager`, `i morgen`, `i dag`, `om 5 t 10 min`, `i går`, `for 10 dager siden` (`lang` `en`: `in 58 days`, `tomorrow`, `today`, `in 5 h 10 min`, `yesterday`, `10 days ago`) |
+| `{days}`, `{weeks}`, `{hours}` | Whole days, weeks and hours left (0 once passed) |
+| `{since}` | Days since the date (0 before it) |
+| `{date}`, `{weekday}` | The date counted to (`24.12.2026`) and its weekday |
+| `{years}` | With `yearly`: the years since `date` at the next time |
+
+The default fields, three lines on `text`, are `{place}`, `{left}` and `{weekday} {date}`.
 
 ## MET Norway's terms
 
