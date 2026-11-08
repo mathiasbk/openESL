@@ -1805,8 +1805,9 @@ def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
             lines.append(f"note: this AP keeps its own id {cur['ap_id']}; the tags of AP {ap_id} stay with that AP "
                          "(config --adopt takes them over)")
         elif cur["ap_id"] != ap_id:  # the same id: the same AP, and an adopt that runs stays
+            # a label of an AP that is off polls with lost 0 only once (an interval at most): 3 min tells them apart
             alive = [a for a in (cli.health().get("other_aps") or []) if a.get("ap_id") == ap_id
-                     and not a.get("lost_long") and (a.get("seen_s_ago") or 0) < 600]
+                     and not a.get("lost_long") and a.get("answered_s_ago") is not None and a["answered_s_ago"] < 180]
             if alive and not force:
                 ok = False
                 lines.append(f"error: AP id not changed: the AP the backup came from ({ap_id}) still answers its tags "

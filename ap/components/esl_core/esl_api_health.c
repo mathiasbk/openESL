@@ -87,10 +87,15 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
     esl_other_ap_t other[ESL_STORE_OTHER_APS];
     unsigned no = esl_store_other_aps(api->store, other, ESL_STORE_OTHER_APS);
     esl_sb_puts(out, "],\"other_aps\":[");
-    for (unsigned i = 0; i < no; i++)
+    for (unsigned i = 0; i < no; i++) {
         esl_sb_printf(out, "%s{\"ap_id\":\"%08" PRIX32 "\",\"tags\":%u,\"polls\":%" PRIu32 ",\"seen_s_ago\":%" PRIu64
-                      ",\"lost_long\":%s}", i ? "," : "", other[i].ap_id, other[i].tags, other[i].polls,
+                      ",\"lost_long\":%s,\"answered_s_ago\":", i ? "," : "", other[i].ap_id, other[i].tags, other[i].polls,
                       (now_ms - other[i].last_ms) / 1000, other[i].lost_long ? "true" : "false");
+        if (other[i].answered_ms)
+            esl_sb_printf(out, "%" PRIu64 "}", (now_ms - other[i].answered_ms) / 1000);
+        else
+            esl_sb_puts(out, "null}");
+    }
     esl_sb_printf(out, "],\"ok\":%s,\"tags\":%u,\"with_problems\":%u,\"radio_lost\":%u",
                   problems || lost ? "false" : "true", tags, problems, lost);
     for (unsigned b = 0; b < 8; b++) {

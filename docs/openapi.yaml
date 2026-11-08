@@ -2360,13 +2360,14 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ap_id, tags, polls, seen_s_ago, lost_long]
+            required: [ap_id, tags, polls, seen_s_ago, lost_long, answered_s_ago]
             properties:
               ap_id: { type: string, pattern: "^[0-9A-F]{8}$" }
               tags: { type: integer, minimum: 0, maximum: 16, description: "Its tags among the last 16 this AP turned away" }
               polls: { type: integer, minimum: 0, description: "POLLs from its tags since this AP started" }
               seen_s_ago: { type: integer, minimum: 0, description: "Seconds since the last one" }
               lost_long: { type: boolean, description: "The last one came from a tag without an answer for an hour or more: adopt would take it" }
+              answered_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since a POLL from a tag its own AP had answered (no round lost): that AP still runs. null = none since this AP started. A restore keeps its own id while this is under 180 s" }
         ok: { type: boolean, description: "No tag has a problem, and no radio is lost" }
         tags: { type: integer, minimum: 0, description: Tags in the table }
         with_problems: { type: integer, minimum: 0, description: Length of `problems` }

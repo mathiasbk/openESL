@@ -495,11 +495,19 @@ class ClientTest(unittest.TestCase):
         # the AP the backup came from still answers its tags here: refused, unless --force
         self.setUp()
         FakeAp.config.update({"ap_id": "77778888", "adopt": None, "adopt_until": None})
-        FakeAp.other_aps = [{"ap_id": "1A2B3C4D", "tags": 5, "polls": 40, "seen_s_ago": 30, "lost_long": False}]
+        FakeAp.other_aps = [{"ap_id": "1A2B3C4D", "tags": 5, "polls": 40, "seen_s_ago": 30, "lost_long": False,
+                             "answered_s_ago": 30}]
         lines, ok = esl_client.restore(cli, b)
         self.assertFalse(ok)
         self.assertEqual(FakeAp.config["ap_id"], "77778888")
         self.assertTrue(any("still answers its tags here" in line for line in lines), lines)
+        # turned off a few minutes ago: its tags poll here without an answer (lost 1 and more), so it is taken
+        FakeAp.other_aps[0].update({"answered_s_ago": 400})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
+        FakeAp.config["ap_id"] = "77778888"
+        FakeAp.other_aps[0].update({"answered_s_ago": 30})
         lines, ok = esl_client.restore(cli, b, force=True)
         self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
         # the same AP again: nothing sent, so an adopt that runs stays
