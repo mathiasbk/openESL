@@ -1135,12 +1135,11 @@ function previewLang() {
   return store.get("lang") === "nb" ? "nb" : "en";
 }
 
-// The decimal sign of formatted numbers in the preview (#402): a point only when the language
-// is set to English (the connected AP's "lang", otherwise the one picked next to the date-field
-// buttons). Without either it is a comma on purpose: that is what an AP draws until its
-// language is set, as every AP upgraded from before 0.11.0 does
+// The decimal sign of formatted numbers in the preview (#402): with an AP, a point only when its
+// "lang" is "en" (an AP whose language is not set draws a comma, as every AP upgraded from
+// before 0.11.0 does); without one, the language picked next to the date-field buttons
 function previewNumPoint() {
-  return (ap.connected ? ap.lang : store.get("lang")) === "en";
+  return ap.connected ? ap.lang === "en" : previewLang() === "en";
 }
 
 // Today's value of a date field in lang, for the hover text: the names as the AP writes them
