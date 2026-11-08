@@ -2,6 +2,7 @@
  * forecast as values, and the content of the tags) */
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "tinytest.h"
 #include "esl_api.h"
 #include "esl_source.h"
@@ -157,7 +158,7 @@ static void test_parse(void)
         {"[]", "must be a JSON object"},
         {"{}", "sources: a list of up to 8"},
         {"{\"sources\":[{\"id\":\"A\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].id: 1 to 16"},
-        {"{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\""},
+        {"{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\", \"rss\""},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":91,\"lon\":1,\"layout\":\"w\"}]}", "lat: a number from -90"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"layout\":\"w\"}]}", "lon: a number from -180"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\",\"every_min\":10}]}",
@@ -985,6 +986,142 @@ static void test_power(void)
     }
 }
 
+/* ---- type "countdown": the days to or since a date, with no network ---- */
+
+static void test_countdown(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    uint32_t data_at;
+    static const char ok[] =
+        "{\"sources\":[{\"id\":\"jul\",\"type\":\"countdown\",\"place\":\"Jul\",\"date\":\"2026-12-24\",\"layout\":\"text\","
+        "\"tags\":[\"" MAC1 "\"]},"
+        "{\"id\":\"fly\",\"type\":\"countdown\",\"date\":\"2026-10-27\",\"time\":\"18:30\",\"lang\":\"en\",\"layout\":\"text\"},"
+        "{\"id\":\"bday\",\"type\":\"countdown\",\"place\":\"Ola\",\"date\":\"1990-02-29\",\"yearly\":true,\"layout\":\"text\"}]}";
+    /* 29 February 1990 is not a date */
+    CHECK(!esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(HAS(err, "sources[2].date: a date"));
+    char js[sizeof(ok)];
+    memcpy(js, ok, sizeof(ok));
+    memcpy(strstr(js, "1990-02-29"), "1992-02-29", 10);
+    CHECK(esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+    CHECK(n == 3 && cfg[0].type == ESL_SOURCE_COUNTDOWN && esl_source_is_local(&cfg[0]) && esl_source_is_local(&cfg[1]));
+    CHECK(cfg[0].countdown.minute == -1 && cfg[1].countdown.minute == 18 * 60 + 30 && cfg[2].countdown.yearly);
+    CHECK(cfg[0].every_min == 1 && cfg[0].nfields == 3);
+    CHECK(esl_source_url(&cfg[1], url, sizeof(url)) > 0);
+    CHECK_STR(url, "countdown:2026-10-27/1110/0");
+    {
+        static char out[ESL_SOURCE_CFG_MAX];
+        esl_sb_t sb;
+        esl_sb_init(&sb, out, sizeof(out));
+        esl_source_write_cfg(&cfg[1], &sb);
+        CHECK(HAS(out, "\"date\":\"2026-10-27\",\"time\":\"18:30\",\"yearly\":false"));
+    }
+    static const struct {
+        const char *src, *msg;
+    } bad[] = {
+        {"\"date\":\"2026-13-01\"", "sources[0].date: a date"},
+        {"\"date\":\"2026-1-1\"", "sources[0].date: a date"},
+        {"\"date\":20261224", "sources[0].date: a date"},
+        {"\"date\":\"2026-12-24\",\"time\":\"24:00\"", "sources[0].time: a local time"},
+        {"\"date\":\"2026-12-24\",\"time\":\"9:00\"", "sources[0].time: a local time"},
+        {"\"date\":\"2026-12-24\",\"yearly\":1", "sources[0].yearly: true or false"},
+        {"\"date\":\"2026-12-24\",\"fields\":[\"{temp}\"]", "sources[0].fields[0]: {temp} is not a value of type countdown"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char b[256];
+        snprintf(b, sizeof(b), "{\"sources\":[{\"id\":\"c\",\"type\":\"countdown\",\"layout\":\"text\",%s}]}", bad[i].src);
+        CHECK(!esl_sources_parse(b, strlen(b), cfg, &n, err, sizeof(err)));
+        if (strncmp(err, bad[i].msg, strlen(bad[i].msg)) != 0)
+            printf("  countdown cfg %zu: %s\n", i, err);
+        CHECK(strncmp(err, bad[i].msg, strlen(bad[i].msg)) == 0);
+    }
+    CHECK(esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+
+    /* 2026-10-27 13:20 in Norway (CET) */
+    uint32_t at = 1793055600u + 13 * 3600 + 20 * 60;
+    CHECK(esl_source_values(&cfg[0], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "place"), "Jul");
+    CHECK_STR(esl_values_get(&v, "left"), "om 58 dager");
+    CHECK_STR(esl_values_get(&v, "days"), "58");
+    CHECK_STR(esl_values_get(&v, "weeks"), "8");
+    CHECK_STR(esl_values_get(&v, "since"), "0");
+    CHECK_STR(esl_values_get(&v, "date"), "24.12.2026");
+    CHECK_STR(esl_values_get(&v, "weekday"), "torsdag");
+    CHECK(esl_values_get(&v, "years") == NULL);
+    /* 23:59 local on the 23rd is tomorrow; 00:00 on the 24th today; then days since */
+    uint32_t xmas = 1793055600u + 58 * 86400; /* midnight 24 December, CET */
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas - 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i morgen");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i dag");
+    CHECK_STR(esl_values_get(&v, "days"), "0");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 86400 + 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i går");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 10 * 86400, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "for 10 dager siden");
+    CHECK_STR(esl_values_get(&v, "since"), "10");
+
+    /* with a time, the last day counts in hours and minutes */
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 5 h"); /* whole hours until the last one */
+    CHECK_STR(esl_values_get(&v, "hours"), "5");
+    CHECK_STR(esl_values_get(&v, "weekday"), "Tuesday");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 5 * 3600 + 9 * 60 + 30, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 1 min");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 4 * 3600 + 20 * 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 50 min");
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 4 * 3600 + 9 * 60, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "in 1 h");
+    /* a summer time switch between now and the time: the real hours left */
+    {
+        static const char sw[] = "{\"sources\":[{\"id\":\"a\",\"type\":\"countdown\",\"date\":\"2026-10-25\","
+                                 "\"time\":\"12:00\",\"lang\":\"en\",\"layout\":\"text\"},"
+                                 "{\"id\":\"b\",\"type\":\"countdown\",\"date\":\"2026-03-29\",\"time\":\"12:00\","
+                                 "\"lang\":\"en\",\"layout\":\"text\"},"
+                                 "{\"id\":\"c\",\"type\":\"countdown\",\"date\":\"2030-05-01\",\"yearly\":true,"
+                                 "\"layout\":\"text\"}]}";
+        static esl_source_cfg_t sc[ESL_SOURCE_MAX];
+        CHECK(esl_sources_parse(sw, sizeof(sw) - 1, sc, &n, err, sizeof(err)));
+        /* 01:00 CEST on 25 October: 12 hours to 12:00 CET */
+        CHECK(esl_source_values(&sc[0], NULL, 0, 1792882800u, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "left"), "in 12 h");
+        CHECK_STR(esl_values_get(&v, "hours"), "12");
+        /* three days before: 72 + 12 */
+        CHECK(esl_source_values(&sc[0], NULL, 0, 1792882800u - 3 * 86400, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "hours"), "84");
+        /* 01:00 CET on 29 March: 10 hours to 12:00 CEST */
+        CHECK(esl_source_values(&sc[1], NULL, 0, 1774742400u, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "left"), "in 10 h");
+        /* yearly from a date still ahead: that date, 0 years */
+        CHECK(esl_source_values(&sc[2], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "date"), "01.05.2030");
+        CHECK_STR(esl_values_get(&v, "years"), "0");
+    }
+    CHECK(esl_source_values(&cfg[1], NULL, 0, at + 6 * 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "today");
+    CHECK_STR(esl_values_get(&v, "hours"), "0");
+
+    /* yearly: the next 29 February is 28 February in 2027, when Ola turns 35 */
+    CHECK(esl_source_values(&cfg[2], NULL, 0, at, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "date"), "28.02.2027");
+    CHECK_STR(esl_values_get(&v, "years"), "35");
+    CHECK_STR(esl_values_get(&v, "days"), "124");
+    /* a yearly date alone holds for its whole day, then the next year's */
+    cfg[0].countdown.yearly = true;
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 23 * 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "left"), "i dag");
+    CHECK(esl_source_values(&cfg[0], NULL, 0, xmas + 86400, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "date"), "24.12.2027");
+    CHECK_STR(esl_values_get(&v, "days"), "364");
+    CHECK_STR(esl_values_get(&v, "years"), "1");
+    /* the built-in text layout takes the default fields */
+    esl_content_t c;
+    CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
+}
+
 /* ---- type "rss": the newest headlines of a feed ---- */
 
 static void test_rss(void)
@@ -1055,6 +1192,52 @@ static void test_rss(void)
     CHECK(esl_source_values(&cfg[0], cut2, sizeof(cut2) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
     static const char cut3[] = "<rss><item><title>a <b";
     CHECK(esl_source_values(&cfg[0], cut3, sizeof(cut3) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+
+    /* hostile bodies are read in linear time: 128 KB of "<item>" or "<item><title>" without
+       closing tags (each item is read only up to the next) */
+    {
+        static const char *const unit[] = {"<item>", "<item><title>", "<entry><title>x"};
+        static char big[ESL_SOURCE_BODY_MAX];
+        for (size_t u = 0; u < 3; u++) {
+            size_t ul = strlen(unit[u]), bl = 0;
+            memcpy(big, "<rss>", 5);
+            bl = 5;
+            while (bl + ul <= sizeof(big)) {
+                memcpy(big + bl, unit[u], ul);
+                bl += ul;
+            }
+            clock_t t0 = clock();
+            CHECK(esl_source_values(&cfg[0], big, bl, T0, cet, &v, &data_at, err, sizeof(err)));
+            double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
+            if (ms > 200)
+                printf("  rss hostile %zu: %.0f ms\n", u, ms);
+            CHECK(ms < 200);
+            CHECK_STR(esl_values_get(&v, "count"), "0");
+        }
+    }
+    /* what feeds really hold: HTML in CDATA and type="html" read twice, typographic entities,
+       control characters, surrogates and the BOM left out, comments skipped, Latin-1 */
+    static const char real[] =
+        "<?xml version=\"1.0\"?><rss><channel><title>T</title>"
+        "<!-- <item><title>old</title></item> -->"
+        "<item><title><![CDATA[Rock &amp; roll &rsquo;n&hellip;]]></title></item>"
+        "<item><title>a&#1;b&#x7f;c&#xD800;d&#xFEFF;e&#0;f</title></item>"
+        "<item><title>raw \xff\xfe bytes</title></item>"
+        "</channel></rss>";
+    CHECK(esl_source_values(&cfg[0], real, sizeof(real) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "h1"), "Rock & roll \xe2\x80\x99n\xe2\x80\xa6");
+    CHECK_STR(esl_values_get(&v, "h2"), "abcdef");
+    CHECK_STR(esl_values_get(&v, "h3"), "raw ?? bytes");
+    CHECK_STR(esl_values_get(&v, "count"), "3");
+    static const char html[] = "<feed><title type=\"html\">Tom &amp;amp; Jerry &lt;b&gt;x&lt;/b&gt;</title>"
+                               "<entry><title type='html'>&lt;i&gt;Ny&lt;/i&gt; sak</title></entry></feed>";
+    CHECK(esl_source_values(&cfg[0], html, sizeof(html) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "title"), "Tom & Jerry x");
+    CHECK_STR(esl_values_get(&v, "h1"), "Ny sak");
+    static const char l1[] = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><rss><item><title>Bl\xe5" "b\xe6" "r</title></item></rss>";
+    CHECK(esl_source_values(&cfg[0], l1, sizeof(l1) - 1, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "h1"), "Bl\xc3\xa5" "b\xc3\xa6r");
+    CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
 }
 
 void test_source(void)
@@ -1066,6 +1249,7 @@ void test_source(void)
     test_apply();
     test_image();
     test_power();
+    test_countdown();
     test_rss();
     test_api();
 }

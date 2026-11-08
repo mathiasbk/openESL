@@ -70,6 +70,7 @@ static const esl_source_def_t *const types[] = {
     &esl_source_met,
     &esl_source_image,
     &esl_source_power,
+    &esl_source_countdown,
     &esl_source_rss,
 };
 
@@ -933,6 +934,18 @@ bool esl_source_dated(const esl_source_cfg_t *c)
 {
     const esl_source_def_t *t = type_of(c->type);
     return t && t->dated;
+}
+
+bool esl_source_prefix(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->prefix;
+}
+
+bool esl_source_is_local(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->local;
 }
 
 bool esl_source_is_picture(const esl_source_cfg_t *c)

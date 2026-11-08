@@ -24,6 +24,7 @@
  * settings, its URL, and how its answer becomes values. esl_source.c lists the types.
  *   "met"    esl_source_met.c: the forecast from MET Norway for a latitude and longitude.
  *   "power"  esl_source_power.c: today's electricity price in a Norwegian price area.
+ *   "countdown" esl_source_countdown.c: the days to or since a date (nothing fetched).
  *   "rss"    esl_source_rss.c: the newest headlines of an RSS or Atom feed.
  *   "image"  esl_source_image.c: a PNG from a URL, kept as the tags' picture (no layout,
  *            no fields: its values only describe the picture).
@@ -44,7 +45,7 @@
 #define ESL_SOURCE_CFG_MAX    16384        /* the configuration as JSON (NVS, GET /api/sources) */
 #define ESL_SOURCE_URL_MAX    160
 
-typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3, ESL_SOURCE_RSS = 5 } esl_source_type_t;
+typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3, ESL_SOURCE_COUNTDOWN = 4, ESL_SOURCE_RSS = 5 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
@@ -61,6 +62,12 @@ typedef struct {
             uint8_t area;                 /* price area NO1 to NO5 */
             bool vat;                     /* prices with 25 % VAT */
         } power;
+        struct {
+            uint16_t year;                /* the date, local */
+            uint8_t month, day;
+            int16_t minute;               /* the local time in minutes after midnight; -1: none */
+            bool yearly;                  /* the next time the date comes round */
+        } countdown;
         struct {
             char url[ESL_SOURCE_URL_MAX]; /* http:// or https:// */
         } rss;
@@ -107,6 +114,8 @@ typedef struct {
                                     when not held yet, or after ESL_SOURCE_DATED_S; else the values are
                                     made again from it */
     bool align;                  /* runs at whole multiples of every_min (UTC), e.g. each quarter */
+    bool prefix;                 /* an answer over ESL_SOURCE_BODY_MAX is read up to it, not refused */
+    bool local;                  /* nothing is fetched: values() gets no body (url only names the data) */
     /* Reads its own keys of the configuration object obj into c; false with a message */
     bool (*parse)(const char *js, const esl_jtok_t *tok, int obj, esl_source_cfg_t *c, char *err, size_t errlen);
     /* Writes them, each as ,"key":value */
@@ -124,6 +133,7 @@ typedef struct {
 extern const esl_source_def_t esl_source_met;
 extern const esl_source_def_t esl_source_image;
 extern const esl_source_def_t esl_source_power;
+extern const esl_source_def_t esl_source_countdown;
 extern const esl_source_def_t esl_source_rss;
 
 /* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
@@ -247,10 +257,14 @@ bool esl_source_own_pace(const esl_source_cfg_t *c);
 bool esl_source_url_ok(const char *u);
 /* Whether c's fetch URL names a file that does not change (type "power") */
 bool esl_source_dated(const esl_source_cfg_t *c);
+/* Whether c takes the start of an answer that is too long (type "rss") */
+bool esl_source_prefix(const esl_source_cfg_t *c);
 #define ESL_SOURCE_DATED_S (6 * 3600) /* a dated file is still asked for again after this */
 /* The status for esl_sources_done when nothing was fetched and the values were made again
    from the answer held (a dated file): when it runs next, but no fetch is counted */
 #define ESL_SOURCE_HELD 1
+/* Whether c fetches nothing (type "countdown"): its values are made from the clock alone */
+bool esl_source_is_local(const esl_source_cfg_t *c);
 
 /* Gives each of c's tags the picture in body (len bytes), as esl_source_apply does with
    content: counts and the first error in st, and a tag that left the source is skipped. */

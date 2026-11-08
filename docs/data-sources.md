@@ -7,8 +7,9 @@ An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its ta
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
-client had sent `PUT /api/tags`. The other types are a picture from a URL and today's
-electricity price in Norway (below).
+client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
+electricity price in Norway, a countdown to a date and the headlines of a news feed
+(below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -252,6 +253,42 @@ labels, for example `["Strøm nå {now} kr", "Billigst {minat}: {min}"]`.
 Where the price is shown to others, credit hvakosterstrommen.no, which gets the prices from
 ENTSO-E.
 
+## A countdown
+
+A source of type `countdown` (AP 0.11.0 and later) counts the days to a date, or since it,
+on the AP itself: nothing is fetched, so it also works without the internet once the AP knows
+the time. Good for Christmas, a holiday, a birthday, or "days since".
+
+```json
+{"sources": [{"id": "christmas", "type": "countdown", "place": "Christmas",
+              "date": "2026-12-24", "yearly": true, "layout": "text",
+              "tags": ["00000123456789B2"]}]}
+```
+
+- `date`: the local date, `YYYY-MM-DD`, 1900 to 2100.
+- `time`: a local time `HH:MM` on that date (a departure, the start of an event). On the
+  last day `{left}` counts down in whole hours, and in minutes in the last hour (about 24 + 60
+  changes that day). Without it the date holds for its whole day.
+- `yearly`: count to the next time the date comes round, so Christmas or a birthday never
+  runs out. 29 February is 28 February in other years. `{years}` is how many years it will
+  be since `date`: give the birth date to get the age the person turns.
+- `place`: the name shown as `{place}`.
+- `every_min`: from 1 (the default). The values are made every minute, but a tag only wakes
+  when its text changed: once a day for a date alone (at midnight), plus each hour and each
+  minute of the last hour on the day of a `time`. A higher value does not save battery; it
+  only makes the change at midnight later.
+
+| Value | What it is |
+|---|---|
+| `{place}` | The source's name |
+| `{left}` | In words: `om 58 dager`, `i morgen`, `i dag`, `om 5 t`, `om 10 min`, `i går`, `for 10 dager siden` (`lang` `en`: `in 58 days`, `tomorrow`, `today`, `in 5 h`, `in 10 min`, `yesterday`, `10 days ago`) |
+| `{days}`, `{weeks}`, `{hours}` | Whole days, weeks and hours left (0 once passed). `{hours}` counts to `time`, or to the start of the day without one |
+| `{since}` | Days since the date (0 before it) |
+| `{date}`, `{weekday}` | The date counted to (`24.12.2026`) and its weekday |
+| `{years}` | With `yearly`: the years since `date` at the next time |
+
+The default fields, three lines on `text`, are `{place}`, `{left}` and `{weekday} {date}`.
+
 ## Headlines from a news feed
 
 A source of type `rss` (AP 0.11.0 and later) reads the newest headlines of an RSS 2.0 or Atom
@@ -262,8 +299,9 @@ feed: a news site, a blog, a status page. Only the titles are used.
               "layout": "text", "tags": ["00000123456789B2"]}]}
 ```
 
-- `url`: `http://` or `https://`, up to 159 bytes, without a login, as for a picture. Feeds
-  of up to 128 KB are read, and redirects are not followed.
+- `url`: `http://` or `https://`, up to 159 bytes, without a login, as for a picture.
+  Redirects are not followed. Of a feed longer than 128 KB the first 128 KB are read, which
+  hold the newest items.
 - `every_min`: from 15 (the default) to 1440. An `Expires` from the server is waited for.
 
 | Value | What it is |
@@ -272,8 +310,9 @@ feed: a news site, a blog, a status page. Only the titles are used.
 | `{h1}` ... `{h6}` | The first six headlines, newest first as the feed lists them; empty when the feed has fewer |
 | `{count}` | How many headlines there were (at most 6) |
 
-A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags and entities
-(`&amp;`, `&#248;`) in titles are handled. The default fields, for `text`, are `{title}`,
+A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags (also Atom's
+`type="html"`), XML entities, numeric references and the usual typographic ones (`&rsquo;`,
+`&hellip;`) are handled, and a feed in ISO-8859-1 or windows-1252 is read as such. The default fields, for `text`, are `{title}`,
 `{h1}`, `{h2}` and `{h3}`. Each new headline wakes the source's tags: for a busy feed, a
 longer `every_min` saves battery.
 

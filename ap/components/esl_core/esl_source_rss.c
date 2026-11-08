@@ -40,21 +40,9 @@ static size_t rss_url(const esl_source_cfg_t *c, char *buf, size_t cap)
     return n > 0 && (size_t)n < cap ? (size_t)n : 0;
 }
 
-/* ---- reading the XML: just enough for titles ---- */
-
-/* The first "<name" in [p, end) followed by '>', a space or '/', or NULL */
-static const char *find_tag(const char *p, const char *end, const char *name)
-{
-    size_t n = strlen(name);
-    for (; p + n + 1 < end; p++) {
-        if (p[0] != '<' || memcmp(p + 1, name, n) != 0)
-            continue;
-        char c = p[n + 1];
-        if (c == '>' || c == ' ' || c == '/' || c == '\t' || c == '\r' || c == '\n')
-            return p;
-    }
-    return NULL;
-}
+/* ---- reading the XML: just enough for titles ----
+ * Every scan is bounded and moves forward, so a hostile body (no closing tags, nothing but
+ * "<item>") is read a few times at most, never once per item. */
 
 static const char *find_str(const char *p, const char *end, const char *s)
 {
@@ -62,6 +50,30 @@ static const char *find_str(const char *p, const char *end, const char *s)
     for (; p + n <= end; p++)
         if (*p == *s && memcmp(p, s, n) == 0)
             return p;
+    return NULL;
+}
+
+/* The first "<name" in [p, end) followed by '>', a space or '/', outside <!-- comments -->;
+   or NULL */
+static const char *find_tag(const char *p, const char *end, const char *name)
+{
+    size_t n = strlen(name);
+    for (; p + n + 1 < end; p++) {
+        if (p[0] != '<')
+            continue;
+        if (end - p >= 4 && !memcmp(p, "<!--", 4)) {
+            const char *e = find_str(p + 4, end, "-->");
+            if (!e)
+                return NULL;
+            p = e + 2;
+            continue;
+        }
+        if (memcmp(p + 1, name, n) != 0)
+            continue;
+        char c = p[n + 1];
+        if (c == '>' || c == ' ' || c == '/' || c == '\t' || c == '\r' || c == '\n')
+            return p;
+    }
     return NULL;
 }
 
@@ -90,88 +102,121 @@ static size_t utf8(unsigned long cp, char *out)
     return 4;
 }
 
-/* Appends one byte to out (cap bytes with the NUL); a run of white space is one space, none
-   at the start */
-static void put(char *out, size_t cap, size_t *n, char c)
+typedef struct {
+    char *out;
+    size_t cap, n; /* cap with the NUL */
+    bool latin1;   /* the feed is ISO-8859-1 or windows-1252: bytes from 0x80 are characters */
+} txt_t;
+
+/* Appends one byte; a run of white space is one space, none at the start */
+static void put(txt_t *t, char c)
 {
     bool sp = c == ' ' || c == '\t' || c == '\r' || c == '\n';
-    if (sp && (!*n || out[*n - 1] == ' '))
+    if (sp && (!t->n || t->out[t->n - 1] == ' '))
         return;
-    if (*n + 1 < cap)
-        out[(*n)++] = sp ? ' ' : c;
+    if (t->n + 1 < t->cap)
+        t->out[t->n++] = sp ? ' ' : c;
 }
 
-/* The text of an element from its content [p, end): CDATA as it is, entities decoded, tags
-   left out (Atom's type="html"), white space made single. Into out, cap bytes with the NUL. */
-static void text_of(const char *p, const char *end, char *out, size_t cap)
+/* Appends a code point, leaving out control characters, surrogates and the BOM */
+static void put_cp(txt_t *t, unsigned long cp)
 {
-    size_t n = 0;
+    if (cp == '\t' || cp == '\n' || cp == '\r' || cp == 0xa0)
+        cp = ' ';
+    if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || (cp >= 0xd800 && cp < 0xe000) || cp == 0xfeff || cp > 0x10ffff)
+        return;
+    char u[4];
+    size_t k = utf8(cp, u);
+    for (size_t i = 0; i < k; i++)
+        put(t, u[i]);
+}
+
+/* The entity at p ("&amp;", "&#248;", "&#x2013;", "&rsquo;"): its code point and its end, or 0 */
+static unsigned long entity(const char *p, const char *end, const char **after)
+{
+    static const struct {
+        const char *name;
+        unsigned short cp;
+    } ents[] = {{"amp", '&'},      {"lt", '<'},       {"gt", '>'},       {"quot", '"'},     {"apos", '\''},
+                {"nbsp", 0xa0},    {"rsquo", 0x2019}, {"lsquo", 0x2018}, {"rdquo", 0x201d}, {"ldquo", 0x201c},
+                {"ndash", 0x2013}, {"mdash", 0x2014}, {"hellip", 0x2026}};
+    size_t room = (size_t)(end - p) < 10 ? (size_t)(end - p) : 10;
+    const char *semi = memchr(p, ';', room);
+    if (!semi)
+        return 0;
+    *after = semi + 1;
+    if (p[1] == '#') {
+        unsigned long cp = 0;
+        bool hex = p[2] == 'x' || p[2] == 'X';
+        const char *d = p + (hex ? 3 : 2);
+        if (d >= semi)
+            return 0;
+        for (; d < semi; d++) {
+            int v = *d >= '0' && *d <= '9'                                 ? *d - '0'
+                    : hex && (*d | 0x20) >= 'a' && (*d | 0x20) <= 'f' ? (*d | 0x20) - 'a' + 10
+                                                                       : -1;
+            if (v < 0)
+                return 0;
+            cp = cp * (hex ? 16 : 10) + (unsigned long)v;
+        }
+        return cp ? cp : 0x7f; /* &#0; is dropped */
+    }
+    for (size_t i = 0; i < sizeof(ents) / sizeof(ents[0]); i++)
+        if ((size_t)(semi - p - 1) == strlen(ents[i].name) && !memcmp(p + 1, ents[i].name, strlen(ents[i].name)))
+            return ents[i].cp;
+    return 0;
+}
+
+/* Text from [p, end): entities decoded, tags left out, CDATA read the same way (it mostly
+   holds HTML), white space made single */
+static void emit(txt_t *t, const char *p, const char *end, bool cdata)
+{
     while (p < end) {
-        if (end - p >= 9 && !memcmp(p, "<![CDATA[", 9)) {
+        if (!cdata && end - p >= 9 && !memcmp(p, "<![CDATA[", 9)) {
             const char *e = find_str(p + 9, end, "]]>");
-            const char *q = e ? e : end;
-            /* CDATA may hold HTML: its tags are left out too */
-            bool in_tag = false;
-            for (p += 9; p < q; p++) {
-                if (*p == '<')
-                    in_tag = true;
-                else if (*p == '>' && in_tag)
-                    in_tag = false;
-                else if (!in_tag)
-                    put(out, cap, &n, *p);
-            }
+            emit(t, p + 9, e ? e : end, true); /* once deep: CDATA does not nest */
             p = e ? e + 3 : end;
         } else if (*p == '<') {
             while (p < end && *p != '>')
                 p++;
             if (p < end)
                 p++;
-            put(out, cap, &n, ' ');
+            put(t, ' ');
         } else if (*p == '&') {
-            const char *semi = memchr(p, ';', (size_t)(end - p) < 10 ? (size_t)(end - p) : 10);
-            static const struct {
-                const char *name;
-                char c;
-            } ents[] = {{"amp", '&'}, {"lt", '<'}, {"gt", '>'}, {"quot", '"'}, {"apos", '\''}, {"nbsp", ' '}};
-            bool done = false;
-            if (semi && p[1] == '#') {
-                unsigned long cp = 0;
-                bool hex = p[2] == 'x' || p[2] == 'X';
-                for (const char *d = p + (hex ? 3 : 2); d < semi; d++) {
-                    int v = *d >= '0' && *d <= '9' ? *d - '0'
-                            : hex && (*d | 0x20) >= 'a' && (*d | 0x20) <= 'f' ? (*d | 0x20) - 'a' + 10
-                                                                            : -1;
-                    if (v < 0 || cp > 0x10ffff) {
-                        cp = 0;
-                        break;
-                    }
-                    cp = cp * (hex ? 16 : 10) + (unsigned long)v;
-                }
-                if (cp && cp <= 0x10ffff) {
-                    char u[4];
-                    size_t k = utf8(cp == 0xa0 ? ' ' : cp, u);
-                    for (size_t i = 0; i < k; i++)
-                        put(out, cap, &n, u[i]);
-                    done = true;
-                }
-            } else if (semi) {
-                for (size_t i = 0; i < sizeof(ents) / sizeof(ents[0]) && !done; i++)
-                    if ((size_t)(semi - p - 1) == strlen(ents[i].name) && !memcmp(p + 1, ents[i].name, strlen(ents[i].name))) {
-                        put(out, cap, &n, ents[i].c);
-                        done = true;
-                    }
+            const char *after;
+            unsigned long cp = entity(p, end, &after);
+            if (cp) {
+                put_cp(t, cp);
+                p = after;
+            } else {
+                put(t, *p++);
             }
-            if (done)
-                p = semi + 1;
-            else
-                put(out, cap, &n, *p++);
+        } else if ((unsigned char)*p >= 0x80 && t->latin1) {
+            put_cp(t, (unsigned char)*p++);
         } else {
-            put(out, cap, &n, *p++);
+            put(t, *p++);
         }
     }
-    while (n && out[n - 1] == ' ')
-        n--;
-    out[n] = '\0';
+}
+
+/* Ends the text: no space at the end, and any byte that is not part of valid UTF-8 as '?' */
+static void finish(txt_t *t)
+{
+    while (t->n && t->out[t->n - 1] == ' ')
+        t->n--;
+    t->out[t->n] = '\0';
+    for (size_t i = 0; i < t->n;) {
+        unsigned char c = (unsigned char)t->out[i];
+        size_t k = c < 0x80 ? 1 : (c & 0xe0) == 0xc0 && c >= 0xc2 ? 2 : (c & 0xf0) == 0xe0 ? 3 : (c & 0xf8) == 0xf0 && c <= 0xf4 ? 4 : 0;
+        bool ok = k && i + k <= t->n;
+        for (size_t j = 1; ok && j < k; j++)
+            ok = ((unsigned char)t->out[i + j] & 0xc0) == 0x80;
+        if (ok) {
+            i += k;
+        } else {
+            t->out[i++] = '?';
+        }
+    }
 }
 
 /* A headline cut to fit a value: at a character's start, with "..." */
@@ -188,8 +233,9 @@ static void fit(char *s)
     memcpy(s + n, "...", 4);
 }
 
-/* The text of the first <title> in [p, end), into out */
-static bool title_in(const char *p, const char *end, char *out, size_t cap)
+/* The text of the first <title> in [p, end), into out (cap bytes with the NUL). Atom's
+   type="html" is HTML inside the XML: its entities and tags are read a second time. */
+static bool title_in(const char *p, const char *end, char *out, size_t cap, bool latin1)
 {
     const char *t = find_tag(p, end, "title");
     if (!t)
@@ -200,7 +246,16 @@ static bool title_in(const char *p, const char *end, char *out, size_t cap)
     const char *e = find_str(gt + 1, end, "</title>");
     if (!e)
         return false;
-    text_of(gt + 1, e, out, cap);
+    txt_t x = {out, cap, 0, latin1};
+    emit(&x, gt + 1, e, false);
+    finish(&x);
+    if (find_str(t, gt, "type=\"html\"") || find_str(t, gt, "type='html'")) {
+        char again[ESL_VALUE_MAX * 4 + 1];
+        txt_t y = {again, sizeof(again), 0, false};
+        emit(&y, out, out + x.n, true);
+        finish(&y);
+        snprintf(out, cap, "%s", again);
+    }
     return true;
 }
 
@@ -209,6 +264,16 @@ static bool rss_values(const esl_source_cfg_t *c, const char *body, size_t len, 
 {
     (void)c, (void)now, (void)off, (void)data_at;
     const char *end = body + len;
+    /* <?xml ... encoding="ISO-8859-1"?> (or windows-1252): bytes from 0x80 are Latin-1 */
+    const char *decl_end = len >= 5 && !memcmp(body, "<?xml", 5) ? find_str(body, len > 200 ? body + 200 : end, "?>") : NULL;
+    bool latin1 = false;
+    if (decl_end) {
+        char d[201];
+        size_t dn = (size_t)(decl_end - body);
+        for (size_t i = 0; i < dn; i++)
+            d[i] = (char)(body[i] | ((body[i] >= 'A' && body[i] <= 'Z') ? 0x20 : 0));
+        latin1 = find_str(d, d + dn, "iso-8859-1") || find_str(d, d + dn, "windows-1252") || find_str(d, d + dn, "latin1");
+    }
     const char *it = "item", *close = "</item>";
     const char *first = find_tag(body, end, "item");
     if (!first) {
@@ -225,16 +290,18 @@ static bool rss_values(const esl_source_cfg_t *c, const char *body, size_t len, 
     char buf[ESL_VALUE_MAX * 4 + 1];
     v->n = 0;
     /* the feed's own title: the first <title> before the first item */
-    if (title_in(body, first ? first : end, buf, sizeof(buf))) {
+    if (title_in(body, first ? first : end, buf, sizeof(buf), latin1)) {
         fit(buf);
         esl_values_set(v, "title", buf);
     } else {
         esl_values_set(v, "title", "");
     }
     unsigned k = 0;
-    for (const char *p = first; p && k < HEADS; p = find_tag(p + 1, end, it)) {
-        const char *e = find_str(p, end, close);
-        if (!title_in(p, e ? e : end, buf, sizeof(buf)) || !buf[0])
+    /* each item is read only up to the next one's start */
+    for (const char *p = first, *next; p && k < HEADS; p = next) {
+        next = find_tag(p + 1, end, it);
+        const char *lim = next ? next : end, *e = find_str(p, lim, close);
+        if (!title_in(p, e ? e : lim, buf, sizeof(buf), latin1) || !buf[0])
             continue;
         fit(buf);
         char key[4] = {'h', (char)('1' + k), '\0'};
@@ -258,6 +325,7 @@ const esl_source_def_t esl_source_rss = {
     .fields = rss_fields,
     .cfg_keys = rss_cfg_keys,
     .every_min = 15,
+    .prefix = true, /* only the first items matter: a long feed is read up to the size limit */
     .parse = rss_parse,
     .write = rss_write,
     .url = rss_url,

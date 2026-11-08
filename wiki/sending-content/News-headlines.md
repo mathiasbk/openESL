@@ -14,7 +14,7 @@ curl -X PUT http://openesl.local/api/sources \
 ```
 
 - Most news sites, blogs and status pages have a feed. Look for "RSS" on the site, or a link ending in `.rss`, `.xml` or `/feed`.
-- The feed must be 128 KB or smaller, and work without a login.
+- The feed must work without a login. Of a very long feed the first 128 KB are read (the newest items).
 - `every_min` is 15 to 1440 minutes. Each new headline wakes the labels, so a slower interval saves battery.
 
 ## What a label can show
