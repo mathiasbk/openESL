@@ -289,13 +289,6 @@ export function hostOf(url) {
   return m ? m[1] : "";
 }
 
-// The picture source each tag is in now, by MAC: what it shows instead of other content
-export function pictureOf(sources) {
-  const out = new Map();
-  for (const s of sources || []) if (s.type === "image") for (const m of s.tags || []) out.set(m, shortUrl(s.url));
-  return out;
-}
-
 // What each tag shows now from a source, by MAC: "the weather for Oslo", "the headlines from
 // news.example", for the Send list
 export function showsOf(sources) {

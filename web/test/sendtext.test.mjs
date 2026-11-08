@@ -120,3 +120,9 @@ test("several tags today go in one PUT /api/tags without asking for the time", a
   assert.equal(replies.length, 2);
   assert.deepEqual(ap.calls[0][2].tags[1].fields, ["OpenESL AP", "IP 192.168.1.40", "WiFi Butikken", "FW 0.4.4"]);
 });
+
+test("textBytes counts what the AP spells out: … and € as three bytes, ™ Œ œ ‡ as two", () => {
+  assert.equal(textBytes(["9,90 €"]), 8 + 1);
+  assert.equal(textBytes(["a…", "™Œœ‡"]), 4 + 1 + 8 + 1);
+  assert.equal(textBytes(["æøå"]), 3 + 1);
+});

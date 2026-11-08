@@ -179,27 +179,35 @@ static unsigned long latin1_cp(unsigned char b)
 }
 
 /* Whether the '<' at p starts a tag, a comment or an end tag: "a < b" in a CDATA title is
-   text, and so is a '<' with no '>' after it ("x <y" would else lose the rest) */
-static bool tag_start(const char *p, const char *end)
+   text, and so is a '<' with no '>' after it ("x <y" would else lose the rest). *nogt is
+   where the text was found to have no '>' left (NULL until then): a '<' after it is text
+   without a new search, so a title of only "<a<a<a..." is still read once. */
+static bool tag_start(const char *p, const char *end, const char **nogt)
 {
     if (end - p < 2)
         return false;
     char c = p[1];
     if (!(c == '/' || c == '!' || c == '?' || ((c | 0x20) >= 'a' && (c | 0x20) <= 'z')))
         return false;
-    return memchr(p, '>', (size_t)(end - p)) != NULL;
+    if (*nogt && p >= *nogt)
+        return false;
+    if (memchr(p, '>', (size_t)(end - p)))
+        return true;
+    *nogt = p;
+    return false;
 }
 
 /* Text from [p, end): entities decoded, tags left out, CDATA read the same way (it mostly
    holds HTML), white space made single */
 static void emit(txt_t *t, const char *p, const char *end, bool cdata)
 {
+    const char *nogt = NULL;
     while (p < end) {
         if (!cdata && end - p >= 9 && !memcmp(p, "<![CDATA[", 9)) {
             const char *e = find_str(p + 9, end, "]]>");
             emit(t, p + 9, e ? e : end, true); /* once deep: CDATA does not nest */
             p = e ? e + 3 : end;
-        } else if (*p == '<' && tag_start(p, end)) {
+        } else if (*p == '<' && tag_start(p, end, &nogt)) {
             while (p < end && *p != '>')
                 p++;
             if (p < end)
