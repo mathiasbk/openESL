@@ -158,7 +158,7 @@ static void test_parse(void)
         {"[]", "must be a JSON object"},
         {"{}", "sources: a list of up to 8"},
         {"{\"sources\":[{\"id\":\"A\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].id: 1 to 16"},
-        {"{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\", \"rss\""},
+        {"{\"sources\":[{\"id\":\"a\",\"type\":\"caldav\",\"lat\":1,\"lon\":1,\"layout\":\"w\"}]}", "sources[0].type: one of \"met\", \"image\", \"power\", \"countdown\", \"rss\", \"ical\""},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":91,\"lon\":1,\"layout\":\"w\"}]}", "lat: a number from -90"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"layout\":\"w\"}]}", "lon: a number from -180"},
         {"{\"sources\":[{\"id\":\"a\",\"type\":\"met\",\"lat\":1,\"lon\":1,\"layout\":\"w\",\"every_min\":10}]}",
@@ -1240,6 +1240,236 @@ static void test_rss(void)
     CHECK(esl_source_prefix(&cfg[0]) && !esl_source_prefix(&cfg[1]));
 }
 
+/* Feeds an answer to source c's reader k bytes at a time; its short body and the values */
+static bool ical_read(const esl_source_cfg_t *c, const char *ics, size_t k, uint32_t now, esl_values_t *v, char *err,
+                      size_t errlen)
+{
+    esl_source_stream_t *st = esl_source_stream_new(c, now, cet);
+    if (!st)
+        return false;
+    size_t n = strlen(ics);
+    for (size_t i = 0; i < n; i += k)
+        esl_source_stream_feed(st, ics + i, n - i < k ? n - i : k);
+    char *body = NULL;
+    size_t len = 0;
+    uint32_t data_at;
+    bool ok = esl_source_stream_end(st, &body, &len, err, errlen) &&
+              esl_source_values(c, body, len, now, cet, v, &data_at, err, errlen);
+    free(body);
+    return ok;
+}
+
+static void test_ical(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    static const char ok[] = "{\"sources\":[{\"id\":\"cal\",\"type\":\"ical\",\"url\":\"webcal://cal.example/a.ics\","
+                             "\"layout\":\"text\",\"tags\":[\"" MAC1 "\"]},"
+                             "{\"id\":\"en\",\"type\":\"ical\",\"url\":\"https://cal.example/b.ics\",\"lang\":\"en\","
+                             "\"layout\":\"text\",\"tags\":[\"" MAC2 "\"]}]}";
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(n == 2);
+    /* webcal:// is the same address over https */
+    CHECK(esl_source_url(&cfg[0], url, sizeof(url)) && !strcmp(url, "https://cal.example/a.ics"));
+    CHECK(cfg[0].every_min == 15);
+    static const char *const bad[] = {
+        "{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"layout\":\"text\"}]}",
+        "{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"url\":\"ftp://x/a.ics\",\"layout\":\"text\"}]}",
+        "{\"sources\":[{\"id\":\"a\",\"type\":\"ical\",\"url\":\"webcal://u:p@x/a.ics\",\"layout\":\"text\"}]}",
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK(!esl_sources_parse(bad[i], strlen(bad[i]), cfg + 2, &n, err, sizeof(err)));
+        CHECK(HAS(err, "url: an http://, https:// or webcal:// URL"));
+    }
+    /* T0 is Monday 26 October 2026, 17:00 in Norway (CET, the day after summer time ended) */
+    static const char ics[] =
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:Familie\\, uke\r\n"
+        "BEGIN:VTIMEZONE\r\nTZID:Europe/Oslo\r\nBEGIN:STANDARD\r\nDTSTART:19701025T030000\r\nEND:STANDARD\r\n"
+        "END:VTIMEZONE\r\n"
+        /* under way: 16:00 to 18:00 CET; the alarm's SUMMARY is not the event's */
+        "BEGIN:VEVENT\r\nUID:a\r\nDTSTART:20261026T150000Z\r\nDTEND:20261026T170000Z\r\nSUMMARY:M\xc3\xb8te\r\n"
+        "BEGIN:VALARM\r\nSUMMARY:alarm\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\n"
+        /* Tuesdays and Thursdays at 19:00 local from summer time, one left out, one moved */
+        "BEGIN:VEVENT\r\nUID:b\r\nDTSTART;TZID=Europe/Oslo:20261020T190000\r\nDURATION:PT1H\r\n"
+        "RRULE:FREQ=WEEKLY;BYDAY=TU,TH\r\nEXDATE;TZID=Europe/Oslo:20261027T190000\r\n"
+        "SUMMARY:Trening med et veldig langt navn som m\xc3\xa5 kuttes ett eller annet sted \r\n her\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:b\r\nRECURRENCE-ID;TZID=Europe/Oslo:20261029T190000\r\n"
+        "DTSTART;TZID=Europe/Oslo:20261029T200000\r\nDTEND;TZID=Europe/Oslo:20261029T210000\r\n"
+        "SUMMARY:Trening (flyttet)\r\nEND:VEVENT\r\n"
+        /* two whole days from tomorrow */
+        "BEGIN:VEVENT\r\nUID:c\r\nDTSTART;VALUE=DATE:20261027\r\nDTEND;VALUE=DATE:20261029\r\nSUMMARY:Ferie\r\n"
+        "END:VEVENT\r\n"
+        /* a birthday every year since 1990 */
+        "BEGIN:VEVENT\r\nUID:d\r\nDTSTART;VALUE=DATE:19901102\r\nRRULE:FREQ=YEARLY\r\nSUMMARY:Bursdag\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:e\r\nDTSTART:20261026T180000Z\r\nSTATUS:CANCELLED\r\nSUMMARY:Avlyst\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:f\r\nDTSTART:20261025T100000Z\r\nDTEND:20261025T110000Z\r\nSUMMARY:Gammel\r\n"
+        "END:VEVENT\r\n"
+        /* the last Friday of each month at 09:00 CET */
+        "BEGIN:VEVENT\r\nUID:g\r\nDTSTART:20260130T080000Z\r\nRRULE:FREQ=MONTHLY;BYDAY=-1FR\r\nSUMMARY:L\xc3\xb8nn\r\n"
+        "END:VEVENT\r\n"
+        /* five days, all past; a rule this does not follow gives the first one only (past) */
+        "BEGIN:VEVENT\r\nUID:h\r\nDTSTART:20261001T070000Z\r\nRRULE:FREQ=DAILY;COUNT=5\r\nSUMMARY:Kurs\r\n"
+        "END:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:i\r\nDTSTART:20261001T070000Z\r\nRRULE:FREQ=MONTHLY;BYSETPOS=1;BYDAY=MO\r\n"
+        "SUMMARY:Rart\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    static const size_t steps[] = {1, 7, 4096};
+    for (size_t k = 0; k < sizeof(steps) / sizeof(steps[0]); k++) {
+        CHECK(ical_read(&cfg[0], ics, steps[k], T0, &v, err, sizeof(err)));
+        CHECK_STR(esl_values_get(&v, "title"), "Familie, uke");
+        CHECK_STR(esl_values_get(&v, "today"), "1");
+        CHECK_STR(esl_values_get(&v, "day1"), "i dag");
+        CHECK_STR(esl_values_get(&v, "time1"), "til 18:00");
+        CHECK_STR(esl_values_get(&v, "what1"), "M\xc3\xb8te");
+        CHECK_STR(esl_values_get(&v, "day2"), "i morgen");
+        CHECK_STR(esl_values_get(&v, "time2"), "hele dagen");
+        CHECK_STR(esl_values_get(&v, "what2"), "Ferie");
+        CHECK_STR(esl_values_get(&v, "day3"), "tor. 29. okt");
+        CHECK_STR(esl_values_get(&v, "time3"), "20:00");
+        CHECK_STR(esl_values_get(&v, "what3"), "Trening (flyttet)");
+        CHECK_STR(esl_values_get(&v, "day4"), "fre. 30. okt");
+        CHECK_STR(esl_values_get(&v, "time4"), "09:00");
+        CHECK_STR(esl_values_get(&v, "what4"), "L\xc3\xb8nn");
+        CHECK_STR(esl_values_get(&v, "day5"), "man. 2. nov");
+        CHECK_STR(esl_values_get(&v, "what5"), "Bursdag");
+        CHECK_STR(esl_values_get(&v, "day6"), "tir. 3. nov");
+        CHECK_STR(esl_values_get(&v, "time6"), "19:00");
+        CHECK_STR(esl_values_get(&v, "what6"), "Trening med et veldig langt navn som...");
+    }
+    /* more rules: every day since 2010 at 07:00 UTC (skipped ahead), every other week until a
+       date, the last day of the month, three times from a date */
+    static const char rules[] =
+        "BEGIN:VCALENDAR\r\n"
+        "BEGIN:VEVENT\r\nUID:1\r\nDTSTART:20100101T070000Z\r\nRRULE:FREQ=DAILY\r\nSUMMARY:Daglig\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:2\r\nDTSTART:20261012T120000Z\r\nRRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20261110T000000Z\r\n"
+        "SUMMARY:Annenhver\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:3\r\nDTSTART;VALUE=DATE:20260131\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=-1\r\n"
+        "SUMMARY:Siste\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:4\r\nDTSTART:20261020T100000Z\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nSUMMARY:Tre\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    static const struct {
+        const char *day, *what;
+    } want[] = {{"i morgen", "Daglig"},      {"i morgen", "Tre"},       {"ons. 28. okt", "Daglig"},
+                {"tor. 29. okt", "Daglig"}, {"fre. 30. okt", "Daglig"}, {"lør. 31. okt", "Siste"}};
+    CHECK(ical_read(&cfg[0], rules, 4096, T0, &v, err, sizeof(err)));
+    for (unsigned i = 0; i < 6; i++) {
+        char k[8];
+        snprintf(k, sizeof(k), "day%u", i + 1);
+        CHECK_STR(esl_values_get(&v, k), want[i].day);
+        snprintf(k, sizeof(k), "what%u", i + 1);
+        CHECK_STR(esl_values_get(&v, k), want[i].what);
+    }
+    /* "Annenhver" was today at 12:00 UTC. Seen from Monday 2 November 07:00, "Tre" (20 and 27 October, 3 November) comes tomorrow for the last time */
+    CHECK(ical_read(&cfg[0], rules, 4096, T0 + 7 * 86400 - 3600 * 10, &v, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "what1"), "Daglig");
+    CHECK_STR(esl_values_get(&v, "day1"), "i dag");
+    CHECK_STR(esl_values_get(&v, "day2"), "i morgen");
+    CHECK_STR(esl_values_get(&v, "what2"), "Daglig");
+    CHECK_STR(esl_values_get(&v, "what3"), "Tre");
+    CHECK_STR(esl_values_get(&v, "time3"), "11:00");
+    /* the last day of the month, all day; "Annenhver" ended with its UNTIL, "Tre" after three */
+    CHECK(ical_read(&cfg[0], rules, 4096, 1795734000u /* 2026-11-26 21:00 UTC */, &v, err, sizeof(err)));
+    bool last = false;
+    for (unsigned i = 1; i <= 6; i++) {
+        char k[8];
+        snprintf(k, sizeof(k), "what%u", i);
+        if (!strcmp(esl_values_get(&v, k), "Siste")) {
+            snprintf(k, sizeof(k), "day%u", i);
+            last = !strcmp(esl_values_get(&v, k), "man. 30. nov");
+        }
+        CHECK(strcmp(esl_values_get(&v, k), "Annenhver") && strcmp(esl_values_get(&v, k), "Tre"));
+    }
+    CHECK(last);
+
+    /* UNTIL: 9 November is the last; COUNT with a skip: "Tre" ends on 3 November */
+    static const char until[] =
+        "BEGIN:VCALENDAR\r\n"
+        "BEGIN:VEVENT\r\nUID:2\r\nDTSTART:20261012T120000Z\r\nRRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20261110T000000Z\r\n"
+        "SUMMARY:Annenhver\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:4\r\nDTSTART:20261020T100000Z\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nSUMMARY:Tre\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    CHECK(ical_read(&cfg[0], until, 4096, T0, &v, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "what1"), "Tre");
+    CHECK_STR(esl_values_get(&v, "what2"), "Tre");
+    CHECK_STR(esl_values_get(&v, "day2"), "tir. 3. nov");
+    CHECK_STR(esl_values_get(&v, "what3"), "Annenhver");
+    CHECK_STR(esl_values_get(&v, "day3"), "man. 9. nov");
+    CHECK_STR(esl_values_get(&v, "what4"), "");
+
+    /* in English, a day later: the meeting is over and the holiday under way */
+    CHECK(ical_read(&cfg[1], ics, 4096, T0 + 86400, &v, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "today"), "1");
+    CHECK_STR(esl_values_get(&v, "day1"), "today");
+    CHECK_STR(esl_values_get(&v, "time1"), "all day");
+    CHECK_STR(esl_values_get(&v, "what1"), "Ferie");
+    CHECK_STR(esl_values_get(&v, "day2"), "Thu 29 Oct");
+    /* the body is made at the fetch; the values follow the clock: two hours later the
+       meeting is gone and fewer events leave the last lines empty */
+    static const char one[] = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20261026T150000Z\r\n"
+                              "DTEND:20261026T170000Z\r\nSUMMARY:M\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    esl_source_stream_t *st = esl_source_stream_new(&cfg[0], T0, cet);
+    CHECK(st != NULL);
+    esl_source_stream_feed(st, one, strlen(one));
+    char *body = NULL;
+    size_t len = 0;
+    uint32_t data_at;
+    CHECK(esl_source_stream_end(st, &body, &len, err, sizeof(err)));
+    CHECK(esl_source_values(&cfg[0], body, len, T0, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "what1"), "M");
+    CHECK(esl_source_values(&cfg[0], body, len, T0 + 7200, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "what1"), "");
+    CHECK_STR(esl_values_get(&v, "day6"), "");
+    CHECK_STR(esl_values_get(&v, "today"), "0");
+    free(body);
+    /* not a calendar; a reader that is only freed */
+    CHECK(!ical_read(&cfg[0], "<html><body>Sign in</body></html>", 4096, T0, &v, err, sizeof(err)));
+    CHECK(HAS(err, "not an iCalendar file"));
+    st = esl_source_stream_new(&cfg[0], T0, cet);
+    esl_source_stream_feed(st, ics, 100);
+    CHECK(!esl_source_stream_end(st, NULL, NULL, err, sizeof(err)));
+    /* types that read their answer whole have no reader */
+    static esl_source_cfg_t met;
+    met.type = ESL_SOURCE_MET;
+    CHECK(esl_source_stream_new(&met, T0, cet) == NULL);
+
+    /* hostile: 3 MB of events that each repeat 4000 times, a 200 KB line, deep nesting.
+       The work has a bound, so this takes well under a second. */
+    static const char ev[] = "BEGIN:VEVENT\r\nDTSTART:20261027T100000Z\r\nRRULE:FREQ=DAILY;COUNT=4000\r\n"
+                             "SUMMARY:x\r\nEND:VEVENT\r\n";
+    size_t big = 3u << 20;
+    char *h = malloc(big + 1);
+    CHECK(h != NULL);
+    if (h) {
+        size_t k = (size_t)sprintf(h, "BEGIN:VCALENDAR\r\nX-WR-CALNAME:");
+        memset(h + k, 'a', 200000);
+        k += 200000;
+        memcpy(h + k, "\r\n", 2);
+        k += 2;
+        for (int i = 0; i < 200; i++)
+            k += (size_t)sprintf(h + k, "BEGIN:X\r\n");
+        while (k + sizeof(ev) < big) {
+            memcpy(h + k, ev, sizeof(ev) - 1);
+            k += sizeof(ev) - 1;
+        }
+        h[k] = '\0';
+        clock_t t0 = clock();
+        st = esl_source_stream_new(&cfg[0], T0, cet);
+        for (size_t i = 0; i < k; i += 4096)
+            esl_source_stream_feed(st, h + i, k - i < 4096 ? k - i : 4096);
+        body = NULL;
+        CHECK(esl_source_stream_end(st, &body, &len, err, sizeof(err)));
+        double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
+        CHECK(ms < 1500);
+        CHECK(len < 4096);
+        CHECK(esl_source_values(&cfg[0], body, len, T0, cet, &v, &data_at, err, sizeof(err)));
+        CHECK(strlen(esl_values_get(&v, "title")) <= ESL_VALUE_MAX);
+        free(body);
+        free(h);
+    }
+}
+
 void test_source(void)
 {
     test_parse();
@@ -1251,5 +1481,6 @@ void test_source(void)
     test_power();
     test_countdown();
     test_rss();
+    test_ical();
     test_api();
 }

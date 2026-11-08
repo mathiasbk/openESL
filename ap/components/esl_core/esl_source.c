@@ -72,6 +72,7 @@ static const esl_source_def_t *const types[] = {
     &esl_source_power,
     &esl_source_countdown,
     &esl_source_rss,
+    &esl_source_ical,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -940,6 +941,38 @@ bool esl_source_prefix(const esl_source_cfg_t *c)
 {
     const esl_source_def_t *t = type_of(c->type);
     return t && t->prefix;
+}
+
+struct esl_source_stream {
+    const esl_source_def_t *t;
+    void *s;
+};
+
+esl_source_stream_t *esl_source_stream_new(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    if (!t || !t->stream_new)
+        return NULL;
+    esl_source_stream_t *st = malloc(sizeof(*st));
+    if (st && !(st->s = t->stream_new(c, now, off))) {
+        free(st);
+        st = NULL;
+    }
+    if (st)
+        st->t = t;
+    return st;
+}
+
+void esl_source_stream_feed(esl_source_stream_t *s, const char *p, size_t n)
+{
+    s->t->stream_feed(s->s, p, n);
+}
+
+bool esl_source_stream_end(esl_source_stream_t *s, char **body, size_t *len, char *err, size_t errlen)
+{
+    bool ok = s->t->stream_end(s->s, body, len, err, errlen);
+    free(s);
+    return ok;
 }
 
 bool esl_source_is_local(const esl_source_cfg_t *c)

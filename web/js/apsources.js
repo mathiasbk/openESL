@@ -32,6 +32,7 @@ export function sourceSummary(s, now) {
   if (s.type === "countdown") return { text: v.left || "Not counted yet", bad: false };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
   const what = s.type === "power" ? (v.now ? `${v.now} kr/kWh` : "") : s.type === "rss" ? v.h1 || ""
+    : s.type === "ical" ? [v.day1, v.time1, v.what1].filter(Boolean).join(" ") || "No events ahead"
     : [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
   return { text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)}`, bad: false };
 }
@@ -204,6 +205,12 @@ export function shortUrl(url) {
   return !parts.length ? m[1] : parts.length === 1 ? `${m[1]}/${parts[0]}` : `${m[1]}/…/${parts[parts.length - 1]}`;
 }
 
+// Only the host of an address ("calendar.example"), for one whose path is a secret
+export function hostOf(url) {
+  const m = /^[a-z]+:\/\/([^/?#]+)/.exec(url || "");
+  return m ? m[1] : "";
+}
+
 // The picture source each tag is in now, by MAC: what it shows instead of other content
 export function pictureOf(sources) {
   const out = new Map();
@@ -284,7 +291,9 @@ export function initSources() {
       // the electricity price (type power) with its price area
       const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"]
         : s.type === "countdown" ? [`${s.place || s.id} · countdown`, `${s.date}${s.time ? " " + s.time : ""}${s.yearly ? ", every year" : ""}`]
-        : s.type === "rss" ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+        : s.type === "rss" ? [`${s.id} · ${shortUrl(s.url)}`, s.url]
+        // a calendar's address is often its secret: only the host is shown
+        : s.type === "ical" ? [`${s.id} · calendar`, hostOf(s.url)] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -297,7 +306,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = `${s.type === "countdown" ? "Stop" : "Stop fetching"} ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : s.type === "rss" ? "the headlines" : "the weather for this place"}; its tags keep what they show until they get other content`;
+      del.title = `${s.type === "countdown" ? "Stop" : "Stop fetching"} ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : s.type === "rss" ? "the headlines" : s.type === "ical" ? "the calendar" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -306,7 +315,7 @@ export function initSources() {
   }
 
   async function remove(s) {
-    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown", rss: "the headlines" }[s.type] || "the weather";
+    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown", rss: "the headlines", ical: "the calendar" }[s.type] || "the weather";
     if (!confirm(`Stop ${what} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old

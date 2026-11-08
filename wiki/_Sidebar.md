@@ -48,6 +48,7 @@
 - [Electricity price](Electricity-price)
 - [Countdown](Countdown)
 - [News headlines](News-headlines)
+- [Calendar](Calendar)
 
 **Running it**
 - [Dashboard](Dashboard)

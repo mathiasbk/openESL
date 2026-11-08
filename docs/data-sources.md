@@ -8,8 +8,8 @@ the weather forecast for a place from [MET Norway](https://api.met.no/) (the dat
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
 client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
-electricity price in Norway, a countdown to a date and the headlines of a news feed
-(below).
+electricity price in Norway, a countdown to a date, the headlines of a news feed and the
+next events of a calendar (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -315,6 +315,53 @@ A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags (also
 `&hellip;`) are handled, and a feed in ISO-8859-1 or windows-1252 is read as such. The default fields, for `text`, are `{title}`,
 `{h1}`, `{h2}` and `{h3}`. Each new headline wakes the source's tags: for a busy feed, a
 longer `every_min` saves battery.
+
+## The next events of a calendar
+
+A source of type `ical` (AP 0.11.0 and later) shows the next events of a calendar in the
+iCalendar format (`.ics`): a meeting room's door sign, the family's week on the fridge. Google
+Calendar, Outlook, iCloud and Nextcloud all give a calendar such an address (often called the
+*secret address in iCal format* or *publish calendar*).
+
+```json
+{"sources": [{"id": "family", "type": "ical", "url": "webcal://calendar.example/family.ics",
+              "layout": "text", "tags": ["00000123456789B2"]}]}
+```
+
+- `url`: `http://`, `https://` or `webcal://` (fetched as `https://`), up to 159 bytes,
+  without a login. Redirects are not followed. A calendar's secret address lets anyone who
+  has it read the calendar: the AP keeps it, and `GET /api/sources` shows it to anyone who
+  may read the API (the Dashboard shows only the host). Protect the API with a token.
+- `every_min`: from 15 (the default) to 1440. The source runs at whole multiples of it
+  (:00, :15, :30, :45), so an event that ended goes away within a quarter of an hour.
+- The file is read as it comes, so a big calendar is fine: up to 4 MB within 30 s. It is
+  fetched whole each time (no `If-Modified-Since`), as the next events depend on the time.
+
+| Value | What it is |
+|---|---|
+| `{title}` | The calendar's name (`X-WR-CALNAME`), empty when it has none |
+| `{day1}` ... `{day6}` | The day of the next six events: `i dag`/`today`, `i morgen`/`tomorrow`, else `tor. 29. okt`/`Thu 29 Oct`. An event under way is today's |
+| `{time1}` ... `{time6}` | Its start (`09:00`), `til 10:00`/`until 10:00` while under way, or `hele dagen`/`all day` |
+| `{what1}` ... `{what6}` | Its summary, cut to 40 bytes with `...` |
+| `{today}` | How many events are under way or still to come today |
+
+Fewer events leave the last values empty. `lang` (`nb` or `en`) sets the language of the
+days and times. The default fields, for `text`, are `{title}` and three lines
+`{day1} {time1} {what1}` to `{day3} ...`.
+
+What is read:
+
+- Single events, all-day events (also over several days) and repeating events: `RRULE` with
+  `FREQ` daily, weekly, monthly or yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (also "the
+  last Friday": `-1FR`), `BYMONTHDAY` and `BYMONTH`. A rule with other parts (`BYSETPOS`,
+  `BYWEEKNO`, `BYYEARDAY`, hourly) gives only the event's first time.
+- `EXDATE` (left-out times), moved single times (`RECURRENCE-ID`) and cancelled events
+  (`STATUS:CANCELLED`, left out).
+- Times in UTC (ending in `Z`) are right anywhere. Times with a `TZID`, and times without a
+  zone, are read in the AP's own time zone (the Settings page, `tz` in `PUT /api/config`), with its summer time: a
+  calendar in another zone shows its events at that zone's clock times.
+- Alarms, to-dos and time zone definitions are skipped. Events more than 400 days ahead are
+  not looked at.
 
 ## MET Norway's terms
 
