@@ -212,7 +212,25 @@ static void test_ap_id(void)
     CHECK_INT(air(&own, 2000, false), ESL_MSG_CONFIG);
     CHECK(own.ap_id == 0xBEEF0001ul);
     CHECK_INT(air(&own, 62000, false), ESL_MSG_IDLE);
-    CHECK_INT(air(&old, 2000, false), ESL_MSG_CONFIG);   /* no id in its POLL */
+    CHECK_INT(air(&old, 2000, false), ESL_MSG_IDLE);     /* no id in its POLL: answered, no CONFIG */
+
+    /* the 0.6.0 labels (14-byte POLL, no link block) and the oldest (12 bytes): answered as before,
+       with no CONFIG, and their content still goes out */
+    {
+        esl_faketag_t l6, l0;
+        esl_faketag_init(&l6, 0xA1D00006, 600, 3000, ESL_MODEL_29);
+        esl_faketag_init(&l0, 0xA1D00007, 1, 3000, ESL_MODEL_29);
+        l6.no_link = true;
+        l6.images = true;
+        l0.legacy = true;
+        CHECK_INT(air(&l6, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(air(&l0, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(l6.configs, 0);
+        CHECK_INT(put("00000000A1D00006", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+        air(&l6, 2200, false);
+        CHECK(l6.img_shown > 0);
+        CHECK_INT(l6.configs, 0);
+    }
 
     /* another AP's label: no answer, not added, and its requests get none either */
     unsigned count = esl_store_count(&st);
@@ -231,9 +249,16 @@ static void test_ap_id(void)
     esl_store_set_adopt(&st, false, 0xBEEF0003ul);
     CHECK_INT(air(&other, 5000, false), 0);
 
-    /* adopting that id: taken over, with this AP's id */
+    /* adopting that id: taken over, with this AP's id. Content waiting for it (a restored backup)
+       comes after CONFIG, so its next POLL already has this AP's id */
+    other.images = true;
+    CHECK_INT(put("00000000A1D00002", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
     esl_store_set_adopt(&st, false, 0xBEEF0002ul);
-    CHECK_INT(air(&other, 6000, false), ESL_MSG_CONFIG);
+    n = esl_faketag_poll(&other, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 6000, tx, NULL);
+    CHECK_INT(esl_faketag_receive(&other, tx, m), ESL_MSG_CONFIG);
+    CHECK_INT(air(&other, 6100, false) != 0, 1);
+    CHECK(other.img_shown > 0);
     CHECK(other.ap_id == 0xBEEF0001ul);
     CHECK(!esl_store_refused(&st, other.mac));
     CHECK_INT(esl_store_count(&st), count + 1);

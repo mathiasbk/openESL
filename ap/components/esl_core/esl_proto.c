@@ -180,8 +180,8 @@ bool esl_tag_cfg_is_default(const esl_tag_cfg_t *c)
 
 uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c)
 {
-    uint8_t b[16];
-    if (esl_tag_cfg_is_default(c) && !c->ap_id)
+    uint8_t b[12];
+    if (esl_tag_cfg_is_default(c))
         return 0;
     put16(&b[0], c->poll_s);
     put16(&b[2], c->max_poll_s);
@@ -191,9 +191,9 @@ uint16_t esl_tag_cfg_version(const esl_tag_cfg_t *c)
     put16(&b[10], c->channel);
     /* without the long backoff or a channel set, the version an AP from before them gave the same
        settings, so tags that have them are not sent CONFIG again after an update */
-    /* and with an AP id (#390) the 4 bytes of it as well, so every tag gets it once */
-    put32(&b[12], c->ap_id);
-    uint32_t crc = esl_crc32(b, c->ap_id ? 16 : c->channel ? 12 : c->long_poll_s || c->long_after_min ? 10 : 6);
+    /* The AP id (#390) is not in it: a tag whose POLL has another id, or none, gets CONFIG anyway
+       (other_ap_id in esl_store.c), and older tags and radios keep the version they had */
+    uint32_t crc = esl_crc32(b, c->channel ? 12 : c->long_poll_s || c->long_after_min ? 10 : 6);
     uint16_t v = (uint16_t)(crc ^ (crc >> 16));
     return v ? v : 1;
 }

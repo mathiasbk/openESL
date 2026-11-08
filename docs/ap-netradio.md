@@ -151,7 +151,7 @@ for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies. A 
 Settings page (`PUT /api/config` `"channel"`) reaches the radio the same way: each tag's state carries the
 channel the S3 announces (u16 at the end of the TAG message, 0 = the built-in one), so the radio's
 CONFIG tells the tags, and once they have it (or the time is up) the S3 sends a new CONFIG with the new
-channel and the radio retunes.
+channel and the radio retunes. After the channel comes the AP id (#390, u32; an older S3 sends none, 0): the radio puts it in CONFIG, and stays silent for a tag it has no state for whose POLL carries an id, so it never takes another AP's tag; the S3 decides from the radio's log (docs/protocol.md, "AP id"). Update the radio together with the S3.
 
 **When the S3 loses a radio:** a radio that is not connected, and has not been heard for 30 s
 (`ESL_RADIO_LOST_S`), is
