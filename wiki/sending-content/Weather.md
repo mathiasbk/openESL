@@ -23,7 +23,7 @@ The AP must reach the internet and know the time (it gets it over NTP), and the 
 3. If the AP has no Weather layout for a label size yet, the dialog offers to add it (your other layouts stay). Keep the box ticked.
 4. **Show the weather.** The AP fetches the forecast at once, and the labels show it at their next check-in.
 
-The **Weather and pictures** card under the label table lists the places and how their last fetch went. **Remove** stops a place; its labels keep what they show.
+The **Data sources** card under the label table lists the places and how their last fetch went. **Remove** stops a place; its labels keep what they show.
 
 ![The weather template on a 2.9" and a 1.54" label](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/weather-template.png)
 

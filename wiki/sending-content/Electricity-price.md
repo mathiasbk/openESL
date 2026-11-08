@@ -30,6 +30,6 @@ curl -X PUT http://openesl.local/api/sources \
 "fields": ["Strøm nå {now} kr", "Neste {next}", "Billigst {minat}: {min}"]
 ```
 
-The Dashboard lists the source in its **Weather and pictures** card with how the last fetch went. **Remove** stops it, and the labels keep what they show.
+The Dashboard lists the source in its **Data sources** card with how the last fetch went. **Remove** stops it, and the labels keep what they show.
 
 The prices come from hvakosterstrommen.no (from ENTSO-E). Credit them where you show the price to others. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#the-electricity-price).

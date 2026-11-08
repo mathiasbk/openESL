@@ -61,7 +61,7 @@ What the AP needs:
    next poll. A tag that was in another place leaves it; a place left without tags is
    removed.
 
-The **Weather and pictures** card under the tag table lists the places, how many tags each has and how its
+The **Data sources** card under the tag table lists the places, how many tags each has and how its
 last fetch went, with **Remove** (stop fetching it; its tags keep what they show) and
 **Fetch now**, which asks the AP to fetch every place again. A source whose last answer has not
 expired yet is not fetched again (MET's terms, below): its tags' content is made again from
@@ -185,7 +185,7 @@ that comes back the same is not sent to the tags again.
 ```
 
 On the Dashboard: tick tags of one size, **Send → A picture**, and open *Or: a PNG the AP
-fetches from a web address*. The source then shows in the Weather and pictures card.
+fetches from a web address*. The source then shows in the Data sources card.
 
 - `url`: `http://` or `https://`, up to 159 bytes. It is fetched with `If-Modified-Since`,
   so a server that keeps the file's date answers `304` when it did not change.

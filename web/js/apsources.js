@@ -258,7 +258,7 @@ export function feedPlan(sources, macs, spec) {
   if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
   const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
   list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
-  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one in the Weather and pictures card` };
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one in the Data sources card` };
   return { sources: list, id: target.id };
 }
 
@@ -293,6 +293,22 @@ export function hostOf(url) {
 export function pictureOf(sources) {
   const out = new Map();
   for (const s of sources || []) if (s.type === "image") for (const m of s.tags || []) out.set(m, shortUrl(s.url));
+  return out;
+}
+
+// What each tag shows now from a source, by MAC: "the weather for Oslo", "the headlines from
+// news.example", for the Send list
+export function showsOf(sources) {
+  const out = new Map();
+  const what = (s) => ({
+    met: () => `the weather for ${s.place || s.id}`,
+    image: () => `the picture from ${shortUrl(s.url)}`,
+    power: () => `the electricity price in ${s.area}`,
+    countdown: () => `the countdown to ${s.place || s.id}`,
+    rss: () => `the headlines from ${hostOf(s.url)}`,
+    ical: () => `the calendar from ${hostOf(s.url)}`,
+  })[s.type]?.() ?? `the source ${s.id}`;
+  for (const s of sources || []) for (const m of s.tags || []) out.set(m, what(s));
   return out;
 }
 
@@ -718,7 +734,7 @@ export function initSources() {
     },
     // The place each ticked tag shows now, for the Send form's list
     placeOf: () => placeOf(data?.sources),
-    pictureOf: () => pictureOf(data?.sources),
+    showsOf: () => showsOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
     // Send → Price, countdown, news or calendar: the dialog for these tags; done(message)

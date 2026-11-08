@@ -23,4 +23,4 @@ curl -X PUT http://openesl.local/api/sources \
 
 `{title}` (the feed's name), `{h1}` to `{h6}` (the newest headlines) and `{count}`. A long headline is cut to 40 bytes and ends in `...`. Without `fields` the built-in `text` layout shows the feed's name and three headlines.
 
-The Dashboard lists the source in its **Weather and pictures** card. **Remove** stops it, and the labels keep what they show. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#headlines-from-a-news-feed).
+The Dashboard lists the source in its **Data sources** card. **Remove** stops it, and the labels keep what they show. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#headlines-from-a-news-feed).

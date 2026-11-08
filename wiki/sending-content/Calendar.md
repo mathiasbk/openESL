@@ -29,4 +29,4 @@ curl -X PUT http://openesl.local/api/sources \
 
 Repeating events, left-out and moved times, and all-day events are handled. Times in UTC are right anywhere; a time with a time zone is read as the AP's own clock time, so a meeting set up in another time zone shows at the wrong hour.
 
-The Dashboard lists the source in its **Weather and pictures** card. **Remove** stops it, and the labels keep what they show. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#the-next-events-of-a-calendar).
+The Dashboard lists the source in its **Data sources** card. **Remove** stops it, and the labels keep what they show. The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#the-next-events-of-a-calendar).
