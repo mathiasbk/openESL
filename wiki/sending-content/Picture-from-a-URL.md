@@ -4,7 +4,9 @@ An AP with PSRAM (the [ESP32-S3 + C6](ESP32-S3-and-C6), [ESP32-S3 + wireless C6]
 
 ## Setting it up
 
-Send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include any weather places you have (read them first with `GET /api/sources`):
+On the [Dashboard](Dashboard), tick labels of one size and choose **Send → A picture**, then open **Or: a PNG the AP fetches from a web address**. Give the address and how often to fetch it, and choose **Fetch it on the AP**. The **Dither** box above it applies too.
+
+Or send the source to the AP's API (`PUT /api/sources`, see [HTTP API](HTTP-API)). The list replaces the AP's sources, so include any weather places you have (read them first with `GET /api/sources`):
 
 ```bash
 curl -X PUT http://openesl.local/api/sources \
@@ -20,6 +22,6 @@ curl -X PUT http://openesl.local/api/sources \
 - Redirects are not followed. On your own network use `http://`: `https://` needs a certificate from a public authority.
 - The address must work without a login. Files in Home Assistant's `www` folder are served at `/local/`.
 
-The Dashboard lists the source in its **Weather** card, with its address and how the last fetch went. **Remove** stops it, and the labels keep what they show. Sending other content to a label takes it out of the source.
+The Dashboard lists the source in its **Weather and pictures** card, with its address and how the last fetch went. **Remove** stops it, and the labels keep what they show. Sending other content to a label takes it out of the source.
 
 The details are in [docs/data-sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/data-sources.md#a-picture-from-a-url).

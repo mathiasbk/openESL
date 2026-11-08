@@ -792,9 +792,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const TEXT_BYTES = textLimit(last?.layouts?.limits);
     $("st-count").textContent = rows.length ? `${most} of ${TEXT_BYTES} bytes` + (rows.length > 1 ? " (the longest)" : "") : "";
     $("st-count").className = "count" + (most > TEXT_BYTES ? " error" : "");
-    const where = sources.placeOf();
+    const where = sources.placeOf(), picFrom = sources.pictureOf();
     $("st-list").replaceChildren(...rows.map((r) => listRow(r.mac, r.fields.join(" / ") +
-      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
+      (where.has(r.mac) ? ` (instead of the weather for ${where.get(r.mac)})` : picFrom.has(r.mac) ? ` (instead of the picture from ${picFrom.get(r.mac)})` : ""), textBytes(r.fields) > TEXT_BYTES ? "error" : "")));
 
     // The first ticked tag, drawn by the AP's own code
     const row = rows[0];
@@ -897,7 +897,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const where = sources.placeOf();
       const left = [...new Set(tags.filter((t) => where.has(t.mac)).map((t) => where.get(t.mac)))];
       const { replies, note } = await sendRows(client, rows);
-      if (left.length) sources.reload();
+      if (left.length || sources.available()) sources.reload(); // a tag in a picture source left it too
       const now = replies.filter((r) => !r.scheduled);
       const later = replies.length - now.length;
       const waiting = now.filter((r) => r.pending !== false).length;
@@ -1075,6 +1075,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     picDraw(plan);
     $("pic-send").textContent = n === 1 ? "Send to 1 tag" : `Send to ${n} tags`;
     $("pic-send").disabled = !client || !pic || !n || sending || stBusy;
+    // a PNG from a web address: on an AP with data sources, for tags of one screen size
+    const sizes = [...new Set(plan.filter((p) => p.ok).map((p) => `${TAG_MODELS[p.model].width} x ${TAG_MODELS[p.model].height}`))];
+    $("pic-url-box").hidden = !sources.available() || !n;
+    $("pic-url-size").textContent = sizes.length === 1 ? `exactly ${sizes[0]} pixels` : "the size of each tag's screen (tick tags of one size)";
+    $("pic-url-go").disabled = !client || sizes.length !== 1 || sending || stBusy;
   }
   function picChanged() {
     stSave();
@@ -1087,10 +1092,31 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     picDialog();
     if (!pic) $("st-file").focus();
   }
-  $("pic-dlg").addEventListener("input", picChanged);
+  // typing an address or an interval changes no preview
+  $("pic-dlg").addEventListener("input", (e) => { if (!e.target.closest("#pic-url-box")) picChanged(); });
   $("pic-dlg").addEventListener("change", picChanged);
   $("pic-cancel").onclick = () => $("pic-dlg").close();
   $("pic-send").onclick = () => sendPic(stTags());
+  $("pic-url-go").onclick = async () => {
+    const ok = picturePlan(stTags(), TAG_MODELS).filter((p) => p.ok);
+    if (!client || !ok.length || stBusy) return;
+    stBusy = true;
+    $("pic-url-go").disabled = true;
+    picMsg("Saving the address on the AP ...");
+    try {
+      const s = await sources.addPicture(ok.map((p) => p.mac), {
+        url: $("pic-url").value, every_min: Number($("pic-url-every").value), dither: $("st-dither").checked });
+      $("pic-dlg").close();
+      stMsg(`The AP fetches the picture now and every ${s?.every_min ?? $("pic-url-every").value} minutes; ` +
+        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Weather and pictures card lists it.`, "ok");
+    } catch (e) {
+      picMsg("Not done: " + e.message, "error");
+    } finally {
+      stBusy = false;
+      if ($("pic-dlg").open) picDialog();
+      refresh();
+    }
+  };
 
   // The picture to every ticked tag that can take it, as its model's raw screen image
   async function sendPic(tags) {
