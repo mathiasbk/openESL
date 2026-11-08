@@ -290,6 +290,13 @@ void sim_ap_set_nvs_channel(uint8_t channel)
     nvs.channel = channel;
 }
 
+/* Another AP's id, as a second AP next to the first (no previous id answered) */
+void sim_ap_set_id(uint32_t id)
+{
+    esl_store_set_ap_id(&st, id);
+    esl_store_set_prev_id(&st, 0);
+}
+
 /* As the radio task: a planned channel move happens when the store says (esl_store_channel_step) */
 uint8_t sim_ap_channel(void)
 {
@@ -314,10 +321,19 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 {
     return sim_api_bin(method, uri, body, body ? strlen(body) : 0, out_body);
 }
+/* The AP id glue (main/store_nvs.c on the AP): nothing to keep, the sim has no NVS for it */
+static bool sim_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx, (void)id, (void)prev;
+    return true;
+}
+static void sim_set_adopt(void *ctx, bool all, uint32_t id) { (void)ctx, (void)all, (void)id; }
+static esl_apid_cfg_t sim_apid = {0, sim_set_id, sim_set_adopt, NULL};
+
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL, &sim_apid};
     esl_sb_t out;
     int status;
 

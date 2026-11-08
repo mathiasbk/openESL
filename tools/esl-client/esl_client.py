@@ -809,6 +809,11 @@ def print_health(h):
         n = "16 or more" if n >= 16 else str(n) if n else "some" if a.get("polls") else "0"
         print(f"  tags of AP {a.get('ap_id')} poll here: {n} lately, last {fmt_ago(a.get('seen_s_ago'))} ago"
               + (", lost for over an hour" if a.get("lost_long") else "") + " (config --adopt takes them over)")
+    for r in h.get("old_radios", []):  # #390: a C6 over WiFi from before 0.11.0 answers other APs' tags
+        v = r.get("fw") or 0
+        fw = f" has firmware {v // 10000}.{v // 100 % 100}.{v % 100}," if v else ""
+        print(f"  radio {r.get('radio')} (C6 over WiFi, {r.get('id')}){fw} too old for the AP id: this AP's own tags"
+              " show settings pending and it answers other APs' tags; update it to the AP's version")
     return 0 if h.get("ok") else 1
 
 

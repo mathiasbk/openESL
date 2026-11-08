@@ -80,6 +80,7 @@ typedef struct {
 
 /* HELLO features */
 #define ESL_NLINK_F_CHANNEL 0x01 /* passes a planned channel move to the tags (TAG carries it, #256) */
+#define ESL_NLINK_F_APID    0x02 /* keeps quiet for the tags of another AP (TAG carries the AP id, #390) */
 
 typedef struct {
     void *ctx;

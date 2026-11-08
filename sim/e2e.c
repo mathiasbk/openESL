@@ -761,6 +761,51 @@ int e2e_run(const char *out, const char *root)
         CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it on channel 26");
     }
 
+    step("17. A neighbour AP: the tag stays with its own AP, until the neighbour adopts it (#390)");
+    {
+        /* this AP is now another one, next to the first: the tag still carries the first one's id */
+        sim_ap_set_id(0x0BADC0DEul);
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        run_for(1200);
+        CHECK(sim_tag_ap_id() == 0x5A11AB1Eul && sim_stats.config == s0.config, "the tag keeps its own AP's id: no CONFIG");
+        CHECK(sim_stats.unanswered > s0.unanswered && sim_tag_misses() > 0, "the neighbour stays silent (%u POLLs)",
+              sim_stats.unanswered - s0.unanswered);
+        CHECK(sim_api("GET", "/api/health", NULL, &resp) == 200 && strstr(resp, "\"other_aps\":[{\"ap_id\":\"5A11AB1E\"") &&
+                  strstr(resp, "\"lost_long\":false"),
+              "Health lists the tag's AP under other_aps");
+        /* adopt it: taken once the tag has been without its AP for an hour, not before */
+        CHECK(sim_api("PUT", "/api/config", "{\"adopt\":\"5A11AB1E\"}", &resp) == 200, "adopt 5A11AB1E");
+        while (sim_tag_ap_id() != 0x0BADC0DEul && sim_now_ms < t0 + 3 * 3600000ull)
+            run_for(10);
+        CHECK(sim_tag_ap_id() == 0x0BADC0DEul, "the tag now belongs to the new AP");
+        CHECK(sim_now_ms - t0 >= 3600000 && sim_now_ms - t0 < 3600000 + 1200000, /* its interval, 600 s at most, and the scan */
+              "after an hour without its AP (%.0f s)", (sim_now_ms - t0) / 1000.0);
+        run_for(301);
+        CHECK(sim_tag_misses() == 0, "and polls it as its own");
+        t0 = sim_now_ms;
+        put_content(PRICE_1, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it");
+    }
+
+    step("18. A restore puts the old AP's id back: the tag moves at once (#390)");
+    {
+        /* as "In place of the AP the backup came from": the tag carries the id this AP had */
+        CHECK(sim_api("PUT", "/api/config", "{\"ap_id\":\"5A11AB1E\",\"adopt\":null}", &resp) == 200 &&
+                  strstr(resp, "\"prev_ap_id\":\"0BADC0DE\""),
+              "AP id 5A11AB1E, the one before still answered");
+        t0 = sim_now_ms;
+        s0 = sim_stats;
+        while (sim_tag_ap_id() != 0x5A11AB1Eul && sim_now_ms < t0 + 3600000)
+            run_for(10);
+        CHECK(sim_tag_ap_id() == 0x5A11AB1Eul && sim_now_ms - t0 <= 310000, "the tag has the new id at its next poll (%.0f s)",
+              (sim_now_ms - t0) / 1000.0);
+        CHECK(sim_stats.unanswered == s0.unanswered && sim_tag_misses() == 0, "with no POLL unanswered");
+        t0 = sim_now_ms;
+        put_content(PRICE_2, 1);
+        CHECK(sim_tag_run_until_draw(t0 + 320000) && shows_image(), "new content reaches it");
+    }
+
     printf("\n%d checks, %d failed. Simulated time: %.1f h\n", checks, failures, now_s() / 3600.0);
     return failures ? 1 : 0;
 }

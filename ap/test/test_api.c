@@ -375,7 +375,7 @@ static void test_batch_and_list(void)
     CHECK_INT((int)esl_api_radios_lost(&api, 86420000), 1);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86420000), 200);
     CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":null,\"via\":\"wifi\",\"problems\":[\"radio_lost\"],"
-                    "\"lost_s\":30}],\"other_aps\":[],\"ok\":false,"));
+                    "\"lost_s\":30}],\"other_aps\":[],\"old_radios\":[],\"ok\":false,"));
     CHECK(HAS(resp, "\"radio_lost\":1,"));
     /* the C6 on the cable: no address; never connected since boot counts from boot */
     esl_radio_link_t cable = {.uart = true, .id = 0xC60000000077C8ULL};
@@ -387,10 +387,11 @@ static void test_batch_and_list(void)
     cable.up = true;
     cable.seen_ms = 39000;
     cable.ver = 0x0101;
+    cable.no_ap_id = true; /* on the cable the S3 answers, never the C6's cache */
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 40000), 200);
     CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"uart\",\"lost\":false,\"seen_s\":1,\"fw\":257}}"));
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
-    CHECK(HAS(resp, "\"radio_problems\":[],\"other_aps\":[],\"ok\":true,"));
+    CHECK(HAS(resp, "\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":true,"));
     CHECK(HAS(resp, "\"radio_lost\":0,"));
     api.link = &link;
     /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
@@ -418,6 +419,14 @@ static void test_batch_and_list(void)
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":2,\"id\":\"00000000C6000002\",\"via\":\"wifi\","
                     "\"problems\":[\"radio_lost\"],\"lost_s\":86400}]"));
+    /* a radio over WiFi from before 0.11.0 answers other APs' tags: listed, ok unchanged */
+    links[0].no_ap_id = true;
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"old_radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"fw\":3}],\"ok\":false,"));
+    links[2].no_ap_id = true; /* not connected: not listed */
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"old_radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"fw\":3}],"));
+    links[0].no_ap_id = links[2].no_ap_id = false;
     /* place 0 is needed even with no radio known there */
     esl_radio_link_t empty[2] = {{0}, {0}};
     api.links = empty;
@@ -1324,7 +1333,7 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"other_aps\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
+    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
                     "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
@@ -1342,7 +1351,7 @@ static void test_health(void)
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
-                    "],\"radio_problems\":[],\"other_aps\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
+                    "],\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
                     "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);

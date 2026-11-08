@@ -31,6 +31,8 @@ typedef struct {
     uint64_t id;            /* its own MAC from HELLO, 0 = no radio known in this place */
     uint8_t channel;        /* the channel it serves */
     unsigned tags;          /* tags it heard last (esl_rowners_count) */
+    bool no_ap_id;          /* over WiFi, from before 0.11.0 (no ESL_NLINK_F_APID): it answers the tags of
+                               other APs from its cache, "old_radios" in GET /api/health */
 } esl_radio_link_t;
 
 /* A radio that has not been connected for this long is "radio_lost" in GET /api/health
