@@ -82,7 +82,7 @@ static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, si
  * power and the clock. poll_s 0 = tags keep their built-in interval, null = back to
  * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in dBm,
  * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
- * tz null or "" = UTC. lang "en" or "nb" for the date fields, null = English. Keys left out
+ * tz null or "" = UTC. lang "en" or "nb" for the date fields, null = not chosen (English). Keys left out
  * stay as they are; one of them must be there. */
 /* "channel_now" skips the wait for a move the tags were told of; a channel they have not heard
    of would leave them on the old one (docs/protocol.md, "Changing the channel"). The built-in
@@ -148,7 +148,7 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             uint16_t poll_s, channel = 0;
             int8_t dbm = 0;
             char url[ESL_WEBHOOK_URL_MAX + 1], ntp[ESL_NTP_MAX + 1], tz[ESL_TZ_MAX + 1];
-            int ul = 0, lang = ESL_LANG_EN;
+            int ul = 0, lang = -1;
             if (lg >= 0 && tok[lg].type == ESL_JSON_STRING)
                 lang = esl_lang_parse(body + tok[lg].start, (size_t)(tok[lg].end - tok[lg].start));
             if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && lg < 0)
@@ -216,7 +216,7 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                 if (n >= 0 || z >= 0)
                     api->clock->set(api->clock->ctx, n >= 0 ? ntp : NULL, z >= 0 ? tz : NULL);
                 if (lg >= 0)
-                    api->clock->set_lang(api->clock->ctx, (uint8_t)lang); /* null: English */
+                    api->clock->set_lang(api->clock->ctx, lang < 0 ? "" : esl_lang_name((uint8_t)lang)); /* null: not chosen */
                 if (c >= 0)
                     esl_store_move_channel(api->store, (uint8_t)channel, cn >= 0 && tok[cn].type == ESL_JSON_TRUE,
                                            cf >= 0 && tok[cf].type == ESL_JSON_TRUE, now_ms);
@@ -262,8 +262,8 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             else
                 esl_sb_puts(out, "null");
         }
-        if (c->set_lang)
-            esl_sb_printf(out, ",\"lang\":\"%s\"", esl_lang_name(esl_clock_lang()));
+        if (c->set_lang) /* null until chosen: the AP writes English */
+            esl_sb_printf(out, c->lang[0] ? ",\"lang\":\"%s\"" : ",\"lang\":null", c->lang);
     }
     esl_sb_putc(out, '}');
     return 200;

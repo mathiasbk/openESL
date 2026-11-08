@@ -67,9 +67,12 @@ typedef struct {
     /* Saves and uses them at once. ntp: NULL = unchanged, "" = back to builtin_ntp;
        tz: NULL = unchanged, "" = UTC. Fills in ntp and tz above. */
     void (*set)(void *ctx, const char *ntp, const char *tz);
-    /* "lang" (ESL_LANG_* in esl_clock.h, the language of the date fields): saves it and
-       calls esl_clock_set_lang. NULL: the AP has no language setting, and PUT answers 422. */
-    void (*set_lang)(void *ctx, uint8_t lang);
+    /* "lang" (the language of the date fields): "" = not chosen (English, and GET says null,
+       so the Dashboard and esl-client keep their own language), else ESL_LANG_* as with
+       esl_lang_parse. Saves it, fills in lang below and calls esl_clock_set_lang. NULL: the AP
+       has no language setting, and PUT answers 422. */
+    void (*set_lang)(void *ctx, const char *lang);
+    char lang[3]; /* "", "en" or "nb" */
 } esl_clock_cfg_t;
 
 /* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name

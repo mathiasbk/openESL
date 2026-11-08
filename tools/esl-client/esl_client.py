@@ -39,6 +39,7 @@ import datetime
 import html
 import io
 import json
+import locale
 import os
 import re
 import select
@@ -584,7 +585,12 @@ def date_lang(cfg, env=None):
         return cfg["lang"]
     env = os.environ if env is None else env
     loc = env.get("LC_ALL") or env.get("LC_TIME") or env.get("LANG") or ""
-    return "nb" if re.match(r"(nb|nn|no)([_.@-]|$)", loc, re.I) else "en"
+    if not loc and env is os.environ:  # Windows sets none of them: its locale, "Norwegian_Norway"
+        try:
+            loc = locale.getlocale()[0] or ""
+        except ValueError:
+            loc = ""
+    return "nb" if re.match(r"(nb|nn|no)([_.@-]|$)|norw", loc, re.I) else "en"
 
 
 def date_fields(d, extra=(), lang="nb"):
@@ -820,8 +826,8 @@ def print_config(c):
             line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
-    if "lang" in c:  # 0.11.0 and later: the language of the date fields
-        line += f", dates in {'Norwegian' if c['lang'] == 'nb' else 'English'}"
+    if "lang" in c:  # 0.11.0 and later: the language of the date fields, None until chosen
+        line += {"nb": ", dates in Norwegian", "en": ", dates in English"}.get(c["lang"], ", date language not chosen (English)")
     print(line)
 
 

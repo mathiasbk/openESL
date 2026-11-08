@@ -148,7 +148,7 @@ static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NU
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 
 /* The clock settings as on the AP (main/sched.c): ntp "" goes back to the built-in server */
-static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL, NULL};
+static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL, NULL, ""};
 
 static void clock_set(void *ctx, const char *ntp, const char *tz)
 {
@@ -159,10 +159,12 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
 }
 
-static void lang_set(void *ctx, uint8_t lang)
+static void lang_set(void *ctx, const char *lang)
 {
-    (void)ctx;
-    esl_clock_set_lang(lang);
+    esl_clock_cfg_t *c = ctx;
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
 }
 
 static esl_radio_link_t links[ESL_STORE_RADIOS] = {

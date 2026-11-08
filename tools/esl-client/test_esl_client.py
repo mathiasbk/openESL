@@ -1283,6 +1283,8 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(esl_client.date_lang({}, {"LANG": "no"}), "nb")
         self.assertEqual(esl_client.date_lang({}, {"LANG": "C.UTF-8"}), "en")
         self.assertEqual(esl_client.date_lang({}, {}), "en")
+        self.assertEqual(esl_client.date_lang({"lang": None}, {"LANG": "nb_NO.UTF-8"}), "nb")   # not chosen
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "Norwegian_Norway.1252"}), "nb")   # as Windows names it
 
     def test_date_in_the_aps_language(self):
         FakeAp.config["lang"] = "en"

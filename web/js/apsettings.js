@@ -76,7 +76,7 @@ export function currentSettings(last) {
   const c = last?.config || {}, cur = {};
   if (last?.wifi) cur.hostname = last.wifi.hostname || "";
   if ("tz" in c) cur.tz = c.tz || "";
-  if (c.lang === "en" || c.lang === "nb") cur.lang = c.lang;
+  if ("lang" in c) cur.lang = c.lang || ""; // null: not chosen (English on the AP)
   if (last?.list) cur.poll_s = last.list.ap.poll_s || 0;
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
@@ -95,7 +95,7 @@ export function settingsChanges(chosen, current) {
 export function configBody(changes, config = {}) {
   const body = {};
   if ("tz" in changes) body.tz = changes.tz || null;
-  if ("lang" in changes) body.lang = changes.lang;
+  if ("lang" in changes) body.lang = changes.lang || null;
   if ("ntp" in changes) body.ntp = changes.ntp || null;
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
@@ -260,7 +260,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       const preset = TZ_PRESETS.some(([tz]) => tz === cur.tz);
       tzSel.value = preset ? cur.tz : "other";
       $("set-tz").value = preset ? "" : cur.tz ?? "";
-      $("set-lang").value = cur.lang ?? "en";
+      $("set-lang").value = cur.lang ?? "";
       const pp = [...pollSel.options].some((o) => o.value === String(cur.poll_s));
       pollSel.value = pp ? String(cur.poll_s) : "other";
       $("set-poll-s").value = pp ? "" : cur.poll_s;
@@ -279,7 +279,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
   function renderClock() {
     const c = last.config || {}, ap = last.list.ap;
     $("set-tz-field").hidden = !("tz" in c);
-    $("set-lang-field").hidden = !(c.lang === "en" || c.lang === "nb"); // from AP firmware 0.11.0
+    $("set-lang-field").hidden = !("lang" in c); // from AP firmware 0.11.0
     if (!("tz" in c)) $("set-tz-other").hidden = true;
     let line;
     if (!("time" in ap)) line = "This AP has no clock (built without scheduling).";

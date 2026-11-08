@@ -34,8 +34,10 @@ test("date lines in English, as the AP writes {weekday} and {date}", () => {
 test("the dates' language: the AP's, else the browser's", () => {
   assert.equal(dateLang({ lang: "nb" }, "en-US"), "nb");
   assert.equal(dateLang({ lang: "en" }, "nb-NO"), "en");
-  // an AP from before 0.11.0 has no lang
+  // an AP from before 0.11.0 has no lang, and one where it is not chosen says null
   assert.equal(dateLang({ tz: null }, "nb-NO"), "nb");
+  assert.equal(dateLang({ lang: null }, "nb-NO"), "nb");
+  assert.equal(dateLang({ lang: null }, "en-US"), "en");
   assert.equal(dateLang(null, "nn"), "nb");
   assert.equal(dateLang(undefined, "no"), "nb");
   assert.equal(dateLang({}, "en-GB"), "en");

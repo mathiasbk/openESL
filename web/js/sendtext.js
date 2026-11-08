@@ -25,7 +25,8 @@ const MONTHS = {
 };
 
 // The language for the dates the Dashboard writes: the AP's "lang" (GET /api/config, as its own
-// date fields, esl_clock.c), else the browser's, Norwegian for nb, nn and no
+// date fields, esl_clock.c), else (not chosen, or an AP from before 0.11.0) the browser's,
+// Norwegian for nb, nn and no
 export function dateLang(config, browser = globalThis.navigator?.language) {
   if (config?.lang === "nb" || config?.lang === "en") return config.lang;
   return /^(nb|nn|no)\b/i.test(browser || "") ? "nb" : "en";

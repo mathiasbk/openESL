@@ -1200,16 +1200,18 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
 
 static int lang_sets;
 
-static void lang_set(void *ctx, uint8_t lang)
+static void lang_set(void *ctx, const char *lang)
 {
-    (void)ctx;
+    esl_clock_cfg_t *c = ctx;
     lang_sets++;
-    esl_clock_set_lang(lang);
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
 }
 
 static void test_clock_config(void)
 {
-    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set, NULL};
+    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set, NULL, ""};
     esl_store_free(&st);
     esl_store_init(&st, CAP, NULL, 0);
     notify.url[0] = '\0';
@@ -1274,7 +1276,8 @@ static void test_clock_config(void)
     CHECK(!HAS(resp, "lang"));
     clock.set_lang = lang_set;
     CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
-    CHECK(HAS(resp, "\"tz\":null,\"lang\":\"en\"}"));
+    /* not chosen yet: null, so the Dashboard and esl-client keep their own language */
+    CHECK(HAS(resp, "\"tz\":null,\"lang\":null}"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
     CHECK(HAS(resp, "\"lang\":\"nb\"}"));
     CHECK_INT(lang_sets, 1);
@@ -1289,11 +1292,15 @@ static void test_clock_config(void)
     CHECK_INT(lang_sets, 1);
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"bad\"}", 0), 422);
     CHECK(HAS(resp, "lang must be null, \\\"en\\\" or \\\"nb\\\""));
-    /* null: English */
-    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":null}", 0), 200);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"en\"}", 0), 200);
     CHECK(HAS(resp, "\"lang\":\"en\"}"));
     CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
-    CHECK_INT(lang_sets, 2);
+    /* null: not chosen again, English */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":null}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":null}"));
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    CHECK_INT(lang_sets, 4);
     api.clock = NULL;
 }
 
