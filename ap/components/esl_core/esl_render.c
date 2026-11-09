@@ -711,6 +711,7 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
     if (mo->h % 8) {
         black[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
         red[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
+        red[RD_COL + mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
     }
 }
 

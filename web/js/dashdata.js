@@ -438,7 +438,7 @@ export function decodeTagImage({ width, height, red, yellow = false, data }) {
     for (let y = 0; y < height; y++) {
       const i = x * col + (y >> 3);
       const m = 0x80 >> (y & 7);
-      pixels[y * width + x] = red && bytes[plane + i] & m ? 2 : yellow && bytes[yp + i] & m ? 3 : bytes[i] & m ? 1 : 0;
+      pixels[y * width + x] = bytes[i] & m ? 1 : red && bytes[plane + i] & m ? 2 : yellow && bytes[yp + i] & m ? 3 : 0;
     }
   }
   return { width, height, pixels };
