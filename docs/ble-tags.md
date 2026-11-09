@@ -32,10 +32,13 @@ are. What is new is how the picture gets to the tag.
    After each attempt the store is told as if the tag had polled (its model, battery and
    the image it shows), so "last seen", battery and "shows its content" work as for any
    tag.
-3. **BLE on the AP** (to do): NimBLE in the central role, a scan that reports tags to
-   `esl_push_seen`, and the transport `send`, which connects, hands the picture to the
-   tag's protocol module and disconnects. Tags are paired in the web page and kept in
-   NVS with the id of the image each was last given.
+3. **BLE on the AP** (started: `main/radio_ble.c`, radio mode `CONFIG_ESL_RADIO_BLE`,
+   board `c6-supermini-ble`): NimBLE in the central role scans all the time and logs each
+   device it hears once (its address, signal and name: how a tag is found). Reports go
+   on a queue to the push task, which calls `esl_push_seen` and runs `esl_push_round`
+   every 2 s. To do: pairing (an API to add a tag, kept in NVS with the id of the image
+   each was last given) and the transport `send`, which connects, hands the picture to
+   the tag's protocol module and disconnects. Until then `send` answers "not reached".
 4. **Protocol modules** (to do, once the tags are recorded): one per tag family, turning
    a raw picture (the black plane, then the red plane) into the maker's commands.
 5. **Models:** `shared/models.json` already has `radio` and `protocol` fields; a
@@ -45,6 +48,16 @@ are. What is new is how the picture gets to the tag.
    firmware.
 
 ## Which AP
+
+Measured with ESP-IDF 5.5.5 (2026-11-09): the Bluetooth controller (`libble_app`, about
+238 KB) and the NimBLE host (`libbt`, about 79 KB) make the app 1561 KB. That does not fit
+the 1.5 MB app slots of the C6 Super Mini's partition table, so `c6-supermini-ble` has its
+own table without the `tagfw` partition (Bluetooth tags have no tag firmware for the AP to
+keep): 1728 KB slots, 167 KB free. Such an AP is installed fresh over USB, never moved to
+from the 802.15.4 firmware over the air: it is another app (`esl_ap_ble`, `app` in
+`GET /api/ota`), so each kind of AP refuses the other's image over the air (older ones too,
+which take only `esl_ap`), and the dashboard offers each only its own. Its scan listens
+40 ms of every 320 ms, leaving the radio to WiFi the rest of the time. Heap use is not measured on hardware yet.
 
 An ESP32-C6 runs either the 802.15.4 tags or the Bluetooth tags, not both: BLE is a
 separate firmware choice, so the 802.15.4 firmware does not grow and its radio is never

@@ -1,0 +1,15 @@
+{
+  "id": "c6-supermini-ble",
+  "name": "ESP32-C6 for Bluetooth tags",
+  "base": "c6-supermini",
+  "label": "ESP32-C6 (4 MB flash) for Bluetooth tags only: no 802.15.4 tags (in progress, not usable yet)",
+  "target": "esp32c6",
+  "chip_family": "ESP32-C6",
+  "flash_mb": 4,
+  "psram_mb": 0,
+  "antenna": "on the board",
+  "radio": "ble",
+  "artifact": "openesl-ap-ble",
+  "release": "openesl-ap-esp32c6-ble",
+  "status": "experimental"
+}

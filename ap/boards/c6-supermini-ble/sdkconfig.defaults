@@ -1,0 +1,19 @@
+# The C6 Super Mini (boards/c6-supermini, read first) for Bluetooth tags (docs/ble-tags.md):
+# no 802.15.4, NimBLE in the central role instead. A C6 runs one or the other, so neither
+# firmware carries the other's radio.
+CONFIG_ESL_RADIO_BLE=y
+
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+# Scan and connect to tags; never advertise or accept connections
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+# One tag at a time
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_MAX_BONDS=1
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
+
+# Its own table: no tagfw, bigger app slots (partitions.csv in this folder)
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/c6-supermini-ble/partitions.csv"

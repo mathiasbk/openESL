@@ -2494,9 +2494,10 @@ components:
             does not say.
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
+        app: { type: string, description: "The app: esl_ap, or esl_ap_ble on an AP for Bluetooth tags (docs/ble-tags.md). An image of the other app is refused (each installs over USB). Older firmware does not say, and is esl_ap" }
         uploading: { type: boolean, description: An upload in parts is in progress }
         radio: { $ref: "#/components/schemas/RadioInfo" }
-      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, app: esl_ap, uploading: false }
 
     RadioInfo:
       type: object

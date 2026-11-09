@@ -83,4 +83,13 @@ if(NOT no_psram AND board_psram GREATER 0)
     idf_build_set_property(COMPILE_DEFINITIONS "ESL_LINK_HIST=32" APPEND)
 endif()
 
-project(esl_ap)
+# A board for Bluetooth tags ("radio": "ble") is another app: its project name (the app
+# description, which ota.c and the web page's fwupload.js read) is esl_ap_ble, so an AP for
+# 802.15.4 tags refuses its image over the air, and it refuses theirs. Neither would know the
+# other's tags.
+string(JSON board_radio ERROR_VARIABLE no_radio GET "${board_json}" radio)
+if(NOT no_radio AND board_radio STREQUAL "ble")
+    project(esl_ap_ble)
+else()
+    project(esl_ap)
+endif()

@@ -102,6 +102,14 @@ static bool is_ap_image(const void *data, size_t len)
     return !project || strncmp(project, esp_app_get_description()->project_name, 32) == 0;
 }
 
+/* AP firmware all the same, for the other kind of tags: esl_ap (802.15.4) or esl_ap_ble
+   (Bluetooth, CMakeLists.txt). Refused like any other app, with its own message. */
+static bool is_other_ap_image(const void *data, size_t len)
+{
+    const char *project = image_project(data, len);
+    return project && (strncmp(project, "esl_ap", 32) == 0 || strncmp(project, "esl_ap_ble", 32) == 0);
+}
+
 static bool is_radio_image(const void *data, size_t len)
 {
     const char *project = image_project(data, len);
@@ -181,7 +189,10 @@ int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t 
         else if (size == 0 || size > target->size)
             status = fail(err, sizeof(err), 413, "the image does not fit the app slot");
         else if (!is_ap_image(data, len))
-            status = fail(err, sizeof(err), 422, "not AP firmware: another app for this chip (the radio coprocessor's?)");
+            status = fail(err, sizeof(err), 422,
+                          is_other_ap_image(data, len)
+                              ? "AP firmware for the other kind of tags (Bluetooth or 802.15.4): install it over USB"
+                              : "not AP firmware: another app for this chip (the radio coprocessor's?)");
         else if (esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &handle) != ESP_OK)
             status = fail(err, sizeof(err), 500, "could not start writing the app slot");
         else {
@@ -274,6 +285,9 @@ int ota_info(esl_sb_t *out)
 #endif
     esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s,\"chip\":\"%s\"", kept ? "true" : "false",
                   display ? "true" : "false", CONFIG_IDF_TARGET);
+    /* the app: esl_ap, or esl_ap_ble on an AP for Bluetooth tags, which takes only its own */
+    esl_sb_puts(out, ",\"app\":");
+    esl_sb_json_str(out, esp_app_get_description()->project_name);
 #if CONFIG_ESL_RADIO_DRIVER_UART
     esl_sb_puts(out, ",\"radio\":");
     radio_info(out);
