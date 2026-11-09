@@ -156,7 +156,7 @@ OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 +
 | [tag/](tag/) | Tag firmware for the ZBS243 (SDCC, 8051) |
 | [shared/](shared/) | `proto.h` (the radio packets) and `models.json` (the label models) |
 | [sim/](sim/README.md) | Tag firmware and AP core together on the PC, with a simulated radio link |
-| [tools/](tools/) | [`esl-client`](tools/esl-client/README.md) (client for the API, backup, OTA), [`flash-tui`](tools/flash-tui/README.md), [`wemos-debug`](tools/wemos-debug/README.md), `power-budget` |
+| [tools/](tools/) | [`esl-client`](tools/esl-client/README.md) (client for the API, backup, OTA), [`flash-tui`](tools/flash-tui/README.md), [`wemos-debug`](tools/wemos-debug/README.md), `power-budget`, [`ble-probe`](tools/ble-probe/README.md) (learning a Bluetooth tag's protocol) |
 | [docs/](docs/README.md) | Protocol, API, hardware notes and the release process |
 | [wiki/](wiki/) | The user guide, published to the [GitHub wiki](https://github.com/mathiasbk/openESL/wiki) from master |
 | [Jig/Hardware/](Jig/Hardware/README.md) | The flashing jig: BOM, photos and 3D-printed parts |

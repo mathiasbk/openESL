@@ -44,7 +44,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `templates/` | The designer's template library | [templates/README.md](../templates/README.md) |
 | `tools/esl-client/` | Command-line client for the API, backup and restore, tag OTA, and the bridge the web page uses | [tools/esl-client/README.md](../tools/esl-client/README.md) |
 | `tools/flash-tui/` | Terminal UI for flashing many tags in a row | [tools/flash-tui/README.md](../tools/flash-tui/README.md) |
-| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/` | – |
+| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/`, `ble-probe/` (Bluetooth tags: scan, read a phone's HCI log) | – |
 | `wiki/` | The user guide, published to the GitHub wiki | – |
 
 ## Want to change X? Start in Y

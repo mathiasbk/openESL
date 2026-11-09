@@ -19,7 +19,7 @@ Steps:
             (make -C sim upgrade; needs the release tags: git fetch --tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
-  tools     esl-client, power-budget, release notes (the upgrade instructions for VERSION) and AP
+  tools     esl-client, power-budget, ble-probe, release notes (the upgrade instructions for VERSION) and AP
             flash budget tests
   flash-tui the flash-tui tests (tools/flash-tui/tests; pip: textual pyserial)
   openapi   docs/openapi.yaml against the AP code
@@ -169,6 +169,7 @@ def step_ap_test():
 def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
+    run([PY, "-m", "unittest", "test_btsnoop", "test_scan"], cwd=os.path.join(ROOT, "tools", "ble-probe"))
     run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget"], cwd=os.path.join(ROOT, "tools"))
 
 

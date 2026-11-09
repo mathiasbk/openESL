@@ -89,10 +89,11 @@ jobs:
           # same list also has what the tool tests below need (flash-tui)
           python3 -m pip install --user -r tools/dev/requirements.txt
           make -C ap/test SAN=1
-      - name: Tool tests (esl-client against a fake AP, power budget, release notes, AP flash budget, flash-tui)
+      - name: Tool tests (esl-client against a fake AP, power budget, BLE probe, release notes, AP flash budget, flash-tui)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget test_measure)
+          (cd tools/ble-probe && python3 -m unittest -v test_btsnoop test_scan)
           (cd tools && python3 -m unittest -v test_release_notes test_ap_budget)   # docs/release.md has a summary and upgrade instructions for VERSION; the AP flash budget
           (cd tools/flash-tui && python3 -m unittest discover -v -s tests)
 
