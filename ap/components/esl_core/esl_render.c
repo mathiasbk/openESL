@@ -7,6 +7,7 @@
 #include <string.h>
 #include "barcode.h" /* tag/src */
 #include "esl_clock.h"
+#include "esl_proto.h"
 #include "esl_qr.h"
 #include "font.h"    /* tag/src */
 #include "esl_text.h"
@@ -20,13 +21,13 @@ const font_t *esl_font_get(uint8_t id);
 typedef struct {
     uint16_t w, h;
     uint8_t col_bytes;
-    bool has_red;
+    bool has_red, has_yellow;
     uint8_t margin;    /* left and right of the built-in layouts */
 } rd_model_t;
 
 bool esl_render_model(uint8_t model, uint16_t *w, uint16_t *h, bool *has_red)
 {
-#define X(code, name, id, mw, mh, red) \
+#define X(code, name, id, mw, mh, red, yellow) \
     if (model == (code)) {             \
         *w = (mw);                     \
         *h = (mh);                     \
@@ -42,6 +43,7 @@ static bool model_get(uint8_t model, rd_model_t *m)
 {
     if (!esl_render_model(model, &m->w, &m->h, &m->has_red))
         return false;
+    m->has_yellow = esl_model_has_yellow(model);
     m->col_bytes = (uint8_t)ESL_RENDER_COL_BYTES(m->h);
     m->margin = m->w >= 200 ? 6 : 5;
     return true;
@@ -52,7 +54,7 @@ size_t esl_render_size(uint8_t model)
     rd_model_t m;
     if (!model_get(model, &m))
         return 0;
-    return (size_t)m.w * m.col_bytes * (m.has_red ? 2 : 1);
+    return (size_t)m.w * m.col_bytes * (1u + m.has_red + m.has_yellow);
 }
 
 /* ---- the scene ------------------------------------------------------------- */
@@ -69,6 +71,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_BLACK 0
 #define RD_WHITE 1
 #define RD_RED   2
+#define RD_YELLOW 3
 
 typedef struct {
     const uint8_t *text;
@@ -291,18 +294,21 @@ static void add_icon(rd_scene_t *s, const uint8_t *data, uint16_t x, uint16_t y,
 
 /* ---- one column (tag/src/draw.c) ------------------------------------------------ */
 
+/* A column of each colour plane: red holds the red column, and RD_COL bytes on the yellow one */
+#define RD_COL 32
+
 static void ink(uint8_t *black, uint8_t *red, uint16_t idx, uint8_t m, uint8_t color)
 {
-    if (color == RD_WHITE) {
-        black[idx] &= (uint8_t)~m;
-        red[idx] &= (uint8_t)~m;
-    } else if (color == RD_RED) {
+    uint8_t *yellow = red + RD_COL;
+    black[idx] &= (uint8_t)~m;
+    red[idx] &= (uint8_t)~m;
+    yellow[idx] &= (uint8_t)~m;
+    if (color == RD_RED)
         red[idx] |= m;
-        black[idx] &= (uint8_t)~m;
-    } else {
+    else if (color == RD_YELLOW)
+        yellow[idx] |= m;
+    else if (color != RD_WHITE)
         black[idx] |= m;
-        red[idx] &= (uint8_t)~m;
-    }
 }
 
 static void fill_span(uint8_t *black, uint8_t *red, uint16_t y0, uint16_t y1, uint8_t color)
@@ -644,7 +650,7 @@ static void draw_begin(rd_scene_t *s)
     }
 }
 
-/* Column x into black and red (col_bytes each); x must increase by 1 per call after draw_begin */
+/* Column x into black and red (col_bytes each, and yellow at red + RD_COL); x must increase by 1 per call after draw_begin */
 static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
 {
     const rd_model_t *mo = &s->m;
@@ -652,6 +658,7 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
 
     memset(black, 0, mo->col_bytes);
     memset(red, 0, mo->col_bytes);
+    memset(red + RD_COL, 0, mo->col_bytes);
 
     for (i = 0; i < s->nrects; i++)
         draw_rect(mo, &s->rect[i], x, black, red);
@@ -870,6 +877,7 @@ static uint8_t resolve_color(uint8_t c, uint8_t flags)
     case ESL_LE_FRAME:      return (flags & ESL_CF_FRAME) ? RD_BLACK : COLOR_NONE;
     case ESL_LE_RED:        return RD_RED;
     case ESL_LE_RED_INVERT: return COLOR_RED_INVERT;
+    case ESL_LE_YELLOW:     return RD_YELLOW;
     default:                return RD_BLACK;
     }
 }
@@ -1450,7 +1458,7 @@ bool esl_render_number_cut(uint8_t model, const esl_layout_bin_t *file, const es
 
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
 {
-    uint8_t black[32], red[32];
+    uint8_t black[RD_COL], red[2 * RD_COL]; /* red, then yellow (ink) */
     size_t size, plane;
     uint16_t x;
 
@@ -1465,6 +1473,9 @@ size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content
         memcpy(out + (size_t)x * scene.m.col_bytes, black, scene.m.col_bytes);
         if (scene.m.has_red)
             memcpy(out + plane + (size_t)x * scene.m.col_bytes, red, scene.m.col_bytes);
+        if (scene.m.has_yellow)
+            memcpy(out + (scene.m.has_red ? 2 : 1) * plane + (size_t)x * scene.m.col_bytes, red + RD_COL,
+                   scene.m.col_bytes);
     }
     return size;
 }

@@ -21,9 +21,9 @@ screen a model has already), a panel header
 | `label`, `product` | what the tag is, for people (`ST-GM29XX2`) |
 | `chip`, `radio` | the tag's chip and the radio it has (`zbs243`, `802.15.4`); a chip the firmware is built for is in `CHIPS` in `tag/tools/build.py` (see "Another chip" in `tag/README.md`) |
 | `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); a tag with its maker's firmware would be another |
-| `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), coded (`ESL_IMG_FMT_2D` or `ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
+| `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane, then red, then yellow), coded (`ESL_IMG_FMT_2D` or `ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel |
 | `width`, `height` | the screen in the orientation the layouts use |
-| `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert` (`yellow` is refused until the firmware draws it) |
+| `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert`. `yellow` (a black/white/red/yellow panel) lets them use `yellow`; the AP draws it as a third plane, but the tag firmware does not, so `gen_models.py` refuses it on a model OpenESL builds firmware for |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it) |
 | `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional) |
 | `photo` | optional: a picture of the tag under `web/` with its size, for the flasher's model picker |

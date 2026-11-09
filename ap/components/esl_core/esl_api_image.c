@@ -50,9 +50,11 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
     char m[17];
     esl_mac_format(mac, m);
     esl_sb_printf(out,
-                  "{\"mac\":\"%s\",\"model\":\"%s\",\"width\":%u,\"height\":%u,\"red\":%s,\"content_id\":%" PRIu32
+                  "{\"mac\":\"%s\",\"model\":\"%s\",\"width\":%u,\"height\":%u,\"red\":%s,\"yellow\":%s,"
+                  "\"content_id\":%" PRIu32
                   ",\"image_id\":%" PRIu32 ",\"data\":\"",
-                  m, esl_model_name(t.model), (unsigned)w, (unsigned)h, red ? "true" : "false", t.content_id,
+                  m, esl_model_name(t.model), (unsigned)w, (unsigned)h, red ? "true" : "false",
+                  esl_model_has_yellow(t.model) ? "true" : "false", t.content_id,
                   id ? id : 1);
     sb_base64(out, img, n);
     esl_sb_puts(out, "\"}");
@@ -136,7 +138,7 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
             status = api_error(out, 422, msg);
             break;
         case ESL_PIC_ERR_BOTH:
-            status = api_error(out, 400, "a raw image with a pixel set in both the black and the red plane");
+            status = api_error(out, 400, "a raw image with a pixel set in more than one plane (black, red, yellow)");
             break;
         default:
             status = api_error(out, 503, "no memory for the picture");

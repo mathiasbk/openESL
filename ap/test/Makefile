@@ -1,6 +1,6 @@
 # Host unit tests for the platform-independent AP core (components/esl_core).
 #   make            build and run, then read the drawn barcodes back (test_barcode_decode.py),
-#                   and the same_as tests (sameas/) with a registry of their own
+#                   and the same_as and yellow tests (sameas/) with a registry of their own
 #   make SAN=1      with AddressSanitizer + UndefinedBehaviorSanitizer
 #   make openapi    check docs/openapi.yaml against the code (openapi/check_openapi.py)
 #   make clean
@@ -35,7 +35,7 @@ test: $(BIN) sameas
 SAMEAS := build/esl_tests_sameas
 $(SAMEAS): $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) $(wildcard sameas/*) $(wildcard $(CORE)/include/*.h) $(wildcard $(CORE)/*.h) ../../shared/proto.h tinytest.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) -include sameas/models_gen.h $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) sameas/test_sameas.c $(TAG_SRCS) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) -include sameas/models_gen.h $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) sameas/test_sameas.c sameas/test_yellow.c $(TAG_SRCS) $(LDFLAGS) -o $@
 
 sameas: $(SAMEAS)
 	./$(SAMEAS)

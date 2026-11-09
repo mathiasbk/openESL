@@ -199,8 +199,8 @@
 /* fmt: how the image bytes are laid out. ESL_IMG_FMT_RAW is 1 bit per pixel in screen
  * coordinates, column by column as the tag's draw_column() gives it: (height + 7) / 8
  * bytes per column, byte 0 bit 7 = row 0 (the top), column 0 (the left) first; the black
- * plane and then, on models with red, the red plane. Bit 1 = ink in that plane, and a
- * pixel is never set in both. The tag's epd layer rotates, transposes and inverts it for
+ * plane and then, on models with red, the red plane, then on models with yellow the yellow
+ * plane. Bit 1 = ink in that plane, and a pixel is never set in two. The tag's epd layer rotates, transposes and inverts it for
  * its panel. size is then exactly planes x width x ((height + 7) / 8) (4736 on the 2.9",
  * 5000 on the 1.54"). Other values are compressed images, which may be no larger than
  * the raw image; a tag refuses a format it does not know.
@@ -423,6 +423,8 @@
 #define ESL_LE_FRAME         4      /* black if ESL_CF_FRAME, else not drawn */
 #define ESL_LE_RED           5      /* red text or a red rectangle; only models with red (has_red) */
 #define ESL_LE_RED_INVERT    6      /* white text in a red box (text only); only models with red */
+#define ESL_LE_YELLOW        7      /* yellow text or a yellow rectangle; only models with yellow
+                                       (has_yellow: Bluetooth tags, which the AP draws for) */
 
 #define ESL_FONT_SMALL       0      /* 17 px, Latin-1 */
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */

@@ -10,8 +10,8 @@ export const TURNS = [0, 90, 180, 270];
 export const ZOOM_MAX = 4;
 
 // Pixel values, as the renderer and decodeTagImage() give them
-export const WHITE = 0, BLACK = 1, RED = 2;
-const INK = [[255, 255, 255], [0, 0, 0], [255, 0, 0]];
+export const WHITE = 0, BLACK = 1, RED = 2, YELLOW = 3;
+const INK = [[255, 255, 255], [0, 0, 0], [255, 0, 0], [255, 255, 0]];
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -56,22 +56,23 @@ export function tone(rgba, { brightness = 0, contrast = 0 } = {}) {
 }
 
 // The colours of a model's screen (models.js "colors") -> the pixel values it takes
-export const inks = (colors = []) => (colors.includes("red") ? [WHITE, BLACK, RED] : [WHITE, BLACK]);
+export const inks = (colors = []) => [WHITE, BLACK, ...(colors.includes("red") ? [RED] : []),
+  ...(colors.includes("yellow") ? [YELLOW] : [])];
 
-// RGBA pixels (w x h, after tone()) -> one pixel value per pixel (WHITE, BLACK or RED).
-// Without red the picture becomes grey first, so black and white follow its brightness.
+// RGBA pixels (w x h, after tone()) -> one pixel value per pixel (WHITE, BLACK, RED or YELLOW).
+// With only black and white the picture becomes grey first, so they follow its brightness.
 // dither: Floyd-Steinberg error diffusion (7/16 right, 3/16, 5/16 and 1/16 below), else
 // each pixel takes the nearest colour (best for drawings, text and logos).
-export function quantize(rgba, w, h, { red = false, dither = true } = {}) {
+export function quantize(rgba, w, h, { red = false, yellow = false, dither = true } = {}) {
   const out = new Uint8Array(w * h);
-  const ks = red ? [WHITE, BLACK, RED] : [WHITE, BLACK];
+  const ks = [WHITE, BLACK, ...(red ? [RED] : []), ...(yellow ? [YELLOW] : [])];
   const cur = new Float32Array((w + 2) * 3), next = new Float32Array((w + 2) * 3);
   for (let y = 0; y < h; y++) {
     next.fill(0);
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       let v = [rgba[i], rgba[i + 1], rgba[i + 2]];
-      if (!red) {
+      if (!red && !yellow) {
         const g = 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2];
         v = [g, g, g];
       }
@@ -98,17 +99,19 @@ export function quantize(rgba, w, h, { red = false, dither = true } = {}) {
 
 // Pixel values (w x h, row by row) -> the raw screen image the API takes (protocol.md, IMG
 // fmt 0): column by column, (h + 7) / 8 bytes each, bit 7 of a column's first byte the top
-// row, 1 = ink; the black plane, then on a model with red the red plane
-export function packRaw(pixels, w, h, red = false) {
+// row, 1 = ink; the black plane, then on a model with red the red plane, then on a model
+// with yellow the yellow plane
+export function packRaw(pixels, w, h, red = false, yellow = false) {
   const col = Math.ceil(h / 8);
   const plane = col * w;
-  const out = new Uint8Array(plane * (red ? 2 : 1));
+  const out = new Uint8Array(plane * (1 + red + yellow));
   for (let x = 0; x < w; x++) {
     for (let y = 0; y < h; y++) {
       const v = pixels[y * w + x];
       const at = x * col + (y >> 3), bit = 0x80 >> (y & 7);
       if (v === BLACK) out[at] |= bit;
       else if (v === RED && red) out[plane + at] |= bit;
+      else if (v === YELLOW && yellow) out[(red ? 2 : 1) * plane + at] |= bit;
     }
   }
   return out;

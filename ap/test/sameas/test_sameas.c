@@ -8,6 +8,8 @@
 
 int tt_checks, tt_failures;
 
+void test_yellow(void); /* test_yellow.c */
+
 #define CAP 8
 #define AUTH "Bearer s3cret"
 #define M29B 3
@@ -154,6 +156,7 @@ int main(void)
         test_store_and_draw(f29, len29);
         test_api(f29);
     }
+    test_yellow();
     esl_layouts_free(&layouts);
     esl_store_free(&st);
     free(f29);

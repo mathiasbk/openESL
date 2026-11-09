@@ -191,6 +191,8 @@ const char *esl_model_name(uint8_t model);
 bool esl_model_size(uint8_t model, uint16_t *w, uint16_t *h);
 /* True if the model's panel has red (colors in shared/models.json); false for an unknown model. */
 bool esl_model_has_red(uint8_t model);
+/* True if the model's panel has yellow (black/white/red/yellow Bluetooth tags) */
+bool esl_model_has_yellow(uint8_t model);
 /* The model whose layout file a tag of this model is drawn with (#181): the model its entry in
  * shared/models.json names in same_as, else the model itself. A same_as between screens of
  * another size or colours is refused (the model keeps its own file; tools/gen_models.py refuses

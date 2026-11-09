@@ -117,7 +117,7 @@ function base64(bytes) {
   return btoa(s);
 }
 
-const rawSize = (m) => Math.ceil(m.height / 8) * m.width * (m.colors.includes("red") ? 2 : 1);
+const rawSize = (m) => Math.ceil(m.height / 8) * m.width * (1 + m.colors.includes("red") + m.colors.includes("yellow"));
 
 export class DemoAp {
   // now: the clock (tests pass their own); tags: the tags to start with (DEMO_TAGS);
@@ -415,7 +415,7 @@ export class DemoAp {
     const res = r.render(n, flags, content.fields);
     if (!res.ok) return { error: "cannot draw it: " + res.error };
     if (res.refused) return { error: res.refused };
-    return { raw: packRaw(res.pixels, m.width, m.height, m.colors.includes("red")) };
+    return { raw: packRaw(res.pixels, m.width, m.height, m.colors.includes("red"), m.colors.includes("yellow")) };
   }
 
   renderer(model) {
@@ -495,7 +495,8 @@ export class DemoAp {
     if (t.contentError) fail(409, t.contentError);
     const m = MODELS[t.model];
     return { mac: t.mac, model: t.model, width: m.width, height: m.height, red: m.colors.includes("red"),
-             content_id: t.contentId, image_id: t.imageId, data: base64(t.image) };
+             yellow: m.colors.includes("yellow"), content_id: t.contentId, image_id: t.imageId,
+             data: base64(t.image) };
   }
 
   // ---- layout files ----

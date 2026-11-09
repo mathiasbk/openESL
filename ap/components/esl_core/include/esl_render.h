@@ -15,10 +15,11 @@
  * wrapping the tags used when they drew content themselves (sim/reference/ holds the
  * CRC of every screen, so a change shows up there).
  *
- * Image format: the black plane, then the red plane on a model with red. A plane is
+ * Image format: the black plane, then the red plane on a model with red, then the yellow
+ * plane on a model with yellow (esl_model_has_yellow). A plane is
  * width columns from left to right, each ESL_RENDER_COL_BYTES(height) bytes: byte 0
  * MSB is row 0 (the top), then downwards; bit 1 = ink in that plane, and a pixel is
- * never set in both planes. Unused bits at the end of the last byte are 0.
+ * never set in two planes. Unused bits at the end of the last byte are 0.
  *
  * Not reentrant: the scene is static (about 2 KB, and esl_qr.c keeps 3.3 KB for one code),
  * so calls must not overlap (the AP's callers hold the layouts lock while drawing, which

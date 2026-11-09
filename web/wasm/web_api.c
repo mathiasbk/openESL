@@ -29,7 +29,7 @@
  *   web_set_number_point(point)  1: formatted numbers with a decimal point (the AP's "lang" is
  *                                "en"), 0: a decimal comma (not set, or "nb")
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
- *                                1 = black, 2 = red
+ *                                1 = black, 2 = red, 3 = yellow
  */
 #include <stdio.h>
 #include <string.h>
@@ -46,7 +46,7 @@
 static char err[ESL_LAYOUT_ERR_MAX];
 static esl_layout_bin_t bin;
 static uint32_t bin_ver;          /* 0 = no file */
-static uint8_t img[ESL_RENDER_COL_BYTES(DRAW_H) * DRAW_W * 2];
+static uint8_t img[ESL_RENDER_COL_BYTES(DRAW_H) * DRAW_W * 3]; /* black, red, yellow */
 static uint8_t fb[DRAW_H][DRAW_W];
 
 EMSCRIPTEN_KEEPALIVE int web_width(void) { return DRAW_W; }
@@ -246,13 +246,18 @@ EMSCRIPTEN_KEEPALIVE int web_render(int layout, int flags, int n, const char *fi
         snprintf(err, sizeof(err), "the AP cannot draw this content");
         return 0;
     }
-    /* columns of bits (esl_render.h) to rows of pixels; the red plane follows the black */
+    /* columns of bits (esl_render.h) to rows of pixels; the red plane follows the black,
+       then the yellow one */
     cb = ESL_RENDER_COL_BYTES(DRAW_H);
+    size_t yellow = esl_model_has_yellow(MODEL_CODE) ? (red ? 2u : 1u) * DRAW_W * cb : 0;
     for (int x = 0; x < DRAW_W; x++)
         for (int y = 0; y < DRAW_H; y++) {
             uint8_t m = (uint8_t)(0x80 >> (y & 7));
             size_t at = (size_t)x * cb + (size_t)(y >> 3);
-            fb[y][x] = (img[at] & m) ? 1 : (red && (img[DRAW_W * cb + at] & m)) ? 2 : 0;
+            fb[y][x] = (img[at] & m)                             ? 1
+                       : (red && (img[DRAW_W * cb + at] & m))    ? 2
+                       : (yellow && (img[yellow + at] & m))      ? 3
+                                                                 : 0;
         }
     /* drawn, but PUT /api/tags would refuse it: a barcode or QR field that does not fit its box,
        or a formatted number that fits in none of its fonts (left out of the drawing) */
