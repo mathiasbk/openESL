@@ -54,6 +54,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | An API endpoint | `ap/components/esl_core/esl_api_*.c` (the route table is in `esl_api.c`), then [openapi.yaml](openapi.yaml), which CI checks against the code |
 | How a layout is drawn | `esl_render.c`, and `esl_layout_compile.c` for the checks on the JSON. The web preview uses the same code. |
 | What a tag is sent and when | `esl_store.c` (what is next for a tag) and `esl_radio.c` (the reply to a frame) |
+| Bluetooth tags (the AP sends to them) | `esl_push.c`, and [ble-tags.md](ble-tags.md) |
 | A radio message | `shared/proto.h` and [protocol.md](protocol.md) part 1, then both `tag/src/proto.c` and `esl_proto.c`. Older tags must keep working. |
 | The tag's behaviour (polling, status screens, OTA) | `tag/src/app.c`, `status.c`, `ota.c` |
 | A new tag model | `shared/models.json` and `tag/src/panels/`, see the wiki page "Adding hardware" |

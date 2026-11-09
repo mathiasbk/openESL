@@ -26,6 +26,7 @@ This folder is for developers. To **use** OpenESL, read the [wiki](https://githu
 | [tag-firmware.md](tag-firmware.md) | The tag firmware's modules, tag identity, layouts, fonts and memory on the 8051 |
 | [tag-ota.md](tag-ota.md) | Firmware updates over the radio for the tags: bootloader, SPI flash slots, rollback |
 | [st-gm16xx2.md](st-gm16xx2.md) | The 1.54" ST-GM16XX2: panel detection, init and refresh |
+| [ble-tags.md](ble-tags.md) | Bluetooth tags with their maker's firmware: how the AP will send to them, what is built so far (in progress) |
 | [solum-remote.md](solum-remote.md) | The SoluM ESL remote SLT-RC004, sniffed on the AP, and why openESL does not use it yet |
 | [power-budget.md](power-budget.md) | Battery life: the estimate, the model and how to measure a tag |
 | [sources.md](sources.md) | Every hardware fact the code uses, and where it came from |
