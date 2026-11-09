@@ -206,6 +206,10 @@ test("the version in an AP image", () => {
   const other = firmwareKind(apImage(4096, "0.5.0", 13, "esl_netradio"));
   assert.equal(other.kind, null);
   assert.match(other.error, /not AP firmware \(esl_netradio\)/);
+  // the AP for Bluetooth tags: AP firmware, another app
+  assert.equal(firmwareKind(apImage(4096, "0.11.1", 13, "esl_ap_ble")).kind, "ap");
+  assert.equal(firmwareKind(apImage(4096, "0.11.1", 13, "esl_ap_ble")).app, "esl_ap_ble");
+  assert.equal(firmwareKind(apImage(4096, "0.11.1")).app, "esl_ap");
 });
 
 test("the page's radio image for the AP's C6 radio", () => {
@@ -293,6 +297,26 @@ test("the page's AP image for the AP's chip and board (ap_boards)", () => {
   assert.equal(apImageFor({ version: "0.4.7", display: false }, info).file, "ap-openesl-ota");   // no chip: a C6
   assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c5", display: true }, info).file, "ap-openesl-c5-n16r8-ota"); // no C5 with a screen
   assert.equal(apImageFor({ version: "0.4.7", chip: "esp32c5" }, { ...info, ota: { "ap-openesl": true } }), null); // no image for its chip
+});
+
+test("an AP for Bluetooth tags and one for 802.15.4 tags are never offered each other's image", () => {
+  const ap_boards = [
+    { id: "c6-supermini", target: "esp32c6", display: false, file: "ap-openesl", radio: "native" },
+    { id: "c6-supermini-ble", target: "esp32c6", display: false, file: "ap-openesl-ble", radio: "ble" },
+  ];
+  const info = { version: "v0.12.0", release: true, ap_boards, ota: { "ap-openesl": true, "ap-openesl-ble": true } };
+  assert.equal(apImageFor({ version: "0.11.0", chip: "esp32c6", display: false }, info).file, "ap-openesl-ota"); // no app: esl_ap
+  assert.equal(apImageFor({ version: "0.11.0", chip: "esp32c6", display: false, app: "esl_ap" }, info).file, "ap-openesl-ota");
+  assert.equal(apImageFor({ version: "0.11.0", chip: "esp32c6", display: false, app: "esl_ap_ble" }, info).file, "ap-openesl-ble-ota");
+  // only the other kind on the page: nothing
+  assert.equal(apImageFor({ version: "0.11.0", chip: "esp32c6", app: "esl_ap_ble" }, { ...info, ota: { "ap-openesl": true } }), null);
+  assert.equal(apImageFor({ version: "0.11.0", chip: "esp32c6" }, { ...info, ota: { "ap-openesl-ble": true } }), null);
+  // and a file picked by hand gets a warning
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.12.0", 13, "esl_ap_ble")), { version: "0.11.0", chip: "esp32c6" }),
+    /for an AP with Bluetooth tags, and this AP has 802.15.4 tags: it will refuse it/);
+  assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.12.0")), { version: "0.11.0", chip: "esp32c6", app: "esl_ap_ble" }),
+    /for an AP with 802.15.4 tags, and this AP has Bluetooth tags: it will refuse it/);
+  assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.12.0")), { version: "0.11.0", chip: "esp32c6" }), /refuse/);
 });
 
 test("what is asked before AP firmware goes out", () => {

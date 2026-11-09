@@ -37,15 +37,21 @@ export function firmwareKind(data) {
     const project = appString(data, 80);
     const chip = CHIPS[u16(data, 12)] ?? null;
     if (project === "esl_radio") return { kind: "radio", size: data.length, version: appVersion(data), chip };
-    if (project && project !== "esl_ap")
+    if (project && !AP_APPS.includes(project))
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
-    return { kind: "ap", size: data.length, version: appVersion(data), chip };
+    return { kind: "ap", size: data.length, version: appVersion(data), chip, app: project || null };
   }
   return {
     kind: null,
     error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-<board>-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
   };
 }
+
+// The AP apps (project names): esl_ap for 802.15.4 tags, esl_ap_ble for Bluetooth tags. An AP
+// takes only its own ("app" in GET /api/ota, esl_ap when it does not say)
+const AP_APPS = ["esl_ap", "esl_ap_ble"];
+const apApp = (ota) => ota?.app || "esl_ap";
+const boardApp = (b) => (b.radio === "ble" ? "esl_ap_ble" : "esl_ap");
 
 // chip_id in the ESP32 image header, as GET /api/ota names the chip ("chip")
 const CHIPS = { 9: "esp32s3", 13: "esp32c6", 23: "esp32c5" };
@@ -92,7 +98,7 @@ export function apImageFor(ota, info) {
   const boards = (info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
-  ]).filter((b) => info?.ota?.[b.file] && b.target === (ota?.chip || "esp32c6"));
+  ]).filter((b) => info?.ota?.[b.file] && b.target === (ota?.chip || "esp32c6") && boardApp(b) === apApp(ota));
   const b = boards.find((x) => !!x.display === (ota?.display === true)) || boards.find((x) => !x.display);
   if (!b) return null;
   const version = String(info.ap_version || info.version).replace(/^v/, "");
@@ -109,6 +115,10 @@ export function apSendQuestion(kind, ota, lcd = null) {
   lines.push(kind.version && running ? `Send AP firmware ${kind.version} to the AP? It runs ${running} now.` : "Send new firmware to the AP?");
   if (kind.chip && ota?.chip && kind.chip !== ota.chip)
     lines.push(`This image is for the ${chipName(kind.chip)}, and this AP is an ${chipName(ota.chip)}: it will refuse it.`);
+  else if (kind.app && kind.app !== apApp(ota))
+    lines.push(kind.app === "esl_ap_ble"
+      ? "This image is for an AP with Bluetooth tags, and this AP has 802.15.4 tags: it will refuse it."
+      : "This image is for an AP with 802.15.4 tags, and this AP has Bluetooth tags: it will refuse it.");
   if (c === 0) lines.push(`That is the version it already runs.`);
   else if (c < 0) lines.push(`That is older than what it runs.`);
   if (lcd !== null && typeof ota?.display === "boolean" && lcd !== ota.display)

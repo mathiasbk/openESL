@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "app.h"
 #include "esl_image.h"
 #include "esl_push.h"
+#include "esl_radio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -43,7 +45,6 @@ static QueueHandle_t seen_q;
 static esl_push_t push;
 static esl_store_t *store;
 static esl_layouts_t *layouts;
-static esl_image_t images;
 static uint8_t own_addr_type;
 static uint64_t logged[SEEN_LOG];
 static unsigned n_logged;
@@ -97,6 +98,11 @@ static void scan_start(void)
     struct ble_gap_disc_params p;
     memset(&p, 0, sizeof(p));
     p.passive = 1;           /* listen only: the tags' scan responses are not needed to find them */
+    /* 40 ms of every 320 ms (units of 0.625 ms), not the default of all the time: the radio is
+       shared with WiFi. A tag advertises about once a second, so it is still heard within a
+       few seconds, which is all "last seen" and a woken retry need */
+    p.itvl = 512;
+    p.window = 64;
     p.filter_duplicates = 0; /* every advertisement: "last seen" and the signal come from them */
     int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &p, gap_event, NULL);
     if (rc)
@@ -147,8 +153,9 @@ static void push_task(void *arg)
         if (xQueueReceive(seen_q, &s, pdMS_TO_TICKS(500)) == pdTRUE)
             esl_push_seen(&push, store, layouts, s.mac, s.rssi, 0, (uint64_t)esp_timer_get_time() / 1000);
         uint64_t now = (uint64_t)esp_timer_get_time() / 1000;
-        if (now >= next) {
-            esl_push_round(&push, store, layouts, &images, now, PUSH_SENDS);
+        esl_image_t *im = esl_radio_image(); /* app_main's buffers; NULL without the memory */
+        if (now >= next && im) {
+            esl_push_round(&push, store, layouts, im, now, PUSH_SENDS);
             next = now + PUSH_ROUND_MS;
         }
         esp_task_wdt_reset();
@@ -163,13 +170,18 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     layouts = ls;
     size_t heap0 = esp_get_free_heap_size();
     static const esl_push_out_t out = {NULL, send_none};
+    /* esl_push draws into a buffer of its own; app_main's image buffers (esl_radio_image())
+       only lend it their lock, as for radio_net.c */
     size_t cap = esl_image_mem_size() / ESL_IMAGE_BUFS;
-    uint8_t *mem = heap_caps_malloc(esl_image_mem_size(), MALLOC_CAP_DEFAULT);
     uint8_t *buf = heap_caps_malloc(cap, MALLOC_CAP_DEFAULT);
     seen_q = xQueueCreate(SEEN_QUEUE, sizeof(seen_t));
-    if (!mem || !buf || !seen_q)
+    if (!buf || !seen_q) {
+        free(buf);
+        if (seen_q)
+            vQueueDelete(seen_q);
+        seen_q = NULL;
         return ESP_ERR_NO_MEM;
-    esl_image_init(&images, mem, NULL);
+    }
     esl_push_init(&push, &out, buf, cap);
 
     esp_err_t err = nimble_port_init();

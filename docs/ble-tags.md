@@ -54,8 +54,10 @@ Measured with ESP-IDF 5.5.5 (2026-11-09): the Bluetooth controller (`libble_app`
 the 1.5 MB app slots of the C6 Super Mini's partition table, so `c6-supermini-ble` has its
 own table without the `tagfw` partition (Bluetooth tags have no tag firmware for the AP to
 keep): 1728 KB slots, 167 KB free. Such an AP is installed fresh over USB, never moved to
-from the 802.15.4 firmware over the air. Heap use is not measured on hardware yet.
-
+from the 802.15.4 firmware over the air: it is another app (`esl_ap_ble`, `app` in
+`GET /api/ota`), so each kind of AP refuses the other's image over the air (older ones too,
+which take only `esl_ap`), and the dashboard offers each only its own. Its scan listens
+40 ms of every 320 ms, leaving the radio to WiFi the rest of the time. Heap use is not measured on hardware yet.
 
 An ESP32-C6 runs either the 802.15.4 tags or the Bluetooth tags, not both: BLE is a
 separate firmware choice, so the 802.15.4 firmware does not grow and its radio is never

@@ -179,15 +179,22 @@ def check_budget(info):
     return state != "over"
 
 
+def app_name(b):
+    """The app the board builds (project() in CMakeLists.txt): esl_ap_ble for Bluetooth tags,
+    which no AP for 802.15.4 tags takes over the air, else esl_ap"""
+    return "esl_ap_ble" if b.get("radio") == "ble" else "esl_ap"
+
+
 def build(b):
     bdir = "build-" + b["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"], "build"])
-    merge(b["target"], bdir, "esl_ap.bin", b["artifact"])
+    app = app_name(b)
+    merge(b["target"], bdir, app + ".bin", b["artifact"])
     # the symbols for this image: a panic backtrace (the AP is built with silent assertions,
     # sdkconfig.defaults) is decoded with it, e.g. idf.py monitor --elf or addr2line
-    shutil.copyfile(os.path.join(HERE, bdir, "esl_ap.elf"), os.path.join(OUT, b["artifact"] + ".elf"))
+    shutil.copyfile(os.path.join(HERE, bdir, app + ".elf"), os.path.join(OUT, b["artifact"] + ".elf"))
     print("%s: out/%s.bin, out/%s-ota.bin and out/%s.elf" % (b["id"], b["artifact"], b["artifact"], b["artifact"]))
-    return record_size(b["id"], b["artifact"], bdir, "esl_ap.bin")
+    return record_size(b["id"], b["artifact"], bdir, app + ".bin")
 
 
 def build_radio(r):

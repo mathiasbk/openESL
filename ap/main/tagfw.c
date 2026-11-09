@@ -92,6 +92,10 @@ esl_tagfw_t *tagfw_start(void)
     static const esl_tagfw_ops_t ops = {NULL, lock, unlock, store_erase, store_write, store_read, save_to, load_to};
     static esl_tagfw_t fw;
 
+#if CONFIG_ESL_RADIO_BLE
+    /* Bluetooth tags keep their maker's firmware: no tag firmware to keep, and no partition */
+    return NULL;
+#endif
     part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, TAGFW_SUBTYPE, "tagfw");
     if (!part || part->size < ESL_TAGFW_SLOT) {
         ESP_LOGW(TAG, "no tagfw partition (older partition table): no firmware updates for the tags");
