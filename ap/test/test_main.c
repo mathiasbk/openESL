@@ -16,6 +16,7 @@ void test_layout(void);
 void test_radio(void);
 void test_rcache(void);
 void test_rhost(void);
+void test_push(void);
 void test_nlink(void);
 void test_wifi(void);
 void test_screen(void);
@@ -49,6 +50,7 @@ static const struct {
     {"radio", test_radio},
     {"rcache", test_rcache},
     {"rhost", test_rhost},
+    {"push", test_push},
     {"nlink", test_nlink},
     {"wifi", test_wifi},
     {"screen", test_screen},
