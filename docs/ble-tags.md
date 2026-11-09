@@ -26,8 +26,9 @@ are. What is new is how the picture gets to the tag.
 2. **Delivery** (`esl_core/esl_push.c`, built and tested on the PC, not used on the AP
    yet): the tags the AP sends to itself. Each round, a tag whose content gives another
    image than the one it was last given gets it through a transport. A tag that is not
-   reached is tried again after 30 s, doubling up to 30 min, or at once when the scan
-   hears it. A tag that refuses an image is not sent it again until its content changes.
+   reached is tried again after 30 s, doubling up to 30 min, or at the next round when
+   the scan hears it (once per run of misses, so a tag that is heard but cannot be
+   connected to keeps its back-off). A tag that refuses an image is not sent it again until its content changes.
    After each attempt the store is told as if the tag had polled (its model, battery and
    the image it shows), so "last seen", battery and "shows its content" work as for any
    tag.

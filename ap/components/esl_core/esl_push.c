@@ -66,8 +66,11 @@ unsigned esl_push_count(const esl_push_t *p)
    it shows. A tag that takes images (ESL_POLL_F_IMAGE) reports that image's id as what
    it shows, as tag/src/app.c does; no cfg_ver, so it is never sent CONFIG. The reply is
    not used: this AP talks to the tag only through the transport. */
-static void note(esl_store_t *st, esl_layouts_t *ls, const esl_push_tag_t *t, int8_t rssi, uint64_t now_ms)
+static void note(esl_store_t *st, esl_layouts_t *ls, esl_push_tag_t *t, int8_t rssi, uint64_t now_ms)
 {
+    if (rssi)
+        t->rssi = rssi;
+    rssi = t->rssi; /* the last one known: an unknown signal is not a perfect 0 dBm */
     esl_poll_t poll;
     esl_layout_env_t env;
     uint8_t reply[ESL_MAX_PAYLOAD];
@@ -89,9 +92,19 @@ bool esl_push_seen(esl_push_t *p, esl_store_t *st, esl_layouts_t *ls, uint64_t m
         return false;
     if (battery_mv)
         t->battery_mv = battery_mv;
-    if (t->fails)
-        t->next_ms = now_ms; /* it is there again: no need to wait out the back-off */
-    note(st, ls, t, rssi, now_ms);
+    if (t->fails && !t->woken) {
+        /* It is there again: one try at the next round, not one a round. Each try blocks the
+           push task for a connection attempt, and a tag that is heard but cannot be connected
+           to (busy, weak, refusing) would otherwise be tried every round */
+        t->next_ms = now_ms;
+        t->woken = true;
+    }
+    if (!t->noted_ms || now_ms - t->noted_ms >= ESL_PUSH_SEEN_MS) {
+        t->noted_ms = now_ms;
+        note(st, ls, t, rssi, now_ms);
+    } else if (rssi) {
+        t->rssi = rssi;
+    }
     return true;
 }
 
@@ -116,11 +129,28 @@ static uint64_t backoff_ms(uint8_t fails)
     return ms < ESL_PUSH_RETRY_MAX_MS ? ms : ESL_PUSH_RETRY_MAX_MS;
 }
 
+const esl_push_tag_t *esl_push_unsaved(const esl_push_t *p)
+{
+    for (unsigned i = 0; i < ESL_PUSH_TAGS; i++)
+        if (p->tags[i].mac && p->tags[i].dirty)
+            return &p->tags[i];
+    return NULL;
+}
+
+void esl_push_saved(esl_push_t *p, uint64_t mac)
+{
+    esl_push_tag_t *t = find(p, mac);
+    if (t)
+        t->dirty = false;
+}
+
 unsigned esl_push_round(esl_push_t *p, esl_store_t *st, esl_layouts_t *ls, esl_image_t *im, uint64_t now_ms,
                         unsigned max_sends)
 {
     unsigned sends = 0;
-    for (unsigned i = 0; i < ESL_PUSH_TAGS && sends < max_sends; i++) {
+    unsigned start = p->cursor % ESL_PUSH_TAGS;
+    for (unsigned k = 0; k < ESL_PUSH_TAGS && sends < max_sends; k++) {
+        unsigned i = (start + k) % ESL_PUSH_TAGS;
         esl_push_tag_t *t = &p->tags[i];
         if (!t->mac || t->next_ms > now_ms)
             continue;
@@ -143,6 +173,7 @@ unsigned esl_push_round(esl_push_t *p, esl_store_t *st, esl_layouts_t *ls, esl_i
         esl_push_info_t info;
         memset(&info, 0, sizeof(info));
         sends++;
+        p->cursor = i + 1;
         esl_push_res_t res = p->out.send(p->out.ctx, t->mac, t->model, p->buf, len, &info);
         if (info.battery_mv)
             t->battery_mv = info.battery_mv;
@@ -154,10 +185,12 @@ unsigned esl_push_round(esl_push_t *p, esl_store_t *st, esl_layouts_t *ls, esl_i
             continue;
         }
         t->fails = 0;
+        t->woken = false;
         t->next_ms = 0;
         if (res == ESL_PUSH_SENT) {
             p->stats.sent++;
             t->shown = id;
+            t->dirty = true;
             t->refused = 0;
         } else {
             p->stats.refused++;

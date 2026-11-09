@@ -234,8 +234,85 @@ static void test_push_restart_and_limits(void)
     CHECK_INT(fake.calls, calls);
 }
 
+static void test_push_heard_but_unreachable(void)
+{
+    /* Heard every second but never reached (busy, weak): one early try per run of misses,
+       then the back-off holds */
+    boot();
+    CHECK(esl_push_add(&push, A, ESL_MODEL_29, 0));
+    set_price(A, "Jam", "3.30");
+    fake.res = ESL_PUSH_AWAY;
+    uint64_t now = 1000;
+    for (int s = 0; s < 20; s++, now += 1000) {
+        esl_push_seen(&push, &st, NULL, A, -60, 0, now);
+        round_at(now + 500);
+    }
+    CHECK_INT(fake.calls, 2); /* the first try, and the one the scan woke */
+    /* a success ends the run: the next run of misses may be woken once again */
+    fake.res = ESL_PUSH_SENT;
+    now = esl_push_get(&push, A)->next_ms;
+    round_at(now);
+    CHECK_INT(fake.calls, 3);
+    CHECK(!esl_push_get(&push, A)->woken);
+}
+
+static void test_push_rssi_and_scan_rate(void)
+{
+    esl_tag_t t;
+    boot();
+    CHECK(esl_push_add(&push, A, ESL_MODEL_29, 0));
+    esl_push_seen(&push, &st, NULL, A, -66, 0, 1000);
+    CHECK(esl_store_get(&st, A, &t) && t.rssi == -66);
+    unsigned polls = t.polls;
+    /* heard again within ESL_PUSH_SEEN_MS: the store is not told again */
+    esl_push_seen(&push, &st, NULL, A, -64, 0, 2000);
+    CHECK(esl_store_get(&st, A, &t) && t.polls == polls);
+    esl_push_seen(&push, &st, NULL, A, -63, 0, 1000 + ESL_PUSH_SEEN_MS);
+    CHECK(esl_store_get(&st, A, &t) && t.polls == polls + 1 && t.rssi == -63);
+    /* a send whose transport does not know the signal keeps the last one heard, not 0 dBm */
+    fake.rssi = 0;
+    set_price(A, "Salt", "0.90");
+    round_at(2 * ESL_PUSH_SEEN_MS);
+    CHECK(esl_store_get(&st, A, &t) && t.rssi == -63);
+}
+
+static void test_push_round_robin(void)
+{
+    /* One send a round: a tag whose content changes every round does not starve the next */
+    boot();
+    CHECK(esl_push_add(&push, A, ESL_MODEL_29, 0));
+    CHECK(esl_push_add(&push, B, ESL_MODEL_29, 0));
+    set_price(B, "Oil", "7.00");
+    unsigned b_calls = 0;
+    char price[16];
+    for (int r = 0; r < 4; r++) {
+        snprintf(price, sizeof(price), "1.%02d", r);
+        set_price(A, "Clock", price);
+        esl_push_round(&push, &st, NULL, &images, 1000 + r, 1);
+        b_calls += fake.mac == B;
+    }
+    CHECK_INT(b_calls, 1);
+}
+
+static void test_push_saved(void)
+{
+    boot();
+    CHECK(esl_push_add(&push, A, ESL_MODEL_29, 0));
+    CHECK(esl_push_unsaved(&push) == NULL);
+    set_price(A, "Rice", "2.40");
+    round_at(1000);
+    const esl_push_tag_t *u = esl_push_unsaved(&push);
+    CHECK(u && u->mac == A && u->shown != 0);
+    esl_push_saved(&push, A);
+    CHECK(esl_push_unsaved(&push) == NULL);
+}
+
 void test_push(void)
 {
+    test_push_heard_but_unreachable();
+    test_push_rssi_and_scan_rate();
+    test_push_round_robin();
+    test_push_saved();
     test_push_table();
     test_push_sends_content();
     test_push_away_backs_off();
