@@ -20,7 +20,8 @@ A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as
 also builds the radio coprocessor firmware for each radio board its "radio_fw" names
 (radio/boards/<id>/radio.json: c6, c6-lcd), each once, into out/ and the release as
 <artifact>.bin and <artifact>-ota.bin: the AP passes the latter on to its radio over the UART
-link (POST /api/ota, docs/ap-radio-link.md). A board with "radio": "net" (the radio over WiFi,
+link (POST /api/ota, docs/ap-radio-link.md). A board with "radio": "ble" (Bluetooth tags, docs/ble-tags.md) has no radio firmware.
+A board with "radio": "net" (the radio over WiFi,
 docs/ap-netradio.md) builds netradio/ the same way, for each of its "radio_fw"
 (netradio/boards/<id>/radio.json: c6), as <artifact>.bin only: nothing updates it over the
 air yet.
@@ -94,9 +95,9 @@ def load_radios(boards):
     radios = []
     for b in boards:
         kind = b.get("radio", "native")
-        if kind not in ("native", "uart", "net"):
-            sys.exit("board %s: radio must be \"native\", \"uart\" or \"net\"" % b["id"])
-        if kind != "native" and not radio_fws(b):
+        if kind not in ("native", "uart", "net", "ble"):
+            sys.exit("board %s: radio must be \"native\", \"uart\", \"net\" or \"ble\"" % b["id"])
+        if kind in ("uart", "net") and not radio_fws(b):
             sys.exit("board %s: radio \"%s\" needs radio_fw, the radio's firmware" % (b["id"], kind))
         for name in radio_fws(b):
             project = RADIO_PROJECTS[kind]

@@ -103,13 +103,13 @@ void app_main(void)
     api.link = radio_net_link();
     api.links = radio_net_links(&api.n_links);
     api.radio_ops = radio_net_ops();
-#elif !CONFIG_ESL_RADIO_STUB
+#elif !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_BLE
     api.radio_stats = &radio_link.stats;
 #if CONFIG_ESL_RADIO_DRIVER_UART
     api.link = radio_uart_link();
 #endif
 #endif
-#if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER
+#if !CONFIG_ESL_RADIO_STUB && !CONFIG_ESL_RADIO_SNIFFER && !CONFIG_ESL_RADIO_BLE
     api.tx_power = radio_tx_power();
     api.channel_settable = true; /* radio.c and radio_net.c move it (esl_store_channel_step) */
 #endif

@@ -1,0 +1,13 @@
+# OpenESL AP for Bluetooth tags on a 4 MB ESP32-C6 (boards/c6-supermini-ble). As the C6 Super
+# Mini's table (boards/c6-supermini/partitions.csv) without tagfw: Bluetooth tags keep their
+# maker's firmware, so there is no tag firmware to keep, and the app slots get its room. The
+# Bluetooth controller and host take about 320 KB of the app, which does not fit the Super
+# Mini's 1.5 MB slots. This board is installed fresh over USB (the web flasher erases first),
+# never moved to from the 802.15.4 firmware over the air.
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  0x75000
+otadata,  data, ota,     0x7E000, 0x2000
+phy_init, data, phy,     0x80000, 0x1000
+ota_0,    app,  ota_0,   0x90000, 0x1B0000
+ota_1,    app,  ota_1,   0x240000, 0x1B0000
+# The last 64 KB stay free: app slots start on a 64 KB boundary.

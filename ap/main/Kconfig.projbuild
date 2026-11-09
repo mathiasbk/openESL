@@ -213,11 +213,19 @@ menu "OpenESL AP"
             bool "Sniffer: log every frame on the channel, do not answer"
         config ESL_RADIO_STUB
             bool "Stub: no radio, simulated tags poll the store"
+        config ESL_RADIO_BLE
+            bool "Bluetooth tags: no 802.15.4, the AP sends to paired BLE tags (experimental)"
+            depends on BT_NIMBLE_ENABLED
+            help
+                For tags with their maker's Bluetooth firmware (docs/ble-tags.md): the
+                AP scans for them and sends each its picture itself (esl_push). An
+                ESP32-C6 runs either this or the 802.15.4 tags, not both
+                (boards/c6-supermini-ble).
     endchoice
 
     choice ESL_RADIO_DRIVER
         prompt "Radio driver"
-        depends on !ESL_RADIO_STUB
+        depends on !ESL_RADIO_STUB && !ESL_RADIO_BLE
         default ESL_RADIO_DRIVER_IEEE802154
         help
             The link the AP reaches its tags through (esl_link.h in
