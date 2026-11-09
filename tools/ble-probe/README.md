@@ -38,8 +38,9 @@ or connect right after it has advertised.
 ## 2. Record the maker's app (Android)
 
 1. Settings, About phone: tap Build number seven times to turn on the developer options.
-2. Developer options: turn on **Enable Bluetooth HCI snoop log** (on some phones: "Full"),
-   then turn Bluetooth off and on.
+2. Developer options: set **Enable Bluetooth HCI snoop log** to **Enabled** (on some phones
+   "Full"), then turn Bluetooth off and on. Not "Enabled Filtered": that keeps only the start
+   of each packet, so the writes are lost (`btsnoop.py` warns when a log is filtered).
 3. In the maker's app, send the tag one simple, known picture: all white, then all black,
    then one with a black box in a corner. One picture per recording keeps it readable;
    note the time of each.
@@ -47,6 +48,11 @@ or connect right after it has advertised.
    `FS/data/misc/bluetooth/logs/btsnoop_hci.log` (the path varies by phone; search the zip
    for `btsnoop`). Some phones also let you copy it from the file manager.
 5. Turn the snoop log off again.
+
+Android keeps the GATT table of a tag it has connected to before, so the app may not
+discover the services again, and the log then has writes to handles without their UUIDs.
+For a recording with UUIDs, forget (unpair) the tag in the phone's Bluetooth settings, or
+clear the app's storage, and record again.
 
 ## 3. Read the recording
 
@@ -72,6 +78,9 @@ What to work out, and write down in `docs/` for the tag:
 - how the pixels are packed: compare the all-white, all-black and box pictures
 - anything that looks like a key or a challenge before the first write (that tag then
   needs more thought before we support it)
+
+On Linux, `btmon -w capture.log` writes its own format (data link 2001), which
+`btsnoop.py` does not read: open it in Wireshark and save it as btsnoop (HCI UART) first.
 
 ## 4. Without a phone: a sniffer
 

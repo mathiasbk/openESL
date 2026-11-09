@@ -5,7 +5,8 @@ import os
 import struct
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
+from types import SimpleNamespace
 
 import btsnoop as bs
 
@@ -128,6 +129,64 @@ class TestBtsnoop(unittest.TestCase):
         c = r.all_conns()[0]
         self.assertIsNone(c.addr)
         self.assertEqual([e["op"] for e in r.events], ["WRITE_CMD"])
+
+    def test_filtered_log_warns(self):
+        # Android's "Enabled Filtered" keeps only the start of each data packet: the write is
+        # gone, and main says why on stderr
+        blob = bytearray(bs.MAGIC + struct.pack(">II", 1, bs.DATALINK_H4))
+        pk = [(False, bs.H4_EVT, conn_complete())]
+        pk += [(True, bs.H4_ACL, a) for a in acl(bytes([0x52]) + struct.pack("<H", 0x21) + bytes(100))]
+        for i, (sent, kind, data) in enumerate(pk):
+            body = bytes([kind]) + data
+            incl = body if kind == bs.H4_EVT else body[:20]
+            blob += struct.pack(">IIIIq", len(body), len(incl), 0 if sent else 1, 0, T0 + i) + incl
+        r = reader_of(bytes(blob))
+        self.assertEqual(r.cut, 1)
+        self.assertFalse(any(e["op"] == "WRITE_CMD" for e in r.events))
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
+            f.write(bytes(blob))
+        try:
+            err = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                self.assertEqual(bs.main([f.name]), 0)
+            self.assertIn("Enabled Filtered", err.getvalue())
+        finally:
+            os.unlink(f.name)
+
+    def test_classic_link_hidden(self):
+        # A classic ACL link (headphones) that carries no ATT: neither its disconnect nor an
+        # empty block in the summary
+        other = 0x0003
+        pk = [(True, bs.H4_ACL, struct.pack("<HH", other | 0x2000, 8) + struct.pack("<HH", 4, 0x0041) + b"abcd"),
+              (False, bs.H4_EVT, disconn(other))]
+        r = reader_of(build(pk))
+        self.assertEqual(r.events, [])
+        out = io.StringIO()
+        bs.summary(r, SimpleNamespace(addr=None), out)
+        self.assertEqual(out.getvalue(), "")
+
+    def test_discovery_only_from_tag_answers(self):
+        # The tag asks the phone for its characteristics: the phone's answer is not the tag's table
+        pk = [(False, bs.H4_EVT, conn_complete())]
+        for sent, pdu in ((False, bytes([0x08]) + struct.pack("<HHH", 1, 0xFFFF, bs.UUID_CHAR_DECL)),
+                          (True, bytes([0x09, 7]) + struct.pack("<HBH", 0x0010, 0x02, 0x0011) + struct.pack("<H", 0x2A00))):
+            pk += [(sent, bs.H4_ACL, a) for a in acl(pdu)]
+        r = reader_of(build(pk))
+        self.assertEqual(r.all_conns()[0].chars, {})
+
+    def test_read_response_has_handle(self):
+        pk = [(False, bs.H4_EVT, conn_complete())]
+        for sent, pdu in ((True, bytes([0x0A]) + struct.pack("<H", 0x0030)), (False, bytes([0x0B]) + b"\x64")):
+            pk += [(sent, bs.H4_ACL, a) for a in acl(pdu)]
+        r = reader_of(build(pk))
+        rsp = [e for e in r.events if e["op"] == "READ_RSP"][0]
+        self.assertEqual(rsp["handle"], 0x30)
+        self.assertEqual(rsp["data"], b"\x64")
+
+    def test_btmon_refused(self):
+        with self.assertRaises(ValueError) as cm:
+            list(bs.read_records(io.BytesIO(bs.MAGIC + struct.pack(">II", 1, 2001))))
+        self.assertIn("Wireshark", str(cm.exception))
 
     def run_main(self, *args):
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:

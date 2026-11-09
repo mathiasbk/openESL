@@ -60,7 +60,7 @@ ATT_OPS = {
     0x52: "WRITE_CMD",
 }
 # The operations that carry a characteristic's value, and are printed by default
-VALUE_OPS = {"WRITE_REQ", "WRITE_CMD", "NOTIFY", "INDICATE", "READ_REQ", "READ_RSP",
+VALUE_OPS = {"WRITE_REQ", "WRITE_CMD", "NOTIFY", "INDICATE", "READ_REQ", "READ_RSP", "READ_BLOB_RSP",
              "PREPARE_WRITE_REQ", "EXECUTE_WRITE_REQ", "ERROR", "MTU_REQ", "MTU_RSP"}
 
 UUID_CHAR_DECL = 0x2803
@@ -69,13 +69,14 @@ UUID_CCCD = 0x2902
 
 
 class Record:
-    __slots__ = ("time_us", "sent", "kind", "data")
+    __slots__ = ("time_us", "sent", "kind", "data", "cut")
 
-    def __init__(self, time_us, sent, kind, data):
+    def __init__(self, time_us, sent, kind, data, cut=False):
         self.time_us = time_us  # since 1970, in microseconds
         self.sent = sent  # True: from the phone to its controller (towards the tag)
         self.kind = kind  # H4_CMD, H4_ACL, H4_SCO or H4_EVT
         self.data = data  # the HCI packet without a type byte
+        self.cut = cut  # the log kept only the start of the packet (a filtered snoop log)
 
 
 def read_records(f):
@@ -87,14 +88,15 @@ def read_records(f):
     if version != 1:
         raise ValueError("btsnoop version %d, only version 1 is known" % version)
     if datalink not in (DATALINK_H1, DATALINK_H4):
-        raise ValueError("btsnoop data link type %d, only 1001 (HCI) and 1002 (HCI UART) are known" % datalink)
+        raise ValueError("btsnoop data link type %d, only 1001 (HCI) and 1002 (HCI UART) are known"
+                         " (a btmon capture is 2001: open it in Wireshark and save it as btsnoop)" % datalink)
     while True:
         rh = f.read(24)
         if not rh:
             return
         if len(rh) < 24:
             return  # a log cut off in the middle of a record: keep what came before
-        _orig, incl, flags, _drops, ts = struct.unpack(">IIIIq", rh)
+        orig, incl, flags, _drops, ts = struct.unpack(">IIIIq", rh)
         data = f.read(incl)
         if len(data) < incl:
             return
@@ -105,7 +107,7 @@ def read_records(f):
             kind, data = data[0], data[1:]
         else:
             kind = (H4_EVT if not sent else H4_CMD) if flags & 2 else H4_ACL
-        yield Record(ts - EPOCH_DELTA_US, sent, kind, data)
+        yield Record(ts - EPOCH_DELTA_US, sent, kind, data, incl < orig)
 
 
 def fmt_addr(b):
@@ -134,6 +136,13 @@ class Conn:
         self.pending_type = None  # the type the last READ_BY_TYPE_REQ / FIND_INFO asked for
         self.frag = {True: None, False: None}  # L2CAP being put together, per direction
         self.mtu = None
+        self.le = addr is not None  # an LE connection (its connect event is in the log)
+        self.att = False  # ATT went over it (else it is a classic link: audio, a watch)
+        self.last_read = None  # the handle of the last READ_REQ / READ_BLOB_REQ, for its response
+
+    def shown(self):
+        """Worth showing: an LE link, or one that carried ATT (made before the log started)."""
+        return self.le or self.att
 
 
 class Reader:
@@ -143,6 +152,7 @@ class Reader:
         self.conns = {}  # current connection handle -> Conn
         self.done = []  # connections that ended, in order
         self.events = []
+        self.cut = 0  # ACL packets the log kept only the start of
 
     def conn(self, handle, t_us):
         c = self.conns.get(handle)
@@ -166,7 +176,7 @@ class Reader:
             sub = p[0]
             # LE Connection Complete (0x01) and LE Enhanced Connection Complete (0x0A, 0x29):
             # status, handle, role, peer address type, peer address
-            if sub in (0x01, 0x0A, 0x29) and len(p) >= 11 and p[1] == 0:
+            if sub in (0x01, 0x0A, 0x29) and len(p) >= 12 and p[1] == 0:
                 handle = struct.unpack("<H", p[2:4])[0] & 0x0FFF
                 old = self.conns.pop(handle, None)
                 if old:
@@ -176,9 +186,10 @@ class Reader:
         elif code == 0x05 and len(p) >= 4 and p[0] == 0:  # Disconnection Complete
             handle = struct.unpack("<H", p[1:3])[0] & 0x0FFF
             c = self.conns.pop(handle, None)
-            if c:
+            if c and c.shown():
                 self.events.append({"t_us": rec.time_us, "conn": c, "op": "DISCONNECT",
                                     "data": bytes([p[3]])})
+            if c:
                 self.done.append(c)
 
     def on_acl(self, rec):
@@ -189,6 +200,11 @@ class Reader:
         handle, pb = hf & 0x0FFF, (hf >> 12) & 3
         payload = d[4:4 + dlen]
         c = self.conn(handle, rec.time_us)
+        if rec.cut or len(payload) < dlen:
+            # Only the start of the packet is in the log: whatever it belonged to is lost
+            self.cut += 1
+            c.frag[rec.sent] = None
+            return
         if pb == 1:  # continuation of an L2CAP frame
             buf = c.frag[rec.sent]
             if buf is None:
@@ -210,6 +226,7 @@ class Reader:
     def on_att(self, c, rec, pdu):
         if not pdu:
             return
+        c.att = True
         op = ATT_OPS.get(pdu[0], "OP_%02X" % pdu[0])
         body = pdu[1:]
         ev = {"t_us": rec.time_us, "conn": c, "op": op, "sent": rec.sent, "handle": None, "data": body}
@@ -218,6 +235,8 @@ class Reader:
             ev["data"] = body[2:]
             if op == "READ_BLOB_REQ":
                 ev["data"] = b""
+            if op in ("READ_REQ", "READ_BLOB_REQ") and rec.sent:
+                c.last_read = ev["handle"]
             if op == "WRITE_REQ" and ev["handle"] in c.cccds:
                 ev["op"] = "SUBSCRIBE"
         elif op == "PREPARE_WRITE_REQ" and len(body) >= 4:
@@ -225,11 +244,15 @@ class Reader:
             ev["data"] = body[4:]
         elif op in ("MTU_REQ", "MTU_RSP") and len(body) >= 2:
             c.mtu = struct.unpack("<H", body[:2])[0]
-        elif op == "READ_BY_TYPE_REQ" and len(body) >= 6:
+        elif op in ("READ_RSP", "READ_BLOB_RSP") and not rec.sent:
+            ev["handle"] = c.last_read
+        # Discovery is learnt only from the phone's requests and the tag's answers: a tag
+        # that asks the phone (some do) must not add its view of the phone's table
+        elif op == "READ_BY_TYPE_REQ" and len(body) >= 6 and rec.sent:
             c.pending_type = body[4:]
-        elif op == "READ_BY_TYPE_RSP" and body:
+        elif op == "READ_BY_TYPE_RSP" and body and not rec.sent:
             self.learn_by_type(c, body)
-        elif op == "FIND_INFO_RSP" and body:
+        elif op == "FIND_INFO_RSP" and body and not rec.sent:
             self.learn_info(c, body)
         self.events.append(ev)
 
@@ -317,6 +340,8 @@ def print_events(r, args, out):
 
 def summary(r, args, out):
     for c in r.all_conns():
+        if not c.shown():
+            continue
         if args.addr and (c.addr or "").upper() != args.addr.upper():
             continue
         out.write("Connection to %s%s\n" % (c.addr or "an unknown peer (connected before the log)",
@@ -374,6 +399,10 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         sys.stderr.write("btsnoop.py: %s\n" % e)
         return 1
+    if r.cut:
+        sys.stderr.write("btsnoop.py: %d packets are cut short in this log, so writes are missing from it: it is a"
+                         " filtered snoop log. Record again with the snoop log set to \"Enabled\", not"
+                         " \"Enabled Filtered\".\n" % r.cut)
     if args.json:
         json.dump(to_json(r, args), sys.stdout, indent=1)
         sys.stdout.write("\n")
