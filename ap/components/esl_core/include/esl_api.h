@@ -11,6 +11,7 @@
 #include "esl_health.h"
 #include "esl_tagfw.h"
 #include "esl_source.h"
+#include "esl_remote.h"
 
 /* The HTTP API from docs/protocol.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -144,6 +145,7 @@ typedef struct {
     unsigned n_links;
     const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
     esl_apid_cfg_t *apid;   /* the AP id and adopt (GET/PUT /api/config); NULL: shown from the store, PUT 422 */
+    esl_remote_t *remote;   /* a SoluM remote as a button (GET/PUT /api/remote); NULL: /api/remote answers 404 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

@@ -30,6 +30,7 @@ void test_source(void);
 void test_clock(void);
 void test_font(void);
 void test_compat(void);
+void test_remote(void);
 
 static const struct {
     const char *name;
@@ -48,6 +49,7 @@ static const struct {
     {"api", test_api},
     {"layout", test_layout},
     {"radio", test_radio},
+    {"remote", test_remote},
     {"rcache", test_rcache},
     {"rhost", test_rhost},
     {"push", test_push},

@@ -333,7 +333,7 @@ static esl_apid_cfg_t sim_apid = {0, sim_set_id, sim_set_adopt, NULL};
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL, &sim_apid};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL, &sim_apid, NULL};
     esl_sb_t out;
     int status;
 
