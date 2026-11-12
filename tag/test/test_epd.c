@@ -50,6 +50,40 @@ static int busy_polls_in_refresh;  /* BUSY reads after the refresh started */
 static bool refreshing, refresh_stuck;
 static bool asleep, busy_stuck;
 
+/* ---- UC-type model (UC8151 family, EPD_UC_INIT): BUSY low while busy ---- */
+static bool uc_model;
+static unsigned long uc_busy_until;
+static uint8_t uc_new[RAM_Y * RAM_X];
+static int uc_n_old, uc_n_new, uc_refreshes, uc_pon, uc_ssd_cmds;
+static bool uc_asleep;
+static uint8_t uc_cmd = 0xFF;
+
+static void uc_on_byte(uint8_t b)
+{
+    if (!dc) {
+        uc_cmd = last_cmd = b;
+        nparam = 0;
+        switch (b) {
+        case 0x04: uc_pon++; uc_busy_until = now_ms() + 40; break;
+        case 0x12: uc_refreshes++; uc_busy_until = now_ms() + 2900; break;
+        case 0x02: uc_busy_until = now_ms() + 20; break;
+        case 0x20: case 0x22: case 0x24: case 0x44: case 0x45: case 0x4E: case 0x4F:
+            uc_ssd_cmds++; break;      /* SSD-only commands: must not be sent */
+        default: break;
+        }
+        return;
+    }
+    if (uc_cmd == 0x10) { uc_n_old++; return; }
+    if (uc_cmd == 0x13) {
+        if (uc_n_new < (int)sizeof(uc_new))
+            uc_new[uc_n_new] = b;
+        uc_n_new++;
+        return;
+    }
+    if (uc_cmd == 0x07 && b == 0xA5)
+        uc_asleep = true;
+}
+
 static void ram_write(uint8_t plane, uint8_t b)
 {
     if (xc >= RAM_X || yc >= RAM_Y || xc < xs || xc > xe || yc < ys || yc > ye) {
@@ -76,6 +110,10 @@ static void ram_write(uint8_t plane, uint8_t b)
 
 static void on_byte(uint8_t b)
 {
+    if (uc_model) {
+        uc_on_byte(b);
+        return;
+    }
     if (!dc) {
         if (first_cmd == 0xFF)
             first_cmd = b;
@@ -131,6 +169,8 @@ void hal_epd_sck(bool high)
 }
 bool hal_epd_busy(void)
 {
+    if (uc_model)
+        return now_ms() >= uc_busy_until;      /* the pin: high when idle */
     if (refreshing)
         busy_polls_in_refresh++;
     return busy_stuck || now_ms() < busy_until;
@@ -344,6 +384,49 @@ static void test_epd_no_busy(void)
     busy_stuck = false;
 }
 
+#ifdef EPD_UC_INIT
+/* A board with a UC-type controller: BUSY stays high out of reset, so epd.c draws through
+   the UC path, with the image as gate lines in DTM2 (1 = white), and leaves it asleep. */
+static void test_epd_uc(void)
+{
+    static draw_scene_t sc;
+    uint8_t b[DRAW_COL_BYTES], r[DRAW_COL_BYTES];
+    int x, i, bad = 0, round;
+
+    build_scene(&sc);
+    uc_model = true;
+    for (round = 0; round < 2; round++) {        /* detected once, then remembered */
+        uc_n_old = uc_n_new = uc_refreshes = uc_pon = uc_ssd_cmds = 0;
+        uc_asleep = false;
+        uc_busy_until = 0;
+        CHECK(epd_draw(&sc));
+        CHECK_EQ(uc_pon, 1);
+        CHECK_EQ(uc_refreshes, 1);
+        CHECK_EQ(uc_ssd_cmds, 0);
+        CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES);
+        CHECK_EQ(uc_n_new, DRAW_W * DRAW_COL_BYTES);
+        CHECK(uc_asleep);
+        CHECK_EQ(last_cmd, 0x07);
+        CHECK(!powered);
+    }
+    draw_begin(&sc);
+    for (x = 0; x < DRAW_W; x++) {
+        draw_column(&sc, (uint16_t)x, b, r);
+        for (i = 0; i < DRAW_COL_BYTES; i++)
+            if (uc_new[x * DRAW_COL_BYTES + i] != (uint8_t)~b[i])
+                bad++;
+    }
+    CHECK_EQ(bad, 0);
+
+    /* A refresh that never pulls BUSY low is no display: false */
+    uc_busy_until = 0;
+    busy_stuck = true;
+    uc_model = false;
+    CHECK(!epd_draw(&sc));
+    busy_stuck = false;
+}
+#endif
+
 int main(int argc, char **argv)
 {
     printf("test_epd_stream\n");
@@ -352,6 +435,9 @@ int main(int argc, char **argv)
     RUN(test_epd_init_table);
     RUN(test_epd_awake);
     RUN(test_epd_no_busy);
+#ifdef EPD_UC_INIT
+    RUN(test_epd_uc);
+#endif
     printf("\n%d checks, %d failures\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

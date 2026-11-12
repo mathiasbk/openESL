@@ -337,6 +337,15 @@ static uint16_t measure_battery_mv(void)
     hal_delay_ms(1);
     P2_0 = 1;
     hal_delay_ms(1);
+    /*
+     * An SSD-type controller drops BUSY once out of reset. A UC-type one (UC8151 family,
+     * on some boards, see epd.c) holds it high when idle and has no such detector: it
+     * goes back to deep sleep (0x07 0xA5), and the voltage is unknown.
+     */
+    if (!epd_wait(100)) {
+        epd_cmd1(0x07, 0xA5);
+        return 0;
+    }
     epd_cmd1(0x12, -1);              /* soft reset */
     epd_wait(30);
     epd_cmd1(0x22, 0xC0);            /* clock and analog on */
