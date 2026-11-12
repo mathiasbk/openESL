@@ -146,6 +146,7 @@ static esp_timer_handle_t visit_timer, visit_end_timer;
 static uint8_t home_channel;  /* the AP's channel */
 static int64_t visit_until;   /* 0 = not visiting */
 static uint32_t visits;
+static uint32_t visit_skipped; /* frames from the AP's channel not answered: they came during a visit */
 
 static void visit_mark(void *arg)
 {
@@ -238,8 +239,14 @@ static void radio_task(void *arg)
                 else
                     visit_end();
             } else {
-                if (f.channel != ESL_REMOTE_CHANNEL || home_channel == ESL_REMOTE_CHANNEL)
+                /* A tag is answered only while the radio is on its channel: not a frame heard on
+                   11 during a visit, nor one from the AP's channel that waited in the queue behind
+                   VISIT_START (a busy radio task): its reply would go out on 11, where the tag is
+                   not, and the time sending it would be lost to the remote. The tag retries. */
+                if (!visit_until && (f.channel != ESL_REMOTE_CHANNEL || home_channel == ESL_REMOTE_CHANNEL))
                     handle_frame(&f);
+                else if (f.channel != ESL_REMOTE_CHANNEL)
+                    visit_skipped++;
                 remote_frame(&f);
             }
 #else
@@ -265,8 +272,10 @@ static void radio_task(void *arg)
                      (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
 #if REMOTE
             if (visits)
-                ESP_LOGI(TAG, "remote: %lu visits to channel %u", (unsigned long)visits, ESL_REMOTE_CHANNEL);
+                ESP_LOGI(TAG, "remote: %lu visits to channel %u, %lu frames left for the tag's retry", (unsigned long)visits,
+                         ESL_REMOTE_CHANNEL, (unsigned long)visit_skipped);
             visits = 0;
+            visit_skipped = 0;
 #endif
             ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu tx_resent %lu dropped %lu worst %lld us",
                      (unsigned long)s->rx, (unsigned long)s->polls, (unsigned long)s->blocks,
