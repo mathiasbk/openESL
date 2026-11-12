@@ -336,15 +336,15 @@ static uint16_t measure_battery_mv(void)
     P2_0 = 0;                        /* hardware reset */
     hal_delay_ms(1);
     P2_0 = 1;
-    hal_delay_ms(1);
+    hal_delay_ms(10);                /* as epd.c hw_reset() */
     /*
      * An SSD-type controller drops BUSY once out of reset. A UC-type one (UC8151 family,
      * on some boards, see epd.c) holds it high when idle and has no such detector: it
      * goes back to deep sleep (0x07 0xA5), and the voltage is unknown.
      */
     if (!epd_wait(100)) {
-        epd_cmd1(0x07, 0xA5);
-        return 0;
+        mv = 0;
+        goto sleep;
     }
     epd_cmd1(0x12, -1);              /* soft reset */
     epd_wait(30);
@@ -366,7 +366,11 @@ static uint16_t measure_battery_mv(void)
     }
     epd_cmd1(0x13, -1);
     epd_wait(15);
-    epd_cmd1(0x10, 0x03);            /* deep sleep */
+sleep:
+    /* Deep sleep for either controller: SSD-type 0x10, then UC-type 0x07 0xA5 (ignored by an
+       SSD-type controller that is already asleep) */
+    epd_cmd1(0x10, 0x03);
+    epd_cmd1(0x07, 0xA5);
     return mv;
 }
 

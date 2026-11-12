@@ -271,7 +271,7 @@ static void test_epd_stream(const char *out)
     CHECK_EQ(n_out_of_window, 0);
     CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);
     CHECK(n_written[1] == 0 || n_written[1] == DRAW_W * DRAW_COL_BYTES);
-    CHECK_EQ(last_cmd, 0x10);                    /* deep sleep last */
+    CHECK_EQ(last_cmd, 0x07);                    /* deep sleep last (0x10, then the UC-type 0x07) */
     CHECK(asleep);
     CHECK(!powered);
 
@@ -317,7 +317,7 @@ static void test_epd_image(void)
     hal_xflash_close();
     CHECK_EQ(n_out_of_window, 0);
     CHECK_EQ(n_written[0], DRAW_W * DRAW_COL_BYTES);
-    CHECK_EQ(last_cmd, 0x10);
+    CHECK_EQ(last_cmd, 0x07);
     CHECK(asleep);
     draw_begin(&sc);
     for (x = 0; x < DRAW_W; x++) {
@@ -378,8 +378,10 @@ static void test_epd_no_busy(void)
     draw_clear(&sc);
     reset_model();
     busy_stuck = true;
+    asleep = false;
     CHECK(!epd_draw(&sc));
     CHECK(!powered);
+    CHECK(asleep);                       /* still sent to deep sleep */
     CHECK_EQ(n_written[0], 0);
     busy_stuck = false;
 }
@@ -403,10 +405,10 @@ static void test_epd_uc(void)
         CHECK_EQ(uc_pon, 1);
         CHECK_EQ(uc_refreshes, 1);
         CHECK_EQ(uc_ssd_cmds, 0);
-        CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES);
+        CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES + 1);   /* + the SSD-type sleep byte (0x10 0x01) */
         CHECK_EQ(uc_n_new, DRAW_W * DRAW_COL_BYTES);
         CHECK(uc_asleep);
-        CHECK_EQ(last_cmd, 0x07);
+        CHECK_EQ(last_cmd, 0x07);        /* UC-type deep sleep last */
         CHECK(!powered);
     }
     draw_begin(&sc);

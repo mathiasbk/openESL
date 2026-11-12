@@ -1,5 +1,6 @@
 /*
- * epd.c - the SSD16xx display over bit-banged SPI.
+ * epd.c - the SSD16xx display over bit-banged SPI, with a fallback for boards that carry a
+ * UC-type controller (UC8151 family) instead (EPD_UC_INIT in the panel header, see below).
  *
  * UNCONFIRMED: the controller on the ST-GM29XX2 is not confirmed (phase 0). The
  * command codes below are the common ones in the SSD1680 family and must be checked
@@ -266,6 +267,21 @@ static void init_panel(void)
     }
 }
 
+/*
+ * Deep sleep for whichever controller is fitted: hal_epd_power() cannot switch the display
+ * off on the ZBS243, so every exit ends here. 0x10 0x01 is SSD-type deep sleep (on a UC-type
+ * controller: one byte into the old-image RAM, harmless); 0x07 0xA5 is UC-type deep sleep
+ * (an SSD-type controller is asleep by then and ignores it).
+ */
+static void sleep_any(void)
+{
+    cmd(CMD_DEEP_SLEEP);
+    data(0x01);
+    cmd(UC_DSLP);
+    data(0xA5);
+    hal_epd_power(0);
+}
+
 static void hw_reset(void)
 {
     hal_epd_power(1);
@@ -313,7 +329,7 @@ static bool update_uc(draw_scene_t *s)
 
     hw_reset();
     if (!uc_wait_ready(100)) {
-        hal_epd_power(0);
+        sleep_any();
         return false;
     }
     while (i < sizeof(uc_init)) {
@@ -337,9 +353,7 @@ static bool update_uc(draw_scene_t *s)
     data(0x00);
     cmd(UC_POF);
     uc_wait_ready(1000);
-    cmd(UC_DSLP);                      /* must always be in deep sleep, or the battery drains */
-    data(0xA5);
-    hal_epd_power(0);
+    sleep_any();                       /* must always be in deep sleep, or the battery drains */
     return ok;
 }
 
@@ -375,7 +389,7 @@ static bool update(draw_scene_t *s)
 
     cmd(CMD_SW_RESET);
     if (!wait_busy(1000)) {
-        hal_epd_power(0);
+        sleep_any();
         return false;
     }
 
@@ -400,9 +414,7 @@ static bool update(draw_scene_t *s)
     cmd(CMD_UPDATE_CTRL1);
     data(EPD_SLEEP_CTRL1);
 #endif
-    cmd(CMD_DEEP_SLEEP);               /* must always be in deep sleep, or the battery drains */
-    data(0x01);
-    hal_epd_power(0);
+    sleep_any();                       /* must always be in deep sleep, or the battery drains */
     return ok;
 }
 
