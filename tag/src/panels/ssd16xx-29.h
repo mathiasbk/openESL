@@ -27,4 +27,19 @@
     0x18, 1, 0x80,          /* internal temperature sensor */ \
     EPD_OP_WINDOW, 0
 
+/*
+ * Some ST-GM29XX2 boards (seen on tags made in 2017) carry a UC-type controller (UC8151
+ * family) instead; epd.c tells them apart by BUSY and then sends this list instead of the
+ * one above. Command, byte count, bytes; count 0 waits for BUSY (power on). The values
+ * are what the stock firmware sends to a UC-type panel on this tag.
+ */
+#define EPD_UC_INIT \
+    0x01, 2, 0x03, 0x01,            /* power setting */ \
+    0x06, 3, 0x17, 0x17, 0x17,      /* booster soft start */ \
+    0x04, 0,                        /* power on */ \
+    0x00, 2, 0x97, 0x0B,            /* panel setting: 128 x 296, OTP waveform, black/white */ \
+    0x61, 3, 0x80, 0x01, 0x28,      /* resolution: 128 sources, 296 gates */ \
+    0x82, 1, 0x12,                  /* VCOM DC */ \
+    0x50, 1, 0x97                   /* VCOM and data interval */
+
 #endif /* PANEL_SSD16XX_29_H */
