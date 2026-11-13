@@ -19,7 +19,7 @@ tag wakes up (sleep timer, 1 s ticks)
 - **The listening window** is `CFG_RX_TIMEOUT_MS`, 20 ms, counted from the end of the tag's own frame (`exchange()` in `tag/src/app.c`). The radio is in receive mode as soon as the frame is out. A frame that arrives but is not the answer (another tag's POLL, a frame for another tag, a frame with a wrong FCS) starts the 20 ms again, so on a busy channel the window stretches; the tag reads at most three frames with a correct FCS per window (`RX_TRIES`). An AP should have the whole answer on the air well inside 20 ms: the openESL AP aims for 5 ms from the POLL's arrival to its answer being sent (requirement A3), and resends a reply the radio refused only while it would still land in the window (`TX_RETRY_US`, 12 ms, in `ap/main/radio_ieee802154.c`).
 - **Air time** is 32 µs per byte at 250 kbit/s, plus 6 bytes of preamble, start and length, so a full 127-byte frame takes about 4.3 ms and a 22-byte POLL payload in a 39-byte frame about 1.4 ms.
 - **The retry** comes after the first window and a random pause of 2 to 10 ms (`CFG_RETRY_MIN_MS`, `CFG_RETRY_MAX_MS`). It is the same frame byte for byte, sequence number included, so an AP or a sniffer sees two POLLs with one sequence number about 25 to 33 ms apart. The next POLL that gets an answer tells the AP the round needed its retry (link flag `RETRY`).
-- **Blocks:** after an IMG or FW answer the tag asks for the next block straight away (IMG_REQ, FW_REQ), each with the same window and one retry, up to 64 image blocks (128 on a model with red) or 128 firmware blocks per wake-up, and gives up the wake-up after 8 unanswered requests (`CFG_FW_MAX_MISS`).
+- **Blocks:** after an IMG or FW answer the tag asks for the next block straight away (IMG_REQ, FW_REQ), each with the same window and one retry, up to 64 image blocks (128 on a model with red) or 128 firmware blocks per wake-up, and gives up the wake-up at the 9th request that gets no answer (`CFG_FW_MAX_MISS`, 8, counted over the whole wake-up, not only in a row).
 - **No MAC ACKs.** The tag never sets the ACK request bit and never sends an ACK; the AP's answer is the acknowledgement. An AP must not set the ACK request bit either (below).
 
 ## What the tag accepts as an answer
@@ -31,7 +31,7 @@ The tag drops every frame that is not exactly the form openESL's AP sends (`prot
 | FCS | correct (the radio checks it and drops the frame otherwise) |
 | Frame control | `0x8C41` exactly: data frame, no security, no frame pending, **no ACK request**, PAN ID compression, frame version 0, destination extended, source short. Bytes `41 8C` on the air |
 | Destination PAN | the tag's PAN (`0x4553`, bytes `53 45`) |
-| Destination address | the tag's own 8-byte address, least significant byte first: tag `0000020543A63B15` is `15 3B A6 43 05 02 00 00` on the air |
+| Destination address | the tag's own 8-byte address, least significant byte first: tag `0000021234567890` is `90 78 56 34 12 02 00 00` on the air |
 | Source address | short `0x0000` |
 | Length | 15-byte header, then the payload; at most 127 bytes with the FCS |
 | Payload | a message the tag knows, with `proto_ver` 1 and the length that message needs (`proto_parse_reply()`) |

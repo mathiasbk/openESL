@@ -141,11 +141,15 @@ static void sniff_command(const char *cmd, int64_t *next_hop_us)
 }
 
 /* Reads what the host typed, without waiting, and runs each whole line. */
+static bool sniff_usb; /* the USB driver is in, so commands can be read */
+
 static void sniff_commands(int64_t *next_hop_us)
 {
     static char cmd[32];
     static size_t n;
     uint8_t buf[32];
+    if (!sniff_usb)
+        return;
     int got = usb_serial_jtag_read_bytes(buf, sizeof(buf), 0);
     for (int i = 0; i < got; i++) {
         char c = (char)buf[i];
@@ -374,6 +378,7 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     usb_serial_jtag_driver_config_t ucfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     ucfg.tx_buffer_size = 4096;
     if (usb_serial_jtag_driver_install(&ucfg) == ESP_OK) {
+        sniff_usb = true;
         usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
         usb_serial_jtag_vfs_use_driver();
     }

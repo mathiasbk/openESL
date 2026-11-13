@@ -89,3 +89,9 @@ if(NOT no_psram AND board_psram GREATER 0)
 endif()
 
 project(esl_ap)
+# A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
+# put on an AP that serves tags by mistake (docs/radio-sniffer.md)
+if(CONFIG_ESL_RADIO_SNIFFER AND NOT SNIFFER)
+    message(WARNING "This is a sniffer build (CONFIG_ESL_RADIO_SNIFFER in ${SDKCONFIG}): it answers no tags. "
+                    "For the AP, build in another folder (python build.py <board>).")
+endif()
