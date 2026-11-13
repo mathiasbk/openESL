@@ -54,7 +54,7 @@ make -C ap/linux TARGET=aarch64     # and newer, Raspberry Pi 2/3 in 32-bit), aa
 make -C ap/linux TARGET=x86_64      # in 64-bit), x86_64; build/<target>/openesl-ap runs on any distribution
 ```
 
-The dashboard is packed from `web/` at build time (`ap/main/webui.py`, as for the C6), so the binary is the whole AP: nothing else has to be installed.
+The web page's tabs are packed from `web/` at build time (`ap/main/webui.py`, as for the ESP32 boards), so the binary is the whole AP: nothing else has to be installed. With the renderer built (`python3 web/build.py --wasm`, Emscripten 3.1.74, into `web/dist/wasm/`, or `make WASM=DIR`) it packs the Dashboard and the Design tab, as the S3 boards have them; without it, the Dashboard alone, and the build says so. The page has no link to `/setup`: WiFi and the token are the host's (`<data>/token`).
 
 ## Running
 

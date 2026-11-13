@@ -260,7 +260,9 @@ def main():
         check(ap.request("GET", "/api/tags", auth=False)[0] == 401, "the API wants the token")
         status, _ = ap.request("GET", "/", auth=False)
         check(status in (200, 302), "/ answers")
-        check(ap.request("GET", "/dashboard", auth=False)[0] == 200, "the dashboard is served")
+        status, page = ap.request("GET", "/dashboard", auth=False)
+        check(status == 200, "the dashboard is served")
+        check(b"/setup" not in page, "the page has no link to /setup, which this AP does not serve")
 
         tags = wait_for(ap, "both simulated tags poll", lambda t: all(m in t for m in TAGS))
         check(tags[TAGS[0]]["model"] == "2.9" and tags[TAGS[1]]["model"] == "1.54", "the models are read from POLL")
