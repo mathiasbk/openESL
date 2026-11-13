@@ -46,8 +46,8 @@ static struct {
     unsigned failed;
 } sm = {.fd = -1, .pipe = {-1, -1}, .spi = PTHREAD_MUTEX_INITIALIZER};
 
-/* rx NULL: a write only, as the driver wants for commands and frames (tml's spi_write);
- * reading back during a command is only for the status */
+/* rx NULL: a write only, which the driver wants for commands and frames; reading back
+ * during a transfer is only for the status */
 static int xfer(const uint8_t *tx, uint8_t *rx, size_t n)
 {
     struct spi_ioc_transfer t;
@@ -71,15 +71,29 @@ static int cmd(uint8_t c, const uint8_t *data, size_t n)
     return err;
 }
 
+/* The modem's status, 0 = fine; 0xFFFF when it could not be read */
 static uint16_t tx_status(void)
 {
     uint8_t tx[3] = {0x02, 0, 0}, rx[3] = {0};
     pthread_mutex_lock(&sm.spi);
-    xfer(tx, rx, 1);
+    int err = xfer(tx, rx, 1);
     usleep(100);
-    xfer(tx + 1, rx + 1, 2);
+    if (!err)
+        err = xfer(tx + 1, rx + 1, 2);
     pthread_mutex_unlock(&sm.spi);
-    return (uint16_t)(rx[1] | rx[2] << 8);
+    return err ? 0xFFFF : (uint16_t)(rx[1] | rx[2] << 8);
+}
+
+/* Receive on, and the status the modem waits for before it receives: after the set-up and
+ * after a change of channel */
+static int receive_on(void)
+{
+    uint8_t p[1] = {1};
+    int err = cmd(0x8B, p, 1);
+    usleep(100000);
+    uint16_t st = tx_status();
+    ap_debug("radio: receive on, status %04X", st);
+    return err || st == 0xFFFF ? -1 : 0;
 }
 
 static int setup(uint16_t pan, uint16_t short_addr, bool promiscuous)
@@ -90,19 +104,14 @@ static int setup(uint16_t pan, uint16_t short_addr, bool promiscuous)
     err |= cmd(0x85, p, 1);
     p[0] = (uint8_t)short_addr, p[1] = (uint8_t)(short_addr >> 8);
     err |= cmd(0x86, p, 2);
-    /* a fixed IEEE address: tags talk to the AP's short address */
+    /* The modem wants an IEEE address, but the AP never uses it: tags send to the AP's short
+       address and the AP answers with its short address too (docs/protocol.md), so a fixed
+       one, locally administered (bit 1 of the first byte), does for every AP */
     static const uint8_t ieee[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0x02};
     err |= cmd(0x87, ieee, 8);
     p[0] = promiscuous || sm.promisc;
     err |= cmd(0x8C, p, 1);
-    p[0] = 1;
-    err |= cmd(0x8B, p, 1);
-    /* receive on is answered with a status, as tml's RF_RxOnOff reads it: the modem does not
-       receive until it has been read */
-    usleep(100000);
-    uint16_t st = tx_status();
-    ap_debug("radio: receive on, status %04X", st);
-    return err;
+    return err | receive_on();
 }
 
 /* ---- the framing, apart from the device so the tests can check it (test_spimodem.c) ---- */
@@ -151,15 +160,18 @@ static void *rx_thread(void *arg)
 {
     (void)arg;
     static uint8_t buf[REC_LEN * REC_MAX];
+    unsigned errors = 0;
     for (;;) {
         ssize_t r = read(sm.fd, buf, sizeof(buf));
         if (r < 0) {
             if (errno == EINTR)
                 continue;
-            ap_log("radio: read from %s: %s", sm.path, strerror(errno));
+            if (errors++ % 600 == 0) /* the first, then one a minute */
+                ap_log("radio: read from %s: %s (%u times)", sm.path, strerror(errno), errors);
             usleep(100000);
             continue;
         }
+        errors = 0;
         int64_t now = ap_clock_us();
         static esl_link_rx_t f[REC_MAX];
         size_t n = rx_records(buf, r, f, REC_MAX);
@@ -217,7 +229,8 @@ static int sm_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t short
     (void)l;
     sm.channel = channel;
     if (setup(pan, short_addr, promiscuous) != 0) {
-        fprintf(stderr, "openesl-ap: %s: the modem takes no settings: %s\n", sm.path, strerror(errno));
+        fprintf(stderr, "openesl-ap: %s: the modem takes no settings (SPI error, or no status after receive on)\n",
+                sm.path);
         return -1;
     }
     pthread_t t;
@@ -232,7 +245,17 @@ static int sm_set_channel(esl_link_t *l, uint8_t channel)
     (void)l;
     sm.channel = channel;
     uint8_t p[1] = {channel};
-    return cmd(0x85, p, 1);
+    /* a new channel needs receive on again, with its status, or the modem stops receiving */
+    return cmd(0x85, p, 1) || receive_on() ? -1 : 0;
+}
+
+/* At a stop the receive thread may wait in read() until the modem hears something, and that
+   read() cannot be interrupted: promiscuous makes any frame on the channel end it */
+static void sm_close(esl_link_t *l)
+{
+    (void)l;
+    uint8_t p[1] = {1};
+    cmd(0x8C, p, 1);
 }
 
 static int sm_open(esl_link_t *l, const char *arg)
@@ -274,5 +297,5 @@ static int sm_open(esl_link_t *l, const char *arg)
 
 const radio_backend_t radio_spimodem = {
     "spi-modem", "spi-modem:DEVICE an 802.15.4 modem behind a record-framing SPI driver (docs/linux-ap.md)",
-    sm_open, sm_recv, NULL,
+    sm_open, sm_recv, sm_close,
 };
