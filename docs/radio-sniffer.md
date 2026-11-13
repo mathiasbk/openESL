@@ -11,7 +11,7 @@ cd ap
 python build.py --sniffer c6-supermini
 ```
 
-That writes `out/openesl-ap-sniffer.bin` (everything, for a USB flash at 0) and `out/openesl-ap-sniffer-ota.bin` (the app, for an update over the air). CI builds the C6 one with the AP boards: the `ap-build-c6-supermini-sniffer` artifact of a Firmware run. Use `build.py --sniffer`, or give `idf.py -DSNIFFER=1` a build folder of its own (`-B build-sniffer`): a folder whose sdkconfig was made for the sniffer keeps building sniffers, and CMake warns when it does. It is the AP firmware with `CONFIG_ESL_RADIO_SNIFFER=y` (`ap/sniffer.sdkconfig.defaults`): no WiFi, no API, no answers, starting on `ESL_CHANNEL` (25).
+That writes `out/openesl-ap-sniffer.bin` (everything, for a USB flash at 0) and `out/openesl-ap-sniffer-ota.bin` (the app, for an update over the air). CI builds the C6 one with the AP boards: the `ap-build-c6-supermini-sniffer` artifact of a Firmware run. Use `build.py --sniffer`, or give `idf.py` a build folder and a sdkconfig of its own (`idf.py -B build-sniffer -D SDKCONFIG=build-sniffer/sdkconfig -DSNIFFER=1 build`; without `SDKCONFIG` it writes `ap/sdkconfig`, which a plain `idf.py build` then uses too). A sdkconfig made for the sniffer stays a sniffer; CMake warns when one is built without `-DSNIFFER=1`. It is the AP firmware with `CONFIG_ESL_RADIO_SNIFFER=y` (`ap/sniffer.sdkconfig.defaults`): no WiFi, no API, no answers, starting on `ESL_CHANNEL` (25).
 
 There are two ways onto a C6:
 

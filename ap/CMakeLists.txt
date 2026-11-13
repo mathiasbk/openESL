@@ -30,8 +30,11 @@ if(NOT no_base)
 endif()
 list(APPEND SDKCONFIG_DEFAULTS "boards/${BOARD}/sdkconfig.defaults")
 # -DSNIFFER=1: the same board as a sniffer that logs every frame and answers none
-# (sniffer.sdkconfig.defaults, docs/radio-sniffer.md)
-if(SNIFFER)
+# (sniffer.sdkconfig.defaults, docs/radio-sniffer.md). Not kept in the cache: every configure
+# has to ask for it again (build.py does), so a sniffer sdkconfig built without it warns below.
+set(esl_sniffer "${SNIFFER}")
+unset(SNIFFER CACHE)
+if(esl_sniffer)
     list(APPEND SDKCONFIG_DEFAULTS "sniffer.sdkconfig.defaults")
 endif()
 # The chip comes from the board, not from a sdkconfig left in this folder by another build
@@ -91,7 +94,7 @@ endif()
 project(esl_ap)
 # A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
 # put on an AP that serves tags by mistake (docs/radio-sniffer.md)
-if(CONFIG_ESL_RADIO_SNIFFER AND NOT SNIFFER)
+if(CONFIG_ESL_RADIO_SNIFFER AND NOT esl_sniffer)
     message(WARNING "This is a sniffer build (CONFIG_ESL_RADIO_SNIFFER in ${SDKCONFIG}): it answers no tags. "
-                    "For the AP, build in another folder (python build.py <board>).")
+                    "For the AP, build with python build.py <board>, or give idf.py its own -B folder and -D SDKCONFIG.")
 endif()
