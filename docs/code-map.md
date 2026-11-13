@@ -32,6 +32,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `ap/main/` | The ESP-IDF layer: WiFi, the HTTP server, NVS, the radio drivers (802.15.4, UART, network), OTA, the LCD | [ap/README.md](../ap/README.md) |
 | `ap/boards/` | One folder per AP board: `board.json`, `sdkconfig.defaults`, partitions | [ap/boards/README.md](../ap/boards/README.md) |
 | `ap/radio/`, `ap/netradio/` | Firmware for a C6 that is only the radio of an S3 AP, over a cable or over WiFi | [ap/radio/README.md](../ap/radio/README.md), [ap-netradio.md](ap-netradio.md) |
+| `ap/linux/` | The AP as a Linux program (`openesl-ap`): the core with an HTTP server, files instead of NVS, and a radio chosen at run time | [linux-ap.md](linux-ap.md) |
 | `ap/test/` | Host tests of the AP core | [ap/README.md](../ap/README.md#tests-on-the-pc) |
 | `tag/src/` | The tag firmware: `app.c` is the state machine with no hardware code, `hal/` is everything chip specific | [tag/README.md](../tag/README.md) |
 | `tag/boot/` | The tag bootloader that installs firmware received over the air | [tag-ota.md](tag-ota.md) |
@@ -70,6 +71,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | Test | Covers |
 |---|---|
 | `ap/test/` (`check.py ap-test`) | The AP core: API, store, layouts, drawing, radio rounds with a fake tag, NVS formats, scheduling, data sources |
+| `ap/linux/` (`check.py linux-ap`) | The AP program over HTTP with simulated tags: token, content to both models, restart with the data kept, the dashboard |
 | `tag/test/` (`check.py tag`) | The tag firmware for every model: protocol, image download, status screens, OTA |
 | `sim/` (`check.py sim`) | End to end: the real tag firmware against the real AP core, through the API |
 | `web/test/` (`check.py web`) | The web page's modules, the renderer against the native build, the flasher against a simulated ZBS_Flasher |
