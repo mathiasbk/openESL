@@ -7,6 +7,7 @@
 
 ROOT    := $(abspath ../..)
 CORE    := $(ROOT)/ap/components/esl_core
+COPROC  := $(ROOT)/ap/components/esl_coproc
 VERSION := $(shell cat $(ROOT)/VERSION)
 
 ZIG_armv7   := arm-linux-musleabihf -mcpu=cortex_a9   # Cortex-A9 and newer
@@ -29,7 +30,7 @@ ifeq ($(SAN),1)
 WARN    += -fsanitize=address,undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address,undefined
 endif
-CFLAGS  := -std=c11 $(WARN) -I$(CORE)/include -I$(ROOT)/shared -I$(ROOT)/tag/src -I$(ROOT)/ap/main \
+CFLAGS  := -std=c11 $(WARN) -I$(CORE)/include -I$(COPROC)/include -I$(ROOT)/shared -I$(ROOT)/tag/src -I$(ROOT)/ap/main \
            -DOPENESL_VERSION='"$(VERSION)"' -DESL_BOARD='"linux"' -DESL_BOARD_NAME='"Linux"'
 LDLIBS  := -lpthread -lm
 
@@ -37,8 +38,8 @@ LDLIBS  := -lpthread -lm
 CORE_SRCS := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c))
 # the tag's fonts and barcodes, which esl_render draws with (as esl_core/CMakeLists.txt)
 TAG_SRCS  := $(ROOT)/tag/src/font.c $(ROOT)/tag/src/barcode.c $(wildcard $(ROOT)/tag/fonts/font_*.c)
-SRCS      := main.c store_files.c http.c radio_sim.c
-OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) \
+SRCS      := main.c store_files.c http.c radio_sim.c radio_coproc.c
+OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) $(OUT)/esl_coproc.o \
              $(TAG_SRCS:$(ROOT)/tag/%.c=$(OUT)/tag/%.o) $(OUT)/webui_files.o
 DEPS      := ap.h Makefile $(wildcard $(CORE)/include/*.h $(ROOT)/shared/*.h) $(ROOT)/VERSION
 
@@ -53,6 +54,10 @@ $(OUT)/%.o: %.c $(DEPS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OUT)/core/%.o: $(CORE)/%.c $(DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Wpedantic -c $< -o $@
+
+$(OUT)/esl_coproc.o: $(COPROC)/esl_coproc.c $(COPROC)/include/esl_coproc.h $(DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Wpedantic -c $< -o $@
 

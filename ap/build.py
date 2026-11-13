@@ -26,7 +26,9 @@ also builds the radio coprocessor firmware for each radio board its "radio_fw" n
 link (POST /api/ota, docs/ap-radio-link.md). A board with "radio": "net" (the radio over WiFi,
 docs/ap-netradio.md) builds netradio/ the same way, for each of its "radio_fw"
 (netradio/boards/<id>/radio.json: c6), as <artifact>.bin only: nothing updates it over the
-air yet.
+air yet. A radio board with "host": "linux" in radio.json (c6-usb) is the radio of the AP as a
+Linux program (docs/linux-ap.md), which no board here names: it is built and released on its
+own, like the radios the boards name.
 
 For each board: build-<board>/ with its own sdkconfig, then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
@@ -114,6 +116,22 @@ def load_radios(boards):
                 sys.exit("%s: id must be the folder name (%s)" % (path, name))
             r["project"] = project
             radios.append(r)
+    return radios
+
+
+def linux_radios():
+    """The radio boards for the AP as a Linux program ("host": "linux" in radio.json): no ESP32
+    board names them, so they are listed here to be built and released all the same."""
+    radios = []
+    for path in sorted(glob.glob(os.path.join(HERE, "radio", "boards", "*", "radio.json"))):
+        with open(path, encoding="utf-8") as f:
+            r = json.load(f)
+        if r.get("host") != "linux":
+            continue
+        if r.get("id") != os.path.basename(os.path.dirname(path)):
+            sys.exit("%s: id must be the folder name" % path)
+        r["project"] = "radio"
+        radios.append(r)
     return radios
 
 
@@ -277,11 +295,11 @@ def main():
     boards = load_boards()
     args = sys.argv[1:]
     if args == ["--list"]:
-        for b in boards + load_radios(boards):
+        for b in boards + load_radios(boards) + linux_radios():
             print("%-20s %-8s %-12s %s" % (b["id"], b["target"], b["status"], b["artifact"]))
         return
     if args == ["--release"]:
-        for b in boards + load_radios(boards):
+        for b in boards + load_radios(boards) + linux_radios():
             print(b["artifact"], b["release"])
         return
     if args == ["--jobs"]:
@@ -290,7 +308,7 @@ def main():
         native = sorted((b for b in boards if b.get("radio", "native") == "native"), key=lambda b: not b.get("recommended"))
         jobs += [{"name": b["id"] + "-sniffer", "args": "--sniffer " + b["id"]} for b in native[:1]]
         jobs += [{"name": "%s-%s" % (r["project"], r["id"]), "args": "%s/%s" % (r["project"], r["id"])}
-                 for r in load_radios(boards)]
+                 for r in load_radios(boards) + linux_radios()]
         print(json.dumps(jobs))
         return
     if args[:1] == ["--sizes"]:
@@ -299,7 +317,7 @@ def main():
     sniffer = "--sniffer" in args
     args = [a for a in args if a not in ("--no-radio", "--sniffer")]
     by_id = {b["id"]: b for b in boards}
-    radios = {"%s/%s" % (r["project"], r["id"]): r for r in load_radios(boards)}
+    radios = {"%s/%s" % (r["project"], r["id"]): r for r in load_radios(boards) + linux_radios()}
     unknown = [a for a in args if a not in by_id and a not in radios]
     if unknown:
         sys.exit("unknown board %s; the boards are %s" % (", ".join(unknown), ", ".join(list(by_id) + list(radios))))
@@ -321,6 +339,8 @@ def main():
     infos = [build(b) for b in chosen]
     if not no_radio:
         chosen_radios += [r for r in load_radios(chosen) if r not in chosen_radios]
+        if not args:
+            chosen_radios += [r for r in linux_radios() if r not in chosen_radios]
     infos += [build_radio(r) for r in chosen_radios]
     # the images are in out/ either way, so CI can still show the table; then the budget
     if not all([check_budget(i) for i in infos]):

@@ -7,11 +7,17 @@ Starts the binary with --radio sim on a free local port and a fresh data directo
 checks that the API answers with and without the token, that both tag models get content
 drawn and sent block by block until they report it, that a restart keeps the content, the
 AP id and the token, that an AP id file that cannot be read is not replaced, that the
-dashboard is served, and the HTTP server's limits (connections, bad heads). Exits 1 on
-the first failure.
+dashboard is served, and the HTTP server's limits (connections, bad heads). Then
+--radio uart against a radio played by this script on a pseudo-terminal, speaking the
+link of docs/ap-radio-link.md (ap/components/esl_coproc). Exits 1 on the first failure.
 """
 import json
 import os
+import pty
+import select
+import struct
+import termios
+import tty
 import shutil
 import signal
 import socket
@@ -84,6 +90,99 @@ def raw_request(port, data):
         except (ConnectionResetError, BrokenPipeError):
             return None
     return int(line[1]) if len(line) > 1 else None
+
+
+# ---- a radio coprocessor on a pseudo-terminal (esl_coproc.h) ----
+
+def crc16(data):
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def coproc_frame(typ, payload):
+    body = bytes([typ, len(payload)]) + payload
+    return b"\xa5" + body + struct.pack("<H", crc16(body))
+
+
+class FakeRadio:
+    """Answers CONFIG and PING with HELLO, hands the host RX frames and collects its TX"""
+
+    def __init__(self):
+        self.master, slave = pty.openpty()
+        tty.setraw(slave)
+        self.path = os.ttyname(slave)
+        self.slave = slave
+        self.buf = b""
+        self.cfg = None
+        self.tx = []
+
+    def pump(self, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            r, _, _ = select.select([self.master], [], [], 0.05)
+            if r:
+                self.buf += os.read(self.master, 4096)
+            while True:
+                i = self.buf.find(b"\xa5")
+                if i < 0 or len(self.buf) < i + 5:
+                    break
+                typ, n = self.buf[i + 1], self.buf[i + 2]
+                if len(self.buf) < i + 5 + n:
+                    break
+                body, crc = self.buf[i + 1:i + 3 + n], self.buf[i + 3 + n:i + 5 + n]
+                self.buf = self.buf[i + 5 + n:]
+                if struct.unpack("<H", crc)[0] != crc16(body):
+                    continue
+                payload = body[2:]
+                if typ == 0x02:                       # CONFIG
+                    self.cfg = payload[:7]
+                if typ in (0x01, 0x02) and self.cfg:  # PING, CONFIG -> HELLO, configured
+                    hello = bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + self.cfg
+                    os.write(self.master, coproc_frame(0x81, hello))
+                if typ == 0x03:                       # TX: ref + PSDU
+                    self.tx.append(payload)
+
+    def rx(self, ref, psdu):
+        os.write(self.master, coproc_frame(0x82, bytes([ref, 256 - 60, self.cfg[0]]) + psdu))
+
+
+def poll_psdu(mac, seq=1, model=1):
+    p = bytearray(18)
+    p[0], p[1] = 0x01, 1
+    struct.pack_into("<HHIBBH", p, 2, 1000, 2950, 0, 0x20, model, 0)
+    return bytes([0x41, 0xC8, seq]) + struct.pack("<HH", 0x4553, 0) + struct.pack("<Q", mac) + bytes(p) + b"\0\0"
+
+
+def test_uart(binary, tmp):
+    radio = FakeRadio()
+    data = os.path.join(tmp, "uart")
+    port = free_port()
+    log = open(os.path.join(tmp, "uart.log"), "ab")
+    p = subprocess.Popen([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "uart:" + radio.path,
+                          "--channel", "15", "--token", "t"], stdout=log, stderr=log)
+    try:
+        radio.pump(3)
+        check(radio.cfg is not None and radio.cfg[0] == 15 and radio.cfg[1:3] == b"\x53\x45",
+              "uart: the radio gets CONFIG with the channel and PAN")
+        mac = 0x00000000FAC70077
+        radio.rx(7, poll_psdu(mac))
+        radio.pump(1)
+        check(len(radio.tx) == 1 and radio.tx[0][0] == 7, "uart: a POLL as RX gets a TX with its ref")
+        reply = radio.tx[0][1:]
+        check(reply[0] == 0x41 and reply[1] == 0x8C and struct.unpack("<Q", reply[5:13])[0] == mac,
+              "uart: the reply is addressed to the tag")
+        check(reply[15] in (0x02, 0x08), "uart: the reply is IDLE or CONFIG")
+    finally:
+        p.send_signal(signal.SIGTERM)
+        rc = p.wait(timeout=10)
+        log.close()
+        os.close(radio.master)
+        os.close(radio.slave)
+    check(rc == 0, "uart: SIGTERM stops it cleanly")
 
 
 def check(ok, what):
@@ -191,6 +290,8 @@ def main():
         check(ap.json("GET", "/api/config").get("ap_id") is None, "a cut ap_id file gives no AP id")
         check(os.path.getsize(id_file) == 3, "and is left as it is")
         check(ap.stop() == 0, "SIGTERM stops it cleanly a third time")
+
+        test_uart(binary, tmp)
     finally:
         log = os.path.join(tmp, "ap.log")
         if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):

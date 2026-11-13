@@ -23,7 +23,7 @@ ap_t ap;
 int ap_verbose;
 static volatile sig_atomic_t stop;
 
-static const radio_backend_t *const backends[] = {&radio_sim, NULL};
+static const radio_backend_t *const backends[] = {&radio_sim, &radio_coproc, NULL};
 
 /* ---- clock and log ---- */
 

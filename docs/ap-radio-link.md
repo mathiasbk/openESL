@@ -16,7 +16,7 @@ ESP32-S3 N16R8: four tags online, polls answered in about 2.3 ms (`replies.worst
 updated over WiFi and the radio over the cable (twice, about 8 s each). The C6 with screen as the
 radio is experimental: its image builds, but it is not tried yet.
 
-For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md).
+For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md). The same link also runs over the C6's own USB port to a Linux host (radio board `c6-usb`, `openesl-ap --radio uart:/dev/ttyACM0`, [linux-ap.md](linux-ap.md)).
 
 ## Wiring
 

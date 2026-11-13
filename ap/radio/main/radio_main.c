@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "driver/uart.h"
+#include "driver/usb_serial_jtag.h"
 #include "esl_coproc.h"
 #include "esl_lcd.h"
 #include "esl_screen.h"
@@ -28,6 +29,9 @@
  * that comes too late is not sent at all.
  *
  * There is no WiFi on this chip, so 802.15.4 has the radio to itself.
+ *
+ * The link is the UART pins (an S3 host), or with ESL_COPROC_LINK_USB the C6's own
+ * USB port, a serial port on a Linux host running openesl-ap (docs/linux-ap.md).
  *
  * On a C6 with a small LCD (boards/c6-lcd, ESL_DISPLAY) the screen shows the
  * AP's status, which the host sends as SCREEN every couple of seconds.
@@ -111,14 +115,82 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
     portYIELD_FROM_ISR(woken);
 }
 
-/* ---- link ---- */
+/* ---- link: UART pins or the USB port ---- */
+
+#if CONFIG_ESL_COPROC_LINK_USB
+/* With no host reading the port the driver's buffer fills: a frame then waits this long
+   and is dropped, so RX and TX_DONE never block on a host that is gone */
+#define USB_WRITE_WAIT pdMS_TO_TICKS(20)
+
+static void link_write(const uint8_t *f, size_t n)
+{
+    usb_serial_jtag_write_bytes(f, n, USB_WRITE_WAIT);
+}
+
+/* Up to n bytes: the first waits up to wait, the rest are what is there already */
+static int link_read(uint8_t *buf, size_t n, TickType_t wait)
+{
+    return usb_serial_jtag_read_bytes(buf, n, wait);
+}
+
+static void link_flush(void)
+{
+    usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
+}
+
+static void link_init(void)
+{
+    usb_serial_jtag_driver_config_t uc = {.tx_buffer_size = 2048, .rx_buffer_size = 2048};
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&uc));
+}
+#else
+static void link_write(const uint8_t *f, size_t n)
+{
+    uart_write_bytes(CONFIG_ESL_COPROC_UART_NUM, f, n);
+}
+
+static int link_read(uint8_t *buf, size_t n, TickType_t wait)
+{
+    int got = uart_read_bytes(CONFIG_ESL_COPROC_UART_NUM, buf, 1, wait);
+    if (got <= 0)
+        return got;
+    size_t more = 0;
+    uart_get_buffered_data_len(CONFIG_ESL_COPROC_UART_NUM, &more);
+    if (more > n - 1)
+        more = n - 1;
+    if (more)
+        got += uart_read_bytes(CONFIG_ESL_COPROC_UART_NUM, &buf[1], more, 0);
+    return got;
+}
+
+static void link_flush(void)
+{
+    uart_wait_tx_done(CONFIG_ESL_COPROC_UART_NUM, pdMS_TO_TICKS(100));
+}
+
+static void link_init(void)
+{
+    const uart_config_t uc = {
+        .baud_rate = ESL_COPROC_BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESL_COPROC_UART_NUM, 2048, 2048, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_param_config(CONFIG_ESL_COPROC_UART_NUM, &uc));
+    ESP_ERROR_CHECK(uart_set_pin(CONFIG_ESL_COPROC_UART_NUM, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO,
+                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+}
+#endif
 
 static void link_send(const uint8_t *f, size_t n)
 {
     if (!n)
         return;
     xSemaphoreTake(uart_lock, portMAX_DELAY);
-    uart_write_bytes(CONFIG_ESL_COPROC_UART_NUM, f, n);
+    link_write(f, n);
     xSemaphoreGive(uart_lock);
 }
 
@@ -367,7 +439,7 @@ static void handle_message(const esl_coproc_parser_t *p)
         }
         link_send(f, n);
         if (done) {
-            uart_wait_tx_done(CONFIG_ESL_COPROC_UART_NUM, pdMS_TO_TICKS(100)); /* the ACK first */
+            link_flush(); /* the ACK first */
             esp_restart();
         }
         break;
@@ -391,17 +463,11 @@ static void uart_task(void *arg)
     int64_t last_read_us = 0;
     esl_coproc_parser_init(&parser);
     for (;;) {
-        int n = uart_read_bytes(CONFIG_ESL_COPROC_UART_NUM, buf, 1, portMAX_DELAY);
+        int n = link_read(buf, sizeof(buf), portMAX_DELAY);
         if (n <= 0)
             continue;
         if (esp_timer_get_time() - last_read_us > ESL_COPROC_GAP_US)
             esl_coproc_parser_gap(&parser); /* the host restarted mid-frame */
-        size_t more = 0;
-        uart_get_buffered_data_len(CONFIG_ESL_COPROC_UART_NUM, &more);
-        if (more > sizeof(buf) - 1)
-            more = sizeof(buf) - 1;
-        if (more)
-            n += uart_read_bytes(CONFIG_ESL_COPROC_UART_NUM, &buf[1], more, 0);
         for (int i = 0; i < n; i++) {
             uint32_t bad = parser.bad_crc + parser.too_long;
             if (esl_coproc_parser_feed(&parser, buf[i]))
@@ -452,7 +518,11 @@ static void screen_task(void *arg)
     static esl_coproc_screen_t sc;
     static esl_screen_t s;
     char pins[ESL_SCREEN_LINE_MAX];
+#if CONFIG_ESL_COPROC_LINK_USB
+    snprintf(pins, sizeof(pins), "USB");
+#else
     snprintf(pins, sizeof(pins), "UART TX %d RX %d", CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO);
+#endif
     bool shown = false;
     for (;;) {
         if (xQueueReceive(screen_box, &sc, pdMS_TO_TICKS(SCREEN_STALE_MS)) == pdTRUE) {
@@ -486,23 +556,16 @@ static void screen_start(void)
 
 void app_main(void)
 {
+#if CONFIG_ESL_COPROC_LINK_USB
+    ESP_LOGI(TAG, "OpenESL 802.15.4 radio %d.%d (%s), link v%d on the USB port", RADIO_FW_VERSION >> 8,
+             RADIO_FW_VERSION & 0xFF, esp_app_get_description()->version, ESL_COPROC_VERSION);
+#else
     ESP_LOGI(TAG, "OpenESL 802.15.4 radio %d.%d (%s), link v%d on UART%d (TX GPIO%d, RX GPIO%d, %d baud)",
              RADIO_FW_VERSION >> 8, RADIO_FW_VERSION & 0xFF, esp_app_get_description()->version, ESL_COPROC_VERSION,
              CONFIG_ESL_COPROC_UART_NUM, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO, ESL_COPROC_BAUD);
+#endif
     ota_watch_running();
-
-    const uart_config_t uc = {
-        .baud_rate = ESL_COPROC_BAUD,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
-    };
-    ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESL_COPROC_UART_NUM, 2048, 2048, 0, NULL, 0));
-    ESP_ERROR_CHECK(uart_param_config(CONFIG_ESL_COPROC_UART_NUM, &uc));
-    ESP_ERROR_CHECK(uart_set_pin(CONFIG_ESL_COPROC_UART_NUM, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO,
-                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    link_init();
 
     rx_queue = xQueueCreate(16, sizeof(rx_item_t));
     tx_idle = xSemaphoreCreateBinary();

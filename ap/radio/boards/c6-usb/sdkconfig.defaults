@@ -1,0 +1,5 @@
+# A C6 on the USB port of a Linux host running openesl-ap (docs/linux-ap.md): the link is the
+# built-in USB Serial/JTAG port, so the log goes to the UART pins (GPIO16 TX) instead of it.
+CONFIG_ESL_COPROC_LINK_USB=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
