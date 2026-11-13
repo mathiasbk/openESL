@@ -314,6 +314,12 @@ class Client:
     def set_time(self, unix_s):
         return self._request("PUT", "/api/time", {"time": int(unix_s)})
 
+    def remote(self):
+        return self._request("GET", "/api/remote")
+
+    def set_remote(self, **kw):
+        return self._request("PUT", "/api/remote", kw)
+
     def schedule(self):
         return self._request("GET", "/api/schedule")
 
@@ -788,6 +794,36 @@ def print_status(st):
         print(f"{t['mac']:16}  {t.get('model') or '-':5}  {fmt_ago(t.get('seen_s_ago')):>7}  "
               f"{(str(batt) + ' mV') if batt else '-':>6}  "
               f"{t.get('rssi') if t.get('rssi') is not None else '-':>4}  {state}")
+
+
+def print_remote(r):
+    hook = r.get("webhook") or "none"
+    if r.get("webhook") and r.get("webhook_status") is not None:
+        hook += f" (last post: {r['webhook_status']})"
+    how = "the AP is on channel 11" if r.get("hearing") and not r.get("listen") else \
+        "listening on channel 11" if r.get("hearing") else \
+        "not hearing it: move the AP to channel 11 or use --listen on" if r.get("can_listen") else \
+        "not hearing it: move the AP to channel 11"
+    print(f"remote: {how}; webhook {hook}; {r.get('frames', 0)} frames heard")
+    for p in r.get("presses", []):
+        print(f"  #{p['id']:<4} {p['button']:<6} {p['s_ago']:>6} s ago  {p['rssi']} dBm")
+
+
+def watch_remote(cli, r):
+    """Prints each press GET /api/remote shows that was not there before (Ctrl-C ends)."""
+    boot, last = r.get("boot"), max((p["id"] for p in r.get("presses", [])), default=0)
+    try:
+        while True:
+            time.sleep(1)
+            r = cli.remote()
+            if r.get("boot") != boot:
+                boot, last = r.get("boot"), 0
+            for p in sorted(r.get("presses", []), key=lambda p: p["id"]):
+                if p["id"] > last:
+                    print(f"{time.strftime('%H:%M:%S')}  #{p['id']} {p['button']} ({p['rssi']} dBm)", flush=True)
+                    last = p["id"]
+    except KeyboardInterrupt:
+        pass
 
 
 def print_health(h):
@@ -1976,6 +2012,12 @@ def main(argv=None):
     s.add_argument("--lang", choices=["en", "nb", ""],
                    help="language of the date fields {weekday} and {date}: en or nb; \"\" = English (AP 0.11.0 and later)")
 
+    s = sub.add_parser("remote", help="the SoluM remote as a button: its last presses, and listen and its webhook "
+                                      "(docs/solum-remote.md); --watch prints each press as it comes")
+    s.add_argument("--listen", choices=["on", "off"], help="visit channel 11 for the remote while the AP runs on another channel")
+    s.add_argument("--webhook", help="URL the AP posts each press to; \"\" turns it off")
+    s.add_argument("--watch", action="store_true", help="print each new press (reads the AP once a second)")
+
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
     s.add_argument("image", nargs="?", help="build/esl_ap.bin, or openesl-ap-*-ota.bin from a release; "
@@ -2151,6 +2193,16 @@ def main(argv=None):
             if args.ap_id is not None:
                 kw["ap_id"] = args.ap_id
             print_config(cli.set_config(**kw) if kw else cli.config())
+        elif args.cmd == "remote":
+            kw = {}
+            if args.listen is not None:
+                kw["listen"] = args.listen == "on"
+            if args.webhook is not None:
+                kw["webhook"] = args.webhook or None
+            r = cli.set_remote(**kw) if kw else cli.remote()
+            print_remote(r)
+            if args.watch:
+                watch_remote(cli, r)
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)
         elif args.cmd == "ota":

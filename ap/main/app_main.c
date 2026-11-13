@@ -144,6 +144,9 @@ void app_main(void)
         ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());
     }
     api_handle_init();
+#if CONFIG_ESL_RADIO_DRIVER_IEEE802154
+    api.remote = remote_start(true); /* a SoluM remote as a button (docs/solum-remote.md) */
+#endif
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);
 #endif

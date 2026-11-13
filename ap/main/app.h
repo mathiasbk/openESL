@@ -132,6 +132,12 @@ void captive_dns_stop(void);
 /* radio.c (AP or sniffer mode, over the link of the radio driver) or
  * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);
+/* remote.c (the C6's own radio): a SoluM remote as a button (esl_remote.h), for api->remote;
+ * can_listen: the radio can visit channel 11. radio.c hands it every frame (remote_frame,
+ * from the radio task) and visits channel 11 while remote_listening(). */
+esl_remote_t *remote_start(bool can_listen);
+void remote_frame(const esl_link_rx_t *f);
+bool remote_listening(void);
 /* radio_tx.c (not with the stub radio): the transmit power for api->tx_power, loaded
  * from NVS on the first call; radio_start() uses it. radio_set_tx_power() (radio.c,
  * radio_net.c) hands a new one to the radio, from any task. */

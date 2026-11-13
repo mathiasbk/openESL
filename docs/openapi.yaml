@@ -165,6 +165,15 @@ tags:
       MET Norway's data is CC BY 4.0: show "MET Norway" where the forecast is shown (the weather
       template does).
 
+  - name: Remote
+    description: |
+      A SoluM ESL remote (SLT-RC004) as a wireless button with three buttons: W, left and right.
+      The AP hears its presses on channel 11, either because the AP runs on channel 11, or
+      because `listen` is on and the radio visits channel 11 for 14 ms every 48 ms (which costs
+      the tags some battery). Each press is kept in `presses` and posted to `webhook`. The C6 as
+      the AP's own radio only (boards `c6`, `c6-lcd`, `c5`); the others answer `404`. How it works:
+      [docs/solum-remote.md](https://github.com/mathiasbk/openesl/blob/master/docs/solum-remote.md).
+
 paths:
   /api/tags:
     get:
@@ -1501,6 +1510,55 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
 
+  /api/remote:
+    get:
+      tags: [Remote]
+      operationId: getRemote
+      summary: The SoluM remote's settings and its last presses
+      responses:
+        "200":
+          description: The settings and up to 8 presses, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Remote" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "This AP cannot hear the remote", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "not found" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
+    put:
+      tags: [Remote]
+      operationId: setRemote
+      summary: Listen for the remote, and where to post its presses
+      description: |
+        Either or both. `listen` makes the radio visit channel 11 while the AP runs on another
+        channel. `webhook` is where each press is `POST`ed as `{"event":"remote","button":"w",
+        "id":3,"boot":2817364121,"rssi":-61}` (`id` counts from 1 after each restart, and
+        `boot` is new at each restart); null or "" posts nowhere. A press that cannot be posted
+        is not sent again. Kept in NVS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                listen: { type: boolean }
+                webhook: { type: [string, "null"], maxLength: 127, description: "http://host[:port][/path]" }
+            examples:
+              listen:
+                summary: Listen, and post to Home Assistant
+                value: { listen: true, webhook: "http://192.168.1.10:8123/api/webhook/openesl_remote_x" }
+      responses:
+        "200":
+          description: Saved; the settings as they are now
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Remote" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "This AP cannot hear the remote", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "not found" } } } }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/Locked" }
   /api/radios:
     get:
       tags: [AP]
@@ -1897,6 +1955,32 @@ components:
         mac: { $ref: "#/components/schemas/Mac" }
         scheduled: { const: true }
         at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC" }
+
+    Remote:
+      type: object
+      additionalProperties: false
+      required: [channel, listen, can_listen, hearing, webhook, webhook_status, boot, frames, presses]
+      properties:
+        channel: { type: integer, enum: [11], description: The remote's channel }
+        listen: { type: boolean, description: The radio visits channel 11 while the AP runs on another one }
+        can_listen: { type: boolean, description: This AP's radio can visit channel 11 }
+        hearing: { type: boolean, description: "The AP hears the remote now: it runs on channel 11, or listens" }
+        webhook: { type: [string, "null"], description: Where each press is posted }
+        webhook_status: { type: [integer, "null"], description: "The HTTP status of the last post, -1 = no answer; null = none yet" }
+        boot: { type: integer, minimum: 0, maximum: 4294967295, description: A random number per AP start }
+        frames: { type: integer, minimum: 0, description: Remote frames heard since the start (ten per press) }
+        presses:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, button, s_ago, rssi]
+            properties:
+              id: { type: integer, minimum: 1, description: "1, 2, ... since the start" }
+              button: { type: string, enum: [w, left, right] }
+              s_ago: { type: integer, minimum: 0 }
+              rssi: { type: integer, description: dBm }
 
     Time:
       type: object

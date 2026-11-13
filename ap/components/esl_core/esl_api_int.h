@@ -32,6 +32,7 @@
 #define PATH_TAGFW "/api/tag-firmware"
 #define PATH_SOURCES "/api/sources"
 #define PATH_RADIOS "/api/radios"
+#define PATH_REMOTE "/api/remote"
 
 typedef struct {
     const char *js;
@@ -66,6 +67,7 @@ esl_api_route_fn api_route_wifi;      /* esl_api_wifi.c */
 esl_api_route_fn api_route_radios;    /* esl_api_radios.c */
 esl_api_route_fn api_route_time;      /* esl_api_time.c */
 esl_api_route_fn api_route_schedule;  /* esl_api_time.c */
+esl_api_route_fn api_route_remote;    /* esl_api_remote.c */
 
 /* esl_api_util.c */
 void api_sb_reset(esl_sb_t *sb);

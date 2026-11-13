@@ -38,6 +38,15 @@ static const char *TAG = "radio";
 #define HOP_MS 0
 #endif
 
+/* A SoluM remote as a button (remote.c, esl_remote.h): the C6's own radio hears it, and
+   visits channel 11 for it while the AP runs on another channel */
+#if !SNIFFER && CONFIG_ESL_RADIO_DRIVER_IEEE802154
+#define REMOTE 1
+#include "esp_timer.h"
+#else
+#define REMOTE 0
+#endif
+
 static QueueHandle_t rx_queue;
 static esl_store_t *store;
 static esl_layouts_t *layouts;
@@ -125,6 +134,62 @@ static void hop(int64_t *next_hop_us, int64_t last_frame_us)
 }
 #endif
 
+#if REMOTE
+/* The visits to channel 11. A timer every ESL_REMOTE_PERIOD_MS puts a frame of length 0
+   (ref VISIT_START) on the queue, and the radio task moves to channel 11; a second timer
+   ends the visit after ESL_REMOTE_VISIT_MS (VISIT_END, at the front of the queue). Only the radio task
+   changes the channel, so a reply being sent is never cut off. A frame heard on channel 11
+   during a visit goes only to the remote: a tag scanning there is not answered from the
+   wrong channel. */
+enum { VISIT_START = 1, VISIT_END = 2 };
+static esp_timer_handle_t visit_timer, visit_end_timer;
+static uint8_t home_channel;  /* the AP's channel */
+static int64_t visit_until;   /* 0 = not visiting */
+static uint32_t visits;
+static uint32_t visit_skipped; /* frames from the AP's channel not answered: they came during a visit */
+
+static void visit_mark(void *arg)
+{
+    esl_link_rx_t m = {0};
+    m.ref = (uint32_t)(uintptr_t)arg;
+    if (m.ref == VISIT_START) {
+        /* behind the frames waiting, so a POLL heard just before is answered first */
+        if (remote_listening() && home_channel != ESL_REMOTE_CHANNEL)
+            xQueueSendToBack(rx_queue, &m, 0);
+    } else if (xQueueSendToFront(rx_queue, &m, 0) != pdTRUE) {
+        ESP_LOGD(TAG, "visit end: queue full"); /* radio_task ends it by the clock */
+    }
+}
+
+static void visit_start(void)
+{
+    if (visit_until || !remote_listening() || home_channel == ESL_REMOTE_CHANNEL)
+        return;
+    radio_link.set_channel(&radio_link, ESL_REMOTE_CHANNEL);
+    visit_until = esp_timer_get_time() + ESL_REMOTE_VISIT_MS * 1000LL;
+    visits++;
+    esp_timer_start_once(visit_end_timer, ESL_REMOTE_VISIT_MS * 1000ULL);
+}
+
+static void visit_end(void)
+{
+    if (!visit_until)
+        return;
+    visit_until = 0;
+    radio_link.set_channel(&radio_link, home_channel);
+}
+
+static void remote_start_visits(uint8_t channel)
+{
+    home_channel = channel;
+    const esp_timer_create_args_t a = {.callback = visit_mark, .arg = (void *)VISIT_START, .name = "visit"};
+    const esp_timer_create_args_t b = {.callback = visit_mark, .arg = (void *)VISIT_END, .name = "visit_end"};
+    if (esp_timer_create(&a, &visit_timer) != ESP_OK || esp_timer_create(&b, &visit_end_timer) != ESP_OK ||
+        esp_timer_start_periodic(visit_timer, ESL_REMOTE_PERIOD_MS * 1000ULL) != ESP_OK)
+        ESP_LOGE(TAG, "remote: no visits to channel %u", ESL_REMOTE_CHANNEL);
+}
+#endif
+
 #if !SNIFFER
 /* A planned channel move (esl_store_move_channel), once the tags have it or the time is up */
 static void move_channel(void)
@@ -132,6 +197,10 @@ static void move_channel(void)
     uint8_t ch = esl_store_channel_step(store, (uint64_t)esp_timer_get_time() / 1000);
     if (!ch)
         return;
+#if REMOTE
+    visit_end();
+    home_channel = ch;
+#endif
     int err = radio_link.set_channel ? radio_link.set_channel(&radio_link, ch) : ESP_ERR_NOT_SUPPORTED;
     ESP_LOGI(TAG, "moved to channel %u: %s", ch, esp_err_to_name(err));
 }
@@ -151,17 +220,43 @@ static void radio_task(void *arg)
     ESL_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
-        if (xQueueReceive(rx_queue, &f, wait ? wait : 1) == pdTRUE) {
+#if REMOTE
+        TickType_t w = visit_until ? 1 : wait; /* during a visit: its end, should its mark be lost */
+#else
+        TickType_t w = wait;
+#endif
+        if (xQueueReceive(rx_queue, &f, w ? w : 1) == pdTRUE) {
 #if SNIFFER
             radio_link.stats.rx++;
             log_frame(&f);
 #if HOP_MS
             last_frame_us = f.rx_us;
 #endif
+#elif REMOTE
+            if (f.len == 0) { /* a mark from the visit timers */
+                if (f.ref == VISIT_START)
+                    visit_start();
+                else
+                    visit_end();
+            } else {
+                /* A tag is answered only while the radio is on its channel: not a frame heard on
+                   11 during a visit, nor one from the AP's channel that waited in the queue behind
+                   VISIT_START (a busy radio task): its reply would go out on 11, where the tag is
+                   not, and the time sending it would be lost to the remote. The tag retries. */
+                if (!visit_until && (f.channel != ESL_REMOTE_CHANNEL || home_channel == ESL_REMOTE_CHANNEL))
+                    handle_frame(&f);
+                else if (f.channel != ESL_REMOTE_CHANNEL)
+                    visit_skipped++;
+                remote_frame(&f);
+            }
 #else
             handle_frame(&f);
 #endif
         }
+#if REMOTE
+        if (visit_until && esp_timer_get_time() >= visit_until + 2000) /* its mark was lost */
+            visit_end();
+#endif
 #if HOP_MS
         hop(&next_hop_us, last_frame_us);
 #endif
@@ -175,6 +270,13 @@ static void radio_task(void *arg)
                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                      (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+#if REMOTE
+            if (visits)
+                ESP_LOGI(TAG, "remote: %lu visits to channel %u, %lu frames left for the tag's retry", (unsigned long)visits,
+                         ESL_REMOTE_CHANNEL, (unsigned long)visit_skipped);
+            visits = 0;
+            visit_skipped = 0;
+#endif
             ESP_LOGI(TAG, "stats: rx %lu polls %lu blocks %lu replies %lu tx_failed %lu tx_resent %lu dropped %lu worst %lld us",
                      (unsigned long)s->rx, (unsigned long)s->polls, (unsigned long)s->blocks,
                      (unsigned long)s->replies, (unsigned long)s->tx_failed, (unsigned long)s->tx_resent,
@@ -196,6 +298,10 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     if (xTaskCreate(radio_task, "radio", 6656, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     esp_err_t err = radio_link.start(&radio_link, channel, pan_id, ESL_AP_SHORT_ADDR, SNIFFER);
+#if REMOTE
+    if (err == ESP_OK)
+        remote_start_visits(channel);
+#endif
     int8_t dbm = radio_tx_power()->dbm;
     if (err == ESP_OK && dbm != CONFIG_ESL_TX_POWER_DBM) /* the driver starts with menuconfig's */
         radio_set_tx_power(dbm);

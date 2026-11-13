@@ -20,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static uint64_t forgot;
 static int forget_radio(void *ctx, uint64_t id)

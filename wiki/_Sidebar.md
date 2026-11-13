@@ -43,6 +43,7 @@
 - [Price lists from CSV](Price-lists-from-CSV)
 - [Scheduled prices](Scheduled-prices)
 - [Home Assistant](Home-Assistant)
+- [SoluM remote as a button](SoluM-remote)
 - [Weather on a label](Weather)
 - [Picture from a URL](Picture-from-a-URL)
 - [Electricity price](Electricity-price)

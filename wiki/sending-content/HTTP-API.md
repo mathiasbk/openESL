@@ -20,6 +20,7 @@ Every call needs `Authorization: Bearer <token>` ([WiFi and API token](WiFi-and-
 | `PUT /api/tags/{mac}/draw` | Draw a one-off design on one label, without a layout file |
 | `PUT /api/tags/{mac}/image` | Show a picture (PNG) on one label |
 | `GET /api/schedule` | Content waiting for its time ([Scheduled prices](Scheduled-prices)) |
+| `GET`/`PUT /api/remote` | The SoluM remote: its last presses, listen, and its webhook ([SoluM remote as a button](SoluM-remote)) |
 
 ## One label
 
