@@ -1,3 +1,4 @@
-# The sniffer build: python build.py --sniffer <board>, or idf.py -DSNIFFER=1 build
-# (docs/radio-sniffer.md). Read after the board's sdkconfig.defaults.
+# The sniffer build: python build.py --sniffer <board> (its own build-<board>-sniffer folder),
+# or idf.py -B build-sniffer -DSNIFFER=1 build: give it a folder of its own, since a sdkconfig
+# made with it stays a sniffer (docs/radio-sniffer.md). Read after the board's sdkconfig.defaults.
 CONFIG_ESL_RADIO_SNIFFER=y

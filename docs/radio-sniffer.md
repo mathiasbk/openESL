@@ -11,7 +11,7 @@ cd ap
 python build.py --sniffer c6-supermini
 ```
 
-That writes `out/openesl-ap-sniffer.bin` (everything, for a USB flash at 0) and `out/openesl-ap-sniffer-ota.bin` (the app, for an update over the air). CI builds the C6 one with the AP boards: the `ap-build-c6-supermini-sniffer` artifact of a Firmware run. It is the AP firmware with `CONFIG_ESL_RADIO_SNIFFER=y` (`ap/sniffer.sdkconfig.defaults`): no WiFi, no API, no answers, starting on `ESL_CHANNEL` (25).
+That writes `out/openesl-ap-sniffer.bin` (everything, for a USB flash at 0) and `out/openesl-ap-sniffer-ota.bin` (the app, for an update over the air). CI builds the C6 one with the AP boards: the `ap-build-c6-supermini-sniffer` artifact of a Firmware run. Use `build.py --sniffer`, or give `idf.py -DSNIFFER=1` a build folder of its own (`-B build-sniffer`): a folder whose sdkconfig was made for the sniffer keeps building sniffers, and CMake warns when it does. It is the AP firmware with `CONFIG_ESL_RADIO_SNIFFER=y` (`ap/sniffer.sdkconfig.defaults`): no WiFi, no API, no answers, starting on `ESL_CHANNEL` (25).
 
 There are two ways onto a C6:
 
@@ -24,7 +24,7 @@ There are two ways onto a C6:
 python tools/sniffer/sniff.py /dev/ttyACM0                        # every frame on channel 25
 python tools/sniffer/sniff.py /dev/ttyACM0 --channel 20           # tune to 20 first
 python tools/sniffer/sniff.py /dev/ttyACM0 --hop 300              # 11-26, 300 ms each, 10 s where it hears something
-python tools/sniffer/sniff.py /dev/ttyACM0 --mac 0000020543A63B15 --pcap tag.pcap --log tag.log
+python tools/sniffer/sniff.py /dev/ttyACM0 --mac 0000021234567890 --pcap tag.pcap --log tag.log
 python tools/sniffer/sniff.py --read tag.log                      # decode saved lines again
 ```
 
@@ -33,8 +33,8 @@ python tools/sniffer/sniff.py --read tag.log                      # decode saved
 A POLL and its answer look like this:
 
 ```
-   12.481032           ch25  -61dBm lqi216  37B data seq=7 0000020543A63B15/4553 -> 0000/4553 POLL fw=1100 bat=2950mV id=1234ABCD model=1 [image,rle,2d] lost=0 | 0101...
-   12.482701    +1.7ms ch25  -48dBm lqi255  19B data seq=7 0000/4553 -> 0000020543A63B15/4553 IDLE next=60s | 02013C00
+   12.481032           ch25  -61dBm lqi216  37B data seq=7 0000021234567890/4553 -> 0000/4553 POLL fw=1100 bat=2950mV id=1234ABCD model=1 [image,rle,2d] lost=0 | 0101...
+   12.482701    +1.7ms ch25  -48dBm lqi255  19B data seq=7 0000/4553 -> 0000021234567890/4553 IDLE next=60s | 02013C00
 ```
 
 The columns: time in seconds on the sniffer's clock, the time since the frame before it, channel, RSSI, LQI, length without the FCS, then the MAC header (type, sequence number, source and destination as address/PAN) and the openESL message. Addresses are shown as the dashboard shows them. `ackreq` marks a frame that asks for a MAC ACK, which openESL never does; a data frame whose frame control is not openESL's shows it as `fcf=....`, and the payload follows the `|` in hex.
