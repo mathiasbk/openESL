@@ -73,7 +73,7 @@ The labels keep their screen and settings through restarts, channel changes and 
 [Label designer](Label-designer) · [Label templates](Label-templates) · [Getting layouts onto the AP](Getting-layouts-onto-the-AP) · [Layout elements and limits](Layout-elements-and-limits)
 
 **Sending content**
-[Overview](Sending-content) · [HTTP API](HTTP-API) · [esl-client](esl-client) · [Price lists from CSV](Price-lists-from-CSV) · [Scheduled prices](Scheduled-prices) · [Home Assistant](Home-Assistant) · [Weather](Weather) · [Picture from a URL](Picture-from-a-URL) · [Electricity price](Electricity-price) · [Countdown](Countdown) · [News headlines](News-headlines) · [Calendar](Calendar)
+[Overview](Sending-content) · [HTTP API](HTTP-API) · [esl-client](esl-client) · [Price lists from CSV](Price-lists-from-CSV) · [Scheduled prices](Scheduled-prices) · [Home Assistant](Home-Assistant) · [Weather](Weather) · [Picture from a URL](Picture-from-a-URL) · [Electricity price](Electricity-price) · [Exchange rate and bitcoin](Exchange-rate-and-bitcoin) · [Countdown](Countdown) · [News headlines](News-headlines) · [Calendar](Calendar)
 
 **Running it**
 [Dashboard](Dashboard) · [Health and webhook](Health-and-webhook) · [Updating the AP](Updating-the-access-point) · [Updating labels](Updating-labels) · [Upgrading from older versions](Upgrading-from-older-versions) · [Backup and restore](Backup-and-restore) · [Moving to a new AP](Moving-to-a-new-AP) · [Why labels stay connected](Why-labels-stay-connected)

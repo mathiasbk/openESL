@@ -32,6 +32,53 @@ long esl_source_round(double d)
     return (long)(d < 0 ? d - 0.5 : d + 0.5);
 }
 
+void esl_source_fmt(double d, unsigned dec, bool en, bool thousands, bool sign, char *out, size_t cap)
+{
+    static const long long pow10[] = {1, 10, 100, 1000, 10000};
+    if (dec > 4)
+        dec = 4;
+    long long v = (long long)(d < 0 ? d * pow10[dec] - 0.5 : d * pow10[dec] + 0.5);
+    bool neg = v < 0;
+    unsigned long long a = (unsigned long long)(neg ? -v : v), whole = a / (unsigned long long)pow10[dec];
+    char digits[24], body[40];
+    int nd = snprintf(digits, sizeof(digits), "%llu", whole);
+    size_t n = 0;
+    for (int i = 0; i < nd; i++) {
+        if (thousands && i && (nd - i) % 3 == 0)
+            body[n++] = ' ';
+        body[n++] = digits[i];
+    }
+    if (dec) {
+        body[n++] = en ? '.' : ',';
+        n += (size_t)snprintf(body + n, sizeof(body) - n, "%0*llu", (int)dec, a % (unsigned long long)pow10[dec]);
+    }
+    body[n] = '\0';
+    snprintf(out, cap, "%s%s", neg ? "-" : sign && a ? "+" : "", body);
+}
+
+void esl_source_series(const double *v, unsigned n, char *out, size_t cap)
+{
+    double lo = 0, hi = 0;
+    size_t len = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (!i || v[i] < lo)
+            lo = v[i];
+        if (!i || v[i] > hi)
+            hi = v[i];
+    }
+    if (cap)
+        out[0] = '\0';
+    for (unsigned i = 0; i < n; i++) {
+        long p = hi > lo ? esl_source_round((v[i] - lo) * 99 / (hi - lo)) : 50;
+        int w = snprintf(out + len, cap - len, "%s%ld", i ? " " : "", p);
+        if (w < 0 || (size_t)w >= cap - len) {
+            out[len] = '\0'; /* the points that fit */
+            return;
+        }
+        len += (size_t)w;
+    }
+}
+
 static void copy_str(char *dst, size_t cap, const char *src)
 {
     size_t n = strlen(src);
@@ -73,6 +120,8 @@ static const esl_source_def_t *const types[] = {
     &esl_source_countdown,
     &esl_source_rss,
     &esl_source_ical,
+    &esl_source_fx,
+    &esl_source_btc,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)

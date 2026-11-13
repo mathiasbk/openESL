@@ -253,7 +253,39 @@ test("feedPlan moves the tags to one source on the text layout", () => {
   assert.match(feedPlan([], [A], { type: "power", area: "NO9" }).error, /price area/);
   const full = Array.from({ length: 8 }, (_, i) => ({ id: "s" + i, type: "rss", url: `https://x.example/${i}`, layout: "text", tags: [String(i)] }));
   assert.match(feedPlan(full, [A], { type: "power", area: "NO1" }).error, /at most 8/);
-  assert.equal(Object.keys(FEEDS).length, 4);
+  assert.equal(Object.keys(FEEDS).length, 6);
+});
+
+test("an exchange rate and the bitcoin price: checked as the AP does, on their template's layout", () => {
+  const A = "00000123456789B2", B = "00000123456789B9";
+  assert.deepEqual(feedSource({ type: "fx", currency: " usd ", lang: "en" }), { type: "fx", currency: "USD", in: "NOK", lang: "en" });
+  assert.deepEqual(feedSource({ type: "fx", currency: "usd", in: "eur" }), { type: "fx", currency: "USD", in: "EUR", lang: "nb" });
+  assert.match(feedSource({ type: "fx", currency: "US" }).error, /3 letters/);
+  assert.match(feedSource({ type: "fx", currency: "USD", in: "E1R" }).error, /Priced in/);
+  assert.match(feedSource({ type: "fx", currency: "NOK", in: "nok" }).error, /another currency/);
+  assert.deepEqual(feedSource({ type: "btc", currency: "USD" }), { type: "btc", currency: "usd", lang: "nb" });
+  assert.equal(feedSource({ type: "btc", currency: "" }).currency, "nok");
+  assert.match(feedSource({ type: "btc", currency: "n0k" }).error, /currency code/);
+
+  let p = feedPlan([], [A], { type: "fx", currency: "USD" });
+  assert.deepEqual(p.sources[0], { id: "fx-usd", type: "fx", currency: "USD", in: "NOK", lang: "nb", layout: "exchange-rate",
+    fields: FEEDS.fx.fields, tags: [A] });
+  assert.equal(FEEDS.fx.fields.length, 6);
+  // the same rate takes more tags; another language is another source
+  p = feedPlan(p.sources, [B], { type: "fx", currency: "usd" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["fx-usd", [A, B]]]);
+  p = feedPlan(p.sources, [B], { type: "fx", currency: "usd", in: "EUR", lang: "en" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["fx-usd", [A]], ["fx-usd-eur", [B]]]);
+  p = feedPlan([], [A], { type: "btc", currency: "EUR" });
+  assert.equal(p.id, "btc-eur");
+  assert.equal(p.sources[0].layout, "bitcoin");
+  assert.deepEqual(Object.fromEntries(showsOf([{ id: "fx-usd", type: "fx", currency: "USD", in: "NOK", tags: ["a"] },
+    { id: "btc-nok", type: "btc", currency: "nok", tags: ["b"] }])), { a: "the USD/NOK exchange rate", b: "the bitcoin price in NOK" });
+  // a template's layout missing from a tag's file
+  const lays = { layouts: [{ model: "2.9", layouts: ["exchange-rate"] }, { model: "1.54", layouts: [] }] };
+  assert.deepEqual(missingModels([{ model: "2.9" }, { model: "1.54" }], lays, "exchange-rate"), ["1.54"]);
+  assert.equal(sourceSummary({ type: "fx", status: { fetched_at: 100, values: { pair: "USD/NOK", rate: "9,5325" } } }, 100).text,
+    "USD/NOK 9,5325 · fetched now");
 });
 
 test("showsOf: what each tag shows now, for the Send list", () => {

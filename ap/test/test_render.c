@@ -385,8 +385,107 @@ static void test_ellipse_polygon(void)
     CHECK(px(img, 140, 50) && px(img, 160, 70) && px(img, 140, 70) && px(img, 160, 50));
 }
 
+/* Charts: the line through the numbers, its fill, and text that is not numbers */
+static void test_chart(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c\","
+        "\"fields\":[\"a\",\"b\"],\"elements\":["
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":10,\"y\":10,\"w\":101,\"h\":41},"
+        "{\"type\":\"chart\",\"field\":\"b\",\"x\":150,\"y\":10,\"w\":11,\"h\":21,\"width\":3,"
+        "\"fill\":\"solid\"}]},"
+        "{\"name\":\"l\",\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"light\"}]}]}";
+    static uint8_t img[296 * 16];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    unsigned x, y;
+
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    /* 0 at the bottom, 10 at the top, 5 in the middle: a rising line, then a falling one */
+    esl_content_init_named(&c, "c", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"0 10;5", 6);
+    esl_content_add_field(&c, (const uint8_t *)"2,5 2.5", 7);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 10, 50) && px(img, 60, 10) && px(img, 110, 30) && px(img, 35, 30));
+    /* one span per column, without gaps, and nothing outside the box */
+    for (x = 10; x <= 110; x++) {
+        unsigned n = 0, first = 0, last = 0;
+        for (y = 0; y < 128; y++)
+            if (px(img, x, y)) {
+                if (!n)
+                    first = y;
+                last = y;
+                n++;
+            }
+        CHECK(n >= 1 && n == last - first + 1 && first >= 10 && last <= 50);
+    }
+    CHECK(!px(img, 9, 50) && !px(img, 111, 30) && !px(img, 60, 9));
+    /* the same numbers: a line across the middle, 3 px wide, the box under it filled */
+    for (x = 150; x <= 160; x++)
+        for (y = 5; y <= 35; y++)
+            CHECK(px(img, x, y) == (y >= 19 && y <= 30));
+
+    /* light fill: every other pixel under the line */
+    esl_content_init_named(&c, "l", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"1 1 0", 5);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 0, 0) && !px(img, 0, 1) && px(img, 0, 2) && !px(img, 1, 2) && px(img, 1, 3) && px(img, 19, 19));
+
+    /* text that is not a list of numbers, or only one number, draws nothing */
+    static const char *const bad[] = {"1 2 x", "1", "", "1,2,3", "1 2.", "1 2.34567", "12345678901 1"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        esl_content_init_named(&c, "l", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)bad[i], (uint8_t)strlen(bad[i]));
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        CHECK(ink(img, sizeof(img)) == 0);
+    }
+    /* more than ESL_CHART_MAX numbers: the first ones are drawn */
+    {
+        char many[3 * (ESL_CHART_MAX + 10)];
+        size_t n = 0;
+        for (unsigned i = 0; i < ESL_CHART_MAX + 10; i++)
+            n += (size_t)sprintf(many + n, "%u ", i % 2 ? 9 : 0);
+        esl_content_init_named(&c, "l", 1, 0);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)many, (uint8_t)(n > 200 ? 200 : n)) == ESL_CONTENT_OK);
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        CHECK(ink(img, sizeof(img)) > 0);
+    }
+
+    /* what the compiler refuses */
+    static const char *const refused[] = {
+        "{\"type\":\"chart\",\"x\":0,\"y\":0,\"w\":20,\"h\":20}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"width\":5}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"dots\"}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"color\":\"white\"}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fonts\":[\"small\"]}",
+        "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"solid\"}",
+    };
+    for (unsigned i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+        char js[512];
+        snprintf(js, sizeof(js),
+                 "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"x\","
+                 "\"fields\":[\"a\"],\"elements\":[%s]}]}", refused[i]);
+        CHECK(!esl_layout_compile(js, strlen(js), ESL_MODEL_29, &bin, err, sizeof(err)));
+    }
+    /* at most ESL_DRAW_MAX_CHARTS */
+    {
+        char js[1024];
+        size_t n = (size_t)snprintf(js, sizeof(js), "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\","
+                                    "\"layouts\":[{\"name\":\"x\",\"fields\":[\"a\"],\"elements\":[");
+        for (unsigned i = 0; i <= ESL_DRAW_MAX_CHARTS; i++)
+            n += (size_t)snprintf(js + n, sizeof(js) - n, "%s{\"type\":\"chart\",\"field\":\"a\",\"x\":0,"
+                                  "\"y\":0,\"w\":20,\"h\":20}", i ? "," : "");
+        snprintf(js + n, sizeof(js) - n, "]}]}");
+        CHECK(!esl_layout_compile(js, strlen(js), ESL_MODEL_29, &bin, err, sizeof(err)));
+        CHECK(strstr(err, "charts") != NULL);
+    }
+}
+
 void test_render(void)
 {
+    test_chart();
     test_ellipse_polygon();
     test_icon_field();
     test_rotate();

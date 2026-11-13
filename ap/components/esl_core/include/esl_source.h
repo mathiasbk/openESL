@@ -27,6 +27,8 @@
  *   "countdown" esl_source_countdown.c: the days to or since a date (nothing fetched).
  *   "rss"    esl_source_rss.c: the newest headlines of an RSS or Atom feed.
  *   "ical"   esl_source_ical.c: the next events of a calendar (.ics), read as it comes.
+ *   "fx"     esl_source_fx.c: a currency's exchange rate in NOK from Norges Bank, with a chart.
+ *   "btc"    esl_source_btc.c: the price of bitcoin from CoinGecko, with a chart.
  *   "image"  esl_source_image.c: a PNG from a URL, kept as the tags' picture (no layout,
  *            no fields: its values only describe the picture).
  *
@@ -48,7 +50,7 @@
 #define ESL_SOURCE_STREAM_MAX (4 * 1024 * 1024) /* biggest answer a type that streams reads */
 
 typedef enum { ESL_SOURCE_MET = 1, ESL_SOURCE_IMAGE = 2, ESL_SOURCE_POWER = 3, ESL_SOURCE_COUNTDOWN = 4, ESL_SOURCE_RSS = 5,
-               ESL_SOURCE_ICAL = 6 } esl_source_type_t;
+               ESL_SOURCE_ICAL = 6, ESL_SOURCE_FX = 7, ESL_SOURCE_BTC = 8 } esl_source_type_t;
 
 typedef struct {
     char id[ESL_SOURCE_ID_MAX + 1];
@@ -77,6 +79,16 @@ typedef struct {
         struct {
             char url[ESL_SOURCE_URL_MAX]; /* http:// or https:// (webcal:// is made https://) */
         } ical;
+        struct {
+            char cur[4];                  /* "USD": the currency whose price is shown */
+            char in[4];                   /* "NOK": what it is priced in */
+            uint8_t days;                 /* rates in the chart (one each business day) */
+            uint8_t unit;                 /* 1 or 100 of cur; 0: 100 when one is worth less than 0.1 */
+        } fx;
+        struct {
+            char cur[6];                  /* "nok", "usd", "eur", ...: what bitcoin is priced in */
+            uint8_t days;                 /* days in the chart */
+        } btc;
     };
     char place[ESL_SOURCE_PLACE_MAX + 1]; /* the name shown for it: value "place" */
     char lang[3];                         /* "nb" or "en": the language of words in the values */
@@ -88,14 +100,17 @@ typedef struct {
     uint64_t tags[ESL_SOURCE_TAGS_MAX];
 } esl_source_cfg_t;
 
-/* The values one fetch gave: key -> UTF-8 text */
+/* The values one fetch gave: key -> UTF-8 text. A value of words is at most ESL_VALUE_MAX
+   bytes (the types cut theirs to it); a series for a chart element ("chart": numbers apart by
+   spaces) may be up to ESL_VALUE_LONG. */
 #define ESL_VALUES_MAX     24
 #define ESL_VALUE_KEY_MAX  12
 #define ESL_VALUE_MAX      40
+#define ESL_VALUE_LONG     96
 typedef struct {
     uint8_t n;
     char key[ESL_VALUES_MAX][ESL_VALUE_KEY_MAX + 1];
-    char val[ESL_VALUES_MAX][ESL_VALUE_MAX + 1];
+    char val[ESL_VALUES_MAX][ESL_VALUE_LONG + 1];
 } esl_values_t;
 
 void esl_values_set(esl_values_t *v, const char *key, const char *val);
@@ -151,6 +166,8 @@ extern const esl_source_def_t esl_source_power;
 extern const esl_source_def_t esl_source_countdown;
 extern const esl_source_def_t esl_source_rss;
 extern const esl_source_def_t esl_source_ical;
+extern const esl_source_def_t esl_source_fx;
+extern const esl_source_def_t esl_source_btc;
 
 /* For type "image": the picture for a tag of model from the PNG body (len bytes), in img
    (esl_render_size(model) bytes, esl_render's format). False with a message in err. */
@@ -160,6 +177,13 @@ bool esl_source_image_decode(const esl_source_cfg_t *c, const char *body, size_t
 /* For the types: a JSON number, and a number rounded half away from zero (no libm) */
 bool esl_source_num(const char *js, const esl_jtok_t *t, double *out);
 long esl_source_round(double d);
+/* For a chart: the n values in v as whole numbers 0 (the lowest) to 99 (the highest) apart by
+   spaces, all 50 when they are the same, into out (cap bytes, ESL_VALUE_LONG + 1 holds 32) */
+void esl_source_series(const double *v, unsigned n, char *out, size_t cap);
+/* A number with dec decimals (0 to 4), rounded, with a decimal comma unless en, and with a
+   space between every three whole digits when thousands; a '+' before a positive one when
+   sign. Into out (cap bytes). */
+void esl_source_fmt(double d, unsigned dec, bool en, bool thousands, bool sign, char *out, size_t cap);
 
 /* What happened to a source, for GET /api/sources */
 typedef struct {

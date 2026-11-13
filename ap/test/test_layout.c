@@ -519,7 +519,7 @@ static void test_shapes(void)
                                   i ? "," : "", i & 1 ? "polygon" : "ellipse", i * 10,
                                   i & 1 ? ",\"points\":[[0,0],[9,0],[5,9]]" : "");
         CHECK(!compile_el(els));
-        CHECK(HAS(err, "the AP draws at most 8 ellipses and polygons per screen"));
+        CHECK(HAS(err, "the AP draws at most 8 ellipses, polygons and charts per screen"));
         els[n - (size_t)strlen(strrchr(els, '{')) - 1] = '\0'; /* one fewer */
         CHECK(compile_el(els));
         /* the web page's renderer, set to an AP that reports no shapes limit (older firmware) */
@@ -639,7 +639,7 @@ static void test_shapes(void)
 #define RECT "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":40,\"h\":20"
     bad_el(RECT ",\"radius\":11}", "radius must be a whole number from 0 to 10");
     bad_el(RECT ",\"border\":11}", "border must be a whole number from 0 to 10");
-    bad_el(RECT ",\"width\":2}", "width is only for line elements");
+    bad_el(RECT ",\"width\":2}", "width is only for line and chart elements");
 #undef RECT
     CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
                          "{\"type\":\"icon\",\"icon\":\"none\",\"x\":0,\"y\":0}"));

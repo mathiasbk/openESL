@@ -149,6 +149,7 @@
           <button id="el-add-hline" class="tool" title="A line 2 px wide; drag its handles to slant it, or set its width and direction in More"><b class="ico-line"></b>Line</button>
           <button id="el-add-circle" class="tool" title="A circle or ellipse, filled or only its border"><b>●</b>Circle</button>
           <button id="el-add-triangle" class="tool" title="A triangle or polygon (up to 8 corners), filled or only its border"><b>▲</b>Triangle</button>
+          <button id="el-add-chart" class="tool" title="A line chart of the numbers in a field (e.g. an exchange rate's last 30 days)"><b>∿</b>Chart</button>
           <button id="el-add-icon" class="tool" title="A small picture from a PNG, JPEG, GIF or SVG file (dark pixels are drawn), up to 128 px; an SVG is drawn 64 px on its longer side"><b>◆</b>Icon</button>
           <input type="file" id="icon-file" accept="image/*" hidden>
           <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
@@ -543,14 +544,32 @@
           <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
           <h3 id="feed-h">The AP fills in <span id="feed-n"></span></h3>
           <form id="feed-form" novalidate>
-            <p class="hint">The AP fetches or works it out by itself and keeps the tags up to date on the built-in layout <code>text</code>, with nothing else running. A tag only wakes when its text changes.</p>
+            <p class="hint">The AP fetches or works it out by itself and keeps the tags up to date, with nothing else running: on the built-in layout <code>text</code>, or for the exchange rate and bitcoin on their own layout with a chart (added to the tags' layout files when they lack it). A tag only wakes when its text changes.</p>
             <div class="form">
               <label>Show <select id="feed-type">
                 <option value="power">Today's electricity price (Norway)</option>
                 <option value="countdown">A countdown to a date</option>
                 <option value="rss">News headlines (RSS or Atom)</option>
                 <option value="ical">The next events of a calendar (.ics)</option>
+                <option value="fx">An exchange rate, with a chart</option>
+                <option value="btc">The bitcoin price, with a chart</option>
               </select></label>
+              <datalist id="feed-curs">
+                <option value="USD">US dollar</option><option value="EUR">Euro</option><option value="GBP">British pound</option>
+                <option value="SEK">Swedish krona</option><option value="DKK">Danish krone</option><option value="NOK">Norwegian krone</option>
+                <option value="CHF">Swiss franc</option><option value="JPY">Japanese yen</option><option value="PLN">Polish zloty</option>
+                <option value="CAD">Canadian dollar</option><option value="AUD">Australian dollar</option><option value="CNY">Chinese yuan</option>
+                <option value="ISK">Icelandic krona</option><option value="THB">Thai baht</option>
+              </datalist>
+              <div id="feed-fx" class="form" hidden>
+                <label>Currency <input id="feed-cur" list="feed-curs" maxlength="3" autocomplete="off" spellcheck="false" placeholder="USD" title="The currency whose rate is shown: any of Norges Bank's (about 40)"></label>
+                <label>Priced in <input id="feed-in" list="feed-curs" maxlength="3" autocomplete="off" spellcheck="false" value="NOK" title="What the rate is given in; other than NOK, the AP works it out from both NOK rates"></label>
+                <p class="hint">Rates from <a href="https://www.norges-bank.no/en/topics/Statistics/exchange_rates/">Norges Bank</a>, one each business day at about 16:00, with a chart of the last 30.</p>
+              </div>
+              <div id="feed-btc" class="form" hidden>
+                <label>Priced in <input id="feed-btc-cur" list="feed-curs" maxlength="5" autocomplete="off" spellcheck="false" value="NOK" title="The currency the price is given in, as CoinGecko has it"></label>
+                <p class="hint">Prices from <a href="https://www.coingecko.com/">CoinGecko</a>, every 15 minutes, with a chart of the last 30 days.</p>
+              </div>
               <div id="feed-power" class="form">
                 <label>Price area <select id="feed-area">
                   <option value="NO1">NO1 Oslo / East</option>

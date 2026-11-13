@@ -96,6 +96,8 @@ async function create(model, base) {
     // them has no limit 23 and says 0 too
     shapes: limit(23),
     polygonPoints: limit(24),
+    // charts per screen (they count as shapes too); a renderer from before them says 0
+    charts: limit(25),
   });
   // the default board's, for setLimits(null)
   const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));

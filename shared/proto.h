@@ -331,6 +331,7 @@
 #define ESL_LE_QR            6      /* text field drawn as a QR code (ISO/IEC 18004, byte mode) */
 #define ESL_LE_ELLIPSE       7      /* an ellipse filling the box (a circle when w = h) */
 #define ESL_LE_POLYGON       8      /* a polygon (a triangle and up) with its corners in the box */
+#define ESL_LE_CHART         9      /* a line chart of the numbers in a text field */
 
 /* A rect element also uses (0 in a plain filled rect, so older files compile the same):
  *   ESL_LE_OFF_RADIUS  corner radius in pixels, at most half the shorter side
@@ -374,6 +375,29 @@
 #define ESL_POLY_MIN         3
 #define ESL_POLY_MAX         8
 #define ESL_POLY_PT_LEN      3
+
+/* A chart element (an AP from before 0.11.0 refuses the file): a line through the numbers in a
+ * text field, from the left of the box to the right, the lowest at the bottom and the highest
+ * at the top (all the same: a line across the middle).
+ *   ESL_LE_OFF_FIELD   the text field: numbers apart by spaces or ';', each with an optional '-'
+ *                      and a '.' or ',' before up to ESL_CHART_DECIMALS decimals ("3 5,5 -1").
+ *                      The first ESL_CHART_MAX are drawn; fewer than 2, or anything else in the
+ *                      text, draws nothing
+ *   ESL_LE_OFF_WIDTH   line width in pixels, 1..ESL_CHART_W_MAX
+ *   ESL_LE_OFF_OPTS    ESL_LE_CHART_FILL: the box under the line is filled too, every pixel, or
+ *                      with ESL_LE_CHART_LIGHT every other pixel (a checkerboard)
+ *   ESL_LE_OFF_COLOR   black or red
+ *   point i is at column x + i * (w - 1) / (n - 1); each column between is drawn from its row
+ *   to halfway to the rows of the columns next to it, so the line has no gaps. In whole
+ *   numbers, so the AP and the web page draw the same pixels.
+ * Charts count against ESL_DRAW_MAX_SHAPES with the ellipses and polygons; at most
+ * ESL_DRAW_MAX_CHARTS per screen. */
+#define ESL_CHART_MAX        64
+#define ESL_CHART_DECIMALS   4
+#define ESL_CHART_W_MAX      4
+#define ESL_LE_CHART_FILL    0x01
+#define ESL_LE_CHART_LIGHT   0x02
+#define ESL_DRAW_MAX_CHARTS  2
 
 /* A QR element uses the text element's bytes like this (the rest as for text):
  *   ESL_LE_OFF_ECC     error correction level ESL_QR_LEVEL_L..H

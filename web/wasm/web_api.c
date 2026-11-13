@@ -68,7 +68,7 @@ EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return field_space; }
  * 13 fields per layout, 14 bytes of JSON in the file, 15 height of text20, 16 height of price44,
  * 17 lines per screen, 18 icons per screen, 19 widest line, 20 QR codes per screen, 21 largest
  * QR module, 22 bytes the fields of one update share, 23 ellipses and polygons per screen
- * (0: the AP is too old for them), 24 corners of a polygon. 0, 1, 2, 14, 17, 18 and 23 are the
+ * (0: the AP is too old for them), 24 corners of a polygon, 25 charts per screen. 0, 1, 2, 14, 17, 18 and 23 are the
  * AP board's (esl_limits), 13 and 22 the AP firmware's: this renderer's until web_set_limit()
  * sets those of the AP the page talks to. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
@@ -79,7 +79,7 @@ EMSCRIPTEN_KEEPALIVE int web_limit(int what)
                       ESL_LBIN_TEXT_LEN_MAX, max_fields, esl_limits.json_bytes,
                       ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H, esl_limits.lines, esl_limits.icons,
                       ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX, field_space, esl_limits.shapes,
-                      ESL_POLY_MAX };
+                      ESL_POLY_MAX, ESL_DRAW_MAX_CHARTS };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
 }
 

@@ -2887,11 +2887,17 @@ components:
         - properties: { type: { const: ical }, every_min: { minimum: 15 } }
           required: [url, layout]
           not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: fx }, every_min: { minimum: 60 }, currency: { pattern: "^[A-Za-z]{3}$" }, days: { minimum: 5, maximum: 30 } }
+          required: [currency, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: btc }, every_min: { minimum: 15 }, currency: { pattern: "^[A-Za-z]{3,5}$" }, days: { minimum: 7, maximum: 30 } }
+          required: [layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }, { required: [in] }, { required: [unit] }] }
       properties:
         id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
         type:
           type: string
-          enum: [met, image, power, countdown, rss, ical]
+          enum: [met, image, power, countdown, rss, ical, fx, btc]
           description: |
             `met`: the forecast from MET Norway (api.met.no locationforecast 2.0), as values in
             the fields of a layout. `image` (0.11.0 and later): a PNG fetched from `url`, kept as
@@ -2911,6 +2917,11 @@ components:
             values in the fields of a layout like `met`. The file is read as it comes (up to 4 MB),
             with repeating events, and fetched at most once an hour; the values are made again
             from it every `every_min`, so what is next follows the clock.
+            `fx` (0.11.0 and later): the exchange rate of `currency` in `in` from Norges Bank (one
+            each business day), with its change and `{chart}`, the last `days` rates for a chart
+            element, as values in the fields of a layout like `met`.
+            `btc` (0.11.0 and later): the price of bitcoin in `currency` from CoinGecko, with its
+            change today and `{chart}`, the last `days` days, as values in the fields of a layout.
         lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
         lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
         url:
@@ -2929,15 +2940,19 @@ components:
         date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "`countdown`: the local date counted to, 1900 to 2100" }
         time: { type: string, pattern: "^[0-9]{2}:[0-9]{2}$", description: "`countdown`: a local time on `date`: the last day counts down in hours and minutes. Left out: the date's whole day" }
         yearly: { type: boolean, default: false, description: "`countdown`: count to the next time the date comes round (29 February is 28 February in other years); `{years}` gives how many years it will be since `date`" }
+        currency: { type: string, description: "`fx`: the currency shown, 3 letters (`USD`; kept in capitals). `btc`: what the price is given in, as CoinGecko names it, 3 to 5 letters (`nok`, the default; kept in small letters)" }
+        in: { type: string, pattern: "^[A-Za-z]{3}$", default: NOK, description: "`fx`: the currency the rate is given in; another than NOK is worked out from both NOK rates of the day" }
+        days: { type: integer, default: 30, description: "`fx`: the rates in `{chart}`, 5 to 30, one each business day. `btc`: the days in `{chart}`, 7 to 30, and the price now" }
+        unit: { type: integer, enum: [1, 100], description: "`fx`: the price of one or of a hundred of `currency`. Left out: a hundred when one is worth less than 0.1" }
         vat: { type: boolean, description: "`power`: add 25 % VAT to the prices; by default true, except in NO4 (no VAT on electricity in Northern Norway)" }
         dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
         place: { type: string, maxLength: 32, default: "", description: "The place's name (`met`), or the name of what is counted to (`countdown`): value `{place}` (at most 32 bytes of UTF-8)" }
-        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), and of the decimal mark and `{level}` (`power`)" }
-        every_min: { type: integer, minimum: 1, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `countdown`: at least and by default 1 (a tag only wakes when its text changed). `rss`: at least and by default 15. `ical`: at least and by default 15, at whole multiples of it (the values; the calendar is fetched at most once an hour)" }
+        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), of the decimal mark and `{level}` (`power`), and of the decimal mark and the words of `fx` and `btc` (`{day}`, `{today}`, `{period}`)" }
+        every_min: { type: integer, minimum: 1, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `countdown`: at least and by default 1 (a tag only wakes when its text changed). `rss`: at least and by default 15. `ical`: at least and by default 15, at whole multiples of it (the values; the calendar is fetched at most once an hour). `fx`: at least and by default 60. `btc`: at least and by default 15" }
         layout:
           type: string
           description: |
-            `met`, `power`, `countdown`, `rss` and `ical`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
+            `met`, `power`, `countdown`, `rss`, `ical`, `fx` and `btc`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
             A tag whose model has no such layout, or whose content does not fit it, is
             counted in `tags_failed` and keeps what it shows.
         fields:
