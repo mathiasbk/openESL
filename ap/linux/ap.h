@@ -60,6 +60,9 @@ void store_unlock(void *ctx);
  * clock is known and ends them; called now and then (every minute) */
 esl_apid_cfg_t *store_files_apid(void);
 void store_files_tick(void);
+/* Syncs the data directory's file system: after esl_store_save_seen(), whose files are
+ * written without a sync each */
+void store_files_sync(void);
 
 /* ---- http.c ---- */
 

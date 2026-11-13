@@ -1,6 +1,6 @@
 # systemd unit for openesl-ap (docs/linux-ap.md). Install:
 #   sudo install -m 755 openesl-ap /usr/local/bin/
-#   sudo install -m 644 openesl-ap.conf /etc/openesl-ap.conf
+#   sudo install -m 644 openesl-ap.conf /etc/openesl-ap.conf   (no token in it: see the file)
 #   sudo install -m 644 openesl-ap.service /etc/systemd/system/
 #   sudo systemctl enable --now openesl-ap
 # It runs as its own unprivileged user (DynamicUser); port 80 comes from

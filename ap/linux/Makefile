@@ -9,7 +9,7 @@ ROOT    := $(abspath ../..)
 CORE    := $(ROOT)/ap/components/esl_core
 VERSION := $(shell cat $(ROOT)/VERSION)
 
-ZIG_armv7   := arm-linux-musleabihf -mcpu=cortex_a9   # Cortex-A9 (i.MX6) and newer
+ZIG_armv7   := arm-linux-musleabihf -mcpu=cortex_a9   # Cortex-A9 and newer
 ZIG_aarch64 := aarch64-linux-musl
 ZIG_x86_64  := x86_64-linux-musl
 ifdef TARGET

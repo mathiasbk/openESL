@@ -2,6 +2,8 @@
  * with esl_link_handle() as ap/main/radio.c does on the C6 and ticks the scheduler. */
 #define _DEFAULT_SOURCE
 #include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -242,12 +244,15 @@ static bool load_token(opts_t *o)
     }
     for (size_t i = 0; i < sizeof(rnd); i++)
         snprintf(o->token + 2 * i, 3, "%02x", rnd[i]);
-    f = fopen(path, "w");
+    /* readable by this user only from the start */
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    f = fd >= 0 ? fdopen(fd, "w") : NULL;
     if (!f || fprintf(f, "%s\n", o->token) < 0 || fclose(f) != 0) {
         fprintf(stderr, "openesl-ap: cannot write %s: %s\n", path, strerror(errno));
+        if (f == NULL && fd >= 0)
+            close(fd);
         return false;
     }
-    chmod(path, 0600);
     ap_log("new API token in %s", path);
     return true;
 }
@@ -295,10 +300,32 @@ static void on_signal(int sig)
     stop = 1;
 }
 
+/* Slow disk work away from the radio loop, which must answer a tag within its listening
+ * window: the AP id's days and the clock every minute, what was last heard from each tag
+ * every hour (as seen_task on the C6) */
+static void *housekeeping(void *arg)
+{
+    (void)arg;
+    uint64_t last_seen = ap_now_ms();
+    while (!stop) {
+        for (int i = 0; i < 60 && !stop; i++)
+            sleep(1);
+        sync_clock();
+        store_files_tick();
+        if (ap_now_ms() - last_seen >= 3600000) {
+            last_seen = ap_now_ms();
+            unsigned n = esl_store_save_seen(&ap.store);
+            store_files_sync();
+            ap_debug("saved %u tags' last poll", n);
+        }
+    }
+    return NULL;
+}
+
 static int radio_loop(const radio_backend_t *b)
 {
     uint8_t tx[ESL_PSDU_MAX];
-    uint64_t last_tick = 0, last_seen = ap_now_ms(), last_clock = ap_now_ms();
+    uint64_t last_tick = 0;
     while (!stop) {
         esl_link_rx_t f;
         int r = b->recv(&ap.link, &f, 200);
@@ -320,15 +347,6 @@ static int radio_loop(const radio_backend_t *b)
                 int err = ap.link.set_channel ? ap.link.set_channel(&ap.link, ch) : -1;
                 ap_log("moved to channel %u: %s", ch, err ? "failed" : "ok");
             }
-        }
-        if (now - last_clock >= 60000) {
-            last_clock = now;
-            sync_clock();
-            store_files_tick();
-        }
-        if (now - last_seen >= 3600000) {
-            last_seen = now;
-            esl_store_save_seen(&ap.store);
         }
     }
     return 0;
@@ -407,8 +425,14 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
 
     ap_log("openesl-ap %s: %s radio on channel %u, PAN 0x%04X", OPENESL_VERSION, ap.link.name, cs.channel, ap.pan);
+    pthread_t hk;
+    bool hk_ok = pthread_create(&hk, NULL, housekeeping, NULL) == 0;
     rc = radio_loop(b);
+    stop = 1;
+    if (hk_ok)
+        pthread_join(hk, NULL);
     esl_store_save_seen(&ap.store);
+    store_files_sync();
     if (b->close)
         b->close(&ap.link);
     ap_log("stopped");

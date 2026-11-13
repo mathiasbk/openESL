@@ -6,7 +6,9 @@
 Starts the binary with --radio sim on a free local port and a fresh data directory, and
 checks that the API answers with and without the token, that both tag models get content
 drawn and sent block by block until they report it, that a restart keeps the content, the
-AP id and the token, and that the dashboard is served. Exits 1 on the first failure.
+AP id and the token, that an AP id file that cannot be read is not replaced, that the
+dashboard is served, and the HTTP server's limits (connections, bad heads). Exits 1 on
+the first failure.
 """
 import json
 import os
@@ -73,6 +75,17 @@ class Ap:
         return rc
 
 
+def raw_request(port, data):
+    """Sends data as it is; the status of the answer, None when the server just closed"""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        try:
+            s.sendall(data)
+            line = s.recv(64).split(b"\r\n")[0].split()
+        except (ConnectionResetError, BrokenPipeError):
+            return None
+    return int(line[1]) if len(line) > 1 else None
+
+
 def check(ok, what):
     if not ok:
         print(f"FAIL: {what}")
@@ -131,10 +144,35 @@ def main():
                  lambda t: all(t[m]["shown_content_id"] == ids[m] for m in TAGS))
         r = ap.request("DELETE", f"/api/tags/{TAGS[1]}")
         check(r[0] < 300, "a tag can be deleted")
-        check(not os.path.exists(os.path.join(data, "content", "1")) or
-              ap.json("GET", f"/api/tags/{TAGS[1]}").get("content_id") in (0, None),
-              "a deleted tag's content is gone")
+        status, raw = ap.request("GET", f"/api/tags/{TAGS[1]}")
+        check(status == 404 or json.loads(raw).get("content_id") in (0, None), "a deleted tag's content is gone")
+
+        # the HTTP server's limits
+        check(raw_request(ap.port, b"PUT /api/tags/x HTTP/1.1\r\nContent-Length: 12abc\r\n\r\n") == 400,
+              "a Content-Length that is not a number gets 400")
+        check(raw_request(ap.port, b"PUT /api/tags/x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n") == 411,
+              "a chunked body gets 411")
+        check(raw_request(ap.port, b"GET /api/" + b"x" * 600 + b" HTTP/1.1\r\n\r\n") == 414, "a long URI gets 414")
+        check(raw_request(ap.port, b"GET / HTTP/1.1\r\nX: " + b"x" * 9000 + b"\r\n\r\n") in (431, None),
+              "a head over 8 KB is refused")
+        idle = [socket.create_connection(("127.0.0.1", ap.port)) for _ in range(40)]
+        status = raw_request(ap.port, b"GET /dashboard HTTP/1.1\r\n\r\n")
+        for s_ in idle:
+            s_.close()
+        check(status == 503, "more than 32 connections at once get 503")
+        time.sleep(0.3)
+        check(ap.request("GET", "/dashboard", auth=False)[0] == 200, "it serves again once they close")
         check(ap.stop() == 0, "SIGTERM stops it cleanly again")
+
+        # an AP id file that exists but cannot be read whole is not replaced: no id this start
+        id_file = os.path.join(data, "ap_id")
+        with open(id_file, "r+b") as f:
+            f.truncate(3)
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        check(ap.json("GET", "/api/config").get("ap_id") is None, "a cut ap_id file gives no AP id")
+        check(os.path.getsize(id_file) == 3, "and is left as it is")
+        check(ap.stop() == 0, "SIGTERM stops it cleanly a third time")
     finally:
         log = os.path.join(tmp, "ap.log")
         if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):

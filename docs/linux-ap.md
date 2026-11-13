@@ -15,7 +15,6 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 |---|---|---|
 | `sim[:N[,ms]]` | N simulated tags (default 2) in the program, polling every ms (default 2000), alternately 2.9" and 1.54". They take CONFIG and fetch images block by block like a tag, so the dashboard and the API can be tried without hardware. The tests use it. | done |
 | `uart:/dev/ttyACM0` | An ESP32-C6 running the radio firmware (`ap/radio/`) on USB or a serial port, over the link of [ap-radio-link.md](ap-radio-link.md). The usual setup: a Raspberry Pi and a C6 Super Mini. | planned |
-| `solum-spi:/dev/spidev0.0` | The 802.15.4 modem of a SoluM ESL gateway (i.MX6 Linux). Needs the gateway's modem firmware patched for this; the patch is not part of openESL. | planned |
 
 ## Building
 
@@ -23,7 +22,7 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 make -C ap/linux                    # build/host/openesl-ap with cc (gcc or clang), for this machine
 make -C ap/linux test               # and run ap/linux/test.py against it
 make -C ap/linux TARGET=armv7       # static builds with zig (pip install ziglang): armv7 (Cortex-A9
-make -C ap/linux TARGET=aarch64     # and newer: i.MX6, Raspberry Pi 2/3 in 32-bit), aarch64 (Pi 3/4/5
+make -C ap/linux TARGET=aarch64     # and newer, Raspberry Pi 2/3 in 32-bit), aarch64 (Pi 3/4/5
 make -C ap/linux TARGET=x86_64      # in 64-bit), x86_64; build/<target>/openesl-ap runs on any distribution
 ```
 
@@ -51,15 +50,17 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 
 ### As a service
 
-`ap/linux/openesl-ap.service` runs it with systemd as its own unprivileged user (`DynamicUser`), with `/var/lib/openesl` as its state directory and `CAP_NET_BIND_SERVICE` for port 80; the comment at its top has the install commands. The log goes to the journal (`journalctl -u openesl-ap`).
+`ap/linux/openesl-ap.service` runs it with systemd as its own unprivileged user (`DynamicUser`), with `/var/lib/openesl` as its state directory and `CAP_NET_BIND_SERVICE` for port 80; the comment at its top has the install commands. The log goes to the journal (`journalctl -u openesl-ap`). The service user must be able to read the config file, so keep the token out of it (the default, `<data>/token`) unless the file is readable by root and that user only.
+
+The HTTP server takes 32 connections at a time (more get 503), one request each; a request's head must arrive within 10 s and its body at 16 KB/s or faster. An API reply is made in memory and sent after the API's lock is let go, so a slow client holds up nobody else.
 
 ## Data directory
 
-Each file holds what the C6 keeps in one NVS entry, in the same format (`esl_persist.h`), and is written to a temporary name and renamed over the old one, so a power cut leaves the old file or the new one. A backup is a copy of the directory while the program is stopped, or `esl-client backup` while it runs; `esl-client restore` moves the AP's tags to a C6 or back.
+Each file holds what the C6 keeps in one NVS entry, in the same format (`esl_persist.h`). It is written to a temporary name of its own, synced, renamed over the old one and the directory synced, so a power cut leaves the old file or the new one. `seen/` (when each tag was last heard, saved every hour) skips the syncs and the file system is synced once after the whole round. An `ap_id` that exists but cannot be read (its owner changed, an I/O error) is not replaced: the AP then runs without an id, as a C6 does, rather than make a new one that would turn its own tags away. A backup is a copy of the directory while the program is stopped, or `esl-client backup` while it runs; `esl-client restore` moves the AP's tags to a C6 or back.
 
 | Path | |
 |---|---|
-| `token` | the API token |
+| `token` | the API token, readable by its user only |
 | `ap_id`, `prev`, `adopt` | the AP id (#390, [protocol.md](protocol.md) "AP id"): made at the first start, so the tags it configures are this AP's. Started on an empty table, the AP adopts every lost tag for 14 days, as a new C6 does |
 | `content/<slot>`, `cfg/<slot>`, `seen/<slot>`, `image/<slot>` | per tag: content, settings, what was last heard from it, a picture set with `PUT /api/tags/{mac}/image` |
 | `sched/<slot>` | scheduled content |
@@ -73,7 +74,7 @@ Scheduled content needs the time. Once the system clock is past 2024 (NTP on the
 
 ## What it does not do (yet)
 
-WiFi setup, OTA updates of the AP itself (update the binary instead), the data sources of the S3 boards and network radios: `/api/wifi`, `/api/sources` and `/api/radios` answer 404 and `/api/ota` 501. The webhook (`PUT /api/config "webhook"`) is not sent.
+WiFi setup, OTA updates of the AP itself (update the binary instead), the data sources of the S3 boards, network radios and the webhook: `/api/wifi`, `/api/sources` and `/api/radios` answer 404, `/api/ota` 501, and `PUT /api/config` with a `"webhook"` 422.
 
 ## Tests
 

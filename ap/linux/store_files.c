@@ -5,9 +5,11 @@
  *   layout/<model>  font/<slot>  tagfw/<model>.bin  tagfw/<model>.to
  *   next_poll  channel  ap_id
  *
- * Every file is written whole to a temporary name and renamed over the old one, so a
- * power cut leaves the old file or the new one, never half of one. */
-#define _DEFAULT_SOURCE
+ * Every file is written whole to a temporary name of its own, synced, renamed over the old
+ * one and the directory synced, so a power cut leaves the old file or the new one, never
+ * half of one. seen/ (what was last heard from each tag) skips the syncs: losing an hour of
+ * it costs nothing, and syncing hundreds of files at once would stall the card. */
+#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -23,6 +25,21 @@
 
 static char root[512];
 static pthread_mutex_t mutex;
+/* esl_store_ops_t save_lock: content and settings are saved in the order they change the
+ * table, as store_nvs.c does, so two writers cannot leave the older one in the file */
+static pthread_mutex_t save_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void save_lock(void *ctx)
+{
+    (void)ctx;
+    pthread_mutex_lock(&save_mutex);
+}
+
+static void save_unlock(void *ctx)
+{
+    (void)ctx;
+    pthread_mutex_unlock(&save_mutex);
+}
 
 void store_lock(void *ctx)
 {
@@ -46,11 +63,26 @@ static void path_of(char *out, size_t cap, const char *dir, unsigned n, const ch
         snprintf(out, cap, "%s/%s", root, ext);
 }
 
-static bool write_file(const char *path, const void *data, size_t len)
+static void sync_dir(const char *path)
+{
+    char dir[600];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (!slash)
+        return;
+    *slash = 0;
+    int fd = open(dir[0] ? dir : "/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd >= 0) {
+        fsync(fd);
+        close(fd);
+    }
+}
+
+static bool write_file_as(const char *path, const void *data, size_t len, bool durable)
 {
     char tmp[600];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    snprintf(tmp, sizeof(tmp), "%s.XXXXXX", path);   /* its own name: two writers never share one */
+    int fd = mkostemp(tmp, O_CLOEXEC);
     if (fd < 0) {
         ap_log("cannot write %s: %s", tmp, strerror(errno));
         return false;
@@ -68,24 +100,36 @@ static bool write_file(const char *path, const void *data, size_t len)
         p += n;
         left -= (size_t)n;
     }
-    if (fsync(fd) != 0 || close(fd) != 0 || rename(tmp, path) != 0) {
+    if ((durable && fsync(fd) != 0) || close(fd) != 0 || rename(tmp, path) != 0) {
         ap_log("cannot save %s: %s", path, strerror(errno));
         unlink(tmp);
         return false;
     }
+    if (durable)
+        sync_dir(path);
     return true;
 }
 
-/* The file's length, or -1 if it is missing or larger than cap */
+static bool write_file(const char *path, const void *data, size_t len)
+{
+    return write_file_as(path, data, len, true);
+}
+
+/* The file's length, or -1 with errno: ENOENT when it is missing, EFBIG when it is larger
+ * than cap, EIO when it cannot be read whole */
 static long read_file(const char *path, void *buf, size_t cap)
 {
     FILE *f = fopen(path, "rb");
     if (!f)
         return -1;
     size_t n = fread(buf, 1, cap, f);
-    bool more = fgetc(f) != EOF;
+    bool bad = ferror(f), more = !bad && fgetc(f) != EOF;
     fclose(f);
-    return more ? -1 : (long)n;
+    if (bad || more) {
+        errno = bad ? EIO : EFBIG;
+        return -1;
+    }
+    return (long)n;
 }
 
 static void erase_file(const char *path)
@@ -98,7 +142,7 @@ static bool save(const char *dir, unsigned n, const void *data, size_t len)
 {
     char p[560];
     path_of(p, sizeof(p), dir, n, "");
-    return write_file(p, data, len);
+    return write_file_as(p, data, len, strcmp(dir, "seen") != 0);
 }
 
 static long load(const char *dir, unsigned n, void *buf, size_t cap)
@@ -398,6 +442,15 @@ static int days_check(uint32_t end, uint32_t now, uint64_t from_ms)
     return now >= end ? -1 : 0;
 }
 
+void store_files_sync(void)
+{
+    int fd = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd >= 0) {
+        syncfs(fd);
+        close(fd);
+    }
+}
+
 void store_files_tick(void)
 {
     store_lock(NULL);
@@ -426,24 +479,29 @@ void store_files_tick(void)
 static bool api_set_id(void *ctx, uint32_t id, uint32_t prev)
 {
     (void)ctx;
+    store_lock(NULL); /* store_files_tick writes the same, from the housekeeping thread */
     uint32_t now = unix_now(NULL);
-    if (!save_pair("prev", prev, prev ? (now ? now + ADOPT_S : 1) : 0) || !save_id(id))
-        return false;
-    prev_end = prev ? (now ? now + ADOPT_S : 1) : 0;
-    prev_from_ms = ap_now_ms();
-    ap_log("AP id set to %08lX", (unsigned long)id);
-    return true;
+    bool ok = save_pair("prev", prev, prev ? (now ? now + ADOPT_S : 1) : 0) && save_id(id);
+    if (ok) {
+        prev_end = prev ? (now ? now + ADOPT_S : 1) : 0;
+        prev_from_ms = ap_now_ms();
+        ap_log("AP id set to %08lX", (unsigned long)id);
+    }
+    store_unlock(NULL);
+    return ok;
 }
 
 static void api_set_adopt(void *ctx, bool all, uint32_t id)
 {
     (void)ctx;
+    store_lock(NULL);
     uint32_t now = unix_now(NULL);
     if (!all && !id)
         adopt_save(0, 0);
     else
         adopt_save(now ? now + ADOPT_S : 1, all ? 0 : id);
     adopt_from_ms = ap_now_ms();
+    store_unlock(NULL);
     ap_log(all ? "adopting lost tags of any AP" : id ? "adopting lost tags of one AP" : "adopt off");
 }
 
@@ -460,8 +518,21 @@ static void ap_id_init(void)
     apid.set_id = api_set_id;
     apid.set_adopt = api_set_adopt;
     path_of(p, sizeof(p), NULL, 0, "ap_id");
-    if (read_file(p, b, sizeof(b)) == 4)
+    errno = 0;
+    long n = read_file(p, b, sizeof(b));
+    if (n < 0 && errno != ENOENT) {
+        /* the id may be there but cannot be read (permissions after a move, an I/O error, a
+           cut file): a new one would turn this AP's own tags away, so this start runs without
+           one, as store_nvs.c does (every tag is answered, as before #390) */
+        ap_log("cannot read %s (%s): running without an AP id", p, errno ? strerror(errno) : "not 4 bytes");
+        return;
+    }
+    if (n == 4)
         id = b[0] | b[1] << 8 | b[2] << 16 | (uint32_t)b[3] << 24;
+    else if (n >= 0) {
+        ap_log("%s is %ld bytes, not 4: running without an AP id", p, n);
+        return;
+    }
     if (!load_pair("adopt", &adopt_id, &end))
         adopt_id = end = 0;
     if (!load_pair("prev", &prev, &pend))
@@ -480,7 +551,9 @@ static void ap_id_init(void)
         }
         ap_log("new AP id %08lX", (unsigned long)id);
         if (!esl_store_count(&ap.store)) {
-            ap_log("empty table: adopting lost tags of any AP for %u days", (unsigned)ESL_API_ADOPT_DAYS);
+            ap_log("WARNING: new AP id with an empty tag table: adopting lost tags of any AP on this channel for "
+                   "%u days, as a new C6 does (PUT /api/config {\"adopt\":null} stops it)",
+                   (unsigned)ESL_API_ADOPT_DAYS);
             adopt_save(1, 0);
             end = 1;
             adopt_id = 0;
@@ -515,7 +588,7 @@ static bool mkdirs(void)
 bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, uint8_t channel)
 {
     static const esl_store_ops_t ops = {
-        .lock = store_lock, .unlock = store_unlock,
+        .lock = store_lock, .unlock = store_unlock, .save_lock = save_lock, .save_unlock = save_unlock,
         .persist_save = content_save, .persist_erase = content_erase, .persist_cfg = cfg_save,
         .persist_next_poll = next_poll_save, .persist_seen = seen_save, .unix_now = unix_now,
         .load_content = content_load, .persist_image = image_save, .load_image = image_load,
@@ -570,8 +643,14 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
     }
     esl_store_set_builtin_channel(&ap.store, channel);
     path_of(p, sizeof(p), NULL, 0, "channel");
-    if (read_file(p, buf, 2) == 2)
-        esl_store_restore_channel(&ap.store, buf[0], buf[1], 0);   /* after the tags */
+    if (read_file(p, buf, 2) == 2) {
+        /* as store_nvs.c: a channel out of range is dropped, a bad planned move too */
+        uint8_t ch = buf[0] >= ESL_CHANNEL_MIN && buf[0] <= ESL_CHANNEL_MAX ? buf[0] : 0;
+        uint8_t next = buf[1] >= ESL_CHANNEL_MIN && buf[1] <= ESL_CHANNEL_MAX ? buf[1] : 0;
+        if (ch != buf[0] || next != buf[1])
+            ap_log("ignoring a bad stored channel (%u, next %u)", buf[0], buf[1]);
+        esl_store_restore_channel(&ap.store, ch, next, 0);   /* after the tags */
+    }
     ap_id_init();
 
     /* the font files before the layout files, which may name them */

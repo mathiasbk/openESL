@@ -1,7 +1,10 @@
 /* http.c - the AP's HTTP server: /api/... to esl_api_handle() (as ap/main/http_api.c does
  * on the C6), the dashboard packed from web/ at /dashboard and /ui/..., and / redirects
- * to the dashboard. One thread per connection, one request per connection
- * (Connection: close); the API itself runs one request at a time under api_mutex. */
+ * to the dashboard. One thread per connection, at most MAX_CONN of them (more get 503),
+ * one request per connection (Connection: close). The head and the body each have a
+ * deadline for the whole of them, not per read. The API runs one request at a time under
+ * api_mutex, into memory; the reply is sent after the mutex is let go, so a client that
+ * reads slowly holds up nobody else. */
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <netdb.h>
@@ -17,11 +20,17 @@
 #include "webui.h"
 
 #define HEAD_MAX 8192
+#define URI_MAX 512
 #define BODY_MAX (1024 * 1024)        /* a picture (ESL_API_MAX_IMAGE_BODY) or tag firmware in one body */
-#define REPLY_BUF (64 * 1024)         /* larger replies (GET /api/tags) are streamed */
-#define TIMEOUT_S 30
+#define REPLY_BUF (64 * 1024)         /* a larger reply (GET /api/tags) is collected chunk by chunk */
+#define MAX_CONN 32
+#define HEAD_S 10                     /* the whole head */
+#define BODY_BYTES_PER_S 16384        /* the body: HEAD_S plus this rate, so 1 MB gets 74 s */
+#define SEND_S 30
 
 static pthread_mutex_t api_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t conn_mutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned conns;
 
 static bool send_all(int fd, const void *data, size_t len)
 {
@@ -39,11 +48,23 @@ static bool send_all(int fd, const void *data, size_t len)
     return true;
 }
 
+/* The API's statuses, and the server's own */
+static const char *status_line(int status)
+{
+    switch (status) {
+    case 302: return "302 Found";
+    case 411: return "411 Length Required";
+    case 414: return "414 URI Too Long";
+    case 431: return "431 Request Header Fields Too Large";
+    case 503: return "503 Service Unavailable";
+    default: return esl_api_status_line(status);
+    }
+}
+
 static bool send_head(int fd, int status, const char *type, long len, const char *extra)
 {
     char h[512];
-    /* the API's statuses, and the redirect from / */
-    const char *line = status == 302 ? "302 Found" : esl_api_status_line(status);
+    const char *line = status_line(status);
     int n = snprintf(h, sizeof(h), "HTTP/1.1 %s\r\nContent-Type: %s\r\n%s%sConnection: close\r\n", line,
                      type, extra ? extra : "", "Cache-Control: no-cache\r\n");
     if (len >= 0)
@@ -60,25 +81,44 @@ static void send_text(int fd, int status, const char *msg)
         send_all(fd, b, (size_t)n);
 }
 
-/* ---- streamed API replies (esl_sb_set_sink): close-delimited, no Content-Length ---- */
+/* ---- API replies: collected in memory under api_mutex, sent after it ---- */
 
 typedef struct {
-    int fd;
-} sink_t;
+    char *data;
+    size_t len, cap;
+    bool failed;
+} reply_t;
 
-static bool http_sink(esl_sb_t *sb)
+static bool reply_add(reply_t *r, const char *p, size_t n)
 {
-    sink_t *s = sb->ctx;
-    if (sb->sent == 0 && !send_head(s->fd, sb->status, "application/json", -1, NULL))
-        return false;
-    return send_all(s->fd, sb->buf, sb->len);
+    if (r->len + n > r->cap) {
+        size_t cap = r->cap ? r->cap * 2 : REPLY_BUF;
+        while (cap < r->len + n)
+            cap *= 2;
+        char *d = realloc(r->data, cap);
+        if (!d) {
+            r->failed = true;
+            return false;
+        }
+        r->data = d;
+        r->cap = cap;
+    }
+    memcpy(r->data + r->len, p, n);
+    r->len += n;
+    return true;
+}
+
+static bool reply_sink(esl_sb_t *sb)
+{
+    return reply_add(sb->ctx, sb->buf, sb->len);
 }
 
 static void api_request(int fd, const char *method, const char *uri, const char *auth, const char *body, size_t len)
 {
     static char *buf; /* under api_mutex */
     esl_sb_t out;
-    sink_t sink = {fd};
+    reply_t r = {0};
+    int status;
 
     pthread_mutex_lock(&api_mutex);
     if (!buf && !(buf = malloc(REPLY_BUF))) {
@@ -87,20 +127,28 @@ static void api_request(int fd, const char *method, const char *uri, const char 
         return;
     }
     esl_sb_init(&out, buf, REPLY_BUF);
-    esl_sb_set_sink(&out, http_sink, &sink);
-    int status = esl_api_handle(&ap.api, method, uri, auth, body, len, ap_now_ms(), &out);
+    esl_sb_set_sink(&out, reply_sink, &r);
+    status = esl_api_handle(&ap.api, method, uri, auth, body, len, ap_now_ms(), &out);
     if (out.sent) {
-        /* the head has gone out with out.status; nothing can replace it */
-        if (status == out.status && !out.overflow)
-            esl_sb_flush(&out);
+        /* a streamed reply: its chunks are in r, the rest in buf */
+        if (status != out.status || out.overflow)
+            r.failed = true;
         else
-            ap_log("%s %s: streamed reply failed (%d)", method, uri, status);
-    } else if (out.overflow) {
-        send_text(fd, 500, "reply too large");
-    } else if (send_head(fd, status, "application/json", (long)out.len, NULL)) {
-        send_all(fd, out.buf, out.len);
+            reply_add(&r, out.buf, out.len);
+    } else if (!out.overflow) {
+        reply_add(&r, out.buf, out.len);
+    } else {
+        r.failed = true;
     }
     pthread_mutex_unlock(&api_mutex);
+
+    if (r.failed) {
+        ap_log("%s %s: reply failed (%d)", method, uri, status);
+        send_text(fd, 500, "reply too large");
+    } else if (send_head(fd, status, "application/json", (long)r.len, NULL)) {
+        send_all(fd, r.data, r.len);
+    }
+    free(r.data);
     ap_debug("%s %s -> %d", method, uri, status);
 }
 
@@ -145,18 +193,26 @@ static void header_copy(char *head, const char *name, char *out, size_t cap)
     out[i] = 0;
 }
 
-static void *connection(void *arg)
+/* recv() with what is left of deadline (monotonic us): -1 when it has passed */
+static ssize_t recv_until(int fd, void *buf, size_t n, int64_t deadline)
 {
-    int fd = (int)(intptr_t)arg;
+    int64_t left = deadline - ap_clock_us();
+    if (left <= 0)
+        return -1;
+    struct timeval tv = {(time_t)(left / 1000000), (suseconds_t)(left % 1000000)};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    return recv(fd, buf, n, 0);
+}
+
+static void request(int fd)
+{
     char *head = malloc(HEAD_MAX + 1);
     char *body = NULL;
     size_t got = 0;
-    struct timeval tv = {TIMEOUT_S, 0};
+    int64_t deadline = ap_clock_us() + HEAD_S * 1000000LL;
 
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     if (!head)
-        goto done;
+        return;
     /* the head, up to the empty line */
     char *end = NULL;
     while (!end) {
@@ -164,7 +220,7 @@ static void *connection(void *arg)
             send_text(fd, 431, "request head too large");
             goto done;
         }
-        ssize_t n = recv(fd, head + got, HEAD_MAX - got, 0);
+        ssize_t n = recv_until(fd, head + got, HEAD_MAX - got, deadline);
         if (n <= 0)
             goto done;
         got += (size_t)n;
@@ -174,16 +230,36 @@ static void *connection(void *arg)
     size_t head_len = (size_t)(end - head) + 4;
     end[2] = 0; /* the headers end with one CRLF now */
 
-    char method[8] = "", uri[512] = "";
-    if (sscanf(head, "%7s %511s", method, uri) != 2) {
+    char method[8] = "", uri[URI_MAX] = "";
+    size_t ml = strcspn(head, " "), ul = strcspn(head + ml + 1, " \r");
+    if (ml == 0 || ml >= sizeof(method) || head[ml] != ' ') {
         send_text(fd, 400, "bad request");
         goto done;
     }
-    char clen[24], auth[ESL_API_MAX_TOKENS + 16];
+    if (ul == 0 || ul >= sizeof(uri)) {
+        send_text(fd, ul ? 414 : 400, ul ? "URI too long" : "bad request");
+        goto done;
+    }
+    memcpy(method, head, ml);
+    memcpy(uri, head + ml + 1, ul);
+    char clen[24], te[32], auth[ESL_API_MAX_TOKENS + 16];
     header_copy(head, "Content-Length", clen, sizeof(clen));
+    header_copy(head, "Transfer-Encoding", te, sizeof(te));
     header_copy(head, "Authorization", auth, sizeof(auth));
-    long len = clen[0] ? strtol(clen, NULL, 10) : 0;
-    if (len < 0 || len > BODY_MAX) {
+    if (te[0]) {
+        send_text(fd, 411, "send the body with Content-Length");
+        goto done;
+    }
+    long len = 0;
+    if (clen[0]) {
+        if (strspn(clen, "0123456789") != strlen(clen) || strlen(clen) > 9) {
+            send_text(fd, strlen(clen) > 9 && strspn(clen, "0123456789") == strlen(clen) ? 413 : 400,
+                      "bad Content-Length");
+            goto done;
+        }
+        len = strtol(clen, NULL, 10);
+    }
+    if (len > BODY_MAX) {
         send_text(fd, 413, "body too large");
         goto done;
     }
@@ -197,8 +273,9 @@ static void *connection(void *arg)
         if (have > (size_t)len)
             have = (size_t)len;
         memcpy(body, head + head_len, have);
+        deadline += (int64_t)len * 1000000 / BODY_BYTES_PER_S;
         while (have < (size_t)len) {
-            ssize_t n = recv(fd, body + have, (size_t)len - have, 0);
+            ssize_t n = recv_until(fd, body + have, (size_t)len - have, deadline);
             if (n <= 0)
                 goto done;
             have += (size_t)n;
@@ -206,7 +283,7 @@ static void *connection(void *arg)
         body[len] = 0;
     }
 
-    char path[512];
+    char path[URI_MAX];
     snprintf(path, sizeof(path), "%s", uri);
     char *q = strchr(path, '?');
     if (q)
@@ -216,15 +293,25 @@ static void *connection(void *arg)
     } else if (strcmp(method, "GET") != 0) {
         send_text(fd, 405, "method not allowed");
     } else if (strcmp(path, "/") == 0) {
-        if (send_head(fd, 302, "text/plain", 0, "Location: /dashboard\r\n"))
-            ap_debug("GET / -> /dashboard");
+        send_head(fd, 302, "text/plain", 0, "Location: /dashboard\r\n");
     } else {
         webui_request(fd, path);
     }
 done:
     free(body);
     free(head);
+}
+
+static void *connection(void *arg)
+{
+    int fd = (int)(intptr_t)arg;
+    struct timeval tv = {SEND_S, 0};
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    request(fd);
     close(fd);
+    pthread_mutex_lock(&conn_mutex);
+    conns--;
+    pthread_mutex_unlock(&conn_mutex);
     return NULL;
 }
 
@@ -240,13 +327,30 @@ static void *server(void *arg)
                 usleep(100000);
             continue;
         }
+        pthread_mutex_lock(&conn_mutex);
+        bool room = conns < MAX_CONN;
+        if (room)
+            conns++;
+        pthread_mutex_unlock(&conn_mutex);
+        if (!room) {
+            /* as the C6's httpd with its socket limit: the newest one waits for nothing */
+            struct timeval tv = {1, 0};
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            send_text(fd, 503, "too many connections");
+            close(fd);
+            continue;
+        }
         pthread_t t;
         pthread_attr_t a;
         pthread_attr_init(&a);
         pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
         pthread_attr_setstacksize(&a, 256 * 1024);
-        if (pthread_create(&t, &a, connection, (void *)(intptr_t)fd) != 0)
+        if (pthread_create(&t, &a, connection, (void *)(intptr_t)fd) != 0) {
             close(fd);
+            pthread_mutex_lock(&conn_mutex);
+            conns--;
+            pthread_mutex_unlock(&conn_mutex);
+        }
         pthread_attr_destroy(&a);
     }
     return NULL;
