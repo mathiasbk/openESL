@@ -346,6 +346,10 @@ def ap_radios():
         for path in sorted(glob.glob(os.path.join(ROOT, "ap", folder, "boards", "*", "radio.json"))):
             with open(path) as f:
                 r = json.load(f)
+            # the radio of the AP as a Linux program (c6-usb): no board here takes it, and its
+            # image must never go to an S3's C6, so the page does not list it
+            if r.get("host") == "linux":
+                continue
             r["kind"], r["key"] = kind, "%s-%s" % (kind, r["id"])
             radios.append(r)
     return radios

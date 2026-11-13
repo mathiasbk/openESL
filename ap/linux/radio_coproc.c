@@ -8,7 +8,8 @@
  * and reports TX_DONE. It says HELLO when it starts and after each CONFIG and PING: a HELLO
  * with other settings (the radio restarted) gets the CONFIG again; while no HELLO comes,
  * CONFIG goes out every couple of seconds; while the link is up a PING goes out every few
- * seconds, and a radio that has said nothing for LINK_DEAD_US is configured again. */
+ * seconds, and a radio that has said nothing for LINK_DEAD_US is configured again. A port
+ * that goes away (the C6 unplugged) is opened again every REOPEN_US until it is back. */
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -24,6 +25,8 @@
 #define CONFIG_EVERY_US (2 * 1000000LL) /* while the link is down */
 #define PING_EVERY_US   (5 * 1000000LL) /* while it is up */
 #define LINK_DEAD_US    (15 * 1000000LL)
+#define REOPEN_US       (2 * 1000000LL) /* while the port is gone */
+#define WRITE_WAIT_MS   200             /* a frame that cannot be written in this time is dropped */
 #define TX_POWER_DBM    10              /* as CONFIG_ESL_TX_POWER_DBM on the C6 */
 
 static struct {
@@ -34,19 +37,27 @@ static struct {
     uint8_t buf[512];          /* read from the port, not yet fed to the parser */
     size_t pos, len;
     bool up;                   /* HELLO with our CONFIG seen */
-    int64_t last_heard_us, last_ping_us, last_read_us, last_stats_us;
+    int64_t last_heard_us, last_ping_us, last_read_us, last_stats_us, last_open_us;
     unsigned lost, resent;     /* from TX_DONE, counted into the link's stats at the next send() */
 } co = {.fd = -1};
 
 static void port_send(const uint8_t *f, size_t n)
 {
+    int64_t until = ap_clock_us() + WRITE_WAIT_MS * 1000LL;
+    if (co.fd < 0)
+        return;
     while (n) {
         ssize_t w = write(co.fd, f, n);
         if (w < 0 && errno == EINTR)
             continue;
         if (w < 0 && errno == EAGAIN) {
+            int64_t left = until - ap_clock_us();
+            if (left <= 0) {
+                ap_debug("radio: %s takes nothing: frame dropped", co.path);
+                return;
+            }
             struct pollfd p = {co.fd, POLLOUT, 0};
-            poll(&p, 1, 100);
+            poll(&p, 1, (int)(left / 1000) + 1);
             continue;
         }
         if (w <= 0) {
@@ -117,7 +128,9 @@ static bool handle(esl_link_rx_t *f)
     }
     case ESL_COPROC_RX: {
         esl_coproc_rx_t rx;
-        if (!esl_coproc_decode_rx(p->payload, p->len, &rx))
+        /* not before a HELLO with our settings: what a C6 on USB kept in its buffer while no
+           host read it is old, and may be from another channel */
+        if (!co.up || !esl_coproc_decode_rx(p->payload, p->len, &rx))
             return false;
         f->len = rx.len;
         memcpy(f->psdu, rx.psdu, rx.len);
@@ -174,11 +187,75 @@ static void keep_link(void)
     }
 }
 
+static int port_open(void)
+{
+    /* As it is opened, the system may change DTR and RTS, which can reset a C6 on its USB
+       port: the radio then says HELLO and gets its CONFIG again, so nothing is lost but a
+       second */
+    int fd = open(co.path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0)
+        return -1;
+    struct termios t;
+    if (tcgetattr(fd, &t) != 0) {
+        close(fd);
+        errno = ENOTTY;
+        return -1;
+    }
+    cfmakeraw(&t);
+    t.c_cflag |= CLOCAL | CREAD;
+    t.c_cflag &= ~(CRTSCTS | HUPCL);
+    cfsetispeed(&t, B921600); /* ESL_COPROC_BAUD; the USB port ignores it */
+    cfsetospeed(&t, B921600);
+    t.c_cc[VMIN] = 0;
+    t.c_cc[VTIME] = 0;
+    if (tcsetattr(fd, TCSANOW, &t) != 0) {
+        close(fd);
+        return -1;
+    }
+    tcflush(fd, TCIFLUSH);
+    co.fd = fd;
+    co.pos = co.len = 0;
+    esl_coproc_parser_init(&co.parser);
+    return 0;
+}
+
+/* The port went away (unplugged): closed, and opened again by reopen() */
+static void port_lost(const char *why)
+{
+    ap_log("radio: %s %s: opening it again every %lld s", co.path, why, (long long)(REOPEN_US / 1000000));
+    close(co.fd);
+    co.fd = -1;
+    co.up = false;
+    co.last_open_us = ap_clock_us();
+}
+
+static void reopen(void)
+{
+    int64_t now = ap_clock_us();
+    if (now - co.last_open_us < REOPEN_US)
+        return;
+    co.last_open_us = now;
+    if (port_open() != 0)
+        return;
+    ap_log("radio: %s is back", co.path);
+    co.last_ping_us = 0; /* CONFIG right away */
+}
+
 static int co_recv(esl_link_t *l, esl_link_rx_t *f, int timeout_ms)
 {
     (void)l;
     int64_t until = ap_clock_us() + (int64_t)timeout_ms * 1000;
     for (;;) {
+        if (co.fd < 0) {
+            reopen();
+            if (co.fd < 0) {
+                int64_t left = until - ap_clock_us();
+                if (left <= 0)
+                    return 0;
+                usleep((useconds_t)(left < 100000 ? left : 100000));
+                continue;
+            }
+        }
         /* what is read already first: a read can hold several frames */
         while (co.pos < co.len)
             if (esl_coproc_parser_feed(&co.parser, co.buf[co.pos++]) && handle(f))
@@ -193,16 +270,16 @@ static int co_recv(esl_link_t *l, esl_link_rx_t *f, int timeout_ms)
             return -1;
         if (r <= 0)
             continue;
-        if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-            ap_log("radio: %s is gone", co.path);
-            return -1;
+        if (p.revents & (POLLERR | POLLHUP | POLLNVAL) && !(p.revents & POLLIN)) {
+            port_lost("is gone");
+            continue;
         }
         ssize_t n = read(co.fd, co.buf, sizeof(co.buf));
         if (n < 0 && (errno == EAGAIN || errno == EINTR))
             continue;
         if (n <= 0) {
-            ap_log("radio: read from %s: %s", co.path, n ? strerror(errno) : "end of file");
-            return -1;
+            port_lost(n ? strerror(errno) : "ended");
+            continue;
         }
         int64_t now = ap_clock_us();
         if (now - co.last_read_us > ESL_COPROC_GAP_US)
@@ -263,32 +340,10 @@ static int co_open(esl_link_t *l, const char *arg)
         return -1;
     }
     snprintf(co.path, sizeof(co.path), "%s", arg);
-    /* opened as it is, DTR and RTS untouched: on the C6's USB port a change of them can reset it */
-    co.fd = open(co.path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-    if (co.fd < 0) {
-        fprintf(stderr, "openesl-ap: %s: %s\n", co.path, strerror(errno));
+    if (port_open() != 0) {
+        fprintf(stderr, "openesl-ap: %s: %s\n", co.path, errno == ENOTTY ? "not a serial port" : strerror(errno));
         return -1;
     }
-    struct termios t;
-    if (tcgetattr(co.fd, &t) != 0) {
-        fprintf(stderr, "openesl-ap: %s is not a serial port: %s\n", co.path, strerror(errno));
-        close(co.fd);
-        return -1;
-    }
-    cfmakeraw(&t);
-    t.c_cflag |= CLOCAL | CREAD;
-    t.c_cflag &= ~(CRTSCTS | HUPCL);
-    cfsetispeed(&t, B921600); /* ESL_COPROC_BAUD; the USB port ignores it */
-    cfsetospeed(&t, B921600);
-    t.c_cc[VMIN] = 0;
-    t.c_cc[VTIME] = 0;
-    if (tcsetattr(co.fd, TCSANOW, &t) != 0) {
-        fprintf(stderr, "openesl-ap: %s: %s\n", co.path, strerror(errno));
-        close(co.fd);
-        return -1;
-    }
-    tcflush(co.fd, TCIFLUSH);
-    esl_coproc_parser_init(&co.parser);
     co.last_stats_us = ap_clock_us();
     l->name = "802.15.4 coprocessor";
     l->start = co_start;

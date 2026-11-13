@@ -118,6 +118,7 @@ class FakeRadio:
         self.slave = slave
         self.buf = b""
         self.cfg = None
+        self.configs = 0
         self.tx = []
 
     def pump(self, timeout):
@@ -140,14 +141,23 @@ class FakeRadio:
                 payload = body[2:]
                 if typ == 0x02:                       # CONFIG
                     self.cfg = payload[:7]
+                    self.configs += 1
                 if typ in (0x01, 0x02) and self.cfg:  # PING, CONFIG -> HELLO, configured
                     hello = bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + self.cfg
                     os.write(self.master, coproc_frame(0x81, hello))
                 if typ == 0x03:                       # TX: ref + PSDU
                     self.tx.append(payload)
 
-    def rx(self, ref, psdu):
-        os.write(self.master, coproc_frame(0x82, bytes([ref, 256 - 60, self.cfg[0]]) + psdu))
+    def rx(self, ref, psdu, before=b"", split=None):
+        f = before + coproc_frame(0x82, bytes([ref, 256 - 60, self.cfg[0]]) + psdu)
+        if split:
+            os.write(self.master, f[:split])
+            time.sleep(0.005)   # well inside ESL_COPROC_GAP_US (20 ms)
+            f = f[split:]
+        os.write(self.master, f)
+
+    def hello(self, cfg):
+        os.write(self.master, coproc_frame(0x81, bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + cfg))
 
 
 def poll_psdu(mac, seq=1, model=1):
@@ -165,7 +175,14 @@ def test_uart(binary, tmp):
     p = subprocess.Popen([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "uart:" + radio.path,
                           "--channel", "15", "--token", "t"], stdout=log, stderr=log)
     try:
+        radio.cfg = bytes([25, 0x53, 0x45, 0, 0, 10, 0])
+        radio.rx(5, poll_psdu(0x00000000FAC70066))      # kept from before the host opened the port
+        radio.cfg = None
         radio.pump(3)
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/tags", headers={"Authorization": "Bearer t"})
+        listed = [x["mac"] for x in json.load(urllib.request.urlopen(req, timeout=5))["tags"]]
+        check(not radio.tx and "00000000FAC70066" not in listed,
+              "uart: a frame from before the radio is configured is ignored")
         check(radio.cfg is not None and radio.cfg[0] == 15 and radio.cfg[1:3] == b"\x53\x45",
               "uart: the radio gets CONFIG with the channel and PAN")
         mac = 0x00000000FAC70077
@@ -176,11 +193,30 @@ def test_uart(binary, tmp):
         check(reply[0] == 0x41 and reply[1] == 0x8C and struct.unpack("<Q", reply[5:13])[0] == mac,
               "uart: the reply is addressed to the tag")
         check(reply[15] in (0x02, 0x08), "uart: the reply is IDLE or CONFIG")
+
+        radio.rx(8, poll_psdu(mac, seq=2), split=9)
+        radio.pump(1)
+        check(len(radio.tx) == 2 and radio.tx[1][0] == 8, "uart: a frame that comes in two reads")
+        radio.rx(9, poll_psdu(mac, seq=3), before=b"\x00boot noise\xa5\x01\xff")
+        radio.pump(1)
+        check(len(radio.tx) == 3 and radio.tx[2][0] == 9, "uart: a frame after noise and a broken start")
+        n = radio.configs
+        radio.hello(bytes([11]) + radio.cfg[1:])        # restarted with other settings
+        radio.pump(1)
+        check(radio.configs > n, "uart: a HELLO with other settings gets CONFIG again")
+
+        os.close(radio.master)                           # unplugged
+        radio.master = None
+        time.sleep(1)
+        check(p.poll() is None, "uart: the radio going away does not stop the program")
+        check(urllib.request.urlopen(f"http://127.0.0.1:{port}/dashboard", timeout=5).status == 200,
+              "uart: and the API still answers")
     finally:
         p.send_signal(signal.SIGTERM)
         rc = p.wait(timeout=10)
         log.close()
-        os.close(radio.master)
+        if radio.master is not None:
+            os.close(radio.master)
         os.close(radio.slave)
     check(rc == 0, "uart: SIGTERM stops it cleanly")
 

@@ -18,9 +18,9 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 
 ### A C6 on USB as the radio
 
-1. Flash the C6 with the radio board `c6-usb`: `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release, written at 0 (the web flasher or `esptool.py write_flash 0x0 ...`), or `cd ap && python build.py radio/c6-usb`. Its log goes to its UART pins, since the USB port is the link.
-2. Plug it into the host and start `openesl-ap --radio uart:/dev/ttyACM0` (the service's user needs the `dialout` group, which the unit file gives it). The C6 shows up as `/dev/ttyACM0` on most systems; `ls /dev/serial/by-id/` gives a name that stays the same across reboots and other USB devices.
-3. The log says `radio 1.1 up on channel 25, PAN 0x4553, 10 dBm` once the C6 has its settings. A C6 that restarts, or is unplugged and plugged back in, gets them again within a few seconds; one that has said nothing for 15 s is configured again.
+1. Flash the C6 with the radio board `c6-usb`: `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release, written at 0 with `esptool.py write_flash 0x0 ...` (the web flasher does not offer it), or `cd ap && python build.py radio/c6-usb`. Its log goes to its UART pins, since the USB port is the link.
+2. Plug it into the host and start `openesl-ap --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...` (the service's user needs the `dialout` group, which the unit file gives it). Use the name `ls /dev/serial/by-id/` shows rather than `/dev/ttyACM0`: it stays the same across reboots, replugging and other USB devices.
+3. The log says `radio 1.1 up on channel 25, PAN 0x4553, 10 dBm` once the C6 has its settings. A C6 that restarts gets them again within a few seconds, and one that has said nothing for 15 s is configured again. A port that goes away (the C6 unplugged) is opened again every 2 s until it is back; frames the C6 kept from before it has its settings are ignored.
 
 Tried on 2026-11-13 with a C6 Super Mini on a Fedora PC: three test tags (2.9" and 1.54") polled through it, took CONFIG, and showed content set through the API, with no lost rounds and no failed replies.
 
