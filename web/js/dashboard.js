@@ -22,6 +22,10 @@ const REFRESH_MS = 10000;
 const REFRESH_UPDATING_MS = 5000; // while tags fetch firmware, so the bars move
 const DEMO_WHERE = "this browser";
 
+// 90 % or more of the tags the AP has room for (ap.max_tags): only then does the dashboard say
+// how many that is, as "of N"
+const nearFull = (n, max) => max > 0 && n >= max * 0.9;
+
 // A bar for a download: fraction 0..1, or null for one that moves to and fro (nothing to count yet)
 function progressBar({ fraction, text }) {
   const span = document.createElement("span");
@@ -357,7 +361,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     $("dash-where").textContent = connectedTo + (who ? " · " + who : "");
     $("dash-ap-sum").textContent = [ap.fw, "up " + fmtAgo(ap.uptime_s), "channel " + ap.channel]
       .concat(wifi?.connected && wifi.ssid ? [`WiFi "${wifi.ssid}"`] : []).join(" · ");
-    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length} of ${ap.max_tags}` + (ap.table_full ? ", full: no room for a new tag" : "")]]).map(([k, v, radio]) => {
+    // the AP's room for tags only matters once it is nearly used up (nearFull)
+    const room = ap.table_full ? ", full: no room for a new tag" : nearFull(list.tags.length, ap.max_tags) ? ` of ${ap.max_tags}` : "";
+    $("dash-ap").replaceChildren(...apFacts(ap, last.ota).concat([["Tags", `${list.tags.length}` + room]]).map(([k, v, radio]) => {
       const d = document.createElement("div");
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
@@ -412,7 +418,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       return d;
     };
     const tiles = [
-      tile("all", list.tags.length, ap.table_full ? "tags, full: no room for more" : `tags, of ${ap.max_tags}`,
+      tile("all", list.tags.length, ap.table_full ? "tags, full: no room for more" : nearFull(list.tags.length, ap.max_tags) ? `tags, of ${ap.max_tags}` : "tags",
            ap.table_full ? "bad" : ""),
       tile("bad", counts.bad, counts.bad === 1 ? "needs attention" : "need attention", counts.bad ? "bad" : "good"),
       tile("busy", counts.busy, "busy or late", counts.busy ? "busy" : ""),
