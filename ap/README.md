@@ -51,6 +51,7 @@ ap/
     c6-supermini-lcd/   the same with the 0.96" status screen
     c5-wroom-1u-n16r8/  ESP32-C5 with 16 MB flash and 8 MB PSRAM, external antenna (experimental)
   build.py                builds one or every board into out/ (merged image and OTA image)
+  linux/                  the AP as a Linux program, openesl-ap (docs/linux-ap.md)
   test/                   host unit tests (Makefile)
 ```
 
@@ -110,6 +111,8 @@ What the tests cover:
 - **Scheduled content and the clock** (`test_sched.c`), the health report and the webhook body.
 
 The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`.
+
+The whole AP also runs on the PC as a program, with simulated tags: `make -C ap/linux test` ([docs/linux-ap.md](../docs/linux-ap.md)).
 
 Not covered here: the ESP-IDF glue in `main/` (built in CI and run on hardware), radio timing (must be measured on hardware, requirement A3), WiFi and coexistence, and OTA writing and rollback on real flash.
 

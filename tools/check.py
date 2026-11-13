@@ -19,6 +19,7 @@ Steps:
             (make -C sim upgrade; needs the release tags: git fetch --tags)
   tag-fw    tag firmware for every model in shared/models.json with SDCC 4.5.0
   ap-test   AP core host tests with sanitizers (ap/test)
+  linux-ap  the AP as a Linux program (ap/linux), with sanitizers, tested over HTTP with simulated tags
   tools     esl-client, power-budget, ble-probe, release notes (the upgrade instructions for VERSION) and AP
             flash budget tests
   flash-tui the flash-tui tests (tools/flash-tui/tests; pip: textual pyserial)
@@ -166,6 +167,11 @@ def step_ap_test():
     run(["make", "-C", "ap/test", "SAN=1"])
 
 
+def step_linux_ap():
+    need_san()
+    run(["make", "-C", "ap/linux", "test", "SAN=1"])
+
+
 def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
@@ -266,6 +272,7 @@ STEPS = {
     "upgrade": (step_upgrade, "make, gcc/clang with sanitizers (not native Windows), git with the release tags"),
     "tag-fw": (step_tag_fw, "SDCC " + SDCC_VERSION),
     "ap-test": (step_ap_test, "make, gcc/clang with sanitizers (not native Windows), pip: zxing-cpp pillow"),
+    "linux-ap": (step_linux_ap, "make, gcc/clang with sanitizers (not native Windows), Python"),
     "tools": (step_tools, "Python"),
     "flash-tui": (step_flash_tui, "pip: textual pyserial (tools/dev/requirements.txt)"),
     "openapi": (step_openapi, "make, C compiler, pip: pyyaml"),

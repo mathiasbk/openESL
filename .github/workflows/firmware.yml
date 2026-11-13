@@ -89,6 +89,8 @@ jobs:
           # same list also has what the tool tests below need (flash-tui)
           python3 -m pip install --user -r tools/dev/requirements.txt
           make -C ap/test SAN=1
+      - name: The AP as a Linux program (ap/linux, simulated tags, with AddressSanitizer)
+        run: make -C ap/linux test SAN=1
       - name: Tool tests (esl-client against a fake AP, power budget, BLE probe, release notes, AP flash budget, sniffer, flash-tui)
         run: |
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)

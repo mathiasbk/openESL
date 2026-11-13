@@ -25,6 +25,7 @@ This folder is for developers. To **use** OpenESL, read the [wiki](https://githu
 | [access-points.md](access-points.md) | The boards the AP runs on (C6, C5, S3 + C6), with limits, pros and cons, and the S3 + C6 wiring |
 | [ap-radio-link.md](ap-radio-link.md) | The AP on an ESP32-S3 with an ESP32-C6 as its 802.15.4 radio over UART: wiring and link protocol |
 | [ap-netradio.md](ap-netradio.md) | The AP on an ESP32-S3 with a wireless ESP32-C6 radio on the same WiFi network (experimental) |
+| [linux-ap.md](linux-ap.md) | The AP as a Linux program (`ap/linux`, `openesl-ap`): a Raspberry Pi, gateway or PC with a radio, the same API and dashboard, data in files |
 | [tag-firmware.md](tag-firmware.md) | The tag firmware's modules, tag identity, layouts, fonts and memory on the 8051 |
 | [tag-ota.md](tag-ota.md) | Firmware updates over the radio for the tags: bootloader, SPI flash slots, rollback |
 | [st-gm16xx2.md](st-gm16xx2.md) | The 1.54" ST-GM16XX2: panel detection, init and refresh |
