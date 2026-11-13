@@ -119,6 +119,7 @@ class FakeRadio:
         self.buf = b""
         self.cfg = None
         self.configs = 0
+        self.silent = False
         self.tx = []
 
     def pump(self, timeout):
@@ -142,7 +143,7 @@ class FakeRadio:
                 if typ == 0x02:                       # CONFIG
                     self.cfg = payload[:7]
                     self.configs += 1
-                if typ in (0x01, 0x02) and self.cfg:  # PING, CONFIG -> HELLO, configured
+                if typ in (0x01, 0x02) and self.cfg and not self.silent:  # PING, CONFIG -> HELLO
                     hello = bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + self.cfg
                     os.write(self.master, coproc_frame(0x81, hello))
                 if typ == 0x03:                       # TX: ref + PSDU
@@ -204,6 +205,12 @@ def test_uart(binary, tmp):
         radio.hello(bytes([11]) + radio.cfg[1:])        # restarted with other settings
         radio.pump(1)
         check(radio.configs > n, "uart: a HELLO with other settings gets CONFIG again")
+
+        radio.silent = True                              # hangs: answers nothing
+        radio.pump(17)                                   # 15 s to be taken as gone, then the reset
+        with open(os.path.join(tmp, "uart.log")) as lf:
+            check("resetting it" in lf.read(), "uart: a radio that goes silent is reset")
+        radio.silent = False
 
         os.close(radio.master)                           # unplugged
         radio.master = None

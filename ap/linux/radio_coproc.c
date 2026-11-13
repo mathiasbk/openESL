@@ -9,7 +9,9 @@
  * with other settings (the radio restarted) gets the CONFIG again; while no HELLO comes,
  * CONFIG goes out every couple of seconds; while the link is up a PING goes out every few
  * seconds, and a radio that has said nothing for LINK_DEAD_US is configured again. A port
- * that goes away (the C6 unplugged) is opened again every REOPEN_US until it is back. */
+ * that goes away (the C6 unplugged) is opened again every REOPEN_US until it is back. A radio
+ * that says nothing for RESET_AFTER_US while the port is open is reset through the port's
+ * RTS line, as esptool does (on the C6's own USB port; a serial adapter may not have it). */
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -17,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 #include "ap.h"
@@ -26,6 +29,8 @@
 #define PING_EVERY_US   (5 * 1000000LL) /* while it is up */
 #define LINK_DEAD_US    (15 * 1000000LL)
 #define REOPEN_US       (2 * 1000000LL) /* while the port is gone */
+#define RESET_AFTER_US  (10 * 1000000LL) /* no HELLO for this long with the port open: reset it */
+#define RESET_EVERY_US  (30 * 1000000LL) /* and again no sooner than this */
 #define WRITE_WAIT_MS   200             /* a frame that cannot be written in this time is dropped */
 #define TX_POWER_DBM    10              /* as CONFIG_ESL_TX_POWER_DBM on the C6 */
 
@@ -38,6 +43,7 @@ static struct {
     size_t pos, len;
     bool up;                   /* HELLO with our CONFIG seen */
     int64_t last_heard_us, last_ping_us, last_read_us, last_stats_us, last_open_us;
+    int64_t down_since_us, last_reset_us; /* the link down (or the port opened) since; the last reset */
     unsigned lost, resent;     /* from TX_DONE, counted into the link's stats at the next send() */
 } co = {.fd = -1};
 
@@ -160,7 +166,22 @@ static bool handle(esl_link_rx_t *f)
     }
 }
 
-/* CONFIG while the link is down, PING while it is up, STATS now and then */
+/* Resets the radio through RTS, as esptool's hard reset: RTS pulls the C6's EN low while DTR
+ * stays off, so it starts its firmware and not its download mode (that needs DTR with RTS). */
+static void reset_radio(int64_t quiet_us)
+{
+    int dtr = TIOCM_DTR, rts = TIOCM_RTS;
+    ap_log("radio: nothing from %s for %lld s: resetting it", co.path, (long long)(quiet_us / 1000000));
+    if (ioctl(co.fd, TIOCMBIC, &dtr) != 0 || ioctl(co.fd, TIOCMBIS, &rts) != 0) {
+        ap_debug("radio: %s has no RTS: %s", co.path, strerror(errno));
+        return;
+    }
+    usleep(100000);
+    ioctl(co.fd, TIOCMBIC, &rts);
+}
+
+/* CONFIG while the link is down, PING while it is up, STATS now and then, a reset when the
+ * radio stays silent */
 static void keep_link(void)
 {
     uint8_t f[ESL_COPROC_FRAME_MAX];
@@ -170,6 +191,15 @@ static void keep_link(void)
                (long long)((now - co.last_heard_us) / 1000000));
         co.up = false;
         co.last_ping_us = 0;
+        co.down_since_us = co.last_heard_us;
+    }
+    /* silent: not heard since the link went down or the port was opened (a radio that answers
+       with other settings is heard, and gets CONFIG instead) */
+    int64_t quiet = now - (co.last_heard_us > co.down_since_us ? co.last_heard_us : co.down_since_us);
+    if (!co.up && co.fd >= 0 && quiet > RESET_AFTER_US && now - co.last_reset_us > RESET_EVERY_US) {
+        reset_radio(quiet);
+        co.last_reset_us = now;
+        co.down_since_us = now;
     }
     if (co.up && now - co.last_ping_us > PING_EVERY_US) {
         co.last_ping_us = now;
@@ -217,6 +247,7 @@ static int port_open(void)
     tcflush(fd, TCIFLUSH);
     co.fd = fd;
     co.pos = co.len = 0;
+    co.down_since_us = ap_clock_us();
     esl_coproc_parser_init(&co.parser);
     return 0;
 }
