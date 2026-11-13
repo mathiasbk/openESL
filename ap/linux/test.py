@@ -164,6 +164,24 @@ def main():
         check(ap.request("GET", "/dashboard", auth=False)[0] == 200, "it serves again once they close")
         check(ap.stop() == 0, "SIGTERM stops it cleanly again")
 
+        # the stored channel: a forced move that was waiting comes back with its flag, a channel
+        # out of range is dropped (as store_nvs.c)
+        with open(os.path.join(data, "channel"), "wb") as f:
+            f.write(bytes([0, 0x80 | 15]))
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        cfg = ap.json("GET", "/api/config")
+        check(cfg.get("channel") == 25 and cfg.get("channel_next") == 15, "a waiting forced channel move is kept")
+        check(ap.stop() == 0, "SIGTERM stops it")
+        with open(os.path.join(data, "channel"), "wb") as f:
+            f.write(bytes([99, 0x80 | 99]))
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        cfg = ap.json("GET", "/api/config")
+        check(cfg.get("channel") == 25 and cfg.get("channel_next") is None, "a bad stored channel is dropped")
+        check(ap.stop() == 0, "SIGTERM stops it")
+        os.remove(os.path.join(data, "channel"))
+
         # an AP id file that exists but cannot be read whole is not replaced: no id this start
         id_file = os.path.join(data, "ap_id")
         with open(id_file, "r+b") as f:

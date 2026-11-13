@@ -646,8 +646,9 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
     if (read_file(p, buf, 2) == 2) {
         /* as store_nvs.c: a channel out of range is dropped, a bad planned move too */
         uint8_t ch = buf[0] >= ESL_CHANNEL_MIN && buf[0] <= ESL_CHANNEL_MAX ? buf[0] : 0;
-        uint8_t next = buf[1] >= ESL_CHANNEL_MIN && buf[1] <= ESL_CHANNEL_MAX ? buf[1] : 0;
-        if (ch != buf[0] || next != buf[1])
+        uint8_t nch = buf[1] & ~ESL_CHANNEL_FORCED; /* a forced move keeps its flag */
+        uint8_t next = nch >= ESL_CHANNEL_MIN && nch <= ESL_CHANNEL_MAX ? buf[1] : 0;
+        if ((buf[0] && ch != buf[0]) || (buf[1] && next != buf[1]))
             ap_log("ignoring a bad stored channel (%u, next %u)", buf[0], buf[1]);
         esl_store_restore_channel(&ap.store, ch, next, 0);   /* after the tags */
     }
