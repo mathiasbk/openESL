@@ -2,7 +2,7 @@
 
 The SoluM ESL remote **SLT-RC004** (FCC ID E2X-RC) was made for shop staff to flip pages on stock price labels. With openESL it is a wireless button with three buttons, **W**, **left** and **right**: the AP hears each press and passes it on, to Home Assistant or any other webhook. It needs no new firmware on the remote.
 
-<img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/solum-remote-front.jpg" alt="The SoluM remote: W, left and right buttons and an OFF/ON switch" width="200"> <img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/solum-remote-back.jpg" alt="The label on the back: FCC ID E2X-RC, model SLT-RC004" width="200">
+<img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/solum-remote-front.jpg" alt="The SoluM remote: W, left and right buttons and an OFF/ON switch" width="200">
 
 Set the switch to **ON**. The remote takes a 3 V coin cell in its battery cover.
 

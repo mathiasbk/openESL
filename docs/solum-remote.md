@@ -2,7 +2,7 @@
 
 A handheld remote that SoluM sold to shops for its stock ESL system. openESL uses it as a wireless button with three buttons: the AP hears its presses and posts each one to a webhook, which the [Home Assistant integration](https://github.com/mathiasbk/openesl-homeassistant) turns into an event. The user's side is in the wiki ([SoluM remote](../wiki/sending-content/SoluM-remote.md)); this page is how it works.
 
-<img src="images/solum-remote-front.jpg" alt="The front of the remote: a large W button, left and right buttons, and an OFF/ON switch" width="200"> <img src="images/solum-remote-back.jpg" alt="The label on the back: FCC ID E2X-RC, model SLT-RC004" width="200"> <img src="images/solum-remote-pads.jpg" alt="The battery compartment open: ten round pads in two rows on the board" width="300">
+<img src="images/solum-remote-front.jpg" alt="The front of the remote: a large W button, left and right buttons, and an OFF/ON switch" width="200"> <img src="images/solum-remote-pads.jpg" alt="The battery compartment open: ten round pads in two rows on the board" width="300">
 
 ## The device
 
