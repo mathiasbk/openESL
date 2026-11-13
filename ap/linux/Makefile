@@ -1,6 +1,7 @@
 # openesl-ap: the AP core (ap/components/esl_core) as a Linux program (docs/linux-ap.md).
 #   make                  build/openesl-ap for this machine (cc)
-#   make test             build it and run test.py against it (radio sim)
+#   make test             build it and run test.py against it (radio sim, uart on a pty), and
+#                         test_spimodem (the SPI modem's framing)
 #   make TARGET=armv7     static build with zig: armv7, aarch64 or x86_64 (pip install ziglang)
 #   make SAN=1            with AddressSanitizer + UndefinedBehaviorSanitizer
 #   make clean
@@ -38,7 +39,7 @@ LDLIBS  := -lpthread -lm
 CORE_SRCS := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c))
 # the tag's fonts and barcodes, which esl_render draws with (as esl_core/CMakeLists.txt)
 TAG_SRCS  := $(ROOT)/tag/src/font.c $(ROOT)/tag/src/barcode.c $(wildcard $(ROOT)/tag/fonts/font_*.c)
-SRCS      := main.c store_files.c http.c radio_sim.c radio_coproc.c
+SRCS      := main.c store_files.c http.c radio_sim.c radio_coproc.c radio_spimodem.c
 OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) $(OUT)/esl_coproc.o \
              $(TAG_SRCS:$(ROOT)/tag/%.c=$(OUT)/tag/%.o) $(OUT)/webui_files.o
 DEPS      := ap.h Makefile $(wildcard $(CORE)/include/*.h $(ROOT)/shared/*.h) $(ROOT)/VERSION
@@ -74,7 +75,12 @@ $(OUT)/webui_files.o: build/webui_files.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test: $(OUT)/openesl-ap
+$(OUT)/test_spimodem: test_spimodem.c radio_spimodem.c $(DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(LDFLAGS) $(LDLIBS) -o $@
+
+test: $(OUT)/openesl-ap $(OUT)/test_spimodem
+	$(OUT)/test_spimodem
 	python3 test.py $(OUT)/openesl-ap
 
 clean:
