@@ -7,11 +7,13 @@ import unittest
 
 import sniff
 
-TAG = bytes.fromhex("153BA64305020000")      # 0000020543A63B15 on the air (little-endian)
+TAG = bytes.fromhex("9078563412020000")      # 0000021234567890 on the air (little-endian)
 
 
-def poll_frame(seq=7):
-    payload = struct.pack("<BBHHIBB", 0x01, 1, 10100, 2950, 0x1234ABCD, 0x29, 1) + struct.pack("<HBBBB", 3, 0, 0, 2, 0)
+def poll_frame(seq=7, linkf=0, apid=None):
+    payload = struct.pack("<BBHHIBB", 0x01, 1, 10100, 2950, 0x1234ABCD, 0x29, 1) + struct.pack("<HBBBB", 3, 0, 0, 2, linkf)
+    if apid is not None:
+        payload += struct.pack("<I", apid)
     return struct.pack("<HBHH", 0xC841, seq, 0x4553, 0x0000) + TAG + payload
 
 
@@ -46,21 +48,26 @@ class DecodeTest(unittest.TestCase):
         h = sniff.decode_mac(poll_frame())
         self.assertEqual(h["type"], 1)
         self.assertEqual(h["dst"], "0000")
-        self.assertEqual(h["src"], "0000020543A63B15")
+        self.assertEqual(h["src"], "0000021234567890")
         self.assertEqual(h["dst_pan"], 0x4553)
         self.assertEqual(h["src_pan"], 0x4553)          # PAN ID compression
         self.assertEqual(h["payload"], 15)              # ESL_MAC_HDR_LEN
         text = sniff.describe(sniff.parse_line(line(0, poll_frame())))
         self.assertIn("POLL fw=10100 bat=2950mV id=1234ABCD model=1", text)
         self.assertIn("[booted,ota,image]", text)
-        self.assertIn("0000020543A63B15/4553 -> 0000/4553", text)
+        self.assertIn("0000021234567890/4553 -> 0000/4553", text)
+
+    def test_poll_link_flags_and_ap_id(self):
+        text = sniff.describe(sniff.parse_line(line(0, poll_frame(linkf=0x03, apid=0xCAFE0001))))
+        self.assertIn("lost=2 link[retry,lost_long] apid=CAFE0001", text)
+        self.assertNotIn("link[", sniff.describe(sniff.parse_line(line(0, poll_frame()))))
 
     def test_idle_and_gap(self):
         f = sniff.parse_line(line(2600, idle_frame()))
         text = sniff.describe(f, prev_us=1000)
         self.assertIn("+1.6ms", text)
         self.assertIn("IDLE next=60s", text)
-        self.assertIn("0000/4553 -> 0000020543A63B15/4553", text)
+        self.assertIn("0000/4553 -> 0000021234567890/4553", text)
         self.assertNotIn("unexpected", text)
 
     def test_wrong_direction_and_ack_request(self):
@@ -80,7 +87,7 @@ class DecodeTest(unittest.TestCase):
         f = sniff.parse_line(line(0, poll_frame()))
         self.assertTrue(sniff.matches(f, pan=0x4553))
         self.assertFalse(sniff.matches(f, pan=0x1234))
-        self.assertTrue(sniff.matches(f, mac="0000020543A63B15"))
+        self.assertTrue(sniff.matches(f, mac="0000021234567890"))
         self.assertTrue(sniff.matches(f, mac="0000"))
         self.assertFalse(sniff.matches(f, mac="0000000000000001"))
 

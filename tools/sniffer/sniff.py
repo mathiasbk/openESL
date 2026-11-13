@@ -9,7 +9,7 @@ tag's listening window.
   sniff.py /dev/ttyACM0 --channel 20        tune it to channel 20 first (not kept over a restart)
   sniff.py /dev/ttyACM0 --hop 300           hop through 11-26, 300 ms per channel
   sniff.py /dev/ttyACM0 --pan 0x4553        only frames to or from that PAN
-  sniff.py /dev/ttyACM0 --mac 0000020543A63B15   only frames to or from that tag
+  sniff.py /dev/ttyACM0 --mac 0000021234567890   only frames to or from that tag
   sniff.py /dev/ttyACM0 --pcap out.pcap     also write a capture for Wireshark
   sniff.py /dev/ttyACM0 --log out.log       also keep the sniffer's raw lines
   sniff.py --read out.log                   decode raw lines saved before (or copied from a terminal)
@@ -28,6 +28,7 @@ import time
 MSG_NAMES = {0x01: "POLL", 0x02: "IDLE", 0x06: "FW", 0x07: "FW_REQ", 0x08: "CONFIG", 0x09: "IMG", 0x0A: "IMG_REQ"}
 POLL_FLAGS = [(0x01, "booted"), (0x02, "drawfail"), (0x08, "ota"), (0x10, "fwfail"), (0x20, "image"),
               (0x40, "rle"), (0x80, "2d")]
+LINK_FLAGS = [(0x01, "retry"), (0x02, "lost_long"), (0x04, "any_ap")]
 FRAME_TYPES = {0: "beacon", 1: "data", 2: "ack", 3: "cmd"}
 AP_SHORT = 0x0000
 FCF_TAG_TO_AP = 0xC841
@@ -110,6 +111,11 @@ def decode_esl(h, payload):
             text += " [%s]" % ",".join(names)
         if len(payload) >= 18:
             text += " lost=%d" % payload[16]
+            lf = [n for bit, n in LINK_FLAGS if payload[17] & bit]
+            if lf:
+                text += " link[%s]" % ",".join(lf)
+        if len(payload) >= 22:
+            text += " apid=%08X" % struct.unpack_from("<I", payload, 18)[0]
     elif payload[0] in (0x02, 0x06, 0x08, 0x09) and len(payload) >= 4:
         text += " next=%ds" % struct.unpack_from("<H", payload, 2)[0]
     if (h["fcf"] == FCF_TAG_TO_AP) != (payload[0] in (0x01, 0x07, 0x0A)):
