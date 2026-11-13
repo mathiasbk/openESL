@@ -209,7 +209,9 @@ static int port_open(void)
     t.c_cc[VMIN] = 0;
     t.c_cc[VTIME] = 0;
     if (tcsetattr(fd, TCSANOW, &t) != 0) {
+        int e = errno; /* close() may change it */
         close(fd);
+        errno = e;
         return -1;
     }
     tcflush(fd, TCIFLUSH);

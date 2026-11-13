@@ -85,3 +85,4 @@ typedef struct {
 
 extern const radio_backend_t radio_sim;
 extern const radio_backend_t radio_coproc;
+extern const radio_backend_t radio_spimodem;

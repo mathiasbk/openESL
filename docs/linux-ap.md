@@ -14,7 +14,23 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 | `--radio` | What | State |
 |---|---|---|
 | `sim[:N[,ms]]` | N simulated tags (default 2) in the program, polling every ms (default 2000), alternately 2.9" and 1.54". They take CONFIG and fetch images block by block like a tag, so the dashboard and the API can be tried without hardware. The tests use it. | done |
+| `spi-modem:DEVICE[,promisc]` | An 802.15.4 modem with its own firmware behind a Linux SPI driver that frames its traffic as records (some ESL gateways have one): settings and frames go out as commands, received frames come back from `read()` as 132-byte records. Below. | done |
 | `uart:DEVICE` | An ESP32-C6 running the radio firmware (`ap/radio/`), over the link of [ap-radio-link.md](ap-radio-link.md). The usual setup: a C6 Super Mini with radio board `c6-usb` on a USB port of the host (`uart:/dev/ttyACM0`). The radio board `c6` speaks the same link on its UART pins (GPIO16 TX, GPIO17 RX), for a host with a serial port or a USB serial adapter at 921600 baud (`uart:/dev/ttyUSB0`). | done |
+
+### An SPI 802.15.4 modem as the radio
+
+`--radio spi-modem:/dev/spidevB.C` drives a modem that keeps its own firmware and takes, over SPI:
+
+| | |
+|---|---|
+| `[cmd, 0xFF, len LE16, data]` | settings: `0x83` PAN, `0x85` channel, `0x86` short address, `0x87` IEEE address, `0x8C` promiscuous, `0x8B` receive on |
+| `[0x88, 0x01, n+1 LE16, frame (n bytes, no FCS), 0xFF ^ XOR(frame)]` | transmit at 250 kbps; the modem adds the FCS. A plain XOR is taken but nothing is sent |
+| `[0x02]`, then 2 bytes read | the status of the last transmit (0 = sent), or of receive on, which the modem waits for before it receives |
+| `read()` | blocks until frames came in; each is a 132-byte record `[0, len, frame (no FCS), rssi, lqi]` |
+
+The driver sets up its receive queue on every `open()`, so a second open of the device (another program, a test tool) leaves a `read()` that was waiting stuck for good, and that `read()` cannot be interrupted. The backend therefore keeps one descriptor for the whole run, reads in a thread of its own, and sends and sets up through the same descriptor. Nothing else may open the device while `openesl-ap` runs; stop the system's own radio daemon first. Start it after the modem has booted (reset it beforehand if it was used by something else).
+
+Tried on 2026-11-13 on an ARMv7 Linux gateway with such a modem (the armv7 build, data in `/opt/openesl`): the test tags polled every 60 s with no lost rounds and no failed replies, and content set through the API was drawn, sent in 4 blocks and shown.
 
 ### A C6 on USB as the radio
 
