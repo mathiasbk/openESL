@@ -13,6 +13,8 @@ This folder is for developers. To **use** OpenESL, read the [wiki](https://githu
 | [code-map.md](code-map.md) | The folders and modules, how the parts talk, "want to change X, start in Y", and which tests cover what |
 | [architecture.md](architecture.md) | How the parts fit together, and the main choices |
 | [protocol.md](protocol.md) | The radio protocol between tag and AP (part 1), the HTTP API (part 2) and the layout file format (part 3) |
+| [tag-radio.md](tag-radio.md) | How a tag behaves on the air: the listening window, the retry, which channels it tries after misses, how its interval grows, and restarts |
+| [radio-sniffer.md](radio-sniffer.md) | The sniffer build of the AP and `tools/sniffer/sniff.py`: see every 802.15.4 frame on a channel, decoded and timed |
 | [openapi.yaml](openapi.yaml) | The HTTP API as OpenAPI 3.1, the reference; checked against the AP code in CI and shown in the API tab of the web page |
 | [requirements.md](requirements.md) | The requirements with IDs (G1, A3, T6, ...) that code comments refer to |
 

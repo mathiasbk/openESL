@@ -1,0 +1,3 @@
+# The sniffer build: python build.py --sniffer <board>, or idf.py -DSNIFFER=1 build
+# (docs/radio-sniffer.md). Read after the board's sdkconfig.defaults.
+CONFIG_ESL_RADIO_SNIFFER=y

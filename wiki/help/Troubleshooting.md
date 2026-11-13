@@ -32,6 +32,10 @@ See also the [FAQ](FAQ).
 
 **The dashboard says "drawing failed", or the screen stays blank.** The label hears the AP, but its display did not finish drawing. On the few labels this has happened to, the cause was hardware: the display's cable or the display itself. Take the label apart and reseat the display cable; if it still fails, the display is likely broken. Its page under [Supported labels](Supported-labels) lists what is known for that model.
 
+**A label keeps polling, and the AP says it answers, but the label never takes the answer.** Something between the AP's answer and the label is wrong: the answer is too late, on another channel, or not in the form the label accepts. For developers, [how a tag behaves on the radio](https://github.com/mathiasbk/openESL/blob/master/docs/tag-radio.md) lists what the label accepts and when, and [the radio sniffer](https://github.com/mathiasbk/openESL/blob/master/docs/radio-sniffer.md) turns a spare ESP32-C6 into a listener that shows every frame and its timing.
+
+**A label did not restart when I took the battery out.** A sleeping label uses so little power that it can run on its own capacitors for a while. Leave the battery out for a minute or more.
+
 **The battery shows 0.** The [1.54"](SoluM-1.54-ST-GM16XX2#known-issues) cannot measure its battery voltage yet, so it reports 0 (unknown).
 
 Still stuck? [Open an issue](https://github.com/mathiasbk/openESL/issues) with what you tried and what the dashboard says.
