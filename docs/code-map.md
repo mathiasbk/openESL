@@ -44,7 +44,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `templates/` | The designer's template library | [templates/README.md](../templates/README.md) |
 | `tools/esl-client/` | Command-line client for the API, backup and restore, tag OTA, and the bridge the web page uses | [tools/esl-client/README.md](../tools/esl-client/README.md) |
 | `tools/flash-tui/` | Terminal UI for flashing many tags in a row | [tools/flash-tui/README.md](../tools/flash-tui/README.md) |
-| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/`, `ble-probe/` (Bluetooth tags: scan, read a phone's HCI log) | – |
+| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/`, `ble-probe/` (Bluetooth tags: scan, read a phone's HCI log), `sniffer/` (decodes what the AP's sniffer build hears, [radio-sniffer.md](radio-sniffer.md)) | – |
 | `wiki/` | The user guide, published to the GitHub wiki | – |
 
 ## Want to change X? Start in Y
@@ -56,7 +56,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | What a tag is sent and when | `esl_store.c` (what is next for a tag) and `esl_radio.c` (the reply to a frame) |
 | Bluetooth tags (the AP sends to them) | `esl_push.c`, and [ble-tags.md](ble-tags.md) |
 | A radio message | `shared/proto.h` and [protocol.md](protocol.md) part 1, then both `tag/src/proto.c` and `esl_proto.c`. Older tags must keep working. |
-| The tag's behaviour (polling, status screens, OTA) | `tag/src/app.c`, `status.c`, `ota.c` |
+| The tag's behaviour (polling, status screens, OTA) | `tag/src/app.c`, `status.c`, `ota.c`; what it does on the air is in [tag-radio.md](tag-radio.md) |
 | A new tag model | `shared/models.json` and `tag/src/panels/`, see the wiki page "Adding hardware" |
 | A new AP board | `ap/boards/` and [access-points.md](access-points.md) |
 | WiFi, NVS, the HTTP server | `ap/main/` |

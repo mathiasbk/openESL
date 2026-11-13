@@ -29,6 +29,11 @@ if(NOT no_base)
     list(APPEND SDKCONFIG_DEFAULTS "boards/${board_base}/sdkconfig.defaults")
 endif()
 list(APPEND SDKCONFIG_DEFAULTS "boards/${BOARD}/sdkconfig.defaults")
+# -DSNIFFER=1: the same board as a sniffer that logs every frame and answers none
+# (sniffer.sdkconfig.defaults, docs/radio-sniffer.md)
+if(SNIFFER)
+    list(APPEND SDKCONFIG_DEFAULTS "sniffer.sdkconfig.defaults")
+endif()
 # The chip comes from the board, not from a sdkconfig left in this folder by another build
 if(DEFINED ENV{IDF_TARGET} AND NOT "$ENV{IDF_TARGET}" STREQUAL "${board_target}")
     message(FATAL_ERROR "IDF_TARGET is $ENV{IDF_TARGET}, but board ${BOARD} is ${board_target}")

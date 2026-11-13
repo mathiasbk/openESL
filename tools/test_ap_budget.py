@@ -113,6 +113,30 @@ class Sizes(unittest.TestCase):
         self.assertNotEqual(code, 0)
 
 
+class Jobs(unittest.TestCase):
+    def jobs(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["build.py", "--jobs"]), redirect_stdout(out):
+            build.main()
+        return json.loads(out.getvalue())
+
+    def test_one_sniffer_job_for_the_recommended_native_board(self):
+        # docs/radio-sniffer.md: CI builds the sniffer of one board, so its code keeps building
+        sniffers = [j for j in self.jobs() if j["args"].startswith("--sniffer ")]
+        self.assertEqual(len(sniffers), 1)
+        board = sniffers[0]["args"].split()[1]
+        b = {x["id"]: x for x in build.load_boards()}[board]
+        self.assertEqual(b.get("radio", "native"), "native")
+        self.assertTrue(b.get("recommended"))
+        self.assertEqual(sniffers[0]["name"], board + "-sniffer")
+
+    def test_sniffer_needs_a_native_board(self):
+        with mock.patch.object(sys, "argv", ["build.py", "--sniffer", "s3-n16r8-c6"]):
+            with self.assertRaises(SystemExit) as e:
+                build.main()
+        self.assertIn("own 802.15.4 radio", str(e.exception))
+
+
 class PagesOnly(unittest.TestCase):
     def test_every_module_packs_without_pages_only_files(self):
         files = webui.page_files(os.path.join(ROOT, "web"), list(webui.MODULES), renderer=False)

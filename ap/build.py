@@ -9,6 +9,9 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py --jobs             the CI build jobs as JSON, one per board and one per radio
                                      (firmware.yml builds them side by side)
   python build.py --no-radio <board>...  only the boards, not their radio firmware
+  python build.py --sniffer <board>...   the boards as a sniffer (docs/radio-sniffer.md):
+                                     out/<artifact>-sniffer.bin and -sniffer-ota.bin; only
+                                     boards with their own 802.15.4 radio ("radio": "native")
   python build.py radio/c6 ...       only this radio firmware (<project>/<id>, as --jobs names it)
   python build.py --sizes DIR [--base DIR]
                                      the flash budget table for the images in DIR (the
@@ -178,15 +181,18 @@ def check_budget(info):
     return state != "over"
 
 
-def build(b):
-    bdir = "build-" + b["id"]
-    run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"], "build"])
-    merge(b["target"], bdir, "esl_ap.bin", b["artifact"])
+def build(b, sniffer=False):
+    name = b["id"] + ("-sniffer" if sniffer else "")
+    artifact = b["artifact"] + ("-sniffer" if sniffer else "")
+    bdir = "build-" + name
+    run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"],
+         "-D", "SNIFFER=%d" % sniffer, "build"])
+    merge(b["target"], bdir, "esl_ap.bin", artifact)
     # the symbols for this image: a panic backtrace (the AP is built with silent assertions,
     # sdkconfig.defaults) is decoded with it, e.g. idf.py monitor --elf or addr2line
-    shutil.copyfile(os.path.join(HERE, bdir, "esl_ap.elf"), os.path.join(OUT, b["artifact"] + ".elf"))
-    print("%s: out/%s.bin, out/%s-ota.bin and out/%s.elf" % (b["id"], b["artifact"], b["artifact"], b["artifact"]))
-    return record_size(b["id"], b["artifact"], bdir, "esl_ap.bin")
+    shutil.copyfile(os.path.join(HERE, bdir, "esl_ap.elf"), os.path.join(OUT, artifact + ".elf"))
+    print("%s: out/%s.bin, out/%s-ota.bin and out/%s.elf" % (name, artifact, artifact, artifact))
+    return record_size(name, artifact, bdir, "esl_ap.bin")
 
 
 def build_radio(r):
@@ -280,6 +286,9 @@ def main():
         return
     if args == ["--jobs"]:
         jobs = [{"name": b["id"], "args": "--no-radio " + b["id"]} for b in boards]
+        # the sniffer of one board with its own radio (the recommended one first), so it keeps building
+        native = sorted((b for b in boards if b.get("radio", "native") == "native"), key=lambda b: not b.get("recommended"))
+        jobs += [{"name": b["id"] + "-sniffer", "args": "--sniffer " + b["id"]} for b in native[:1]]
         jobs += [{"name": "%s-%s" % (r["project"], r["id"]), "args": "%s/%s" % (r["project"], r["id"])}
                  for r in load_radios(boards)]
         print(json.dumps(jobs))
@@ -287,14 +296,24 @@ def main():
     if args[:1] == ["--sizes"]:
         return sizes(args[1:])
     no_radio = "--no-radio" in args
-    args = [a for a in args if a != "--no-radio"]
+    sniffer = "--sniffer" in args
+    args = [a for a in args if a not in ("--no-radio", "--sniffer")]
     by_id = {b["id"]: b for b in boards}
     radios = {"%s/%s" % (r["project"], r["id"]): r for r in load_radios(boards)}
     unknown = [a for a in args if a not in by_id and a not in radios]
     if unknown:
         sys.exit("unknown board %s; the boards are %s" % (", ".join(unknown), ", ".join(list(by_id) + list(radios))))
+    if sniffer:
+        if not args or any(a not in by_id or by_id[a].get("radio", "native") != "native" for a in args):
+            sys.exit("--sniffer needs one or more boards with their own 802.15.4 radio: %s"
+                     % ", ".join(b["id"] for b in boards if b.get("radio", "native") == "native"))
     if not shutil.which("idf.py"):
         sys.exit("idf.py not found: source ESP-IDF v5.5.5's export.sh first")
+    if sniffer:
+        infos = [build(by_id[a], sniffer=True) for a in args]
+        if not all([check_budget(i) for i in infos]):
+            sys.exit("over the flash budget: an image keeps less than %s free in its slot" % kb_limit(BUDGET_FAIL))
+        return
     chosen = [by_id[a] for a in args if a in by_id]
     chosen_radios = [radios[a] for a in args if a in radios]
     if not args:

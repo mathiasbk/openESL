@@ -335,7 +335,7 @@ What can change at run time:
 Radio modes:
 
 - `AP`: normal.
-- `Sniffer`: logs every frame on the channel with its channel number, does not answer, no WiFi. `ESL_SNIFFER_HOP_MS` > 0 hops through channels 11-26 instead, that many ms per channel, and stays 10 s on a channel where it heard a frame, for finding a device whose channel is unknown (see [docs/solum-remote.md](../docs/solum-remote.md)).
+- `Sniffer`: writes every frame on the channel to the USB port as an `@SNF` line, does not answer, no WiFi. `ESL_SNIFFER_HOP_MS` > 0 hops through channels 11-26 instead, that many ms per channel, and stays 10 s on a channel where it heard a frame, for finding a device whose channel is unknown (see [docs/solum-remote.md](../docs/solum-remote.md)). The channel and the hopping can also be set from the USB port while it runs. `python build.py --sniffer <board>` builds it without menuconfig, and `tools/sniffer/sniff.py` reads it ([docs/radio-sniffer.md](../docs/radio-sniffer.md)).
 - `Stub`: simulated tags `00000000FAC70001`..., for testing the API with curl with no tags; their frames go through the same `esl_radio_handle()` as real ones, and they download images like the tag firmware does.
 
 ## Watchdog

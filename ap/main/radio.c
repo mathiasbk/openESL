@@ -31,11 +31,19 @@ static const char *TAG = "radio";
 #define SNIFFER 0
 #endif
 
-#if SNIFFER && CONFIG_ESL_SNIFFER_HOP_MS
-#define HOP_MS CONFIG_ESL_SNIFFER_HOP_MS
-#define HOP_HOLD_US (10 * 1000000LL) /* stay on a channel this long after a frame */
+#if SNIFFER
+#include <string.h>
+#include "sdkconfig.h"
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
+#define SNIFF_COMMANDS 1 /* "ch 20", "hop 300", "status" on the USB port (sniff_command) */
 #else
-#define HOP_MS 0
+#define SNIFF_COMMANDS 0
+#endif
+#define HOP_HOLD_US (10 * 1000000LL) /* stay on a channel this long after a frame */
+static unsigned hop_ms = CONFIG_ESL_SNIFFER_HOP_MS; /* 0 = stay on one channel */
+static uint8_t sniff_channel;
 #endif
 
 /* A SoluM remote as a button (remote.c, esl_remote.h): the C6's own radio hears it, and
@@ -75,15 +83,96 @@ static int64_t clock_us(void)
     return esp_timer_get_time();
 }
 
-/* Only one of these is used, depending on the radio mode. */
-static void __attribute__((unused)) log_frame(const esl_link_rx_t *f)
+#if SNIFFER
+/*
+ * One line per frame, for tools/sniffer/sniff.py (docs/radio-sniffer.md):
+ *
+ *   @SNF <rx_us> <channel> <rssi> <lqi> <frame in hex, without the FCS>
+ *
+ * rx_us is when the frame's last byte was in, on the AP's clock (microseconds since it
+ * started), so the gap between two lines is the gap on the air plus the second frame's
+ * air time. The driver writes RSSI and LQI where the FCS was; a frame with a wrong FCS
+ * never gets here (the radio drops it). One fwrite, so a log line cannot land inside it.
+ */
+static void sniff_line(const esl_link_rx_t *f)
 {
-    char hex[3 * ESL_PSDU_MAX + 1];
-    for (unsigned i = 0; i < f->len; i++)
-        snprintf(&hex[3 * i], 4, "%02X ", f->psdu[i]);
-    hex[3 * f->len] = '\0';
-    ESP_LOGI(TAG, "rx ch %u %u B rssi %d: %s", f->channel, f->len, f->rssi, hex);
+    static char line[48 + 2 * ESL_PSDU_MAX];
+    unsigned n = f->len >= 2 ? f->len - 2u : 0;
+    int p = snprintf(line, sizeof(line), "@SNF %lld %u %d %u ", (long long)f->rx_us, f->channel, f->rssi,
+                     f->len >= 2 ? f->psdu[f->len - 1] : 0);
+    for (unsigned i = 0; i < n && p + 3 < (int)sizeof(line); i++)
+        p += snprintf(&line[p], sizeof(line) - p, "%02X", f->psdu[i]);
+    line[p++] = '\n';
+    fwrite(line, 1, p, stdout);
+    fflush(stdout);
 }
+
+static void sniff_status(void)
+{
+    const esl_link_stats_t *s = &radio_link.stats;
+    printf("@SNF-ST ch %u hop %u rx %lu dropped %lu\n", sniff_channel, hop_ms, (unsigned long)s->rx,
+           (unsigned long)s->dropped);
+    fflush(stdout);
+}
+
+static void sniff_tune(uint8_t ch)
+{
+    if (radio_link.set_channel && radio_link.set_channel(&radio_link, ch) == 0)
+        sniff_channel = ch;
+}
+
+#if SNIFF_COMMANDS
+/* A command line from the host: "ch <11-26>" stays on that channel (and stops hopping),
+   "hop <ms>" hops through 11-26 (0 stops), "status" says where it is. Nothing is kept:
+   a restart is back on ESL_CHANNEL and ESL_SNIFFER_HOP_MS. */
+static void sniff_command(const char *cmd, int64_t *next_hop_us)
+{
+    unsigned v;
+    if (sscanf(cmd, "ch %u", &v) == 1 && v >= 11 && v <= 26) {
+        hop_ms = 0;
+        sniff_tune((uint8_t)v);
+    } else if (sscanf(cmd, "hop %u", &v) == 1 && (v == 0 || (v >= 20 && v <= 10000))) {
+        hop_ms = v;
+        *next_hop_us = 0;
+    } else if (strcmp(cmd, "status") != 0) {
+        printf("@SNF-ERR unknown command: %s (ch <11-26>, hop <0 or 20-10000 ms>, status)\n", cmd);
+    }
+    sniff_status();
+}
+
+/* Reads what the host typed, without waiting, and runs each whole line. */
+static void sniff_commands(int64_t *next_hop_us)
+{
+    static char cmd[32];
+    static size_t n;
+    uint8_t buf[32];
+    int got = usb_serial_jtag_read_bytes(buf, sizeof(buf), 0);
+    for (int i = 0; i < got; i++) {
+        char c = (char)buf[i];
+        if (c == '\r' || c == '\n') {
+            cmd[n] = '\0';
+            if (n)
+                sniff_command(cmd, next_hop_us);
+            n = 0;
+        } else if (n < sizeof(cmd) - 1) {
+            cmd[n++] = c;
+        }
+    }
+}
+#endif
+
+/* Move the sniffer to the next channel unless a frame was heard lately. */
+static void hop(int64_t *next_hop_us, int64_t last_frame_us)
+{
+    int64_t now = esp_timer_get_time();
+    if (!hop_ms || !radio_link.set_channel || now < *next_hop_us || now - last_frame_us < HOP_HOLD_US)
+        return;
+    *next_hop_us = now + hop_ms * 1000LL;
+    sniff_tune(sniff_channel >= 26 || sniff_channel < 11 ? 11 : sniff_channel + 1);
+    if (sniff_channel == 11)
+        ESP_LOGI(TAG, "hopping: channels 11-26, %u ms each", hop_ms);
+}
+#endif
 
 static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
 {
@@ -117,22 +206,6 @@ static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
              (unsigned long)ev.poll.content_id, ev.poll.fw_ver, ev.poll.battery_mv, ev.poll.model, f->rssi, reply,
              (long long)us);
 }
-
-#if HOP_MS
-/* Move the sniffer to the next channel unless a frame was heard lately. */
-static void hop(int64_t *next_hop_us, int64_t last_frame_us)
-{
-    static uint8_t ch = 11;
-    int64_t now = esp_timer_get_time();
-    if (!radio_link.set_channel || now < *next_hop_us || now - last_frame_us < HOP_HOLD_US)
-        return;
-    *next_hop_us = now + HOP_MS * 1000LL;
-    ch = ch >= 26 ? 11 : ch + 1;
-    radio_link.set_channel(&radio_link, ch);
-    if (ch == 11)
-        ESP_LOGI(TAG, "hopping: channels 11-26, %d ms each", HOP_MS);
-}
-#endif
 
 #if REMOTE
 /* The visits to channel 11. A timer every ESL_REMOTE_PERIOD_MS puts a frame of length 0
@@ -211,9 +284,11 @@ static void radio_task(void *arg)
     (void)arg;
     esl_link_rx_t f;
     int64_t last_stats = esp_timer_get_time();
-#if HOP_MS
+#if SNIFFER
     int64_t next_hop_us = 0, last_frame_us = -HOP_HOLD_US;
-    const TickType_t wait = pdMS_TO_TICKS(HOP_MS < 1000 ? HOP_MS : 1000);
+    /* often enough for the hops (20 ms at the least) and for a command from the host */
+    const TickType_t wait = pdMS_TO_TICKS(20);
+    sniff_status();
 #else
     const TickType_t wait = pdMS_TO_TICKS(1000);
 #endif
@@ -228,10 +303,8 @@ static void radio_task(void *arg)
         if (xQueueReceive(rx_queue, &f, w ? w : 1) == pdTRUE) {
 #if SNIFFER
             radio_link.stats.rx++;
-            log_frame(&f);
-#if HOP_MS
+            sniff_line(&f);
             last_frame_us = f.rx_us;
-#endif
 #elif REMOTE
             if (f.len == 0) { /* a mark from the visit timers */
                 if (f.ref == VISIT_START)
@@ -257,7 +330,10 @@ static void radio_task(void *arg)
         if (visit_until && esp_timer_get_time() >= visit_until + 2000) /* its mark was lost */
             visit_end();
 #endif
-#if HOP_MS
+#if SNIFFER
+#if SNIFF_COMMANDS
+        sniff_commands(&next_hop_us);
+#endif
         hop(&next_hop_us, last_frame_us);
 #endif
 #if !SNIFFER
@@ -290,6 +366,19 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     store = st;
     layouts = ls;
     pan = pan_id;
+#if SNIFFER
+    sniff_channel = channel;
+#if SNIFF_COMMANDS
+    /* The sniffer reads its commands from the USB port: the driver, with stdout through it
+       too, as serial_api.c has it in AP mode (the sniffer has no serial API) */
+    usb_serial_jtag_driver_config_t ucfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    ucfg.tx_buffer_size = 4096;
+    if (usb_serial_jtag_driver_install(&ucfg) == ESP_OK) {
+        usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
+        usb_serial_jtag_vfs_use_driver();
+    }
+#endif
+#endif
     rx_queue = xQueueCreate(8, sizeof(esl_link_rx_t));
     if (!rx_queue)
         return ESP_ERR_NO_MEM;

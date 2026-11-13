@@ -36,7 +36,7 @@ FCF     seq   dst PAN   dst     src = 0xBEEF   payload
 - No encryption, no rolling code: any 802.15.4 radio can receive the commands, and send them too.
 - Signal at the AP, remote held next to it: about −60 to −87 dBm.
 
-Example frames as the sniffer logs them (the last two bytes are the RSSI and LQI that the ESP-IDF driver writes over the FCS, not frame data):
+Example frames as the sniffer logged them then (the last two bytes are the RSSI and LQI that the ESP-IDF driver writes over the FCS, not frame data; the sniffer now writes `@SNF` lines, which `tools/sniffer/sniff.py` decodes, [radio-sniffer.md](radio-sniffer.md)):
 
 ```
 rx ch 11 14 B rssi -68: 41 88 9C FF FF FF FF EF BE 19 01 00 BC 0A   W
@@ -73,5 +73,5 @@ Listen needs the C6 or C5 as the AP's own radio (boards `c6`, `c6-lcd`, `c5`). O
 
 ## How it was measured
 
-- Sniffer build of the AP (`ESL_RADIO_SNIFFER`), first with `ESL_SNIFFER_HOP_MS=300` (hops through channels 11–26 and stays 10 s on a channel where it heard a frame) to find the channel, then with `ESL_CHANNEL=11` and no hopping to map the buttons. See [ap/README.md](../ap/README.md#configuration).
+- Sniffer build of the AP (`ESL_RADIO_SNIFFER`, [radio-sniffer.md](radio-sniffer.md)), first with `ESL_SNIFFER_HOP_MS=300` (hops through channels 11–26 and stays 10 s on a channel where it heard a frame) to find the channel, then with `ESL_CHANNEL=11` and no hopping to map the buttons. See [ap/README.md](../ap/README.md#configuration).
 - The sniffer image was put on the AP with `esl-client ota`, so the AP's settings in NVS stayed. The sniffer never confirms itself (it has no WiFi or API), so the next reset rolls the AP back to its normal firmware. That includes a serial terminal that opens the USB port with DTR/RTS asserted (pyserial's default, `esl-client ota --wait`): open the port with DTR and RTS held low while the sniffer runs.
