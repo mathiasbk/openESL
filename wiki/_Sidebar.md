@@ -47,6 +47,7 @@
 - [Weather on a label](Weather)
 - [Picture from a URL](Picture-from-a-URL)
 - [Electricity price](Electricity-price)
+- [Exchange rate and bitcoin](Exchange-rate-and-bitcoin)
 - [Countdown](Countdown)
 - [News headlines](News-headlines)
 - [Calendar](Calendar)

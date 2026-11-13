@@ -32,6 +32,8 @@ export function sourceSummary(s, now) {
   if (s.type === "countdown") return { text: v.left || "Not counted yet", bad: false };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
   const what = s.type === "power" ? (v.now ? `${v.now} kr/kWh` : "") : s.type === "rss" ? v.h1 || ""
+    : s.type === "fx" ? (v.rate ? `${v.pair} ${v.rate}` : "")
+    : s.type === "btc" ? (v.price ? `${v.price} ${v.cur}` : "")
     : s.type === "ical" ? [v.day1, v.time1, v.what1].filter(Boolean).join(" ") || "No events ahead"
     : [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
   return { text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)}`, bad: false };
@@ -184,13 +186,19 @@ export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = fal
   return { sources: list, id: target.id };
 }
 
-// The kinds of content the AP makes by itself on the built-in layout "text" (AP 0.11.0 and
-// later): the id a new source gets, and what to call it in messages
+// The kinds of content the AP makes by itself (AP 0.11.0 and later): the id a new source gets,
+// and what to call it in messages. Most go on the built-in layout "text"; one with a template
+// goes on the template's layout (added to the tags' layout files when they lack it), with the
+// template's fields filled from the source's values.
 export const FEEDS = {
   power: { id: "power", what: "the electricity price" },
   countdown: { id: "countdown", what: "the countdown" },
   rss: { id: "news", what: "the headlines" },
   ical: { id: "calendar", what: "the calendar" },
+  fx: { id: "fx", what: "the exchange rate", template: "home/exchange-rate.json", layout: "exchange-rate",
+    title: "Exchange rate", fields: ["{pair}", "{rate}", "{chg} ({pct} %)", "{lo} - {hi}", "{day}", "{chart}"] },
+  btc: { id: "btc", what: "the bitcoin price", template: "home/bitcoin.json", layout: "bitcoin",
+    title: "Bitcoin price", fields: ["Bitcoin {cur}", "{price}", "{pct} % {today}", "{lo} - {hi}", "{updated}", "{chart}"] },
 };
 
 const utf8Len = (t) => new TextEncoder().encode(t).length;
@@ -204,6 +212,19 @@ export function feedSource(spec) {
     const area = String(spec.area || "");
     if (!/^NO[1-5]$/.test(area)) return { error: "Choose a price area, NO1 to NO5" };
     return { type: t, area, vat: spec.vat === undefined ? area !== "NO4" : !!spec.vat, lang };
+  }
+  if (t === "fx") {
+    const currency = String(spec.currency || "").trim().toUpperCase();
+    const inCur = String(spec.in || "NOK").trim().toUpperCase() || "NOK";
+    if (!/^[A-Z]{3}$/.test(currency)) return { error: "The currency: a code of 3 letters, such as USD or EUR" };
+    if (!/^[A-Z]{3}$/.test(inCur)) return { error: "Priced in: a code of 3 letters, such as NOK" };
+    if (currency === inCur) return { error: "Priced in: another currency than the one shown" };
+    return { type: t, currency, in: inCur, lang };
+  }
+  if (t === "btc") {
+    const currency = String(spec.currency || "nok").trim().toLowerCase() || "nok";
+    if (!/^[a-z]{3,5}$/.test(currency)) return { error: "Priced in: a currency code, such as NOK, USD or EUR" };
+    return { type: t, currency, lang };
   }
   if (t === "countdown") {
     const place = String(spec.place || "").trim();
@@ -233,6 +254,8 @@ function sameFeed(a, b) {
   if (a.type === "power") return a.area === b.area && !!a.vat === !!b.vat && (a.lang || "nb") === (b.lang || "nb");
   if (a.type === "countdown") return a.place === b.place && a.date === b.date && (a.time || "") === (b.time || "") && !!a.yearly === !!b.yearly && (a.lang || "nb") === (b.lang || "nb");
   if (a.type === "rss") return a.url === b.url; // rss has no language
+  if (a.type === "fx") return a.currency === b.currency && (a.in || "NOK") === (b.in || "NOK") && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "btc") return (a.currency || "nok") === (b.currency || "nok") && (a.lang || "nb") === (b.lang || "nb");
   return a.url === b.url && (a.lang || "nb") === (b.lang || "nb");
 }
 
@@ -247,11 +270,14 @@ export function feedPlan(sources, macs, spec) {
   let target = list.find((s) => sameFeed(s, src));
   if (!target) {
     const taken = new Set(list.map((s) => s.id));
-    // a countdown is named after what it counts to
-    const base = src.type === "countdown" ? placeId(src.place, new Set()) : FEEDS[src.type].id;
+    // a countdown is named after what it counts to, a rate after its currencies
+    const base = src.type === "countdown" ? placeId(src.place, new Set())
+      : src.type === "fx" ? `fx-${src.currency}${src.in === "NOK" ? "" : "-" + src.in}`.toLowerCase()
+      : src.type === "btc" ? `btc-${src.currency}` : FEEDS[src.type].id;
     let id = base;
     for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 16 - String(n).length - 1)}-${n}`;
-    target = { id, ...src, layout: "text", tags: [] };
+    const f = FEEDS[src.type];
+    target = f.layout ? { id, ...src, layout: f.layout, fields: [...f.fields], tags: [] } : { id, ...src, layout: "text", tags: [] };
     list.push(target);
   }
   target.tags = [...target.tags, ...macs];
@@ -262,15 +288,15 @@ export function feedPlan(sources, macs, spec) {
   return { sources: list, id: target.id };
 }
 
-// The models of the tags whose layout file on the AP has no layout called "weather", from
-// GET /api/layouts
+// The models of the tags whose layout file on the AP has no layout called name ("weather" by
+// default), from GET /api/layouts
 // (a model whose same_as names another stands for that model: it is that model's file)
-export function missingModels(tags, layouts) {
+export function missingModels(tags, layouts, name = WEATHER_LAYOUT) {
   const has = new Set();
   const fileOf = {};
   for (const m of layouts?.layouts || []) {
     if (m.same_as) fileOf[m.model] = m.same_as;
-    if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
+    if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === name)) has.add(m.model);
   }
   return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
@@ -300,6 +326,8 @@ export function showsOf(sources) {
     countdown: () => `the countdown to ${s.place || s.id}`,
     rss: () => `the headlines from ${hostOf(s.url)}`,
     ical: () => `the calendar from ${hostOf(s.url)}`,
+    fx: () => `the ${s.currency}/${s.in || "NOK"} exchange rate`,
+    btc: () => `the bitcoin price in ${(s.currency || "nok").toUpperCase()}`,
   })[s.type]?.() ?? `the source ${s.id}`;
   for (const s of sources || []) for (const m of s.tags || []) out.set(m, what(s));
   return out;
@@ -312,11 +340,12 @@ export function placeOf(sources) {
   return out;
 }
 
-// The weather template: published next to the page (web/templates.mjs) and packed on the AP
-// (ap/main/webui.py), at templates/home/weather.json
-async function weatherTemplate() {
-  const r = await fetch(new URL("../templates/home/weather.json", import.meta.url), { cache: "no-cache" });
-  if (!r.ok) throw new Error(`the weather template could not be loaded (${r.status})`);
+// A template the Dashboard adds to the AP's layout files (the weather, the exchange rate,
+// bitcoin): published next to the page (web/templates.mjs) and packed on the AP
+// (ap/main/webui.py), at templates/<path>
+async function loadTemplate(path = "home/weather.json") {
+  const r = await fetch(new URL("../templates/" + path, import.meta.url), { cache: "no-cache" });
+  if (!r.ok) throw new Error(`the template ${path} could not be loaded (${r.status})`);
   return r.json();
 }
 
@@ -377,6 +406,8 @@ export function initSources() {
       const pic = s.type === "image";
       // the electricity price (type power) with its price area
       const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"]
+        : s.type === "fx" ? [`${s.id} · ${s.currency}/${s.in || "NOK"}`, "Norges Bank"]
+        : s.type === "btc" ? [`${s.id} · bitcoin`, "CoinGecko"]
         : s.type === "countdown" ? [`${s.place || s.id} · countdown`, `${s.date}${s.time ? " " + s.time : ""}${s.yearly ? ", every year" : ""}`]
         : s.type === "rss" ? [`${s.id} · ${shortUrl(s.url)}`, s.url]
         // a calendar's address is often its secret: only the host is shown
@@ -393,7 +424,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = `${s.type === "countdown" ? "Stop" : "Stop fetching"} ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : s.type === "rss" ? "the headlines" : s.type === "ical" ? "the calendar" : "the weather for this place"}; its tags keep what they show until they get other content`;
+      del.title = `${s.type === "countdown" ? "Stop" : "Stop fetching"} ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : s.type === "rss" ? "the headlines" : s.type === "ical" ? "the calendar" : s.type === "fx" ? "the exchange rate" : s.type === "btc" ? "the bitcoin price" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -402,7 +433,8 @@ export function initSources() {
   }
 
   async function remove(s) {
-    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown", rss: "the headlines", ical: "the calendar" }[s.type] || "the weather";
+    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown", rss: "the headlines", ical: "the calendar",
+      fx: "the exchange rate", btc: "the bitcoin price" }[s.type] || "the weather";
     if (!confirm(`Stop ${what} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old
@@ -567,9 +599,10 @@ export function initSources() {
     (chosen() === "" ? $("wx-place") : $("wx-ok")).focus();
   }
 
-  // The weather layout into the AP's layout file of each model that lacks it
-  async function addLayouts(c, models) {
-    const t = await weatherTemplate();
+  // A template's layout (the weather's by default) into the AP's layout file of each model
+  // that lacks it; progress in the message line msgId
+  async function addLayouts(c, models, path = "home/weather.json", title = "Weather", msgId = "wx-msg") {
+    const t = await loadTemplate(path);
     for (const model of models) {
       let doc;
       try {
@@ -579,12 +612,12 @@ export function initSources() {
         doc = { format: "esl-layouts", version: 1, model, layouts: [] }; // no file yet
       }
       const added = addTemplate(doc, t, model);
-      if (!added) throw new Error(`the weather template has no layout for the ${modelName(model)}`);
-      msg("wx-msg", `Adding the Weather layout to the ${modelName(model)} layout file …`);
+      if (!added) throw new Error(`the ${title} template has no layout for the ${modelName(model)}`);
+      msg(msgId, `Adding the ${title} layout to the ${modelName(model)} layout file …`);
       try {
         await c.call("PUT", "/api/layouts/" + encodeURIComponent(model), added.doc);
       } catch (e) {
-        throw new Error(`the ${modelName(model)} layout file did not take the Weather layout: ${e.message}`);
+        throw new Error(`the ${modelName(model)} layout file did not take the ${title} layout: ${e.message}`);
       }
     }
   }
@@ -660,6 +693,8 @@ export function initSources() {
     $("feed-power").hidden = t !== "power";
     $("feed-countdown").hidden = t !== "countdown";
     $("feed-url-box").hidden = t !== "rss" && t !== "ical";
+    $("feed-fx").hidden = t !== "fx";
+    $("feed-btc").hidden = t !== "btc";
     $("feed-lang-label").hidden = t === "rss";
     if (URL_HINTS[t]) {
       $("feed-url").placeholder = URL_HINTS[t][0];
@@ -671,7 +706,8 @@ export function initSources() {
     const t = $("feed-type").value;
     return { type: t, lang: $("feed-lang").value, area: $("feed-area").value, vat: $("feed-vat").checked,
       place: $("feed-place").value, date: $("feed-date").value, time: $("feed-time").value,
-      yearly: $("feed-yearly").checked, url: $("feed-url").value };
+      yearly: $("feed-yearly").checked, url: $("feed-url").value,
+      currency: t === "fx" ? $("feed-cur").value : $("feed-btc-cur").value, in: $("feed-in").value };
   }
   function openFeed(tags, done) {
     feedFor = { tags, done };
@@ -694,6 +730,13 @@ export function initSources() {
     $("feed-ok").disabled = true;
     msg("feed-msg", "Saving …");
     try {
+      // a kind with a template: its layout into the tags' layout files that lack it
+      const f = FEEDS[spec.type];
+      if (f.template) {
+        const lays = await client.call("GET", "/api/layouts");
+        const missing = missingModels(feedFor.tags, lays, f.layout);
+        if (missing.length) await addLayouts(client, missing, f.template, f.title, "feed-msg");
+      }
       const s = await api.addFeed(feedFor.tags.map((t) => t.mac), spec);
       const n = feedFor.tags.length;
       $("feed-dlg").close();

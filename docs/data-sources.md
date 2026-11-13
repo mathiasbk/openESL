@@ -8,8 +8,9 @@ the weather forecast for a place from [MET Norway](https://api.met.no/) (the dat
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
 client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
-electricity price in Norway, a countdown to a date, the headlines of a news feed and the
-next events of a calendar (below).
+electricity price in Norway, a countdown to a date, the headlines of a news feed, the
+next events of a calendar, an exchange rate and the price of bitcoin, the last two with a
+chart (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -366,6 +367,110 @@ What is read:
 - Alarms, to-dos and time zone definitions are skipped. Events more than 400 days ahead are
   not looked at.
 
+## An exchange rate
+
+A source of type `fx` (AP 0.11.0 and later) shows today's exchange rate of a currency, from
+[Norges Bank](https://www.norges-bank.no/en/topics/Statistics/exchange_rates/) (free, no key),
+with its change since the day before and a chart of the last days. Norges Bank gives the price
+in NOK of about 40 currencies once each business day, at about 16:00 Norway's time.
+
+```json
+{"sources": [{"id": "fx-usd", "type": "fx", "currency": "USD", "layout": "exchange-rate",
+              "fields": ["{pair}", "{rate}", "{chg} ({pct} %)", "{lo} - {hi}", "{day}", "{chart}"],
+              "tags": ["00000123456789B2"]}]}
+```
+
+On the Dashboard: tick tags, **Send → Price, countdown, news or calendar**, choose **An exchange
+rate, with a chart** and the currency. The Dashboard adds the *Exchange rate* template's layout
+to the tags' layout files when they lack it, and fills its six fields as above.
+
+- `currency`: the currency shown, 3 letters (`USD`, `EUR`, `SEK`, `JPY`, ...): any of Norges
+  Bank's. `NOK` too, priced in another one.
+- `in`: what the price is given in, `NOK` by default. Another currency is worked out from both
+  NOK prices of the same day: `USD` in `EUR` is USD's NOK price over EUR's.
+- `days`: the rates in the chart, from 5 to 30 (the default), one each business day.
+- `unit`: `1` or `100`: the price of one or of a hundred. Left out, a hundred when one is worth
+  less than 0.1 (100 JPY, 100 ISK), as Norges Bank gives them.
+- `every_min`: from 60 (the default) to 1440. The answer has no `Expires`; a rate that did not
+  change does not wake the tags.
+- `lang`: `nb` (the default) writes `9,5325` and `i dag`/`i går`; `en` writes `9.5325` and
+  `today`/`yesterday`.
+
+| Value | What it is |
+|---|---|
+| `{cur}`, `{in}` | The currencies, `USD` and `NOK` |
+| `{pair}` | `USD/NOK`, or `100 JPY/NOK` for the price of a hundred |
+| `{unit}` | `1` or `100` |
+| `{rate}` | The last rate, with 4 decimals below 10 and 2 from 10 (`9,5325`, `98,55`) |
+| `{rate2}`, `{rate4}` | The same with 2 or 4 decimals |
+| `{chg}`, `{pct}` | The change since the day before, and in percent with one decimal (`-0,0069`, `-0,1`) |
+| `{pctp}` | The change over the chart's days, in percent |
+| `{lo}`, `{hi}` | The lowest and highest rate of the chart's days |
+| `{date}`, `{day}` | The day of the rate (`12.11.`), and the same as `i dag`/`i går` when it is today or yesterday |
+| `{days}`, `{period}` | How many rates the chart has, and as `30 dager`/`30 days` |
+| `{chart}` | The chart's rates, oldest first, as whole numbers from 0 (the lowest) to 99 (the highest) apart by spaces, for a chart element (below) |
+
+The default fields, four lines for `text`, are `{pair} {date}`, `{rate}`, `{chg} ({pct} %)`
+and `{lo} - {hi}`. Credit Norges Bank where the rate is shown; the template has it.
+
+## The price of bitcoin
+
+A source of type `btc` (AP 0.11.0 and later) shows the price of bitcoin from
+[CoinGecko](https://www.coingecko.com/)'s public API (free, no key), with its change today and a
+chart of the last days.
+
+```json
+{"sources": [{"id": "btc-nok", "type": "btc", "currency": "nok", "layout": "bitcoin",
+              "fields": ["Bitcoin {cur}", "{price}", "{pct} % {today}", "{lo} - {hi}", "{updated}", "{chart}"],
+              "tags": ["00000123456789B2"]}]}
+```
+
+On the Dashboard: **Send → Price, countdown, news or calendar → The bitcoin price, with a
+chart**, as for an exchange rate; the template is *Bitcoin price*.
+
+- `currency`: what the price is given in, as CoinGecko names it: `nok` (the default), `usd`,
+  `eur`, `sek`, ... (3 to 5 letters).
+- `days`: the days in the chart, from 7 to 30 (the default). The chart has the price at 00:00
+  UTC of each day and the price now.
+- `every_min`: from 15 (the default) to 1440. The price moves all the time, so each fetch can
+  wake the tags: a longer `every_min` saves battery. CoinGecko's free API takes a few calls a
+  minute from one address, so a few sources are fine.
+- `lang`: as for an exchange rate.
+
+| Value | What it is |
+|---|---|
+| `{cur}` | The currency, `NOK` |
+| `{price}` | The price now, whole with a space between thousands (`658 464`); under 100 with two decimals |
+| `{pct}`, `{today}` | The change since 00:00 UTC in percent (`-3,6`), and the word `i dag`/`today` |
+| `{pctp}` | The change over the chart's days, in percent |
+| `{lo}`, `{hi}` | The lowest and highest price of the chart |
+| `{updated}`, `{date}` | When the price is from, local `HH:MM`, and its day (`13.11.`) |
+| `{days}`, `{period}` | The days of the chart, and as `30 dager`/`30 days` |
+| `{chart}` | The chart's prices, as for an exchange rate |
+
+The default fields, for `text`, are `BTC {cur} {updated}`, `{price}`, `{pct} %` and
+`{lo} - {hi}`. CoinGecko's [terms](https://www.coingecko.com/en/api_terms) ask for
+**"Powered by CoinGecko"** where the data is shown: the template has it, and a layout of your
+own should too.
+
+## A chart on a tag
+
+A layout's **chart** element (AP 0.11.0 and later; **Chart** in the Design tab) draws a line
+through the numbers in a field: the lowest at the bottom of its box, the highest at the top,
+from left to right. The `{chart}` value of `fx` and `btc` is made for it, but any client can
+send such a field, for example the temperature of the last hours from Home Assistant:
+`"12.5 13 14.2 13.8"`.
+
+- The numbers are apart by spaces or `;`, with an optional `-` and a `.` or `,` before up to 4
+  decimals. Up to 64 are drawn; a field with anything else, or fewer than two numbers, draws
+  nothing.
+- `width`: the line, 1 to 4 pixels. `fill`: `none` (the default), `solid` (the box under the
+  line in the line's colour) or `light` (every other pixel, a grey on e-paper).
+- Black or red. A chart counts as a shape (with ellipses and polygons), and a layout has at
+  most two.
+
+The fields share 256 bytes: a chart of 30 numbers from 0 to 99 takes up to 89 of them.
+
 ## MET Norway's terms
 
 The AP follows MET's [terms of service](https://api.met.no/doc/TermsOfService):
@@ -421,5 +526,6 @@ This is also the way on an AP without data sources (the C6 alone).
 
 A new type is a new file like `esl_source_met.c` and its line in `types[]` in
 `esl_source.c`: fetching, caching, templates, the API and saving come with it. What the
-engine does not do yet: requests that need a key or a header, answers other than text values
-(a chart, for example), and answers over 128 KB.
+engine does not do yet: requests that need a key or a header, and answers over 128 KB. A
+chart is a text value too (`{chart}`, numbers apart by spaces, up to `ESL_VALUE_LONG` bytes),
+which a layout's chart element draws.

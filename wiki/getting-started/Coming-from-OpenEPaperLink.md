@@ -42,7 +42,7 @@ Be honest with yourself about these before you move a whole shop or house:
 - **No moving a label over the air.** See [below](#why-the-jig).
 - **Several APs do not work together yet.** Each AP has its own labels on its own channel; one AP with several radios is being tested ([#259](https://github.com/mathiasbk/openESL/issues/259)).
 - **No security on the radio yet.** Anyone near you with the right hardware could send a label a screen. See [SECURITY.md](https://github.com/mathiasbk/openESL/blob/master/SECURITY.md) and [#260](https://github.com/mathiasbk/openESL/issues/260).
-- **Fetching content is new.** From AP firmware 0.11.0, an AP with PSRAM can fetch the [weather](Weather), a [calendar](Calendar), [news headlines](News-headlines), the [electricity price](Electricity-price) and a [picture from a URL](Picture-from-a-URL) by itself, and [count down](Countdown) to a date. Anything else comes from your software or Home Assistant, which sends what the label should show.
+- **Fetching content is new.** From AP firmware 0.11.0, an AP with PSRAM can fetch the [weather](Weather), a [calendar](Calendar), [news headlines](News-headlines), the [electricity price](Electricity-price), an [exchange rate or the bitcoin price](Exchange-rate-and-bitcoin) and a [picture from a URL](Picture-from-a-URL) by itself, and [count down](Countdown) to a date. Anything else comes from your software or Home Assistant, which sends what the label should show.
 
 ## Which of your labels work
 

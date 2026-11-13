@@ -168,7 +168,7 @@ typedef struct {
     uint8_t nfields;
     char fields[ESL_MAX_FIELDS][ESL_LAYOUT_FIELD_NAME_MAX + 1];
     unsigned runs, rects, nums; /* what the layout needs at most from the AP's scene (esl_render.c) */
-    unsigned barcodes, lines, icons, qrs, shapes;
+    unsigned barcodes, lines, icons, qrs, shapes, charts;
     int8_t bc_field;      /* the barcode element, for checking content (esl_layout_bin_t) */
     uint8_t bc_sym;
     uint16_t bc_max;
@@ -306,21 +306,22 @@ static bool barcode_element(cc_t *c, int e, lay_t *lay, uint8_t *out, unsigned f
 typedef struct {
     const char *key;
     const char *kinds; /* the types that take it, as type letters: t text, r rect, b barcode, l line, i icon,
-                        * q QR, e ellipse, p polygon */
+                        * q QR, e ellipse, p polygon, c chart */
     const char *what;  /* for the message */
 } only_t;
 
 static bool only_ok(cc_t *c, int e, char kind)
 {
     static const only_t only[] = {
-        {"field", "tbqi", "text, barcode, QR and icon elements"}, {"text", "tbq", "text elements"},
+        {"field", "tbqic", "text, barcode, QR, icon and chart elements"}, {"text", "tbq", "text elements"},
         {"fonts", "t", "text elements"},                  {"valign", "tq", "text and QR elements"},
         {"lines", "t", "text elements"},                  {"align", "tbq", "text, barcode and QR elements"},
         {"symbology", "b", "barcode elements"},           {"module", "bq", "barcode and QR elements"},
         {"ecc", "q", "QR elements"},
         {"radius", "r", "rect elements"},                 {"border", "rep", "rect, ellipse and polygon elements"},
         {"points", "p", "polygon elements"},
-        {"direction", "l", "line elements"},              {"width", "l", "line elements"},
+        {"direction", "l", "line elements"},              {"width", "lc", "line and chart elements"},
+        {"fill", "c", "chart elements"},
         {"icon", "i", "icon elements"},
         {"decimals", "t", "text elements"},               {"thousands", "t", "text elements"},
         {"rotate", "t", "text elements"},
@@ -464,7 +465,40 @@ static bool shape_element(cc_t *c, int e, lay_t *lay, uint8_t *out, bool polygon
         out[ESL_LE_OFF_FIELD] = (uint8_t)f;
     }
     if (++lay->shapes > esl_limits.shapes)
-        return fail(c, "the AP draws at most %d ellipses and polygons per screen", esl_limits.shapes);
+        return fail(c, "the AP draws at most %d ellipses, polygons and charts per screen", esl_limits.shapes);
+    return true;
+}
+
+/* The rest of a chart element (the box and colour are done). */
+static bool chart_element(cc_t *c, int e, lay_t *lay, uint8_t *out, uint8_t color)
+{
+    static const char *const fills[] = {"none", "solid", "light", NULL};
+    static const uint8_t fill_opts[] = {0, ESL_LE_CHART_FILL, ESL_LE_CHART_FILL | ESL_LE_CHART_LIGHT};
+    unsigned fi, lw;
+
+    if (!esl_limits.shapes)
+        /* only in the web page's renderer, for an AP from before charts (as for ellipses) */
+        return fail(c, "the AP's firmware is too old for charts (needs 0.11.0)");
+    if (color != ESL_LE_BLACK && color != ESL_LE_RED)
+        return fail(c, "a chart can be black or red");
+    int f = esl_json_obj_get(c->js, c->tok, e, "field");
+    if (f < 0)
+        return fail(c, "a chart element needs a field: the numbers it draws");
+    if (!field_index(c, f, lay, &fi))
+        return false;
+    out[ESL_LE_OFF_FIELD] = (uint8_t)fi;
+    if (!opt_uint(c, e, "width", 1, ESL_CHART_W_MAX, 1, &lw))
+        return false;
+    out[ESL_LE_OFF_WIDTH] = (uint8_t)lw;
+    int fl = esl_json_obj_get(c->js, c->tok, e, "fill");
+    int fv = fl < 0 ? 0 : pick(c, fl, fills);
+    if (fv < 0)
+        return fail(c, "fill must be none, solid or light (every other pixel)");
+    out[ESL_LE_OFF_OPTS] = fill_opts[fv];
+    if (++lay->charts > ESL_DRAW_MAX_CHARTS)
+        return fail(c, "the AP draws at most %d charts per screen", ESL_DRAW_MAX_CHARTS);
+    if (++lay->shapes > esl_limits.shapes)
+        return fail(c, "the AP draws at most %d ellipses, polygons and charts per screen", esl_limits.shapes);
     return true;
 }
 
@@ -473,9 +507,10 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     static const char *const keys[] = {"type",  "x",      "y",      "w",  "h",  "field", "fonts", "align",
                                        "valign", "lines", "color",  "symbology", "module", "text", "radius",
                                        "border", "direction", "width", "icon", "ecc", "decimals", "thousands", "rotate",
-                                       "points", NULL};
-    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", "ellipse", "polygon", NULL};
-    static const char kinds[] = "trbliqep";
+                                       "points", "fill", NULL};
+    static const char *const types[] = {"text", "rect", "barcode", "line", "icon", "qr", "ellipse", "polygon", "chart",
+                                        NULL};
+    static const char kinds[] = "trbliqepc";
     static const char *const box[] = {"x", "y", "w", "h"};
     unsigned v[4];
     int icon = -1;
@@ -489,12 +524,12 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int ty = esl_json_obj_get(c->js, c->tok, e, "type");
     int kind = ty < 0 ? -1 : pick(c, ty, types);
     if (kind < 0)
-        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"qr\", \"line\", \"icon\", \"ellipse\" or "
-                       "\"polygon\"");
+        return fail(c, "type must be \"text\", \"rect\", \"barcode\", \"qr\", \"line\", \"icon\", \"ellipse\", "
+                       "\"polygon\" or \"chart\"");
     if (!only_ok(c, e, kinds[kind]))
         return false;
     bool text = kind == 0, barcode = kind == 2, line = kind == 3, is_icon = kind == 4, qr = kind == 5;
-    bool ellipse = kind == 6, polygon = kind == 7;
+    bool ellipse = kind == 6, polygon = kind == 7, chart = kind == 8;
     bool rising = false;
 
     if (is_icon && esl_json_obj_get(c->js, c->tok, e, "field") >= 0) {
@@ -572,6 +607,7 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
                            : qr      ? ESL_LE_QR
                            : ellipse ? ESL_LE_ELLIPSE
                            : polygon ? ESL_LE_POLYGON
+                           : chart   ? ESL_LE_CHART
                                      : ESL_LE_RECT;
     out[ESL_LE_OFF_FONT] = out[ESL_LE_OFF_FONT + 1] = out[ESL_LE_OFF_FONT + 2] = ESL_FONT_NONE;
     out[ESL_LE_OFF_X] = (uint8_t)x;
@@ -617,6 +653,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 
     if (ellipse || polygon)
         return shape_element(c, e, lay, out, polygon, w, h, color);
+    if (chart)
+        return chart_element(c, e, lay, out, color);
 
     if (!text && !barcode && !qr) {
         unsigned radius, border, half = (w < h ? w : h) / 2;

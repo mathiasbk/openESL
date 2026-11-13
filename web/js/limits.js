@@ -4,11 +4,12 @@
 // each inverted or highlighted text needs one rectangle. The limits themselves come from the
 // renderer (renderer.limits), so they follow shared/proto.h. A barcode needs neither, but a
 // layout holds at most limits.barcodes of them, limits.qrs QR codes, limits.lines line elements,
-// limits.icons icons and limits.shapes ellipses and polygons together.
+// limits.icons icons and limits.shapes ellipses, polygons and charts together (and
+// limits.charts charts).
 
 const INVERTED = new Set(["invert", "highlight", "red_invert"]);
 
-const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0, qrs: 0, shapes: 0 };
+const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0, qrs: 0, shapes: 0, charts: 0 };
 
 // One element: { runs, rects, barcodes, lines, icons, qrs, shapes }.
 export function elementUsage(e, limits) {
@@ -18,6 +19,7 @@ export function elementUsage(e, limits) {
   if (e.type === "icon") return { ...NONE, icons: 1 };
   if (e.type === "qr") return { ...NONE, qrs: 1 };
   if (e.type === "ellipse" || e.type === "polygon") return { ...NONE, shapes: 1 };
+  if (e.type === "chart") return { ...NONE, shapes: 1, charts: 1 };
   if (e.type !== "text") return { ...NONE };
   let most = 1;
   // turned 90 or 270 degrees, the lines are stacked across w (ESL_LE_ROT)
@@ -44,6 +46,7 @@ export function layoutUsage(layout, limits) {
     icons: elements.reduce((a, u) => a + u.icons, 0),
     qrs: elements.reduce((a, u) => a + u.qrs, 0),
     shapes: elements.reduce((a, u) => a + u.shapes, 0),
+    charts: elements.reduce((a, u) => a + u.charts, 0),
     elements,
   };
 }

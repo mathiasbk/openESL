@@ -1,0 +1,284 @@
+{
+ "format": "esl-template",
+ "version": 1,
+ "id": "bitcoin",
+ "category": "home",
+ "title": "Bitcoin price",
+ "description": "The price of bitcoin now with its change today, the highest and lowest of the last days and a chart of them. The AP's data sources fill it from CoinGecko (ESP32-S3 APs), or send the fields yourself.",
+ "tags": [
+  "home",
+  "bitcoin",
+  "btc",
+  "crypto",
+  "price",
+  "chart",
+  "coingecko"
+ ],
+ "docs": "docs/data-sources.md",
+ "fields": {
+  "title": "What it is (e.g. Bitcoin NOK)",
+  "value": "The price (e.g. 658 464)",
+  "change": "The change today (e.g. -3,6 % i dag)",
+  "range": "The lowest and highest of the chart (e.g. 658 464 - 787 400)",
+  "when": "When the price is from (e.g. 10:18)",
+  "chart": "The prices for the chart: numbers apart by spaces, oldest first"
+ },
+ "variants": {
+  "2.9": {
+   "layout": {
+    "name": "bitcoin",
+    "description": "What it is, the price large, its change today and the chart's lowest and highest; on the right the time and the days of the chart, a chart of them and the credit to CoinGecko",
+    "fields": [
+     "title",
+     "value",
+     "change",
+     "range",
+     "when",
+     "chart"
+    ],
+    "_sample": [
+     "Bitcoin NOK",
+     "658 464",
+     "-3,6 % i dag",
+     "658 464 - 787 400",
+     "10:18",
+     "88 92 84 83 88 87 93 99 76 74 72 67 67 74 72 47 41 43 49 43 46 69 38 45 45 38 38 33 38 19 0"
+    ],
+    "elements": [
+     {
+      "type": "text",
+      "field": "title",
+      "x": 6,
+      "y": 2,
+      "w": 160,
+      "h": 22,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "when",
+      "x": 168,
+      "y": 2,
+      "w": 122,
+      "h": 22,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "value",
+      "x": 4,
+      "y": 24,
+      "w": 188,
+      "h": 52,
+      "fonts": [
+       "large",
+       "mid",
+       "medium"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "change",
+      "x": 6,
+      "y": 78,
+      "w": 136,
+      "h": 24,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 6,
+      "y": 104,
+      "w": 136,
+      "h": 22,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "chart",
+      "field": "chart",
+      "x": 196,
+      "y": 30,
+      "w": 94,
+      "h": 74,
+      "width": 2
+     },
+     {
+      "type": "text",
+      "text": "Powered by CoinGecko",
+      "x": 140,
+      "y": 110,
+      "w": 150,
+      "h": 17,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     }
+    ]
+   }
+  },
+  "2.9-bwr": {
+   "same_as": "2.9"
+  },
+  "1.54": {
+   "layout": {
+    "name": "bitcoin",
+    "description": "Bitcoin in the band, the price large and its change today, a chart of the last days, the time, the chart's lowest and highest, and the credit to CoinGecko",
+    "fields": [
+     "title",
+     "value",
+     "change",
+     "range",
+     "when",
+     "chart"
+    ],
+    "_sample": [
+     "Bitcoin NOK",
+     "658 464",
+     "-3,6 % i dag",
+     "658 464 - 787 400",
+     "10:18",
+     "88 92 84 83 88 87 93 99 76 74 72 67 67 74 72 47 41 43 49 43 46 69 38 45 45 38 38 33 38 19 0"
+    ],
+    "elements": [
+     {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 30
+     },
+     {
+      "type": "text",
+      "field": "title",
+      "x": 4,
+      "y": 1,
+      "w": 192,
+      "h": 28,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle",
+      "color": "white"
+     },
+     {
+      "type": "text",
+      "field": "value",
+      "x": 4,
+      "y": 32,
+      "w": 192,
+      "h": 52,
+      "fonts": [
+       "large",
+       "mid",
+       "medium"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "change",
+      "x": 4,
+      "y": 84,
+      "w": 192,
+      "h": 24,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     },
+     {
+      "type": "chart",
+      "field": "chart",
+      "x": 8,
+      "y": 112,
+      "w": 184,
+      "h": 46,
+      "width": 2,
+      "fill": "light"
+     },
+     {
+      "type": "line",
+      "x": 8,
+      "y": 161,
+      "w": 184,
+      "h": 1
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 60,
+      "y": 163,
+      "w": 136,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "when",
+      "x": 4,
+      "y": 163,
+      "w": 56,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "text": "Powered by CoinGecko",
+      "x": 4,
+      "y": 182,
+      "w": 192,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     }
+    ]
+   }
+  }
+ }
+}

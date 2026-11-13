@@ -110,7 +110,7 @@ const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : lay
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
 // Text and barcode elements show a field from each update; the rest are part of the layout
 const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr" ||
-  (e.type === "icon" && e.field !== undefined);
+  e.type === "chart" || (e.type === "icon" && e.field !== undefined);
 // An icon element names its picture (fixed size), or takes the picture a field's text names, in a box
 const iconByField = (e) => e.type === "icon" && e.field !== undefined;
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
@@ -119,6 +119,7 @@ function defaultSample(name) {
   if (/price|pris/i.test(name)) return "49.90";
   if (/unit|enhet/i.test(name)) return "9.98/kg";
   if (/ean|gtin|barcode|strek|code/i.test(name)) return "7038010009457";
+  if (/chart|graph|spark|kurve|graf/i.test(name)) return "40 52 47 61 58 70 66 79 73 88 84 99";
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
 
@@ -336,6 +337,15 @@ function refreshMeters(res) {
   const meters = [];
   $("el-add-barcode").disabled = false;
   $("el-add-qr").disabled = false;
+  {
+    // a chart counts as a shape, and a layout has at most limits.charts of them
+    const u = lay ? layoutUsage(lay, lim) : null, old = !lim.shapes;
+    const full = u && (u.shapes >= lim.shapes || u.charts >= lim.charts);
+    $("el-add-chart").disabled = old || !!full;
+    $("el-add-chart").title = old ? "Your AP's firmware is too old for charts: update it to 0.11.0 or newer"
+      : full ? `A layout has at most ${lim.charts} charts, and ${lim.shapes} charts, circles and polygons together, on this AP`
+      : "A line chart of the numbers in a field (e.g. an exchange rate's last 30 days)";
+  }
   // an AP from before ellipses and polygons (0.10.x or older) refuses them
   for (const [k, what] of [["circle", "A circle or ellipse, filled or only its border"], ["triangle", "A triangle or polygon (up to 8 corners), filled or only its border"]]) {
     const old = !lim.shapes, full = !old && lay && layoutUsage(lay, lim).shapes >= lim.shapes;
@@ -349,7 +359,7 @@ function refreshMeters(res) {
     meters.push(["Boxes", u.rects, lim.rects, "Boxes and inverted or highlighted text in this layout"]);
     if (u.lines) meters.push(["Lines", u.lines, lim.lines, "Line elements in this layout"]);
     if (u.icons) meters.push(["Icons", u.icons, lim.icons, "Icon elements in this layout"]);
-    if (u.shapes) meters.push(["Shapes", u.shapes, lim.shapes, "Circles, ellipses, triangles and polygons in this layout"]);
+    if (u.shapes) meters.push(["Shapes", u.shapes, lim.shapes, "Circles, ellipses, triangles, polygons and charts in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
     $("el-add-barcode").title = u.barcodes >= lim.barcodes ? "A layout has at most one barcode" : "A field as a Code 128 or EAN-13 barcode (one per layout)";
@@ -449,7 +459,7 @@ function drawOverlay() {
   const lay = layout();
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (isShape(e) || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
+    b.className = "box" + (isShape(e) || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" || e.type === "chart" ? " barcode" : "") +
       (e.type === "icon" && !iconByField(e) ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
@@ -458,7 +468,8 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e)) +
+    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field)
+      : e.type === "chart" ? "∿ " + fieldLabel(e.field) : elementName(e)) +
       (e.type === "text" && e.rotate ? " ↻" + e.rotate + "°" : "");
     b.append(tag);
     if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
@@ -488,16 +499,17 @@ function refreshList() {
     const ico = document.createElement("span");
     const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
     ico.className = "ico" + (isShape(e) || e.type === "icon" ? " rect" : inverted ? " inv" : "");
-    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦",
+    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦", chart: "∿",
       ellipse: e.border ? "○" : "●", polygon: e.border ? "△" : "▲" }[e.type] ??
       (e.text !== undefined ? "“”" : "T");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
+    name.textContent = e.type === "barcode" || e.type === "qr" || e.type === "chart" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
     dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.rotate ? e.rotate + "°" : "", e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
-      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
+      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.type === "chart" ? ["chart", e.fill && e.fill !== "none" ? "filled" : "", e.color === "red" ? "red" : ""].filter(Boolean).join(", ")
+      : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
     return li;
@@ -518,6 +530,7 @@ function rectName(e) {
 function elementName(e) {
   if (e.type === "barcode") return `barcode (${fieldLabel(e.field)})`;
   if (e.type === "qr") return `QR code (${fieldLabel(e.field)})`;
+  if (e.type === "chart") return `chart (${fieldLabel(e.field)})`;
   if (e.type !== "text") return rectName(e);
   return e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
 }
@@ -1069,7 +1082,7 @@ function refreshElement() {
     box.append(l);
     return s;
   };
-  if (e.type === "barcode" || e.type === "qr") {
+  if (e.type === "barcode" || e.type === "qr" || e.type === "chart") {
     sel("Shows", lay.fields.map((f) => [f, "field " + f]), fieldLabel(e.field), (v) => (e.field = v));
   } else if (e.type === "text") {
     // A field filled in by each update, or a fixed text that is part of the layout.
@@ -1299,7 +1312,8 @@ function refreshBar() {
     if (e.type === "text") sep();
     const red = MODELS[state.model].colors?.includes("red");
     const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
-      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : red ? LINE_COLORS_RED : LINE_COLORS; // lines, icons, ellipses, polygons
+      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : e.type === "chart" ? (red ? ["black", "red"] : ["black"])
+      : red ? LINE_COLORS_RED : LINE_COLORS; // lines, icons, ellipses, polygons
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = SWATCH[e.color || "black"];
@@ -1465,6 +1479,32 @@ function moreMenu(e, btn, select, open) {
     p.className = "hint";
     p.textContent = "The code grows with the text (up to about 90 characters fit in a field). The box includes a white " +
       "border of 2 modules for phones to read it; on the 2.9\", 2 px modules scan well.";
+    list.append(p);
+  }
+  if (e.type === "chart") {
+    const w = document.createElement("input");
+    w.type = "number";
+    w.min = 1;
+    w.max = 4;
+    w.value = e.width ?? 1;
+    w.title = "Line width in pixels, 1 to 4";
+    w.setAttribute("aria-label", "Line width in pixels");
+    w.addEventListener("change", () => {
+      const v = clamp(Math.round(+w.value || 1), 1, 4);
+      if (v === (e.width ?? 1)) return;
+      if (v === 1) delete e.width;
+      else e.width = v;
+      changed({});
+    });
+    row("Width").append(w);
+    const f = row("Fill");
+    for (const [val, icon, name] of [["none", "⌇", "Only the line"], ["solid", "▙", "The box under the line filled"], ["light", "▒", "The box under the line filled with every other pixel"]])
+      btn(f, icon, name, () => (val === "none" ? delete e.fill : (e.fill = val)), (e.fill || "none") === val);
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "The field holds numbers apart by spaces (e.g. 9.41 9.47 9.54): the lowest is drawn at the bottom of " +
+      "the box, the highest at the top, left to right. The AP's exchange rate and bitcoin sources give such a field " +
+      "({chart}). Needs an AP on 0.11.0 or newer.";
     list.append(p);
   }
   if (isShape(e)) {
@@ -1747,6 +1787,7 @@ function addElement(kind) {
     qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
     circle: { type: "ellipse", x: 8, y: 8, w: Math.min(40, height - 16), h: Math.min(40, height - 16) },
     triangle: { type: "polygon", x: 8, y: 8, w: 40, h: 34 },
+    chart: { type: "chart", field: lay.fields.at(-1) ?? "chart", x: Math.floor(width / 2), y: 8, w: Math.floor(width / 2) - 8, h: Math.floor(height / 2) },
   }[kind];
   if (kind === "triangle") setPolygon(e, POLYGON_PRESETS.up);
   lay.elements.push(e);
@@ -2146,7 +2187,7 @@ function initActions() {
   $("json").addEventListener("blur", refreshJson);
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
-  for (const k of ["text", "fixed", "rect", "hline", "circle", "triangle", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["text", "fixed", "rect", "hline", "circle", "triangle", "chart", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-add-icon").addEventListener("click", () => $("icon-file").click());
   $("icon-file").addEventListener("change", (ev) => {
     addIcon(ev.target.files[0]);

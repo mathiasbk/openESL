@@ -1552,6 +1552,272 @@ static void test_ical(void)
     free(h);
 }
 
+/* Norges Bank's answer for USD (format=csv, lastNObservations=31), 2026-11-13 */
+static const char fx_usd[] =
+    "FREQ;Frequency;BASE_CUR;Base Currency;QUOTE_CUR;Quote Currency;TENOR;Tenor;DECIMALS;CALCULATED;UNIT_MULT;Unit Multiplier;COLLECTION;Collection Indicator;TIME_PERIOD;OBS_VALUE\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-01;9.6256\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-02;9.6494\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-05;9.6015\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-06;9.5643\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-07;9.584\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-08;9.5807\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-09;9.5623\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-12;9.5658\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-13;9.5357\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-14;9.4716\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-15;9.5039\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-16;9.441\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-19;9.4036\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-20;9.3843\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-21;9.3573\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-22;9.3601\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-23;9.3509\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-26;9.3444\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-27;9.317\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-28;9.2944\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-29;9.2826\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-30;9.2302\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-02;9.2524\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-03;9.2303\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-04;9.2278\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-05;9.2984\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-06;9.4277\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-09;9.4099\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-10;9.4663\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-11;9.5394\r\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-12;9.5325\r\n";
+/* USD and EUR in one answer (USD in EUR), the last three days, the currencies one after the other */
+static const char fx_usd_eur[] =
+    "FREQ;Frequency;BASE_CUR;Base Currency;QUOTE_CUR;Quote Currency;TENOR;Tenor;DECIMALS;CALCULATED;UNIT_MULT;Unit Multiplier;COLLECTION;Collection Indicator;TIME_PERIOD;OBS_VALUE\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-10;9.4663\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-11;9.5394\n"
+    "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-12;9.5325\n"
+    "B;Business;EUR;Euro;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-10;10.6155\n"
+    "B;Business;EUR;Euro;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-11;10.6145\n"
+    "B;Business;EUR;Euro;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-11-12;10.563\n";
+/* JPY: the price of 100 yen (UNIT_MULT 2) */
+static const char fx_jpy[] =
+    "FREQ;Frequency;BASE_CUR;Base Currency;QUOTE_CUR;Quote Currency;TENOR;Tenor;DECIMALS;CALCULATED;UNIT_MULT;Unit Multiplier;COLLECTION;Collection Indicator;TIME_PERIOD;OBS_VALUE\r\n"
+    "B;Business;JPY;Japanese yen;NOK;Norwegian krone;SP;Spot;4;false;2;Hundreds;C;ECB concertation time 14:15 CET;2026-11-10;5.9846\r\n"
+    "B;Business;JPY;Japanese yen;NOK;Norwegian krone;SP;Spot;4;false;2;Hundreds;C;ECB concertation time 14:15 CET;2026-11-11;5.9908\r\n"
+    "B;Business;JPY;Japanese yen;NOK;Norwegian krone;SP;Spot;4;false;2;Hundreds;C;ECB concertation time 14:15 CET;2026-11-12;5.9691\r\n";
+/* CoinGecko's answer (bitcoin, vs_currency=nok, days=30, interval=daily), 2026-11-13 09:18 UTC, without its
+   market_caps and total_volumes */
+static const char btc_nok[] = "{\"prices\":[[1792022400000,774898.1040617452],[1792108800000,778540.4825969964],[1792195200000,768580.5907490051],[1792281600000,767493.4561665673],[1792368000000,773459.1023149301],[1792454400000,771603.1309262724],[1792540800000,780111.618404427],[1792627200000,787399.735400581],[1792713600000,758630.8845524334],[1792800000000,756194.8049679559],[1792886400000,753474.6111586688],[1792972800000,745654.2180768467],[1793059200000,745356.2128246878],[1793145600000,754361.0123472981],[1793232000000,751893.0485939824],[1793318400000,719907.4550813531],[1793404800000,711587.3184263493],[1793491200000,713851.0817652891],[1793577600000,721812.8249144698],[1793664000000,713872.9912940208],[1793750400000,717582.7327583198],[1793836800000,747781.7768588108],[1793923200000,707103.801477383],[1794009600000,716826.5853427355],[1794096000000,716836.9506751421],[1794182400000,707125.2215276941],[1794268800000,707776.5408874542],[1794355200000,700912.0431199573],[1794441600000,706948.3385914712],[1794528000000,682747.5896281559],[1794561530000,658464.4571587405]],\"market_caps\":[[1792022400000,1.5e13]],\"total_volumes\":[]}";
+
+/* Every value of a chart series is a whole number 0..99, the lowest 0 and the highest 99 */
+static unsigned series_points(const char *s)
+{
+    unsigned n = 0, lo = 100, hi = 0;
+    for (const char *p = s; *p;) {
+        char *end;
+        long x = strtol(p, &end, 10);
+        if (end == p || x < 0 || x > 99 || (*end && *end != ' '))
+            return 0;
+        if ((unsigned)x < lo)
+            lo = (unsigned)x;
+        if ((unsigned)x > hi)
+            hi = (unsigned)x;
+        n++;
+        p = *end ? end + 1 : end;
+    }
+    return lo == 0 && hi == 99 ? n : 0;
+}
+
+static void test_fx(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    uint32_t data_at;
+    const uint32_t now = 1794561530u; /* 2026-11-13 09:18 UTC */
+    static const char ok[] =
+        "{\"sources\":[{\"id\":\"usd\",\"type\":\"fx\",\"currency\":\"usd\",\"layout\":\"text\"},"
+        "{\"id\":\"usdeur\",\"type\":\"fx\",\"currency\":\"USD\",\"in\":\"EUR\",\"lang\":\"en\",\"days\":5,\"layout\":\"text\"},"
+        "{\"id\":\"yen\",\"type\":\"fx\",\"currency\":\"JPY\",\"layout\":\"text\"},"
+        "{\"id\":\"eurnok\",\"type\":\"fx\",\"currency\":\"NOK\",\"in\":\"EUR\",\"unit\":100,\"layout\":\"text\"}]}";
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(n == 4 && cfg[0].type == ESL_SOURCE_FX && cfg[0].every_min == 60 && esl_source_own_pace(&cfg[0]));
+    CHECK_STR(cfg[0].fx.cur, "USD");
+    CHECK_STR(cfg[0].fx.in, "NOK");
+    CHECK(cfg[0].fx.days == 30 && cfg[0].fx.unit == 0 && cfg[0].nfields == 4);
+    CHECK(esl_source_url(&cfg[0], url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://data.norges-bank.no/api/data/EXR/B.USD.NOK.SP?format=csv&lastNObservations=31&locale=en");
+    CHECK(esl_source_url(&cfg[1], url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://data.norges-bank.no/api/data/EXR/B.USD+EUR.NOK.SP?format=csv&lastNObservations=6&locale=en");
+    CHECK(esl_source_url(&cfg[3], url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://data.norges-bank.no/api/data/EXR/B.EUR.NOK.SP?format=csv&lastNObservations=31&locale=en");
+    {
+        static char js[ESL_SOURCE_CFG_MAX];
+        esl_sb_t sb;
+        esl_sb_init(&sb, js, sizeof(js));
+        esl_source_write_cfg(&cfg[1], &sb);
+        CHECK(HAS(js, "\"currency\":\"USD\",\"in\":\"EUR\",\"days\":5"));
+        CHECK(!HAS(js, "\"unit\""));
+        esl_sb_init(&sb, js, sizeof(js));
+        esl_source_write_cfg(&cfg[3], &sb);
+        CHECK(HAS(js, "\"unit\":100"));
+    }
+    static const struct {
+        const char *src, *msg;
+    } bad[] = {
+        {"", "sources[0].currency: a currency code"},
+        {"\"currency\":\"US\"", "sources[0].currency: "},
+        {"\"currency\":\"U$D\"", "sources[0].currency: "},
+        {"\"currency\":\"USD\",\"in\":\"usd\"", "sources[0].in: another currency"},
+        {"\"currency\":\"USD\",\"in\":7", "sources[0].in: the currency code"},
+        {"\"currency\":\"USD\",\"days\":31", "sources[0].days: a whole number from 5 to 30"},
+        {"\"currency\":\"USD\",\"unit\":10", "sources[0].unit: 1 or 100"},
+        {"\"currency\":\"USD\",\"every_min\":15", "sources[0].every_min: a whole number from 60"},
+        {"\"currency\":\"USD\",\"fields\":[\"{price}\"]", "sources[0].fields[0]: {price} is not a value of type fx"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char js[256];
+        snprintf(js, sizeof(js), "{\"sources\":[{\"id\":\"f\",\"type\":\"fx\",\"layout\":\"text\"%s%s}]}",
+                 bad[i].src[0] ? "," : "", bad[i].src);
+        CHECK(!esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+        if (strncmp(err, bad[i].msg, strlen(bad[i].msg)) != 0)
+            printf("  fx cfg %zu: %s\n", i, err);
+        CHECK(strncmp(err, bad[i].msg, strlen(bad[i].msg)) == 0);
+    }
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+
+    /* USD in NOK: 31 days, the first only for the change */
+    CHECK(esl_source_values(&cfg[0], fx_usd, sizeof(fx_usd) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "pair"), "USD/NOK");
+    CHECK_STR(esl_values_get(&v, "unit"), "1");
+    CHECK_STR(esl_values_get(&v, "rate"), "9,5325");
+    CHECK_STR(esl_values_get(&v, "rate2"), "9,53");
+    CHECK_STR(esl_values_get(&v, "chg"), "-0,0069");
+    CHECK_STR(esl_values_get(&v, "pct"), "-0,1");
+    CHECK_STR(esl_values_get(&v, "pctp"), "-1,2"); /* from 9.6494 on 2 October */
+    CHECK_STR(esl_values_get(&v, "hi"), "9,6494");
+    CHECK_STR(esl_values_get(&v, "lo"), "9,2278");
+    CHECK_STR(esl_values_get(&v, "date"), "12.11.");
+    CHECK_STR(esl_values_get(&v, "day"), "i går");
+    CHECK_STR(esl_values_get(&v, "days"), "30");
+    CHECK_STR(esl_values_get(&v, "period"), "30 dager");
+    CHECK(series_points(esl_values_get(&v, "chart")) == 30);
+    CHECK(strlen(esl_values_get(&v, "chart")) <= ESL_VALUE_LONG);
+    CHECK(data_at == 1794441600u);
+    esl_content_t c;
+    CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
+    /* the same day: today */
+    CHECK(esl_source_values(&cfg[0], fx_usd, sizeof(fx_usd) - 1, data_at + 17 * 3600, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "day"), "i dag");
+
+    /* USD in EUR, in English: day by day, 9.5325 / 10.563 */
+    CHECK(esl_source_values(&cfg[1], fx_usd_eur, sizeof(fx_usd_eur) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "pair"), "USD/EUR");
+    CHECK_STR(esl_values_get(&v, "rate"), "0.9024");
+    CHECK_STR(esl_values_get(&v, "day"), "yesterday");
+    CHECK_STR(esl_values_get(&v, "period"), "3 days");
+    CHECK(series_points(esl_values_get(&v, "chart")) == 3);
+    /* the yen: the price of 100, as Norges Bank gives it */
+    CHECK(esl_source_values(&cfg[2], fx_jpy, sizeof(fx_jpy) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "pair"), "100 JPY/NOK");
+    CHECK_STR(esl_values_get(&v, "rate"), "5,9691");
+    CHECK_STR(esl_values_get(&v, "chg"), "-0,0217");
+    /* NOK in EUR, for 100 kroner: 100 / 10.563 */
+    CHECK(esl_source_values(&cfg[3], fx_usd_eur, sizeof(fx_usd_eur) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "pair"), "100 NOK/EUR");
+    CHECK_STR(esl_values_get(&v, "rate"), "9,4670");
+    /* answers that are not rates, or not of the currency */
+    CHECK(!esl_source_values(&cfg[0], "<html>", 6, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer is not Norges Bank's exchange rates in CSV");
+    CHECK(!esl_source_values(&cfg[0], "", 0, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK(!esl_source_values(&cfg[0], fx_jpy, sizeof(fx_jpy) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer has no rates for USD in NOK");
+    /* one rate gives no change: not shown as " ( %)" */
+    static const char one[] =
+        "FREQ;Frequency;BASE_CUR;Base Currency;QUOTE_CUR;Quote Currency;TENOR;Tenor;DECIMALS;CALCULATED;UNIT_MULT;Unit Multiplier;COLLECTION;Collection Indicator;TIME_PERIOD;OBS_VALUE\r\n"
+        "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-01;9.6256\r\n";
+    CHECK(!esl_source_values(&cfg[0], one, sizeof(one) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer has no rates for USD in NOK");
+    /* a number the AP cannot write is a dash */
+    char buf[16];
+    esl_source_fmt(1e300, 2, false, true, false, buf, sizeof(buf));
+    CHECK_STR(buf, "-");
+}
+
+static void test_btc(void)
+{
+    static esl_source_cfg_t cfg[ESL_SOURCE_MAX];
+    char err[ESL_SOURCE_ERR_MAX + 16], url[ESL_SOURCE_URL_MAX];
+    uint8_t n;
+    esl_values_t v;
+    uint32_t data_at;
+    const uint32_t now = 1794561600u;
+    static const char ok[] = "{\"sources\":[{\"id\":\"btc\",\"type\":\"btc\",\"layout\":\"text\"},"
+                             "{\"id\":\"btcusd\",\"type\":\"btc\",\"currency\":\"USD\",\"days\":7,\"lang\":\"en\","
+                             "\"layout\":\"text\"}]}";
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+    CHECK(n == 2 && cfg[0].type == ESL_SOURCE_BTC && cfg[0].every_min == 15 && esl_source_own_pace(&cfg[0]));
+    CHECK_STR(cfg[0].btc.cur, "nok");
+    CHECK_STR(cfg[1].btc.cur, "usd");
+    CHECK(esl_source_url(&cfg[0], url, sizeof(url)) > 0);
+    CHECK_STR(url, "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=nok&days=30&interval=daily");
+    CHECK(esl_source_url(&cfg[1], url, sizeof(url)) > 0);
+    CHECK(HAS(url, "vs_currency=usd&days=7&"));
+    static const char *const bad[] = {"\"currency\":\"no\"", "\"currency\":\"n0k\"", "\"currency\":\"nokkkk\"",
+                                      "\"days\":6", "\"days\":31", "\"every_min\":10"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        char js[256];
+        snprintf(js, sizeof(js), "{\"sources\":[{\"id\":\"b\",\"type\":\"btc\",\"layout\":\"text\",%s}]}", bad[i]);
+        CHECK(!esl_sources_parse(js, strlen(js), cfg, &n, err, sizeof(err)));
+    }
+    CHECK(esl_sources_parse(ok, sizeof(ok) - 1, cfg, &n, err, sizeof(err)));
+
+    CHECK(esl_source_values(&cfg[0], btc_nok, sizeof(btc_nok) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "cur"), "NOK");
+    CHECK_STR(esl_values_get(&v, "price"), "658 464");
+    CHECK_STR(esl_values_get(&v, "pct"), "-3,6");   /* since 682 748 at 00:00 UTC */
+    CHECK_STR(esl_values_get(&v, "today"), "i dag");
+    CHECK_STR(esl_values_get(&v, "pctp"), "-15,0"); /* since 774 898 on 14 October */
+    CHECK_STR(esl_values_get(&v, "hi"), "787 400");
+    CHECK_STR(esl_values_get(&v, "lo"), "658 464");
+    CHECK_STR(esl_values_get(&v, "updated"), "10:18");
+    CHECK_STR(esl_values_get(&v, "date"), "13.11.");
+    CHECK_STR(esl_values_get(&v, "days"), "30");
+    CHECK_STR(esl_values_get(&v, "period"), "30 dager");
+    CHECK(series_points(esl_values_get(&v, "chart")) == 31);
+    CHECK(data_at == 1794561530u);
+    esl_content_t c;
+    CHECK(esl_source_content(&cfg[0], &v, &c, err, sizeof(err)));
+    CHECK(esl_source_values(&cfg[1], btc_nok, sizeof(btc_nok) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "cur"), "USD");
+    CHECK_STR(esl_values_get(&v, "pct"), "-3.6");
+    CHECK_STR(esl_values_get(&v, "period"), "30 days");
+    /* a price under 100 has two decimals */
+    static const char small[] = "{\"prices\":[[1794528000000,12.5],[1794561530000,99.994]]}";
+    CHECK(esl_source_values(&cfg[1], small, sizeof(small) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(esl_values_get(&v, "price"), "99.99");
+    CHECK_STR(esl_values_get(&v, "chart"), "0 99");
+    static const char *const no[] = {"[]", "{\"prices\":{}}", "{\"prices\":[[1,2]]}", "{\"error\":\"rate limit\"}"};
+    for (size_t i = 0; i < sizeof(no) / sizeof(no[0]); i++)
+        CHECK(!esl_source_values(&cfg[0], no[i], strlen(no[i]), now, cet, &v, &data_at, err, sizeof(err)));
+
+    /* the shared helpers */
+    char buf[ESL_VALUE_LONG + 1];
+    esl_source_fmt(1234567.891, 2, false, true, false, buf, sizeof(buf));
+    CHECK_STR(buf, "1 234 567,89");
+    esl_source_fmt(-0.004, 2, true, false, true, buf, sizeof(buf));
+    CHECK_STR(buf, "0.00");
+    esl_source_fmt(0.5, 0, true, false, true, buf, sizeof(buf));
+    CHECK_STR(buf, "+1");
+    esl_source_fmt(-999.5, 0, false, true, false, buf, sizeof(buf));
+    CHECK_STR(buf, "-1 000");
+    double same[] = {3, 3, 3};
+    esl_source_series(same, 3, buf, sizeof(buf));
+    CHECK_STR(buf, "50 50 50");
+    double many[40];
+    for (unsigned i = 0; i < 40; i++)
+        many[i] = i;
+    esl_source_series(many, 40, buf, sizeof(buf));
+    CHECK(strlen(buf) <= ESL_VALUE_LONG && buf[strlen(buf) - 1] != ' ');
+}
+
 void test_source(void)
 {
     test_parse();
@@ -1564,5 +1830,7 @@ void test_source(void)
     test_countdown();
     test_rss();
     test_ical();
+    test_fx();
+    test_btc();
     test_api();
 }

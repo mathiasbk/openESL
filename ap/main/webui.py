@@ -41,9 +41,10 @@ MODULES = {
                "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
                "fontmaker.js", "renderframe.js", "site.js"],
         "css": [],
-        # the Weather template (templates/), which Send -> The weather adds to a layout file
-        # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
-        "templates": ["home/weather.json"],
+        # the templates (templates/) that Send -> The weather, an exchange rate or the bitcoin
+        # price add to a layout file that lacks them (js/apsources.js): the Design tab's
+        # catalog is on GitHub Pages
+        "templates": ["home/weather.json", "home/exchange-rate.json", "home/bitcoin.json"],
     },
     "design": {
         "label": "Design",
