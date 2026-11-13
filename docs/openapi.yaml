@@ -459,7 +459,8 @@ paths:
         on each request and not kept; for previews such as the dashboard.
 
         `data` is base64 of the raw image: the black plane, then the red plane when `red`
-        is true. A plane is `width` columns from left to right, each `ceil(height / 8)`
+        is true, then the yellow plane when `yellow` is true (black/white/red/yellow
+        Bluetooth tags; no model has yellow yet). A plane is `width` columns from left to right, each `ceil(height / 8)`
         bytes, byte 0 bit 7 the top row; a set bit is ink.
 
         Content held back because a barcode, QR code or number does not fit its box
@@ -473,13 +474,14 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [mac, model, width, height, red, content_id, image_id, data]
+                required: [mac, model, width, height, red, yellow, content_id, image_id, data]
                 properties:
                   mac: { $ref: "#/components/schemas/Mac" }
                   model: { type: string, examples: ["2.9"] }
                   width: { type: integer, minimum: 1 }
                   height: { type: integer, minimum: 1 }
                   red: { type: boolean, description: The image has a red plane }
+                  yellow: { type: boolean, description: The image has a yellow plane (after the red one) }
                   content_id: { type: integer, minimum: 0, maximum: 4294967295 }
                   image_id: { type: integer, minimum: 1, maximum: 4294967295, description: "CRC-32 of the image bytes (0 sent as 1): the `image_id` a tag that shows images reports once it shows it" }
                   data: { type: string, contentEncoding: base64 }
@@ -514,7 +516,7 @@ paths:
         The body is a PNG of exactly the tag's screen size (`width` x `height` in
         `GET /api/tags/{mac}/image`, 296 x 128 for the 2.9"), any colour type and bit depth,
         not interlaced; transparency is laid over white. Each pixel becomes the nearest
-        colour the tag has (white, black, and red on a model with red), or with
+        colour the tag has (white, black, and red or yellow on a model with them), or with
         `dither=true` the colours are mixed by error diffusion (Floyd–Steinberg), for
         photos and shades of grey. A 1-bit black and white PNG is shown as it is. The body
         may also be the raw image in the format `GET` gives (`data`, decoded from base64),
@@ -3217,10 +3219,11 @@ components:
           description: "text only: a space between every three digits, `1 299,90`"
         color:
           type: string
-          enum: [black, white, frame, invert, highlight, red, red_invert]
+          enum: [black, white, frame, invert, highlight, red, red_invert, yellow]
           default: black
           description: |
             `frame` is only drawn with `"frame": true`; text also `invert` (white text in a
             black box) and `highlight` (inverted with `"price_highlight": true`, else black).
             `red` and `red_invert` (white text in a red box, text only) only on a model with red
-            (`2.9-bwr`); a black/white model refuses them
+            (`2.9-bwr`); a black/white model refuses them. `yellow` only on a model with yellow
+            (black/white/red/yellow Bluetooth tags; no model has it yet)

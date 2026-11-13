@@ -400,9 +400,9 @@ void esl_mac_format(uint64_t mac, char out[17])
 static const struct {
     const char *name;
     uint16_t w, h;
-    bool red;
+    bool red, yellow;
 } models[ESL_MODEL_COUNT - 1] = {
-#define ESL_MODEL_ROW(code, name, id, w, h, red) {name, w, h, red != 0},
+#define ESL_MODEL_ROW(code, name, id, w, h, red, yellow) {name, w, h, red != 0, yellow != 0},
     ESL_MODEL_LIST(ESL_MODEL_ROW)
 #undef ESL_MODEL_ROW
 };
@@ -426,6 +426,11 @@ bool esl_model_has_red(uint8_t model)
     return esl_model_name(model) && models[model - 1].red;
 }
 
+bool esl_model_has_yellow(uint8_t model)
+{
+    return esl_model_name(model) && models[model - 1].yellow;
+}
+
 uint8_t esl_model_layout_model(uint8_t model)
 {
     uint8_t file = model;
@@ -438,7 +443,8 @@ uint8_t esl_model_layout_model(uint8_t model)
     ESL_MODEL_SAME_AS_LIST(ESL_SAME_AS_ROW)
 #undef ESL_SAME_AS_ROW
     if (file != model &&
-        (!esl_model_size(file, &fw, &fh) || fw != w || fh != h || esl_model_has_red(file) != esl_model_has_red(model)))
+        (!esl_model_size(file, &fw, &fh) || fw != w || fh != h || esl_model_has_red(file) != esl_model_has_red(model) ||
+         esl_model_has_yellow(file) != esl_model_has_yellow(model)))
         return model;
     return file;
 }

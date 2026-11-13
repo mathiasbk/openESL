@@ -30,7 +30,8 @@ const ID = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const TEMPLATE_KEYS = ["format", "version", "id", "category", "title", "description", "tags", "docs", "fields", "variants"];
 const VARIANT_KEYS = ["layout", "icons", "note", "same_as"];
 const CATEGORY_KEYS = ["id", "title", "description", "order"];
-const RED = new Set(["red", "red_invert"]);
+// colours only a model with that colour takes (colors in shared/models.json)
+const NEEDS = { red: "red", red_invert: "red", yellow: "yellow" };
 const TEMPLATE_MAX = 1024;      // compiled bytes of one template: a quarter of a layout file
 const TEMPLATE_ICONS_MAX = 2048; // and of its icons on top of that: half a file (a symbol per weather)
 
@@ -156,7 +157,7 @@ export async function checkCatalog({ categories, templates }, { root = ROOT, was
       if (!Array.isArray(l._sample) || l._sample.length !== (l.fields || []).length || !l._sample.every((s) => typeof s === "string"))
         err(`${vat}: _sample needs one sample text per field`);
       for (const [i, e] of (l.elements || []).entries())
-        if (RED.has(e.color) && !m.colors.includes("red")) err(`${vat}: element ${i} is ${e.color}, which the ${model}" has not`);
+        if (NEEDS[e.color] && !m.colors.includes(NEEDS[e.color])) err(`${vat}: element ${i} is ${e.color}, which the ${model}" has not`);
       const s = starter[model]?.[l.name];
       if (s && !(same(s.fields, l.fields) && same(s.elements, l.elements)))
         err(`${vat}: tag/designs/layouts/${model}.json has a layout "${l.name}" with other fields or elements; keep them the same`);

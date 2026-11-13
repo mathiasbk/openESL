@@ -127,7 +127,7 @@ async function drawPreview(canvas, t, model) {
   const img = ctx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {
     const v = out.pixels[i];
-    img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
+    img.data.set(v === 3 ? [230, 190, 0, 255] : v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
   canvas.classList.add("drawn");

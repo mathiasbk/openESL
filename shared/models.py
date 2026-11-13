@@ -28,6 +28,7 @@ def load(path=PATH, planned=False):
         m["mac_code"] = int(m["mac_code"], 16)
     for m in ms:
         m["has_red"] = "red" in m["colors"]
+        m["has_yellow"] = "yellow" in m["colors"]
     built.sort(key=lambda m: m["code"])
     return built + [m for m in ms if m["status"] == "planned"] if planned else built
 

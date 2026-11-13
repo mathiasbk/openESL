@@ -37,12 +37,17 @@ are. What is new is how the picture gets to the tag.
    tag's protocol module and disconnects. Tags are paired in the web page and kept in
    NVS with the id of the image each was last given.
 4. **Protocol modules** (to do, once the tags are recorded): one per tag family, turning
-   a raw picture (the black plane, then the red plane) into the maker's commands.
+   a raw picture (the black plane, then the red plane, then the yellow plane) into the
+   maker's commands.
 5. **Models:** `shared/models.json` already has `radio` and `protocol` fields; a
    Bluetooth tag becomes a model with `radio: "ble"` and its maker's protocol.
-6. **Yellow** (to do): some of these tags are black/white/red/yellow. The AP draws the
-   picture, so yellow needs a plane in the renderer and the designer, not in any tag
-   firmware.
+6. **Yellow** (done on the AP and the web page, waiting for a model): some of these tags
+   are black/white/red/yellow. The AP draws the picture, so yellow is a third plane after
+   black and red (`esl_render`), the colour `yellow` in layout files (text, rect, line,
+   icon, ellipse and polygon), a fourth ink for pictures (`PUT /api/tags/{mac}/image`, the
+   Send form) and a choice in the designer, all only on a model whose `colors` has
+   `yellow`. No tag firmware draws it. The host tests use a registry of their own with a
+   yellow model (`ap/test/sameas/test_yellow.c`) until a real one is added.
 
 ## Which AP
 

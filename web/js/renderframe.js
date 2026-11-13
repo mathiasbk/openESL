@@ -6,7 +6,7 @@
 //       base a URL (the AP's own page on a board without the renderer, the C6): the published
 //       page's js/renderer.js and wasm/, run in a sandboxed frame
 //   draw(r, { file, limits, fonts, layout, flags, fields, lang })
-//       -> { ok, pixels } (r.width x r.height, 1 = black, 2 = red) or { ok: false, error },
+//       -> { ok, pixels } (r.width x r.height, 1 = black, 2 = red, 3 = yellow) or { ok: false, error },
 //       straight away from the page's own renderer, as a promise from the frame
 //
 // Why the frame: the AP's page keeps the API token in this origin's localStorage, and code

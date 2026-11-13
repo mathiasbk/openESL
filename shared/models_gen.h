@@ -18,11 +18,11 @@
 #define ESL_MODEL_293_W 296
 #define ESL_MODEL_293_H 128
 
-/* X(code, name in the API, id, width, height, has_red) for each model, in code order */
+/* X(code, name in the API, id, width, height, has_red, has_yellow) for each model, in code order */
 #define ESL_MODEL_LIST(X) \
-    X(1, "2.9", "solum-m2-29-bw", 296, 128, 0) \
-    X(2, "1.54", "solum-m2-154-bw", 200, 200, 0) \
-    X(3, "2.9-bwr", "solum-29-bwr", 296, 128, 1) \
+    X(1, "2.9", "solum-m2-29-bw", 296, 128, 0, 0) \
+    X(2, "1.54", "solum-m2-154-bw", 200, 200, 0, 0) \
+    X(3, "2.9-bwr", "solum-29-bwr", 296, 128, 1, 0) \
 
 /* X(code, code of the model whose layout file it uses) for each model with same_as: a tag of
  * that model is drawn with the other model's file (esl_model_layout_model) */

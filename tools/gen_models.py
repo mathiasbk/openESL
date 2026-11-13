@@ -47,7 +47,7 @@ RADIOS = ("802.15.4",)
 PROTOCOLS = ("openesl",)
 # How the AP sends a screen image to the tag. "openesl-raw" is ESL_IMG_FMT_RAW in
 # shared/proto.h (1 bit per pixel in screen coordinates, column by column, the black plane and
-# then the red one), which the AP may code (ESL_IMG_FMT_2D or ESL_IMG_FMT_RLE) for a tag that says it takes
+# then the red one, then the yellow one), which the AP may code (ESL_IMG_FMT_2D or ESL_IMG_FMT_RLE) for a tag that says it takes
 # that. A tag that needs another layout gets a new name here and in the AP renderer.
 IMAGE_FORMATS = ("openesl-raw",)
 COLORS = ("black", "white", "red", "yellow")
@@ -187,11 +187,11 @@ def gen_shared_h(ms):
         out.append("#define ESL_MODEL_%s_W %d" % (m["build"], m["width"]))
         out.append("#define ESL_MODEL_%s_H %d" % (m["build"], m["height"]))
     out += ["",
-            "/* X(code, name in the API, id, width, height, has_red) for each model, in code order */",
+            "/* X(code, name in the API, id, width, height, has_red, has_yellow) for each model, in code order */",
             "#define ESL_MODEL_LIST(X) \\"]
     for m in ms:
-        out.append("    X(%d, %s, %s, %d, %d, %d) \\" % (m["code"], c_str(m["name"]), c_str(m["id"]), m["width"],
-                                                     m["height"], int(m["has_red"])))
+        out.append("    X(%d, %s, %s, %d, %d, %d, %d) \\" % (m["code"], c_str(m["name"]), c_str(m["id"]), m["width"],
+                                                         m["height"], int(m["has_red"]), int(m["has_yellow"])))
     out += ["",
             "/* X(code, code of the model whose layout file it uses) for each model with same_as: a tag of",
             " * that model is drawn with the other model's file (esl_model_layout_model) */",

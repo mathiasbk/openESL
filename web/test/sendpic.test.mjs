@@ -1,7 +1,7 @@
 // "A picture" in the Send form (js/sendpic.js): placing, toning, dithering, packing, sending.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { placement, dragTo, turnedSize, tone, quantize, packRaw, picturePlan, sendPictures, inks, WHITE, BLACK, RED } from "../js/sendpic.js";
+import { placement, dragTo, turnedSize, tone, quantize, packRaw, picturePlan, sendPictures, inks, WHITE, BLACK, RED, YELLOW } from "../js/sendpic.js";
 import { decodeTagImage } from "../js/dashdata.js";
 import { MODELS } from "../js/models.js";
 
@@ -64,6 +64,18 @@ test("nearest colour: black and white by brightness, red only where the model ha
   assert.deepEqual(inks(["black", "white", "red"]), [WHITE, BLACK, RED]);
 });
 
+test("nearest colour with yellow (black/white/red/yellow and black/white/yellow tags)", () => {
+  const w = 5, h = 1;
+  const rgba = rgbaOf(w, h, (x) => [[10, 10, 10], [240, 240, 240], [230, 20, 20], [250, 230, 20], [30, 30, 220]][x]);
+  assert.deepEqual([...quantize(rgba, w, h, { red: true, yellow: true, dither: false })], [BLACK, WHITE, RED, YELLOW, BLACK]);
+  // no red: the red pixel goes to the nearest of the others, and colour is kept (not grey first)
+  const px = quantize(rgba, w, h, { yellow: true, dither: false });
+  assert.equal(px[3], YELLOW);
+  assert.ok(!px.includes(RED));
+  assert.deepEqual(inks(["black", "white", "red", "yellow"]), [WHITE, BLACK, RED, YELLOW]);
+  assert.deepEqual(inks(["black", "white", "yellow"]), [WHITE, BLACK, YELLOW]);
+});
+
 test("dithering keeps the grey: about half the pixels of 50 % grey are black", () => {
   const w = 64, h = 64;
   const px = quantize(rgbaOf(w, h, () => [128, 128, 128]), w, h);
@@ -91,6 +103,15 @@ test("the raw image decodes back to the same pixels (both models, and red)", () 
   const raw = packRaw(px, 30, 13, true);
   assert.equal(raw.length, 2 * 30 * 2);
   assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: true, data: Buffer.from(raw).toString("base64") }).pixels, px);
+  // yellow: a third plane after the red one, or a second one on a model without red
+  const px4 = Uint8Array.from({ length: 30 * 13 }, (_, i) => i % 4);
+  const raw4 = packRaw(px4, 30, 13, true, true);
+  assert.equal(raw4.length, 3 * 30 * 2);
+  assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: true, yellow: true, data: Buffer.from(raw4).toString("base64") }).pixels, px4);
+  const px3 = px4.map((v) => (v === RED ? WHITE : v));
+  const raw3 = packRaw(px3, 30, 13, false, true);
+  assert.equal(raw3.length, 2 * 30 * 2);
+  assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: false, yellow: true, data: Buffer.from(raw3).toString("base64") }).pixels, px3);
   // top-left pixel is bit 7 of byte 0; the pixel below it bit 6
   const one = new Uint8Array(4 * 9);
   one[0] = BLACK;

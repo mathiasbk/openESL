@@ -3,6 +3,7 @@
 #include "esl_crc32.h"
 #include "esl_img2d.h"
 #include "esl_png.h"
+#include "esl_proto.h"
 #include "esl_render.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -86,8 +87,9 @@ size_t esl_img_rle_decode(const uint8_t *in, size_t n, uint8_t *out, size_t raw)
 
 /* ---- pictures from clients ------------------------------------------------------- */
 
-/* white, black, red: the colours of the image planes (none, black plane, red plane) */
-static const int16_t ink[3][3] = {{255, 255, 255}, {0, 0, 0}, {255, 0, 0}};
+/* white, black, red, yellow: the colours of the image planes (none, black plane, red plane,
+   yellow plane) */
+static const int16_t ink[4][3] = {{255, 255, 255}, {0, 0, 0}, {255, 0, 0}, {255, 255, 0}};
 
 typedef struct {
     bool (*read)(void *ctx, uint8_t *buf, size_t n);
@@ -95,7 +97,7 @@ typedef struct {
     uint8_t head[8];   /* the first bytes, read to tell PNG from raw, given out again */
     size_t head_len, head_pos;
     uint16_t w, h;
-    bool red, dither;
+    bool red, yellow, dither;
     size_t col_bytes, plane;
     uint8_t *out;
     int16_t *err;      /* dither: errors for this row and the next, (w + 2) * 3 each */
@@ -118,11 +120,13 @@ static bool pic_header(void *ctx, uint32_t w, uint32_t h)
 }
 
 /* The nearest colour the model has, weighing green most and blue least, as the eye does */
-static unsigned nearest(const int *v, bool red)
+static unsigned nearest(const int *v, bool red, bool yellow)
 {
     unsigned best = 0;
     long best_d = -1;
-    for (unsigned k = 0; k < (red ? 3u : 2u); k++) {
+    for (unsigned k = 0; k < 4; k++) {
+        if ((k == 2 && !red) || (k == 3 && !yellow))
+            continue;
         long dr = v[0] - ink[k][0], dg = v[1] - ink[k][1], db = v[2] - ink[k][2];
         long d = 3 * dr * dr + 4 * dg * dg + 2 * db * db;
         if (best_d < 0 || d < best_d) {
@@ -147,12 +151,14 @@ static bool pic_row(void *ctx, uint32_t y, const uint8_t *rgb)
             v[c] = rgb[3 * x + c] + (e ? e[(x + 1) * 3 + c] : 0);
             v[c] = v[c] < 0 ? 0 : v[c] > 255 ? 255 : v[c];
         }
-        unsigned k = nearest(v, p->red);
+        unsigned k = nearest(v, p->red, p->yellow);
         size_t at = x * p->col_bytes + y / 8;
         if (k == 1)
             p->out[at] |= bit;
         else if (k == 2)
             p->out[p->plane + at] |= bit;
+        else if (k == 3)
+            p->out[(p->red ? 2 : 1) * p->plane + at] |= bit;
         if (!e)
             continue;
         /* Floyd-Steinberg: 7/16 to the right, 3/16, 5/16 and 1/16 to the row below */
@@ -170,10 +176,11 @@ static bool pic_row(void *ctx, uint32_t y, const uint8_t *rgb)
 esl_pic_err_t esl_image_picture(uint8_t model, bool dither, size_t len, bool (*read)(void *ctx, uint8_t *buf, size_t n),
                                 void *ctx, uint8_t *out)
 {
-    pic_t p = {read, ctx, {0}, 0, 0, 0, 0, false, dither, 0, 0, out, NULL};
+    pic_t p = {read, ctx, {0}, 0, 0, 0, 0, false, false, dither, 0, 0, out, NULL};
     size_t raw = esl_render_size(model);
     if (!raw || !esl_render_model(model, &p.w, &p.h, &p.red))
         return ESL_PIC_ERR_SIZE;
+    p.yellow = esl_model_has_yellow(model);
     p.col_bytes = ESL_RENDER_COL_BYTES(p.h);
     p.plane = p.col_bytes * p.w;
     p.head_len = len < sizeof(p.head) ? len : sizeof(p.head);
@@ -186,9 +193,12 @@ esl_pic_err_t esl_image_picture(uint8_t model, bool dither, size_t len, bool (*r
         memcpy(out, p.head, p.head_len);
         if (!read(ctx, out + p.head_len, raw - p.head_len))
             return ESL_PIC_ERR_READ;
-        for (size_t i = 0; p.red && i < p.plane; i++)
-            if (out[i] & out[p.plane + i])
-                return ESL_PIC_ERR_BOTH;
+        size_t planes = raw / p.plane;
+        for (size_t i = 0; i < p.plane; i++)
+            for (size_t a = 0; a + 1 < planes; a++)
+                for (size_t b = a + 1; b < planes; b++)
+                    if (out[a * p.plane + i] & out[b * p.plane + i])
+                        return ESL_PIC_ERR_BOTH;
         return ESL_PIC_OK;
     }
     memset(out, 0, raw);
