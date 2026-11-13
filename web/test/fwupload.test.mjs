@@ -210,9 +210,9 @@ test("the version in an AP image", () => {
 
 test("the page's radio image for the AP's C6 radio", () => {
   const radios = [
-    { key: "uart-c6", kind: "uart", display: false, ota: "radio-uart-c6-ota", version: "0.8.2" },
-    { key: "uart-c6-lcd", kind: "uart", display: true, ota: "radio-uart-c6-lcd-ota", version: "0.8.2" },
-    { key: "net-c6", kind: "net", display: false },
+    { key: "uart-c6", id: "c6", kind: "uart", display: false, ota: "radio-uart-c6-ota", version: "0.8.2" },
+    { key: "uart-c6-lcd", id: "c6-lcd", kind: "uart", display: true, ota: "radio-uart-c6-lcd-ota", version: "0.8.2" },
+    { key: "net-c6", id: "c6", kind: "net", display: false },
   ];
   const info = { version: "v0.8.2", release: true, radios };
   const ota = (radio) => ({ version: "0.8.2", radio });
@@ -224,6 +224,11 @@ test("the page's radio image for the AP's C6 radio", () => {
   assert.equal(radioImageFor({ version: "0.8.2" }, info), null);                          // no radio on UART
   assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true }), { ...info, radios: [radios[2]] }), null);
   assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: false }), { ...info, release: false }).newer, false);
+  // another uart radio first in the list (the C6 of a Linux host): never sent to an S3's C6
+  const usb = { key: "uart-c6-usb", id: "c6-usb", kind: "uart", display: false, ota: "radio-uart-c6-usb-ota", version: "0.8.2" };
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: false }), { ...info, radios: [usb, ...radios] }).file,
+    "radio-uart-c6-ota");
+  assert.equal(radioImageFor(ota({ up: true, version: "0.8.1", ota: true, display: false }), { ...info, radios: [usb] }), null);
 });
 
 test("what to ask before radio firmware goes out", () => {

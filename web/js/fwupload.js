@@ -124,7 +124,10 @@ export function apSendQuestion(kind, ota, lcd = null) {
 export function radioImageFor(ota, info) {
   const radio = ota?.radio;
   if (!radio?.ota) return null;
-  const r = (info?.radios || []).find((x) => x.kind === "uart" && x.ota && !!x.display === (radio.display === true));
+  // the S3's own C6 images, c6 or c6-lcd by the screen; any other uart radio in a page's list
+  // (one for another host) is never picked, whatever the order of the list
+  const want = radio.display === true ? "c6-lcd" : "c6";
+  const r = (info?.radios || []).find((x) => x.kind === "uart" && x.ota && x.id === want);
   if (!r) return null;
   const version = String(r.version || info.version).replace(/^v/, "");
   const c = cmpVersion(version, radio.version);

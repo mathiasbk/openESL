@@ -1382,7 +1382,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
   ];
   // The images for a C6 radio on UART that the AP passes on (radios in info.json with "ota")
-  const radioFiles = (info) => (info?.radios || []).filter((r) => r.kind === "uart" && r.ota);
+  const radioFiles = (info) => (info?.radios || []).filter((r) => r.kind === "uart" && r.ota && (r.id === "c6" || r.id === "c6-lcd"));
   const radioFileLabel = (r) => "Radio firmware for the S3's C6" + (r.display ? " with screen" : "");
   const apFileLabel = (b) => "AP firmware" + (b.target !== "esp32c6" ? " for the " + b.target.toUpperCase().replace(/^ESP32/, "ESP32-") : "") +
     (b.display ? " with the status screen" : "");

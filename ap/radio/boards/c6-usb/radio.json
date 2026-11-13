@@ -1,0 +1,10 @@
+{
+  "id": "c6-usb",
+  "label": "ESP32-C6 (e.g. the C6 Super Mini) as the 802.15.4 radio of the AP as a Linux program, on its USB port",
+  "target": "esp32c6",
+  "chip_family": "ESP32-C6",
+  "artifact": "openesl-ap-radio-c6-usb",
+  "release": "openesl-ap-radio-esp32c6-usb",
+  "status": "experimental",
+  "host": "linux"
+}
