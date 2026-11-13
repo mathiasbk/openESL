@@ -66,10 +66,16 @@ $(OUT)/tag/%.o: $(ROOT)/tag/%.c $(DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# The dashboard, packed from web/ as the C6 has it (ap/main/webui.py)
-build/webui_files.c: $(ROOT)/ap/main/webui.py $(wildcard $(ROOT)/web/index.html $(ROOT)/web/css/*.css $(ROOT)/web/js/*.js $(ROOT)/templates/*/*.json)
+# The web page's tabs, packed from web/ as the ESP32 boards have them (ap/main/webui.py): the
+# Dashboard, and the Design tab when its renderer is built (python3 web/build.py --wasm, with
+# Emscripten, into WASM); without the renderer the Dashboard alone, as on a C6 Super Mini.
+# No link to /setup: WiFi and the token are the host's here.
+WASM    ?= $(ROOT)/web/dist/wasm
+UI      := dashboard $(if $(wildcard $(WASM)/render-*.wasm),design)
+build/webui_files.c: $(ROOT)/ap/main/webui.py $(wildcard $(ROOT)/web/index.html $(ROOT)/web/css/*.css $(ROOT)/web/js/*.js $(ROOT)/templates/*/*.json $(WASM)/render-*)
 	@mkdir -p build
-	python3 $(ROOT)/ap/main/webui.py $(ROOT)/web $@
+	$(if $(filter design,$(UI)),,@echo "openesl-ap: no renderer in $(WASM) (python3 web/build.py --wasm): the Dashboard tab only")
+	python3 $(ROOT)/ap/main/webui.py $(ROOT)/web $@ --no-setup --wasm $(WASM) $(UI)
 
 $(OUT)/webui_files.o: build/webui_files.c
 	@mkdir -p $(dir $@)
