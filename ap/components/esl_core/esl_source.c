@@ -37,6 +37,10 @@ void esl_source_fmt(double d, unsigned dec, bool en, bool thousands, bool sign, 
     static const long long pow10[] = {1, 10, 100, 1000, 10000};
     if (dec > 4)
         dec = 4;
+    if (!(d > -1e14 && d < 1e14)) { /* NaN, infinite or too big for long long below */
+        snprintf(out, cap, "-");
+        return;
+    }
     long long v = (long long)(d < 0 ? d * pow10[dec] - 0.5 : d * pow10[dec] + 0.5);
     bool neg = v < 0;
     unsigned long long a = (unsigned long long)(neg ? -v : v), whole = a / (unsigned long long)pow10[dec];

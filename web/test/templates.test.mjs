@@ -149,3 +149,21 @@ test("a layout's title comes from its template, by id or else by name", () => {
   assert.equal(titleOf(index, { name: "same" }), "");                               // no title that repeats the name
   assert.equal(titleOf(undefined, { name: "vare", fields: ["brand", "name", "price"] }), "");
 });
+
+test("the bitcoin template draws a price of eight digits whole", async () => {
+  // a font that does not fit is cut without an ellipsis, so a cut price would be a wrong price:
+  // the last digit must still change the picture
+  const t = find(real(), "bitcoin").t;
+  for (const model of ["2.9", "1.54"]) {
+    const r = await loadRenderer(model, WASM);
+    r.setLimits(null);
+    const file = soloFile(t, model);
+    assert.ok(r.loadLayouts(JSON.stringify(file)).ok, model);
+    const draw = (price) => {
+      const res = r.render(0x10, 0, file.layouts[0].fields.map((f) => (f === "value" ? price : "")));
+      assert.ok(res.ok, res.error);
+      return res.pixels;
+    };
+    assert.notDeepEqual(draw("15 058 464"), draw("15 058 469"), `${model}: the last digit is drawn`);
+  }
+});

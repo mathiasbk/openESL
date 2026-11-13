@@ -145,7 +145,6 @@ static bool number(const char *f, size_t fl, double *out)
 static bool fx_values(const esl_source_cfg_t *c, const char *body, size_t len, uint32_t now, esl_utc_offset_fn off,
                       esl_values_t *v, uint32_t *data_at, char *err, size_t errlen)
 {
-    (void)now, (void)off;
     int col_cur = -1, col_mult = -1, col_time = -1, col_val = -1;
     fx_row_t row[FX_ROWS];
     unsigned nrow = 0;
@@ -234,7 +233,8 @@ static bool fx_values(const esl_source_cfg_t *c, const char *body, size_t len, u
         }
         row[best].date[0] = '\0';
     }
-    if (!n) {
+    if (n < 2) {
+        /* a change needs yesterday's rate too */
         snprintf(err, errlen, "the answer has no rates for %s in %s", c->fx.cur, c->fx.in);
         return false;
     }
@@ -270,13 +270,11 @@ static bool fx_values(const esl_source_cfg_t *c, const char *body, size_t len, u
     esl_values_set(v, "rate2", buf);
     esl_source_fmt(now_r, 4, en, true, false, buf, sizeof(buf));
     esl_values_set(v, "rate4", buf);
-    if (n >= 2) {
-        double prev = rate[n - 2];
-        esl_source_fmt(now_r - prev, dec, en, true, true, buf, sizeof(buf));
-        esl_values_set(v, "chg", buf);
-        esl_source_fmt((now_r - prev) * 100 / prev, 1, en, false, true, buf, sizeof(buf));
-        esl_values_set(v, "pct", buf);
-    }
+    double prev = rate[n - 2];
+    esl_source_fmt(now_r - prev, dec, en, true, true, buf, sizeof(buf));
+    esl_values_set(v, "chg", buf);
+    esl_source_fmt((now_r - prev) * 100 / prev, 1, en, false, true, buf, sizeof(buf));
+    esl_values_set(v, "pct", buf);
     esl_source_fmt((now_r - rate[first]) * 100 / rate[first], 1, en, false, true, buf, sizeof(buf));
     esl_values_set(v, "pctp", buf);
     esl_source_fmt(hi, dec, en, true, false, buf, sizeof(buf));

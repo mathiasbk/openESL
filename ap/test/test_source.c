@@ -1729,6 +1729,16 @@ static void test_fx(void)
     CHECK(!esl_source_values(&cfg[0], "", 0, now, cet, &v, &data_at, err, sizeof(err)));
     CHECK(!esl_source_values(&cfg[0], fx_jpy, sizeof(fx_jpy) - 1, now, cet, &v, &data_at, err, sizeof(err)));
     CHECK_STR(err, "the answer has no rates for USD in NOK");
+    /* one rate gives no change: not shown as " ( %)" */
+    static const char one[] =
+        "FREQ;Frequency;BASE_CUR;Base Currency;QUOTE_CUR;Quote Currency;TENOR;Tenor;DECIMALS;CALCULATED;UNIT_MULT;Unit Multiplier;COLLECTION;Collection Indicator;TIME_PERIOD;OBS_VALUE\r\n"
+        "B;Business;USD;US dollar;NOK;Norwegian krone;SP;Spot;4;false;0;Units;C;ECB concertation time 14:15 CET;2026-10-01;9.6256\r\n";
+    CHECK(!esl_source_values(&cfg[0], one, sizeof(one) - 1, now, cet, &v, &data_at, err, sizeof(err)));
+    CHECK_STR(err, "the answer has no rates for USD in NOK");
+    /* a number the AP cannot write is a dash */
+    char buf[16];
+    esl_source_fmt(1e300, 2, false, true, false, buf, sizeof(buf));
+    CHECK_STR(buf, "-");
 }
 
 static void test_btc(void)

@@ -82,8 +82,8 @@
       "h": 52,
       "fonts": [
        "large",
-       "price44",
-       "mid"
+       "mid",
+       "medium"
       ],
       "lines": 1,
       "valign": "middle"
@@ -197,8 +197,8 @@
       "h": 52,
       "fonts": [
        "large",
-       "price44",
-       "mid"
+       "mid",
+       "medium"
       ],
       "lines": 1,
       "align": "center",

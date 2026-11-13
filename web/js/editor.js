@@ -1787,7 +1787,7 @@ function addElement(kind) {
     qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
     circle: { type: "ellipse", x: 8, y: 8, w: Math.min(40, height - 16), h: Math.min(40, height - 16) },
     triangle: { type: "polygon", x: 8, y: 8, w: 40, h: 34 },
-    chart: { type: "chart", field: lay.fields.at(-1), x: Math.floor(width / 2), y: 8, w: Math.floor(width / 2) - 8, h: Math.floor(height / 2) },
+    chart: { type: "chart", field: lay.fields.at(-1) ?? "chart", x: Math.floor(width / 2), y: 8, w: Math.floor(width / 2) - 8, h: Math.floor(height / 2) },
   }[kind];
   if (kind === "triangle") setPolygon(e, POLYGON_PRESETS.up);
   lay.elements.push(e);
