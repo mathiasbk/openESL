@@ -100,7 +100,7 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 | `--pan HEX` | 4553 | |
 | `--token TOKEN` | made at the first start | |
 | `--next-poll S` | 0 | poll interval sent to tags; 0 = each tag keeps its own |
-| `--max-tags N` | 1000 | |
+| `--max-tags N` | 4096 | the most tags it takes: no chip limits it, so the default is all the AP core holds (`ESL_STORE_MAX_TAGS`); the dashboard names it only when the table is nearly full |
 | `--netradio ADDR` | off | `[host:]port` for network radios (above); 4553 is the port they look for |
 | `-v` | | log every request and frame |
 
