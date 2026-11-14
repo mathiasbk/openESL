@@ -121,6 +121,8 @@ static bool wait_busy(uint16_t timeout_ms)
  * reading while the booster switches is not the end. Taking either for the end sent deep
  * sleep into a running refresh, which stops the panel partway: dark with faint text, or
  * half drawn with the old picture showing through (1.54").
+ * The refresh itself (2.9 s, up to 20 s with red) is waited out awake: 0.9.0 slept a second
+ * at a time here (#261), which stopped the panel partway in the same way.
  */
 #define REFRESH_START_MS    100u
 #define REFRESH_LOW_MS      10u
@@ -147,11 +149,6 @@ static bool wait_refresh(void)
     }
     return true;
 }
-
-/* The refresh itself (2.9 s, up to 20 s with red) is waited out awake. 0.9.0 slept a second
-   at a time here (#261): the panel then stopped partway and left a grey, washed-out image
-   with the old one showing through, while the tag reported it as shown (1.54" and 2.9",
-   2026-10-30). */
 
 #if EPD_TRANSPOSE
 #define RAM_X_BYTES     ((DRAW_W + 7) / 8)   /* RAM X = layout x, 8 pixels per byte */

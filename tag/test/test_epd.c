@@ -408,7 +408,7 @@ static void test_epd_refresh_end(void)
     CHECK(!epd_draw(&sc));
     CHECK(asleep);
     start_delay_ms = 0;
-    refreshing = false;
+    reset_model();
 }
 
 static void test_epd_no_busy(void)
