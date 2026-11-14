@@ -68,7 +68,17 @@ More, with barcodes and signs, on the [web page](https://mathiasbk.github.io/ope
 ## What you need
 
 - One of the [supported labels](#supported-tags).
-- An **ESP32-C6** board with USB as the access point (about 400 labels). For more labels, other boards work too: see [Choosing an access point board](https://github.com/mathiasbk/openESL/wiki/Access-point-boards).
+- An **ESP32-C6** board with USB as the access point (about 400 labels). For more labels, other setups work too: see [Choosing an access point board](https://github.com/mathiasbk/openESL/wiki/Access-point-boards).
+
+  | Access point | Labels | Status |
+  |---|---|---|
+  | ESP32-C6 (with or without a 0.96" screen) | about 400 | supported |
+  | ESP32-S3 + ESP32-C6 as its radio on a cable | 1000 | supported |
+  | ESP32-C5 | 1000 | experimental |
+  | ESP32-S3 + up to four ESP32-C6 radios over WiFi | not decided | experimental, not secure yet |
+  | [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP): a Raspberry Pi or PC with an ESP32-C6 on USB, plus C6 radios over WiFi | depends on the computer | experimental |
+
+  Every one of them is set up from the Flash AP tab of the web page.
 - A small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery: [Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher).
 - A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer.
 
@@ -145,7 +155,7 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 ## Status
 
-OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
 ## For developers
 

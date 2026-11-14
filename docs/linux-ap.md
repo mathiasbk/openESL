@@ -2,6 +2,10 @@
 
 `ap/linux/` builds the AP as an ordinary Linux program: the same core as the ESP32 boards (`ap/components/esl_core`: the radio protocol, the drawing, the API, scheduled content, tag firmware), with an HTTP server, files instead of NVS, and a radio chosen at run time. It runs on a Raspberry Pi, a router or gateway with Linux, a server, or a PC, and serves the same API and dashboard as the C6, so `esl-client`, Home Assistant and the web page work against it unchanged.
 
+**Status: experimental.** Each radio below has run on hardware with a few test tags, not yet for long or with many tags. The user guide is the wiki's [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP) page.
+
+**Getting it:** releases from 0.11.0 carry static binaries, `openesl-ap-linux-armv7-<version>` (Cortex-A9 and newer, a Raspberry Pi 2/3 on a 32-bit system), `openesl-ap-linux-aarch64-<version>` (a Pi 3/4/5 on a 64-bit system) and `openesl-ap-linux-x86_64-<version>`, built by CI (`.github/workflows/firmware.yml`, job `linux-ap`) with the Dashboard and the Design tab packed in. They run on any distribution; or build it yourself (below).
+
 ```
 openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboard, /ui/... (packed from web/)
             ├─ main.c        the radio loop: frame → esl_link_handle() → reply; the scheduler every second
@@ -37,7 +41,7 @@ Tried on 2026-11-13 on an ARMv7 Linux gateway with such a modem (the armv7 build
 
 ### A C6 on USB as the radio
 
-1. Flash the C6 with the radio board `c6-usb`: `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release, written at 0 with `esptool.py write_flash 0x0 ...` (the web flasher does not offer it), or `cd ap && python build.py radio/c6-usb`. Its log goes to its UART pins, since the USB port is the link.
+1. Flash the C6 with the radio board `c6-usb`: on the web page's Flash AP tab pick **Linux + C6 radio** and **C6 on USB** (the page erases the C6 first), or write `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release at 0 with `esptool.py write_flash 0x0 ...`, or `cd ap && python build.py radio/c6-usb`. The page lists this image apart from the S3's radios (`linux_radios` in its `info.json`), so it is never offered to the C6 of an S3. Its log goes to its UART pins, since the USB port is the link.
 2. Plug it into the host and start `openesl-ap --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...` (the service's user needs the `dialout` group, which the unit file gives it). Use the name `ls /dev/serial/by-id/` shows rather than `/dev/ttyACM0`: it stays the same across reboots, replugging and other USB devices.
 3. The log says `radio 1.1 up on channel 25, PAN 0x4553, 10 dBm` once the C6 has its settings. A C6 that restarts gets them again within a few seconds, and one that has said nothing for 15 s is configured again. A port that goes away (the C6 unplugged) is opened again every 2 s until it is back; frames the C6 kept from before it has its settings are ignored. A radio that says nothing at all (it hangs, or sits in its download mode) is reset: 10 s after the port is opened, or 15 s after it was last heard once it was up through the port's RTS line, as esptool does, at most every 30 s; DTR stays off, so it starts its firmware.
 
@@ -62,11 +66,17 @@ never the AP's), kept in `<data>/radios`.
 - **API and dashboard:** `GET /api/radios` lists the AP's own radio as radio 0 (`"via":"local"`, its
   id is the AP id) and the network radios after it; each tag has `"radio"`. `DELETE
   /api/radios/{id}` forgets a network radio that is not connected; the AP's own answers 409.
-- **Setting up a C6:** flash `openesl-ap-netradio-c6.bin` and give it the WiFi and the AP's address
-  on its USB console (`ssid`, `pass`, `host <address>`, `reboot`; ap-netradio.md, "Setting it up").
+- **Setting up a C6:** on the web page's Flash AP tab pick **Linux + C6 radio** and **Extra C6 over
+  WiFi**: it flashes the C6 and sends it the WiFi and the AP's address. By hand: flash
+  `openesl-ap-netradio-esp32c6-<version>.bin` from a release (`out/openesl-ap-netradio-c6.bin` when
+  built) and give it the WiFi and the AP's address on its USB console (`ssid`, `pass`, `host
+  <address>`, `reboot`; ap-netradio.md, "Setting it up").
   The Linux AP does not announce itself on mDNS, so `host` is needed. The address can be another
   host that forwards the port, for an AP the radios cannot reach directly, e.g. `socat
   TCP-LISTEN:4553,fork,reuseaddr TCP:<ap>:4553`.
+- **The AP still needs a radio of its own.** There is no `--radio none` yet: without `--radio` the
+  AP runs `sim` beside the network radios, with simulated tags in its table. Give it a C6 on USB or
+  an SPI modem.
 - **Each network radio holds its own share:** a C6 caches the tags it serves, up to
   `CONFIG_ESL_NETRADIO_TAGS` (500 by default), however many the AP takes.
 - **Not secure**, as on the S3: plain TCP, and any device that reaches the port can connect as a
@@ -111,6 +121,29 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 `ap/linux/openesl-ap.service` runs it with systemd as its own unprivileged user (`DynamicUser`), with `/var/lib/openesl` as its state directory and `CAP_NET_BIND_SERVICE` for port 80; the comment at its top has the install commands. The log goes to the journal (`journalctl -u openesl-ap`). The service user must be able to read the config file, so keep the token out of it (the default, `<data>/token`) unless the file is readable by root and that user only.
 
 The HTTP server takes 32 connections at a time (more get 503), one request each; a request's head must arrive within 10 s and its body at 16 KB/s or faster. An API reply is made in memory and sent after the API's lock is let go, so a slow client holds up nobody else.
+
+## In Docker
+
+The binary is static, so it runs in an empty image. Every release from 0.11.0 publishes one, `ghcr.io/mathiasbk/openesl-ap:<version>` and `:latest`, for `linux/amd64`, `linux/arm64` and `linux/arm/v7` (a `FROM scratch` image with the release's binary alone, `ap/linux/Dockerfile.release`, job `docker` in release.yml):
+
+```
+mkdir -p ~/openesl
+docker run -d --name openesl --restart unless-stopped -p 80:80 \
+    --user "$(id -u):$(id -g)" --group-add "$(getent group dialout | cut -d: -f3)" \
+    -v ~/openesl:/var/lib/openesl -v /etc/localtime:/etc/localtime:ro \
+    --device /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...:/dev/ttyACM0 \
+    ghcr.io/mathiasbk/openesl-ap:latest --radio uart:/dev/ttyACM0
+cat ~/openesl/token
+```
+
+The arguments after the image are `openesl-ap`'s options; without any it runs `--radio sim`. To build the image from source instead, `docker build -f ap/linux/Dockerfile -t openesl-ap .` (Alpine and musl, for the platform being built); CI builds that one and checks that it serves the dashboard.
+
+- **Data:** `/var/lib/openesl` in the container; a host folder (as above) keeps it across new images and makes the token easy to read. Make the folder first, and run as your own user (`--user`): the program keeps the token and its folders readable by their owner only, so files written as root could only be read with `sudo`. The numeric `dialout` group (`--group-add`) lets that user open the C6, as the image has no `/etc/group` (on Arch the serial group is `uucp`: `getent group uucp`). A named volume works too.
+- **Time zone:** the image has no zone data, so mount the host's (`-v /etc/localtime:/etc/localtime:ro`) or give a POSIX `TZ` (`-e TZ=CET-1CEST,M3.5.0,M10.5.0/3`). Without either it runs in UTC, and night mode, the update window and dates on the tags are off by the zone's offset.
+- **The C6 on USB:** `--device` with its `/dev/serial/by-id/` name, so it is the same C6 after a reboot. A C6 that is unplugged and plugged in again comes back with a new device node, which a running container does not see: restart the container, or use `--device-cgroup-rule` with a bind mount of `/dev/serial` if it must survive that.
+- **Ports:** 80 for the API and the dashboard, 4553 when network radios connect (`-p 4553:4553` and `--netradio 4553`). The radios need the host's address, not the container's.
+- **The Design tab** is in the published image. One built from source has it only when `web/dist/wasm/` was built before `docker build` (`python3 web/build.py --wasm`, Emscripten); otherwise the Dashboard tab alone.
+- **Updating:** `docker pull` the new version and start a new container with the same data folder.
 
 ## Data directory
 

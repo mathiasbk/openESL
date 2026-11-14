@@ -31,10 +31,12 @@ On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick **S3 + C6 o
 By hand instead:
 
 1. Flash the S3 with the `s3-n16r8-netradio` firmware, as any AP.
-2. Flash the C6 with the radio firmware (`openesl-ap-netradio-c6`).
+2. Flash the C6 with the radio firmware (`openesl-ap-netradio-esp32c6-<version>.bin` from a release).
 3. Open the C6's USB port in a serial terminal and type `ssid <your network>`, `pass <password>` and `reboot`. It finds the S3 on its own; if not, type `host <the S3's address>` (it still looks for the S3 by itself if that address stops answering). `status` shows how it is doing.
 
 The dashboard's AP facts show the radio as **Radio (C6)**: its address and when it was last heard, or how long it has not been connected. After 30 seconds without it the dashboard shows a red line at the top, and the [health report and webhook](Health-and-webhook#lost-radio) say `radio_lost`. The address comes from the connection, so there is nothing to set for it on the AP. Settings for the radio on the dashboard are not there yet.
+
+The same radios also work beside the [Linux AP](Linux-AP)'s own radio.
 
 The details: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md#setting-it-up).
 

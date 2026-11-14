@@ -30,6 +30,10 @@ The page first reads the partition table on the board. The same table as the new
 
 Both boards are flashed from the web page: the C6 radio first (plain or with screen), then the S3. See [ESP32-S3 + C6](ESP32-S3-and-C6) and [ESP32-S3 with a wireless C6 radio](ESP32-S3-with-wireless-C6).
 
+## Linux AP
+
+The AP itself is a program on the computer, not flashed: see [Linux AP](Linux-AP). The web page flashes its C6 radio: pick **Linux + C6 radio**, then **C6 on USB** for the radio plugged into the computer, or **Extra C6 over WiFi** for each radio in another room. The C6 on USB is erased first; the page then shows how to start the program.
+
 ## Building it yourself
 
 ESP-IDF v5.5.5. Each board has its own settings in [ap/boards](https://github.com/mathiasbk/openESL/blob/master/ap/boards/README.md):

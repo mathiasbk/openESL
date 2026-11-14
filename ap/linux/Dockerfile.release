@@ -1,0 +1,13 @@
+# The published image, ghcr.io/<owner>/openesl-ap (release.yml): the static binaries the release
+# carries (firmware.yml, job linux-ap), one per platform, named after Docker's TARGETARCH in the
+# build context (openesl-ap-amd64, openesl-ap-arm64, openesl-ap-arm). Nothing runs at build time,
+# so every platform is built on one runner without emulation. To build from source instead:
+# ap/linux/Dockerfile.
+FROM scratch
+ARG TARGETARCH
+COPY openesl-ap-${TARGETARCH} /openesl-ap
+VOLUME /var/lib/openesl
+# the API and dashboard; 4553 for network radios (--netradio 4553)
+EXPOSE 80 4553
+ENTRYPOINT ["/openesl-ap"]
+CMD ["--radio", "sim"]

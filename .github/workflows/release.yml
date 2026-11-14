@@ -122,7 +122,11 @@ jobs:
             # the radio on the network (netradio) has no -ota.bin (ap/build.py)
             if [ -f "fw/ap-firmware/$artifact-ota.bin" ]; then cp "fw/ap-firmware/$artifact-ota.bin" "out/$release-$TAG-ota.bin"; fi
           done
-          (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # the AP as a Linux program (firmware.yml, linux-ap): openesl-ap-linux-<arch>-$TAG
+          for f in fw/linux-ap/openesl-ap-*; do
+            cp "$f" "out/openesl-ap-linux-${f##*/openesl-ap-}-$TAG"
+          done
+          (cd out && sha256sum *.bin openesl-ap-linux-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,3 +153,46 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run web.yml --repo "$GITHUB_REPOSITORY" --ref master
+
+  # The Linux AP as a Docker image, ghcr.io/<owner>/openesl-ap:<version> (and :latest for a normal
+  # release), for linux/amd64, linux/arm64 and linux/arm/v7, from the binaries the release carries
+  # (ap/linux/Dockerfile.release). The first push makes the package private on GHCR: set it public
+  # once under the package's settings.
+  docker:
+    needs: [check, firmware, release]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-ap
+          path: linux-ap
+      - name: The binaries under Docker's platform names
+        run: |
+          mkdir ctx
+          cp ap/linux/Dockerfile.release ctx/Dockerfile
+          cp linux-ap/openesl-ap-x86_64 ctx/openesl-ap-amd64
+          cp linux-ap/openesl-ap-aarch64 ctx/openesl-ap-arm64
+          cp linux-ap/openesl-ap-armv7 ctx/openesl-ap-arm
+          chmod +x ctx/openesl-ap-*
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openesl-ap"
+          tags="-t $image:${TAG#v}"
+          case "$TAG" in *-*) ;; *) tags="$tags -t $image:latest" ;; esac
+          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7 \
+            --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
+            --label org.opencontainers.image.version="${TAG#v}" \
+            --label org.opencontainers.image.licenses=MIT \
+            $tags ctx

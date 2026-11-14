@@ -22,7 +22,7 @@ This folder is for developers. To **use** OpenESL, read the [wiki](https://githu
 
 | File | Contents |
 |---|---|
-| [access-points.md](access-points.md) | The boards the AP runs on (C6, C5, S3 + C6), with limits, pros and cons, and the S3 + C6 wiring |
+| [access-points.md](access-points.md) | The boards the AP runs on (C6, C5, S3 + C6, the Linux AP), with limits, pros and cons, and the S3 + C6 wiring |
 | [ap-radio-link.md](ap-radio-link.md) | The AP on an ESP32-S3 with an ESP32-C6 as its 802.15.4 radio over UART: wiring and link protocol |
 | [ap-netradio.md](ap-netradio.md) | The AP on an ESP32-S3 with a wireless ESP32-C6 radio on the same WiFi network (experimental) |
 | [linux-ap.md](linux-ap.md) | The AP as a Linux program (`ap/linux`, `openesl-ap`): a Raspberry Pi, gateway or PC with a radio, the same API and dashboard, data in files |
