@@ -13,7 +13,7 @@
 # nothing but the binary. The web page's Design tab needs the renderer (web/dist/wasm/, built
 # with Emscripten): build it first and it is packed in; without it the AP has the Dashboard tab.
 FROM alpine:3.20 AS build
-RUN apk add --no-cache build-base python3
+RUN apk add --no-cache build-base linux-headers python3
 WORKDIR /src
 COPY . .
 RUN make -C ap/linux -j"$(nproc)" LDFLAGS=-static && cp ap/linux/build/host/openesl-ap /openesl-ap
