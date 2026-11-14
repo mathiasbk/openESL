@@ -1,7 +1,10 @@
 # openesl-ap in a container (docs/linux-ap.md, "In Docker"). Build from the repository root:
 #
 #   docker build -f ap/linux/Dockerfile -t openesl-ap .
-#   docker run -d --name openesl --restart unless-stopped -p 80:80 -v openesl:/var/lib/openesl \
+#   mkdir -p ~/openesl
+#   docker run -d --name openesl --restart unless-stopped -p 80:80 \
+#       --user "$(id -u):$(id -g)" --group-add "$(getent group dialout | cut -d: -f3)" \
+#       -v ~/openesl:/var/lib/openesl -v /etc/localtime:/etc/localtime:ro \
 #       --device /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...:/dev/ttyACM0 \
 #       openesl-ap --radio uart:/dev/ttyACM0
 #
