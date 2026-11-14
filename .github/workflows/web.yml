@@ -116,6 +116,8 @@ jobs:
           python3 web/build.py --native
       - name: Tests (renderer against the native build, flasher against a simulated ZBS_Flasher)
         run: node --test web/test/*.test.mjs
+      - name: Firmware names (web/build.py --firmware takes each radio image for its own radio)
+        run: python3 -m unittest discover -v -s web/test -p 'test_*.py'
       - name: Wiki links (tools/check_wiki.py; here rather than in wiki.yml, which saves a runner)
         run: python3 tools/check_wiki.py
       - name: Stylesheets keep to the design scale (tools/check_css.py, #317)
