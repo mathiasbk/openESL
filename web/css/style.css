@@ -335,12 +335,48 @@ h3.sub { margin-top: var(--space-4); }
 #dash-msg.error, #pic-msg.error, #fw-msg.error, #dash-poll-msg.error { color: var(--error); }
 #dash-body.stale #dash-tiles, #dash-body.stale #dash-ap, #dash-body.stale #dash-wifi, #dash-body.stale #dash-tags, #dash-body.stale #dash-tagfw { opacity: 0.45; }
 #fw-msg.ok, #dash-poll-msg.ok { color: var(--ok); }
-/* the dashboard's two views, and its Settings page: a menu of groups, one group at a time */
-.views { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: var(--space-4); background: var(--panel); }
-.views button { border: 0; border-radius: 0; padding: 6px 16px; }
-.views button + button { border-left: 1px solid var(--line); }
-.views button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
-#dash-overview[hidden], .set-page[hidden], .set-page [hidden] { display: none !important; }
+/* The dashboard's menu (js/dashnav.js): one part at a time. A column on the left with a line of
+   state under each entry; a narrow column of icons on a mid-size screen; a bar at the bottom of a phone */
+.dash-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.dash-main { min-width: 0; }
+/* beside the menu the tag table has less room: when a tag is late its state says so */
+@media (min-width: 721px) and (max-width: 1400px) { .tag-table .next { display: none; } }
+.tag-table .st { white-space: nowrap; }
+.dash-part[hidden], .dash-nav [hidden] { display: none !important; }
+.dash-nav { position: sticky; top: var(--space-3); display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-2); }
+.dash-nav a { position: relative; display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: var(--radius); color: var(--text); text-decoration: none; font-weight: 500; }
+.dash-nav a:hover { background: var(--hover); }
+.dash-nav a[aria-current="page"] { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); font-weight: 650; }
+.dash-nav svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.dash-nav a[aria-current="page"] svg { color: var(--accent); }
+.dash-nav .t { flex: 1; min-width: 0; }
+.dash-nav .short { display: none; }
+.dash-nav small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
+.dash-nav small:empty { display: none; }
+.dash-nav .badge { flex: none; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--hover); color: var(--muted); font-size: var(--fs-xs); font-weight: 650; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+.dash-nav .badge.bad { background: var(--error); color: var(--panel); }
+.dash-nav .badge.warn { background: var(--warn); color: var(--panel); }
+.dash-nav .badge.new { background: var(--accent); color: var(--accent-text); }
+.part-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-bottom: var(--space-3); }
+@media (max-width: 1100px) {
+  .dash-shell { grid-template-columns: 76px minmax(0, 1fr); }
+  .dash-nav { padding: var(--space-1); }
+  .dash-nav a { flex-direction: column; gap: 2px; padding: 8px 2px; font-size: var(--fs-xs); text-align: center; }
+  .dash-nav a[aria-current="page"] { box-shadow: none; }
+  .dash-nav .t { flex: none; }
+  .dash-nav small, .dash-nav .cut { display: none; }
+  .dash-nav .short { display: inline; }
+  .dash-nav .badge { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 16px; padding: 0 4px; line-height: 16px; }
+}
+@media (max-width: 760px) {
+  .dash-shell { display: block; }
+  .dash-nav { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30; display: flex; gap: 0; border-width: 1px 0 0; border-radius: 0; padding: 4px 2px calc(4px + env(safe-area-inset-bottom)); box-shadow: var(--shadow-sm); }
+  .dash-nav a { flex: 1 1 0; min-width: 0; padding: 4px 0; color: var(--muted); }
+  .dash-nav a[aria-current="page"] { background: none; color: var(--accent); }
+  .dash-nav svg { width: 22px; height: 22px; }
+  #dash-body { padding-bottom: 64px; }
+}
+.set-page[hidden], .set-page [hidden] { display: none !important; }
 .set-page { display: grid; grid-template-columns: 200px minmax(0, 1fr); padding: 0; min-height: 380px; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-right: 1px solid var(--line); }
 .set-nav button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 600; }
@@ -432,7 +468,7 @@ button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: 
 .st-pics canvas.drag { cursor: grabbing; }
 .st-pics figcaption { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
 
-/* Dashboard layout: the connection as one line, figures, the tag table first, the rest folded */
+/* Dashboard layout: the connection as one line, then the menu and one part (see .dash-shell) */
 #dash-body h2 { font-size: var(--fs-lg); margin: 0; }
 #dash-body h3 { font-size: var(--fs-md); margin: 0; }
 .dash #dash-conn > h2 { font-size: var(--fs-lg); }
@@ -504,9 +540,10 @@ button.tile:hover { border-color: var(--accent); }
 .tag-table tr.lvl-bad td { background: color-mix(in srgb, var(--error) 7%, transparent); }
 .tag-table td.meta { display: none; }
 .tag-table td.empty button { margin-left: 6px; }
-/* the header stays in view in a long table (the wrapper may not scroll on its own then) */
+/* the header stays in view in a long table (the wrapper may not scroll on its own then); next to
+   the narrow menu (up to 1100 px) the table may not fit, and scrolls sideways in its wrapper instead */
+@media (min-width: 1101px) { .dash-wrap { overflow: visible; } }
 @media (min-width: 721px) {
-  .dash-wrap { overflow: visible; }
   .tag-table thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 }
 @media (max-width: 720px) {

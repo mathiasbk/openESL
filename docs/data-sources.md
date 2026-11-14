@@ -29,7 +29,7 @@ battery.
 It is `ESL_DATASOURCES` in menuconfig, on in these boards' `sdkconfig.defaults`. It needs
 PSRAM: an answer from MET is up to 128 KB, and TLS needs tens of KB of RAM more while it fetches.
 The C6 has no PSRAM and no RAM to spare next to its tags, so there `/api/sources` answers
-`404` and the Dashboard does not show the card. On a C6, send the weather yourself instead
+`404` and the Dashboard has no Data sources page. On a C6, send the weather yourself instead
 (below): the weather template works on every AP.
 
 What the AP needs:
@@ -186,7 +186,7 @@ that comes back the same is not sent to the tags again.
 ```
 
 On the Dashboard: tick tags of one size, **Send → A picture**, and open *Or: a PNG the AP
-fetches from a web address*. The source then shows in the Data sources card.
+fetches from a web address*. The source then shows on the Data sources page.
 
 - `url`: `http://` or `https://`, up to 159 bytes. It is fetched with `If-Modified-Since`,
   so a server that keeps the file's date answers `304` when it did not change.

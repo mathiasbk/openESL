@@ -13,6 +13,7 @@ import { initSources } from "./apsources.js";
 import { MODELS as TAG_MODELS, modelName, modelLabel } from "./models.js";
 import { initSettings } from "./apsettings.js";
 import { initLayouts } from "./aplayouts.js";
+import { initDashNav, showPart, navBadge, navNote } from "./dashnav.js";
 import { openRenderer, draw, LAYOUT_TEXT, FLAG_FRAME } from "./renderframe.js";
 import { trackRollout, modelTrial, firstTag, apCanChoose, rolloutQuestion, verNum, ROLLOUT_POLLS } from "./rollout.js";
 import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
@@ -51,6 +52,7 @@ const store = {
 export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererBase = "", demoAp = null } = {}) {
   let client = null;      // anything with call(method, path)
   const sources = initSources(); // the data sources card (apsources.js)
+  initDashNav(); // the menu: one part of the dashboard at a time (dashnav.js)
   let timer = null;
   let loading = false;
   let again = false;      // refresh() was called while one was under way: read again after it
@@ -425,6 +427,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     ];
     if (ap.max_scheduled) tiles.push(tile(null, ap.scheduled, "scheduled changes", ""));
     $("dash-tiles").replaceChildren(...tiles);
+    navNote("tags", `${list.tags.length} tag${list.tags.length === 1 ? "" : "s"}`);
+    navBadge("tags", counts.bad ? String(counts.bad) : "", "bad", counts.bad === 1 ? "1 needs attention" : `${counts.bad} need attention`);
 
     const chip = (f, label, n) => filterButton(f, "chip", `${label} `, Object.assign(document.createElement("span"), { className: "n", textContent: n }));
     $("dash-filter").replaceChildren(
@@ -460,7 +464,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       tr.append(st, mac,
         cell(tag.model ? modelLabel(tag.model) : "–", "opt"),
         cell(seen.text, "opt", seen.at),
-        cell(next ? next.text : "–", "opt " + lateCls, next ? "Expected by " + next.at : ""),
+        cell(next ? next.text : "–", "opt next " + lateCls, next ? "Expected by " + next.at : ""),
         signalCell(tag),
         cell(battery, "opt num", tag.battery_mv === 0 ? "This model cannot measure its battery" : ""),
         fw);
@@ -1134,7 +1138,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         url: $("pic-url").value, every_min: Number($("pic-url-every").value), dither: $("st-dither").checked });
       $("pic-dlg").close();
       stMsg(`The AP fetches the picture now and every ${s?.every_min ?? $("pic-url-every").value} minutes; ` +
-        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Data sources card lists it.`, "ok");
+        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Data sources page lists it.`, "ok");
     } catch (e) {
       picMsg("Not done: " + e.message, "error");
     } finally {
@@ -1270,7 +1274,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     $("fw-msg").className = "hint" + (cls ? " " + cls : "");
   };
 
-  // The closed firmware card says in one line what it holds
+  // The Firmware page (and its entry in the menu) says in one line what it holds
   function fwSummary(ota, tagfw, img, rimg) {
     const parts = [];
     if (ota) parts.push(`AP ${ota.version}` + (img?.newer ? ` (${img.version} available)` : ""));
@@ -1278,7 +1282,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     for (const r of tagFirmwareRows(tagfw)) if (r.version) parts.push(`${modelName(r.model)} ${r.version}: ${r.text}`);
     return parts.join(" · ") || "AP and tag updates";
   }
-  const openFw = () => ($("dash-fw-box").open = true);
+  // sending firmware from anywhere (the arrow next to a tag): the Firmware page shows how far it is
+  const openFw = () => showPart("firmware");
 
   function renderFirmware() {
     const { ota, tagfw } = last;
@@ -1306,6 +1311,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const img = ota && ota.other_slot ? apImageFor(ota, pageInfo) : null;
     const rimg = radioImageFor(ota, pageInfo);
     $("dash-fw-sum").textContent = fwSummary(ota, tagfw, img, rimg);
+    navBadge("firmware", img?.newer || rimg?.newer ? "\u2191" : "", "new", "an update is ready"); // arrow up
     if (rimg?.newer && radio.up) {
       const dd = [...$("dash-ota").querySelectorAll("dt")].find((dt) => dt.textContent === "Radio")?.nextElementSibling;
       const b = document.createElement("button");
@@ -1667,14 +1673,16 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   $("fw-src").addEventListener("change", () => fwMsg(""));
 
   $("dash-find").addEventListener("input", render);
-  // The folded cards stay as they were left
-  for (const id of ["lay-card", "dash-ap-box", "dash-fw-box"]) {
-    $(id).open = store.get(id) ? store.get(id) === "open" : id === "lay-card";
-    $(id).addEventListener("toggle", () => store.set(id, $(id).open ? "open" : "closed"));
-  }
   $("dash-auto").addEventListener("change", () => (client && $("dash-auto").checked ? refresh() : clearTimeout(timer)));
   document.addEventListener("visibilitychange", () => visible() && client && $("dash-auto").checked && refresh());
-  window.addEventListener("hashchange", () => visible() && client && refresh());
+  // Coming back to the tab: read the AP at once. Moving between its parts (#dashboard/firmware)
+  // needs no new read.
+  let shown = visible();
+  window.addEventListener("hashchange", () => {
+    const was = shown;
+    shown = visible();
+    if (shown && !was && client) refresh();
+  });
 
   // The USB port opened or closed elsewhere (the WiFi card on the Set up tab)
   onSerialChange((ap) => {

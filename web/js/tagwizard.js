@@ -190,7 +190,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
       </p>
       <p><button type="button" class="ghost" id="tw-more">Flash more tags</button></p>
     </div>
-    <p class="wz-hint">ⓘ These tags do not need the jig again: later firmware reaches them over the radio, from the Firmware card on the <a href="#dashboard">Dashboard</a>. <a href="${TAG_OTA}" target="_blank" rel="noopener">How it works</a></p>`;
+    <p class="wz-hint">ⓘ These tags do not need the jig again: later firmware reaches them over the radio, from the <a href="#dashboard/firmware">Firmware page of the Dashboard</a>. <a href="${TAG_OTA}" target="_blank" rel="noopener">How it works</a></p>`;
   }
 
   // ---------- actions ----------

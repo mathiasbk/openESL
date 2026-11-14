@@ -16,6 +16,8 @@ When the designer sends a layout file with **Open my AP**, it shows up at the to
 
 ## What it shows
 
+A menu shows one part of the dashboard at a time: **Tags**, **Layouts**, **Data sources**, **Firmware**, **Access point** and **Settings**. It is on the left on a computer, and at the bottom of the screen on a phone. Each entry says in a few words how its part is doing, and has a badge when it needs a look: a red number for labels that need attention, an arrow when the page has newer firmware for the AP, and **!** when labels show a layout the AP does not have. Layouts and Data sources are in the menu only when the AP has them. Each part has its own address, such as `http://openesl.local/dashboard#dashboard/firmware`, to bookmark it.
+
 - The AP: firmware, uptime, why it last restarted, radio channel, poll interval, time, schedule and WiFi. On an ESP32-S3 AP also its C6 radio: when the AP last heard it, or how long it has been gone.
 - A red line at the top when an ESP32-S3 AP has lost contact with its C6 radio for 30 seconds, with what to check. Until it is back the labels hear nothing from the AP ([Health and webhook](Health-and-webhook#lost-radio)).
 - Four figures that also filter the table: labels, need attention, busy or late, scheduled.
@@ -27,7 +29,7 @@ The Signal column shows how the AP heard the label's last 8 check-ins (32 on an 
 
 ## Layouts
 
-The **Layouts** card shows what the AP can draw, for each label size. Click its head to fold it away; the head still says how many layouts the AP has, how many more can be sent, and whether labels use one the AP lacks.
+The **Layouts** page shows what the AP can draw, for each label size. Its entry in the menu says how many layouts the AP has and how many more can be sent, and has a **!** when labels use one the AP lacks.
 
 - **On the AP:** the built-in `price` and `text`, and every layout in the AP's layout file, drawn as the AP draws them, with how many labels show each one. One no label uses can be removed. **Edit** opens it in the designer, where the page has one (the web page and APs with the designer built in).
 - **Can be sent to the AP:** the ready-made layouts of the [template library](Label-templates) the AP does not have yet. **Send to AP** adds one to the AP's file at once.
@@ -35,9 +37,9 @@ The **Layouts** card shows what the AP can draw, for each label size. Click its 
 
 Click a layout to see the data it needs: its fields in the order a client sends them, each with a box to type in. Pick a label and **Send to tag** sends them straight from the browser; it asks first when the label already shows something. Under the form is the same request to copy for curl, plain JSON, a CSV for `esl_client.py sync`, and Home Assistant, with what you typed in it. The labels that show it are listed at the bottom. The designer has the same panel behind the **API** button of each layout.
 
-![The Layouts card with the panel for a layout](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/web-layouts.png)
+![The Layouts page with the panel for a layout](https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/web-layouts.png)
 
-On the AP's own page the pictures and the library come from the web page, so they need internet. Without it the card lists the layouts by name only.
+On the AP's own page the pictures and the library come from the web page, so they need internet. Without it the page lists the layouts by name only.
 
 ## Doing things to many labels
 
@@ -50,7 +52,7 @@ Tick labels in the table to:
 
 ## Settings
 
-**Settings** (next to **Tags and AP** at the top of the dashboard) changes the AP while it runs, without esl-client. The menu on the left has its groups, one shown at a time:
+**Settings** (the last entry in the dashboard's menu) changes the AP while it runs, without esl-client. It has its own menu of groups, one shown at a time:
 
 - **General:** the AP's name (`NAME.local`), the time zone (for dates and local times the AP fills in itself), the language of dates on labels (English or Norwegian, for the AP's date fields and the dates *Send text* writes; AP firmware 0.11.0 or newer) and how often the labels check for news (the poll interval for all labels). **Save** and **Undo** show up once something differs from what the AP has, and save the whole group at once. **Set it from this computer** shows when the AP's clock is unknown or wrong, for an AP that cannot reach a time server.
 - **Network:** the WiFi network the AP is on (**Change network …** to join another), the webhook where the AP posts its health report ([Health and webhook](Health-and-webhook)), and the time server (NTP).

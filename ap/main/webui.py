@@ -40,7 +40,7 @@ MODULES = {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
                "fwupload.js", "rollout.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
-               "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
+               "apsources.js", "handoff.js", "aplayouts.js", "dashnav.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
                "fontmaker.js", "renderframe.js", "site.js"],
         "css": [],
         # the templates (templates/) that Send -> The weather, an exchange rate or the bitcoin
