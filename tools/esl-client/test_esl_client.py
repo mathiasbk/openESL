@@ -257,6 +257,11 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["ap_id"] = body["ap_id"]
             if "adopt" in body:
                 FakeAp.config["adopt"] = body["adopt"]
+            if ("night" in body or "update_window" in body) and "night" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no clock: no night mode or update window"})
+            for k in ("night", "update_window"):
+                if k in body:
+                    FakeAp.config[k] = body[k]
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -456,6 +461,37 @@ class ClientTest(unittest.TestCase):
         rc, out = self.run_cli("config", "--lang", "nb")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"lang": "nb"}))
         self.assertIn("dates in Norwegian", out)
+
+    def test_hours_config(self):
+        """Night mode and update window (#415)"""
+        FakeAp.config.update({"night": None, "update_window": None, "night_now": False, "update_window_open": True})
+        rc, out = self.run_cli("config")
+        self.assertIn("no night mode, no update window", out)
+        rc, out = self.run_cli("config", "--night", "22:00-06:00/1800", "--update-window", "06:00-08:00")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"night": {"from": "22:00", "to": "06:00", "poll_s": 1800},
+                                                            "update_window": {"from": "06:00", "to": "08:00"}}))
+        self.assertIn("night mode 22:00-06:00 every 1800 s, update window 06:00-08:00", out)
+        rc, out = self.run_cli("config", "--night", "off")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"night": None}))
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            self.run_cli("config", "--night", "22:00-06:00")  # no interval
+        # backed up and put back, onto an AP that has them
+        FakeAp.config["night"] = {"from": "23:00", "to": "05:00", "poll_s": 900}
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["config"]["night"], {"from": "23:00", "to": "05:00", "poll_s": 900})
+        self.assertEqual(b["config"]["update_window"], {"from": "06:00", "to": "08:00"})
+        self.setUp()
+        FakeAp.config.update({"night": None, "update_window": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["night"], {"from": "23:00", "to": "05:00", "poll_s": 900})
+        self.assertEqual(FakeAp.config["update_window"], {"from": "06:00", "to": "08:00"})
+        # onto an older AP: a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("night mode and the update window were not restored" in l for l in lines), lines)
 
     def test_backup_and_restore_clock(self):
         FakeAp.config.update({"ntp": "no.pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"})

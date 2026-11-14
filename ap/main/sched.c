@@ -170,7 +170,8 @@ esl_clock_cfg_t *sched_clock(void)
     return clock_cfg.set ? &clock_cfg : NULL;
 }
 
-/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown */
+/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown;
+   the offset from UTC goes to esl_clock too (night mode and update window, #415) */
 static int32_t local_days(void)
 {
     uint32_t now = esl_sched_now(&sched, now_ms(), NULL);
@@ -182,6 +183,7 @@ static int32_t local_days(void)
     gmtime_r(&tt, &g);
     int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
     int32_t off = days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+    esl_clock_set_utc_offset(off);
     return (int32_t)(((int64_t)now + off) / 86400);
 }
 

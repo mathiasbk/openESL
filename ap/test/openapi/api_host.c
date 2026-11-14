@@ -143,8 +143,15 @@ static size_t img_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
     return img_len[slot];
 }
 
-static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL};
+/* the AP's clock, as store_nvs.c gives it: night mode and the update window need it (#415) */
+static uint32_t unix_now(void *ctx)
+{
+    (void)ctx;
+    return 1792065600u; /* as the schedule's below */
+}
+
+static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, unix_now,
+                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL, NULL};
 
 static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
 

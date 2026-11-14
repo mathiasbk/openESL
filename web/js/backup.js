@@ -1,8 +1,8 @@
 // backup.js - the AP's backup file from the dashboard: the same file as `esl_client.py backup`
 // and `restore` (tools/esl-client), so one made here goes back with esl-client and the other
-// way round. In it: the AP's settings (poll interval, webhook, NTP server, time zone), the
-// font files (#177, from an AP that has them; they go back before the layout files), the
-// layout files, every tag's content (pictures too) and own settings, and the content scheduled
+// way round. In it: the AP's settings (poll interval, webhook, NTP server, time zone, night
+// mode and update window), the font files (#177, from an AP that has them; they go back before
+// the layout files), the layout files, every tag's content (pictures too) and own settings, and the content scheduled
 // for later, read through the API (docs/openapi.yaml). Not in it: the WiFi password and the API
 // token, which the AP never gives out, and the tag firmware images, which come from the
 // release (the backup notes which ones the AP offered). A restore can be run again: what is
@@ -12,7 +12,7 @@
 export const BACKUP_FORMAT = "openesl-backup";
 export const BACKUP_VERSION = 1;
 const CONTENT_KEYS = ["layout", "fields", "price_highlight", "frame"];
-const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz", "lang"];
+const CONFIG_KEYS = ["poll_s", "webhook", "ntp", "tz", "lang", "night", "update_window"];
 const BATCH = 25; // tags per PUT /api/tags: well inside the AP's 50 and its 24 KB body over USB
 const MAC_RE = /^[0-9A-F]{16}$/;
 
@@ -84,7 +84,9 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
     config: { poll_s: config.poll_s ?? 0, webhook: config.webhook ?? null,
       ...("ntp" in config ? { ntp: config.ntp === config.builtin_ntp ? null : config.ntp } : {}),
       ...("tz" in config ? { tz: config.tz ?? null } : {}),
-      ...("lang" in config ? { lang: config.lang } : {}) },
+      ...("lang" in config ? { lang: config.lang } : {}),
+      // night mode and update window (#415), from an AP that has them
+      ...("night" in config ? { night: config.night, update_window: config.update_window ?? null } : {}) },
     ...(fontNames.length ? { fonts } : {}),
     layouts: files_,
     tags,
@@ -227,7 +229,8 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
 // so an AP without a webhook is not asked to turn one off
 async function putSettings(client, config, note) {
   const cur = await client.call("GET", "/api/config");
-  const same = (k, v) => v === cur[k] || ((v === null || v === "") && (cur[k] == null || cur[k] === cur["builtin_" + k]));
+  const same = (k, v) => v === cur[k] || JSON.stringify(v) === JSON.stringify(cur[k]) ||
+    ((v === null || v === "") && (cur[k] == null || cur[k] === cur["builtin_" + k]));
   const body = Object.fromEntries(CONFIG_KEYS.filter((k) => k in config && k in cur && !same(k, config[k])).map((k) => [k, config[k]]));
   if (Object.keys(body).length) await client.call("PUT", "/api/config", body);
   note(true, "Settings: " + (Object.keys(body).join(", ") || "already as in the backup"));

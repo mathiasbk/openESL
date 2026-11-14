@@ -736,6 +736,7 @@
       <section id="dash-settings" class="card wide set-page">
         <nav class="set-nav" role="tablist" aria-label="Settings">
           <button type="button" role="tab" id="set-tab-general" data-set="general" aria-selected="true">General<small>Name, time zone, tag interval</small></button>
+          <button type="button" role="tab" id="set-tab-hours" data-set="hours" aria-selected="false" hidden>Hours<small>Night mode, update window</small></button>
           <button type="button" role="tab" id="set-tab-network" data-set="network" aria-selected="false">Network<small>WiFi, webhook, time server</small></button>
           <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Channel, transmit power</small></button>
           <button type="button" role="tab" id="set-tab-security" data-set="security" aria-selected="false">Security<small>API token</small></button>
@@ -772,6 +773,29 @@
             </div>
           </div>
           <div class="savebar"><span id="set-general-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
+        </form>
+
+        <form id="set-hours" class="set-pane" role="tabpanel" aria-labelledby="set-tab-hours" hidden novalidate>
+          <div class="set-fields">
+            <p class="muted">Times are the AP's own, in the time zone set under General.</p>
+            <div class="field"><label class="check"><input type="checkbox" id="set-night-on"> Night mode: the tags check less often at night</label>
+              <div class="row" id="set-night-times" hidden>
+                <span>from</span><input type="time" id="set-night-from" aria-label="Night starts">
+                <span>to</span><input type="time" id="set-night-to" aria-label="Night ends">
+                <select id="set-night-poll" aria-label="How often tags check at night"></select>
+              </div>
+              <small>Saves battery. A tag keeps its own interval if that is longer, and every tag is back on it by the end of the night. Content scheduled for the night still goes out on time.</small>
+            </div>
+            <div class="field"><label class="check"><input type="checkbox" id="set-win-on"> Update window: new content goes out only in a daily window</label>
+              <div class="row" id="set-win-times" hidden>
+                <span>from</span><input type="time" id="set-win-from" aria-label="Window opens">
+                <span>to</span><input type="time" id="set-win-to" aria-label="Window closes">
+              </div>
+              <small>For example before opening. Outside it a tag keeps what it shows and gets the new content at its first poll in the window; a tag that shows nothing yet gets its first at once. Settings and tag firmware are not held.</small>
+            </div>
+            <p class="field-note" id="set-hours-now" role="status"></p>
+          </div>
+          <div class="savebar"><span id="set-hours-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
         </form>
 
         <div id="set-network" class="set-pane" role="tabpanel" aria-labelledby="set-tab-network" hidden>

@@ -11,7 +11,7 @@ python3 esl_client.py restore ap.json --copy   # a second AP: keeps its own AP i
 
 ## What is in it
 
-The default poll interval, the webhook, the time zone, NTP server and date language, the layout files and the [font files](Font-files) they draw with, each label's content (pictures too) and own settings, the scheduled content, and the AP's id (from 0.11.0).
+The default poll interval, the webhook, the time zone, NTP server and date language, night mode and the update window (from 0.11.0), the layout files and the [font files](Font-files) they draw with, each label's content (pictures too) and own settings, the scheduled content, and the AP's id (from 0.11.0).
 
 **The AP id:** labels with label firmware 0.11.0 or newer answer only the AP with their id ([Why labels stay connected](Why-labels-stay-connected#more-than-one-ap)). On restore, choose *In place of the AP the backup came from* (the default; esl-client without `--copy`): the AP gets the old id, and the labels take it at once. Turn the old AP off first: while it still answers its labels nearby, the restore leaves the id alone and says so (esl-client: `--force` takes it anyway). Choose *A second AP with the same setup* (`--copy`) to keep the AP's own id: the labels stay with the old AP. Take a backup after updating the AP to 0.11.0, so it has the id.
 

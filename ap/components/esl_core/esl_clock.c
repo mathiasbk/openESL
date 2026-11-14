@@ -15,6 +15,18 @@ bool esl_clock_today(int32_t *days)
     return *days >= 0;
 }
 
+static volatile int32_t utc_offset;
+
+void esl_clock_set_utc_offset(int32_t s)
+{
+    utc_offset = s;
+}
+
+int32_t esl_clock_utc_offset(void)
+{
+    return utc_offset;
+}
+
 static volatile uint8_t lang = ESL_LANG_EN;
 
 void esl_clock_set_lang(uint8_t l)

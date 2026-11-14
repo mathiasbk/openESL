@@ -79,7 +79,7 @@ static int opt_str(const char *body, const esl_jtok_t *tok, int i, char *buf, si
 }
 
 /* PUT/GET /api/config: AP-wide default interval, the webhook, the radio's transmit
- * power and the clock. poll_s 0 = tags keep their built-in interval, null = back to
+ * power, the clock, night mode and the update window (#415, esl_store.h). poll_s 0 = tags keep their built-in interval, null = back to
  * the AP's built-in default (menuconfig). webhook null or "" = off. tx_power in dBm,
  * null = back to the built-in value. ntp null or "" = the server set in menuconfig;
  * tz null or "" = UTC. lang "en" or "nb" for the date fields, null = not chosen (English). Keys left out
@@ -145,6 +145,59 @@ static bool parse_ap_id(const char *body, const esl_jtok_t *t, uint32_t *id)
     return true;
 }
 
+/* "HH:MM" (00:00 to 23:59) at key k of object obj to minutes after midnight; false when it
+   is missing or not that */
+static bool parse_hhmm(const json_t *j, int obj, const char *k, uint16_t *min)
+{
+    int v = esl_json_obj_get(j->js, j->tok, obj, k);
+    if (v < 0 || j->tok[v].type != ESL_JSON_STRING || j->tok[v].end - j->tok[v].start != 5)
+        return false;
+    const char *s = j->js + j->tok[v].start;
+    if (!isdigit((unsigned char)s[0]) || !isdigit((unsigned char)s[1]) || s[2] != ':' ||
+        !isdigit((unsigned char)s[3]) || !isdigit((unsigned char)s[4]))
+        return false;
+    unsigned h = (unsigned)(s[0] - '0') * 10 + (unsigned)(s[1] - '0'), m = (unsigned)(s[3] - '0') * 10 + (unsigned)(s[4] - '0');
+    if (h > 23 || m > 59)
+        return false;
+    *min = (uint16_t)(h * 60 + m);
+    return true;
+}
+
+/* "night": null or {"from":"22:00","to":"06:00","poll_s":1800} into h (night mode off for null) */
+static bool parse_night(const json_t *j, int v, esl_hours_t *h)
+{
+    h->night_from = h->night_to = h->night_poll_s = 0;
+    if (j->tok[v].type == ESL_JSON_NULL)
+        return true;
+    uint16_t from, to, poll_s;
+    if (j->tok[v].type != ESL_JSON_OBJECT || !parse_hhmm(j, v, "from", &from) || !parse_hhmm(j, v, "to", &to) ||
+        from == to || api_parse_uint(j, v, "poll_s", ESL_NIGHT_POLL_MIN_S, ESL_NIGHT_POLL_MAX_S, &poll_s) < 0 || !poll_s)
+        return false;
+    h->night_from = from;
+    h->night_to = to;
+    h->night_poll_s = poll_s;
+    return true;
+}
+
+/* "update_window": null or {"from":"06:00","to":"08:00"} */
+static bool parse_window(const json_t *j, int v, esl_hours_t *h)
+{
+    h->window = false;
+    h->window_from = h->window_to = 0;
+    if (j->tok[v].type == ESL_JSON_NULL)
+        return true;
+    h->window = j->tok[v].type == ESL_JSON_OBJECT && parse_hhmm(j, v, "from", &h->window_from) &&
+                parse_hhmm(j, v, "to", &h->window_to) && h->window_from != h->window_to;
+    return h->window;
+}
+
+/* {"from":"HH:MM","to":"HH:MM" (the object is left open) */
+static void put_span(esl_sb_t *out, uint16_t from, uint16_t to)
+{
+    esl_sb_printf(out, "{\"from\":\"%02u:%02u\",\"to\":\"%02u:%02u\"", (unsigned)(from / 60), (unsigned)(from % 60),
+                  (unsigned)(to / 60), (unsigned)(to % 60));
+}
+
 static void set_adopt(const esl_api_t *api, bool all, uint32_t id)
 {
     esl_store_set_adopt(api->store, all, id);
@@ -171,6 +224,10 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int cf = esl_json_obj_get(body, tok, 0, "force");
             int ai = esl_json_obj_get(body, tok, 0, "ap_id");
             int ad = esl_json_obj_get(body, tok, 0, "adopt");
+            int ng = esl_json_obj_get(body, tok, 0, "night");
+            int uw = esl_json_obj_get(body, tok, 0, "update_window");
+            esl_hours_t hours;
+            esl_store_get_hours(api->store, &hours);
             uint32_t new_id = 0, adopt_id = 0;
             bool adopt_all = ad >= 0 && tok[ad].type == ESL_JSON_STRING && tok[ad].end - tok[ad].start == 3 &&
                              !memcmp(body + tok[ad].start, "all", 3);
@@ -182,9 +239,17 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
             int ul = 0, lang = -1;
             if (lg >= 0 && tok[lg].type == ESL_JSON_STRING)
                 lang = esl_lang_parse(body + tok[lg].start, (size_t)(tok[lg].end - tok[lg].start));
-            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && lg < 0 && ai < 0 && ad < 0)
-                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required "
-                                             "(null resets it)");
+            if (v < 0 && w < 0 && x < 0 && n < 0 && z < 0 && c < 0 && lg < 0 && ai < 0 && ad < 0 && ng < 0 && uw < 0)
+                status = api_error(out, 422, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id, adopt, night or "
+                                             "update_window is required (null resets it)");
+            else if ((ng >= 0 || uw >= 0) && !api->store->ops.unix_now)
+                status = api_error(out, 422, "this AP has no clock: no night mode or update window");
+            else if (ng >= 0 && !parse_night(&j, ng, &hours))
+                status = api_error(out, 422, "night must be null or {\"from\": \"HH:MM\", \"to\": \"HH:MM\", \"poll_s\": "
+                                             "seconds from 60 to 3600}, from and to not the same");
+            else if (uw >= 0 && !parse_window(&j, uw, &hours))
+                status = api_error(out, 422, "update_window must be null or {\"from\": \"HH:MM\", \"to\": \"HH:MM\"}, "
+                                             "from and to not the same");
             else if ((ai >= 0 || ad >= 0) && !api->apid)
                 status = api_error(out, 422, "this AP has no AP id");
             else if (ai >= 0 && !parse_ap_id(body, &tok[ai], &new_id))
@@ -239,6 +304,8 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
                      !api->apid->set_id(api->apid->ctx, new_id, api->store->ap_id))
                 status = api_error(out, 500, "the AP id could not be saved"); /* last: nothing else is set yet */
             else {
+                if (ng >= 0 || uw >= 0)
+                    esl_store_set_hours(api->store, &hours);
                 if (v >= 0 && tok[v].type == ESL_JSON_NULL)
                     esl_store_reset_next_poll(api->store);
                 else if (v >= 0)
@@ -284,6 +351,29 @@ static int ap_config(const esl_api_t *api, const char *method, const char *body,
         esl_sb_json_str(out, api->notify->url);
     else
         esl_sb_puts(out, "null");
+    /* night mode and update window (#415), and whether they apply now (not while the time
+       is unknown), on an AP with a clock */
+    if (api->store->ops.unix_now) {
+        esl_hours_t h;
+        esl_store_get_hours(api->store, &h);
+        uint32_t unix_s = api->store->ops.unix_now(api->store->ops.ctx);
+        esl_sb_puts(out, ",\"night\":");
+        if (h.night_poll_s) {
+            put_span(out, h.night_from, h.night_to);
+            esl_sb_printf(out, ",\"poll_s\":%u}", (unsigned)h.night_poll_s);
+        } else {
+            esl_sb_puts(out, "null");
+        }
+        esl_sb_puts(out, ",\"update_window\":");
+        if (h.window) {
+            put_span(out, h.window_from, h.window_to);
+            esl_sb_putc(out, '}');
+        } else {
+            esl_sb_puts(out, "null");
+        }
+        esl_sb_printf(out, ",\"night_now\":%s,\"update_window_open\":%s", esl_hours_night_now(&h, unix_s) ? "true" : "false",
+                      esl_hours_window_closed(&h, unix_s) ? "false" : "true");
+    }
     if (api->tx_power)
         esl_sb_printf(out, ",\"tx_power\":%d,\"builtin_tx_power\":%d", api->tx_power->dbm, api->tx_power->builtin);
     /* the channel, and a move the tags are being told about: how many of the tags heard

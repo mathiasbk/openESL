@@ -1097,7 +1097,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id, adopt, night or update_window is required"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1233,7 +1233,7 @@ static void test_clock_config(void)
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
                     "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id or adopt is required"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id, adopt, night or update_window is required"));
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
@@ -1311,6 +1311,76 @@ static void test_clock_config(void)
     CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
     CHECK_INT(lang_sets, 4);
     api.clock = NULL;
+}
+
+/* Night mode and update window in /api/config (#415) */
+static uint32_t hours_clock;
+static uint32_t hours_now(void *ctx)
+{
+    (void)ctx;
+    return hours_clock;
+}
+
+static void test_hours_config(void)
+{
+    static const esl_store_ops_t ops = {.unix_now = hours_now};
+    /* an AP without a clock has neither, and says nothing of them */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":null}", 0), 422);
+    CHECK(HAS(resp, "this AP has no clock"));
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(!HAS(resp, "night"));
+
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 300);
+    hours_clock = 1767225600u + 12 * 3600; /* 12:00 UTC */
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":null,\"night_now\":false,\"update_window_open\":true"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800}}", 0), 200);
+    CHECK(HAS(resp, "\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800},\"update_window\":null,"
+                    "\"night_now\":false,\"update_window_open\":true"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"update_window\":{\"from\":\"06:00\",\"to\":\"08:00\"}}", 0), 200);
+    CHECK(HAS(resp, "\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800}," /* kept */
+                    "\"update_window\":{\"from\":\"06:00\",\"to\":\"08:00\"},\"night_now\":false,\"update_window_open\":false"));
+    hours_clock = 1767225600u + 23 * 3600;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":true,\"update_window_open\":false"));
+    hours_clock = 1767225600u + 7 * 3600;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":false,\"update_window_open\":true"));
+    hours_clock = 0; /* the time not known: neither applies */
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":false,\"update_window_open\":true"));
+
+    /* bad values change nothing */
+    const char *bad[] = {
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\"}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\",\"poll_s\":30}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\",\"poll_s\":3601}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"22:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"24:00\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"22:60\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"2200\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":true}",
+        "{\"update_window\":{\"from\":\"06:00\"}}",
+        "{\"update_window\":{\"from\":\"6:00\",\"to\":\"08:00\"}}",
+        "{\"update_window\":{\"from\":\"08:00\",\"to\":\"08:00\"}}",
+        "{\"update_window\":\"06:00-08:00\"}",
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad[i], 0), 422);
+    esl_hours_t h;
+    esl_store_get_hours(&st, &h);
+    CHECK(h.night_poll_s == 1800 && h.night_from == 22 * 60 && h.night_to == 6 * 60 + 30);
+    CHECK(h.window && h.window_from == 6 * 60 && h.window_to == 8 * 60);
+
+    /* null turns each off */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":null}", 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":{"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"update_window\":null}", 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":null,"));
+
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 }
 
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
@@ -1593,6 +1663,7 @@ void test_api(void)
     test_webhook_config();
     test_tx_power_config();
     test_clock_config();
+    test_hours_config();
     test_health();
     test_tag_level();
     test_since();

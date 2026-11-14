@@ -138,7 +138,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel, NULL};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -939,6 +939,59 @@ static uint32_t image_id_of(const char *mac)
     snprintf(uri, sizeof(uri), "/api/tags/%s", mac);
     CHECK_INT(esl_api_handle(&api, "GET", uri, AUTH, NULL, 0, 0, &out), 200);
     return json_u32(resp, "\"image_id\":");
+}
+
+/* The update window (#415): outside it a tag that shows a picture keeps it */
+static uint32_t win_clock;
+static uint32_t win_now(void *ctx)
+{
+    (void)ctx;
+    return win_clock;
+}
+
+static void test_update_window(void)
+{
+    static const esl_store_ops_t ops = {.unix_now = win_now};
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_clock_set_utc_offset(0);
+    esl_hours_t h = {0};
+    h.window = true;
+    h.window_from = 6 * 60;
+    h.window_to = 8 * 60;
+    esl_store_set_hours(&st, &h);
+    win_clock = 1767225600u + 12 * 3600; /* 12:00: closed */
+
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x29C, 1, 3000, ESL_MODEL_29);
+    /* its first picture goes at once */
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    uint32_t first = a.shown;
+    CHECK(first != 0);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 2000), ESL_MSG_IDLE);
+    /* a new price waits for the window, and is not drawn meanwhile */
+    unsigned drawn = images.drawn;
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"19,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 3000), ESL_MSG_IDLE);
+    CHECK_INT(a.shown, first);
+    CHECK_INT(images.drawn, drawn);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029C", AUTH, NULL, 0, 3000, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
+    win_clock = 0; /* the time not known: not held */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 4000), ESL_MSG_IMG);
+    uint32_t second = a.shown;
+    CHECK(second != first);
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"17,90\"]}"), 200);
+    win_clock = 1767225600u + 8 * 3600; /* 08:00: closed again */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 5000), ESL_MSG_IDLE);
+    CHECK_INT(a.shown, second);
+    win_clock = 1767225600u + 7 * 3600 + 59 * 60; /* 07:59: open */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 6000), ESL_MSG_IMG);
+    CHECK(a.shown != second && a.shown != 0);
+    esl_store_set_hours(&st, NULL);
 }
 
 static void test_image_send(void)
@@ -2370,6 +2423,7 @@ void test_radio(void)
     test_channel();
     test_many_tags();
     test_image_send();
+    test_update_window();
     test_image_rle();
     test_picture();
     test_draw();
