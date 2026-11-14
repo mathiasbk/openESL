@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include "ap.h"
 #include "esl_image.h"
@@ -308,6 +309,15 @@ static void sched_erase(void *ctx, unsigned slot)
 {
     (void)ctx;
     erase("sched", slot);
+}
+
+/* The host's time zone at t, for the next time of a recurring entry (#415) */
+static int32_t sched_utc_offset_at(void *ctx, uint32_t t)
+{
+    (void)ctx;
+    time_t tt = (time_t)t;
+    struct tm l;
+    return localtime_r(&tt, &l) ? (int32_t)l.tm_gmtoff : 0;
 }
 
 /* ---- tag firmware (esl_tagfw_ops_t): one file of ESL_TAGFW_SLOT bytes per model ---- */
@@ -612,6 +622,7 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
     };
     static const esl_sched_ops_t sops = {
         .lock = store_lock, .unlock = store_unlock, .save = sched_save, .load = sched_load, .erase = sched_erase,
+        .utc_offset_at = sched_utc_offset_at,
     };
     static const esl_tagfw_ops_t fops = {
         .lock = store_lock, .unlock = store_unlock, .erase = fw_erase, .write = fw_write, .read = fw_read,

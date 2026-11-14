@@ -1162,7 +1162,7 @@ def ensure_time(cli):
 
 def print_result(r):
     if r.get("scheduled"):
-        print(f"{r['mac']}: scheduled for {fmt_when(r['at'])}")
+        print(f"{r['mac']}: scheduled for {fmt_when(r['at'])}" + (f", then {r['repeat']}" if r.get("repeat") else ""))
     else:
         print(f"{r['mac']}: content_id {r['content_id']}, "
               f"{'changed' if r.get('changed') else 'unchanged'}, {'pending' if r.get('pending') else 'shown'}")
@@ -1171,7 +1171,8 @@ def print_result(r):
 def print_schedule(sc):
     rows = sorted(sc.get("scheduled", []), key=lambda e: (e["at"], e["mac"]))
     for e in rows:
-        print(f"{fmt_when(e['at'])}  {e['mac']}  {e.get('layout', ''):10}  {' | '.join(e.get('fields', []))}")
+        print(f"{fmt_when(e['at'])}  {e.get('repeat', 'once'):6}  {e['mac']}  {e.get('layout', ''):10}  "
+              f"{' | '.join(e.get('fields', []))}")
     print(f"{len(rows)} of {sc.get('max_scheduled')} scheduled"
           + ("" if sc.get("time") else "; the AP does not know the time, so nothing is applied"))
 
@@ -1556,9 +1557,13 @@ def set_one(cli, args, c, image=None, draw=None):
     elif draw is not None:
         r = cli.draw(args.mac, draw)
     else:
+        if getattr(args, "repeat", None) and not args.at:
+            raise SystemExit("--repeat needs --at: the first time it takes effect")
         if args.at:
             ensure_time(cli)
             c["at"] = args.at
+            if getattr(args, "repeat", None):
+                c["repeat"] = args.repeat
         r = cli.set_tag(args.mac, c)
     print_result(r)
     if args.wait and r.get("pending"):
@@ -1816,7 +1821,7 @@ def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
     settings = [(t["mac"], t["config"]) for t in b["tags"] if t.get("config")]
     content = [{"mac": t["mac"], **{k: t[k] for k in CONTENT_KEYS if k in t}} for t in b["tags"] if "layout" in t]
     pictures = [(t["mac"], base64.b64decode(t["image"])) for t in b["tags"] if "image" in t]
-    due = [e for e in b["scheduled"] if e["at"] > now]
+    due = [e for e in b["scheduled"] if e["at"] > now or e.get("repeat")]  # a recurring one: its next time
     passed = len(b["scheduled"]) - len(due)
     clock = {k: cfg[k] for k in ("tz", "ntp") if k in cfg}
     if want:
@@ -1935,7 +1940,8 @@ def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
                      f"again then: {', '.join(later)}")
         ok = False
     if due:
-        rows = [{"mac": e["mac"], "at": e["at"], **{k: e[k] for k in CONTENT_KEYS if k in e}} for e in due]
+        rows = [{"mac": e["mac"], "at": e["at"], **({"repeat": e["repeat"]} if e.get("repeat") else {}),
+                 **{k: e[k] for k in CONTENT_KEYS if k in e}} for e in due]
         try:
             ensure_time(cli)
             cli.set_many(rows)
@@ -1972,6 +1978,8 @@ def main(argv=None):
         s.add_argument("--frame", action="store_true", help="black frame")
         s.add_argument("--at", type=parse_when, metavar="WHEN",
                        help='schedule it: "2026-10-19 07:00" (local time), ISO with offset, or Unix seconds')
+        s.add_argument("--repeat", choices=("daily", "weekly"),
+                       help="with --at: again every day or week at that local time (AP 0.11.0 or newer)")
         s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
         s.add_argument("--wait-s", type=int, default=120)
 

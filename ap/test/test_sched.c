@@ -45,7 +45,7 @@ static void blob_erase(void *ctx, unsigned slot)
     erases++;
 }
 
-static const esl_sched_ops_t ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
+static const esl_sched_ops_t ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase, NULL};
 
 static void reset(void)
 {
@@ -335,6 +335,145 @@ static void test_api_restored_tag(void)
     CHECK_INT(esl_api_tag_level(&api, &t, 1000), ESL_TAG_OK);
 }
 
+/* Recurring entries (#415): a fake time zone at +2 h that goes to +1 h ten days after T0 */
+#define DST_END (T0 + 10 * 86400u)
+static int32_t fake_offset(void *ctx, uint32_t t)
+{
+    (void)ctx;
+    return t < DST_END ? 7200 : 3600;
+}
+static const esl_sched_ops_t tz_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase, fake_offset};
+#define AT(t) ((uint64_t)((t) - T0) * 1000u) /* now_ms for a time */
+#define DAY 86400u
+#define WEEK (7u * DAY)
+
+static uint32_t slot_at(uint64_t mac, uint8_t repeat)
+{
+    for (unsigned i = 0; i < CAP; i++) {
+        uint64_t m;
+        uint32_t at;
+        if (esl_sched_get_slot(&sched, i, &m, &at, NULL) && m == mac && esl_sched_slot_repeat(&sched, i) == repeat)
+            return at;
+    }
+    return 0;
+}
+
+static void test_repeat(void)
+{
+    esl_content_t a, b, w, d, o;
+    esl_set_result_t r;
+    price("A", &a);
+    price("B", &b);
+    price("W", &w);
+    price("D", &d);
+    price("O", &o);
+    reset();
+    esl_sched_init(&sched, entries, CAP, &tz_ops);
+    esl_sched_set_time(&sched, T0, 0, ESL_TIME_NTP);
+    CHECK_STR(esl_sched_repeat_name(ESL_SCHED_WEEKLY), "weekly");
+    CHECK(esl_sched_repeat_name(ESL_SCHED_ONCE) == NULL);
+    CHECK_INT(esl_sched_repeat_parse("daily", 5), ESL_SCHED_DAILY);
+    CHECK_INT(esl_sched_repeat_parse("monthly", 7), -1);
+
+    /* every week at 15:00 local (13:00 UTC at +2 h) */
+    uint32_t at = T0 + 3600;
+    CHECK_INT(esl_sched_add_repeat(&sched, 1, &at, ESL_SCHED_WEEKLY, T0, &a), ESL_SCHED_OK);
+    CHECK_INT(at, T0 + 3600);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 3600)), 1);
+    CHECK(shows(1, "A"));
+    CHECK_INT(esl_sched_count(&sched), 1); /* still there, a week on */
+    CHECK_INT(slot_at(1, ESL_SCHED_WEEKLY), T0 + 3600 + WEEK);
+    CHECK_INT(esl_store_set(&st, 1, &b, &r), ESL_STORE_OK);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 3600 + WEEK - 1)), 0);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 3600 + WEEK)), 1);
+    CHECK(shows(1, "A"));
+    /* the next one is after the change to +1 h: still 15:00 local, now 14:00 UTC */
+    CHECK_INT(slot_at(1, ESL_SCHED_WEEKLY), T0 + 7200 + 2 * WEEK);
+
+    /* kept over a restart, with what it repeats */
+    uint8_t copy[CAP][ESL_SCHED_BLOB_MAX];
+    size_t copy_len[CAP];
+    memcpy(copy, blobs, sizeof(copy));
+    memcpy(copy_len, blob_len, sizeof(copy_len));
+    esl_sched_init(&sched, entries, CAP, &tz_ops);
+    for (unsigned i = 0; i < CAP; i++)
+        if (copy_len[i]) {
+            CHECK(esl_sched_restore(&sched, i, copy[i], copy_len[i]));
+            /* firmware before it: the blob is not a one-off entry with extra bytes */
+            uint64_t m;
+            esl_content_t c;
+            CHECK(!esl_persist_decode(&copy[i][4], copy_len[i] - 4, &m, &c));
+        }
+    CHECK_INT(slot_at(1, ESL_SCHED_WEEKLY), T0 + 7200 + 2 * WEEK);
+    esl_sched_set_time(&sched, T0, 0, ESL_TIME_NTP);
+
+    /* tag 2: a weekly, a daily and a one-off entry, all due while the AP was off for three
+       days: the daily one was due last and wins; the recurring ones move on, the other goes */
+    CHECK_INT(esl_sched_remove(&sched, 1, false), 1);
+    at = T0 + 100;
+    CHECK_INT(esl_sched_add_repeat(&sched, 2, &at, ESL_SCHED_WEEKLY, T0, &w), ESL_SCHED_OK);
+    at = T0 + 200;
+    CHECK_INT(esl_sched_add_repeat(&sched, 2, &at, ESL_SCHED_DAILY, T0, &d), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_add(&sched, 2, T0 + 300, &o), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 3 * DAY)), 1);
+    CHECK(shows(2, "D"));
+    CHECK_INT(esl_sched_count(&sched), 2);
+    CHECK_INT(slot_at(2, ESL_SCHED_WEEKLY), T0 + 100 + WEEK);
+    CHECK_INT(slot_at(2, ESL_SCHED_DAILY), T0 + 200 + 3 * DAY);
+    /* the one-off one due last wins over the daily one */
+    CHECK_INT(esl_sched_add(&sched, 2, T0 + 3 * DAY + 300, &o), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 3 * DAY + 300)), 1);
+    CHECK(shows(2, "O"));
+    CHECK_INT(slot_at(2, ESL_SCHED_DAILY), T0 + 200 + 4 * DAY);
+
+    /* a recurring entry whose first time has passed starts at the next one */
+    at = T0 - 3600;
+    CHECK_INT(esl_sched_add_repeat(&sched, 3, &at, ESL_SCHED_DAILY, T0 + 3 * DAY, &a), ESL_SCHED_OK);
+    CHECK_INT(at, T0 - 3600 + 4 * DAY);
+    /* daily over the change of offset: 11:00 UTC (13:00 local) becomes 12:00 UTC */
+    reset();
+    esl_sched_init(&sched, entries, CAP, &tz_ops);
+    esl_sched_set_time(&sched, T0, 0, ESL_TIME_NTP);
+    at = T0 + 9 * DAY - 3600;
+    CHECK_INT(esl_sched_add_repeat(&sched, 4, &at, ESL_SCHED_DAILY, T0, &a), ESL_SCHED_OK);
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 9 * DAY - 3600)), 1);
+    CHECK_INT(slot_at(4, ESL_SCHED_DAILY), T0 + 10 * DAY - 3600); /* the change is at 12:00 UTC that day */
+    CHECK_INT(esl_sched_tick(&sched, &st, AT(T0 + 10 * DAY - 3600)), 1);
+    CHECK_INT(slot_at(4, ESL_SCHED_DAILY), T0 + 11 * DAY);
+}
+
+static void test_api_repeat(void)
+{
+    reset();
+    esl_sched_set_time(&sched, T0, 1000, ESL_TIME_NTP);
+    /* every week from an hour ago: starts in a week less an hour */
+    CHECK_INT(req("PUT", "/api/tags/" MAC1,
+                  "{\"layout\":\"price\",\"fields\":[\"Fredag\"],\"at\":1792062000,\"repeat\":\"weekly\"}", 1000), 200);
+    CHECK_STR(resp, "{\"mac\":\"" MAC1 "\",\"scheduled\":true,\"at\":1792666800,\"repeat\":\"weekly\"}");
+    CHECK(!shows(1, "Fredag"));
+    CHECK_INT(req("GET", "/api/schedule", NULL, 1000), 200);
+    CHECK(HAS(resp, "{\"mac\":\"" MAC1 "\",\"at\":1792666800,\"repeat\":\"weekly\",\"layout\":\"price\""));
+    CHECK_INT(req("PUT", "/api/tags/" MAC1, "{\"layout\":\"price\",\"fields\":[\"A\"],\"repeat\":\"daily\"}", 1000), 422);
+    CHECK(HAS(resp, "repeat needs a time in at"));
+    CHECK_INT(req("PUT", "/api/tags/" MAC1,
+                  "{\"layout\":\"price\",\"fields\":[\"A\"],\"at\":1792069200,\"repeat\":\"monthly\"}", 1000), 422);
+    /* "once" and null are as without it; a past time is now */
+    CHECK_INT(req("PUT", "/api/tags/" MAC2,
+                  "{\"layout\":\"price\",\"fields\":[\"B\"],\"at\":1792069200,\"repeat\":\"once\"}", 1000), 200);
+    CHECK_STR(resp, "{\"mac\":\"" MAC2 "\",\"scheduled\":true,\"at\":1792069200}");
+    CHECK_INT(req("PUT", "/api/tags/" MAC2, "{\"layout\":\"price\",\"fields\":[\"C\"],\"at\":1792000000,\"repeat\":null}", 1000),
+              200);
+    CHECK(shows(2, "C"));
+    /* batch */
+    CHECK_INT(req("PUT", "/api/tags",
+                  "{\"tags\":[{\"mac\":\"" MAC2 "\",\"layout\":\"price\",\"fields\":[\"D\"],\"at\":1792069200,"
+                  "\"repeat\":\"daily\"}]}", 1000), 200);
+    CHECK(HAS(resp, "\"at\":1792069200,\"repeat\":\"daily\"}"));
+    CHECK_INT(esl_sched_tick(&sched, &st, 1000 + 3600 * 1000), 1); /* it replaced the one-off one */
+    CHECK(shows(2, "D"));
+    CHECK_INT(esl_sched_count(&sched), 2); /* the daily one and the weekly one */
+}
+
 void test_sched(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -343,5 +482,7 @@ void test_sched(void)
     test_wake();
     test_api_time();
     test_api_schedule();
+    test_repeat();
+    test_api_repeat();
     test_api_restored_tag();
 }

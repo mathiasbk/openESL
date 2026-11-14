@@ -56,6 +56,12 @@ const DEMO_POLL_S = 10;                 // the AP's poll interval in the demo (a
 const LOW_BATTERY_MV = 2500;            // ESL_HEALTH_BATTERY_MV_DEFAULT
 const MAX_TAGS = 400;
 const MAX_SCHEDULED = 16;
+const REPEAT_S = { daily: 86400, weekly: 7 * 86400 };
+// A recurring entry's first time after now
+function nextTime(at, repeat, now) {
+  const p = REPEAT_S[repeat];
+  return at > now ? at : at + (Math.floor((now - at) / p) + 1) * p;
+}
 const MAX_LAYOUT_JSON = 8192;
 const MAX_BATCH = 50;
 const BUILTIN = { price: ["name", "price", "subtitle"], text: ["line1", "line2", "line3", "line4"] };
@@ -271,6 +277,11 @@ export class DemoAp {
       const e = this.schedule.shift();
       const t = this.find(e.mac);
       if (t) await this.setContent(t, e.body).catch(() => {});
+      if (e.repeat) { // daily or weekly (#415): on to its next time (the demo has no daylight saving time)
+        e.at = nextTime(e.at, e.repeat, Math.floor(now / 1000));
+        this.schedule.push(e);
+        this.schedule.sort((a, b) => a.at - b.at);
+      }
     }
     for (const t of this.all) {
       while (t.nextPoll <= now) {
@@ -457,15 +468,18 @@ export class DemoAp {
   }
 
   async scheduleOne(t, body) {
-    const { at, ...rest } = body;
+    let { at, repeat, ...rest } = body;
     if (!Number.isInteger(at) || at < 1600000000) fail(422, "at must be Unix seconds");
+    if (repeat === "once") repeat = null;
+    if (repeat != null && !REPEAT_S[repeat]) fail(422, 'repeat must be null, "once", "daily" or "weekly"');
     await this.prepare(t, rest);     // checked now, drawn again when it is due
-    if (at * 1000 <= this.now()) return this.setContent(t, rest);
+    if (repeat) at = nextTime(at, repeat, Math.floor(this.now() / 1000));
+    else if (at * 1000 <= this.now()) return this.setContent(t, rest);
     if (this.schedule.length >= MAX_SCHEDULED) fail(507, "schedule full");
     this.schedule = this.schedule.filter((e) => !(e.mac === t.mac && e.at === at));
-    this.schedule.push({ mac: t.mac, at, body: rest });
+    this.schedule.push({ mac: t.mac, at, body: rest, ...(repeat ? { repeat } : {}) });
     this.schedule.sort((a, b) => a.at - b.at);
-    return { mac: t.mac, scheduled: true, at };
+    return { mac: t.mac, scheduled: true, at, ...(repeat ? { repeat } : {}) };
   }
 
   async putBatch(body) {

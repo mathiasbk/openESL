@@ -60,7 +60,8 @@ test("a file from esl_client.py backup goes back too, and scheduled entries in t
     format: "openesl-backup", version: 1, taken: "2026-10-20T10:00:00+00:00", ap: { fw: "0.7.0", channel: 25, hostname: "butikk" },
     config: { poll_s: 60, webhook: null }, layouts: {},
     tags: [{ mac: "0000000000000001", layout: "text", fields: ["Hello"] }],
-    scheduled: [{ mac: "0000000000000001", at: 1000, layout: "text", fields: ["Old"] }],
+    scheduled: [{ mac: "0000000000000001", at: 1000, layout: "text", fields: ["Old"] },
+      { mac: "0000000000000001", at: 1000, repeat: "weekly", layout: "text", fields: ["Friday"] }],
     tag_firmware: [],
   });
   const ap = new FakeAp();
@@ -69,7 +70,8 @@ test("a file from esl_client.py backup goes back too, and scheduled entries in t
   assert.equal(ap.config.poll_s, 60);
   assert.equal(ap.config.tz, null, "left as it was");
   assert.deepEqual(ap.tags.get("0000000000000001").content, { layout: "text", fields: ["Hello"] });
-  assert.equal(ap.scheduled.length, 0);
+  // a weekly one goes back: the AP starts it at its next time
+  assert.deepEqual(ap.scheduled.map((e) => e.repeat), ["weekly"]);
   assert.ok(r.notes.some((n) => /1 scheduled entries skipped/.test(n)));
   assert.ok(r.notes.some((n) => /called butikk/.test(n)));
 });

@@ -31,8 +31,22 @@
  * a small number by mistake gives an error instead of "now". */
 #define ESL_SCHED_MIN_UNIX 1600000000u
 
-/* Blob: at(4, LE) followed by an esl_persist blob */
-#define ESL_SCHED_BLOB_MAX (4 + ESL_PERSIST_BLOB_MAX)
+/* Recurring entries (#415, a weekly offer): after the content is set, the entry moves on
+ * to its next time instead of going away. The time of day (and the weekday) is kept in local
+ * time, so it follows daylight saving time: "every Friday at 16:00" stays 16:00 on the AP's
+ * clock (its time zone, Settings, General) when the offset from UTC changes. */
+#define ESL_SCHED_ONCE   0
+#define ESL_SCHED_DAILY  1
+#define ESL_SCHED_WEEKLY 2
+const char *esl_sched_repeat_name(uint8_t repeat); /* "daily", "weekly", NULL for once */
+int esl_sched_repeat_parse(const char *s, size_t len); /* ESL_SCHED_*, -1 when unknown */
+
+/* Blob: at(4, LE) followed by an esl_persist blob; a recurring entry adds repeat(1),
+ * its local time in the day or week in seconds (4, LE) and ESL_SCHED_REPEAT_MAGIC.
+ * Firmware before 0.11.0 does not take that blob (esl_persist_decode wants the exact
+ * length) and ignores the entry. */
+#define ESL_SCHED_REPEAT_MAGIC 0xE5
+#define ESL_SCHED_BLOB_MAX     (4 + ESL_PERSIST_BLOB_MAX + 6)
 
 typedef struct {
     void *ctx;
@@ -42,11 +56,15 @@ typedef struct {
     /* *len is the room in blob on entry, the blob's length on return */
     bool (*load)(void *ctx, unsigned slot, uint8_t *blob, size_t *len);
     void (*erase)(void *ctx, unsigned slot);
+    /* The local time's offset from UTC at a given time (UTC + offset = local), for the next
+     * time of a recurring entry; NULL: esl_clock_utc_offset() for every time */
+    int32_t (*utc_offset_at)(void *ctx, uint32_t unix_s);
 } esl_sched_ops_t;
 
 typedef struct {
     bool used;
-    uint32_t at;
+    uint8_t repeat; /* ESL_SCHED_* */
+    uint32_t at;    /* the next time */
     uint64_t mac;
 } esl_sched_entry_t;
 
@@ -78,6 +96,13 @@ const char *esl_time_src_name(uint8_t src); /* "ntp", "api", NULL when unknown *
 
 /* Adds or replaces the entry for (mac, at). */
 esl_sched_err_t esl_sched_add(esl_sched_t *s, uint64_t mac, uint32_t at, const esl_content_t *c);
+/* Adds or replaces the entry for (mac, *at), recurring with repeat (ESL_SCHED_*). A
+ * recurring entry whose time is not after now (Unix seconds, 0: unknown) starts at its
+ * next time after now, then in *at. With ESL_SCHED_ONCE this is esl_sched_add. */
+esl_sched_err_t esl_sched_add_repeat(esl_sched_t *s, uint64_t mac, uint32_t *at, uint8_t repeat, uint32_t now,
+                                     const esl_content_t *c);
+/* ESL_SCHED_* of the entry in a slot (ESL_SCHED_ONCE when unused) */
+uint8_t esl_sched_slot_repeat(esl_sched_t *s, unsigned slot);
 /* An entry for (mac, at) exists (adding it again takes no room). */
 bool esl_sched_has(esl_sched_t *s, uint64_t mac, uint32_t at);
 unsigned esl_sched_free(esl_sched_t *s);
@@ -90,7 +115,8 @@ unsigned esl_sched_remove(esl_sched_t *s, uint64_t mac, bool all);
 bool esl_sched_get_slot(esl_sched_t *s, unsigned slot, uint64_t *mac, uint32_t *at, esl_content_t *c);
 
 /* Applies every entry that is due: the latest due entry per tag is set
- * (esl_store_set) and every due entry is removed. Then, when the entries or
+ * (esl_store_set) and every due entry is removed, a recurring one moved on to its next
+ * time instead (the latest time it was due counts for which one wins). Then, when the entries or
  * the time have changed (and once a minute, for tags that joined the table
  * since), tells the store when each tag's next entry is due
  * (esl_store_note_due), so those tags poll just after it instead of after
