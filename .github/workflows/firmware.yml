@@ -271,8 +271,11 @@ jobs:
       - name: The Docker image (ap/linux/Dockerfile) builds and serves the dashboard
         run: |
           docker build -f ap/linux/Dockerfile -t openesl-ap .
-          docker run -d --name oe -p 18080:80 openesl-ap
+          # as a user other than root, as the docs run it, with a data folder of that user's
+          mkdir -p "$RUNNER_TEMP/oe"
+          docker run -d --name oe -p 18080:80 --user "$(id -u):$(id -g)" -v "$RUNNER_TEMP/oe:/var/lib/openesl" openesl-ap
           for i in $(seq 20); do curl -fs -o /dev/null localhost:18080/dashboard && break; sleep 1; done
           docker logs oe
           curl -fs -o /dev/null localhost:18080/dashboard
+          test -s "$RUNNER_TEMP/oe/token"
           docker rm -f oe

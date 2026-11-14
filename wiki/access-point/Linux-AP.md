@@ -41,12 +41,15 @@ Start a new Linux AP on another radio channel than any AP you already use (`--ch
 **In Docker:** from 0.11.0 every release publishes an image for amd64, arm64 and armv7 (a Raspberry Pi too). Give it the C6 and a folder for its data:
 
 ```
-docker run -d --name openesl --restart unless-stopped -p 80:80 -v ~/openesl:/var/lib/openesl \
+mkdir -p ~/openesl
+docker run -d --name openesl --restart unless-stopped -p 80:80 \
+    --user "$(id -u):$(id -g)" --group-add "$(getent group dialout | cut -d: -f3)" \
+    -v ~/openesl:/var/lib/openesl -v /etc/localtime:/etc/localtime:ro \
     --device /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...:/dev/ttyACM0 \
     ghcr.io/mathiasbk/openesl-ap:latest --radio uart:/dev/ttyACM0
 ```
 
-The token is then in `~/openesl/token`, and the dashboard at `http://<computer>/dashboard`. Updating is `docker pull` and a new container with the same folder. More, including network radios and building the image yourself: [docs/linux-ap.md](https://github.com/mathiasbk/openESL/blob/master/docs/linux-ap.md#in-docker).
+It runs as your own user, so the token is readable in `~/openesl/token`, and with your computer's time zone, which night mode, the update window and dates on the labels need. The dashboard is at `http://<computer>/dashboard`. Updating is `docker pull` and a new container with the same folder. More, including network radios and building the image yourself: [docs/linux-ap.md](https://github.com/mathiasbk/openESL/blob/master/docs/linux-ap.md#in-docker).
 
 **Radios over WiFi:** start the program with `--netradio 4553` as well, then on the Flash AP tab pick **Linux + C6 radio** and **Extra C6 over WiFi** for each radio. Type the computer's address when the page asks: the Linux AP does not announce itself on the network the way an S3 does.
 

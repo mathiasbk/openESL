@@ -125,7 +125,10 @@ The HTTP server takes 32 connections at a time (more get 503), one request each;
 The binary is static, so it runs in an empty image. Every release from 0.11.0 publishes one, `ghcr.io/mathiasbk/openesl-ap:<version>` and `:latest`, for `linux/amd64`, `linux/arm64` and `linux/arm/v7` (a `FROM scratch` image with the release's binary alone, `ap/linux/Dockerfile.release`, job `docker` in release.yml):
 
 ```
-docker run -d --name openesl --restart unless-stopped -p 80:80 -v ~/openesl:/var/lib/openesl \
+mkdir -p ~/openesl
+docker run -d --name openesl --restart unless-stopped -p 80:80 \
+    --user "$(id -u):$(id -g)" --group-add "$(getent group dialout | cut -d: -f3)" \
+    -v ~/openesl:/var/lib/openesl -v /etc/localtime:/etc/localtime:ro \
     --device /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...:/dev/ttyACM0 \
     ghcr.io/mathiasbk/openesl-ap:latest --radio uart:/dev/ttyACM0
 cat ~/openesl/token
@@ -133,7 +136,8 @@ cat ~/openesl/token
 
 The arguments after the image are `openesl-ap`'s options; without any it runs `--radio sim`. To build the image from source instead, `docker build -f ap/linux/Dockerfile -t openesl-ap .` (Alpine and musl, for the platform being built); CI builds that one and checks that it serves the dashboard.
 
-- **Data:** `/var/lib/openesl` in the container; a host folder (as above) keeps it across new images and makes the token easy to read. A named volume works too.
+- **Data:** `/var/lib/openesl` in the container; a host folder (as above) keeps it across new images and makes the token easy to read. Make the folder first, and run as your own user (`--user`): the program keeps the token and its folders readable by their owner only, so files written as root could only be read with `sudo`. The numeric `dialout` group (`--group-add`) lets that user open the C6, as the image has no `/etc/group`. A named volume works too.
+- **Time zone:** the image has no zone data, so mount the host's (`-v /etc/localtime:/etc/localtime:ro`) or give a POSIX `TZ` (`-e TZ=CET-1CEST,M3.5.0,M10.5.0/3`). Without either it runs in UTC, and night mode, the update window and dates on the tags are off by the zone's offset.
 - **The C6 on USB:** `--device` with its `/dev/serial/by-id/` name, so it is the same C6 after a reboot. A C6 that is unplugged and plugged in again comes back with a new device node, which a running container does not see: restart the container, or use `--device-cgroup-rule` with a bind mount of `/dev/serial` if it must survive that.
 - **Ports:** 80 for the API and the dashboard, 4553 when network radios connect (`-p 4553:4553` and `--netradio 4553`). The radios need the host's address, not the container's.
 - **The Design tab** is in the published image. One built from source has it only when `web/dist/wasm/` was built before `docker build` (`python3 web/build.py --wasm`, Emscripten); otherwise the Dashboard tab alone.
