@@ -69,6 +69,13 @@ static QueueHandle_t rx_queue;
 static const esp_partition_t *fwpart;
 static uint8_t channel;
 static uint16_t pan;
+/* The radio stays off the air until it has a channel from an AP: the one kept from its AP
+   (NVS), else the first CONFIG. A radio fresh from the flasher would otherwise listen and
+   answer on the default channel, where another AP's tags may be, before its own AP has told
+   it where to be (#447). */
+static bool configured;
+static volatile bool on_air;
+static int8_t tx_dbm = CONFIG_ESL_TX_POWER_DBM;
 
 static EventGroupHandle_t net_events;
 #define GOT_IP BIT0
@@ -110,11 +117,17 @@ static void cfg_get_radio(void)
     pan = CONFIG_ESL_PAN_ID;
     if (nvs_open("cfg", NVS_READONLY, &h) != ESP_OK)
         return;
+    /* cfg/channel alone is not enough: a C6 that was an AP keeps its own there (store_nvs.c),
+       and this radio has had no AP yet. radio_ch marks a channel this radio got from its AP. */
+    uint8_t mine = 0;
+    configured = nvs_get_u8(h, "radio_ch", &mine) == ESP_OK && mine;
     nvs_get_u8(h, "channel", &channel);
     nvs_get_u16(h, "pan", &pan);
     nvs_close(h);
-    if (channel < 11 || channel > 26)
+    if (channel < 11 || channel > 26) {
         channel = CONFIG_ESL_CHANNEL; /* the driver asserts on a channel it does not have */
+        configured = false;
+    }
 }
 
 static void cfg_save_radio(void)
@@ -124,6 +137,7 @@ static void cfg_save_radio(void)
         return;
     nvs_set_u8(h, "channel", channel);
     nvs_set_u16(h, "pan", pan);
+    nvs_set_u8(h, "radio_ch", 1);
     nvs_commit(h);
     nvs_close(h);
 }
@@ -151,8 +165,20 @@ static uint64_t now_ms(void)
 }
 
 /* A new channel or PAN from the AP: set by the net task, applied by the radio task between
-   replies (retuning restarts reception, which would cut off a reply on its way) */
+   replies (retuning restarts reception, which would cut off a reply on its way). The first
+   one of a radio that had none turns 802.15.4 on. */
 static volatile bool retune, save_radio;
+
+static void radio_on(void)
+{
+    int err = radio_link.start(&radio_link, channel, pan, ESL_AP_SHORT_ADDR, false);
+    ESP_LOGI(TAG, "802.15.4 on channel %u, PAN 0x%04X: %s", channel, pan, esp_err_to_name(err));
+    if (err)
+        return;
+    on_air = true;
+    if (tx_dbm != CONFIG_ESL_TX_POWER_DBM) /* start() sets menuconfig's */
+        radio_link.set_tx_power(&radio_link, tx_dbm);
+}
 
 static void radio_task(void *arg)
 {
@@ -164,9 +190,13 @@ static void radio_task(void *arg)
         esp_task_wdt_reset();
         if (retune) {
             retune = false;
-            esp_ieee802154_set_panid(pan);
-            radio_link.set_channel(&radio_link, channel);
-            ESP_LOGI(TAG, "802.15.4 now channel %u, PAN 0x%04X", channel, pan);
+            if (!on_air) {
+                radio_on();
+            } else {
+                esp_ieee802154_set_panid(pan);
+                radio_link.set_channel(&radio_link, channel);
+                ESP_LOGI(TAG, "802.15.4 now channel %u, PAN 0x%04X", channel, pan);
+            }
         }
         if (xQueueReceive(rx_queue, &f, pdMS_TO_TICKS(100)) != pdTRUE)
             continue;
@@ -193,10 +223,11 @@ static void radio_task(void *arg)
 static void on_config(void *ctx, uint8_t ch, uint16_t p)
 {
     (void)ctx;
-    if (ch == channel && p == pan)
+    if (configured && ch == channel && p == pan)
         return;
     channel = ch;
     pan = p;
+    configured = true;
     retune = true;
     save_radio = true;
 }
@@ -206,11 +237,12 @@ static void on_config(void *ctx, uint8_t ch, uint16_t p)
 static void on_tx_power(void *ctx, int8_t dbm)
 {
     (void)ctx;
-    static int8_t now = CONFIG_ESL_TX_POWER_DBM;
-    if (dbm == now)
+    if (dbm == tx_dbm)
         return;
-    now = dbm;
-    radio_link.set_tx_power(&radio_link, dbm);
+    tx_dbm = dbm;
+    /* off the air: the radio task sets it when it turns 802.15.4 on */
+    if (on_air)
+        radio_link.set_tx_power(&radio_link, dbm);
     ESP_LOGI(TAG, "802.15.4 transmit power now %d dBm", dbm);
 }
 
@@ -673,9 +705,12 @@ static void status(void)
     unsigned n_tags = rc.n_tags, log_len = rc.log_len;
     esl_rcache_stats_t s = rc.stats;
     xSemaphoreGive(lock);
-    ESP_LOGI(TAG, "802.15.4 channel %u PAN 0x%04X: rx %lu replies %lu tx_failed %lu tx_resent %lu dropped %lu worst %lld us",
-             channel, pan, (unsigned long)l->rx, (unsigned long)l->replies, (unsigned long)l->tx_failed,
-             (unsigned long)l->tx_resent, (unsigned long)l->dropped, (long long)l->worst_us);
+    if (!on_air)
+        ESP_LOGI(TAG, "802.15.4 off: it waits for its AP's channel, and sends nothing until then");
+    else
+        ESP_LOGI(TAG, "802.15.4 channel %u PAN 0x%04X: rx %lu replies %lu tx_failed %lu tx_resent %lu dropped %lu worst %lld us",
+                 channel, pan, (unsigned long)l->rx, (unsigned long)l->replies, (unsigned long)l->tx_failed,
+                 (unsigned long)l->tx_resent, (unsigned long)l->dropped, (long long)l->worst_us);
     ESP_LOGI(TAG, "cache: tags %u/%u polls %lu blocks %lu waits %lu log %u (dropped %lu)", n_tags, TAGS,
              (unsigned long)s.polls, (unsigned long)s.blocks, (unsigned long)s.waits, log_len,
              (unsigned long)s.log_dropped);
@@ -793,8 +828,10 @@ void app_main(void)
 
     /* the same priority as the AP's radio task, above WiFi's */
     xTaskCreate(radio_task, "radio", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
-    err = radio_link.start(&radio_link, channel, pan, ESL_AP_SHORT_ADDR, false);
-    ESP_LOGI(TAG, "802.15.4 on channel %u, PAN 0x%04X: %s", channel, pan, esp_err_to_name(err));
+    if (configured)
+        retune = true; /* the radio task turns 802.15.4 on (radio_on) */
+    else
+        ESP_LOGW(TAG, "802.15.4 stays off until the AP gives it a channel");
     xTaskCreate(net_task, "net", 6144, NULL, 5, NULL);
     xTaskCreate(console_task, "console", 4096, NULL, 2, NULL);
     xTaskCreate(web_task, "web", 3072, NULL, 2, NULL);

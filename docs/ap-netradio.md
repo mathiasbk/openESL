@@ -146,6 +146,12 @@ table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 
    the radio, the cache and the link; it is also logged every minute.
 
 The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.
+Until it has them it stays off the air (#447): a C6 fresh from the flasher, or one with its settings
+erased, neither listens nor sends on 802.15.4 until its AP's first CONFIG, so it never answers
+another AP's tags on the default channel while it is still looking for its own AP (`status` says
+`802.15.4 off`). The channel a C6 kept from an earlier life as an AP does not count: only one the
+radio got from its AP (`cfg/radio_ch`). A radio updated from before this has none yet, so after
+the update it stays off until its AP answers once, then starts on its saved channel as before.
 It also takes the S3's transmit power (`PUT /api/config` `"tx_power"`, in the same CONFIG), but not
 for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies. A new channel from the
 Settings page (`PUT /api/config` `"channel"`) reaches the radio the same way: each tag's state carries the
