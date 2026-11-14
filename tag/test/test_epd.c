@@ -49,6 +49,10 @@ static unsigned long busy_until;   /* BUSY is high until this time (now_ms) */
 static int busy_polls_in_refresh;  /* BUSY reads after the refresh started */
 static bool refreshing, refresh_stuck;
 static bool asleep, busy_stuck;
+static unsigned long refresh_start;  /* BUSY goes high only from this time (now_ms) */
+static unsigned long glitch_at;      /* one millisecond of BUSY low inside the refresh, 0 = none */
+static unsigned long sleep_cmd_at;   /* when deep sleep (0x10) was sent */
+static int start_delay_ms, glitch_ms;
 
 /* ---- UC-type model (UC8151 family, EPD_UC_INIT): BUSY low while busy ---- */
 static bool uc_model;
@@ -125,7 +129,9 @@ static void on_byte(uint8_t b)
             busy_until = now_ms() + 3;
         }
         if (b == 0x20) {                 /* master activation: the refresh, 2.9 s */
-            busy_until = now_ms() + (refresh_stuck ? 1000000ul : 2900);
+            refresh_start = now_ms() + (unsigned long)start_delay_ms;
+            busy_until = refresh_start + (refresh_stuck ? 1000000ul : 2900);
+            glitch_at = glitch_ms ? refresh_start + (unsigned long)glitch_ms : 0;
             refreshing = true;
             busy_polls_in_refresh = 0;
         }
@@ -140,7 +146,7 @@ static void on_byte(uint8_t b)
     switch (cur_cmd) {
     case 0x01: if (nparam == 2) gate_lines = (uint16_t)(param[0] | (param[1] << 8)) + 1;
                if (nparam == 3) gate_scan = param[2]; break;
-    case 0x10: if (nparam == 1) asleep = (param[0] & 0x03) != 0; break;
+    case 0x10: if (nparam == 1) { asleep = (param[0] & 0x03) != 0; sleep_cmd_at = now_ms(); } break;
     case 0x11: if (nparam == 1) entry = param[0]; break;
     case 0x44: if (nparam == 2) { xs = param[0]; xe = param[1]; } break;
     case 0x45: if (nparam == 4) { ys = (uint16_t)(param[0] | (param[1] << 8));
@@ -173,7 +179,13 @@ bool hal_epd_busy(void)
         return now_ms() >= uc_busy_until;      /* the pin: high when idle */
     if (refreshing)
         busy_polls_in_refresh++;
-    return busy_stuck || now_ms() < busy_until;
+    if (busy_stuck)
+        return true;
+    if (refreshing && now_ms() < refresh_start)
+        return false;                          /* not raised yet */
+    if (refreshing && glitch_at && now_ms() == glitch_at)
+        return false;                          /* a short low reading in the middle */
+    return now_ms() < busy_until;
 }
 
 static void reset_model(void)
@@ -186,6 +198,7 @@ static void reset_model(void)
     gate_scan = 0;
     refreshing = false;
     busy_polls_in_refresh = 0;
+    busy_until = refresh_start = glitch_at = 0;   /* idle, as after a power-up */
 }
 
 /* Pixel (x, y) of the screen as the controller holds it: 0 white, 1 black.
@@ -371,6 +384,33 @@ static void test_epd_awake(void)
     refreshing = false;
 }
 
+/* BUSY rises a few milliseconds after master activation and reads low once in the middle:
+   deep sleep is still sent only after the whole refresh (dark 1.54" tags) */
+static void test_epd_refresh_end(void)
+{
+    static draw_scene_t sc;
+    unsigned long t0;
+    draw_clear(&sc);
+
+    reset_model();
+    start_delay_ms = 5;
+    glitch_ms = 1000;
+    t0 = now_ms();
+    CHECK(epd_draw(&sc));
+    CHECK(asleep);
+    CHECK(sleep_cmd_at >= busy_until);
+    CHECK(sleep_cmd_at - t0 >= 2900);
+
+    /* a refresh that never raises BUSY did not run: false, still to deep sleep */
+    reset_model();
+    start_delay_ms = 1000000;
+    glitch_ms = 0;
+    CHECK(!epd_draw(&sc));
+    CHECK(asleep);
+    start_delay_ms = 0;
+    reset_model();
+}
+
 static void test_epd_no_busy(void)
 {
     /* A display that never answers: false, and the power is switched off again */
@@ -436,6 +476,7 @@ int main(int argc, char **argv)
     RUN(test_epd_image);
     RUN(test_epd_init_table);
     RUN(test_epd_awake);
+    RUN(test_epd_refresh_end);
     RUN(test_epd_no_busy);
 #ifdef EPD_UC_INIT
     RUN(test_epd_uc);
