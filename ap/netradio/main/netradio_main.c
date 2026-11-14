@@ -223,7 +223,8 @@ static void radio_task(void *arg)
 static void on_config(void *ctx, uint8_t ch, uint16_t p)
 {
     (void)ctx;
-    if (configured && ch == channel && p == pan)
+    /* the same again: nothing to do, unless the radio is still off (start() failed) */
+    if (configured && on_air && ch == channel && p == pan)
         return;
     channel = ch;
     pan = p;
