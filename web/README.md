@@ -131,10 +131,11 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 **Files**
 
 - `js/dashboard.js`: the tab. `js/dashdata.js` works out the figures (`test/dashdata.test.mjs`).
+- `js/dashnav.js`: the menu that shows one part of the tab at a time (Tags, Layouts, Data sources, Firmware, Access point, Settings), named in the address as `#dashboard/<part>`.
 - `js/apport.js`: the connection over the AP's USB port, shared with the Design tab and the setup page.
-- `js/aplayouts.js`: the Layouts card.
+- `js/aplayouts.js`: the Layouts page.
 - `js/sendtext.js`: sending text to ticked tags (`test/sendtext.test.mjs`).
-- `js/fwupload.js`: the Firmware card (`test/fwupload.test.mjs`).
+- `js/fwupload.js`: the Firmware page (`test/fwupload.test.mjs`).
 - `js/apdash.js`: starts the dashboard on the AP's own page.
 
 **Connecting**
@@ -147,20 +148,21 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 **What it shows**
 
 - One line for the connection: where, which AP (its board, from `board_name` in `GET /api/tags`, or the chip of an older AP), its name on the network, its firmware, and how long ago it last answered. Red when it stops answering, and the figures below go grey.
+- A menu with one entry per part, shown one at a time: Tags, Layouts, Data sources, Firmware, Access point and Settings. Each entry has a line on its state (the summary its page has at the top) and a badge when it needs a look: how many tags need attention, an update the page has for the AP, tags that show a layout the AP lacks. On a wide screen it is a column on the left, under 1100 px a narrow column of icons, and on a phone a bar at the bottom. `#dashboard/firmware` and the others open a part directly, and Back goes to the one before. Layouts and Data sources have an entry only when the AP has them.
 - Four figures (tags, need attention, busy or late, scheduled) that also filter the table.
 - The tag table: the state first, the last six digits of the MAC in bold, last check-in, the next one expected from its poll interval or how late it is, signal, battery, firmware, and what it is waiting for or what is wrong (from `GET /api/health`). Times are relative, with the clock time on hover. On a phone each tag is one row with its details on a line under it.
-- The Access point card (firmware, uptime, why it last started, channel, poll interval, time, schedule, WiFi) and the Firmware card, folded, each with a one-line summary.
+- The Access point page (firmware, uptime, why it last started, channel, poll interval, time, schedule, WiFi) and the Firmware page, each with a one-line summary at the top.
 
 **Ticked tags**
 
 - Each row has a tick box; the header's ticks every tag the table shows. A box then shows the count (and how many of them Find or a filter hides) and the form to send them text or firmware.
 - **Forget** removes the ticked tags from the AP (`DELETE /api/tags/{mac}`: content, settings and scheduled content), after asking twice. A broken tag stays gone; one that still polls comes back as a new tag.
-- **Text** with the built-in layout `text`: the AP's address and WiFi, the tag's own info, today's date, or your own four lines. A preview is drawn by the AP's own code (on the AP's page as in the Layouts card), with a list of what each tag gets.
+- **Text** with the built-in layout `text`: the AP's address and WiFi, the tag's own info, today's date, or your own four lines. A preview is drawn by the AP's own code (on the AP's page as on the Layouts page), with a list of what each tag gets.
 - A word in braces in your own lines is filled in for each tag: `{ap_ip}`, `{ap_name}`, `{wifi}`, `{ap_fw}`, `{channel}`, `{tags}` from the AP, `{mac}`, `{model}`, `{battery}`, `{rssi}`, `{fw}`, `{seen}` from the tag, and `{weekday}`, `{date}` (Norwegian) and `{time}`. Buttons put them in.
 - When the lines have the date, the next days go to the AP as scheduled content for midnight (at most 50 rows in one `PUT /api/tags`), after the AP's clock is checked and, if it has none, set from the computer. `esl_client.py text` and `date` do the same for one tag.
 - **Tag firmware** published with the page: the AP gets the image for the first ticked tag of a model that needs it and gives it to the others too. The list says what each tag gets or why it gets nothing (already has it, no radio updates).
 
-**Layouts card** (`js/aplayouts.js`)
+**Layouts page** (`js/aplayouts.js`)
 
 - Per tag model: the built-in layouts and the AP's layout file drawn with the renderer, with how many tags show each (`js/layoutinfo.js` asks each tag whose content changed for its layout).
 - On the AP's page, a board with the Design tab draws with the renderer it packs. One without it (the C6) loads the published page's renderer in a sandboxed frame that cannot reach the page's token (`js/renderframe.js`). The card says when the previews could not be loaded, or come from a renderer built for other AP firmware than the AP runs.
@@ -168,7 +170,7 @@ The AP's state and a table of every tag, refreshed every 10 s while the tab is i
 - A layout no tag uses can be removed. Edit opens it in the designer where the page has one (an `openesl-edit-layout` event to `js/editor.js`).
 - Picking a layout shows its fields in order, the template's text for each, examples for curl, JSON, an `esl_client.py sync` CSV and Home Assistant, and the tags that show it. Tags whose layout the AP lacks are named at the top.
 
-**Firmware card** (`js/fwupload.js`)
+**Firmware page** (`js/fwupload.js`)
 
 - Sends new AP firmware (`POST /api/ota`, in 16 KB parts) or tag firmware (`PUT /api/tag-firmware`, in 8 KB parts, which the AP then sends to the tags over the radio).
 - The files come from those published with the page (the `-ota.bin` files `build.py --firmware` copies) or a file of your own.

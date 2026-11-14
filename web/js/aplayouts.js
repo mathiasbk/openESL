@@ -55,7 +55,6 @@ export function initLayouts({ client, refresh, rendererBase = "", pageInfo = () 
   const pics = new Map();  // drawn pictures by key
   let sel = null;          // { kind: "ap" | "builtin" | "tpl", name, id }
   let busy = false;
-  let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
   const fonts = apFonts();
   let fontState = { supported: false, info: null, files: {}, slots: {} };   // the AP's font files (js/apfonts.js)
@@ -246,9 +245,6 @@ export function initLayouts({ client, refresh, rendererBase = "", pageInfo = () 
       warn.append(p);
     }
     warn.hidden = !warn.childElementCount;
-    // Tags without their layout: show the warning even when the card was folded away
-    if (!warn.hidden && !warned) $("lay-card").open = true;
-    warned = !warn.hidden;
 
     // On the AP: the built-in layouts, then the file's
     const cards = [];

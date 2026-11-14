@@ -124,14 +124,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     }
   };
 
-  // ---- the two views of the dashboard, and the menu of groups ----
-  const views = [...document.querySelectorAll("#dash-views button")];
-  const showView = (v) => {
-    for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === v));
-    $("dash-overview").hidden = v !== "overview";
-    $("dash-settings").hidden = v !== "settings";
-  };
-  for (const b of views) b.addEventListener("click", () => showView(b.dataset.view));
+  // ---- the menu of groups ----
   const tabs = [...document.querySelectorAll(".set-nav button")];
   const showPane = (name) => {
     for (const t of tabs) {
