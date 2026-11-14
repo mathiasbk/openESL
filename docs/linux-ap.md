@@ -2,6 +2,10 @@
 
 `ap/linux/` builds the AP as an ordinary Linux program: the same core as the ESP32 boards (`ap/components/esl_core`: the radio protocol, the drawing, the API, scheduled content, tag firmware), with an HTTP server, files instead of NVS, and a radio chosen at run time. It runs on a Raspberry Pi, a router or gateway with Linux, a server, or a PC, and serves the same API and dashboard as the C6, so `esl-client`, Home Assistant and the web page work against it unchanged.
 
+**Status: experimental.** Each radio below has run on hardware with a few test tags, not yet for long or with many tags. The user guide is the wiki's [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP) page.
+
+**Getting it:** releases from 0.11.0 carry static binaries, `openesl-ap-linux-armv7-<version>` (Cortex-A9 and newer, a Raspberry Pi 2/3 on a 32-bit system), `openesl-ap-linux-aarch64-<version>` (a Pi 3/4/5 on a 64-bit system) and `openesl-ap-linux-x86_64-<version>`, built by CI (`.github/workflows/firmware.yml`, job `linux-ap`) with the Dashboard and the Design tab packed in. They run on any distribution; or build it yourself (below).
+
 ```
 openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboard, /ui/... (packed from web/)
             ├─ main.c        the radio loop: frame → esl_link_handle() → reply; the scheduler every second
@@ -37,7 +41,7 @@ Tried on 2026-11-13 on an ARMv7 Linux gateway with such a modem (the armv7 build
 
 ### A C6 on USB as the radio
 
-1. Flash the C6 with the radio board `c6-usb`: `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release, written at 0 with `esptool.py write_flash 0x0 ...` (the web flasher does not offer it), or `cd ap && python build.py radio/c6-usb`. Its log goes to its UART pins, since the USB port is the link.
+1. Flash the C6 with the radio board `c6-usb`: on the web page's Flash AP tab pick **Linux + C6 radio** and **C6 on USB** (the page erases the C6 first), or write `openesl-ap-radio-esp32c6-usb-<version>.bin` from a release at 0 with `esptool.py write_flash 0x0 ...`, or `cd ap && python build.py radio/c6-usb`. The page lists this image apart from the S3's radios (`linux_radios` in its `info.json`), so it is never offered to the C6 of an S3. Its log goes to its UART pins, since the USB port is the link.
 2. Plug it into the host and start `openesl-ap --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...` (the service's user needs the `dialout` group, which the unit file gives it). Use the name `ls /dev/serial/by-id/` shows rather than `/dev/ttyACM0`: it stays the same across reboots, replugging and other USB devices.
 3. The log says `radio 1.1 up on channel 25, PAN 0x4553, 10 dBm` once the C6 has its settings. A C6 that restarts gets them again within a few seconds, and one that has said nothing for 15 s is configured again. A port that goes away (the C6 unplugged) is opened again every 2 s until it is back; frames the C6 kept from before it has its settings are ignored. A radio that says nothing at all (it hangs, or sits in its download mode) is reset: 10 s after the port is opened, or 15 s after it was last heard once it was up through the port's RTS line, as esptool does, at most every 30 s; DTR stays off, so it starts its firmware.
 
@@ -62,11 +66,17 @@ never the AP's), kept in `<data>/radios`.
 - **API and dashboard:** `GET /api/radios` lists the AP's own radio as radio 0 (`"via":"local"`, its
   id is the AP id) and the network radios after it; each tag has `"radio"`. `DELETE
   /api/radios/{id}` forgets a network radio that is not connected; the AP's own answers 409.
-- **Setting up a C6:** flash `openesl-ap-netradio-c6.bin` and give it the WiFi and the AP's address
-  on its USB console (`ssid`, `pass`, `host <address>`, `reboot`; ap-netradio.md, "Setting it up").
+- **Setting up a C6:** on the web page's Flash AP tab pick **Linux + C6 radio** and **Extra C6 over
+  WiFi**: it flashes the C6 and sends it the WiFi and the AP's address. By hand: flash
+  `openesl-ap-netradio-esp32c6-<version>.bin` from a release (`out/openesl-ap-netradio-c6.bin` when
+  built) and give it the WiFi and the AP's address on its USB console (`ssid`, `pass`, `host
+  <address>`, `reboot`; ap-netradio.md, "Setting it up").
   The Linux AP does not announce itself on mDNS, so `host` is needed. The address can be another
   host that forwards the port, for an AP the radios cannot reach directly, e.g. `socat
   TCP-LISTEN:4553,fork,reuseaddr TCP:<ap>:4553`.
+- **The AP still needs a radio of its own.** There is no `--radio none` yet: without `--radio` the
+  AP runs `sim` beside the network radios, with simulated tags in its table. Give it a C6 on USB or
+  an SPI modem.
 - **Not secure**, as on the S3: plain TCP, and any device that reaches the port can connect as a
   radio. Keep the port to the network the radios are on (a firewall, or the address in
   `--netradio`).

@@ -5,9 +5,11 @@
 // "ESP32-S3" -> "S3"
 export const shortChip = (family) => String(family || "").replace(/^ESP32-?/i, "") || "ESP32";
 
-// The kind of setup a board is: one board ("single", "screen"), or an S3 with a C6 radio on a
-// cable ("cable") or over WiFi ("wifi"). It picks the card's picture and title.
+// The kind of setup a board is: one board ("single", "screen"), an S3 with a C6 radio on a
+// cable ("cable") or over WiFi ("wifi"), or the AP as a Linux program with a C6 radio ("linux").
+// It picks the card's picture and title.
 export function setupKind(board) {
+  if (board.radio === "linux") return "linux";
   if (board.radio === "uart") return "cable";
   if (board.radio === "net") return "wifi";
   return board.display ? "screen" : "single";
@@ -23,14 +25,26 @@ export function boardsOf(info) {
   ];
 }
 
-// The radio images a board takes (radio_fw, keys in info.radios) that the page has
+// The AP as a Linux program (ap/linux, docs/linux-ap.md) is not flashed from here: the card
+// flashes its C6 radio, on USB (info.linux_radios, radio board c6-usb) or over WiFi (the same
+// network radio as the S3's), and points to the guide for the program itself
+export const LINUX_GUIDE = "https://github.com/mathiasbk/openESL/wiki/Linux-AP";
+const LINUX = {
+  id: "linux", name: "Linux AP", chip_family: "ESP32-C6", radio: "linux", status: "experimental", tags: 1000, designer: true,
+  label: "openesl-ap on a Raspberry Pi, a PC or another Linux computer, with an ESP32-C6 on a USB port as its radio, and more C6 radios over WiFi if one does not reach every tag. This page flashes the C6 radios; the program is installed on the computer (Linux AP guide).",
+};
+
+// The radio images a board takes (radio_fw, keys in info.radios and info.linux_radios) that
+// the page has; the Linux AP takes its USB radios and the network radio
 export function radiosFor(board, info) {
-  const all = info?.radios || [];
+  const all = [...(info?.radios || []), ...(info?.linux_radios || [])];
+  if (board.radio === "linux")
+    return [...(info?.linux_radios || []), ...all.filter((r) => r.key?.startsWith("net-"))];
   return (board.radio_fw || []).map((k) => all.find((r) => r.key === k)).filter(Boolean);
 }
 
 // What a setup takes, for the line on its card
-const PARTS = { single: "one board", screen: "one board", cable: "two boards and four wires", wifi: "two boards, no wire" };
+const PARTS = { single: "one board", screen: "one board", cable: "two boards and four wires", wifi: "two boards, no wire", linux: "a Linux computer and a C6" };
 
 // The line under a card's title for a newcomer: "Up to about 1000 tags · two boards and four
 // wires · dashboard with the label designer", from "tags" in the board's board.json and
@@ -53,12 +67,13 @@ export function card(board, info) {
     wifi: `${chip} + C6 over WiFi`,
     screen: `${chip} with screen`,
     single: `ESP32-${chip}`,
+    linux: "Linux + C6 radio",
   }[kind];
-  const radio = kind === "cable" || kind === "wifi";
+  const radio = kind === "cable" || kind === "wifi" || kind === "linux";
   return {
     board,
     title,
-    chips: radio ? [chip, "C6 radio"] : [chip],
+    chips: kind === "linux" ? ["Linux", "C6 radio"] : radio ? [chip, "C6 radio"] : [chip],
     status: board.status || "supported",
     recommended: !!board.recommended,
     line: summary(board),
@@ -68,7 +83,8 @@ export function card(board, info) {
   };
 }
 
-export const cards = (info) => boardsOf(info).map((b) => card(b, info));
+// The Linux AP's card comes last, and only when the page has a radio for it on USB
+export const cards = (info) => [...boardsOf(info), ...(info?.linux_radios?.length ? [LINUX] : [])].map((b) => card(b, info));
 
 // Boards with two USB ports (DevKitC-style S3 and C5 boards): the AP's serial API and the
 // WiFi step answer only on the one marked USB (the chip's own USB Serial/JTAG), not on the
@@ -82,11 +98,16 @@ export const isNativeUsb = (info) => info?.usbVendorId === ESPRESSIF_VID;
 // The parts of steps 2 (flash) and 3 (connect) for a board and the radio image picked:
 //   flash:   { kind: "flash", role: "radio" | "ap", chip, manifest, title, usbPort }
 //            { kind: "wire" }
-//   connect: { kind: "wifi" } and, for the radio over WiFi, { kind: "join" }
+//   connect: { kind: "wifi" } and, for the radio over WiFi, { kind: "join" }; for the Linux AP
+//            { kind: "linux" } (start the program) and, for its radio over WiFi, { kind: "join" }
 // The C6 radio is flashed first, so the main board stays plugged in from its flashing to its
 // WiFi: one change of cable for the S3 with a C6 on a cable, two over WiFi.
 export function plan(board, radio) {
   const kind = setupKind(board);
+  if (kind === "linux") {
+    const flash = radio ? [{ kind: "flash", role: "radio", chip: radio.chip_family, manifest: radio.manifest, title: "C6 radio", usbPort: false }] : [];
+    return { flash, connect: radio?.key?.startsWith("net-") ? [{ kind: "linux" }, { kind: "join" }] : [{ kind: "linux" }] };
+  }
   const chip = board.chip_family || "ESP32-C6";
   const flash = [];
   if ((kind === "cable" || kind === "wifi") && radio)

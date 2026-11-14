@@ -411,6 +411,7 @@ def add_firmware(*files):
     boards = ap_boards()
     aps = {}       # board id -> path
     radios = {}    # radio key -> path
+    linux = {}     # the Linux AP's radios: id -> (radio, path)
     for f in files:
         if f == "-":
             continue
@@ -423,9 +424,10 @@ def add_firmware(*files):
             sys.exit("%s: no such file" % f)
         r = ap_radio_for(f)
         if r and r.get("host") == "linux":
-            # the radio of the AP as a Linux program: no board on the page takes it, and its image
-            # must never be offered to an S3's C6 (it talks on USB, not on the UART pins)
-            print("%s: the radio of the Linux AP, not on the page" % f)
+            # the radio of the AP as a Linux program: listed apart (linux_radios), as no board on
+            # the page takes it and its image must never be offered to an S3's C6 (it talks on
+            # USB, not on the UART pins)
+            linux[r["id"]] = (r, f)
             continue
         if r:
             radios[r["key"]] = f
@@ -516,6 +518,16 @@ def add_firmware(*files):
             entry["ota"] = name[:-4] + "-ota"
             entry["version"] = image_version(ota)
         info["radios"].append(entry)
+    # The radios of the AP as a Linux program (docs/linux-ap.md): the Flash AP tab's "Linux AP"
+    # card flashes them; never in "radios" or "ota", which the dashboard offers to an S3's C6
+    info["linux_radios"] = []
+    for rid, (r, path) in sorted(linux.items()):
+        name = "radio-linux-%s.bin" % rid
+        manifest = name.replace(".bin", "-manifest.json")
+        ap_manifest(out, "OpenESL radio, %s" % r["label"], info["version"], name,
+                    split_ap_image(path, out, name), r["chip_family"], manifest)
+        info["linux_radios"].append({"key": "usb-" + rid, "kind": "usb", "id": rid, "label": r["label"],
+                                     "status": r["status"], "chip_family": r["chip_family"], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)

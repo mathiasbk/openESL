@@ -15,6 +15,7 @@
   - [ESP32-C5](ESP32-C5)
   - [ESP32-S3 + C6](ESP32-S3-and-C6)
   - [ESP32-S3 + wireless C6](ESP32-S3-with-wireless-C6)
+  - [Linux AP (experimental)](Linux-AP)
 - [Flashing the AP](Flashing-the-access-point)
 - [WiFi and API token](WiFi-and-API-token)
 - [AP settings](Access-point-settings)

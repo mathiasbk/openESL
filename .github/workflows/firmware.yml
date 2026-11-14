@@ -10,6 +10,8 @@
 #                 openesl-ap-c5-n16r8*.bin (ESP32-C5 with PSRAM), openesl-ap-s3-n16r8*.bin (ESP32-S3 host),
 #                 and the radio coprocessor images for the S3 (openesl-ap-radio-c6*.bin,
 #                 openesl-ap-radio-c6-lcd*.bin; their -ota.bin goes to the radio through the AP)
+#   linux-ap:     openesl-ap-<arch> (the AP as a Linux program, ap/linux) for armv7, aarch64 and
+#                 x86_64, only when every AP build is asked for (inputs.ap all)
 # The AP and the tags each get the version of the release they last changed in
 # (tools/fw_version.py), so the images of a release that changed only one of them are the
 # previous ones again for the other; the "Versions" step shows what this run built.
@@ -238,3 +240,31 @@ jobs:
         with:
           name: ap-firmware
           pattern: ap-build-*
+
+  # The AP as a Linux program (ap/linux, docs/linux-ap.md): static builds for armv7, aarch64 and
+  # x86_64 with zig, with the Dashboard and the Design tab packed in, as linux-ap/openesl-ap-<arch>.
+  # release.yml attaches them as openesl-ap-linux-<arch>-<version>.
+  linux-ap:
+    if: inputs.ap == 'all'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+      - name: Renderer for the Design tab (web/dist/wasm/)
+        run: python3 web/build.py --wasm
+      - name: Build armv7, aarch64 and x86_64 (zig, static)
+        run: |
+          python3 -m pip install --user ziglang==0.17.1
+          mkdir -p linux-ap
+          for t in armv7 aarch64 x86_64; do
+            make -C ap/linux TARGET=$t -j"$(nproc)"
+            cp "ap/linux/build/$t/openesl-ap" "linux-ap/openesl-ap-$t"
+          done
+          file linux-ap/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-ap
+          path: linux-ap/

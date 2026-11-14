@@ -122,7 +122,11 @@ jobs:
             # the radio on the network (netradio) has no -ota.bin (ap/build.py)
             if [ -f "fw/ap-firmware/$artifact-ota.bin" ]; then cp "fw/ap-firmware/$artifact-ota.bin" "out/$release-$TAG-ota.bin"; fi
           done
-          (cd out && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # the AP as a Linux program (firmware.yml, linux-ap): openesl-ap-linux-<arch>-$TAG
+          for f in fw/linux-ap/openesl-ap-*; do
+            cp "$f" "out/openesl-ap-linux-${f##*/openesl-ap-}-$TAG"
+          done
+          (cd out && sha256sum *.bin openesl-ap-linux-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

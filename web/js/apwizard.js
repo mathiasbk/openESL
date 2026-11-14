@@ -3,8 +3,9 @@
 // flashes each board in it (js/apflash.js, the C6 radio first), step 3 gives the AP its WiFi
 // and API token over the same USB port (js/apserial.js through js/apport.js) and, for the radio
 // over WiFi, the radio its network and the AP's address (js/radioconsole.js), step 4 shows
-// where the AP is.
-import { cards, radiosFor, plan, shortChip, isNativeUsb, twoPorts } from "./apsteps.js";
+// where the AP is. For the AP as a Linux program the page flashes its C6 radio only, and step 3
+// says how to start the program (and gives a radio over WiFi the AP's address).
+import { cards, radiosFor, plan, shortChip, isNativeUsb, twoPorts, setupKind, LINUX_GUIDE } from "./apsteps.js";
 import { setupPicture, devkit } from "./appics.js";
 import { loadParts, flashBoard, portAgain } from "./apflash.js";
 import { hasSerial, serialAp, serialPort, connectSerial, connectSerialPort, disconnectSerial, onSerialChange } from "./apport.js";
@@ -45,6 +46,11 @@ export function initApWizard(info, store) {
   const radios = () => (st.card ? radiosFor(st.card.board, info) : []);
   const radio = () => radios().find((r) => r.key === st.radio) || radios()[0] || null;
   const fresh = () => ({ status: "todo", msg: "", frac: 0, code: "" });
+  const isLinux = () => !!st.card && setupKind(st.card.board) === "linux";
+  // the C6 radio is erased before it is flashed, except the radio over WiFi, which keeps its
+  // network (its NVS is where the AP has it)
+  const radioWiped = () => radio()?.kind !== "net";
+  const stepName = (i) => (i === 2 && isLinux() ? "Start the AP" : STEPS[i]);
 
   function choose(c) {
     st.card = c;
@@ -66,10 +72,10 @@ export function initApWizard(info, store) {
 
   function stepper() {
     const label = (i) => {
-      if (i >= st.step || i === 3) return STEPS[i];
+      if (i >= st.step || i === 3) return stepName(i);
       if (i === 0) return st.card.title;
       if (i === 1) return st.flash.every((p) => p.status === "skipped") ? "Skipped" : version ? `Flashed ${version}` : "Flashed";
-      return st.wifi?.ssid || STEPS[2];
+      return st.wifi?.ssid || stepName(2);
     };
     $("wz-steps").innerHTML = STEPS.map((s, i) => {
       const state = i < st.step || (i === 3 && st.step === 3) ? "done" : i === st.step ? "on" : "";
@@ -116,9 +122,15 @@ export function initApWizard(info, store) {
       ${all.length ? "" : `<p class="warn">No AP firmware is published with this page yet.</p>`}
       ${st.card ? `
       <div class="wz-opts">
-        ${rs.length > 1 ? `<span class="wz-opt"><span class="muted">C6 radio</span>${seg("radio", rs.map((r) => [r.key, r.display ? "C6 with screen" : "Plain C6"]), radio()?.key)}</span>` : ""}
+        ${rs.length > 1 ? `<span class="wz-opt"><span class="muted">C6 radio</span>${seg("radio", rs.map((r) => [r.key, radioName(r)]), radio()?.key)}</span>` : ""}
       </div>
       <p class="muted">${esc(st.card.board.label || "")}</p>` : ""}`;
+  }
+
+  function radioName(r) {
+    if (r.kind === "usb") return "C6 on USB";
+    if (r.kind === "net" && isLinux()) return "Extra C6 over WiFi";
+    return r.display ? "C6 with screen" : "Plain C6";
   }
 
   function flashPart(p, s, i, on) {
@@ -138,7 +150,7 @@ export function initApWizard(info, store) {
           ` : `
           <p class="buttons tight"><button type="button" class="primary" data-flash="${i}" ${hasSerial() ? "" : "disabled"}>Connect and flash</button>
           <button type="button" class="ghost" data-skip="${i}">Skip</button></p>
-          ${p.role === "radio" && radio()?.kind === "uart" ? `<p class="muted">The radio is erased first: it keeps nothing.</p>` : `
+          ${p.role === "radio" && radioWiped() ? `<p class="muted">The radio is erased first: it keeps nothing.</p>` : `
           <p class="wz-erase"><label><input type="checkbox" data-erase-opt="${i}" ${s.erase ? "checked" : ""}> Erase first (WiFi, token, tags and layouts are lost)</label></p>
           <p class="muted">${p.role === "radio" ? "A C6 that was an AP or a radio keeps its WiFi unless erased." : "An AP that runs OpenESL keeps its data unless erased first."}</p>`}`}
         ${err}
@@ -204,22 +216,63 @@ export function initApWizard(info, store) {
       <div class="form wz-form">
         <label>Network <input id="wz-r-ssid" value="${esc(st.wifi?.ssid || "")}" maxlength="32" spellcheck="false"></label>
         <label>Password <input id="wz-r-pass" type="password" value="${esc(st.wifi?.pass || "")}" maxlength="63"></label>
-        <label>AP address <input id="wz-r-host" class="mono" value="" placeholder="empty: find it on mDNS" maxlength="63" spellcheck="false"></label>
+        <label>AP address <input id="wz-r-host" class="mono" value="${esc(isLinux() ? st.linuxHost || "" : "")}" placeholder="${isLinux() ? "the Linux computer's address" : "empty: find it on mDNS"}" maxlength="63" spellcheck="false"></label>
       </div>
-      <p class="muted">Leave the address empty: the radio finds the AP on the network itself, also when its IP changes.${st.wifi?.ip ? ` If it does not, type the AP's address, <span class="mono">${esc(st.wifi.ip)}</span>.` : ""}</p>
+      ${isLinux() ? `<p class="muted">The address of the computer that runs <span class="mono">openesl-ap --netradio 4553</span>. The Linux AP does not announce itself on the network, so the radio needs it.</p>`
+        : `<p class="muted">Leave the address empty: the radio finds the AP on the network itself, also when its IP changes.${st.wifi?.ip ? ` If it does not, type the AP's address, <span class="mono">${esc(st.wifi.ip)}</span>.` : ""}</p>`}
       <p class="buttons tight"><button type="button" class="primary" id="wz-join" ${busy || !hasSerial() ? "disabled" : ""}>Connect the C6 and send</button>
         <button type="button" class="ghost" data-skip-connect="${i}">Skip</button><span class="hint ${s.status === "error" ? "error" : ""}" role="status">${esc(s.msg)}</span></p>
       ${st.log.length ? `<pre class="wz-log">${st.log.slice(-8).map(esc).join("\n")}</pre>` : ""}
       </div></div>`;
   }
 
+  // The Linux AP: the program is installed and started on the computer, with the radio it was
+  // given (docs/linux-ap.md); the page cannot do that, so it shows how and waits for "Running"
+  function linuxPart(s, i, on) {
+    const head = `<span class="wz-chip linux">Linux</span> <b>Start openesl-ap</b>`;
+    if (s.status === "done") return `<div class="wz-part"><span class="wz-n done">✓</span><div class="wz-grow">${head} <span class="muted">· running</span></div></div>`;
+    if (s.status === "skipped") return `<div class="wz-part"><span class="wz-n done">–</span><div class="wz-grow">${head} <span class="muted">· later</span></div></div>`;
+    if (!on) return `<div class="wz-part dim"><span class="wz-n">${i + 1}</span><div class="wz-grow">${head}</div></div>`;
+    const usb = radio()?.kind === "usb";
+    const own = "openesl-ap --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...";
+    const cmd = usb ? own : own + " --netradio 4553";
+    return `<div class="wz-part on"><span class="wz-n on">${i + 1}</span><div class="wz-grow">${head}
+      <ol class="wz-steps-text">
+        <li>Download <span class="mono">openesl-ap-linux-&lt;arch&gt;</span> from the <a href="https://github.com/mathiasbk/openESL/releases/latest" target="_blank" rel="noopener">latest release</a>: <span class="mono">aarch64</span> for a 64-bit Raspberry Pi, <span class="mono">armv7</span> for 32-bit, <span class="mono">x86_64</span> for a PC.</li>
+        ${usb ? `<li>Plug the C6 into the computer. <span class="mono">ls /dev/serial/by-id/</span> shows its name.</li>`
+          : `<li>The Linux AP needs a radio of its own as well: a C6 on USB (flash it with <b>C6 on USB</b> first) or the 802.15.4 modem of a gateway. Radios over WiFi add to it, each on a channel of its own.</li>`}
+        <li>Start it, or install it as a service (<a href="${LINUX_GUIDE}" target="_blank" rel="noopener">Linux AP guide</a>):<pre class="wz-log">${esc(cmd)}</pre></li>
+        <li>Open <span class="mono">http://&lt;computer&gt;/dashboard</span> with the token it printed (kept in <span class="mono">/var/lib/openesl/token</span>).</li>
+      </ol>
+      ${usb ? "" : `<p class="muted">The radio over WiFi connects to it in the next part.</p>`}
+      <p class="buttons tight"><button type="button" class="primary" data-linux-done="${i}">It is running</button>
+        <button type="button" class="ghost" data-skip-connect="${i}">Skip</button></p>
+      </div></div>`;
+  }
+
   function connectPage() {
     const a = active(st.connect);
-    return `<div class="wz-panel">${st.parts.connect.map((p, i) =>
-      p.kind === "join" ? joinPart(st.connect[i], i, i === a) : wifiPart(st.connect[i], i, i === a)).join("")}</div>`;
+    const part = { join: joinPart, linux: linuxPart, wifi: wifiPart };
+    return `<div class="wz-panel">${st.parts.connect.map((p, i) => part[p.kind](st.connect[i], i, i === a)).join("")}</div>`;
+  }
+
+  function linuxDone() {
+    return `<div class="wz-panel wz-done">
+      <div class="wz-big ok">✓</div>
+      <h2>Your radio is flashed</h2>
+      <p class="muted">${esc(st.card.title)}${radio() ? ` · ${esc(radioName(radio()))}` : ""}${version ? ` · ${esc(version)}` : ""}</p>
+      <p>The dashboard is at <span class="mono">http://&lt;computer&gt;/dashboard</span> while <span class="mono">openesl-ap</span> runs.</p>
+      <p class="buttons wz-center">
+        <a class="button primary" href="${LINUX_GUIDE}" target="_blank" rel="noopener">Linux AP guide</a>
+        <a class="button" href="#tag">Flash a tag</a>
+        <a class="button ghost" href="${HA_GUIDE}">Home Assistant guide</a>
+      </p>
+      <p><button type="button" class="ghost" id="wz-again">Flash another AP</button></p>
+    </div>`;
   }
 
   function donePage() {
+    if (isLinux()) return linuxDone();
     const w = st.wifi;
     const name = w?.hostname ? `http://${w.hostname}.local/` : "";
     const where = w?.ip
@@ -263,6 +316,10 @@ export function initApWizard(info, store) {
       st.connect[Number(b.dataset.skipConnect)].status = "skipped";
       render();
     }));
+    body.querySelectorAll("[data-linux-done]").forEach((b) => b.addEventListener("click", () => {
+      st.connect[Number(b.dataset.linuxDone)].status = "done";
+      render();
+    }));
     body.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy, b)));
     $("wz-connect")?.addEventListener("click", connectAp);
     $("wz-keep-wifi")?.addEventListener("click", () => {
@@ -303,10 +360,10 @@ export function initApWizard(info, store) {
     }
     // a port open on the dashboard, the Set up tab or step 3 of an AP before this one
     if (serialPort() === port) await disconnectSerial().catch(() => {});
-    // the radio on a cable is always erased (its partition table is not the AP's); the radio over
+    // the radio on a cable or USB is always erased (its partition table is not the AP's); the radio over
     // WiFi has NVS where the AP has it, so a C6 that was an AP keeps its WiFi unless asked to erase
     if (erase) s.erase = true;
-    const wipe = !!s.erase || (p.role === "radio" && radio()?.kind === "uart");
+    const wipe = !!s.erase || (p.role === "radio" && radioWiped());
     Object.assign(s, { status: "busy", msg: "Loading firmware ...", frac: 0, code: "", note: "" });
     render();
     const phase = { connect: "Connecting ...", keep: "Keeping WiFi, token, tags and layouts ...", erase: "Erasing ...", write: "Writing ...", reset: "Starting ..." };
@@ -425,7 +482,9 @@ export function initApWizard(info, store) {
   async function join() {
     const s = st.connect[active(st.connect)];
     const cfg = { ssid: $("wz-r-ssid").value, pass: $("wz-r-pass").value, host: $("wz-r-host").value.trim() };
-    const err = checkWifi(cfg.ssid, cfg.pass);
+    if (isLinux()) st.linuxHost = cfg.host;
+    const err = checkWifi(cfg.ssid, cfg.pass) ||
+      (isLinux() && !cfg.host ? "Type the Linux computer's address: the Linux AP does not announce itself on the network." : null);
     if (err) {
       Object.assign(s, { status: "error", msg: err });
       return render();

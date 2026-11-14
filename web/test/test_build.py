@@ -43,24 +43,28 @@ class RadioNames(unittest.TestCase):
     def test_the_page_never_lists_the_linux_radio(self):
         self.assertFalse(any(r.get("host") == "linux" for r in build.ap_radios()))
 
-    def test_add_firmware_leaves_the_usb_radio_out(self):
+    def test_add_firmware_lists_the_usb_radio_apart(self):
         # the order ap/build.py --release gives: the USB radio after the S3's, so a wrong match
-        # would replace the S3's image; with nothing else given, nothing may be listed
+        # would replace the S3's image; it must land in linux_radios only, never in radios or ota
         with tempfile.TemporaryDirectory() as d:
             f = os.path.join(d, "openesl-ap-radio-esp32c6-usb-v0.11.0.bin")
             open(f, "wb").close()
-            dist, build.DIST = build.DIST, d
+            saved = build.DIST, build.split_ap_image
+            build.DIST = d
+            build.split_ap_image = lambda src, out, name: [(name, 0)]   # no real image here
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
                     build.add_firmware(f)
             finally:
-                build.DIST = dist
+                build.DIST, build.split_ap_image = saved
             with open(os.path.join(d, "firmware", "info.json")) as fh:
                 info = json.load(fh)
             self.assertEqual(info["radios"], [])
             self.assertEqual(info["ap_boards"], [])
             self.assertEqual(info["ota"], {})
-
+            self.assertEqual([(r["key"], r["kind"], r["manifest"]) for r in info["linux_radios"]],
+                             [("usb-c6-usb", "usb", "radio-linux-c6-usb-manifest.json")])
+            self.assertTrue(os.path.exists(os.path.join(d, "firmware", "radio-linux-c6-usb-manifest.json")))
 
 if __name__ == "__main__":
     unittest.main()

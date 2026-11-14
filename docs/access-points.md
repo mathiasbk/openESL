@@ -1,6 +1,6 @@
 # Access points
 
-The AP firmware is built for several boards. This page compares them; how to flash an AP is in the [README](../README.md#getting-started). The ESP32-C6 alone is the simple choice and the one tried most; the others give more room for tags. Details per board, and how to add one: [ap/boards/README.md](../ap/boards/README.md).
+The AP firmware is built for several boards, and the AP also runs as a program on a Linux computer ([linux-ap.md](linux-ap.md)). This page compares them; how to flash an AP is in the [README](../README.md#getting-started). The ESP32-C6 alone is the simple choice and the one tried most; the others give more room for tags. Details per board, and how to add one: [ap/boards/README.md](../ap/boards/README.md).
 
 <!-- Photos of each board go here (images/ap-*.jpg) when they are taken. -->
 
@@ -12,15 +12,7 @@ The AP firmware is built for several boards. This page compares them; how to fla
 | **ESP32-S3 N16R8 + ESP32-C6** | ESP32-S3 with 8 MB PSRAM as the AP, a C6 as its radio over UART | 1000 | each chip its own; u.FL with a WROOM-1U | 10 $ + a C6 | supported: tried with a C6 Super Mini and four tags, radio updates over the cable included ([checking the link](ap-radio-link.md#checking-the-link-from-the-c6)) |
 | **ESP32-S3 N16R8 + ESP32-C6 with 0.96" screen** | the same, with the screen board as the radio; the screen shows the AP's status | 1000 | each chip its own; u.FL with a WROOM-1U | 10 $ + a C6 with screen | experimental: tried with a plain C6, not yet with the screen board |
 | **ESP32-S3 N16R8 + wireless ESP32-C6** (`netradio`) | the same two chips, the C6 elsewhere on the WiFi network with no wire to the S3 | not decided | each chip its own | 10 $ + a C6 | experimental, not secure yet (plain TCP): tried on one S3 + C6 with two tags; read the limits in [ap-netradio.md](ap-netradio.md) |
-
-## What each board has
-
-| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 |
-|---|---|---|---|---|
-| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
-| Pictures on the tags (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses |
-
-Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from firmware 0.9.0. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
+| **Linux AP** (`openesl-ap`, [linux-ap.md](linux-ap.md)) | a Raspberry Pi, PC or other Linux computer as the AP, with an ESP32-C6 on USB (radio board `c6-usb`) or a gateway's SPI 802.15.4 modem as its radio, plus up to three wireless C6 radios | 1000 | the C6's own | a C6 | experimental: tried on hardware with a few test tags per radio (C6 on USB, an SPI modem, network radios), not yet for long |
 
 **ESP32-C6.** One small board does WiFi and the tag radio. It is cheap, flashed from the web page, and the board OpenESL is tested on. The C6 has no PSRAM, so its 512 KB of RAM limits it to about 400 tags next to WiFi, measured on hardware: a C6 running 0.9.2 with WiFi, the dashboard and Home Assistant reported its table full at 416 tags. The firmware stops adding tags before WiFi and the web server would run short of RAM, so a full table does not crash the AP or drop tags it already has; a new tag just waits without a slot ([How many tags](../ap/README.md#how-many-tags)). For more tags, use an S3 + C6, or a second AP on another channel. WiFi and the tag radio also take turns on one radio, so API replies can wait a little, and a tag's poll can be missed while WiFi is busy.
 
@@ -34,18 +26,26 @@ Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web 
 
 **ESP32-S3 + wireless ESP32-C6.** A separate setup for when the radio cannot sit next to the S3. Over WiFi the C6 cannot pass frames to the S3 and back in time, so it answers the tags itself from a cache the S3 fills, and the S3 learns afterwards what happened. That has real costs: changes reach the tags up to 10 s later (30 s when the tags keep it busy), the dashboard lags, images and firmware go over WiFi only in pauses and cost tag replies while they do, and every WiFi packet takes the C6's radio from the tags for about 90 ms. Read the limits in [ap-netradio.md](ap-netradio.md) before choosing it; the cable is better whenever it is possible.
 
+**Linux AP.** For a Raspberry Pi, a home server or a PC that runs all the time anyway: `openesl-ap` is the same AP core as a Linux program, with the same API and dashboard, 1000 tags and the Design tab, and its data in files. The tag radio is an ESP32-C6 on a USB port, flashed with the radio board `c6-usb` from the Flash AP tab (**Linux + C6 radio**), or the 802.15.4 modem some Linux ESL gateways have behind an SPI driver. Up to three wireless C6 radios can be added beside it for other rooms (the same network radios and limits as the S3's). WiFi is the computer's, and the AP is updated by replacing the program; the webhook and the data sources are not there yet. Releases from 0.11.0 carry `openesl-ap-linux-<arch>` for armv7, aarch64 and x86_64. Experimental: details and what has been tried in [linux-ap.md](linux-ap.md).
+
 ![Wiring between the ESP32-S3 and the ESP32-C6: GPIO17 to GPIO17, GPIO18 to GPIO16, GND, and 5V only when the C6 has no USB cable](images/ap-s3-c6-wiring.svg)
 
 How the S3 and the C6 talk, and how to flash the C6: [ap-radio-link.md](ap-radio-link.md).
 
 ## What each board has
 
-| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 |
-|---|---|---|---|---|
-| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes |
-| Settings page: poll interval, webhook, name, WiFi, API token | yes | yes | yes | yes |
-| Settings page: time zone and NTP server | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer |
-| Backup and restore from the dashboard | yes | yes | yes | yes |
-| Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes |
+| | C6 / C6 with screen | C5 | S3 + C6 (cable, with or without screen) | S3 + wireless C6 | Linux AP |
+|---|---|---|---|---|---|
+| Dashboard on the AP (`/dashboard`) | yes | yes | yes | yes | yes |
+| Pictures on the tags (Dashboard, Send, "A picture") | yes | yes | yes | yes, slower: over WiFi in pauses | yes |
+| Settings page: poll interval, name, API token | yes | yes | yes | yes | yes |
+| Settings page: WiFi and webhook | yes | yes | yes | yes | no: the host's network (`/api/wifi` 404); no webhook yet |
+| Settings page: time zone and NTP server | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | yes, firmware 0.9.0 or newer | time zone; the clock is the host's |
+| Backup and restore from the dashboard | yes | yes | yes | yes | yes, or a copy of the data directory |
+| Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes | yes (when built with the renderer, as the releases are) |
+| Data sources (`/api/sources`) | no | yes | yes | yes | not yet |
+| Updates of the AP | OTA | OTA | OTA | OTA | replace the binary |
+
+Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from firmware 0.9.0. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
 
 The dashboard, with its Settings page and backup, also works from the web page's Dashboard tab over USB or the bridge in `tools/esl-client`, for every board. The time zone and NTP server need AP firmware 0.9.0 or newer (`tz` and `ntp` in `PUT /api/config`); on older firmware the Settings page says so, and the rest works. A backup from an AP with older firmware restores on a new one and the other way round, the time zone left out where the AP has none.
