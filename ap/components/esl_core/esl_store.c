@@ -201,13 +201,25 @@ bool esl_hours_valid(const esl_hours_t *h)
 
 /* The night interval instead of v (a tag's own, not 0) when it is longer, it is night at
    unix_s and the tag then wakes before the night ends */
+/* Seconds from sod (seconds since local midnight) to the next minute m of the day */
+static uint32_t secs_to(uint32_t sod, uint16_t m)
+{
+    uint32_t t = (uint32_t)m * 60;
+    return t > sod ? t - sod : t + 86400 - sod;
+}
+
 static uint16_t night_poll(const esl_store_t *st, uint16_t v, uint32_t unix_s)
 {
     const esl_hours_t *h = &st->hours;
     if (v >= h->night_poll_s || !esl_hours_night_now(h, unix_s))
         return v;
-    uint32_t sod = local_sod(unix_s), end = (uint32_t)h->night_to * 60;
-    uint32_t left = end > sod ? end - sod : end + 86400 - sod;
+    /* an update window in the night: open now, the tags keep their own interval in it;
+       later in the night, they are back on it when it opens, so every tag polls in it */
+    if (h->window && !esl_hours_window_closed(h, unix_s))
+        return v;
+    uint32_t sod = local_sod(unix_s), left = secs_to(sod, h->night_to);
+    if (h->window && secs_to(sod, h->window_from) < left)
+        left = secs_to(sod, h->window_from);
     return h->night_poll_s <= left ? h->night_poll_s : v;
 }
 
@@ -1189,6 +1201,10 @@ static uint64_t tag_poll_ms(const esl_store_t *st, const esl_tag_t *t)
         s = ESL_TAG_BUILTIN_POLL_S;
     if (st->hours.night_poll_s > s)
         s = st->hours.night_poll_s;
+    /* told a night interval that may be longer than the one set now (night mode turned
+       off or shortened since): it may still sleep that long */
+    if (t->night_told && s < ESL_NIGHT_POLL_MAX_S)
+        s = ESL_NIGHT_POLL_MAX_S;
     return (uint64_t)s * 1000;
 }
 

@@ -29,13 +29,13 @@ export function lastCheckin(tag, now = Date.now()) {
   return { text: `${fmtAgo(tag.seen_s_ago)} ago`, at: fmtClock(-tag.seen_s_ago, now) };
 }
 
-// When the tag should poll next: its last poll plus the interval the AP gives it (poll_s,
-// or the tag's own when null). The AP may tell it to come sooner when scheduled content is
+// When the tag should poll next: its last poll plus the interval the AP gave it (expect_s
+// in night mode, else poll_s, or the tag's own when null). The AP may tell it to come sooner when scheduled content is
 // due, so this is the latest it is expected. { left_s, late, text, at }, null when never seen
 export const CHECKIN_GRACE_S = 15; // radio retries and clock drift: not late yet
 export function nextCheckin(tag, now = Date.now()) {
   if (tag.seen_s_ago == null) return null;
-  const left = (tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
+  const left = (tag.expect_s || tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
   const at = fmtClock(left, now);
   if (left >= 0) return { left_s: left, late: false, text: `in ${fmtAgo(left)}`, at };
   if (-left <= CHECKIN_GRACE_S) return { left_s: left, late: false, text: "any moment now", at };

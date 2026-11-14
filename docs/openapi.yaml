@@ -2108,6 +2108,7 @@ components:
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
         shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
+        expect_s: { type: integer, minimum: 0, maximum: 3600, description: "Only while night mode is set: how long the tag may sleep after its last poll, the night interval when it was told that (see `night` in ApConfig)" }
         poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
         config: { $ref: "#/components/schemas/TagCfg" }
         radio: { type: integer, minimum: 0, maximum: 3, description: "The radio over WiFi that serves it (`radio` in `radios`), 0 also when none has heard it since the AP started; only when the AP knows more than one radio" }

@@ -539,6 +539,14 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     esl_sb_printf(out, "\"pending\":%s,", esl_tag_pending(t) ? "true" : "false");
     if (api_several_radios(api))
         esl_sb_printf(out, "\"radio\":%u,", (unsigned)t->radio);
+    /* in night mode (#415): the longest it may sleep after its last poll, which can be the
+       night interval rather than poll_s (the dashboard's next check-in) */
+    esl_hours_t hours;
+    esl_store_get_hours(api->store, &hours);
+    if (hours.night_poll_s) {
+        uint16_t e = esl_store_tag_expect_s(api->store, t->mac);
+        esl_sb_printf(out, "\"expect_s\":%u,", (unsigned)(e ? e : ESL_TAG_BUILTIN_POLL_S));
+    }
     write_tag_cfg(out, t, ap);
 
     esl_sb_puts(out, ",\"content_error\":");

@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TZ_PRESETS, tzForZone, checkTz, checkNtp, checkWebhook, clockSkew, currentSettings, settingsChanges, configBody,
-  spanText, spanBody, readSpan } from "../js/apsettings.js";
+  spanText, spanBody, readSpan, windowWarning } from "../js/apsettings.js";
 
 test("every preset time zone is one the AP takes", () => {
   for (const [tz] of TZ_PRESETS) assert.equal(checkTz(tz), null, tz);
@@ -104,4 +104,11 @@ test("night mode and update window go to the AP as it takes them (#415)", () => 
   assert.equal(readSpan(true, "22:00", "06:00", "Night mode", 900), "22:00-06:00/900");
   assert.ok(readSpan(true, "08:00", "08:00", "Update window").error);
   assert.ok(readSpan(true, "", "08:00", "Update window").error);
+});
+
+test("windowWarning: a window shorter than the poll interval", () => {
+  assert.equal(windowWarning("", 600), "");
+  assert.equal(windowWarning("06:00-08:00", 600), "");
+  assert.match(windowWarning("06:00-06:05", 600), /shorter than the poll interval \(10 min\)/);
+  assert.equal(windowWarning("23:59-00:01", 0), ""); // over midnight, the tags' own 60 s
 });

@@ -79,6 +79,15 @@ export function spanBody(text) {
   if (!m) return null;
   return m[3] ? { from: m[1], to: m[2], poll_s: Number(m[3]) } : { from: m[1], to: m[2] };
 }
+// A window shorter than the tags' poll interval (pollS, 0: the tags' own 60 s) is missed by
+// some tags every day: a hint to show, "" when it is long enough
+export function windowWarning(text, pollS) {
+  const w = spanBody(text);
+  if (!w) return "";
+  const min = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const len = ((min(w.to) - min(w.from) + 1440) % 1440) * 60, poll = pollS || TAG_BUILTIN_POLL_S;
+  return len < poll ? `The window is shorter than the poll interval (${fmtInterval(poll)}): some tags will miss it each day.` : "";
+}
 // The fields to that text, or { error }: on needs two times that differ
 export function readSpan(on, from, to, what, pollS) {
   if (!on) return "";
@@ -365,6 +374,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         : "Night mode is off: the tags are back on their interval at their next poll.");
       if ("update_window" in c) said.push(c.update_window ? "New content waits for the window; tags that show nothing yet get theirs at once."
         : "No update window: new content goes out at the next poll.");
+      const warn = windowWarning(c.update_window, last.list.ap.poll_s);
+      if (warn) said.push(warn);
       return "Saved. " + said.join(" ");
     },
   });

@@ -1344,6 +1344,10 @@ static void test_hours_config(void)
     hours_clock = 1767225600u + 23 * 3600;
     CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"night_now\":true,\"update_window_open\":false"));
+    /* the tag list says how long each tag may sleep now (the dashboard's next check-in) */
+    poll_as_tag(0x4150, 0, 1000);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 2000), 200);
+    CHECK(HAS(resp, "\"expect_s\":1800,\"poll_s\":300"));
     hours_clock = 1767225600u + 7 * 3600;
     CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"night_now\":false,\"update_window_open\":true"));
@@ -1378,6 +1382,8 @@ static void test_hours_config(void)
     CHECK(HAS(resp, "\"night\":null,\"update_window\":{"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"update_window\":null}", 0), 200);
     CHECK(HAS(resp, "\"night\":null,\"update_window\":null,"));
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 3000), 200);
+    CHECK(!HAS(resp, "expect_s")); /* without night mode, as before */
 
     esl_store_free(&st);
     esl_store_init(&st, CAP, NULL, 0);

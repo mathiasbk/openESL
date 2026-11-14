@@ -252,6 +252,52 @@ static void test_store_hours(void)
     g.clock = 0;
     CHECK(!esl_store_image_held(&st, 1234)); /* time unknown */
 
+    /* a window inside the night is reached by every tag: a tag told the night interval
+       at 22:05 is on its own interval when the window opens (review of #442) */
+    const esl_hours_t keep = h;
+    const int saved0 = hours_saved, erased0 = hours_erased;
+    esl_store_set_next_poll(&st, 600);
+    h.night_from = 22 * 60;
+    h.night_to = 6 * 60;
+    h.night_poll_s = 3600;
+    h.window_from = 3 * 60 + 15;
+    h.window_to = 3 * 60 + 45;
+    esl_store_set_hours(&st, &h);
+    for (uint32_t start = 0; start < 600; start += 50) {
+        uint32_t t = AT(22, 0) + start;
+        bool hit = false;
+        for (int i = 0; i < 100 && t < AT(3, 45) + 86400; i++) {
+            g.clock = t;
+            poll(&st, 0xD4, 0, 20000 + i, reply);
+            uint32_t sod = (t + 3600) % 86400;
+            hit = hit || (sod >= 3 * 3600 + 15 * 60 && sod < 3 * 3600 + 45 * 60);
+            t += reply_next(reply);
+        }
+        CHECK(hit);
+    }
+    g.clock = AT(3, 20); /* in the window: its own interval */
+    poll(&st, 0xD4, 0, 30000, reply);
+    CHECK_INT(reply_next(reply), 600);
+    g.clock = AT(2, 30); /* 45 min to the window: its own */
+    poll(&st, 0xD4, 0, 31000, reply);
+    CHECK_INT(reply_next(reply), 600);
+    g.clock = AT(2, 15); /* exactly an hour: the night interval */
+    poll(&st, 0xD4, 0, 32000, reply);
+    CHECK_INT(reply_next(reply), 3600);
+
+    /* a channel move just after night mode is turned off waits for a tag that may still
+       sleep the night interval (review of #442) */
+    esl_store_set_hours(&st, NULL);
+    esl_store_move_channel(&st, 20, false, false, 33000);
+    esl_channel_state_t cs;
+    esl_store_channel_state(&st, 33000, &cs);
+    CHECK(cs.due_s >= 2 * ESL_NIGHT_POLL_MAX_S);
+    esl_store_move_channel(&st, cs.channel, false, false, 33000); /* called off */
+    h = keep;
+    esl_store_set_hours(&st, &h);
+    hours_saved = saved0;
+    hours_erased = erased0;
+
     /* stored form */
     uint8_t blob[ESL_HOURS_LEN];
     CHECK_INT(esl_hours_encode(&h, blob), ESL_HOURS_LEN);
