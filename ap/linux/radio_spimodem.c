@@ -256,7 +256,15 @@ static int sm_set_channel(esl_link_t *l, uint8_t channel)
     int err = cmd(0x8B, off, 1);
     usleep(100000);
     tx_status(); /* receive off is answered with a status too */
-    return err || setup(sm.pan, sm.short_addr, sm.start_promisc) ? -1 : 0;
+    /* the store has already kept the new channel, so a set-up that fails here would leave the
+       modem deaf until a restart: try it a few times */
+    for (int tries = 1; tries <= 3; tries++) {
+        if (!setup(sm.pan, sm.short_addr, sm.start_promisc))
+            return err ? -1 : 0;
+        ap_log("spi-modem: set-up on channel %u failed (try %d of 3)", channel, tries);
+        usleep(200000);
+    }
+    return -1;
 }
 
 /* At a stop the receive thread may wait in read() until the modem hears something, and that
