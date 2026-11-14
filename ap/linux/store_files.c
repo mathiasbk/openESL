@@ -3,7 +3,7 @@
  *
  *   content/<slot>  cfg/<slot>  seen/<slot>  image/<slot>  sched/<slot>
  *   layout/<model>  font/<slot>  tagfw/<model>.bin  tagfw/<model>.to
- *   next_poll  channel  ap_id
+ *   next_poll  channel  ap_id  hours
  *
  * Every file is written whole to a temporary name of its own, synced, renamed over the old
  * one and the directory synced, so a power cut leaves the old file or the new one, never
@@ -216,6 +216,18 @@ static void next_poll_save(void *ctx, const uint16_t *next_poll_s)
     } else {
         erase_file(p);
     }
+}
+
+static void hours_save(void *ctx, const esl_hours_t *h)
+{
+    char p[560];
+    uint8_t b[ESL_HOURS_LEN];
+    (void)ctx;
+    path_of(p, sizeof(p), NULL, 0, "hours");
+    if (h)
+        write_file(p, b, esl_hours_encode(h, b));
+    else
+        erase_file(p);
 }
 
 static void channel_save(void *ctx, uint8_t channel, uint8_t next)
@@ -592,7 +604,7 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
         .persist_save = content_save, .persist_erase = content_erase, .persist_cfg = cfg_save,
         .persist_next_poll = next_poll_save, .persist_seen = seen_save, .unix_now = unix_now,
         .load_content = content_load, .persist_image = image_save, .load_image = image_load,
-        .persist_channel = channel_save,
+        .persist_channel = channel_save, .persist_hours = hours_save,
     };
     static const esl_layout_ops_t lops = {
         .lock = store_lock, .unlock = store_unlock,
@@ -627,6 +639,12 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
     path_of(p, sizeof(p), NULL, 0, "next_poll");
     if (read_file(p, buf, 2) == 2)
         esl_store_restore_next_poll(&ap.store, (uint16_t)(buf[0] | buf[1] << 8));
+    path_of(p, sizeof(p), NULL, 0, "hours");
+    {
+        esl_hours_t h;
+        if ((n = read_file(p, buf, sizeof(buf))) > 0 && esl_hours_decode(buf, (size_t)n, &h))
+            esl_store_restore_hours(&ap.store, &h);
+    }
     unsigned tags = 0;
     for (unsigned slot = 0; slot < max_tags; slot++) {
         uint64_t mac;

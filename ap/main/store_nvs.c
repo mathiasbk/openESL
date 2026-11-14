@@ -249,6 +249,25 @@ static void persist_next_poll(void *ctx, const uint16_t *next_poll_s)
         ESP_LOGE(TAG, "saving cfg/poll_s failed: %s", esp_err_to_name(err));
 }
 
+/* cfg/hours: night mode and update window (#415, esl_hours_encode); none = both off */
+static void persist_hours(void *ctx, const esl_hours_t *hours)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    uint8_t blob[ESL_HOURS_LEN];
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = hours ? nvs_set_blob(h, "hours", blob, esl_hours_encode(hours, blob)) : nvs_erase_key(h, "hours");
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/hours failed: %s", esp_err_to_name(err));
+}
+
 /* cfg/channel is the radio's channel (none = menuconfig's), cfg/ch_next a move announced
    to the tags (esl_store_restore_channel announces it again after a restart) */
 static esp_err_t set_or_erase_u8(nvs_handle_t h, const char *key, uint8_t v)
@@ -698,7 +717,8 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
                                         persist_next_poll, persist_seen, unix_now, load_content, table_alloc,
-                                        save_lock, save_unlock, persist_image, load_image, persist_channel};
+                                        save_lock, save_unlock, persist_image, load_image, persist_channel,
+                                        persist_hours};
     mutex = xSemaphoreCreateMutex();
     save_mutex = xSemaphoreCreateMutex();
     if (!mutex || !save_mutex)
@@ -716,6 +736,14 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
         if (nvs_get_u16(h, "poll_s", &v) == ESP_OK) {
             esl_store_restore_next_poll(st, v);
             ESP_LOGI(TAG, "default poll interval %u s (from NVS)", (unsigned)v);
+        }
+        uint8_t hb[ESL_HOURS_LEN];
+        size_t hl = sizeof(hb);
+        esl_hours_t hours;
+        if (nvs_get_blob(h, "hours", hb, &hl) == ESP_OK && esl_hours_decode(hb, hl, &hours)) {
+            esl_store_restore_hours(st, &hours);
+            ESP_LOGI(TAG, "night mode %s, update window %s (from NVS)", hours.night_poll_s ? "on" : "off",
+                     hours.window ? "on" : "off");
         }
         if (nvs_get_u8(h, "channel", &ch) != ESP_OK || ch < ESL_CHANNEL_MIN || ch > ESL_CHANNEL_MAX)
             ch = 0;

@@ -131,7 +131,8 @@ export class DemoAp {
     const t0 = now();
     this.startedAt = t0 - (3 * 86400 + 4 * 3600 + 17 * 60) * 1000;    // up for three days
     this.config = { poll_s: DEMO_POLL_S, builtin_poll_s: 0, webhook: null, channel: 25, builtin_channel: 25, channel_next: null,
-                    channel_old_tags: 0, channel_unheard_tags: 0, channel_radio_old: false, channel_stopped: 0 };
+                    channel_old_tags: 0, channel_unheard_tags: 0, channel_radio_old: false, channel_stopped: 0,
+                    night: null, update_window: null, night_now: false, update_window_open: true };
     this.files = {};          // model -> the layout file as uploaded (only models that own a file)
     this.renderers = {};      // model -> Promise of its renderer
     this.schedule = [];       // [{ mac, at, body }], sorted by at
@@ -369,6 +370,16 @@ export class DemoAp {
       this.config.poll_s = v;
     }
     if ("webhook" in body) this.config.webhook = body.webhook || null;
+    // night mode and update window (#415): kept and shown, not acted on (the demo's tags never sleep)
+    const hhmm = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+    for (const k of ["night", "update_window"]) {
+      if (!(k in body)) continue;
+      const v = body[k];
+      if (v !== null && (!v || !hhmm(v.from) || !hhmm(v.to) || v.from === v.to ||
+          (k === "night" && (!Number.isInteger(v.poll_s) || v.poll_s < 60 || v.poll_s > 3600))))
+        fail(422, `${k} must be null or {from, to${k === "night" ? ", poll_s" : ""}}`);
+      this.config[k] = v && (k === "night" ? { from: v.from, to: v.to, poll_s: v.poll_s } : { from: v.from, to: v.to });
+    }
     return { ...this.config };
   }
 

@@ -120,7 +120,13 @@ static size_t handle(esl_store_t *st, esl_layouts_t *ls, uint16_t pan, const uin
          * another one (id 0 still notes a refusal, ESL_POLL_F_DRAWFAIL) */
         bool offered = false;
         if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images && replay) {
-            offered = esl_store_image_offer(st, f.src_mac, &poll, known_image(st, ls, f.src_mac));
+            /* as the radio was told (esl_rhost): nothing outside the update window */
+            offered = esl_store_image_offer(st, f.src_mac, &poll,
+                                            esl_store_image_held(st, poll.content_id) ? 0 : known_image(st, ls, f.src_mac));
+        } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images &&
+                   esl_store_image_held(st, poll.content_id)) {
+            /* outside the update window (#415): it keeps what it shows; id 0 still notes a refusal */
+            esl_store_image_offer(st, f.src_mac, &poll, 0);
         } else if (reply[ESL_OFF_TYPE] == ESL_MSG_IDLE && (poll.flags & ESL_POLL_F_IMAGE) && images) {
             bool busy;
             uint16_t next = esl_store_tag_poll_s(st, f.src_mac);

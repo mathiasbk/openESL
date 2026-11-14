@@ -180,6 +180,10 @@ static bool image_id(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, uint32
     *id = 0;
     if (!t->image_capable || !t->has_content || t->content_err || !t->model || !h->im)
         return true;
+    /* outside the update window (#415) a tag that shows a picture keeps it: none to offer
+       (and none drawn), so the radio answers IDLE until the window opens */
+    if (esl_store_image_held(h->st, t->shown_content_id))
+        return true;
     if (t->image_id && t->image_layout_ver == esl_layouts_image_ver(h->ls, t->model, t->layout_hash)) {
         *id = t->image_id;
         return true;

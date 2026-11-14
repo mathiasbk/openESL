@@ -132,6 +132,9 @@ test("last and next check-in", () => {
   assert.deepEqual([n.text, n.at], ["in 45 s", fmtClock(45, now)]);
   assert.equal(nextCheckin(tag("A", { seen_s_ago: 100, poll_s: 300 }), now).left_s, 200);
   assert.equal(nextCheckin(tag("A", { seen_s_ago: 70 }), now).text, "any moment now");
+  // night mode: the AP told it a longer interval (expect_s), so not late
+  const night = nextCheckin(tag("A", { seen_s_ago: 1200, poll_s: 300, expect_s: 3600 }), now);
+  assert.deepEqual([night.left_s, night.late], [2400, false]);
   const late = nextCheckin(tag("A", { seen_s_ago: 245 }), now);
   assert.deepEqual([late.late, late.text], [true, "3 min late"]);
   // another day: the date too

@@ -173,6 +173,55 @@ static void set_price(uint64_t mac, const char *name, const char *p)
     CHECK_INT(esl_store_set(&st, mac, &c, &r), ESL_STORE_OK);
 }
 
+/* Night mode and update window (#415) through a radio on WiFi: the radio is told the
+   night interval for each tag, and no new picture outside the window */
+static uint32_t rh_clock;
+static uint32_t rh_now(void *ctx)
+{
+    (void)ctx;
+    return rh_clock;
+}
+
+static void test_rhost_hours(void)
+{
+    static const esl_store_ops_t ops = {.unix_now = rh_now};
+    esl_faketag_t a;
+    boot();
+    esl_store_free(&st);
+    esl_store_init(&st, TAGS, &ops, 300);
+    esl_clock_set_utc_offset(0);
+    esl_hours_t h = {22 * 60, 6 * 60, 1800, 6 * 60, 8 * 60, true};
+    esl_store_set_hours(&st, &h);
+    rh_clock = 1767225600u + 12 * 3600; /* 12:00 */
+    esl_faketag_init(&a, 0xA7, 1, 2900, ESL_MODEL_29);
+    CHECK_INT(wake(&a, 1000), ESL_MSG_IDLE);
+    set_price(0xA7, "Melk", "24,90");
+    sync_at(2000);
+    CHECK_INT(wake(&a, 3000), ESL_MSG_CONFIG); /* the default interval first */
+    sync_at(3500);
+    CHECK_INT(wake(&a, 3600), ESL_MSG_IMG); /* its first picture: not held */
+    uint32_t first = a.shown;
+    CHECK(first != 0);
+    CHECK_INT(a.interval_s, 300);
+    CHECK_INT(wake(&a, 4000), ESL_MSG_IDLE); /* the host learns what it shows */
+    sync_at(4500);
+    set_price(0xA7, "Melk", "19,90");
+    sync_at(5000);
+    CHECK_INT(wake(&a, 6000), ESL_MSG_IDLE); /* outside the window: kept */
+    CHECK_INT(a.shown, first);
+    rh_clock = 1767225600u + 23 * 3600; /* night */
+    sync_at(7000);
+    CHECK_INT(wake(&a, 8000), ESL_MSG_IDLE);
+    CHECK_INT(a.interval_s, 1800);
+    rh_clock = 1767225600u + 86400 + 6 * 3600 + 30 * 60; /* 06:30 the next day: open, day */
+    sync_at(9000);
+    CHECK_INT(wake(&a, 10000), ESL_MSG_IMG);
+    CHECK(a.shown != first && a.shown != 0);
+    CHECK_INT(a.interval_s, 300);
+    esl_store_free(&st);
+    esl_store_init(&st, TAGS, NULL, 0);
+}
+
 static void test_rhost_content(void)
 {
     esl_faketag_t a;
@@ -758,6 +807,7 @@ void test_rhost(void)
     test_rhost_pick_channel();
     test_rhost_clock_unknown();
     test_rhost_content();
+    test_rhost_hours();
     test_rhost_unfit();
     test_rhost_many();
     test_rhost_refused_fw();

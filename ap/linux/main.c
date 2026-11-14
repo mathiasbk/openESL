@@ -13,6 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "ap.h"
+#include "esl_clock.h"
 #include "esl_radio.h"
 
 #ifndef OPENESL_VERSION
@@ -294,6 +295,19 @@ static void sync_clock(void)
         esl_sched_set_time(&ap.sched, (uint32_t)now, ap_now_ms(), ESL_TIME_NTP);
 }
 
+/* The host's time zone (TZ, /etc/localtime) for night mode and the update window (#415), and
+   today's date for the date fields in layouts, as ap/main/sched.c on the C6 */
+static void local_clock(void)
+{
+    time_t now = time(NULL);
+    struct tm l;
+    if (!localtime_r(&now, &l))
+        return;
+    esl_clock_set_utc_offset((int32_t)l.tm_gmtoff);
+    uint32_t t = esl_sched_now(&ap.sched, ap_now_ms(), NULL);
+    esl_clock_set_today(t ? (int32_t)(((int64_t)t + l.tm_gmtoff) / 86400) : -1);
+}
+
 static void on_signal(int sig)
 {
     (void)sig;
@@ -341,6 +355,7 @@ static int radio_loop(const radio_backend_t *b)
         }
         if (now - last_tick >= 1000) {
             last_tick = now;
+            local_clock();
             esl_sched_tick(&ap.sched, &ap.store, now);
             uint8_t ch = esl_store_channel_step(&ap.store, now);
             if (ch) {

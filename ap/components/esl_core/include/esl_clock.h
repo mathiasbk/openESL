@@ -47,6 +47,12 @@ void esl_clock_set_today(int32_t days);
 /* False while it is unknown */
 bool esl_clock_today(int32_t *days);
 
+/* The local time's offset from UTC in seconds (UTC + offset = local), set from outside as
+ * today is (main/sched.c on the AP, every second, so it follows daylight saving time).
+ * 0 until set: UTC. The night mode and update window (esl_store_set_hours) use it. */
+void esl_clock_set_utc_offset(int32_t s);
+int32_t esl_clock_utc_offset(void);
+
 /* The language of {weekday} and {date}: "lang" in GET/PUT /api/config, set from outside as
  * today is (main/sched.c on the AP, web_set_lang on the web page). English until set. */
 #define ESL_LANG_EN 0 /* Thursday, 29 October 2026 */

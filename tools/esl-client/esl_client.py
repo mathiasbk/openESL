@@ -881,7 +881,26 @@ def print_config(c):
             line += f", adopting the lost tags of {who}{until}"
     if "lang" in c:  # 0.11.0 and later: the language of the date fields, None until chosen
         line += {"nb": ", dates in Norwegian", "en": ", dates in English"}.get(c["lang"], ", date language not chosen (English)")
+    if "night" in c:  # 0.11.0 and later (#415)
+        n, w = c.get("night"), c.get("update_window")
+        line += (f", night mode {n['from']}-{n['to']} every {n['poll_s']} s" + (" (now)" if c.get("night_now") else "")
+                 if n else ", no night mode")
+        line += (f", update window {w['from']}-{w['to']}" + ("" if c.get("update_window_open") else " (closed now)")
+                 if w else ", no update window")
     print(line)
+
+
+def parse_span(s, what, with_poll=False):
+    """"22:00-06:00" (and "/1800" for the night interval) to {"from", "to"[, "poll_s"]}; "" or "off" = None."""
+    if s in ("", "off", "null"):
+        return None
+    m = re.fullmatch(r"(\d\d:\d\d)-(\d\d:\d\d)" + (r"/(\d+)" if with_poll else ""), s)
+    if not m:
+        raise ValueError(f"{what} must be HH:MM-HH:MM" + ("/seconds" if with_poll else "") + ' or "off"')
+    out = {"from": m.group(1), "to": m.group(2)}
+    if with_poll:
+        out["poll_s"] = int(m.group(3))
+    return out
 
 
 def print_ota(o):
@@ -1673,6 +1692,9 @@ def backup_config(cfg):
         out["ntp"] = None if cfg.get("ntp") == cfg.get("builtin_ntp") else cfg.get("ntp")
     if "lang" in cfg:  # 0.11.0 and later
         out["lang"] = cfg["lang"]
+    for k in ("night", "update_window"):  # 0.11.0 and later (#415)
+        if k in cfg:
+            out[k] = cfg[k]
     return out
 
 
@@ -1838,6 +1860,15 @@ def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
             if e.status != 422:
                 raise
             lines.append("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)")
+    hours = {k: cfg[k] for k in ("night", "update_window") if k in cfg}
+    if any(hours.values()) or hours and "night" in cli.config():
+        try:
+            cli.set_config(**hours)
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: night mode and the update window were not restored; this AP's firmware has neither "
+                         "(0.11.0 and later)")
     if ap_id:
         cur = cli.config()
         if "ap_id" not in cur:
@@ -1994,7 +2025,8 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone and NTP server")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone, "
+                                     "NTP server, night mode and update window")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
     s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
@@ -2011,6 +2043,10 @@ def main(argv=None):
     s.add_argument("--ap-id", help="set this AP's id (8 hex digits); its own tags carry the old one, which is then adopted")
     s.add_argument("--lang", choices=["en", "nb", ""],
                    help="language of the date fields {weekday} and {date}: en or nb; \"\" = English (AP 0.11.0 and later)")
+    s.add_argument("--night", help="night mode: tags poll at most this often in the night, in the AP's time zone, "
+                                   "e.g. 22:00-06:00/1800 (60 to 3600 s); \"off\" ends it (AP 0.11.0 and later)")
+    s.add_argument("--update-window", help="new content reaches tags that show a picture only in this daily window, "
+                                           "e.g. 06:00-08:00; \"off\" ends it (AP 0.11.0 and later)")
 
     s = sub.add_parser("remote", help="the SoluM remote as a button: its last presses, and listen and its webhook "
                                       "(docs/solum-remote.md); --watch prints each press as it comes")
@@ -2192,6 +2228,13 @@ def main(argv=None):
                 kw["adopt"] = None if args.adopt in ("null", "") else args.adopt
             if args.ap_id is not None:
                 kw["ap_id"] = args.ap_id
+            try:
+                if args.night is not None:
+                    kw["night"] = parse_span(args.night, "--night", with_poll=True)
+                if args.update_window is not None:
+                    kw["update_window"] = parse_span(args.update_window, "--update-window")
+            except ValueError as e:
+                p.error(str(e))
             print_config(cli.set_config(**kw) if kw else cli.config())
         elif args.cmd == "remote":
             kw = {}

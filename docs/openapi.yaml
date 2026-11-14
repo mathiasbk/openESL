@@ -770,7 +770,7 @@ paths:
         left out keeps its value; at least one must be there. All are stored in NVS
         (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
         `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/ap_id`, `cfg/prev_id`,
-        `cfg/prev_end`, `cfg/adopt_end` and `cfg/adopt_id`). An AP that restarts during a move comes up on the old channel and waits
+        `cfg/prev_end`, `cfg/adopt_end`, `cfg/adopt_id` and `cfg/hours`). An AP that restarts during a move comes up on the old channel and waits
         for the tags again. `ap_id` and `adopt` (#390): see "AP id" in docs/protocol.md.
       requestBody:
         required: true
@@ -808,6 +808,15 @@ paths:
               clock:
                 summary: Norwegian time and dates, from a Norwegian NTP server
                 value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3", lang: nb }
+              night:
+                summary: Tags check every 30 minutes from 22:00 to 06:00, local time
+                value: { night: { from: "22:00", to: "06:00", poll_s: 1800 } }
+              update-window:
+                summary: New prices reach the tags only from 06:00 to 08:00, before opening
+                value: { update_window: { from: "06:00", to: "08:00" } }
+              hours-off:
+                summary: No night mode and no update window
+                value: { night: null, update_window: null }
       responses:
         "200":
           description: The new default
@@ -2099,6 +2108,7 @@ components:
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
         shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
+        expect_s: { type: integer, minimum: 0, maximum: 3600, description: "Only while night mode is set: how long the tag may sleep after its last poll, the night interval when it was told that (see `night` in ApConfig)" }
         poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
         config: { $ref: "#/components/schemas/TagCfg" }
         radio: { type: integer, minimum: 0, maximum: 3, description: "The radio over WiFi that serves it (`radio` in `radios`), 0 also when none has heard it since the AP started; only when the AP knows more than one radio" }
@@ -2381,6 +2391,45 @@ components:
             (`adopt_until`). `null` = off. Not this AP's own id (422). A new AP (an empty table
             and a new id) starts with `all`. From AP firmware 0.11.0; an older AP answers 422.
 
+        night:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to, poll_s]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+            poll_s: { type: integer, minimum: 60, maximum: 3600 }
+          description: |
+            Night mode (#415): from `from` to `to` in the AP's local time (`tz`; a night that ends
+            before it starts runs over midnight), a tag that polls is told to come back after
+            `poll_s` instead of its own interval, when that is longer and the tag then wakes
+            before the night ends; else it gets its own interval. So the tags are all back on
+            their interval by the end of the night, as spread out as before, and scheduled content
+            due in the night still gets its early poll. Through the `next_poll_s` of the reply,
+            which every tag firmware follows: nothing to update on the tags. While it is set, a tag
+            without an interval of its own is told 60 s (the tags' built-in one) rather than 0.
+            Applies only while the AP knows the time. `from` and `to` must differ. `null` = off.
+            From AP firmware 0.11.0; an older AP, or one without a clock, answers 422.
+        update_window:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+          description: |
+            Update window (#415): a daily window in the AP's local time in which new content goes
+            out. Outside it, a tag that shows a picture from the AP keeps it (`pending` stays true)
+            and gets the new one at its first poll in the window; a tag that shows nothing from the
+            AP yet gets its first picture at once. Settings (CONFIG) and tag firmware are not held.
+            Applies only while the AP knows the time. `from` and `to` must differ. `null` = off.
+            From AP firmware 0.11.0; an older AP, or one without a clock, answers 422.
+
+    LocalTime:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: A time of day in the AP's time zone, HH:MM
+
     ApConfigReply:
       type: object
       additionalProperties: false
@@ -2408,6 +2457,25 @@ components:
         prev_ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id before the last change, still answered as its own for 14 days after it; null = none" }
         adopt: { type: [string, "null"], pattern: "^([0-9A-F]{8}|all)$", description: "The AP whose lost tags this one takes over, `all` for any, null = none" }
         adopt_until: { type: [integer, "null"], minimum: 0, description: "With adopt: when it ends (Unix seconds); null while the AP does not know the time yet (the 14 days start then)" }
+        night:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to, poll_s]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+            poll_s: { type: integer, minimum: 60, maximum: 3600 }
+          description: "Night mode, null when off (#415). Left out by an AP from before 0.11.0 and by one without a clock"
+        update_window:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+          description: "The update window, null when off (#415)"
+        night_now: { type: boolean, description: "With night: it is night now (false while the AP does not know the time)" }
+        update_window_open: { type: boolean, description: "With update_window: new content goes out now (true without a window, and while the AP does not know the time)" }
 
     Health:
       type: object

@@ -20,7 +20,7 @@ static uint16_t query_u16(const char *uri, const char *key)
 /* The ESL_HEALTH_* flags of one tag in the table. */
 static uint8_t tag_health(const esl_api_t *api, const esl_tag_t *t, uint64_t now_ms, const esl_health_cfg_t *cfg)
 {
-    return esl_health_flags(t, esl_store_tag_poll_s(api->store, t->mac), now_ms, cfg);
+    return esl_health_flags(t, esl_store_tag_expect_s(api->store, t->mac), now_ms, cfg);
 }
 
 int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t *cfg, uint8_t *prev,
@@ -128,8 +128,11 @@ esl_tag_level_t esl_api_tag_level(const esl_api_t *api, const esl_tag_t *t, uint
     esl_tag_cfg_t ap, eff;
     esl_store_tag_defaults(api->store, &ap);
     ap = esl_store_tag_ap(api->store, t, &ap);
-    esl_tag_effective_cfg(t, &ap, &eff); /* "poll_s" in GET /api/tags */
-    uint64_t poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
+    esl_tag_effective_cfg(t, &ap, &eff);
+    /* what it is told now: "poll_s" in GET /api/tags, or the night interval (#415) */
+    uint64_t poll_s = esl_store_tag_expect_s(api->store, t->mac);
+    if (!poll_s)
+        poll_s = eff.poll_s ? eff.poll_s : ESL_TAG_BUILTIN_POLL_S;
     uint64_t ago; /* "seen_s_ago": late also for a tag from NVS not heard since this boot */
     if (api_seen_s_ago(api, t, now_ms, &ago) && ago > poll_s + ESL_TAG_CHECKIN_GRACE_S)
         return ESL_TAG_BUSY;
