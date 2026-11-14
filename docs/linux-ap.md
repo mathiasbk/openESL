@@ -23,14 +23,14 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 
 | | |
 |---|---|
-| `[cmd, 0xFF, len LE16, data]` | settings: `0x83` PAN, `0x85` channel, `0x86` short address, `0x87` IEEE address, `0x8C` promiscuous, `0x8B` receive on |
+| `[cmd, 0xFF, len LE16, data]` | settings: `0x83` PAN, `0x85` channel, `0x86` short address, `0x87` IEEE address, `0x8C` promiscuous, `0x8B` receive on (1) or off (0) |
 | `[0x88, 0x01, n+1 LE16, frame (n bytes, no FCS), 0xFF ^ XOR(frame)]` | transmit at 250 kbps; the modem adds the FCS. A plain XOR is taken but nothing is sent |
 | `[0x02]`, then 2 bytes read | the status of the last transmit (0 = sent), or of receive on, which the modem waits for before it receives |
 | `read()` | blocks until frames came in; each is a 132-byte record `[0, len, frame (no FCS), rssi, lqi]` |
 
 The driver sets up its receive queue on every `open()`, so a second open of the device (another program, a test tool) leaves a `read()` that was waiting stuck for good, and that `read()` cannot be interrupted. The backend therefore keeps one descriptor for the whole run, reads in a thread of its own, and sends and sets up through the same descriptor. Nothing else may open the device while `openesl-ap` runs; stop the system's own radio daemon first. Start it after the modem has booted (reset it beforehand if something else used it).
 
-At a stop the receive thread may still wait in `read()`, which only a frame ends: the backend turns promiscuous on as it stops, so any frame on the channel does. On the gateway it was tried on, a stop took 0.3 s, and a restart without a reset of the modem (as `systemctl restart` does it) received at once. On a channel where nothing at all is sent, a stop waits for the next frame. A change of channel (the dashboard's channel move) sets the channel and turns receiving on again with its status; tried by moving to channel 15 and back, the tags polling again on 25 right after.
+At a stop the receive thread may still wait in `read()`, which only a frame ends: the backend turns promiscuous on as it stops, so any frame on the channel does. On the gateway it was tried on, a stop took 0.3 s, and a restart without a reset of the modem (as `systemctl restart` does it) received at once. On a channel where nothing at all is sent, a stop waits for the next frame. A change of channel (the dashboard's channel move) turns receiving off and runs the whole set-up again on the new channel, ending with receive on and its status, as at the start (setting only the channel left the modem deaf after the first frame); a set-up that fails is tried three times. Tried on 2026-11-14 by moving 25 → 15 → 20 → 15 while running, every test tag polling on each new channel after every reply.
 
 Tried on 2026-11-13 on an ARMv7 Linux gateway with such a modem (the armv7 build, data in `/opt/openesl`): the test tags polled every 60 s with no lost rounds and no failed replies, and content set through the API was drawn, sent in 4 blocks and shown.
 
