@@ -71,6 +71,9 @@ bool store_files_put_text(const char *name, const char *text);
 
 /* Starts the server on addr ("[host]:port"); false with a message if it cannot listen. */
 bool http_start(const char *addr);
+/* The lock the API is handled under: what it reads (ap.api's links) changes under it too */
+void http_api_lock(void);
+void http_api_unlock(void);
 /* A listening TCP socket on addr ("[host]:port"), or -1 with a message naming --opt */
 int ap_listen(const char *opt, const char *addr);
 

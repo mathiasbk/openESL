@@ -315,6 +315,16 @@ static void *connection(void *arg)
     return NULL;
 }
 
+void http_api_lock(void)
+{
+    pthread_mutex_lock(&api_mutex);
+}
+
+void http_api_unlock(void)
+{
+    pthread_mutex_unlock(&api_mutex);
+}
+
 /* ---- the listening socket ---- */
 
 static void *server(void *arg)

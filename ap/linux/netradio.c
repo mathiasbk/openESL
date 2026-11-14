@@ -10,8 +10,10 @@
  * through netradio_heard(), the others through the logs of their syncs.
  *
  * One thread serves every connection: it answers, it never sends on its own, as on the
- * S3. The own radio's frames reach the owners through a queue, so the radio loop never
- * waits for a sync that draws images. Not secure, as on the S3: plain TCP, and any device
+ * S3. It alone changes the owners: the own radio's frames reach them through a queue, so
+ * the radio loop never waits for a sync that draws images, and a radio forgotten through
+ * the API is taken out of them by this thread too. The API reads a copy of the links,
+ * published under its own lock (http_api_lock), so it never sees one half written. Not secure, as on the S3: plain TCP, and any device
  * that can reach the port may connect as a radio. */
 #define _DEFAULT_SOURCE
 #include <arpa/inet.h>
@@ -62,7 +64,8 @@ typedef struct {
 static bool started;
 static place_t places[RADIOS];
 static conn_t conns[CONNS];
-static esl_radio_link_t links[RADIOS];
+static esl_radio_link_t links[RADIOS];  /* this thread's (and forget()'s, for a place not connected) */
+static esl_radio_link_t pub[RADIOS];    /* what the API reads, under http_api_lock */
 static esl_rowners_t owners;
 static unsigned max_tags;
 static size_t img_cap;
@@ -73,6 +76,9 @@ static pthread_mutex_t places_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t heard_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct { uint64_t mac, at_ms; } heard[HEARD_N];
 static unsigned heard_n;
+/* Places forgotten through the API whose tags are still theirs in the owners (bit = place),
+   under places_mu */
+static unsigned forgotten;
 
 /* ---- the places, kept in <data>/radios as "id:channel" per place, comma-separated ---- */
 
@@ -134,26 +140,54 @@ void netradio_heard(const uint8_t *psdu, size_t len, uint64_t now_ms)
     if (!started || !esl_frame_parse_from_tag(psdu, len, &f) || f.dst_pan != ap.pan)
         return;
     /* at once in the store, so the reply tells a tag that came over from another radio the
-       AP's channel; the owners when the netradio thread gets to it */
+       AP's channel; the owners when the netradio thread gets to it. One entry per tag (a tag
+       fetching an image sends a frame per block): its latest frame. */
     esl_store_set_tag_radio(&ap.store, f.src_mac, 0);
-    links[0].seen_ms = now_ms;
     pthread_mutex_lock(&heard_mu);
-    if (heard_n < HEARD_N) {
-        heard[heard_n].mac = f.src_mac;
-        heard[heard_n].at_ms = now_ms;
-        heard_n++;
+    unsigned i = 0;
+    while (i < heard_n && heard[i].mac != f.src_mac)
+        i++;
+    if (i < HEARD_N) {
+        heard[i].mac = f.src_mac;
+        heard[i].at_ms = now_ms;
+        if (i == heard_n)
+            heard_n++;
     }
     pthread_mutex_unlock(&heard_mu);
 }
 
+/* The owners up to date: the places forgotten through the API, then the own radio's frames */
 static void take_heard(void)
 {
+    pthread_mutex_lock(&places_mu);
+    unsigned f = forgotten;
+    forgotten = 0;
+    pthread_mutex_unlock(&places_mu);
+    for (unsigned i = 1; i < RADIOS; i++)
+        if (f >> i & 1)
+            esl_rowners_forget(&owners, (uint8_t)i);
     pthread_mutex_lock(&heard_mu);
-    for (unsigned i = 0; i < heard_n; i++)
+    for (unsigned i = 0; i < heard_n; i++) {
         esl_rowners_heard(&owners, &ap.store, heard[i].mac, 0, heard[i].at_ms);
+        if (heard[i].at_ms > links[0].seen_ms)
+            links[0].seen_ms = heard[i].at_ms;
+    }
     heard_n = 0;
     pthread_mutex_unlock(&heard_mu);
     links[0].tags = esl_rowners_count(&owners, 0);
+}
+
+/* The links for the API: copied under places_mu (forget() changes them too), then handed
+   over under the API's lock; never both at once, as forget() runs under the API's lock */
+static void publish(void)
+{
+    esl_radio_link_t copy[RADIOS];
+    pthread_mutex_lock(&places_mu);
+    memcpy(copy, links, sizeof(copy));
+    pthread_mutex_unlock(&places_mu);
+    http_api_lock();
+    memcpy(pub, copy, sizeof(pub));
+    http_api_unlock();
 }
 
 /* ---- connections ---- */
@@ -250,6 +284,11 @@ static int place_for(uint64_t id, bool *is_new)
 /* HELLO, under places_mu: the radio's place, its esl_rhost_t and its channel */
 static bool hello_locked(conn_t *c, esl_nlink_host_t *n)
 {
+    /* a place forgotten since the last round goes to a new radio without the old one's tags */
+    for (unsigned k = 1; k < RADIOS; k++)
+        if (forgotten >> k & 1)
+            esl_rowners_forget(&owners, (uint8_t)k);
+    forgotten = 0;
     bool is_new;
     int i = n->radio.id ? place_for(n->radio.id, &is_new) : -1;
     if (i < 0) {
@@ -390,8 +429,11 @@ static void receive(conn_t *c)
     place_t *p = &places[i];
     links[i].seen_ms = now_ms();
     if (p->host.stats.syncs != syncs) {
+        /* a sync moves tags between radios: the counts of those connected (forget() may be
+           clearing one that is not) */
         for (unsigned k = 0; k < RADIOS; k++)
-            links[k].tags = esl_rowners_count(&owners, (uint8_t)k);
+            if (!k || places[k].conn >= 0)
+                links[k].tags = esl_rowners_count(&owners, (uint8_t)k);
         ap_debug("radio %d: sync %" PRIu32 " answered in %" PRIu64 " ms (log %u)", i, p->host.stats.syncs,
                  now_ms() - t0, c->hl.req.log_n);
         unsigned n_tags = esl_store_count(&ap.store);
@@ -403,11 +445,11 @@ static void receive(conn_t *c)
     }
 }
 
-/* DELETE /api/radios/{id}: 0, 404 or 409 */
+/* DELETE /api/radios/{id}, in the HTTP server's thread under the API's lock: 0, 404 or 409 */
 static int forget(void *ctx, uint64_t id)
 {
     (void)ctx;
-    if (id == links[0].id)
+    if (id == pub[0].id)
         return 409; /* the AP's own radio */
     pthread_mutex_lock(&places_mu);
     int r = 404;
@@ -424,7 +466,8 @@ static int forget(void *ctx, uint64_t id)
         p->channel = 0;
         p->ready = false;
         links[i] = (esl_radio_link_t){.down_ms = now_ms()};
-        esl_rowners_forget(&owners, (uint8_t)i);
+        pub[i] = links[i]; /* the API's lock is held: this request's own reply shows it gone */
+        forgotten |= 1u << i; /* its tags leave the owners in the netradio thread */
         esl_store_set_radio_channel(&ap.store, (uint8_t)i, 0);
         save_places();
         r = 0;
@@ -466,6 +509,7 @@ static void *net_thread(void *arg)
             if (conns[i].fd >= 0 && now - conns[i].last_rx_ms > (conns[i].place < 0 ? HELLO_S : IDLE_S) * 1000ull)
                 close_conn(&conns[i], conns[i].place < 0 ? "no HELLO" : "silent");
         pthread_mutex_unlock(&places_mu);
+        publish();
         if (now - last_stats > 600000) {
             last_stats = now;
             log_stats();
@@ -501,15 +545,17 @@ bool netradio_start(const char *addr)
     load_places();
     /* place 0: the AP's own radio, always there; its id is the AP id, which tells it apart in
        GET /api/radios (DELETE answers 409) */
-    links[0] = (esl_radio_link_t){.up = true, .local = true, .id = ap.store.ap_id ? ap.store.ap_id : 1};
+    links[0] = (esl_radio_link_t){.up = true, .local = true, .seen_ms = ap_now_ms(),
+                                  .id = ap.store.ap_id ? ap.store.ap_id : 1};
     for (unsigned i = 1; i < RADIOS; i++) {
         links[i].id = places[i].id;
         links[i].channel = places[i].channel;
     }
     owners.radios = 1;
+    memcpy(pub, links, sizeof(pub));
     static const esl_radio_ops_t ops = {NULL, forget};
-    ap.api.link = &links[0];
-    ap.api.links = links;
+    ap.api.link = &pub[0];
+    ap.api.links = pub;
     ap.api.n_links = RADIOS;
     ap.api.radio_ops = &ops;
     started = true;
