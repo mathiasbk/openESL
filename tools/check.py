@@ -258,6 +258,7 @@ def step_web():
     tests = sorted(os.path.join("web", "test", f) for f in os.listdir(os.path.join(ROOT, "web", "test"))
                    if f.endswith(".test.mjs"))
     run([node, "--test"] + tests)
+    run([PY, "-m", "unittest", "discover", "-s", "web/test", "-p", "test_*.py"])   # web/build.py's firmware names
     boards = [json.load(open(p))["artifact"] + ".bin" for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
     fw = [os.path.join(OUT, f) for f in ["tag-%s.bin" % m["build"] for m in models.load()] + sorted(boards)]
     if all(os.path.isfile(f) for f in fw):

@@ -337,10 +337,11 @@ def ap_boards():
     return sorted(boards.values(), key=lambda b: (not b.get("recommended"), b["status"] != "supported", b.get("base") is not None, b["id"]))
 
 
-def ap_radios():
+def ap_radios(linux=False):
     """The radio firmware for the boards with a C6 radio: ap/radio/boards/*/radio.json for boards
     with "radio": "uart" (kind "uart"), ap/netradio/boards/*/radio.json for "net" (kind "net"),
-    each with its key "<kind>-<id>" (docs/ap-radio-link.md, docs/ap-netradio.md)"""
+    each with its key "<kind>-<id>" (docs/ap-radio-link.md, docs/ap-netradio.md). linux: also the
+    radios of the AP as a Linux program ("host": "linux", c6-usb), which no board here takes"""
     radios = []
     for kind, folder in (("uart", "radio"), ("net", "netradio")):
         for path in sorted(glob.glob(os.path.join(ROOT, "ap", folder, "boards", "*", "radio.json"))):
@@ -348,7 +349,7 @@ def ap_radios():
                 r = json.load(f)
             # the radio of the AP as a Linux program (c6-usb): no board here takes it, and its
             # image must never go to an S3's C6, so the page does not list it
-            if r.get("host") == "linux":
+            if r.get("host") == "linux" and not linux:
                 continue
             r["kind"], r["key"] = kind, "%s-%s" % (kind, r["id"])
             radios.append(r)
@@ -357,10 +358,13 @@ def ap_radios():
 
 def ap_radio_for(path):
     """The radio whose artifact (CI: openesl-ap-radio-c6-lcd.bin) or release name
-    (openesl-ap-radio-esp32c6-v1.2.3.bin) the file name starts with, the longest match, or None"""
+    (openesl-ap-radio-esp32c6-v1.2.3.bin) the file name starts with, the longest match, or None.
+    The Linux AP's radios are matched too (and left out by add_firmware): openesl-ap-radio-c6-usb
+    also starts with openesl-ap-radio-c6-, so without them it would be taken for the S3's radio
+    on a cable, and its image offered to the C6 of an S3 (web/test/test_build.py)"""
     stem = os.path.basename(path)[:-4].lower()
     best, n = None, 0
-    for r in ap_radios():
+    for r in ap_radios(linux=True):
         for name in (r["artifact"], r["release"]):
             if (stem == name or stem.startswith(name + "-")) and len(name) > n:
                 best, n = r, len(name)
@@ -418,6 +422,11 @@ def add_firmware(*files):
                 continue
             sys.exit("%s: no such file" % f)
         r = ap_radio_for(f)
+        if r and r.get("host") == "linux":
+            # the radio of the AP as a Linux program: no board on the page takes it, and its image
+            # must never be offered to an S3's C6 (it talks on USB, not on the UART pins)
+            print("%s: the radio of the Linux AP, not on the page" % f)
+            continue
         if r:
             radios[r["key"]] = f
             continue
