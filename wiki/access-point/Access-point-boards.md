@@ -9,7 +9,7 @@ The AP firmware runs on several ESP32 boards, and as a program on a Linux comput
 | [ESP32-C5](ESP32-C5) N16R8 | 1000 | 10–15 $ | experimental |
 | [ESP32-S3 + C6](ESP32-S3-and-C6) (with or without screen on the C6) | 1000 | 10 $ + a C6 | supported (with the screen on the C6: experimental) |
 | [ESP32-S3 + wireless C6](ESP32-S3-with-wireless-C6) (no wire between them) | not decided | 10 $ + a C6 | experimental, not secure yet, with real limits |
-| [Linux AP](Linux-AP) (a Raspberry Pi or PC with a C6 on USB, optionally more C6 radios over WiFi) | 1000 | a computer you have + a C6 | experimental: tried with a few test labels |
+| [Linux AP](Linux-AP) (a Raspberry Pi or PC with a C6 on USB, optionally more C6 radios over WiFi) | depends on the computer | a computer you have + a C6 | experimental: tried with a few test labels |
 
 "Experimental" means the firmware builds and is in every release, but it has not been tried on that board yet, or only briefly with a few test labels. Reports are welcome.
 

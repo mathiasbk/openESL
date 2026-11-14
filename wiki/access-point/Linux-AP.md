@@ -1,6 +1,6 @@
 # Linux AP
 
-**Status:** experimental. It has run on hardware with a few test labels per radio (below), not yet for weeks or with many labels. **Labels:** 1000. **Release files:** `openesl-ap-linux-<arch>-<version>` (from 0.11.0), and `openesl-ap-radio-esp32c6-usb-<version>.bin` for its C6 radio.
+**Status:** experimental. It has run on hardware with a few test labels per radio (below), not yet for weeks or with many labels. **Labels:** set by the computer it runs on. **Release files:** `openesl-ap-linux-<arch>-<version>` (from 0.11.0), and `openesl-ap-radio-esp32c6-usb-<version>.bin` for its C6 radio.
 
 `openesl-ap` is the access point as an ordinary Linux program. It runs on a Raspberry Pi, a mini PC, a server or another Linux computer, and has the same HTTP API and dashboard as the ESP32 boards, so the web page, [esl-client](esl-client) and [Home Assistant](Home-Assistant) work with it unchanged. The labels are the same, with the same firmware.
 
@@ -17,7 +17,7 @@ The program always needs one radio of its own (the C6 on USB, or a gateway's mod
 
 ## Compared with the ESP32 boards
 
-- **More room:** 1000 labels, the label designer on the AP's own page (Design tab), and data in files: back it up from the dashboard as on any AP, or copy its data folder while it is stopped.
+- **More room:** how many labels depends on the computer, not on a small chip; the label designer on the AP's own page (Design tab), and data in files: back it up from the dashboard as on any AP, or copy its data folder while it is stopped.
 - **No WiFi setup and no OTA:** the computer has its own network, and you update the AP by replacing the program. The API token is made at the first start and kept in a file.
 - **Not there yet:** the webhook, data sources such as [weather](Weather) or [electricity price](Electricity-price), and updating the AP from the dashboard. Labels get firmware updates as usual.
 

@@ -76,7 +76,7 @@ More, with barcodes and signs, on the [web page](https://mathiasbk.github.io/ope
   | ESP32-S3 + ESP32-C6 as its radio on a cable | 1000 | supported |
   | ESP32-C5 | 1000 | experimental |
   | ESP32-S3 + up to four ESP32-C6 radios over WiFi | not decided | experimental, not secure yet |
-  | [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP): a Raspberry Pi or PC with an ESP32-C6 on USB, plus C6 radios over WiFi | 1000 | experimental |
+  | [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP): a Raspberry Pi or PC with an ESP32-C6 on USB, plus C6 radios over WiFi | depends on the computer | experimental |
 
   Every one of them is set up from the Flash AP tab of the web page.
 - A small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery: [Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher).

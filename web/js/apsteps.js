@@ -30,7 +30,7 @@ export function boardsOf(info) {
 // network radio as the S3's), and points to the guide for the program itself
 export const LINUX_GUIDE = "https://github.com/mathiasbk/openESL/wiki/Linux-AP";
 const LINUX = {
-  id: "linux", name: "Linux AP", chip_family: "ESP32-C6", radio: "linux", status: "experimental", tags: 1000, designer: true,
+  id: "linux", name: "Linux AP", chip_family: "ESP32-C6", radio: "linux", status: "experimental", designer: true,
   label: "openesl-ap on a Raspberry Pi, a PC or another Linux computer, with an ESP32-C6 on a USB port as its radio, and more C6 radios over WiFi if one does not reach every tag. This page flashes the C6 radios; the program is installed on the computer (Linux AP guide).",
 };
 
