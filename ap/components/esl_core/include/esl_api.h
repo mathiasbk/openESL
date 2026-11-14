@@ -24,6 +24,7 @@
 typedef struct {
     bool up;                /* a radio is connected now */
     bool uart;              /* on the cable (no ip): "via":"uart", else "wifi" */
+    bool local;             /* the host's own radio (the Linux AP's, in place 0 beside network radios): "via":"local" */
     uint32_t ip;            /* its address, host order (0 on the cable) */
     uint64_t down_ms;       /* when it last lost contact (ms since boot); 0: not connected since boot */
     uint64_t seen_ms;       /* when it last sent anything (ms since boot) */

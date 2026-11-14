@@ -315,6 +315,16 @@ static void *connection(void *arg)
     return NULL;
 }
 
+void http_api_lock(void)
+{
+    pthread_mutex_lock(&api_mutex);
+}
+
+void http_api_unlock(void)
+{
+    pthread_mutex_unlock(&api_mutex);
+}
+
 /* ---- the listening socket ---- */
 
 static void *server(void *arg)
@@ -356,13 +366,13 @@ static void *server(void *arg)
     return NULL;
 }
 
-bool http_start(const char *addr)
+int ap_listen(const char *opt, const char *addr)
 {
     char host[256] = "";
     const char *port = strrchr(addr, ':');
     if (!port || !port[1]) {
-        fprintf(stderr, "openesl-ap: --listen wants [host]:port, not \"%s\"\n", addr);
-        return false;
+        fprintf(stderr, "openesl-ap: --%s wants [host]:port, not \"%s\"\n", opt, addr);
+        return -1;
     }
     snprintf(host, sizeof(host), "%.*s", (int)(port - addr), addr);
     port++;
@@ -380,8 +390,8 @@ bool http_start(const char *addr)
     hints.ai_flags = AI_PASSIVE;
     int err = getaddrinfo(host[0] ? host : NULL, port, &hints, &res);
     if (err) {
-        fprintf(stderr, "openesl-ap: --listen %s: %s\n", addr, gai_strerror(err));
-        return false;
+        fprintf(stderr, "openesl-ap: --%s %s: %s\n", opt, addr, gai_strerror(err));
+        return -1;
     }
     int ls = -1;
     /* the first address that works; with no host, the IPv6 wildcard takes IPv4 too where the
@@ -399,11 +409,17 @@ bool http_start(const char *addr)
         }
     }
     freeaddrinfo(res);
-    if (ls < 0) {
+    if (ls < 0)
         fprintf(stderr, "openesl-ap: cannot listen on %s: %s%s\n", addr, strerror(err),
                 err == EACCES ? " (a port under 1024 needs root or CAP_NET_BIND_SERVICE)" : "");
+    return ls;
+}
+
+bool http_start(const char *addr)
+{
+    int ls = ap_listen("listen", addr);
+    if (ls < 0)
         return false;
-    }
     pthread_t t;
     if (pthread_create(&t, NULL, server, (void *)(intptr_t)ls) != 0) {
         close(ls);

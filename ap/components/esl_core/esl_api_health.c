@@ -80,7 +80,7 @@ int esl_api_health(const esl_api_t *api, uint64_t now_ms, const esl_health_cfg_t
             esl_sb_puts(out, "null");
         }
         esl_sb_printf(out, ",\"via\":\"%s\",\"problems\":[\"radio_lost\"],\"lost_s\":%" PRIu64 "}",
-                      l->uart ? "uart" : "wifi", api_radio_lost_s(l, now_ms));
+                      api_radio_via(l), api_radio_lost_s(l, now_ms));
         lost++;
     }
     /* other APs' tags that poll here and are turned away (#390): adopt them to take them over */

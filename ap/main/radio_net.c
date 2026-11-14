@@ -215,8 +215,14 @@ static int place_for(uint64_t id, bool *is_new)
     for (unsigned i = 0; i < RADIOS; i++)
         known += places[i].id != 0;
     for (unsigned i = 0; i < RADIOS; i++) {
-        if (places[i].id != id)
+        if (!esl_nlink_same_radio(places[i].id, id))
             continue;
+        if (places[i].id != id) {
+            /* known by the id older firmware sent: it keeps its place and channel */
+            ESP_LOGI(TAG, "radio %016" PRIX64 " was %016" PRIX64 " (older firmware)", id, places[i].id);
+            places[i].id = id;
+            save_places();
+        }
         if (i && known == 1 && places[i].conn < 0) {
             /* the only radio left, and place 0 is free (the radio there was forgotten, say a
                broken C6 this one replaced): it moves to the AP's channel, where tags from

@@ -78,6 +78,11 @@ typedef struct {
     uint8_t features;        /* ESL_NLINK_F_*; 0 from a radio before 0.9.0, which leaves it out */
 } esl_nlink_hello_t;
 
+/* Whether a radio known by stored is the one whose HELLO says id: the same, or the id a radio
+ * sent with firmware 0.11.0 and older, the first 6 bytes of its 8-byte address (id >> 16), which C6 boards of
+ * one batch share. A host that finds the old form keeps the radio's place and stores id. */
+bool esl_nlink_same_radio(uint64_t stored, uint64_t id);
+
 /* HELLO features */
 #define ESL_NLINK_F_CHANNEL 0x01 /* passes a planned channel move to the tags (TAG carries it, #256) */
 #define ESL_NLINK_F_APID    0x02 /* keeps quiet for the tags of another AP (TAG carries the AP id, #390) */

@@ -6,6 +6,7 @@
 openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboard, /ui/... (packed from web/)
             ├─ main.c        the radio loop: frame → esl_link_handle() → reply; the scheduler every second
             ├─ store_files.c /var/lib/openesl: content/, cfg/, seen/, image/, sched/, layout/, font/, tagfw/
+            ├─ netradio.c    --netradio: C6 radios over the network, beside its own (below)
             └─ radio_*.c     --radio sim | (more backends: see below)
 ```
 
@@ -44,6 +45,32 @@ Tried on 2026-11-13 with a C6 Super Mini on a Fedora PC: three test tags (2.9" a
 
 Try a new install on another channel than the APs in use (`--channel`): a new data directory starts with an empty table and adopts every lost tag on its channel for 14 days, as a new C6 does, and logs a warning when it starts doing so.
 
+## Network radios
+
+`--netradio [host:]port` lets C6 boards running the network radio firmware (`ap/netradio/`,
+[ap-netradio.md](ap-netradio.md)) connect to the AP, as they do to an S3, to cover more ground than
+its own radio reaches. The port they look for is 4553 (`--netradio 4553`, or `--netradio
+192.168.1.20:4553` for one interface). It is the S3's "Several radios" with one difference: the AP's
+own radio (`--radio`) stays in place 0, on the AP's channel, and follows its moves; the network radios
+take places 1–3, each on a channel of its own picked when it first connects (15, 20, 26, 11, ...,
+never the AP's), kept in `<data>/radios`.
+
+- **Which radio serves a tag:** the one that last heard it, the AP's own included. A tag that loses
+  its radio looks on the other channels and stays with the first radio that answers, which tells it
+  its own channel; the other radios drop it. Images are drawn by the AP and sent to the radio that
+  serves the tag.
+- **API and dashboard:** `GET /api/radios` lists the AP's own radio as radio 0 (`"via":"local"`, its
+  id is the AP id) and the network radios after it; each tag has `"radio"`. `DELETE
+  /api/radios/{id}` forgets a network radio that is not connected; the AP's own answers 409.
+- **Setting up a C6:** flash `openesl-ap-netradio-c6.bin` and give it the WiFi and the AP's address
+  on its USB console (`ssid`, `pass`, `host <address>`, `reboot`; ap-netradio.md, "Setting it up").
+  The Linux AP does not announce itself on mDNS, so `host` is needed. The address can be another
+  host that forwards the port, for an AP the radios cannot reach directly, e.g. `socat
+  TCP-LISTEN:4553,fork,reuseaddr TCP:<ap>:4553`.
+- **Not secure**, as on the S3: plain TCP, and any device that reaches the port can connect as a
+  radio. Keep the port to the network the radios are on (a firewall, or the address in
+  `--netradio`).
+
 ## Building
 
 ```
@@ -74,6 +101,7 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 | `--token TOKEN` | made at the first start | |
 | `--next-poll S` | 0 | poll interval sent to tags; 0 = each tag keeps its own |
 | `--max-tags N` | 1000 | |
+| `--netradio ADDR` | off | `[host:]port` for network radios (above); 4553 is the port they look for |
 | `-v` | | log every request and frame |
 
 ### As a service
@@ -95,6 +123,7 @@ Each file holds what the C6 keeps in one NVS entry, in the same format (`esl_per
 | `layout/<model>`, `font/<slot>` | layout files and font files |
 | `tagfw/<model>.bin`, `tagfw/<model>.to` | tag firmware and which tags it is for |
 | `next_poll`, `channel` | the AP-wide settings changed through the API |
+| `radios` | the network radios' places and channels (`--netradio`) |
 
 ## The clock
 
@@ -102,8 +131,8 @@ Scheduled content needs the time. Once the system clock is past 2024 (NTP on the
 
 ## What it does not do (yet)
 
-WiFi setup, OTA updates of the AP itself (update the binary instead), the data sources of the S3 boards, network radios and the webhook: `/api/wifi`, `/api/sources` and `/api/radios` answer 404, `/api/ota` 501, and `PUT /api/config` with a `"webhook"` 422.
+WiFi setup, OTA updates of the AP itself (update the binary instead), the data sources of the S3 boards and the webhook: `/api/wifi` and `/api/sources` answer 404 (`/api/radios` too without `--netradio`), `/api/ota` 501, and `PUT /api/config` with a `"webhook"` 422. The transmit power of network radios is their own (`ESL_TX_POWER_DBM`).
 
 ## Tests
 
-`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.
+`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. Then `--netradio` beside the simulated radio, with network radios it plays over TCP: their places and channels, a tag one of them heard served by it with its channel and image, a tag the AP's own radio hears again going back to it, a fifth radio turned away, forgetting one, and the places kept across a restart. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.

@@ -447,8 +447,21 @@ static void test_nlink_on_hello(void)
     to_host.n = to_radio.n = 0;
 }
 
+/* A radio's id: its 8-byte address, or the first 6 bytes of it that firmware 0.11.0 and older sent */
+static void test_nlink_same_radio(void)
+{
+    const uint64_t id = 0x9888E0FFFE7177C8ull, other = 0x9888E0FFFE71A3ACull;
+    CHECK(esl_nlink_same_radio(id, id));
+    CHECK(esl_nlink_same_radio(0x9888E0FFFE71ull, id));     /* the old id */
+    CHECK(esl_nlink_same_radio(0x9888E0FFFE71ull, other));  /* which two of a batch shared */
+    CHECK(!esl_nlink_same_radio(id, other));
+    CHECK(!esl_nlink_same_radio(0, 0));
+    CHECK(!esl_nlink_same_radio(0, id));
+}
+
 void test_nlink(void)
 {
+    test_nlink_same_radio();
     test_nlink_flow();
     test_nlink_old_hello();
     test_nlink_broken();

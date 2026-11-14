@@ -39,7 +39,7 @@ LDLIBS  := -lpthread -lm
 CORE_SRCS := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c))
 # the tag's fonts and barcodes, which esl_render draws with (as esl_core/CMakeLists.txt)
 TAG_SRCS  := $(ROOT)/tag/src/font.c $(ROOT)/tag/src/barcode.c $(wildcard $(ROOT)/tag/fonts/font_*.c)
-SRCS      := main.c store_files.c http.c radio_sim.c radio_coproc.c radio_spimodem.c
+SRCS      := main.c store_files.c http.c netradio.c radio_sim.c radio_coproc.c radio_spimodem.c
 OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) $(OUT)/esl_coproc.o \
              $(TAG_SRCS:$(ROOT)/tag/%.c=$(OUT)/tag/%.o) $(OUT)/webui_files.o
 DEPS      := ap.h Makefile $(wildcard $(CORE)/include/*.h $(ROOT)/shared/*.h) $(ROOT)/VERSION

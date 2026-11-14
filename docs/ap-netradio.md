@@ -166,6 +166,9 @@ the tags it serves get nothing new (they see the state it had cached, see Limits
 
 ## Several radios
 
+The Linux AP takes network radios too, beside its own radio, which keeps place 0
+([linux-ap.md](linux-ap.md), "Network radios").
+
 One S3 can have up to **4 radios** (#259), each a C6 on the same WiFi network, each on a channel
 of its own, to cover a shop or a house that one radio cannot reach. Not tried on hardware yet:
 everything below is tested on the PC (`ap/test/test_rhost.c`, `test_nlink.c`, `test_api.c`), not

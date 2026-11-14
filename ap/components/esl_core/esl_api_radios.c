@@ -20,6 +20,12 @@ uint64_t api_radio_lost_s(const esl_radio_link_t *l, uint64_t now_ms)
     return (down < now_ms ? now_ms - down : 0) / 1000;
 }
 
+/* "via": how the AP reaches the radio */
+const char *api_radio_via(const esl_radio_link_t *l)
+{
+    return l->local ? "local" : l->uart ? "uart" : "wifi";
+}
+
 bool api_radio_is_lost(const esl_radio_link_t *l, unsigned i, uint64_t now_ms)
 {
     if (l->up || (i && !l->id))
@@ -42,7 +48,7 @@ uint32_t esl_api_radios_lost(const esl_api_t *api, uint64_t now_ms)
    since when it is gone */
 void api_write_link_state(esl_sb_t *out, const esl_radio_link_t *l, unsigned i, uint64_t now_ms)
 {
-    esl_sb_printf(out, ",\"via\":\"%s\",\"lost\":%s", l->uart ? "uart" : "wifi",
+    esl_sb_printf(out, ",\"via\":\"%s\",\"lost\":%s", api_radio_via(l),
                   api_radio_is_lost(l, i, now_ms) ? "true" : "false");
     if (!l->up) {
         esl_sb_printf(out, ",\"lost_s\":%" PRIu64, api_radio_lost_s(l, now_ms));

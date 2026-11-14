@@ -82,6 +82,7 @@ typedef struct {
     unsigned pan;
     unsigned next_poll_s;
     unsigned max_tags;
+    char netradio[128];
 } opts_t;
 
 static void usage(FILE *f)
@@ -94,6 +95,8 @@ static void usage(FILE *f)
     for (const radio_backend_t *const *b = backends; *b; b++)
         fprintf(f, "                      %s\n", (*b)->help);
     fprintf(f,
+            "  --netradio ADDR   also take network radios (C6 boards with ap/netradio/) on [host:]port,\n"
+            "                    each on a channel of its own; 4553 is the port they look for\n"
             "  --channel N       built-in channel 11-26 (25); the API can move the AP to another\n"
             "  --pan HEX         PAN id (4553)\n"
             "  --token TOKEN     API token (default: made at the first start, kept in DIR/token)\n"
@@ -127,6 +130,8 @@ static bool set_opt(opts_t *o, const char *name, const char *val)
         return STR(radio);
     if (!strcmp(name, "token"))
         return STR(token);
+    if (!strcmp(name, "netradio"))
+        return STR(netradio);
     if (!strcmp(name, "channel"))
         return NUM(channel, 10, 11, 26);
     if (!strcmp(name, "pan"))
@@ -349,6 +354,7 @@ static int radio_loop(const radio_backend_t *b)
         if (r > 0) {
             esl_radio_event_t ev;
             memset(&ev, 0, sizeof(ev));
+            netradio_heard(f.psdu, f.len, now);
             size_t n = esl_link_handle(&ap.link, &ap.store, &ap.layouts, ap.pan, &f, now, tx, &ev, ap_clock_us, NULL);
             if (ev.msg_type)
                 log_frame(&f, &ev, n);
@@ -369,7 +375,7 @@ static int radio_loop(const radio_backend_t *b)
 
 int main(int argc, char **argv)
 {
-    static opts_t o = {"/var/lib/openesl", ":80", "sim", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS};
+    static opts_t o = {"/var/lib/openesl", ":80", "sim", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, ""};
     int rc = parse_args(&o, argc, argv);
     if (rc)
         return rc;
@@ -408,7 +414,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* the API: as app_main, without WiFi, OTA, data sources or network radios */
+    /* the API: as app_main, without WiFi, OTA or data sources */
     uint8_t rnd[4] = {0};
     FILE *r = fopen("/dev/urandom", "rb");
     if (r) {
@@ -429,6 +435,8 @@ int main(int argc, char **argv)
     ap.api.channel_settable = ap.link.set_channel != NULL;
     ap.api.changes = &ap.changes;
     ap.api.apid = store_files_apid();
+    if (o.netradio[0] && !netradio_start(o.netradio))
+        return 1;
     if (!http_start(o.listen))
         return 1;
 

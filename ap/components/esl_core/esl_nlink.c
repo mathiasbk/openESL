@@ -517,6 +517,11 @@ static bool parse_sync(rbuf_t *g, esl_rsync_t *q)
     return !g->bad;
 }
 
+bool esl_nlink_same_radio(uint64_t stored, uint64_t id)
+{
+    return stored && (stored == id || stored == id >> 16);
+}
+
 bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size_t len)
 {
     rbuf_t g = {p, len, 0, false};
