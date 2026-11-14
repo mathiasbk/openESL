@@ -114,6 +114,40 @@ static bool wait_busy(uint16_t timeout_ms)
     return true;
 }
 
+/*
+ * The refresh after master activation (0x20). BUSY goes high a moment after the command,
+ * not at once, so it is first awaited (a refresh that never raises it did not run). The
+ * end then counts only once BUSY has stayed low for REFRESH_LOW_MS in a row: a single low
+ * reading while the booster switches is not the end. Taking either for the end sent deep
+ * sleep into a running refresh, which stops the panel partway: dark with faint text, or
+ * half drawn with the old picture showing through (1.54").
+ */
+#define REFRESH_START_MS    100u
+#define REFRESH_LOW_MS      10u
+
+static bool wait_refresh(void)
+{
+    uint16_t ms = EPD_BUSY_TIMEOUT_MS;
+    uint8_t t, low = 0;
+
+    for (t = 0; t < REFRESH_START_MS && !hal_epd_busy(); t++)
+        hal_delay_ms(1);
+    if (t == REFRESH_START_MS)
+        return false;
+    while (low < REFRESH_LOW_MS) {
+        if (hal_epd_busy())
+            low = 0;
+        else
+            low++;
+        if (!ms--)
+            return false;
+        hal_delay_ms(1);
+        if ((ms & 0x3FF) == 0)
+            hal_wdt_kick();
+    }
+    return true;
+}
+
 /* The refresh itself (2.9 s, up to 20 s with red) is waited out awake. 0.9.0 slept a second
    at a time here (#261): the panel then stopped partway and left a grey, washed-out image
    with the old one showing through, while the tag reported it as shown (1.54" and 2.9",
@@ -408,7 +442,7 @@ static bool update(draw_scene_t *s)
     cmd(CMD_UPDATE_CTRL2);
     data(EPD_UPDATE_SEQ);
     cmd(CMD_MASTER_ACTIVATE);
-    ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
+    ok = wait_refresh();
 
 #ifdef EPD_SLEEP_CTRL1
     cmd(CMD_UPDATE_CTRL1);
