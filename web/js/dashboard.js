@@ -1138,7 +1138,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         url: $("pic-url").value, every_min: Number($("pic-url-every").value), dither: $("st-dither").checked });
       $("pic-dlg").close();
       stMsg(`The AP fetches the picture now and every ${s?.every_min ?? $("pic-url-every").value} minutes; ` +
-        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Data sources card lists it.`, "ok");
+        `${ok.length === 1 ? "the tag shows" : "the tags show"} it at the next poll. The Data sources page lists it.`, "ok");
     } catch (e) {
       picMsg("Not done: " + e.message, "error");
     } finally {
@@ -1675,7 +1675,14 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   $("dash-find").addEventListener("input", render);
   $("dash-auto").addEventListener("change", () => (client && $("dash-auto").checked ? refresh() : clearTimeout(timer)));
   document.addEventListener("visibilitychange", () => visible() && client && $("dash-auto").checked && refresh());
-  window.addEventListener("hashchange", () => visible() && client && refresh());
+  // Coming back to the tab: read the AP at once. Moving between its parts (#dashboard/firmware)
+  // needs no new read.
+  let shown = visible();
+  window.addEventListener("hashchange", () => {
+    const was = shown;
+    shown = visible();
+    if (shown && !was && client) refresh();
+  });
 
   // The USB port opened or closed elsewhere (the WiFi card on the Set up tab)
   onSerialChange((ap) => {

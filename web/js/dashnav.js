@@ -33,11 +33,12 @@ function show() {
   }
 }
 
-// Shows a part: the address changes, so Back returns to the one before
+// Shows a part at once (so the caller can scroll to something in it), and puts it in the
+// address without a hashchange (which would scroll to the top), so Back returns to the one before
 export function showPart(part) {
   const hash = part === "tags" ? "#dashboard" : "#dashboard/" + part;
-  if (location.hash !== hash) location.hash = hash;
-  else show();
+  if (location.hash !== hash) history.pushState(null, "", hash);
+  show();
 }
 
 // A badge on an entry: text (a number, or "!"), and its kind ("bad", "warn" or "new"); "" hides it
@@ -47,9 +48,14 @@ export function navBadge(part, text, kind = "", label = "") {
   b.hidden = !text;
   b.textContent = text;
   b.className = "badge" + (kind ? " " + kind : "");
-  // read with the entry's name: "Tags, 11 need attention"
-  if (label) b.setAttribute("aria-label", label);
-  else b.removeAttribute("aria-label");
+  // read with the entry's name ("Tags, 11 need attention"): the badge itself is only a sign
+  b.setAttribute("aria-hidden", "true");
+  let sr = b.nextElementSibling;
+  if (!sr?.classList.contains("sr-only")) {
+    sr = Object.assign(document.createElement("span"), { className: "sr-only" });
+    b.after(sr);
+  }
+  sr.textContent = text ? ", " + (label || text) : "";
 }
 
 // The line under an entry (the Tags entry has no card summary to copy)

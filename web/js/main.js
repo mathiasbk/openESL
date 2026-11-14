@@ -26,6 +26,9 @@ const TABS = ["home", "design", "tag", "ap", "dashboard", "setup", "api"];
 // last shown with, so its button goes back to the same part.
 const lastHash = {};
 function showTab(hash) {
+  // the address the tab on screen has now (a part shown with pushState, js/dashnav.js)
+  const now = location.hash.slice(1);
+  if (TABS.includes(now.split("/")[0])) lastHash[now.split("/")[0]] = now;
   let [name] = hash.split("/");
   if (!TABS.includes(name)) name = hash = "home";
   lastHash[name] = hash;

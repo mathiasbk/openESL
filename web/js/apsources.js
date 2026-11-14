@@ -284,7 +284,7 @@ export function feedPlan(sources, macs, spec) {
   if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
   const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
   list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
-  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one in the Data sources card` };
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one on the Data sources page` };
   return { sources: list, id: target.id };
 }
 
