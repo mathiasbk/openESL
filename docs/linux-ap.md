@@ -77,6 +77,8 @@ never the AP's), kept in `<data>/radios`.
 - **The AP still needs a radio of its own.** There is no `--radio none` yet: without `--radio` the
   AP runs `sim` beside the network radios, with simulated tags in its table. Give it a C6 on USB or
   an SPI modem.
+- **Each network radio holds its own share:** a C6 caches the tags it serves, up to
+  `CONFIG_ESL_NETRADIO_TAGS` (500 by default), however many the AP takes.
 - **Not secure**, as on the S3: plain TCP, and any device that reaches the port can connect as a
   radio. Keep the port to the network the radios are on (a firewall, or the address in
   `--netradio`).
@@ -110,7 +112,7 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 | `--pan HEX` | 4553 | |
 | `--token TOKEN` | made at the first start | |
 | `--next-poll S` | 0 | poll interval sent to tags; 0 = each tag keeps its own |
-| `--max-tags N` | 1000 | |
+| `--max-tags N` | 4096 | an upper bound, not a promise: no chip limits it, so the default is all the AP core can address (`ESL_STORE_MAX_TAGS`), and how many work well depends on the computer and the radios; the dashboard names it only when the table is nearly full |
 | `--netradio ADDR` | off | `[host:]port` for network radios (above); 4553 is the port they look for |
 | `-v` | | log every request and frame |
 
