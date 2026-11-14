@@ -268,3 +268,11 @@ jobs:
         with:
           name: linux-ap
           path: linux-ap/
+      - name: The Docker image (ap/linux/Dockerfile) builds and serves the dashboard
+        run: |
+          docker build -f ap/linux/Dockerfile -t openesl-ap .
+          docker run -d --name oe -p 18080:80 openesl-ap
+          for i in $(seq 20); do curl -fs -o /dev/null localhost:18080/dashboard && break; sleep 1; done
+          docker logs oe
+          curl -fs -o /dev/null localhost:18080/dashboard
+          docker rm -f oe

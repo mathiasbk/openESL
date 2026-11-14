@@ -120,6 +120,25 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 
 The HTTP server takes 32 connections at a time (more get 503), one request each; a request's head must arrive within 10 s and its body at 16 KB/s or faster. An API reply is made in memory and sent after the API's lock is let go, so a slow client holds up nobody else.
 
+## In Docker
+
+The binary is static, so it runs in an empty image. Every release from 0.11.0 publishes one, `ghcr.io/mathiasbk/openesl-ap:<version>` and `:latest`, for `linux/amd64`, `linux/arm64` and `linux/arm/v7` (a `FROM scratch` image with the release's binary alone, `ap/linux/Dockerfile.release`, job `docker` in release.yml):
+
+```
+docker run -d --name openesl --restart unless-stopped -p 80:80 -v ~/openesl:/var/lib/openesl \
+    --device /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...:/dev/ttyACM0 \
+    ghcr.io/mathiasbk/openesl-ap:latest --radio uart:/dev/ttyACM0
+cat ~/openesl/token
+```
+
+The arguments after the image are `openesl-ap`'s options; without any it runs `--radio sim`. To build the image from source instead, `docker build -f ap/linux/Dockerfile -t openesl-ap .` (Alpine and musl, for the platform being built); CI builds that one and checks that it serves the dashboard.
+
+- **Data:** `/var/lib/openesl` in the container; a host folder (as above) keeps it across new images and makes the token easy to read. A named volume works too.
+- **The C6 on USB:** `--device` with its `/dev/serial/by-id/` name, so it is the same C6 after a reboot. A C6 that is unplugged and plugged in again comes back with a new device node, which a running container does not see: restart the container, or use `--device-cgroup-rule` with a bind mount of `/dev/serial` if it must survive that.
+- **Ports:** 80 for the API and the dashboard, 4553 when network radios connect (`-p 4553:4553` and `--netradio 4553`). The radios need the host's address, not the container's.
+- **The Design tab** is in the published image. One built from source has it only when `web/dist/wasm/` was built before `docker build` (`python3 web/build.py --wasm`, Emscripten); otherwise the Dashboard tab alone.
+- **Updating:** `docker pull` the new version and start a new container with the same data folder.
+
 ## Data directory
 
 Each file holds what the C6 keeps in one NVS entry, in the same format (`esl_persist.h`). It is written to a temporary name of its own, synced, renamed over the old one and the directory synced, so a power cut leaves the old file or the new one. `seen/` (when each tag was last heard, saved every hour) skips the syncs and the file system is synced once after the whole round. An `ap_id` that exists but cannot be read (its owner changed, an I/O error) is not replaced: the AP then runs without an id, as a C6 does, rather than make a new one that would turn its own tags away. A backup is a copy of the directory while the program is stopped, or `esl-client backup` while it runs; `esl-client restore` moves the AP's tags to a C6 or back.
