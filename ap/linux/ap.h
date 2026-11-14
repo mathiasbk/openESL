@@ -17,7 +17,7 @@
 #include "esl_tagfw.h"
 
 /* No limit of a chip here: the AP takes as many tags as the core's store holds (it grows in
- * chunks as tags come, so RAM is only used for tags that exist); --max-tags lowers it */
+ * chunks as tags come, so RAM goes mostly to tags that exist); --max-tags lowers it */
 #define AP_MAX_TAGS ESL_STORE_MAX_TAGS
 
 /* ---- clock ---- */
