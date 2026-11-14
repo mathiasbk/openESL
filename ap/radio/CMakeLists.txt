@@ -28,5 +28,16 @@ if(NOT ver_result EQUAL 0)
     message(FATAL_ERROR "tools/fw_version.py ap failed")
 endif()
 
+# The project name says which link the image is for, and an AP refuses a radio image for
+# another link (esl_coproc_image_kind in esl_coproc.h, #451): "app" in radio.json, esl_radio
+# (the radio on UART pins, as every release before) when it has none. The radio takes only an
+# image with its own name (radio_main.c), so the two never cross over the air either.
+file(READ "${CMAKE_CURRENT_LIST_DIR}/boards/${RADIO_BOARD}/radio.json" radio_json)
+string(JSON RADIO_APP ERROR_VARIABLE no_app GET "${radio_json}" app)
+if(no_app)
+    set(RADIO_APP esl_radio)
+endif()
+message(STATUS "OpenESL radio app: ${RADIO_APP}")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(esl_radio)
+project(${RADIO_APP})

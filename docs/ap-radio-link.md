@@ -81,6 +81,14 @@ and no BOOT or RESET pin: the C6 Super Mini has neither on its pins.
   both ways. If that does not happen within 60 s, the C6 goes back to the old one by itself,
   so a bad image costs a restart, not a USB cable.
 - The C6 takes only `esl_radio` images, and the S3 sends one only when its radio speaks link v2.
+- The project name says which link a radio image is for: `esl_radio` for the radio on UART pins
+  (radio boards `c6` and `c6-lcd`, as in every release so far), `esl_radio_usb` for the C6 on the
+  USB port of a [Linux AP](linux-ap.md) (`c6-usb`, from 0.11.0; `"app"` in its `radio.json`). An
+  S3 that wrote the USB image into its C6 would lose its radio, so it answers any other
+  `esl_radio*` image with `422` before it sends anything, and the C6 refuses an image that is
+  not its own name too (0.10.0 and older APs and radios do the same, as they take only
+  `esl_radio`). Only the name changed, so an S3 and its C6 of any version still update each
+  other in either order.
 
 **Once over USB:** a C6 flashed before 0.8.2 has one app slot and link v1 (`radio.ota` false in
 `GET /api/ota`). It keeps working with a newer S3, but it has to be flashed once more from the

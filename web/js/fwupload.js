@@ -37,6 +37,10 @@ export function firmwareKind(data) {
     const project = appString(data, 80);
     const chip = CHIPS[u16(data, 12)] ?? null;
     if (project === "esl_radio") return { kind: "radio", size: data.length, version: appVersion(data), chip };
+    // a radio image for another link (esl_radio_usb: the C6 on a Linux AP's USB port): an S3
+    // would lose its radio with it, and the AP refuses it too
+    if (project?.startsWith("esl_radio"))
+      return { kind: null, error: `radio firmware for another link (${project}): the C6 on a Linux AP's USB port is flashed over USB from the Flash AP page, not through an AP` };
     if (project && project !== "esl_ap")
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
     return { kind: "ap", size: data.length, version: appVersion(data), chip };

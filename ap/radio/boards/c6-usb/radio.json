@@ -6,5 +6,6 @@
   "artifact": "openesl-ap-radio-c6-usb",
   "release": "openesl-ap-radio-esp32c6-usb",
   "status": "experimental",
-  "host": "linux"
+  "host": "linux",
+  "app": "esl_radio_usb"
 }
