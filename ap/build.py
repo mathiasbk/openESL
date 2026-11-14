@@ -218,12 +218,12 @@ def build_radio(r):
     bdir = "build-" + r["id"]
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
     # The radio on UART takes its -ota.bin through the AP (main/ota.c passes an esl_radio image
-    # on); the one on the network has no way to take it yet
-    app = "esl_radio.bin" if r["project"] == "radio" else None
+    # on); the one on the network has no way to take it yet. The app's name is "app" in
+    # radio.json (radio/CMakeLists.txt): esl_radio_usb for the C6 on a Linux AP's USB port.
+    app = (r.get("app", "esl_radio") + ".bin") if r["project"] == "radio" else None
     merge(r["target"], bdir, app, r["artifact"], cwd=cwd)
     print("%s: out/%s.bin%s" % (r["id"], r["artifact"], " and out/%s-ota.bin" % r["artifact"] if app else ""))
-    return record_size("%s/%s" % (r["project"], r["id"]), r["artifact"], bdir,
-                       "esl_radio.bin" if r["project"] == "radio" else "esl_netradio.bin", cwd=cwd)
+    return record_size("%s/%s" % (r["project"], r["id"]), r["artifact"], bdir, app or "esl_netradio.bin", cwd=cwd)
 
 
 def base_size(base, artifact):

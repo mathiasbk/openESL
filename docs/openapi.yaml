@@ -913,7 +913,9 @@ paths:
         keeps running). The radio keeps the new firmware once the AP configures it, and goes
         back to the old one by itself if that does not happen within a minute; `radio.version`
         in `GET /api/ota` says what it runs. A radio from before 0.8.2 (`radio.ota` false)
-        takes new firmware only over USB.
+        takes new firmware only over USB. A radio image for another link (project
+        `esl_radio_usb`, the C6 on a Linux AP's USB port) is refused with 422 before anything
+        is sent: it would leave the C6 without its link to the AP.
         Content-Type is not checked.
       x-host-status: 501
       parameters:
@@ -953,7 +955,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example: { error: the image does not fit the app slot }
         "422":
-          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, an app that is not the AP firmware (another project name in its app description), or the radio coprocessor's `esl_radio` on an AP without a radio on UART
+          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, an app that is not the AP firmware (another project name in its app description), the radio coprocessor's `esl_radio` on an AP without a radio on UART, or a radio image for another link (`esl_radio_usb`, the C6 on a Linux AP's USB port)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

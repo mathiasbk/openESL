@@ -206,6 +206,10 @@ test("the version in an AP image", () => {
   const other = firmwareKind(apImage(4096, "0.5.0", 13, "esl_netradio"));
   assert.equal(other.kind, null);
   assert.match(other.error, /not AP firmware \(esl_netradio\)/);
+  // the C6 on a Linux AP's USB port: never the S3's radio (#451)
+  const usb = firmwareKind(apImage(4096, "0.11.0", 13, "esl_radio_usb"));
+  assert.equal(usb.kind, null);
+  assert.match(usb.error, /radio firmware for another link \(esl_radio_usb\)/);
 });
 
 test("the page's radio image for the AP's C6 radio", () => {

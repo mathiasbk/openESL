@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "esl_coproc.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -79,33 +80,23 @@ static int fail(char *err, size_t errlen, int status, const char *msg)
     return status;
 }
 
-/* An app image's esp_app_desc_t comes after the image header (24 bytes) and the
- * first segment's header (8): its magic word, then the version at 16 and the project
- * name at 48. Another app for the same chip (ap/radio/'s esl_radio, say) would boot
- * and leave the AP without WiFi, so only an image of this project goes in. One too
- * short to say is left to esp_ota_end(). */
-#define RADIO_PROJECT "esl_radio"
+/* What an image is (esl_coproc_image_kind): another app for the same chip
+ * (ap/radio/'s esl_radio, say) would boot and leave the AP without WiFi, so only an
+ * image of this project goes in as the AP's own. A radio image goes on to the radio
+ * on UART only when it is the one for that link (esl_radio): the C6 on USB's
+ * (esl_radio_usb, the Linux AP's radio) talks on the C6's USB port, and the S3 would
+ * lose its radio and every tag on it (#451). One too short to say is left to
+ * esp_ota_end(). */
+#if CONFIG_ESL_RADIO_DRIVER_UART
+#define LINK_PROJECT ESL_COPROC_RADIO_UART_PROJECT
+#else
+#define LINK_PROJECT NULL /* no radio on UART: every radio image is for another link */
+#endif
 
-static const char *image_project(const void *data, size_t len)
+static bool is_ap_image(esl_coproc_image_t kind, const char *project)
 {
-    const uint8_t *d = data;
-    uint32_t magic;
-    if (len < 32 + 48 + 32)
-        return NULL;
-    memcpy(&magic, d + 32, 4);
-    return magic == ESP_APP_DESC_MAGIC_WORD ? (const char *)d + 32 + 48 : NULL;
-}
-
-static bool is_ap_image(const void *data, size_t len)
-{
-    const char *project = image_project(data, len);
-    return !project || strncmp(project, esp_app_get_description()->project_name, 32) == 0;
-}
-
-static bool is_radio_image(const void *data, size_t len)
-{
-    const char *project = image_project(data, len);
-    return project && strncmp(project, RADIO_PROJECT, 32) == 0;
+    return kind == ESL_COPROC_IMAGE_UNKNOWN ||
+           strncmp(project, esp_app_get_description()->project_name, ESL_COPROC_PROJECT_MAX) == 0;
 }
 
 #if CONFIG_ESL_RADIO_DRIVER_UART
@@ -160,7 +151,17 @@ int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t 
         received = total = 0;
         to_radio = false;
         target = esp_ota_get_next_update_partition(NULL);
-        if (is_radio_image(data, len)) {
+        char project[ESL_COPROC_PROJECT_MAX + 1];
+        esl_coproc_image_t kind = esl_coproc_image_kind(data, len, LINK_PROJECT, project);
+        if (kind == ESL_COPROC_IMAGE_RADIO_OTHER) {
+#if CONFIG_ESL_RADIO_DRIVER_UART
+            char why[96];
+            snprintf(why, sizeof(why), "radio firmware for another link (%.32s): this AP's radio is on UART", project);
+            status = fail(err, sizeof(err), 422, why);
+#else
+            status = fail(err, sizeof(err), 422, "the radio coprocessor's firmware: this AP has no radio on UART to send it to");
+#endif
+        } else if (kind == ESL_COPROC_IMAGE_RADIO) {
 #if CONFIG_ESL_RADIO_DRIVER_UART
             char why[96];
             int st = size ? radio_ota_begin((uint32_t)size, why, sizeof(why)) : 0;
@@ -173,14 +174,12 @@ int ota_part(size_t offset, size_t size, const void *data, size_t len, esl_sb_t 
                 total = size;
                 ESP_LOGI(TAG, "sending %u bytes to the radio coprocessor", (unsigned)size);
             }
-#else
-            status = fail(err, sizeof(err), 422, "the radio coprocessor's firmware: this AP has no radio on UART to send it to");
 #endif
         } else if (!target)
             status = fail(err, sizeof(err), 501, "no second app slot (the partition table has no ota_1)");
         else if (size == 0 || size > target->size)
             status = fail(err, sizeof(err), 413, "the image does not fit the app slot");
-        else if (!is_ap_image(data, len))
+        else if (!is_ap_image(kind, project))
             status = fail(err, sizeof(err), 422, "not AP firmware: another app for this chip (the radio coprocessor's?)");
         else if (esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &handle) != ESP_OK)
             status = fail(err, sizeof(err), 500, "could not start writing the app slot");

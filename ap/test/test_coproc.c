@@ -455,6 +455,63 @@ static void test_ota(void)
     CHECK_INT(esl_coproc_ota_handle(&o, ESL_COPROC_PING, NULL, 0, ack, &done), 0);
 }
 
+/* An ESP32 app image as far as its app description: image header (24 bytes), the first
+ * segment's header (8), then esp_app_desc_t: magic word, version at 16, project at 48 */
+static size_t app_image(uint8_t *img, size_t size, const char *project)
+{
+    memset(img, 0, size);
+    img[0] = 0xe9;
+    uint8_t *d = img + 32;
+    d[0] = 0x32, d[1] = 0x54, d[2] = 0xcd, d[3] = 0xab;
+    memcpy(d + 16, "0.11.0", 6);
+    size_t n = strlen(project);
+    memcpy(d + 48, project, n < 32 ? n : 32);
+    return size;
+}
+
+static void test_image_kind(void)
+{
+    static uint8_t img[256];
+    char name[ESL_COPROC_PROJECT_MAX + 1];
+    const char *uart = ESL_COPROC_RADIO_UART_PROJECT;
+
+    /* the radio on UART pins (boards c6 and c6-lcd): the name of every radio image so far, so
+     * an AP of any version still sends it on, and this one too */
+    app_image(img, sizeof(img), "esl_radio");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, name), ESL_COPROC_IMAGE_RADIO);
+    CHECK_STR(name, "esl_radio");
+    /* the C6 on a Linux AP's USB port (#451): never into an S3's C6 */
+    app_image(img, sizeof(img), ESL_COPROC_RADIO_USB_PROJECT);
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, name), ESL_COPROC_IMAGE_RADIO_OTHER);
+    CHECK_STR(name, "esl_radio_usb");
+    /* and for a host whose radio is on USB, the other way round */
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), ESL_COPROC_RADIO_USB_PROJECT, NULL), ESL_COPROC_IMAGE_RADIO);
+    app_image(img, sizeof(img), "esl_radio");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), ESL_COPROC_RADIO_USB_PROJECT, NULL), ESL_COPROC_IMAGE_RADIO_OTHER);
+    /* an AP without a radio on UART: every radio image is for another link */
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), NULL, NULL), ESL_COPROC_IMAGE_RADIO_OTHER);
+    /* another radio name to come, or one with the full 32 bytes and no '\0' */
+    app_image(img, sizeof(img), "esl_radio_spi");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, NULL), ESL_COPROC_IMAGE_RADIO_OTHER);
+    app_image(img, sizeof(img), "esl_radio_0123456789012345678901");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, name), ESL_COPROC_IMAGE_RADIO_OTHER);
+    CHECK_INT(strlen(name), 32);
+    /* the AP's own image, the network radio's, and other apps: not radio images for a cable */
+    app_image(img, sizeof(img), "esl_ap");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, name), ESL_COPROC_IMAGE_OTHER);
+    CHECK_STR(name, "esl_ap");
+    app_image(img, sizeof(img), "esl_netradio");
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, NULL), ESL_COPROC_IMAGE_OTHER);
+    /* too short to hold the description, or no magic word: unknown */
+    app_image(img, sizeof(img), "esl_radio_usb");
+    CHECK_INT(esl_coproc_image_kind(img, 32 + 48 + 31, uart, name), ESL_COPROC_IMAGE_UNKNOWN);
+    CHECK_STR(name, "");
+    CHECK_INT(esl_coproc_image_kind(img, 32 + 48 + 32, uart, NULL), ESL_COPROC_IMAGE_RADIO_OTHER);
+    img[32] = 0;
+    CHECK_INT(esl_coproc_image_kind(img, sizeof(img), uart, name), ESL_COPROC_IMAGE_UNKNOWN);
+    CHECK_INT(esl_coproc_image_kind(NULL, 0, uart, NULL), ESL_COPROC_IMAGE_UNKNOWN);
+}
+
 void test_coproc(void)
 {
     test_crc();
@@ -462,4 +519,5 @@ void test_coproc(void)
     test_resync();
     test_through_link();
     test_ota();
+    test_image_kind();
 }
