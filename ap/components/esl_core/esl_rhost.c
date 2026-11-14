@@ -54,6 +54,20 @@ void esl_rowners_forget(esl_rowners_t *o, uint8_t radio)
             memset(&o->by_slot[i], 0, sizeof(o->by_slot[i]));
 }
 
+void esl_rowners_heard(esl_rowners_t *o, esl_store_t *st, uint64_t mac, uint8_t radio, uint64_t at_ms)
+{
+    int slot = esl_store_slot_of(st, mac);
+    if (slot < 0 || (unsigned)slot >= o->n)
+        return;
+    esl_rowner_t *r = &o->by_slot[slot];
+    if (r->mac == mac && r->radio != radio && r->at_ms > at_ms)
+        return;
+    r->mac = mac;
+    r->at_ms = at_ms;
+    r->radio = radio;
+    esl_store_set_tag_radio(st, mac, radio);
+}
+
 /* = CFG_SCAN_CHANNELS (tag/src/config.h; test_rhost.c checks they match) */
 static const uint8_t scan_order[] = {15, 20, 26, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 24, 25};
 
@@ -78,16 +92,7 @@ static void own(esl_rhost_t *h, const uint8_t *psdu, size_t len, uint64_t at)
     esl_rx_frame_t f;
     if (!h->owners || !esl_frame_parse_from_tag(psdu, len, &f) || f.dst_pan != h->pan)
         return;
-    int slot = esl_store_slot_of(h->st, f.src_mac);
-    if (slot < 0 || (unsigned)slot >= h->owners->n)
-        return;
-    esl_rowner_t *o = &h->owners->by_slot[slot];
-    if (o->mac == f.src_mac && o->radio != h->index && o->at_ms > at)
-        return;
-    o->mac = f.src_mac;
-    o->at_ms = at;
-    o->radio = h->index;
-    esl_store_set_tag_radio(h->st, f.src_mac, h->index);
+    esl_rowners_heard(h->owners, h->st, f.src_mac, h->index, at);
 }
 
 /* Whether this radio serves the tag: it owns it, nobody does yet, or it asked for it. */

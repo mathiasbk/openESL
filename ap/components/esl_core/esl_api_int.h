@@ -93,6 +93,7 @@ int api_content_fields(const json_t *j, int arr, const char *lname, unsigned max
 /* esl_api_radios.c */
 const esl_radio_link_t *api_radio_links(const esl_api_t *api, unsigned *n);
 uint64_t api_radio_lost_s(const esl_radio_link_t *l, uint64_t now_ms);
+const char *api_radio_via(const esl_radio_link_t *l);
 bool api_radio_is_lost(const esl_radio_link_t *l, unsigned i, uint64_t now_ms);
 void api_write_link_state(esl_sb_t *out, const esl_radio_link_t *l, unsigned i, uint64_t now_ms);
 void api_write_radios(const esl_api_t *api, esl_sb_t *out, uint8_t ap_channel, uint64_t now_ms);

@@ -42,6 +42,21 @@ static void save_unlock(void *ctx)
     pthread_mutex_unlock(&save_mutex);
 }
 
+/* The image buffers' lock: drawing under it takes the layouts' (store_lock) too */
+static pthread_mutex_t image_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void image_lock(void *ctx)
+{
+    (void)ctx;
+    pthread_mutex_lock(&image_mutex);
+}
+
+static void image_unlock(void *ctx)
+{
+    (void)ctx;
+    pthread_mutex_unlock(&image_mutex);
+}
+
 void store_lock(void *ctx)
 {
     (void)ctx;
@@ -131,6 +146,21 @@ static long read_file(const char *path, void *buf, size_t cap)
         return -1;
     }
     return (long)n;
+}
+
+void store_files_get_text(const char *name, char *buf, size_t cap)
+{
+    char p[560];
+    path_of(p, sizeof(p), NULL, 0, name);
+    long n = read_file(p, buf, cap - 1);
+    buf[n > 0 ? n : 0] = 0;
+}
+
+bool store_files_put_text(const char *name, const char *text)
+{
+    char p[560];
+    path_of(p, sizeof(p), NULL, 0, name);
+    return write_file(p, text, strlen(text));
 }
 
 static void erase_file(const char *path)
@@ -718,7 +748,9 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
         fprintf(stderr, "openesl-ap: no memory for the image buffers\n");
         return false;
     }
-    esl_image_init(&images, image_mem, NULL);
+    /* their own lock: network radios draw in a thread of their own (netradio.c) */
+    static const esl_image_ops_t iops = {.lock = image_lock, .unlock = image_unlock};
+    esl_image_init(&images, image_mem, &iops);
     esl_radio_set_image(&images);
     ap_log("data in %s: %u tags with content", root, tags);
     return true;

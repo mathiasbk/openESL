@@ -219,9 +219,10 @@ export function apFacts(ap, ota) {
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
   if (ap.radios?.length > 1) {
-    // several radios over WiFi: one line each, with its channel and the tags it serves
+    // several radios over WiFi: one line each, with its channel and the tags it serves (on the
+    // Linux AP radio 0 is its own, "via":"local")
     for (const r of ap.radios)
-      facts.push([`Radio ${r.radio} (C6, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`, r]);
+      facts.push([`Radio ${r.radio} (${r.via === "local" ? "the AP's own" : "C6"}, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`, r]);
   } else if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio), ap.radios?.[0]]);
   return facts;
 }

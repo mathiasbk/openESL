@@ -9,7 +9,10 @@ drawn and sent block by block until they report it, that a restart keeps the con
 AP id and the token, that an AP id file that cannot be read is not replaced, that the
 dashboard is served, and the HTTP server's limits (connections, bad heads). Then
 --radio uart against a radio played by this script on a pseudo-terminal, speaking the
-link of docs/ap-radio-link.md (ap/components/esl_coproc). Exits 1 on the first failure.
+link of docs/ap-radio-link.md (ap/components/esl_coproc). Then --netradio beside the
+simulated radio, with network radios played by this script over TCP (esl_nlink.h): their
+places and channels, the tags they report, which radio serves a tag, the images they get,
+a radio turned away and one forgotten. Exits 1 on the first failure.
 """
 import json
 import os
@@ -39,9 +42,9 @@ def free_port():
 
 
 class Ap:
-    def __init__(self, binary, data, token=None):
+    def __init__(self, binary, data, token=None, extra=()):
         self.port = free_port()
-        args = [binary, "--data", data, "--listen", f"127.0.0.1:{self.port}", "--radio", SIM]
+        args = [binary, "--data", data, "--listen", f"127.0.0.1:{self.port}", "--radio", SIM, *extra]
         if token:
             args += ["--token", token]
         self.log = open(os.path.join(os.path.dirname(data), "ap.log"), "ab")
@@ -228,6 +231,147 @@ def test_uart(binary, tmp):
     check(rc == 0, "uart: SIGTERM stops it cleanly")
 
 
+# ---- network radios (esl_nlink.h) ----
+
+class FakeNetRadio:
+    """A C6 with ap/netradio/ as the host sees it: HELLO, then SYNCs with a log"""
+
+    def __init__(self, port, rid):
+        self.s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self.buf = b""
+        self.ack = 0
+        self.boot = rid & 0xFFFFFFFF
+        self.s.sendall(self.frame(0x01, struct.pack("<BIHQHHIBB", 1, self.boot, 1100, rid, 100, 8, 8192, 2, 3)))
+
+    @staticmethod
+    def frame(typ, payload):
+        return struct.pack("<HB", len(payload) + 1, typ) + payload
+
+    def read(self, timeout=5):
+        """The next frame from the host: (type, payload); None when the host closed"""
+        end = time.time() + timeout
+        while True:
+            if len(self.buf) >= 3:
+                n = struct.unpack_from("<H", self.buf)[0]
+                if len(self.buf) >= 2 + n:
+                    typ, p = self.buf[2], self.buf[3:2 + n]
+                    self.buf = self.buf[2 + n:]
+                    return typ, p
+            self.s.settimeout(max(0.05, end - time.time()))
+            try:
+                d = self.s.recv(65536)
+            except (ConnectionResetError, socket.timeout):
+                d = b""
+            if not d:
+                return None
+            self.buf += d
+
+    def config(self):
+        f = self.read()
+        check(f is not None and f[0] == 0x81, "netradio: HELLO is answered with CONFIG")
+        return f[1][0]
+
+    def sync(self, log=(), wants=()):
+        """A SYNC with log (psdus, heard now); the answer's frames up to END"""
+        now = int(time.time() * 1000) & 0x7FFFFFFF
+        w = list(wants)[:8] + [0] * (8 - len(wants))
+        q = struct.pack("<IIIHIBQIB", self.boot, self.ack, now, len(log), 0, 0, 0, 0, 0)
+        q += struct.pack("<8Q", *w) + struct.pack("<HHHB", 0, 100, 8, 0) + b"\0"
+        out = self.frame(0x02, q)
+        for i, psdu in enumerate(log):
+            out += self.frame(0x03, struct.pack("<IIbB", i + 1, now, -50, len(psdu)) + psdu)
+        self.s.sendall(out)
+        frames = []
+        while True:
+            f = self.read()
+            if f is None:
+                check(False, "netradio: a SYNC is answered up to its END")
+            frames.append(f)
+            if f[0] == 0x89:
+                self.ack = struct.unpack_from("<I", f[1])[0]
+                return frames
+
+    def close(self):
+        self.s.close()
+
+
+def tag_states(frames):
+    """mac -> channel of the TAG frames in an answer"""
+    return {struct.unpack_from("<Q", p)[0]: struct.unpack_from("<H", p, 33)[0] for t, p in frames if t == 0x83}
+
+
+def test_netradio(binary, tmp):
+    data = os.path.join(tmp, "net")
+    nport = free_port()
+    ap = Ap(binary, data, token="t", extra=["--channel", "15", "--netradio", f"127.0.0.1:{nport}"])
+    try:
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000001)
+        check(r1.config() == 20, "netradio: the first network radio gets channel 20 (15 is the AP's)")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(len(radios) == 2 and radios[0]["radio"] == 0 and radios[0]["via"] == "local"
+              and radios[0]["channel"] == 15, "netradio: the AP's own radio is radio 0 on its channel")
+        check(radios[1]["id"] == "0000AABBCC000001" and radios[1]["channel"] == 20 and radios[1]["connected"]
+              and radios[1]["ip"] == "127.0.0.1", "netradio: the network radio is radio 1, connected")
+
+        mac = 0x00000000FAC70099
+        states = tag_states(r1.sync(log=[poll_psdu(mac)]))
+        check(states.get(mac) == 20, "netradio: a tag it heard is told to it, with its channel")
+        tags = wait_for(ap, "netradio: the tag it heard is listed", lambda t: "00000000FAC70099" in t)
+        check(tags["00000000FAC70099"]["radio"] == 1, "netradio: and served by radio 1")
+        sim = wait_for(ap, "netradio: the simulated tags poll", lambda t: all(m in t for m in TAGS))
+        check(all(sim[m]["radio"] == 0 for m in TAGS), "netradio: the AP's own radio serves the tags it hears")
+
+        r = ap.json("PUT", "/api/tags/00000000FAC70099", {"layout": "price", "fields": ["Milk", "24.90", "NOK"]})
+        images = []
+        for _ in range(5):
+            images += [f for f in r1.sync(wants=[mac]) if f[0] == 0x85]
+            if images:
+                break
+        check(images, "netradio: the image of its tag goes to the radio")
+
+        # a simulated tag heard by radio 1 is its; once the AP's own radio hears it again, it is the AP's
+        sim_mac = int(TAGS[0], 16)
+        r1.sync(log=[poll_psdu(sim_mac)])
+        wait_for(ap, "netradio: a tag the AP's own radio hears after radio 1 goes back to radio 0",
+                 lambda t: t[TAGS[0]]["radio"] == 0)
+
+        r2 = FakeNetRadio(nport, 0x0000AABBCC000002)
+        check(r2.config() == 26, "netradio: the second gets channel 26")
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000003)
+        check(r3.config() == 11, "netradio: the third gets channel 11")
+        r4 = FakeNetRadio(nport, 0x0000AABBCC000004)
+        check(r4.read() is None, "netradio: a fourth network radio is turned away")
+        r4.close()
+
+        check(ap.request("DELETE", "/api/radios/0000AABBCC000002")[0] == 409,
+              "netradio: a connected radio cannot be forgotten")
+        own = ap.json("GET", "/api/radios")["radios"][0]["id"]
+        check(ap.request("DELETE", f"/api/radios/{own}")[0] == 409, "netradio: nor the AP's own radio")
+        r2.close()
+        time.sleep(0.5)
+        check(ap.request("DELETE", "/api/radios/0000AABBCC000002")[0] == 200,
+              "netradio: a radio that is gone can be forgotten")
+        ids = [x["id"] for x in ap.json("GET", "/api/radios")["radios"]]
+        check("0000AABBCC000002" not in ids and len(ids) == 3, "netradio: and is no longer listed")
+        r1.close()
+        r3.close()
+        check(ap.stop() == 0, "netradio: SIGTERM stops it cleanly")
+
+        ap = Ap(binary, data, token="t", extra=["--channel", "15", "--netradio", f"127.0.0.1:{nport}"])
+        radios = {x["id"]: x for x in ap.json("GET", "/api/radios")["radios"]}
+        check(radios.get("0000AABBCC000003", {}).get("channel") == 11 and "0000AABBCC000002" not in radios,
+              "netradio: the places and channels are kept across a restart")
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000003)
+        check(r3.config() == 11, "netradio: a known radio gets its channel back")
+        r5 = FakeNetRadio(nport, 0x0000AABBCC000005)
+        check(r5.config() == 26, "netradio: a new one takes the forgotten place's channel")
+        r3.close()
+        r5.close()
+    finally:
+        rc = ap.stop()
+    check(rc == 0, "netradio: SIGTERM stops it cleanly again")
+
+
 def check(ok, what):
     if not ok:
         print(f"FAIL: {what}")
@@ -337,6 +481,7 @@ def main():
         check(ap.stop() == 0, "SIGTERM stops it cleanly a third time")
 
         test_uart(binary, tmp)
+        test_netradio(binary, tmp)
     finally:
         log = os.path.join(tmp, "ap.log")
         if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):

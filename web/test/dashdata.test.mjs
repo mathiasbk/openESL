@@ -240,6 +240,10 @@ test("several radios over WiFi: a line each in the AP facts, and which serves a 
   const lone = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false }, radios: [radios[1]] });
   assert.ok(radioForgettable(lone.find(([k]) => k === "Radio (C6)")[2]));
   assert.ok(!radioForgettable({ connected: false }));
+  // the Linux AP: its own radio beside network radios
+  const own = { radio: 0, id: "0000000012345678", channel: 15, tags: 3, connected: true, via: "local", seen_s: 1 };
+  const g = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 15, max_tags: 64, poll_s: 60, radio: own, radios: [own, radios[1]] }));
+  assert.equal(g["Radio 0 (the AP's own, channel 15)"], "answering, last heard 1 s ago · 3 tags");
 });
 
 test("a lost radio: the warning at the top, the AP facts, and the tags line", () => {

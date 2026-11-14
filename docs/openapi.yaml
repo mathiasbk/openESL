@@ -2059,7 +2059,7 @@ components:
           required: [connected]
           properties:
             connected: { type: boolean, description: "A radio is connected now" }
-            via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+            via: { type: string, enum: [uart, wifi, local], description: "How the AP reaches it: the C6 on the cable (`uart`), over WiFi (`wifi`), or the AP's own radio beside network radios on the Linux AP (`local`); not sent by older firmware" }
             lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
             lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
             ip: { type: string, description: "Its address (only while connected over WiFi)", example: "192.168.3.249" }
@@ -2180,7 +2180,7 @@ components:
           channel: { type: integer, minimum: 11, maximum: 26, description: "The channel it serves" }
           tags: { type: integer, minimum: 0, description: "Tags it heard last, since the AP started" }
           connected: { type: boolean }
-          via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+          via: { type: string, enum: [uart, wifi, local], description: "How the AP reaches it: the C6 on the cable (`uart`), over WiFi (`wifi`), or the AP's own radio beside network radios on the Linux AP (`local`); not sent by older firmware" }
           lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
           lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
           ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
@@ -2521,7 +2521,7 @@ components:
             properties:
               radio: { type: integer, minimum: 0, maximum: 3, description: "Its number, as in `radios` in `GET /api/tags` (0 for the C6 on the cable)" }
               id: { type: [string, "null"], description: "Its MAC, as its HELLO said; null: never heard since the AP started" }
-              via: { type: string, enum: [uart, wifi] }
+              via: { type: string, enum: [uart, wifi, local] }
               problems: { type: array, minItems: 1, items: { type: string, enum: [radio_lost] } }
               lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started" }
         other_aps:

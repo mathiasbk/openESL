@@ -63,11 +63,27 @@ void store_files_tick(void);
 /* Syncs the data directory's file system: after esl_store_save_seen(), whose files are
  * written without a sync each */
 void store_files_sync(void);
+/* A setting kept as a line of text in <data>/name: "" when there is none */
+void store_files_get_text(const char *name, char *buf, size_t cap);
+bool store_files_put_text(const char *name, const char *text);
 
 /* ---- http.c ---- */
 
 /* Starts the server on addr ("[host]:port"); false with a message if it cannot listen. */
 bool http_start(const char *addr);
+/* A listening TCP socket on addr ("[host]:port"), or -1 with a message naming --opt */
+int ap_listen(const char *opt, const char *addr);
+
+/* ---- netradio.c ---- */
+
+/* Network radios beside the AP's own (docs/linux-ap.md, "Network radios"): C6 boards running
+ * ap/netradio/, which connect to addr ("[host]:port") and serve channels of their own in
+ * places 1..3; the AP's own radio is place 0 on the AP's channel. Fills in
+ * ap.api's links and radio_ops. False with a message if it cannot start. */
+bool netradio_start(const char *addr);
+/* The AP's own radio got this frame (now_ms on ap_now_ms()), before it is answered: the
+ * radio that last heard a tag serves it. Nothing without network radios. */
+void netradio_heard(const uint8_t *psdu, size_t len, uint64_t now_ms);
 
 /* ---- radio backends ---- */
 
