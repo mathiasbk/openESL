@@ -234,15 +234,15 @@ export function initApWizard(info, store) {
     if (s.status === "skipped") return `<div class="wz-part"><span class="wz-n done">–</span><div class="wz-grow">${head} <span class="muted">· later</span></div></div>`;
     if (!on) return `<div class="wz-part dim"><span class="wz-n">${i + 1}</span><div class="wz-grow">${head}</div></div>`;
     const usb = radio()?.kind === "usb";
-    const own = "openesl-ap --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...";
+    const own = "./openesl-ap --data ~/openesl --listen :8080 --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...";
     const cmd = usb ? own : own + " --netradio 4553";
     return `<div class="wz-part on"><span class="wz-n on">${i + 1}</span><div class="wz-grow">${head}
       <ol class="wz-steps-text">
-        <li>Download <span class="mono">openesl-ap-linux-&lt;arch&gt;</span> from the <a href="https://github.com/mathiasbk/openESL/releases/latest" target="_blank" rel="noopener">latest release</a>: <span class="mono">aarch64</span> for a 64-bit Raspberry Pi, <span class="mono">armv7</span> for 32-bit, <span class="mono">x86_64</span> for a PC.</li>
+        <li>Download <span class="mono">openesl-ap-linux-&lt;arch&gt;-&lt;version&gt;</span> from the <a href="https://github.com/mathiasbk/openESL/releases/latest" target="_blank" rel="noopener">latest release</a> (<span class="mono">aarch64</span> for a 64-bit Raspberry Pi, <span class="mono">armv7</span> for 32-bit, <span class="mono">x86_64</span> for a PC), rename it to <span class="mono">openesl-ap</span> and <span class="mono">chmod +x</span> it.</li>
         ${usb ? `<li>Plug the C6 into the computer. <span class="mono">ls /dev/serial/by-id/</span> shows its name.</li>`
           : `<li>The Linux AP needs a radio of its own as well: a C6 on USB (flash it with <b>C6 on USB</b> first) or the 802.15.4 modem of a gateway. Radios over WiFi add to it, each on a channel of its own.</li>`}
         <li>Start it, or install it as a service (<a href="${LINUX_GUIDE}" target="_blank" rel="noopener">Linux AP guide</a>):<pre class="wz-log">${esc(cmd)}</pre></li>
-        <li>Open <span class="mono">http://&lt;computer&gt;/dashboard</span> with the token it printed (kept in <span class="mono">/var/lib/openesl/token</span>).</li>
+        <li>Open <span class="mono">http://&lt;computer&gt;:8080/dashboard</span> and paste the API token from <span class="mono">~/openesl/token</span>.</li>
       </ol>
       ${usb ? "" : `<p class="muted">The radio over WiFi connects to it in the next part.</p>`}
       <p class="buttons tight"><button type="button" class="primary" data-linux-done="${i}">It is running</button>
@@ -261,7 +261,7 @@ export function initApWizard(info, store) {
       <div class="wz-big ok">✓</div>
       <h2>Your radio is flashed</h2>
       <p class="muted">${esc(st.card.title)}${radio() ? ` · ${esc(radioName(radio()))}` : ""}${version ? ` · ${esc(version)}` : ""}</p>
-      <p>The dashboard is at <span class="mono">http://&lt;computer&gt;/dashboard</span> while <span class="mono">openesl-ap</span> runs.</p>
+      <p>The dashboard is at <span class="mono">http://&lt;computer&gt;:8080/dashboard</span> while <span class="mono">openesl-ap</span> runs (the port you gave with <span class="mono">--listen</span>; 80 as a service).</p>
       <p class="buttons wz-center">
         <a class="button primary" href="${LINUX_GUIDE}" target="_blank" rel="noopener">Linux AP guide</a>
         <a class="button" href="#tag">Flash a tag</a>

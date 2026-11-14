@@ -24,11 +24,11 @@ The program always needs one radio of its own (the C6 on USB, or a gateway's mod
 ## Setting it up
 
 1. **Flash the C6 radio.** On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick **Linux + C6 radio** and **C6 on USB**. The page flashes the C6 and then shows the next steps.
-2. **Get the program.** From the [latest release](https://github.com/mathiasbk/openESL/releases/latest), download `openesl-ap-linux-aarch64` for a Raspberry Pi 3, 4 or 5 with a 64-bit system, `openesl-ap-linux-armv7` for a 32-bit system, or `openesl-ap-linux-x86_64` for a PC. It is one file with nothing else to install. Make it executable (`chmod +x`).
+2. **Get the program.** From the [latest release](https://github.com/mathiasbk/openESL/releases/latest), download `openesl-ap-linux-aarch64-<version>` for a Raspberry Pi 3, 4 or 5 with a 64-bit system, `openesl-ap-linux-armv7-<version>` for a 32-bit system, or `openesl-ap-linux-x86_64-<version>` for a PC. It is one file with nothing else to install. Rename it and make it executable, for example `mv openesl-ap-linux-aarch64-v0.11.0 openesl-ap && chmod +x openesl-ap`.
 3. **Start it** with the C6 plugged in. `ls /dev/serial/by-id/` shows the C6's name:
 
    ```
-   ./openesl-ap-linux-aarch64 --data ~/openesl --listen :8080 \
+   ./openesl-ap --data ~/openesl --listen :8080 \
        --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...
    ```
 
