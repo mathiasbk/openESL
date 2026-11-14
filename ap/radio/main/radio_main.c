@@ -2,6 +2,7 @@
 #include <string.h>
 #include "driver/uart.h"
 #include "driver/usb_serial_jtag.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "esl_coproc.h"
 #include "esl_lcd.h"
 #include "esl_screen.h"
@@ -138,10 +139,35 @@ static void link_flush(void)
     usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
 }
 
+/* The driver sends the next bytes when the host has taken the last packet (its "FIFO empty"
+   interrupt). After a cold plug-in that interrupt never came: bytes written before a host was
+   there (the ROM's start-up text) stayed in the FIFO unsent, so the radio read the host's
+   CONFIG but nothing it wrote reached the host, until it was reset (#435). Sending what is in
+   the FIFO and turning the interrupt on again starts it: at the start and then every second,
+   which costs a 0-byte packet when there is nothing to send. */
+static void link_kick(void)
+{
+    usb_serial_jtag_ll_txfifo_flush();
+    usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_IN_EMPTY);
+}
+
 static void link_init(void)
 {
     usb_serial_jtag_driver_config_t uc = {.tx_buffer_size = 2048, .rx_buffer_size = 2048};
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&uc));
+    link_kick();
+}
+
+#define LINK_WAIT pdMS_TO_TICKS(1000) /* the link task kicks the FIFO at least this often */
+
+static void link_tick(void)
+{
+    static int64_t last;
+    int64_t now = esp_timer_get_time();
+    if (now - last >= 1000000) {
+        last = now;
+        link_kick();
+    }
 }
 #else
 static void link_write(const uint8_t *f, size_t n)
@@ -182,6 +208,12 @@ static void link_init(void)
     ESP_ERROR_CHECK(uart_param_config(CONFIG_ESL_COPROC_UART_NUM, &uc));
     ESP_ERROR_CHECK(uart_set_pin(CONFIG_ESL_COPROC_UART_NUM, CONFIG_ESL_COPROC_TX_GPIO, CONFIG_ESL_COPROC_RX_GPIO,
                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+}
+
+#define LINK_WAIT portMAX_DELAY
+
+static void link_tick(void)
+{
 }
 #endif
 
@@ -463,7 +495,8 @@ static void uart_task(void *arg)
     int64_t last_read_us = 0;
     esl_coproc_parser_init(&parser);
     for (;;) {
-        int n = link_read(buf, sizeof(buf), portMAX_DELAY);
+        int n = link_read(buf, sizeof(buf), LINK_WAIT);
+        link_tick();
         if (n <= 0)
             continue;
         if (esp_timer_get_time() - last_read_us > ESL_COPROC_GAP_US)
