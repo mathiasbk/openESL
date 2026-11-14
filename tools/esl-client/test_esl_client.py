@@ -1565,9 +1565,12 @@ class ClientTest(unittest.TestCase):
         self.assertIn("2 of 256 scheduled", out)
 
     def test_schedule_repeat(self):
-        rc, out = self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--at", "2030-01-04 16:00",
-                               "--repeat", "weekly")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc, out = self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--at", "2030-01-04 16:00",
+                                   "--repeat", "weekly")
         self.assertEqual(rc, 0, out)
+        self.assertIn("the AP has no time zone set", err.getvalue())
         self.assertEqual(FakeAp.calls[-1][1]["repeat"], "weekly")
         self.assertIn("scheduled for 2030-01-04 16:00, then weekly", out)
         rc, out = self.run_cli("schedule")

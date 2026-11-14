@@ -1564,6 +1564,9 @@ def set_one(cli, args, c, image=None, draw=None):
             c["at"] = args.at
             if getattr(args, "repeat", None):
                 c["repeat"] = args.repeat
+                if not cli.config().get("tz"):
+                    print("note: the AP has no time zone set (config --tz, or Settings, General): the repeat "
+                          "follows UTC and moves an hour with daylight saving time", file=sys.stderr)
         r = cli.set_tag(args.mac, c)
     print_result(r)
     if args.wait and r.get("pending"):

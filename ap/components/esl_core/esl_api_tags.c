@@ -748,10 +748,10 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         }
         bool dup = false;
         for (unsigned d = 0; d < k; d++)
-            dup |= macs[d] == macs[k] && (ats[k] ? ats[d] == ats[k] : !ats[d]);
+            dup |= macs[d] == macs[k] && (ats[k] ? ats[d] == ats[k] && repeats[d] == repeats[k] : !ats[d]);
         esl_tag_t existing;
         if (!dup && ats[k])
-            new_sched += !esl_sched_has(api->sched, macs[k], ats[k]);
+            new_sched += !esl_sched_has_repeat(api->sched, macs[k], ats[k], repeats[k], esl_sched_now(api->sched, now_ms, NULL));
         else if (!dup && !ats[k] && (!esl_store_get(api->store, macs[k], &existing) || !esl_tag_holds_data(&existing)))
             new_macs++;
         i = tok[i].next;

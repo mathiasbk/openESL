@@ -1910,7 +1910,7 @@ components:
             local time as `at` (the AP's time zone, `tz` in `GET /api/config`), also across daylight
             saving time; a weekly one on the same weekday. A time in `at` that has passed starts it
             at its next time. The entry stays until `DELETE /api/schedule/{mac}` (or the tag is
-            deleted). Null or `once`: only at `at`. Without `at`: `422`. Older firmware ignores the key
+            deleted). A one-off entry at the same time is kept beside it and wins that time. Null or `once`: only at `at`. Without `at`: `422`. Older firmware ignores the key
             and schedules the content once.
           example: weekly
 

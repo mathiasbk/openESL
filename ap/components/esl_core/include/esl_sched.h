@@ -96,14 +96,17 @@ const char *esl_time_src_name(uint8_t src); /* "ntp", "api", NULL when unknown *
 
 /* Adds or replaces the entry for (mac, at). */
 esl_sched_err_t esl_sched_add(esl_sched_t *s, uint64_t mac, uint32_t at, const esl_content_t *c);
-/* Adds or replaces the entry for (mac, *at), recurring with repeat (ESL_SCHED_*). A
+/* Adds or replaces the entry for (mac, *at, repeat), recurring with repeat (ESL_SCHED_*). A
  * recurring entry whose time is not after now (Unix seconds, 0: unknown) starts at its
  * next time after now, then in *at. With ESL_SCHED_ONCE this is esl_sched_add. */
 esl_sched_err_t esl_sched_add_repeat(esl_sched_t *s, uint64_t mac, uint32_t *at, uint8_t repeat, uint32_t now,
                                      const esl_content_t *c);
+/* A recurring (or, with ESL_SCHED_ONCE, a one-off) entry for mac exists at the time adding
+ * (mac, at, repeat) at now would give: adding it again takes no room */
+bool esl_sched_has_repeat(esl_sched_t *s, uint64_t mac, uint32_t at, uint8_t repeat, uint32_t now);
 /* ESL_SCHED_* of the entry in a slot (ESL_SCHED_ONCE when unused) */
 uint8_t esl_sched_slot_repeat(esl_sched_t *s, unsigned slot);
-/* An entry for (mac, at) exists (adding it again takes no room). */
+/* A one-off entry for (mac, at) exists (adding it again takes no room). */
 bool esl_sched_has(esl_sched_t *s, uint64_t mac, uint32_t at);
 unsigned esl_sched_free(esl_sched_t *s);
 unsigned esl_sched_count(esl_sched_t *s);

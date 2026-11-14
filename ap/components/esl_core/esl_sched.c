@@ -14,10 +14,11 @@ static void unlock(esl_sched_t *s)
         s->ops.unlock(s->ops.ctx);
 }
 
-static int find(const esl_sched_t *s, uint64_t mac, uint32_t at)
+/* The same tag, time and kind: a one-off entry at the time of a recurring one is its own entry */
+static int find(const esl_sched_t *s, uint64_t mac, uint32_t at, uint8_t repeat)
 {
     for (unsigned i = 0; i < s->cap; i++)
-        if (s->e[i].used && s->e[i].mac == mac && s->e[i].at == at)
+        if (s->e[i].used && s->e[i].mac == mac && s->e[i].at == at && s->e[i].repeat == repeat)
             return (int)i;
     return -1;
 }
@@ -172,7 +173,7 @@ bool esl_sched_restore(esl_sched_t *s, unsigned slot, const uint8_t *blob, size_
     uint8_t repeat;
     if (slot >= s->cap || s->e[slot].used || !decode(blob, len, &at, &mac, &c, &repeat, &local))
         return false;
-    if (at < ESL_SCHED_MIN_UNIX || find(s, mac, at) >= 0)
+    if (at < ESL_SCHED_MIN_UNIX || find(s, mac, at, repeat) >= 0)
         return false;
     s->e[slot] = (esl_sched_entry_t){true, repeat, at, mac};
     s->due_dirty = true;
@@ -230,7 +231,7 @@ esl_sched_err_t esl_sched_add_repeat(esl_sched_t *s, uint64_t mac, uint32_t *at_
             at = next_time(s, at, repeat, local, now);
     }
     size_t len = encode(blob, at, mac, c, repeat, local);
-    int slot = find(s, mac, at);
+    int slot = find(s, mac, at, repeat);
     for (unsigned i = 0; slot < 0 && i < s->cap; i++)
         if (!s->e[i].used)
             slot = (int)i;
@@ -246,6 +247,16 @@ esl_sched_err_t esl_sched_add_repeat(esl_sched_t *s, uint64_t mac, uint32_t *at_
     return ESL_SCHED_OK;
 }
 
+bool esl_sched_has_repeat(esl_sched_t *s, uint64_t mac, uint32_t at, uint8_t repeat, uint32_t now)
+{
+    lock(s);
+    if (repeat != ESL_SCHED_ONCE && now)
+        at = next_time(s, at, repeat, local_in(s, at, period(repeat)), now);
+    bool r = find(s, mac, at, repeat) >= 0;
+    unlock(s);
+    return r;
+}
+
 uint8_t esl_sched_slot_repeat(esl_sched_t *s, unsigned slot)
 {
     lock(s);
@@ -257,7 +268,7 @@ uint8_t esl_sched_slot_repeat(esl_sched_t *s, unsigned slot)
 bool esl_sched_has(esl_sched_t *s, uint64_t mac, uint32_t at)
 {
     lock(s);
-    bool r = find(s, mac, at) >= 0;
+    bool r = find(s, mac, at, ESL_SCHED_ONCE) >= 0;
     unlock(s);
     return r;
 }
@@ -334,7 +345,10 @@ unsigned esl_sched_tick(esl_sched_t *s, esl_store_t *st, uint64_t now_ms)
             uint32_t last = o->at;
             if (o->repeat != ESL_SCHED_ONCE)
                 last += (now - o->at) / period(o->repeat) * period(o->repeat);
-            if (win < 0 || last > best) {
+            /* on the same time a one-off entry wins: it is the exception to the series. The
+               last time of a series is one period back without the daylight saving time
+               correction: two entries of a tag an hour apart may compare wrong here */
+            if (win < 0 || last > best || (last == best && o->repeat == ESL_SCHED_ONCE)) {
                 win = (int)j;
                 best = last;
             }
