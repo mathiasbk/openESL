@@ -42,7 +42,9 @@ static struct {
     char path[200];
     pthread_mutex_t spi;     /* one SPI transfer at a time */
     uint8_t channel;
+    uint16_t pan, short_addr; /* as start() set them, for a change of channel */
     bool promisc;            /* ",promisc": hear every frame on the channel */
+    bool start_promisc;
     unsigned failed;
 } sm = {.fd = -1, .pipe = {-1, -1}, .spi = PTHREAD_MUTEX_INITIALIZER};
 
@@ -228,6 +230,9 @@ static int sm_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t short
 {
     (void)l;
     sm.channel = channel;
+    sm.pan = pan;
+    sm.short_addr = short_addr;
+    sm.start_promisc = promiscuous;
     if (setup(pan, short_addr, promiscuous) != 0) {
         fprintf(stderr, "openesl-ap: %s: the modem takes no settings (SPI error, or no status after receive on)\n",
                 sm.path);
@@ -240,13 +245,18 @@ static int sm_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t short
     return 0;
 }
 
+/* A new channel with receiving off and the whole set-up again, as at the start: set while
+   receiving, the modem took the channel and heard the next frame, but stopped receiving after
+   its first transmit there (tried on the gateway, 25 -> 15) */
 static int sm_set_channel(esl_link_t *l, uint8_t channel)
 {
     (void)l;
+    uint8_t off[1] = {0};
     sm.channel = channel;
-    uint8_t p[1] = {channel};
-    /* a new channel needs receive on again, with its status, or the modem stops receiving */
-    return cmd(0x85, p, 1) || receive_on() ? -1 : 0;
+    int err = cmd(0x8B, off, 1);
+    usleep(100000);
+    tx_status(); /* receive off is answered with a status too */
+    return err || setup(sm.pan, sm.short_addr, sm.start_promisc) ? -1 : 0;
 }
 
 /* At a stop the receive thread may wait in read() until the modem hears something, and that
