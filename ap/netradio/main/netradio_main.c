@@ -405,10 +405,12 @@ static bool connect_ap(void)
     strlcpy(ap_ip, ip, sizeof(ap_ip));
     xSemaphoreGive(lock);
     esl_nlink_rx_init(&nrx, nrx_buf, rc.image_cap + 64);
-    uint8_t mac[6];
-    esp_efuse_mac_get_default(mac);
+    /* its 802.15.4 address (EUI-64, as the cable radio's HELLO): 8 bytes. Before, the first 6
+       of them, which C6 boards of one batch share (esl_nlink_same_radio) */
+    uint8_t mac[8] = {0};
+    esp_read_mac(mac, ESP_MAC_IEEE802154);
     uint64_t id = 0;
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 8; i++)
         id = id << 8 | mac[i];
     unsigned slots = fwpart ? fwpart->size / ESL_TAGFW_SLOT : 0;
     esl_nlink_hello_t h = {rc.boot, version_number(), id, TAGS, IMAGES, (uint32_t)rc.image_cap,

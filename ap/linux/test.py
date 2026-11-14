@@ -361,8 +361,10 @@ def test_netradio(binary, tmp):
         radios = {x["id"]: x for x in ap.json("GET", "/api/radios")["radios"]}
         check(radios.get("0000AABBCC000003", {}).get("channel") == 11 and "0000AABBCC000002" not in radios,
               "netradio: the places and channels are kept across a restart")
-        r3 = FakeNetRadio(nport, 0x0000AABBCC000003)
-        check(r3.config() == 11, "netradio: a known radio gets its channel back")
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000003 << 16 | 0x77C8)
+        check(r3.config() == 11, "netradio: a known radio gets its channel back, also by the id older firmware sent")
+        ids = [x["id"] for x in ap.json("GET", "/api/radios")["radios"]]
+        check("AABBCC00000377C8" in ids and "0000AABBCC000003" not in ids, "netradio: and is known by its new id")
         r5 = FakeNetRadio(nport, 0x0000AABBCC000005)
         check(r5.config() == 26, "netradio: a new one takes the forgotten place's channel")
         r3.close()

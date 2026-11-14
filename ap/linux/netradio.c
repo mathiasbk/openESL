@@ -263,9 +263,17 @@ static void log_stats(void)
 static int place_for(uint64_t id, bool *is_new)
 {
     *is_new = false;
-    for (unsigned i = 1; i < RADIOS; i++)
-        if (places[i].id == id)
-            return (int)i;
+    for (unsigned i = 1; i < RADIOS; i++) {
+        if (!esl_nlink_same_radio(places[i].id, id))
+            continue;
+        if (places[i].id != id) {
+            /* known by the id older firmware sent: it keeps its place and channel */
+            ap_log("radio %016" PRIX64 " was %016" PRIX64 " (older firmware)", id, places[i].id);
+            places[i].id = id;
+            save_places();
+        }
+        return (int)i;
+    }
     for (unsigned i = 1; i < RADIOS; i++) {
         if (places[i].id)
             continue;
