@@ -29,7 +29,7 @@ export class FakeAp {
   setContent(mac, c) {
     this.check(c);
     const { at, ...content } = c;
-    if (at && at > this.time) this.scheduled.push({ mac, at, ...content });
+    if (at && (at > this.time || content.repeat)) this.scheduled.push({ mac, at, ...content });
     else this.tag(mac).content = content;
   }
   async call(method, path, body) {

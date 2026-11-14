@@ -72,6 +72,9 @@ static int ap_schedule(const esl_api_t *api, const char *method, bool has_mac, u
             continue;
         esl_mac_format(m, ms);
         esl_sb_printf(out, "%s{\"mac\":\"%s\",\"at\":%" PRIu32, first ? "" : ",", ms, at);
+        const char *rep = esl_sched_repeat_name(esl_sched_slot_repeat(api->sched, s));
+        if (rep)
+            esl_sb_printf(out, ",\"repeat\":\"%s\"", rep);
         api_write_content(out, &c);
         esl_sb_putc(out, '}');
         first = false;

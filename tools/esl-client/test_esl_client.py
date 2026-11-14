@@ -110,7 +110,7 @@ class FakeAp(BaseHTTPRequestHandler):
     def _set(self, mac, c):
         if c.get("at"):
             FakeAp.sched.append(dict(c, mac=mac))
-            return {"mac": mac, "scheduled": True, "at": c["at"]}
+            return {"mac": mac, "scheduled": True, "at": c["at"], **({"repeat": c["repeat"]} if c.get("repeat") else {})}
         cid = abs(hash(json.dumps(c, sort_keys=True))) % 2**32 or 1
         old = self.tags.get(mac, {})
         changed = old.get("content_id") != cid
@@ -889,11 +889,13 @@ class ClientTest(unittest.TestCase):
         FakeAp.wifi = {"mode": "sta", "ssid": "Butikken", "connected": True, "hostname": "butikk"}
         future = int(time.time()) + 3600
         FakeAp.sched = [{"mac": "00000123456789A8", "at": future, "layout": "price", "fields": ["Milk", "19.90"]},
-                        {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]}]
+                        {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]},
+                        {"mac": "00000123456789A9", "at": 1700000000, "repeat": "weekly", "layout": "text",
+                         "fields": ["Friday offer"]}]
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "ap.json")
             rc, out = self.run_cli("backup", path)
-            self.assertEqual((rc, out), (0, f"{path}: 3 tags, 1 layout files, 2 scheduled\n"))
+            self.assertEqual((rc, out), (0, f"{path}: 3 tags, 1 layout files, 3 scheduled\n"))
             with open(path, encoding="utf-8") as f:
                 b = json.load(f)
             self.assertEqual(b["format"], "openesl-backup")
@@ -905,12 +907,14 @@ class ClientTest(unittest.TestCase):
                 {"mac": "00000123456789A9", "layout": "text", "fields": ["Open", "9-21"], "price_highlight": False,
                  "frame": True, "config": {"poll_s": 300}},
                 {"mac": "00000123456789B1", "image": base64.b64encode(raw).decode()}])
-            self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
+            self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, 1700000000, future])
+            self.assertEqual(b["scheduled"][1]["repeat"], "weekly")
             self.assertEqual(b["ap"]["hostname"], "butikk")
             self.assertEqual(b["tag_firmware"], [{"model": "1.54", "version": "0.3.0", "crc": "1234ABCD", "to": "all",
                                                   "waiting": 1}])
 
-            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed.
+            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed
+            # (a weekly one does: the AP starts it at its next time).
             # Its name and the tag firmware are not set; restore says how.
             self.setUp()
             FakeAp.wifi = {"mode": "setup", "ssid": None, "connected": False, "hostname": "openesl-77c8"}
@@ -923,19 +927,19 @@ class ClientTest(unittest.TestCase):
             self.assertIn("note: the old AP was called butikk (butikk.local), this one openesl-77c8; to keep the "
                           "old name: wifi --hostname butikk", out)
             self.assertIn("tags: 2 with content, 1 with a picture, 1 with their own settings", out)
-            self.assertIn("scheduled: 1 (1 skipped, their time has passed)", out)
+            self.assertIn("scheduled: 2 (1 skipped, their time has passed)", out)
             self.assertIn("nothing sent", out)
             self.assertEqual(FakeAp.calls, [])
             # the tag with the picture has not polled the fresh AP yet: it gets it the next time
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1, out)
             self.assertIn("warning: 1 pictures wait until their tags have polled this AP", out)
-            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 1 scheduled", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 2 scheduled", out)
             FakeAp.tags["00000123456789B1"] = dict(FakeAp.tags["00000123456789A8"], mac="00000123456789B1")
             FakeAp.sched = []  # the fake keeps each entry sent, the AP the last per time
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 0, out)
-            self.assertIn("restored: 1 layout files, 1 tag settings, 3 tags, 1 scheduled", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 3 tags, 2 scheduled", out)
             self.assertEqual(FakeAp.images["00000123456789B1"], raw)
             self.assertEqual(FakeAp.config["poll_s"], 120)
             self.assertEqual(FakeAp.config["webhook"], "http://10.0.0.5:8080/esl")
@@ -944,7 +948,9 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(sorted(FakeAp.tags), ["00000123456789A8", "00000123456789A9", "00000123456789B1"])
             self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk", "24.90"])
             self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
-            self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A8", "at": future, "layout": "price",
+            self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A9", "at": 1700000000, "repeat": "weekly",
+                                             "layout": "text", "fields": ["Friday offer"]},
+                                            {"mac": "00000123456789A8", "at": future, "layout": "price",
                                              "fields": ["Milk", "19.90"]}])
             self.assertIsNotNone(FakeAp.time)  # set before the scheduled entry was sent
             paths = [c[0] for c in FakeAp.calls]
@@ -1555,8 +1561,22 @@ class ClientTest(unittest.TestCase):
         self.run_cli("price", "0000000000000001", "Melk", "21.90", "--at", "2030-01-03")
         self.assertEqual([p for p, _ in FakeAp.calls].count("/api/time"), 1)
         rc, out = self.run_cli("schedule")
-        self.assertIn("2030-01-02 07:00  0000000000000001", out)
+        self.assertIn("2030-01-02 07:00  once    0000000000000001", out)
         self.assertIn("2 of 256 scheduled", out)
+
+    def test_schedule_repeat(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc, out = self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--at", "2030-01-04 16:00",
+                                   "--repeat", "weekly")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("the AP has no time zone set", err.getvalue())
+        self.assertEqual(FakeAp.calls[-1][1]["repeat"], "weekly")
+        self.assertIn("scheduled for 2030-01-04 16:00, then weekly", out)
+        rc, out = self.run_cli("schedule")
+        self.assertIn("2030-01-04 16:00  weekly  0000000000000001", out)
+        with self.assertRaises(SystemExit):
+            self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--repeat", "daily")
 
     def test_sync_at(self):
         path = self.write("mac,layout,name,price,at\n"

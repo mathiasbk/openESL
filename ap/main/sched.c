@@ -170,6 +170,19 @@ esl_clock_cfg_t *sched_clock(void)
     return clock_cfg.set ? &clock_cfg : NULL;
 }
 
+/* The local time's offset from UTC at t in TZ (UTC + offset = local); also the schedule's
+   utc_offset_at, for the next time of a recurring entry (#415) */
+static int32_t utc_offset_at(void *ctx, uint32_t t)
+{
+    (void)ctx;
+    time_t tt = (time_t)t;
+    struct tm l, g;
+    localtime_r(&tt, &l);
+    gmtime_r(&tt, &g);
+    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
+    return days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+}
+
 /* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown;
    the offset from UTC goes to esl_clock too (night mode and update window, #415) */
 static int32_t local_days(void)
@@ -177,12 +190,7 @@ static int32_t local_days(void)
     uint32_t now = esl_sched_now(&sched, now_ms(), NULL);
     if (!now)
         return -1;
-    time_t tt = (time_t)now;
-    struct tm l, g;
-    localtime_r(&tt, &l);
-    gmtime_r(&tt, &g);
-    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
-    int32_t off = days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+    int32_t off = utc_offset_at(NULL, now);
     esl_clock_set_utc_offset(off);
     return (int32_t)(((int64_t)now + off) / 86400);
 }
@@ -201,7 +209,7 @@ static void tick_task(void *arg)
 
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
 {
-    static const esl_sched_ops_t ops = {NULL, lock, unlock, save, load, erase};
+    static const esl_sched_ops_t ops = {NULL, lock, unlock, save, load, erase, utc_offset_at};
     esl_sched_entry_t *e = calloc(cap, sizeof(*e));
     mutex = xSemaphoreCreateMutex();
     if (!e || !mutex) {

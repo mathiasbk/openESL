@@ -65,7 +65,7 @@ export async function makeBackup(client, { progress = () => {}, now = () => new 
     if (Object.keys(cfg).length) row.config = cfg;
     if (Object.keys(row).length > 1) tags.push(row); // a tag that has only polled comes back when it polls again
   }
-  const scheduled = (schedule?.scheduled || []).map((e) => ({ mac: e.mac, at: e.at, ...pick(e, CONTENT_KEYS) }))
+  const scheduled = (schedule?.scheduled || []).map((e) => ({ mac: e.mac, at: e.at, ...(e.repeat ? { repeat: e.repeat } : {}), ...pick(e, CONTENT_KEYS) }))
     .sort((a, b) => a.at - b.at || a.mac.localeCompare(b.mac));
   const ap = { fw: list.ap.fw, channel: list.ap.channel };
   if (list.ap.board) ap.board = list.ap.board;
@@ -173,7 +173,8 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
   }
   if (want.scheduled) {
     const now = list.ap.time || Math.round(Date.now() / 1000);
-    const due = b.scheduled.filter((s) => s.at > now); // those past their time the AP would set now
+    // those past their time the AP would set now; a recurring one (0.11.0) starts at its next time
+    const due = b.scheduled.filter((s) => s.at > now || s.repeat);
     if (due.length < b.scheduled.length) notes.push(`${b.scheduled.length - due.length} scheduled entries skipped: their time has passed`);
     for (let i = 0; i < due.length; i += BATCH) steps.push(["scheduled", due.slice(i, i + BATCH)]);
   }
@@ -205,7 +206,7 @@ export async function restoreBackup(client, b, { parts = {}, progress = () => {}
           else note(r.status === 200, `Picture for ${arg.mac}` + (r.status === 200 ? "" : ": " + answer(r)));
         }
       } else if (kind === "scheduled") {
-        await putContent(client, arg.map((e) => ({ mac: e.mac, at: e.at, ...pick(e, CONTENT_KEYS) })), note, "Scheduled");
+        await putContent(client, arg.map((e) => ({ mac: e.mac, at: e.at, ...(e.repeat ? { repeat: e.repeat } : {}), ...pick(e, CONTENT_KEYS) })), note, "Scheduled");
       }
     } catch (e) {
       // a backup from before its model got same_as: this AP draws it with the other model's file

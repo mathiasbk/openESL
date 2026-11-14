@@ -153,7 +153,7 @@ static uint32_t unix_now(void *ctx)
 static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, unix_now,
                                           NULL, NULL, NULL, NULL, img_save, img_load, NULL, NULL};
 
-static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
+static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase, NULL};
 
 /* A SoluM remote whose radio can visit channel 11; main() lets it hear one press */
 static esl_remote_t remote = {.can_listen = true, .boot = 2817364121u};

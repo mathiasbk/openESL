@@ -1901,6 +1901,18 @@ components:
             When the content takes effect, Unix seconds (UTC). Missing, null or in the past: now.
             The AP needs to know the time (`GET /api/time`), else `409`.
           example: 1792069200
+        repeat:
+          type: [string, "null"]
+          enum: [once, daily, weekly, null]
+          default: null
+          description: |
+            With `at` (AP 0.11.0 and later): the content is set again every day or week at the same
+            local time as `at` (the AP's time zone, `tz` in `GET /api/config`), also across daylight
+            saving time; a weekly one on the same weekday. A time in `at` that has passed starts it
+            at its next time. The entry stays until `DELETE /api/schedule/{mac}` (or the tag is
+            deleted). A one-off entry at the same time is kept beside it and wins that time. Null or `once`: only at `at`. Without `at`: `422`. Older firmware ignores the key
+            and schedules the content once.
+          example: weekly
 
     BatchRow:
       allOf:
@@ -1964,6 +1976,7 @@ components:
         mac: { $ref: "#/components/schemas/Mac" }
         scheduled: { const: true }
         at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC" }
+        repeat: { type: string, enum: [daily, weekly], description: "Only for a recurring entry: `at` is its first time (its next one, when the time sent had passed)" }
 
     Remote:
       type: object
@@ -2005,7 +2018,8 @@ components:
           required: [mac, at]
           properties:
             mac: { $ref: "#/components/schemas/Mac" }
-            at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "When it takes effect, Unix seconds, UTC" }
+            at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "When it takes effect, Unix seconds, UTC; the next time for a recurring entry" }
+            repeat: { type: string, enum: [daily, weekly], description: "Only for a recurring entry (see `repeat` in PUT /api/tags/{mac})" }
             layout: { type: string }
             fields: { type: array, items: { type: string } }
             price_highlight: { type: boolean }

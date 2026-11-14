@@ -70,6 +70,28 @@ static int parse_at(const esl_api_t *api, const json_t *j, int obj, uint32_t *at
     return 0;
 }
 
+/* "repeat": null/"once" (or none), "daily" or "weekly" (#415), only with a time in "at" */
+static int parse_repeat(const json_t *j, int obj, uint32_t at, uint8_t *repeat, char *msg)
+{
+    int v = esl_json_obj_get(j->js, j->tok, obj, "repeat");
+    *repeat = ESL_SCHED_ONCE;
+    if (v < 0 || j->tok[v].type == ESL_JSON_NULL)
+        return 0;
+    int r = j->tok[v].type == ESL_JSON_STRING
+                ? esl_sched_repeat_parse(&j->js[j->tok[v].start], (size_t)(j->tok[v].end - j->tok[v].start))
+                : -1;
+    if (r < 0) {
+        snprintf(msg, MSG_MAX, "repeat must be null, \"once\", \"daily\" or \"weekly\"");
+        return 422;
+    }
+    if (r != ESL_SCHED_ONCE && !at) {
+        snprintf(msg, MSG_MAX, "repeat needs a time in at: the first time it takes effect");
+        return 422;
+    }
+    *repeat = (uint8_t)r;
+    return 0;
+}
+
 /* Fills cfg from {poll_s, max_poll_s, lost_ap_s, long_poll_s, long_after_min}; missing or null = default. */
 static int parse_cfg(const json_t *j, int obj, esl_tag_cfg_t *cfg, const char **msg)
 {
@@ -336,11 +358,14 @@ void api_write_set_result(esl_sb_t *out, uint64_t mac, const esl_set_result_t *r
                   m, r->content_id, r->changed ? "true" : "false", r->pending ? "true" : "false");
 }
 
-static void write_sched_result(esl_sb_t *out, uint64_t mac, uint32_t at)
+static void write_sched_result(esl_sb_t *out, uint64_t mac, uint32_t at, uint8_t repeat)
 {
     char m[17];
     esl_mac_format(mac, m);
-    esl_sb_printf(out, "{\"mac\":\"%s\",\"scheduled\":true,\"at\":%" PRIu32 "}", m, at);
+    esl_sb_printf(out, "{\"mac\":\"%s\",\"scheduled\":true,\"at\":%" PRIu32, m, at);
+    if (repeat != ESL_SCHED_ONCE)
+        esl_sb_printf(out, ",\"repeat\":\"%s\"", esl_sched_repeat_name(repeat));
+    esl_sb_putc(out, '}');
 }
 
 #define NO_TIME_MSG "the AP does not know the time yet: set it with PUT /api/time, or let it reach an NTP server"
@@ -606,7 +631,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
 
 /* When content with "at" takes effect: 0 = now (no "at", or a time that has
  * passed), else the time to schedule it for. Returns 0 or 409 with msg set. */
-static int when(const esl_api_t *api, uint32_t at, uint64_t now_ms, uint32_t *sched_at, char *msg)
+static int when(const esl_api_t *api, uint32_t at, uint8_t repeat, uint64_t now_ms, uint32_t *sched_at, char *msg)
 {
     *sched_at = 0;
     if (!at)
@@ -616,7 +641,7 @@ static int when(const esl_api_t *api, uint32_t at, uint64_t now_ms, uint32_t *sc
         snprintf(msg, MSG_MAX, NO_TIME_MSG);
         return 409;
     }
-    if (at > now)
+    if (at > now || repeat != ESL_SCHED_ONCE) /* a recurring one starts at its next time */
         *sched_at = at;
     return 0;
 }
@@ -638,19 +663,23 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
         esl_set_result_t r;
         esl_store_err_t err;
         uint32_t at = 0;
+        uint8_t repeat = ESL_SCHED_ONCE;
         status = parse_content(api, &j, 0, mac, &c, msg);
         if (!status)
             status = parse_at(api, &j, 0, &at, msg);
         if (!status)
-            status = when(api, at, now_ms, &at, msg);
+            status = parse_repeat(&j, 0, at, &repeat, msg);
+        if (!status)
+            status = when(api, at, repeat, now_ms, &at, msg);
         if (status)
             api_error(out, status, msg);
         else if (at) {
-            if (esl_sched_add(api->sched, mac, at, &c) != ESL_SCHED_OK)
+            if (esl_sched_add_repeat(api->sched, mac, &at, repeat, esl_sched_now(api->sched, now_ms, NULL), &c) !=
+                ESL_SCHED_OK)
                 status = api_error(out, 507, "schedule full");
             else {
                 api_leave_source(api, mac);
-                write_sched_result(out, mac, at);
+                write_sched_result(out, mac, at, repeat);
                 status = 200;
             }
         } else if ((api_leave_source(api, mac), err = esl_store_set(api->store, mac, &c, &r)) != ESL_STORE_OK)
@@ -669,6 +698,7 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
     esl_jtok_t *tok = NULL;
     uint64_t *macs = NULL;
     uint32_t *ats = NULL;
+    uint8_t *repeats = NULL;
     esl_content_t *contents = NULL;
     int status = api_parse_json(body, len, &tok, out);
     if (status)
@@ -687,8 +717,9 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
     }
     macs = malloc(sizeof(*macs) * (n ? n : 1));
     ats = malloc(sizeof(*ats) * (n ? n : 1));
+    repeats = malloc(sizeof(*repeats) * (n ? n : 1));
     contents = malloc(sizeof(*contents) * (n ? n : 1));
-    if (!macs || !ats || !contents) {
+    if (!macs || !ats || !repeats || !contents) {
         status = api_error(out, 500, "out of memory");
         goto done;
     }
@@ -708,17 +739,19 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         if (!st)
             st = parse_at(api, &j, i, &ats[k], msg);
         if (!st)
-            st = when(api, ats[k], now_ms, &ats[k], msg);
+            st = parse_repeat(&j, i, ats[k], &repeats[k], msg);
+        if (!st)
+            st = when(api, ats[k], repeats[k], now_ms, &ats[k], msg);
         if (st) {
             status = api_error_at(out, st, msg, (int)k);
             goto done;
         }
         bool dup = false;
         for (unsigned d = 0; d < k; d++)
-            dup |= macs[d] == macs[k] && (ats[k] ? ats[d] == ats[k] : !ats[d]);
+            dup |= macs[d] == macs[k] && (ats[k] ? ats[d] == ats[k] && repeats[d] == repeats[k] : !ats[d]);
         esl_tag_t existing;
         if (!dup && ats[k])
-            new_sched += !esl_sched_has(api->sched, macs[k], ats[k]);
+            new_sched += !esl_sched_has_repeat(api->sched, macs[k], ats[k], repeats[k], esl_sched_now(api->sched, now_ms, NULL));
         else if (!dup && !ats[k] && (!esl_store_get(api->store, macs[k], &existing) || !esl_tag_holds_data(&existing)))
             new_macs++;
         i = tok[i].next;
@@ -738,9 +771,10 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         esl_store_err_t err = ESL_STORE_FULL;
         if (k)
             esl_sb_putc(out, ',');
-        if (ats[k] && esl_sched_add(api->sched, macs[k], ats[k], &contents[k]) == ESL_SCHED_OK) {
+        if (ats[k] && esl_sched_add_repeat(api->sched, macs[k], &ats[k], repeats[k], esl_sched_now(api->sched, now_ms, NULL),
+                                           &contents[k]) == ESL_SCHED_OK) {
             api_leave_source(api, macs[k]);
-            write_sched_result(out, macs[k], ats[k]);
+            write_sched_result(out, macs[k], ats[k], repeats[k]);
         } else if (!ats[k] && (api_leave_source(api, macs[k]), err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             api_write_set_result(out, macs[k], &r);
         } else {
@@ -757,6 +791,7 @@ done:
     free(tok);
     free(macs);
     free(ats);
+    free(repeats);
     free(contents);
     return status;
 }
