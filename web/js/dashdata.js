@@ -498,18 +498,20 @@ export function statusItems(last, ago_s = 0, done = null, now = Date.now()) {
         title: "The AP has no contact with its radio: no tag hears it" }
     : { k: "radio", text: radios.length > 1 ? `${radios.length} radios ready` : "Radio ready", cls: "ok", part: "ap",
         title: radios.length ? "The AP's radio answers" : "The AP's own radio" });
-  const ch = config?.channel ?? ap.channel;
+  // several radios over WiFi: each serves its own channel
+  const chans = ap.radios?.length > 1 ? [...new Set(ap.radios.map((r) => r.channel))].join(", ") : null;
+  const ch = chans || (config?.channel ?? ap.channel);
   const move = config?.channel_next ? ` → ${config.channel_next}` : "";
   const tx = config?.tx_power != null ? ` · ${config.tx_power} dBm` : "";
   items.push({ k: "channel", text: `Ch ${ch}${move}${tx}`, cls: move ? "warn" : "", part: "settings",
                title: (move ? `Moving to channel ${config.channel_next} once the tags have confirmed it. ` : "") +
-                      `Radio channel ${ch}` + (tx ? `, transmit power ${config.tx_power} dBm` : "") });
+                      `Radio channel${chans ? "s" : ""} ${ch}` + (tx ? `, transmit power ${config.tx_power} dBm` : "") });
   // new: polled, but nothing sent to it yet; foreign: tags of other APs that poll here
   const fresh = tags.filter((t) => !t.content_id).length;
   const foreign = (health?.other_aps || []).reduce((n, a) => n + (a.tags || 0), 0);
   const tagText = [`${tags.length} tag${tags.length === 1 ? "" : "s"}`];
   if (fresh) tagText.push(`${fresh} new`);
-  if (foreign) tagText.push(`${foreign} unknown polling`);
+  if (foreign) tagText.push(`${foreign} of other APs`);
   items.push({ k: "tags", text: tagText.join(" · ") + (ap.table_full ? " · full" : ""), part: "tags",
                cls: ap.table_full ? "bad" : fresh || foreign ? "warn" : "",
                title: [fresh ? `${fresh} without content yet` : "", foreign ? `${foreign} tag${foreign === 1 ? "" : "s"} of other APs poll here and get no answer` : "",
@@ -521,7 +523,7 @@ export function statusItems(last, ago_s = 0, done = null, now = Date.now()) {
   if (done) q.push(`last ${fmtAgo(Math.max(0, Math.round((now - done.at) / 1000)))} ago`);
   items.push({ k: "queue", text: q.join(" · "), part: "tags",
                title: `Tags that have not fetched their new content, settings or firmware yet: ${waiting}` +
-                      (done ? `. Last done: ${done.mac}, ${new Date(done.at).toLocaleTimeString()}` : "") });
+                      (done ? `. Last tag to fetch new content: ${done.mac}, ${new Date(done.at).toLocaleTimeString()}` : "") });
   // the radio's firmware only when it is not the AP's own chip; one version per radio otherwise
   const rfw = [...new Set(radios.filter((r) => r.fw).map((r) => fmtTagFw(r.fw)))];
   const skew = rfw.some((v) => !String(ap.fw).startsWith(v));

@@ -354,7 +354,7 @@ test("status bar (#417)", () => {
   assert.equal(s.radio.text, "Radio ready");
   assert.equal(s.channel.text, "Ch 25 → 15 · 8 dBm");
   assert.equal(s.channel.cls, "warn");
-  assert.equal(s.tags.text, "3 tags · 3 unknown polling");
+  assert.equal(s.tags.text, "3 tags · 3 of other APs");
   assert.equal(s.queue.text, "Queue 3 · 2 scheduled · last 2 min ago");
   assert.equal(s.fw.text, "AP 0.11.0 · radio 0.10.0");
   assert.equal(s.fw.cls, "warn");
@@ -369,6 +369,7 @@ test("status bar (#417)", () => {
   // two radios over WiFi, one lost (older firmware: no health radio_problems)
   s = by(statusItems({ list: { ap: { ...ap, radios: [{ radio: 0, connected: true, fw: 1100, channel: 25 }, { radio: 1, connected: false, lost: true, channel: 15 }] }, tags: [] } }));
   assert.equal(s.radio.text, "1 of 2 radios lost");
+  assert.equal(s.channel.text, "Ch 25, 15");
   assert.equal(s.fw.text, "AP 0.11.0 · radio 0.11.0");
   assert.equal(s.fw.cls, "");
 });

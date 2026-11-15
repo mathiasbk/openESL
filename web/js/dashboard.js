@@ -164,10 +164,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   }, 1000);
 
   // The status bar over every part (#417): from what refresh() read, uptime and the AP's clock
-  // moved on by the time since. Its links stay in place, so one in focus keeps it.
+  // moved on by the time since (not while the AP does not answer: then they stay as they were). Its links stay in place, so one in focus keeps it.
   function renderStatus() {
     const bar = $("dash-status");
-    const items = last ? statusItems(last, Math.round((Date.now() - lastAt) / 1000), done) : [];
+    const items = last ? statusItems(last, stale ? 0 : Math.round((Date.now() - lastAt) / 1000), done) : [];
     bar.hidden = !items.length;
     bar.classList.toggle("stale", stale);
     items.forEach((it, i) => {
