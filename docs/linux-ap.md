@@ -64,6 +64,11 @@ the AP's own:
   radios take places 0–3, exactly as on the S3. The first to connect gets place 0, on the AP's
   channel, and follows its moves (it gets the new channel with its next sync). When the only radio
   left is in another place and place 0 is free (its radio was forgotten), it moves to place 0.
+  Switching an existing data directory from a radio of its own to `none` keeps the network radios
+  in places 1–3 and leaves place 0 empty, so no radio is on the AP's channel (and `radio_lost`
+  warns) until another connects: forget one radio while it is off (`DELETE /api/radios/{id}`) and
+  it takes place 0 when it connects again. Simulated tags from an earlier `sim` stay in the table
+  until deleted.
 
 The other places each get a channel of their own when their radio first connects (15, 20, 26, 11,
 ..., never the AP's); places and channels are kept in `<data>/radios`.

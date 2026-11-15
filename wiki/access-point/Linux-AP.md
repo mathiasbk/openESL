@@ -4,7 +4,7 @@
 
 `openesl-ap` is the access point as an ordinary Linux program. It runs on a Raspberry Pi, a mini PC, a server or another Linux computer, and has the same HTTP API and dashboard as the ESP32 boards, so the web page, [esl-client](esl-client) and [Home Assistant](Home-Assistant) work with it unchanged. The labels are the same, with the same firmware.
 
-The computer has no 802.15.4 radio of its own, so the program needs one:
+The computer has no 802.15.4 radio of its own, so the program uses one of these:
 
 | Radio | What it is | Tried on hardware |
 |---|---|---|

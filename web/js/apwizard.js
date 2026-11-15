@@ -234,13 +234,14 @@ export function initApWizard(info, store) {
     if (s.status === "skipped") return `<div class="wz-part"><span class="wz-n done">–</span><div class="wz-grow">${head} <span class="muted">· later</span></div></div>`;
     if (!on) return `<div class="wz-part dim"><span class="wz-n">${i + 1}</span><div class="wz-grow">${head}</div></div>`;
     const usb = radio()?.kind === "usb";
-    const own = "./openesl-ap --data ~/openesl --listen :8080 --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...";
-    const cmd = usb ? own : own + " --netradio 4553";
+    // radios over WiFi alone need no --radio: without one beside --netradio the AP has none of its own
+    const base = "./openesl-ap --data ~/openesl --listen :8080";
+    const cmd = usb ? base + " --radio uart:/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_..." : base + " --netradio 4553";
     return `<div class="wz-part on"><span class="wz-n on">${i + 1}</span><div class="wz-grow">${head}
       <ol class="wz-steps-text">
         <li>Download <span class="mono">openesl-ap-linux-&lt;arch&gt;-&lt;version&gt;</span> from the <a href="https://github.com/mathiasbk/openESL/releases/latest" target="_blank" rel="noopener">latest release</a> (<span class="mono">aarch64</span> for a 64-bit Raspberry Pi, <span class="mono">armv7</span> for 32-bit, <span class="mono">x86_64</span> for a PC), rename it to <span class="mono">openesl-ap</span> and <span class="mono">chmod +x</span> it. Or use the Docker image <span class="mono">ghcr.io/mathiasbk/openesl-ap</span> (Linux AP guide).</li>
         ${usb ? `<li>Plug the C6 into the computer. <span class="mono">ls /dev/serial/by-id/</span> shows its name.</li>`
-          : `<li>The Linux AP needs a radio of its own as well: a C6 on USB (flash it with <b>C6 on USB</b> first) or the 802.15.4 modem of a gateway. Radios over WiFi add to it, each on a channel of its own.</li>`}
+          : `<li>A radio on the computer is optional. Without one, the radios over WiFi serve every label (up to four, the first on the AP's channel). With one, a C6 on USB (flash it with <b>C6 on USB</b> first) or a gateway's 802.15.4 modem, add its <span class="mono">--radio</span> to the command below; the radios over WiFi then add to it, each on a channel of its own.</li>`}
         <li>Start it, or install it as a service (<a href="${LINUX_GUIDE}" target="_blank" rel="noopener">Linux AP guide</a>):<pre class="wz-log">${esc(cmd)}</pre></li>
         <li>Open <span class="mono">http://&lt;computer&gt;:8080/dashboard</span> and paste the API token from <span class="mono">~/openesl/token</span>.</li>
       </ol>
