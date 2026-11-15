@@ -10,8 +10,8 @@
 openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboard, /ui/... (packed from web/)
             ├─ main.c        the radio loop: frame → esl_link_handle() → reply; the scheduler every second
             ├─ store_files.c /var/lib/openesl: content/, cfg/, seen/, image/, sched/, layout/, font/, tagfw/
-            ├─ netradio.c    --netradio: C6 radios over the network, beside its own (below)
-            └─ radio_*.c     --radio sim | (more backends: see below)
+            ├─ netradio.c    --netradio: C6 radios over the network, beside its own or alone (below)
+            └─ radio_*.c     --radio sim | uart | spi-modem | none (below)
 ```
 
 ## Radios
@@ -20,6 +20,7 @@ openesl-ap ─┬─ http.c        :80  /api/... → esl_api_handle()   /dashboa
 |---|---|---|
 | `sim[:N[,ms]]` | N simulated tags (default 2) in the program, polling every ms (default 2000), alternately 2.9" and 1.54". They take CONFIG and fetch images block by block like a tag, so the dashboard and the API can be tried without hardware. The tests use it. | done |
 | `spi-modem:DEVICE[,promisc]` | An 802.15.4 modem with its own firmware behind a Linux SPI driver that frames its traffic as records (some ESL gateways have one): settings and frames go out as commands, received frames come back from `read()` as 132-byte records. Below. | done |
+| `none` | No radio of its own: every tag is served by network radios (`--netradio`, below), and it refuses to start without them. The default when `--netradio` is given without `--radio`. | done |
 | `uart:DEVICE` | An ESP32-C6 running the radio firmware (`ap/radio/`), over the link of [ap-radio-link.md](ap-radio-link.md). The usual setup: a C6 Super Mini with radio board `c6-usb` on a USB port of the host (`uart:/dev/ttyACM0`). The radio board `c6` speaks the same link on its UART pins (GPIO16 TX, GPIO17 RX), for a host with a serial port or a USB serial adapter at 921600 baud (`uart:/dev/ttyUSB0`). | done |
 
 ### An SPI 802.15.4 modem as the radio
@@ -54,10 +55,18 @@ Try a new install on another channel than the APs in use (`--channel`): a new da
 `--netradio [host:]port` lets C6 boards running the network radio firmware (`ap/netradio/`,
 [ap-netradio.md](ap-netradio.md)) connect to the AP, as they do to an S3, to cover more ground than
 its own radio reaches. The port they look for is 4553 (`--netradio 4553`, or `--netradio
-192.168.1.20:4553` for one interface). It is the S3's "Several radios" with one difference: the AP's
-own radio (`--radio`) stays in place 0, on the AP's channel, and follows its moves; the network radios
-take places 1–3, each on a channel of its own picked when it first connects (15, 20, 26, 11, ...,
-never the AP's), kept in `<data>/radios`.
+192.168.1.20:4553` for one interface). It is the S3's "Several radios", with or without a radio of
+the AP's own:
+
+- **With one** (`--radio uart:...` or `spi-modem:...`): it stays in place 0, on the AP's channel, and
+  follows its moves; the network radios take places 1–3.
+- **Without** (`--radio none`, the default when `--netradio` is given without `--radio`): the network
+  radios take places 0–3, exactly as on the S3. The first to connect gets place 0, on the AP's
+  channel, and follows its moves (it gets the new channel with its next sync). When the only radio
+  left is in another place and place 0 is free (its radio was forgotten), it moves to place 0.
+
+The other places each get a channel of their own when their radio first connects (15, 20, 26, 11,
+..., never the AP's); places and channels are kept in `<data>/radios`.
 
 - **Which radio serves a tag:** the one that last heard it, the AP's own included. A tag that loses
   its radio looks on the other channels and stays with the first radio that answers, which tells it
@@ -65,7 +74,10 @@ never the AP's), kept in `<data>/radios`.
   serves the tag.
 - **API and dashboard:** `GET /api/radios` lists the AP's own radio as radio 0 (`"via":"local"`, its
   id is the AP id) and the network radios after it; each tag has `"radio"`. `DELETE
-  /api/radios/{id}` forgets a network radio that is not connected; the AP's own answers 409.
+  /api/radios/{id}` forgets a network radio that is not connected; the AP's own answers 409. With
+  `--radio none` there is no `"local"` radio, and `GET /api/tags` has no `"replies"` (the counts of
+  the AP's own radio): the dashboard shows the radios as it does for an S3 with radios over WiFi,
+  and warns when no radio has been connected for a while (`radio_lost` in `GET /api/health`).
 - **Setting up a C6:** on the web page's Flash AP tab pick **Linux + C6 radio** and **Extra C6 over
   WiFi**: it flashes the C6 and sends it the WiFi and the AP's address. By hand: flash
   `openesl-ap-netradio-esp32c6-<version>.bin` from a release (`out/openesl-ap-netradio-c6.bin` when
@@ -74,9 +86,9 @@ never the AP's), kept in `<data>/radios`.
   The Linux AP does not announce itself on mDNS, so `host` is needed. The address can be another
   host that forwards the port, for an AP the radios cannot reach directly, e.g. `socat
   TCP-LISTEN:4553,fork,reuseaddr TCP:<ap>:4553`.
-- **The AP still needs a radio of its own.** There is no `--radio none` yet: without `--radio` the
-  AP runs `sim` beside the network radios, with simulated tags in its table. Give it a C6 on USB or
-  an SPI modem.
+- **Simulated tags stay out of it:** `--radio sim` beside network radios mixes simulated tags in with
+  the real ones, so it is only used when asked for; without `--radio` the AP runs `sim` only when
+  there is no `--netradio` either, and says so in its log.
 - **Each network radio holds its own share:** a C6 caches the tags it serves, up to
   `CONFIG_ESL_NETRADIO_TAGS` (500 by default), however many the AP takes.
 - **Not secure**, as on the S3: plain TCP, and any device that reaches the port can connect as a
@@ -107,7 +119,7 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 |---|---|---|
 | `--data DIR` | `/var/lib/openesl` | the tags, their content and settings, layouts, fonts, scheduled content, tag firmware, the AP id and the token |
 | `--listen ADDR` | `:80` | `[host]:port`; port 80 needs root or `CAP_NET_BIND_SERVICE` |
-| `--radio SPEC` | `sim` | above |
+| `--radio SPEC` | `sim`, `none` with `--netradio` | above |
 | `--channel N` | 25 | the built-in channel; the dashboard can move the AP and its tags to another (kept in `<data>/channel`) |
 | `--pan HEX` | 4553 | |
 | `--token TOKEN` | made at the first start | |
@@ -136,7 +148,7 @@ docker run -d --name openesl --restart unless-stopped -p 80:80 \
 cat ~/openesl/token
 ```
 
-The arguments after the image are `openesl-ap`'s options; without any it runs `--radio sim`. To build the image from source instead, `docker build -f ap/linux/Dockerfile -t openesl-ap .` (Alpine and musl, for the platform being built); CI builds that one and checks that it serves the dashboard.
+The arguments after the image are `openesl-ap`'s options; without any it runs `--radio sim`, with `--netradio 4553` alone it runs with network radios only (`--radio none`). To build the image from source instead, `docker build -f ap/linux/Dockerfile -t openesl-ap .` (Alpine and musl, for the platform being built); CI builds that one and checks that it serves the dashboard.
 
 - **Data:** `/var/lib/openesl` in the container; a host folder (as above) keeps it across new images and makes the token easy to read. Make the folder first, and run as your own user (`--user`): the program keeps the token and its folders readable by their owner only, so files written as root could only be read with `sudo`. The numeric `dialout` group (`--group-add`) lets that user open the C6, as the image has no `/etc/group` (on Arch the serial group is `uucp`: `getent group uucp`). A named volume works too.
 - **Time zone:** the image has no zone data, so mount the host's (`-v /etc/localtime:/etc/localtime:ro`) or give a POSIX `TZ` (`-e TZ=CET-1CEST,M3.5.0,M10.5.0/3`). Without either it runs in UTC, and night mode, the update window and dates on the tags are off by the zone's offset.
@@ -170,4 +182,4 @@ WiFi setup, OTA updates of the AP itself (update the binary instead), the data s
 
 ## Tests
 
-`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. Then `--netradio` beside the simulated radio, with network radios it plays over TCP: their places and channels, a tag one of them heard served by it with its channel and image, a tag the AP's own radio hears again going back to it, a fifth radio turned away, forgetting one, and the places kept across a restart. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.
+`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. Then `--netradio` beside the simulated radio, with network radios it plays over TCP: their places and channels, a tag one of them heard served by it with its channel and image, a tag the AP's own radio hears again going back to it, a fifth radio turned away, forgetting one, and the places kept across a restart. Then `--netradio` with no radio of its own: `--radio none` refused without `--netradio`, no simulated tags by default, no `"local"` radio, the first network radio on the AP's channel and following a move, four places, the only radio left moving to place 0 after a restart, and `sim` still the default without `--netradio`. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.

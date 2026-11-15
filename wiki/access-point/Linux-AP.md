@@ -11,9 +11,10 @@ The computer has no 802.15.4 radio of its own, so the program needs one:
 | **ESP32-C6 on USB** | A C6 Super Mini with the radio firmware for USB, plugged into the computer. The usual choice. | yes: three test labels (2.9" and 1.54") on a PC, unplugging and plugging the C6 back in included |
 | **The modem of an ESL gateway** | Some shop gateways that run Linux have an 802.15.4 modem behind an SPI driver. `openesl-ap` can use it, so the gateway runs openESL itself. | yes: test labels on one such gateway, including moving channel while running |
 | **Extra ESP32-C6 radios over WiFi** | Up to three [network radios](ESP32-S3-with-wireless-C6) beside the radio above, each on its own channel, for rooms the first radio does not reach. Same firmware and same limits as with an S3, and not secure yet. | yes: a few test labels on one PC with network radios |
+| **Only ESP32-C6 radios over WiFi** (`--radio none`) | No radio on the computer: up to four network radios, the first on the AP's channel, as with an S3. For a computer that sits where no label is. | in CI, with radios the tests play |
 | **Simulated labels** (`--radio sim`) | Labels inside the program, to try the dashboard and the API with no hardware. | runs in CI |
 
-The program always needs one radio of its own (the C6 on USB, or a gateway's modem); radios over WiFi are added to it.
+The usual setup has one radio on the computer (the C6 on USB, or a gateway's modem), and radios over WiFi are added to it. Without one, start it with `--netradio 4553` and no `--radio` (or `--radio none`): the radios over WiFi then serve every label.
 
 ## Compared with the ESP32 boards
 
@@ -51,7 +52,7 @@ docker run -d --name openesl --restart unless-stopped -p 80:80 \
 
 It runs as your own user, so the token is readable in `~/openesl/token`, and with your computer's time zone, which night mode, the update window and dates on the labels need. The dashboard is at `http://<computer>/dashboard`. Updating is `docker pull` and a new container with the same folder. More, including network radios and building the image yourself: [docs/linux-ap.md](https://github.com/mathiasbk/openESL/blob/master/docs/linux-ap.md#in-docker).
 
-**Radios over WiFi:** start the program with `--netradio 4553` as well, then on the Flash AP tab pick **Linux + C6 radio** and **Extra C6 over WiFi** for each radio. Type the computer's address when the page asks: the Linux AP does not announce itself on the network the way an S3 does.
+**Radios over WiFi:** start the program with `--netradio 4553` as well (with no `--radio` when the computer has no radio of its own), then on the Flash AP tab pick **Linux + C6 radio** and **Extra C6 over WiFi** for each radio. Type the computer's address when the page asks: the Linux AP does not announce itself on the network the way an S3 does.
 
 **Moving from an ESP32 AP:** take a backup on the old AP and restore it with `esl-client restore`. The labels follow without being paired again ([Moving to a new AP](Moving-to-a-new-AP)).
 

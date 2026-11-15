@@ -24,7 +24,7 @@ ap_t ap;
 int ap_verbose;
 static volatile sig_atomic_t stop;
 
-static const radio_backend_t *const backends[] = {&radio_sim, &radio_coproc, &radio_spimodem, NULL};
+static const radio_backend_t *const backends[] = {&radio_sim, &radio_coproc, &radio_spimodem, &radio_none, NULL};
 
 /* ---- clock and log ---- */
 
@@ -91,12 +91,13 @@ static void usage(FILE *f)
             "usage: openesl-ap [options]\n"
             "  --data DIR        where the AP keeps its tags, layouts and settings (/var/lib/openesl)\n"
             "  --listen ADDR     HTTP API and dashboard, [host]:port (:80)\n"
-            "  --radio SPEC      the 802.15.4 radio (sim):\n");
+            "  --radio SPEC      the AP's own 802.15.4 radio (sim, or none with --netradio):\n");
     for (const radio_backend_t *const *b = backends; *b; b++)
         fprintf(f, "                      %s\n", (*b)->help);
     fprintf(f,
             "  --netradio ADDR   also take network radios (C6 boards with ap/netradio/) on [host:]port,\n"
-            "                    each on a channel of its own; 4553 is the port they look for\n"
+            "                    each on a channel of its own; 4553 is the port they look for. With\n"
+            "                    --radio none the first is on the AP's channel\n"
             "  --channel N       built-in channel 11-26 (25); the API can move the AP to another\n"
             "  --pan HEX         PAN id (4553)\n"
             "  --token TOKEN     API token (default: made at the first start, kept in DIR/token)\n"
@@ -265,6 +266,17 @@ static bool load_token(opts_t *o)
 
 /* ---- the radio loop ---- */
 
+/* --radio when none was given: simulated tags to try it out, but no radio of its own beside
+ * network radios, where simulated tags would only mix in with the real ones (#452) */
+static void default_radio(opts_t *o)
+{
+    if (o->radio[0])
+        return;
+    snprintf(o->radio, sizeof(o->radio), "%s", o->netradio[0] ? "none" : "sim");
+    if (!o->netradio[0])
+        ap_log("no --radio given: simulated tags (--radio sim); give --radio for a real radio");
+}
+
 static const char *msg_name(uint8_t t)
 {
     switch (t) {
@@ -375,12 +387,13 @@ static int radio_loop(const radio_backend_t *b)
 
 int main(int argc, char **argv)
 {
-    static opts_t o = {"/var/lib/openesl", ":80", "sim", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, ""};
+    static opts_t o = {"/var/lib/openesl", ":80", "", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, ""};
     int rc = parse_args(&o, argc, argv);
     if (rc)
         return rc;
     start_us = ap_clock_us();
     setvbuf(stderr, NULL, _IOLBF, 0);
+    default_radio(&o);
 
     /* the radio backend */
     const radio_backend_t *b = NULL;
@@ -392,6 +405,12 @@ int main(int argc, char **argv)
     if (!b) {
         fprintf(stderr, "openesl-ap: no radio \"%.*s\"\n", (int)sl, o.radio);
         usage(stderr);
+        return 2;
+    }
+    bool own = b != &radio_none;
+    if (!own && !o.netradio[0]) {
+        fprintf(stderr, "openesl-ap: --radio none needs --netradio: without a radio of its own, network radios "
+                        "are the only way to the tags\n");
         return 2;
     }
 
@@ -431,11 +450,11 @@ int main(int argc, char **argv)
     ap.api.sched = &ap.sched;
     ap.api.lock = &ap.api_lock;
     ap.api.tagfw = &ap.tagfw;
-    ap.api.radio_stats = &ap.link.stats;
+    ap.api.radio_stats = own ? &ap.link.stats : NULL; /* "replies": the own radio's */
     ap.api.channel_settable = ap.link.set_channel != NULL;
     ap.api.changes = &ap.changes;
     ap.api.apid = store_files_apid();
-    if (o.netradio[0] && !netradio_start(o.netradio))
+    if (o.netradio[0] && !netradio_start(o.netradio, own))
         return 1;
     if (!http_start(o.listen))
         return 1;
@@ -447,7 +466,11 @@ int main(int argc, char **argv)
     sigaction(SIGTERM, &sa, NULL);
     signal(SIGPIPE, SIG_IGN);
 
-    ap_log("openesl-ap %s: %s radio on channel %u, PAN 0x%04X", OPENESL_VERSION, ap.link.name, cs.channel, ap.pan);
+    if (own)
+        ap_log("openesl-ap %s: %s radio on channel %u, PAN 0x%04X", OPENESL_VERSION, ap.link.name, cs.channel, ap.pan);
+    else
+        ap_log("openesl-ap %s: no radio of its own, network radios only; channel %u, PAN 0x%04X", OPENESL_VERSION,
+               cs.channel, ap.pan);
     pthread_t hk;
     bool hk_ok = pthread_create(&hk, NULL, housekeeping, NULL) == 0;
     rc = radio_loop(b);

@@ -81,11 +81,15 @@ int ap_listen(const char *opt, const char *addr);
 
 /* ---- netradio.c ---- */
 
-/* Network radios beside the AP's own (docs/linux-ap.md, "Network radios"): C6 boards running
- * ap/netradio/, which connect to addr ("[host]:port") and serve channels of their own in
- * places 1..3; the AP's own radio is place 0 on the AP's channel. Fills in
- * ap.api's links and radio_ops. False with a message if it cannot start. */
-bool netradio_start(const char *addr);
+/* Network radios (docs/linux-ap.md, "Network radios"): C6 boards running ap/netradio/,
+ * which connect to addr ("[host]:port"). With own_radio the AP's own radio is place 0 on
+ * the AP's channel and they serve channels of their own in places 1..3; without (--radio
+ * none) they take places 0..3, place 0 on the AP's channel. Fills in ap.api's links and
+ * radio_ops. False with a message if it cannot start. */
+bool netradio_start(const char *addr, bool own_radio);
+/* The AP moves to channel (esl_store_channel_step): the network radio in place 0 gets it
+ * with its next answer. The link's set_channel with --radio none. */
+int netradio_set_channel(esl_link_t *l, uint8_t channel);
 /* The AP's own radio got this frame (now_ms on ap_now_ms()), before it is answered: the
  * radio that last heard a tag serves it. Nothing without network radios. */
 void netradio_heard(const uint8_t *psdu, size_t len, uint64_t now_ms);
@@ -107,3 +111,4 @@ typedef struct {
 extern const radio_backend_t radio_sim;
 extern const radio_backend_t radio_coproc;
 extern const radio_backend_t radio_spimodem;
+extern const radio_backend_t radio_none;
