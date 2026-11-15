@@ -20,7 +20,7 @@
 
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_notify_t notify;
+static esl_notify_t notify = {"http://192.168.1.10:8123/api/webhook/openesl", NULL, NULL}; /* "notify" in a batch needs one */
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",

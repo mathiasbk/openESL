@@ -2013,8 +2013,8 @@ components:
           type: [boolean, "null"]
           description: |
             true: post the job to the AP's webhook (`PUT /api/config`) once it has ended, as
-            `{"event":"job", ...}` and then what `GET /api/jobs/{n}` answers. `422` on an AP
-            without a webhook. 0.11.0 and later.
+            `{"event":"job", ...}` and then what `GET /api/jobs/{n}` answers. `422` when the AP
+            has no webhook set. 0.11.0 and later.
 
     SetResult:
       type: object

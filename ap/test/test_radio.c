@@ -2540,6 +2540,11 @@ static void test_jobs(void)
     static esl_notify_t notify;
     api.notify = &notify;
     snprintf(body, sizeof(body), "{\"notify\":true,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"N\"]}]}", ma);
+    /* no URL set: it would never be posted */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 400000, &out), 422);
+    CHECK(HAS(resp, "notify needs a webhook"));
+    strcpy(notify.url, "http://192.168.1.10/hook");
+    snprintf(body, sizeof(body), "{\"notify\":true,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"N\"]}]}", ma);
     CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 400000, &out), 200);
     CHECK(HAS(resp, "\"job\":11,"));
     static esl_job_tag_t tags[ESL_JOB_TAGS_MAX];
@@ -2562,6 +2567,42 @@ static void test_jobs(void)
     esl_jobs_notified(&jobs, 11, false); /* given up */
     CHECK(!esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
     api.notify = NULL;
+
+    /* making room: the oldest settled job goes first, not a pending one or one still to be
+       posted, however old */
+    {
+        esl_jobs_t ev;
+        esl_jobs_init(&ev, 100, ESL_JOB_TAGS_MAX);
+        uint32_t p1 = esl_jobs_add(&ev, 1, 60, false, 0);   /* pending */
+        uint32_t p2 = esl_jobs_add(&ev, 0, 60, true, 0);    /* ended, not posted yet */
+        uint32_t d1 = esl_jobs_add(&ev, 0, 60, false, 0);   /* settled */
+        uint32_t d2 = esl_jobs_add(&ev, 0, 60, true, 0);    /* settled once posted */
+        esl_jobs_notified(&ev, d2, true);
+        for (unsigned i = 4; i < ESL_JOBS_MAX; i++)
+            esl_jobs_add(&ev, 1, 60, false, 0);             /* pending, newer */
+        esl_job_t x;
+        CHECK(esl_jobs_add(&ev, 0, 60, false, 0) != 0);
+        CHECK(!esl_jobs_get(&ev, d1, &x, tags));            /* the oldest settled went */
+        CHECK(esl_jobs_get(&ev, p1, &x, tags) && esl_jobs_get(&ev, p2, &x, tags) && esl_jobs_get(&ev, d2, &x, tags));
+        CHECK(esl_jobs_add(&ev, 0, 60, false, 0) != 0);
+        CHECK(!esl_jobs_get(&ev, d2, &x, tags));
+        /* the tag cap too: a full batch pushes out settled ones before the pending p1 */
+        CHECK(esl_jobs_get(&ev, p1, &x, tags));
+        /* the oldest job to post comes first */
+        uint32_t p3 = esl_jobs_add(&ev, 0, 60, true, 0);
+        CHECK(esl_jobs_to_notify(&ev, &st, 0, &x, tags) && x.id == p2);
+        esl_jobs_notified(&ev, p2, true);
+        CHECK(esl_jobs_to_notify(&ev, &st, 0, &x, tags) && x.id == p3);
+        /* when nothing is settled, the oldest of all goes */
+        esl_jobs_notified(&ev, p3, true);
+        esl_jobs_free(&ev);
+        esl_jobs_init(&ev, 1, ESL_JOB_TAGS_MAX);
+        uint32_t a1 = esl_jobs_add(&ev, 30, 60, false, 0);
+        uint32_t a2 = esl_jobs_add(&ev, 20, 60, false, 0);
+        CHECK(esl_jobs_add(&ev, 10, 60, false, 0) != 0);    /* 60 > 50 tags: a1 goes */
+        CHECK(!esl_jobs_get(&ev, a1, &x, tags) && esl_jobs_get(&ev, a2, &x, tags));
+        esl_jobs_free(&ev);
+    }
 
     /* a report of 50 tags that all failed, with the longest text, fits */
     esl_job_t w = {.id = UINT32_MAX, .timeout_s = ESL_JOB_TIMEOUT_MAX_S, .n = ESL_JOB_TAGS_MAX, .tags = tags};

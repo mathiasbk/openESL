@@ -7,7 +7,8 @@
 /* Jobs (#421, docs/protocol.md "Jobs"): each PUT /api/tags batch gets a number, and
  * GET /api/jobs/{n} (and, if asked, the webhook) says per tag whether it got its new
  * content. Kept in RAM only, for the last ESL_JOBS_MAX batches and at most max_tags
- * tags between them (esl_jobs_init): a new job pushes out the oldest, done or not. A
+ * tags between them (esl_jobs_init): a new job pushes out the oldest that has ended (and
+ * been posted, if it asked to be), and only when there is none the oldest of all. A
  * restart forgets them; the numbers of a new boot do not follow on from the old ones. */
 
 #define ESL_JOBS_MAX 16            /* jobs kept */
@@ -92,8 +93,8 @@ bool esl_jobs_get(esl_jobs_t *jobs, uint32_t id, esl_job_t *job, esl_job_tag_t *
 /* The ids of the kept jobs, oldest first, into ids (room for ESL_JOBS_MAX): how many */
 unsigned esl_jobs_list(esl_jobs_t *jobs, uint32_t *ids);
 
-/* For the webhook: a copy (as esl_jobs_get) of a job that ended and asked to be posted
-   and is not yet; false when there is none. esl_jobs_notified() then says how it went. */
+/* For the webhook: a copy (as esl_jobs_get) of the oldest job that ended and asked to be
+   posted and is not yet; false when there is none. esl_jobs_notified() then says how it went. */
 bool esl_jobs_to_notify(esl_jobs_t *jobs, esl_store_t *store, uint64_t now_ms, esl_job_t *job, esl_job_tag_t *tags);
 void esl_jobs_notified(esl_jobs_t *jobs, uint32_t id, bool ok);
 

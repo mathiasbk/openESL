@@ -753,8 +753,8 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         status = api_error(out, 422, "notify must be true or false");
         goto done;
     }
-    if (notify && (!api->jobs || !api->notify)) {
-        status = api_error(out, 422, "this AP has no webhook to notify");
+    if (notify && (!api->jobs || !api->notify || !api->notify->url[0])) {
+        status = api_error(out, 422, "notify needs a webhook: set one with PUT /api/config");
         goto done;
     }
     macs = malloc(sizeof(*macs) * (n ? n : 1));

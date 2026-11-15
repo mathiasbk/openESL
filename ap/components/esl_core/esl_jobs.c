@@ -36,17 +36,33 @@ void esl_jobs_free(esl_jobs_t *jobs)
             forget(jobs, &jobs->job[i]);
 }
 
-/* The oldest kept job, NULL when none. Numbers grow by one per job (and wrap), so the
-   oldest is the one furthest behind next_id. */
-static esl_job_t *oldest(esl_jobs_t *jobs)
+/* A job that needs nothing more: ended, and posted to the webhook if it asked to be */
+static bool settled(const esl_job_t *j)
+{
+    return !j->open && (!j->notify || j->notified);
+}
+
+/* The oldest kept job (only a settled one with settled_only), NULL when none. Numbers grow
+   by one per job (and wrap), so the oldest is the one furthest behind next_id. */
+static esl_job_t *oldest(esl_jobs_t *jobs, bool settled_only, bool to_notify)
 {
     esl_job_t *o = NULL;
     for (unsigned i = 0; i < ESL_JOBS_MAX; i++) {
         esl_job_t *j = &jobs->job[i];
-        if (j->id && (!o || jobs->next_id - j->id > jobs->next_id - o->id))
+        if (!j->id || (settled_only && !settled(j)) || (to_notify && (j->open || !j->notify || j->notified)))
+            continue;
+        if (!o || jobs->next_id - j->id > jobs->next_id - o->id)
             o = j;
     }
     return o;
+}
+
+/* Which job makes room: the oldest settled one, else (every job still waits for a tag or
+   the webhook) the oldest */
+static esl_job_t *victim(esl_jobs_t *jobs)
+{
+    esl_job_t *v = oldest(jobs, true, false);
+    return v ? v : oldest(jobs, false, false);
 }
 
 static esl_job_t *find(esl_jobs_t *jobs, uint32_t id)
@@ -73,7 +89,7 @@ uint32_t esl_jobs_add(esl_jobs_t *jobs, unsigned n, uint32_t timeout_s, bool not
                 free_place = &jobs->job[i];
         if (free_place && jobs->tags + n <= jobs->max_tags)
             break;
-        forget(jobs, oldest(jobs)); /* there is one: the table is full, or holds tags */
+        forget(jobs, victim(jobs)); /* there is one: the table is full, or holds tags */
     }
     esl_job_t *j = free_place;
     j->id = jobs->next_id++;
@@ -204,12 +220,10 @@ bool esl_jobs_to_notify(esl_jobs_t *jobs, esl_store_t *store, uint64_t now_ms, e
     bool found = false;
     lock(jobs);
     update(jobs, store, now_ms);
-    for (unsigned i = 0; i < ESL_JOBS_MAX && !found; i++) {
-        esl_job_t *j = &jobs->job[i];
-        if (j->id && j->notify && !j->notified && !j->open) {
-            copy(j, job, tags);
-            found = true;
-        }
+    esl_job_t *j = oldest(jobs, false, true); /* the oldest that ended first */
+    if (j) {
+        copy(j, job, tags);
+        found = true;
     }
     unlock(jobs);
     return found;
