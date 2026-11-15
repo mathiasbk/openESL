@@ -18,7 +18,12 @@
  * because of one bad moment on WiFi; nothing is queued. The first report after boot goes out when there is
  * anything to report (the previous state is "no problems"). A radio coprocessor
  * that is lost or back (esl_api_radios_lost: the S3 has no contact with its C6)
- * sends the report too. */
+ * sends the report too.
+ *
+ * A PUT /api/tags batch with "notify":true (#421) is posted to the same URL once its job
+ * has ended (every tag delivered, failed, replaced or timed out), as {"event":"job", ...}
+ * with what GET /api/jobs/{n} answers; one job per round, tried ESL_JOB_NOTIFY_TRIES
+ * times. */
 
 static const char *TAG = "health";
 
@@ -56,10 +61,25 @@ static bool chunk(esl_sb_t *sb)
            esp_http_client_write(c, "\r\n", 2) == 2;
 }
 
-/* POSTs the report against flags (updated to the tags' new flags). Built
-   without the API's mutex (esl_api_health reads only the tag table, which has
-   its own lock, taken per tag), so a slow webhook holds up nothing else. */
-static bool post(const char *url, char *buf, uint8_t *flags)
+/* The body of a post: the health report or a job's */
+typedef int write_fn(void *ctx, esl_sb_t *out);
+
+static int write_health(void *ctx, esl_sb_t *out)
+{
+    return esl_api_health(api, (uint64_t)esp_timer_get_time() / 1000, NULL, ctx, out);
+}
+
+static int write_job(void *ctx, esl_sb_t *out)
+{
+    esl_api_job_report(ctx, (uint64_t)esp_timer_get_time() / 1000, true, out);
+    return 200;
+}
+
+/* POSTs the body write() makes: the health report against flags (updated to the tags'
+   new flags), or a job. Built without the API's mutex (esl_api_health reads only the
+   tag table, which has its own lock, taken per tag; a job is a copy), so a slow webhook
+   holds up nothing else. */
+static bool post(const char *url, char *buf, write_fn *write, void *ctx)
 {
     esp_http_client_config_t cfg = {
         .url = url,
@@ -77,7 +97,7 @@ static bool post(const char *url, char *buf, uint8_t *flags)
         esl_sb_t out;
         esl_sb_init(&out, buf, BUF);
         esl_sb_set_sink(&out, chunk, c);
-        int status = esl_api_health(api, (uint64_t)esp_timer_get_time() / 1000, NULL, flags, &out);
+        int status = write(ctx, &out);
         esl_sb_flush(&out);
         if (status != 200 || out.overflow || esp_http_client_write(c, "0\r\n\r\n", 5) != 5)
             err = ESP_FAIL;
@@ -96,6 +116,18 @@ static bool post(const char *url, char *buf, uint8_t *flags)
     return err == ESP_OK;
 }
 
+/* A job that ended and asked for the webhook (#421), if there is one */
+static void post_job(char *buf)
+{
+    static esl_job_tag_t tags[ESL_JOB_TAGS_MAX]; /* only this task posts */
+    static esl_job_t job;
+    if (!api->jobs || !esl_jobs_to_notify(api->jobs, api->store, (uint64_t)esp_timer_get_time() / 1000, &job, tags))
+        return;
+    char url[ESL_WEBHOOK_URL_MAX + 1];
+    strcpy(url, notify.url);
+    esl_jobs_notified(api->jobs, job.id, post(url, buf, write_job, &job));
+}
+
 static void health_task(void *arg)
 {
     (void)arg;
@@ -111,6 +143,7 @@ static void health_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(CONFIG_ESL_HEALTH_PERIOD_S * 1000));
         if (!notify.url[0])
             continue;
+        post_job(buf);
         /* Compare against a copy, so a report that cannot be built or sent
            is tried again on the next round */
         memcpy(next, prev, max);
@@ -129,7 +162,7 @@ static void health_task(void *arg)
         char url[ESL_WEBHOOK_URL_MAX + 1];
         strcpy(url, notify.url);
         memcpy(next, prev, max); /* built again, against the same last report */
-        if (post(url, buf, next)) { /* else the same change is posted again next round */
+        if (post(url, buf, write_health, next)) { /* else the same change is posted again next round */
             memcpy(prev, next, max);
             prev_lost = lost;
         }

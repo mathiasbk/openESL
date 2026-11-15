@@ -219,6 +219,12 @@ paths:
         for the daily price job: send everything every time, and only what changed is drawn.
         Rows with `at` are scheduled (see `PUT /api/tags/{mac}`); the same MAC may be in the
         batch once per `at`.
+
+        From 0.11.0 the batch is a job (#421): the reply starts with its number, `job`, and
+        `GET /api/jobs/{n}` says per tag whether it got the content (delivered), failed, timed
+        out after `timeout_s` or was replaced. With `notify` the AP posts the job to its
+        webhook once it has ended. Older firmware, and an AP with no memory for the job,
+        leave `job` out or answer null; the batch is stored the same.
       requestBody:
         required: true
         content:
@@ -238,9 +244,16 @@ paths:
                     - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "44.90", "Offer"], price_highlight: true, at: 1792069200 }
                     - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "54.90", "NOK 109.80/kg"], at: 1792072800 }
                     - { mac: "00000123456789C3", layout: price, fields: ["Cheese 1 kg", "99.00", "Offer"], at: 1792069200 }
+              followed:
+                summary: A job with a two-hour timeout, posted to the webhook when it ends
+                value:
+                  timeout_s: 7200
+                  notify: true
+                  tags:
+                    - { mac: "00000123456789A8", layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"] }
       responses:
         "200":
-          description: One line per tag, in the order sent
+          description: The job's number, and one line per tag, in the order sent
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BatchResult" }
@@ -252,6 +265,61 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "409": { $ref: "#/components/responses/NoTime" }
         "507": { $ref: "#/components/responses/TableFull" }
+
+  /api/jobs:
+    get:
+      tags: [Content]
+      operationId: listJobs
+      summary: The jobs the AP keeps, oldest first, without their tags
+      description: |
+        The last 16 batches of `PUT /api/tags` (fewer on a board without PSRAM, which keeps
+        200 tags between them), in RAM only: a restart forgets them. 0.11.0 and later.
+      responses:
+        "200":
+          description: The jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    maxItems: 16
+                    items: { $ref: "#/components/schemas/JobSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+
+  /api/jobs/{n}:
+    parameters:
+      - name: n
+        in: path
+        required: true
+        description: The job's number, from the reply to `PUT /api/tags`
+        schema: { type: string, pattern: "^[1-9][0-9]{0,9}$" }
+        example: "1"
+    get:
+      tags: [Content]
+      operationId: getJob
+      summary: What became of each tag of a batch
+      description: |
+        Each tag of the batch, in the order sent, with its `state`: `accepted` (stored, not
+        shown yet; the only state that changes), `delivered` (the tag reported this content's
+        image as shown), `failed` (with `error`: not stored, or the tag cannot show it),
+        `timed_out` (not shown within `timeout_s`), `replaced` (the tag got other content, or
+        was deleted, first) or `scheduled` (it had `at`; not followed). The job is `pending`
+        while a tag is `accepted`, then `done`. The webhook gets the same, with
+        `"event":"job"` first, when the batch asked for it with `notify`. 0.11.0 and later.
+      responses:
+        "200":
+          description: The job and its tags
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "No such job: pushed out by newer ones, from before a restart, or not a number", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "unknown job: the AP keeps only its last jobs, and not over a restart" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
 
   /api/tags/{mac}:
     parameters:
@@ -1932,6 +2000,21 @@ components:
           type: array
           maxItems: 50
           items: { $ref: "#/components/schemas/BatchRow" }
+        timeout_s:
+          type: [integer, "null"]
+          minimum: 10
+          maximum: 604800
+          description: |
+            How long the job's tags may take to show their content, from the batch, before
+            they are `timed_out` (`GET /api/jobs/{n}`). Null or left out: 3600. 0.11.0 and later
+            (older firmware ignores it).
+          example: 7200
+        notify:
+          type: [boolean, "null"]
+          description: |
+            true: post the job to the AP's webhook (`PUT /api/config`) once it has ended, as
+            `{"event":"job", ...}` and then what `GET /api/jobs/{n}` answers. `422` when the AP
+            has no webhook set. 0.11.0 and later.
 
     SetResult:
       type: object
@@ -1955,6 +2038,15 @@ components:
       additionalProperties: false
       required: [tags]
       properties:
+        job:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 4294967295
+          description: |
+            The batch's job number, for `GET /api/jobs/{n}`; null when the AP had no memory for
+            the job. Left out by firmware before 0.11.0. The numbers of a restart start
+            somewhere new.
+          example: 2817364121
         tags:
           type: array
           items:
@@ -1968,6 +2060,76 @@ components:
                 properties:
                   mac: { $ref: "#/components/schemas/Mac" }
                   error: { type: string, enum: [tag table full, schedule full, no room to save it (NVS full)] }
+
+    JobSummary:
+      type: object
+      additionalProperties: false
+      required: [job, state, age_s, took_s, timeout_s, notify, counts]
+      properties:
+        job: { type: integer, minimum: 1, maximum: 4294967295, example: 2817364121 }
+        state: { type: string, enum: [pending, done], description: "pending while a tag is accepted" }
+        age_s: { type: integer, minimum: 0, description: Seconds since the batch }
+        took_s: { type: [integer, "null"], minimum: 0, description: "Seconds from the batch until its last tag left accepted; null while pending" }
+        timeout_s: { type: integer, minimum: 10, maximum: 604800 }
+        notify: { type: boolean, description: It is posted to the webhook when it ends }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [accepted, delivered, failed, timed_out, replaced, scheduled]
+          description: Tags per state
+          properties:
+            accepted: { type: integer, minimum: 0 }
+            delivered: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            timed_out: { type: integer, minimum: 0 }
+            replaced: { type: integer, minimum: 0 }
+            scheduled: { type: integer, minimum: 0 }
+
+    Job:
+      type: object
+      additionalProperties: false
+      required: [job, state, age_s, took_s, timeout_s, notify, counts, tags]
+      properties:
+        job: { type: integer, minimum: 1, maximum: 4294967295, example: 2817364121 }
+        state: { type: string, enum: [pending, done], description: "pending while a tag is accepted" }
+        age_s: { type: integer, minimum: 0, description: Seconds since the batch }
+        took_s: { type: [integer, "null"], minimum: 0, description: "Seconds from the batch until its last tag left accepted; null while pending" }
+        timeout_s: { type: integer, minimum: 10, maximum: 604800 }
+        notify: { type: boolean, description: It is posted to the webhook when it ends }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [accepted, delivered, failed, timed_out, replaced, scheduled]
+          description: Tags per state
+          properties:
+            accepted: { type: integer, minimum: 0 }
+            delivered: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            timed_out: { type: integer, minimum: 0 }
+            replaced: { type: integer, minimum: 0 }
+            scheduled: { type: integer, minimum: 0 }
+        tags:
+          type: array
+          maxItems: 50
+          description: Each tag of the batch, in the order sent
+          items: { $ref: "#/components/schemas/JobTag" }
+
+    JobTag:
+      type: object
+      additionalProperties: false
+      required: [mac, state, content_id]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        state: { type: string, enum: [accepted, delivered, failed, timed_out, replaced, scheduled] }
+        content_id:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 4294967295
+          description: The content it was given (as in the reply to the batch); null when it was not stored, or was scheduled
+        error:
+          type: string
+          description: Why it failed (only for failed)
+          example: the tag could not show it (drawing failed)
 
     Scheduled:
       type: object

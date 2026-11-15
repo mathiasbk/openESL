@@ -20,7 +20,7 @@
 
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_notify_t notify;
+static esl_notify_t notify = {"http://192.168.1.10:8123/api/webhook/openesl", NULL, NULL}; /* "notify" in a batch needs one */
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
@@ -207,9 +207,12 @@ int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL, NULL, &remote};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL, NULL, &remote, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
+    static esl_jobs_t jobs; /* a job per batch (#421): the batch examples make jobs 1, 2, ... */
+    esl_jobs_init(&jobs, 1, ESL_JOBS_MAX * ESL_JOB_TAGS_MAX);
+    api.jobs = &jobs;
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
     api.tx_power = &tx_power; /* "tx_power" in /api/config, as on a C6 */
     static const uint8_t press[12] = {0x41, 0x88, 0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xBE, 0x19, 0x02, 0x00};

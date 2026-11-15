@@ -39,6 +39,7 @@ typedef struct {
     esl_sched_t sched;
     esl_tagfw_t tagfw;
     esl_api_changes_t changes;
+    esl_jobs_t jobs; /* #421: read only under the API's lock (no webhook here), so none of its own */
     esl_api_lock_t api_lock;
     esl_api_t api;
     esl_link_t link;

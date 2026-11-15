@@ -693,6 +693,33 @@ static int put_one(const esl_api_t *api, uint64_t mac, const char *body, size_t 
     return status;
 }
 
+/* "timeout_s" of a batch (#421): missing or null gives ESL_JOB_TIMEOUT_S. Returns 0 or -1. */
+static int parse_timeout(const json_t *j, uint32_t *out)
+{
+    int v = esl_json_obj_get(j->js, j->tok, 0, "timeout_s");
+    *out = ESL_JOB_TIMEOUT_S;
+    if (v < 0 || j->tok[v].type == ESL_JSON_NULL)
+        return 0;
+    if (j->tok[v].type != ESL_JSON_NUMBER)
+        return -1;
+    uint32_t n = 0;
+    for (int i = j->tok[v].start; i < j->tok[v].end; i++) {
+        char c = j->js[i];
+        if (c < '0' || c > '9' || n > ESL_JOB_TIMEOUT_MAX_S)
+            return -1;
+        n = n * 10 + (uint32_t)(c - '0');
+    }
+    if (n < ESL_JOB_TIMEOUT_MIN_S || n > ESL_JOB_TIMEOUT_MAX_S)
+        return -1;
+    *out = n;
+    return 0;
+}
+
+static uint8_t store_why(esl_store_err_t err)
+{
+    return err == ESL_STORE_NOT_SAVED ? ESL_JOB_WHY_NVS_FULL : ESL_JOB_WHY_TABLE_FULL;
+}
+
 static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_t now_ms, esl_sb_t *out)
 {
     esl_jtok_t *tok = NULL;
@@ -713,6 +740,21 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
     unsigned n = tok[arr].size;
     if (n > ESL_API_MAX_BATCH) {
         status = api_error(out, 422, "at most 50 tags per request");
+        goto done;
+    }
+    /* the job (#421): how long its tags may take, and whether its end goes to the webhook */
+    uint32_t timeout_s;
+    bool notify;
+    if (parse_timeout(&j, &timeout_s)) {
+        status = api_error(out, 422, "timeout_s must be a whole number of seconds from 10 to 604800");
+        goto done;
+    }
+    if (api_parse_bool(&j, 0, "notify", &notify)) {
+        status = api_error(out, 422, "notify must be true or false");
+        goto done;
+    }
+    if (notify && (!api->jobs || !api->notify || !api->notify->url[0])) {
+        status = api_error(out, 422, "notify needs a webhook: set one with PUT /api/config");
         goto done;
     }
     macs = malloc(sizeof(*macs) * (n ? n : 1));
@@ -765,7 +807,14 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
         goto done;
     }
 
-    esl_sb_puts(out, "{\"tags\":[");
+    /* No job without the memory for it: the batch goes on, with "job":null */
+    uint32_t job = api->jobs ? esl_jobs_add(api->jobs, n, timeout_s, notify, now_ms) : 0;
+    if (!api->jobs)
+        esl_sb_puts(out, "{\"tags\":[");
+    else if (job)
+        esl_sb_printf(out, "{\"job\":%" PRIu32 ",\"tags\":[", job);
+    else
+        esl_sb_puts(out, "{\"job\":null,\"tags\":[");
     for (unsigned k = 0; k < n; k++) {
         esl_set_result_t r;
         esl_store_err_t err = ESL_STORE_FULL;
@@ -775,13 +824,20 @@ static int put_batch(const esl_api_t *api, const char *body, size_t len, uint64_
                                            &contents[k]) == ESL_SCHED_OK) {
             api_leave_source(api, macs[k]);
             write_sched_result(out, macs[k], ats[k], repeats[k]);
+            if (job)
+                esl_jobs_set(api->jobs, job, k, macs[k], 0, ESL_JOB_SCHEDULED, ESL_JOB_WHY_NONE, now_ms);
         } else if (!ats[k] && (api_leave_source(api, macs[k]), err = esl_store_set(api->store, macs[k], &contents[k], &r)) == ESL_STORE_OK) {
             api_write_set_result(out, macs[k], &r);
+            if (job)
+                esl_jobs_set(api->jobs, job, k, macs[k], r.content_id, ESL_JOB_ACCEPTED, ESL_JOB_WHY_NONE, now_ms);
         } else {
             char m[17];
             esl_mac_format(macs[k], m);
             esl_sb_printf(out, "{\"mac\":\"%s\",\"error\":\"%s\"}", m,
                           ats[k] ? "schedule full" : api_store_err_text(err));
+            if (job)
+                esl_jobs_set(api->jobs, job, k, macs[k], 0, ESL_JOB_FAILED,
+                             ats[k] ? ESL_JOB_WHY_SCHED_FULL : store_why(err), now_ms);
         }
     }
     esl_sb_puts(out, "]}");

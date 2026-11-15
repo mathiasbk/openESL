@@ -453,6 +453,8 @@ int main(int argc, char **argv)
     ap.api.radio_stats = own ? &ap.link.stats : NULL; /* "replies": the own radio's */
     ap.api.channel_settable = ap.link.set_channel != NULL;
     ap.api.changes = &ap.changes;
+    esl_jobs_init(&ap.jobs, ap.changes.boot, ESL_JOBS_MAX * ESL_JOB_TAGS_MAX);
+    ap.api.jobs = &ap.jobs;
     ap.api.apid = store_files_apid();
     if (o.netradio[0] && !netradio_start(o.netradio, own))
         return 1;

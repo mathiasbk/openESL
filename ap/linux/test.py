@@ -517,6 +517,22 @@ def main():
             ids[mac] = r["content_id"]
         wait_for(ap, "both tags fetch their image and report it",
                  lambda t: all(t[m]["shown_content_id"] == ids[m] and not t[m]["pending"] for m in TAGS))
+        # a batch is a job (#421): it ends once both tags show the new content
+        r = ap.json("PUT", "/api/tags", {"timeout_s": 60, "tags": [
+            {"mac": mac, "layout": "price", "fields": ["Milk 1 L", price, "NOK"]}
+            for mac, price in zip(TAGS, ("19.90", "8.90"))]})
+        job = r.get("job")
+        check(isinstance(job, int) and job > 0, f"a batch gets a job number ({job})")
+        end = time.time() + 10
+        while time.time() < end:
+            j = ap.json("GET", f"/api/jobs/{job}")
+            if j["state"] == "done":
+                break
+            time.sleep(0.1)
+        check(j["state"] == "done" and j["counts"]["delivered"] == 2
+              and [t["state"] for t in j["tags"]] == ["delivered", "delivered"], "the job ends with both delivered")
+        check(any(x["job"] == job for x in ap.json("GET", "/api/jobs")["jobs"]), "GET /api/jobs lists it")
+        ids = {t["mac"]: t["content_id"] for t in j["tags"]}
         ap_id = ap.json("GET", "/api/config").get("ap_id")
         check(isinstance(ap_id, str) and len(ap_id) == 8, f"the AP has an id ({ap_id})")
         check(ap.stop() == 0, "SIGTERM stops it cleanly")

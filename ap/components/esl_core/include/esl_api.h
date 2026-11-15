@@ -12,6 +12,7 @@
 #include "esl_tagfw.h"
 #include "esl_source.h"
 #include "esl_remote.h"
+#include "esl_jobs.h"
 
 /* The HTTP API from docs/protocol.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
@@ -147,6 +148,8 @@ typedef struct {
     const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
     esl_apid_cfg_t *apid;   /* the AP id and adopt (GET/PUT /api/config); NULL: shown from the store, PUT 422 */
     esl_remote_t *remote;   /* a SoluM remote as a button (GET/PUT /api/remote); NULL: /api/remote answers 404 */
+    esl_jobs_t *jobs;       /* a job per PUT /api/tags batch (#421, esl_jobs.h); NULL: no "job" in its reply,
+                               and /api/jobs answers 404 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the
@@ -195,6 +198,11 @@ void esl_api_lock_note(esl_api_lock_t *lock, bool ok, uint64_t now_ms);
  * boot. Writes a JSON body to out and returns the HTTP status code. */
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
+
+/* A job as GET /api/jobs/{n} answers it (a copy from esl_jobs_get); event: with "event":"job"
+   first, as the webhook posts it. At most ESL_API_JOB_REPORT_MAX bytes. */
+void esl_api_job_report(const esl_job_t *job, uint64_t now_ms, bool event, esl_sb_t *out);
+#define ESL_API_JOB_REPORT_MAX (256 + 200 * ESL_JOB_TAGS_MAX)
 
 /* PUT /api/tag-firmware in pieces, for a transport that will not hold a whole part in
  * one block of RAM (a 16 KB block is often not to be had on the ESP32-C6): the URI under
