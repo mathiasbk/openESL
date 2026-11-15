@@ -1705,7 +1705,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     try {
       if (demoAp) setConnected(demoAp, DEMO_WHERE);
       else if (src() === "serial") {
-        if (!hasSerial()) throw new Error("this browser has no Web Serial. Use Chrome or Edge on a computer, or the bridge.");
+        if (!hasSerial()) throw new Error("this browser has no Web Serial. Use Chrome, Edge or Firefox 151+ on a computer, or the bridge.");
         msg("Waiting for the AP ...");
         setConnected(serialAp() || (await connectSerial()), "the AP over USB");
       } else {

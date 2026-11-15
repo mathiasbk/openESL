@@ -9,6 +9,8 @@ Generates the code that lists the tag models from the registry, shared/models.js
   tools/esl-client/esl_client.py   the block between "BEGIN models" and "END models" (the client
                                is a single file people copy, so it carries its own copy)
   README.md                    the list of supported tags, between "BEGIN models" and "END models"
+  wiki/Home.md, wiki/getting-started/What-you-need.md
+                               links to each model's wiki page (its `wiki`), between the same markers
 
 The Python tools in the repository (tag/tools/build.py, web/build.py, tools/flash-tui) read
 shared/models.json directly through shared/models.py.
@@ -104,6 +106,8 @@ def validate(ms):
         if not re.fullmatch(r"[a-z0-9-]+", m["panel"]) or \
                 not os.path.exists(os.path.join(ROOT, "tag", "src", "panels", m["panel"] + ".h")):
             errors.append("%s: panel %s has no header tag/src/panels/%s.h" % (where, m["panel"], m["panel"]))
+        if "wiki" in m and not os.path.exists(os.path.join(ROOT, "wiki", "labels", "models", m["wiki"] + ".md")):
+            errors.append("%s: wiki page %s is not in wiki/labels/models/" % (where, m["wiki"]))
         if "photo" in m and not os.path.exists(os.path.join(ROOT, "web", m["photo"].get("file", ""))):
             errors.append("%s: photo %s is not in web/" % (where, m["photo"].get("file")))
         if m["chip"] == "zbs243" and m["height"] > 248:
@@ -321,6 +325,26 @@ def gen_readme_block(ms):
     return "\n".join(out)
 
 
+def wiki_links(ms, html):
+    # the models people can flash, each linked to its wiki page: "A or B", "A, B or C"
+    out = []
+    for m in ms:
+        if "wiki" not in m:
+            continue
+        text = "%s %s" % (m["vendor"], m.get("short", m["name"] + '"'))
+        if m["status"] == "experimental":
+            text += " (experimental)"
+        out.append('<a href="%s">%s</a>' % (m["wiki"], text) if html else "[%s](%s)" % (text, m["wiki"]))
+    return out[0] if len(out) == 1 else ", ".join(out[:-1]) + " or " + out[-1]
+
+
+def gen_wiki_block(ms, html):
+    return "<!-- BEGIN models (%s) -->%s<!-- END models -->" % (HEADER, wiki_links(ms, html))
+
+
+WIKI_PAGES = (("Home.md", True), (os.path.join("getting-started", "What-you-need.md"), False))
+
+
 def outputs(ms, all_ms):
     client = os.path.join(ROOT, "tools", "esl-client", "esl_client.py")
     with open(client, encoding="utf-8") as f:
@@ -332,7 +356,16 @@ def outputs(ms, all_ms):
         readme_text = f.read()
     if not README_BLOCK.search(readme_text):
         sys.exit("%s has no \"<!-- BEGIN models\" ... \"<!-- END models -->\" block" % readme)
+    wiki = {}
+    for name, html in WIKI_PAGES:
+        path = os.path.join(ROOT, "wiki", name)
+        with open(path, encoding="utf-8") as f:
+            page = f.read()
+        if not README_BLOCK.search(page):
+            sys.exit("%s has no \"<!-- BEGIN models\" ... \"<!-- END models -->\" block" % path)
+        wiki[path] = README_BLOCK.sub(lambda _: gen_wiki_block(ms, html), page, count=1)
     return {
+        **wiki,
         os.path.join(ROOT, "shared", "models_gen.h"): gen_shared_h(ms),
         os.path.join(ROOT, "tag", "src", "model_gen.h"): gen_tag_h(ms),
         os.path.join(ROOT, "web", "js", "models.js"): gen_js(ms),

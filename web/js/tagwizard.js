@@ -90,7 +90,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
   function choosePage() {
     return `
       <h2>Which tag do you have?</h2>
-      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome or Edge on a computer (Web Serial).</p>`}
+      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome, Edge or Firefox 151+ on a computer (Web Serial).</p>`}
       <div class="wz-cards">${names.map((n) => {
         const m = MODELS[n];
         const pic = m.photo

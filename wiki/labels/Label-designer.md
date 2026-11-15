@@ -23,7 +23,7 @@ Undo and redo with Ctrl+Z and Ctrl+Shift+Z. Arrows, Tab, Delete and Ctrl+D (dupl
 
 Press **Send to your AP…** and choose how the AP is connected:
 
-- **USB cable:** the AP is plugged into this computer. Connect, pick a label, and **Send** puts the layout with its sample text on it (Chrome or Edge on a computer).
+- **USB cable:** the AP is plugged into this computer. Connect, pick a label, and **Send** puts the layout with its sample text on it (Chrome, Edge or Firefox 151+ on a computer).
 - **WiFi:** type the AP's address and press **Open my AP**. The AP's own page opens with the file; press **Save on this AP** there.
 - **On the AP itself:** an AP with room for it (the [ESP32-S3 + ESP32-C6](ESP32-S3-and-C6) and the [ESP32-C5](ESP32-C5)) has the designer too, at `http://openesl.local/dashboard#design`. There it opens the layout files stored on that AP, **Save to AP** writes your changes back, and **File → Reload from the AP** drops changes you have not saved. The head says when something is not saved to the AP yet. It uses the Dashboard's token. The preview comes from the AP's own firmware, so it draws exactly as that AP does and works without the internet.
 

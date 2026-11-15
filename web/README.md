@@ -6,7 +6,7 @@ A static page for GitHub Pages (or any web server): an overview, the label desig
 - **Start in the code:** `js/main.js` sets up the tabs; each tab has its own module, listed under its section below.
 - **The preview** is drawn by the AP's own code built to WebAssembly (`wasm/web_api.c`), so it is exactly what a tag shows.
 
-Web Serial (the flashers and the USB connection to an AP) needs Chrome or Edge on a computer, and a secure page (https, or http://localhost).
+Web Serial (the flashers and the USB connection to an AP) needs Chrome, Edge or Firefox 151+ on a computer, and a secure page (https, or http://localhost).
 
 ## Build and test
 
