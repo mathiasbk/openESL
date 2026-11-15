@@ -109,7 +109,7 @@ export function initApWizard(info, store) {
     const rs = radios();
     return `
       <div class="wz-head"><h2>Which AP do you have?</h2><a class="wz-help" href="${CHOOSING}" target="_blank" rel="noopener">Which one should I choose?</a></div>
-      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome or Edge on a computer (Web Serial).</p>`}
+      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome, Edge or Firefox 151+ on a computer (Web Serial).</p>`}
       <div class="wz-cards">${all.map((c) => `
         <button type="button" class="wz-card" data-card="${esc(c.board.id)}" aria-pressed="${st.card === c}" ${c.ready ? "" : "disabled"}>
           <span class="wz-pic">${setupPicture(c.pic, c.chip)}</span>

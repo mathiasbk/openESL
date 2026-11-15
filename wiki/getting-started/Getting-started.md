@@ -1,6 +1,6 @@
 # Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome or Edge on a computer.
+Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome, Edge or Firefox 151+ on a computer.
 
 Four steps on the web page and one test request take you to the first label. Words you have not seen before are in the [Glossary](Glossary).
 

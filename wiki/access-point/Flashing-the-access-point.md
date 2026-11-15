@@ -2,7 +2,7 @@
 
 ## From the web page (recommended)
 
-The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab is a guide in three steps. It needs Chrome or Edge on a computer.
+The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab is a guide in three steps. It needs Chrome, Edge or Firefox 151+ on a computer.
 
 1. **Choose AP.** Pick the card for your setup ([Choosing a board](Access-point-boards)).
 2. **Flash.** Plug in each board when the page asks and press **Connect and flash**. With a C6 radio, the C6 comes first, then the S3 on its port marked **USB**. If a board is not found, hold **BOOT** while you plug it in. The page checks that the chip is the one the step is for, and reads what is on the board: an AP that runs OpenESL keeps its data, a new board is erased first.

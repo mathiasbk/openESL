@@ -5,7 +5,7 @@ See also the [FAQ](FAQ).
 ## The access point
 
 
-**The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome or Edge on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
+**The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome, Edge or Firefox 151+ on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
 
 **I lost the API token.** Set a new one over USB, which needs no old token: the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, or `esl_client.py --serial /dev/ttyACM0 wifi --new-token NEWTOKEN`.
 

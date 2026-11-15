@@ -85,7 +85,7 @@ If the computer shows no serial port for the D1 mini, install the driver for its
 
 ## Checking that it works
 
-1. Open [Flash tag](https://mathiasbk.github.io/openESL/#tag) in Chrome or Edge, pick a model, go to **Connect flasher** and pick the D1 mini's port. The page should show **ZBS_Flasher** and a version number. This does not need a label.
+1. Open [Flash tag](https://mathiasbk.github.io/openESL/#tag) in Chrome, Edge or Firefox 151+, pick a model, go to **Connect flasher** and pick the D1 mini's port. The page should show **ZBS_Flasher** and a version number. This does not need a label.
 2. Put a label (battery out) in the jig and press **Flash tag**. Follow [Flashing labels](Flashing-labels).
 
 What the messages mean:
