@@ -2,11 +2,13 @@
  *
  * The host's end of the link that ap/main/radio_net.c is on an S3 (docs/ap-netradio.md):
  * C6 boards running ap/netradio/ connect over TCP, each answers the tags from its own
- * cache and syncs with this AP (esl_nlink over esl_rhost). Here the AP has a radio of its
- * own as well, which stays in place 0 on the AP's channel and follows its moves; the
- * network radios take places 1..3, each with a channel of its own picked when it first
- * connects (esl_rhost_pick_channel), kept in <data>/radios as on the S3 (cfg/radios). The
- * radio that last heard a tag serves it (esl_rowners_t): the own radio counts its frames
+ * cache and syncs with this AP (esl_nlink over esl_rhost). When the AP has a radio of its
+ * own, it stays in place 0 on the AP's channel and follows its moves, and the network
+ * radios take places 1..3; with --radio none they take places 0..3, as on the S3, and the
+ * one in place 0 is on the AP's channel and follows its moves (netradio_set_channel()).
+ * The others each have a channel of their own picked when they first connect
+ * (esl_rhost_pick_channel), kept in <data>/radios as on the S3 (cfg/radios). The radio
+ * that last heard a tag serves it (esl_rowners_t): the own radio counts its frames
  * through netradio_heard(), the others through the logs of their syncs.
  *
  * One thread serves every connection: it answers, it never sends on its own, as on the
@@ -33,8 +35,8 @@
 #include "esl_nlink.h"
 #include "esl_rhost.h"
 
-#define RADIOS  ESL_STORE_RADIOS   /* places: the own radio's (0) and 3 more */
-#define CONNS   RADIOS             /* one more than the network radios, so one that reconnects is not turned away */
+#define RADIOS  ESL_STORE_RADIOS   /* places: the one on the AP's channel (0) and 3 more */
+#define CONNS   (RADIOS + 1)       /* one more than the network radios, so one that reconnects is not turned away */
 #define RX_BUF  2048               /* the largest frame from a radio: a SYNC */
 #define IDLE_S  120                /* a radio silent this long is gone (it syncs every 30 s at most) */
 #define HELLO_S 10                 /* a connection without HELLO this long is not a radio */
@@ -42,7 +44,7 @@
 
 typedef struct {
     uint64_t id;             /* the radio's MAC, 0 = a free place */
-    uint8_t channel;         /* its own channel */
+    uint8_t channel;         /* its own channel, 0 in place 0 (the AP's) */
     bool ready;              /* host, sent and img are set up for this id */
     esl_rhost_t host;
     esl_rtag_state_t *sent;
@@ -62,6 +64,10 @@ typedef struct {
 } conn_t;
 
 static bool started;
+static bool own;          /* the AP has a radio of its own, in place 0 */
+static unsigned first;    /* the first place of a network radio: 1 beside an own radio, else 0 */
+/* A channel move for the radio in place 0 (netradio_set_channel), 0 = none; under heard_mu */
+static uint8_t move_to;
 static place_t places[RADIOS];
 static conn_t conns[CONNS];
 static esl_radio_link_t links[RADIOS];  /* this thread's (and forget()'s, for a place not connected) */
@@ -103,9 +109,11 @@ static void load_places(void)
     for (unsigned i = 0; i < RADIOS && *p; i++) {
         char *end;
         uint64_t id = strtoull(p, &end, 16);
-        if (i && end != p && *end == ':') {
+        if (i >= first && id && end != p && *end == ':') {
             unsigned long ch = strtoul(end + 1, &end, 10);
-            if (ch >= ESL_CHANNEL_MIN && ch <= ESL_CHANNEL_MAX) {
+            if (!i) {
+                places[i].id = id; /* on the AP's channel */
+            } else if (ch >= ESL_CHANNEL_MIN && ch <= ESL_CHANNEL_MAX) {
                 places[i].id = id;
                 places[i].channel = (uint8_t)ch;
                 esl_store_set_radio_channel(&ap.store, (uint8_t)i, places[i].channel);
@@ -163,10 +171,12 @@ static void take_heard(void)
     unsigned f = forgotten;
     forgotten = 0;
     pthread_mutex_unlock(&places_mu);
-    for (unsigned i = 1; i < RADIOS; i++)
+    for (unsigned i = first; i < RADIOS; i++)
         if (f >> i & 1)
             esl_rowners_forget(&owners, (uint8_t)i);
     pthread_mutex_lock(&heard_mu);
+    uint8_t ch = move_to;
+    move_to = 0;
     for (unsigned i = 0; i < heard_n; i++) {
         esl_rowners_heard(&owners, &ap.store, heard[i].mac, 0, heard[i].at_ms);
         if (heard[i].at_ms > links[0].seen_ms)
@@ -174,7 +184,22 @@ static void take_heard(void)
     }
     heard_n = 0;
     pthread_mutex_unlock(&heard_mu);
-    links[0].tags = esl_rowners_count(&owners, 0);
+    if (own || places[0].conn >= 0)
+        links[0].tags = esl_rowners_count(&owners, 0);
+    if (ch && !own && places[0].conn >= 0) {
+        /* the radio on the AP's channel gets the move in the CONFIG with its next answer */
+        esl_nlink_host_set_config(&conns[places[0].conn].hl, ch, ap.pan);
+        ap_log("radio 0 moves to channel %u", ch);
+    }
+}
+
+int netradio_set_channel(esl_link_t *l, uint8_t channel)
+{
+    (void)l;
+    pthread_mutex_lock(&heard_mu);
+    move_to = channel;
+    pthread_mutex_unlock(&heard_mu);
+    return 0;
 }
 
 /* The links for the API: copied under places_mu (forget() changes them too), then handed
@@ -219,8 +244,8 @@ static bool on_frame(void *ctx, uint8_t type, const uint8_t *p, size_t len)
 /* The radios connected now, the own one included */
 static unsigned connected(void)
 {
-    unsigned n = 1;
-    for (unsigned i = 1; i < RADIOS; i++)
+    unsigned n = own;
+    for (unsigned i = first; i < RADIOS; i++)
         n += places[i].conn >= 0;
     return n;
 }
@@ -247,7 +272,7 @@ static void close_conn(conn_t *c, const char *why)
 
 static void log_stats(void)
 {
-    for (unsigned i = 1; i < RADIOS; i++) {
+    for (unsigned i = first; i < RADIOS; i++) {
         if (!places[i].ready)
             continue;
         const esl_rhost_stats_t *s = &places[i].host.stats;
@@ -259,11 +284,16 @@ static void log_stats(void)
     }
 }
 
-/* The place for a radio with this id: the one it had, else a free one, -1 when all are taken */
+/* The place for a radio with this id: the one it had, else a free one (without an own
+   radio place 0 first, so a lone radio is on the AP's channel), -1 when all are taken.
+   Under places_mu. */
 static int place_for(uint64_t id, bool *is_new)
 {
     *is_new = false;
-    for (unsigned i = 1; i < RADIOS; i++) {
+    unsigned known = 0;
+    for (unsigned i = first; i < RADIOS; i++)
+        known += places[i].id != 0;
+    for (unsigned i = first; i < RADIOS; i++) {
         if (!esl_nlink_same_radio(places[i].id, id))
             continue;
         if (places[i].id != id) {
@@ -272,13 +302,29 @@ static int place_for(uint64_t id, bool *is_new)
             places[i].id = id;
             save_places();
         }
+        if (!own && i && known == 1 && places[i].conn < 0) {
+            /* the only radio left, and place 0 is free (the radio there was forgotten, say a
+               broken C6 this one replaced): it moves to the AP's channel, as on the S3, where
+               tags from before 0.9.0, which cannot look on other channels, still find it */
+            ap_log("radio %016" PRIX64 " is the only one: it moves from place %u to place 0", id, i);
+            esl_rowners_forget(&owners, (uint8_t)i);
+            esl_store_set_radio_channel(&ap.store, (uint8_t)i, 0);
+            places[i].id = 0;
+            places[i].channel = 0;
+            places[i].ready = false;
+            links[i] = (esl_radio_link_t){.down_ms = now_ms()};
+            places[0].id = id;
+            places[0].ready = false;
+            *is_new = true;
+            return 0;
+        }
         return (int)i;
     }
-    for (unsigned i = 1; i < RADIOS; i++) {
+    for (unsigned i = first; i < RADIOS; i++) {
         if (places[i].id)
             continue;
-        uint8_t ch = esl_rhost_pick_channel(taken_channels());
-        if (!ch)
+        uint8_t ch = 0;
+        if (i && !(ch = esl_rhost_pick_channel(taken_channels())))
             return -1;
         places[i].id = id;
         places[i].channel = ch;
@@ -293,15 +339,15 @@ static int place_for(uint64_t id, bool *is_new)
 static bool hello_locked(conn_t *c, esl_nlink_host_t *n)
 {
     /* a place forgotten since the last round goes to a new radio without the old one's tags */
-    for (unsigned k = 1; k < RADIOS; k++)
+    for (unsigned k = first; k < RADIOS; k++)
         if (forgotten >> k & 1)
             esl_rowners_forget(&owners, (uint8_t)k);
     forgotten = 0;
     bool is_new;
     int i = n->radio.id ? place_for(n->radio.id, &is_new) : -1;
     if (i < 0) {
-        ap_log("radio %016" PRIX64 " turned away: all %d places are taken (forget one: DELETE /api/radios/{id})",
-               n->radio.id, RADIOS - 1);
+        ap_log("radio %016" PRIX64 " turned away: all %u places are taken (forget one: DELETE /api/radios/{id})",
+               n->radio.id, RADIOS - first);
         return false;
     }
     place_t *p = &places[i];
@@ -326,22 +372,28 @@ static bool hello_locked(conn_t *c, esl_nlink_host_t *n)
         p->ready = true;
         p->full_warned = false;
     }
+    esl_channel_state_t cs;
+    esl_store_channel_state(&ap.store, now_ms(), &cs);
+    uint8_t ch = i ? p->channel : cs.channel;
     if (is_new) {
-        esl_store_set_radio_channel(&ap.store, (uint8_t)i, p->channel);
+        if (i)
+            esl_store_set_radio_channel(&ap.store, (uint8_t)i, p->channel);
         save_places();
-        ap_log("new radio %016" PRIX64 " in place %d, channel %u", n->radio.id, i, p->channel);
+        ap_log("new radio %016" PRIX64 " in place %d, channel %u", n->radio.id, i, ch);
     }
     if (p->conn >= 0 && &conns[p->conn] != c)
         close_conn(&conns[p->conn], "the radio connected again");
     p->conn = (int)(c - conns);
     c->place = i;
     n->h = &p->host;
-    n->channel = p->channel;
+    n->channel = ch;
     links[i] = (esl_radio_link_t){.up = true, .ip = c->ip, .seen_ms = now_ms(), .ver = n->radio.radio_ver,
                                   .id = p->id, .channel = p->channel,
                                   .tags = esl_rowners_count(&owners, (uint8_t)i),
                                   .no_ap_id = !(n->radio.features & ESL_NLINK_F_APID)};
     owners.radios = (uint8_t)connected();
+    if (i == 0) /* a C6 from before 0.9.0 retunes but does not tell the tags */
+        esl_store_set_radio_follows(&ap.store, n->radio.features & ESL_NLINK_F_CHANNEL);
     return true;
 }
 
@@ -440,7 +492,7 @@ static void receive(conn_t *c)
         /* a sync moves tags between radios: the counts of those connected (forget() may be
            clearing one that is not) */
         for (unsigned k = 0; k < RADIOS; k++)
-            if (!k || places[k].conn >= 0)
+            if ((own && !k) || places[k].conn >= 0)
                 links[k].tags = esl_rowners_count(&owners, (uint8_t)k);
         ap_debug("radio %d: sync %" PRIu32 " answered in %" PRIu64 " ms (log %u)", i, p->host.stats.syncs,
                  now_ms() - t0, c->hl.req.log_n);
@@ -457,11 +509,11 @@ static void receive(conn_t *c)
 static int forget(void *ctx, uint64_t id)
 {
     (void)ctx;
-    if (id == pub[0].id)
+    if (own && id == pub[0].id)
         return 409; /* the AP's own radio */
     pthread_mutex_lock(&places_mu);
     int r = 404;
-    for (unsigned i = 1; i < RADIOS && r == 404; i++) {
+    for (unsigned i = first; i < RADIOS && r == 404; i++) {
         place_t *p = &places[i];
         if (p->id != id)
             continue;
@@ -476,7 +528,8 @@ static int forget(void *ctx, uint64_t id)
         links[i] = (esl_radio_link_t){.down_ms = now_ms()};
         pub[i] = links[i]; /* the API's lock is held: this request's own reply shows it gone */
         forgotten |= 1u << i; /* its tags leave the owners in the netradio thread */
-        esl_store_set_radio_channel(&ap.store, (uint8_t)i, 0);
+        if (i)
+            esl_store_set_radio_channel(&ap.store, (uint8_t)i, 0);
         save_places();
         r = 0;
     }
@@ -526,8 +579,10 @@ static void *net_thread(void *arg)
     return NULL;
 }
 
-bool netradio_start(const char *addr)
+bool netradio_start(const char *addr, bool own_radio)
 {
+    own = own_radio;
+    first = own ? 1 : 0;
     /* a port alone: every address */
     char a[300];
     snprintf(a, sizeof(a), "%s%s", strchr(addr, ':') ? "" : ":", addr);
@@ -551,15 +606,16 @@ bool netradio_start(const char *addr)
     for (unsigned i = 0; i < RADIOS; i++)
         places[i].conn = -1;
     load_places();
-    /* place 0: the AP's own radio, always there; its id is the AP id, which tells it apart in
-       GET /api/radios (DELETE answers 409) */
-    links[0] = (esl_radio_link_t){.up = true, .local = true, .seen_ms = ap_now_ms(),
-                                  .id = ap.store.ap_id ? ap.store.ap_id : 1};
-    for (unsigned i = 1; i < RADIOS; i++) {
+    for (unsigned i = first; i < RADIOS; i++) {
         links[i].id = places[i].id;
         links[i].channel = places[i].channel;
     }
-    owners.radios = 1;
+    /* place 0: the AP's own radio, when it has one, always there; its id is the AP id, which
+       tells it apart in GET /api/radios (DELETE answers 409) */
+    if (own)
+        links[0] = (esl_radio_link_t){.up = true, .local = true, .seen_ms = ap_now_ms(),
+                                      .id = ap.store.ap_id ? ap.store.ap_id : 1};
+    owners.radios = (uint8_t)own;
     memcpy(pub, links, sizeof(pub));
     static const esl_radio_ops_t ops = {NULL, forget};
     ap.api.link = &pub[0];
@@ -575,8 +631,8 @@ bool netradio_start(const char *addr)
     }
     pthread_detach(t);
     unsigned known = 0;
-    for (unsigned i = 1; i < RADIOS; i++)
+    for (unsigned i = first; i < RADIOS; i++)
         known += places[i].id != 0;
-    ap_log("network radios on %s: %u of %d places known", a, known, RADIOS - 1);
+    ap_log("network radios on %s: %u of %u places known", a, known, RADIOS - first);
     return true;
 }

@@ -12,7 +12,9 @@ dashboard is served, and the HTTP server's limits (connections, bad heads). Then
 link of docs/ap-radio-link.md (ap/components/esl_coproc). Then --netradio beside the
 simulated radio, with network radios played by this script over TCP (esl_nlink.h): their
 places and channels, the tags they report, which radio serves a tag, the images they get,
-a radio turned away and one forgotten. Exits 1 on the first failure.
+a radio turned away and one forgotten. Then --netradio with no radio of its own (--radio
+none, the default beside --netradio): the network radios in places 0..3, place 0 on the AP's
+channel and following its moves. Exits 1 on the first failure.
 """
 import json
 import os
@@ -42,9 +44,10 @@ def free_port():
 
 
 class Ap:
-    def __init__(self, binary, data, token=None, extra=()):
+    def __init__(self, binary, data, token=None, extra=(), radio=SIM):
         self.port = free_port()
-        args = [binary, "--data", data, "--listen", f"127.0.0.1:{self.port}", "--radio", SIM, *extra]
+        args = [binary, "--data", data, "--listen", f"127.0.0.1:{self.port}", *(["--radio", radio] if radio else []),
+                *extra]
         if token:
             args += ["--token", token]
         self.log = open(os.path.join(os.path.dirname(data), "ap.log"), "ab")
@@ -374,6 +377,100 @@ def test_netradio(binary, tmp):
     check(rc == 0, "netradio: SIGTERM stops it cleanly again")
 
 
+def config_channel(frames):
+    """The channel of the CONFIG in an answer, None when it has none"""
+    return next((p[0] for t, p in frames if t == 0x81), None)
+
+
+def test_netradio_only(binary, tmp):
+    data = os.path.join(tmp, "net-only")
+    nport = free_port()
+    port = free_port()
+    p = subprocess.run([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "none"],
+                       capture_output=True, timeout=10)
+    check(p.returncode == 2 and b"--netradio" in p.stderr, "none: --radio none without --netradio is refused")
+
+    extra = ["--channel", "15", "--netradio", f"127.0.0.1:{nport}"]
+    ap = Ap(binary, data, token="t", extra=extra, radio=None)
+    try:
+        status = ap.json("GET", "/api/tags")
+        check(status["tags"] == [], "none: --netradio without --radio has no simulated tags")
+        check(not status["ap"]["radios"], "none: and no radio until one connects")
+        check("replies" not in status["ap"], "none: nor the own radio's replies")
+        check(ap.request("DELETE", "/api/radios/" + "00" * 7 + "01")[0] == 404,
+              "none: there is no own radio to refuse to forget")
+
+        r0 = FakeNetRadio(nport, 0x0000AABBCC000010)
+        check(r0.config() == 15, "none: the first network radio is on the AP's channel")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(len(radios) == 1 and radios[0]["radio"] == 0 and radios[0]["id"] == "0000AABBCC000010"
+              and radios[0]["channel"] == 15 and radios[0]["via"] == "wifi" and radios[0]["connected"],
+              "none: it is radio 0, over WiFi")
+        check(all(r["via"] != "local" for r in radios), "none: no local radio is listed")
+
+        # the AP moves to another channel: radio 0 gets it with its next answer
+        r = ap.json("PUT", "/api/config", {"channel": 24})
+        check(r.get("channel_next") in (24, None), "none: the AP can be moved to another channel")
+        moved = None
+        for _ in range(30):
+            moved = config_channel(r0.sync()) or moved
+            if moved:
+                break
+            time.sleep(0.2)
+        check(moved == 24, "none: radio 0 follows the AP's move")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(radios[0]["channel"] == 24, "none: and is listed on the new channel")
+
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000011)
+        check(r1.config() == 15, "none: the second network radio gets a channel of its own (15, free since the move)")
+        mac = 0x00000000FAC70077
+        r0.sync(log=[poll_psdu(mac)])
+        tags = wait_for(ap, "none: a tag radio 0 heard is listed", lambda t: "00000000FAC70077" in t)
+        check(tags["00000000FAC70077"]["radio"] == 0, "none: and served by radio 0")
+        r1.sync(log=[poll_psdu(mac, seq=2)])
+        wait_for(ap, "none: a tag radio 1 hears after radio 0 is served by radio 1",
+                 lambda t: t["00000000FAC70077"]["radio"] == 1)
+
+        r2 = FakeNetRadio(nport, 0x0000AABBCC000012)
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000013)
+        check(r2.config() == 20 and r3.config() == 26, "none: four network radios in all")
+        r4 = FakeNetRadio(nport, 0x0000AABBCC000014)
+        check(r4.read() is None, "none: a fifth is turned away")
+        r4.close()
+        st = ap.request("DELETE", "/api/radios/0000AABBCC000010")
+        check(st[0] == 409,
+              "none: radio 0 cannot be forgotten while it is connected")
+        for x in (r0, r2, r3):
+            x.close()
+        time.sleep(0.5)
+        for rid in ("10", "12", "13"):
+            check(ap.request("DELETE", f"/api/radios/0000AABBCC0000{rid}")[0] == 200,
+                  f"none: radio ...{rid}, gone, is forgotten")
+        r1.close()
+        time.sleep(0.5)
+        check(ap.stop() == 0, "none: SIGTERM stops it cleanly")
+
+        ap = Ap(binary, data, token="t", extra=extra, radio="none")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check([(x["radio"], x["id"]) for x in radios] == [(1, "0000AABBCC000011")],
+              "none: the places are kept across a restart")
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000011)
+        check(r1.config() == 24, "none: the only radio left moves to place 0, on the AP's channel")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check([(x["radio"], x["channel"]) for x in radios] == [(0, 24)], "none: and is listed there")
+        r1.close()
+    finally:
+        rc = ap.stop()
+    check(rc == 0, "none: SIGTERM stops it cleanly again")
+
+    # without --radio and --netradio: simulated tags, as before
+    ap = Ap(binary, os.path.join(tmp, "default"), token="t", radio=None)
+    try:
+        wait_for(ap, "the default radio without --netradio is sim", lambda t: all(m in t for m in TAGS))
+    finally:
+        ap.stop()
+
+
 def check(ok, what):
     if not ok:
         print(f"FAIL: {what}")
@@ -484,6 +581,7 @@ def main():
 
         test_uart(binary, tmp)
         test_netradio(binary, tmp)
+        test_netradio_only(binary, tmp)
     finally:
         log = os.path.join(tmp, "ap.log")
         if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):
