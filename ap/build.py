@@ -30,7 +30,9 @@ air yet. A radio board with "host": "linux" in radio.json (c6-usb) is the radio 
 Linux program (docs/linux-ap.md), which no board here names: it is built and released on its
 own, like the radios the boards name.
 
-For each board: build-<board>/ with its own sdkconfig, then in out/
+For each board: build-<board>/ with its own sdkconfig, made again from sdkconfig.defaults
+whenever one of those files changed (fresh_sdkconfig: idf.py on its own keeps an old
+sdkconfig and would build without the change), then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
                        (the web flasher and esptool)
   <artifact>-ota.bin   the app alone, for POST /api/ota (esl-client ota, the dashboard)
@@ -48,6 +50,7 @@ Needs idf.py on PATH (ESP-IDF v5.5.5: source export.sh). tools/check.py ap-fw ru
 in the espressif/idf Docker image when idf.py is not installed.
 """
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -199,10 +202,46 @@ def check_budget(info):
     return state != "over"
 
 
+def fresh_sdkconfig(cwd, bdir, extra=""):
+    """Starts bdir's sdkconfig again from sdkconfig.defaults when a defaults file changed.
+    idf.py keeps a sdkconfig it finds and reads the defaults only for options it lacks, so a
+    build folder from before a change in sdkconfig.defaults (such as -Os, which takes about
+    130 KB off the C6 image) would go on building the old way without a word. A stamp in
+    the folder records the defaults its sdkconfig was made from; a folder without one is
+    started again too. Changes made with menuconfig in that folder are lost then."""
+    files = sorted(glob.glob(os.path.join(cwd, "*sdkconfig.defaults")) +
+                   glob.glob(os.path.join(cwd, "boards", "*", "sdkconfig.defaults")))
+    h = hashlib.sha256(extra.encode())
+    for path in files:
+        h.update(os.path.relpath(path, cwd).encode() + b"\0")
+        with open(path, "rb") as f:
+            h.update(f.read() + b"\0")
+    digest = h.hexdigest()
+    folder = os.path.join(cwd, bdir)
+    stamp = os.path.join(folder, "sdkconfig.defaults.sha256")
+    sdkconfig = os.path.join(folder, "sdkconfig")
+    try:
+        with open(stamp, encoding="utf-8") as f:
+            old = f.read().strip()
+    except OSError:
+        old = None
+    if old != digest and os.path.exists(sdkconfig):
+        print("%s: its sdkconfig was made from other sdkconfig.defaults (or by an older build.py): "
+              "starting it again from the defaults" % os.path.relpath(folder, HERE), flush=True)
+        for name in ("sdkconfig", "sdkconfig.old", "CMakeCache.txt"):
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                os.remove(path)
+    os.makedirs(folder, exist_ok=True)
+    with open(stamp, "w", encoding="utf-8") as f:
+        f.write(digest + "\n")
+
+
 def build(b, sniffer=False):
     name = b["id"] + ("-sniffer" if sniffer else "")
     artifact = b["artifact"] + ("-sniffer" if sniffer else "")
     bdir = "build-" + name
+    fresh_sdkconfig(HERE, bdir, "sniffer" if sniffer else "")
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"],
          "-D", "SNIFFER=%d" % sniffer, "build"])
     merge(b["target"], bdir, "esl_ap.bin", artifact)
@@ -216,6 +255,7 @@ def build(b, sniffer=False):
 def build_radio(r):
     cwd = os.path.join(HERE, r["project"])
     bdir = "build-" + r["id"]
+    fresh_sdkconfig(cwd, bdir)
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
     # The radio on UART takes its -ota.bin through the AP (main/ota.c passes an esl_radio image
     # on); the one on the network has no way to take it yet. The app's name is "app" in

@@ -137,6 +137,64 @@ class Jobs(unittest.TestCase):
         self.assertIn("own 802.15.4 radio", str(e.exception))
 
 
+class FreshSdkconfig(unittest.TestCase):
+    """A build folder's sdkconfig starts again from the defaults when they change, so a folder
+    from before a change in sdkconfig.defaults (-Os in #373) cannot go on building without it"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        os.makedirs(os.path.join(self.proj, "boards", "b1"))
+        self.write("sdkconfig.defaults", "CONFIG_COMPILER_OPTIMIZATION_SIZE=y\n")
+        self.write("boards/b1/sdkconfig.defaults", "CONFIG_X=y\n")
+        self.sdkconfig = os.path.join(self.proj, "build-b1", "sdkconfig")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, rel, text):
+        with open(os.path.join(self.proj, rel), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def fresh(self, extra=""):
+        with redirect_stdout(io.StringIO()) as out:
+            build.fresh_sdkconfig(self.proj, "build-b1", extra)
+        return out.getvalue()
+
+    def made(self):
+        self.write("build-b1/sdkconfig", "CONFIG_COMPILER_OPTIMIZATION_DEBUG=y\n")
+
+    def test_new_folder_is_left_to_idf(self):
+        self.assertEqual(self.fresh(), "")
+        self.assertTrue(os.path.isfile(os.path.join(self.proj, "build-b1", "sdkconfig.defaults.sha256")))
+
+    def test_unchanged_defaults_keep_the_sdkconfig(self):
+        self.fresh()
+        self.made()
+        self.assertEqual(self.fresh(), "")
+        self.assertTrue(os.path.isfile(self.sdkconfig))
+
+    def test_changed_defaults_start_the_sdkconfig_again(self):
+        self.fresh()
+        self.made()
+        self.write("boards/b1/sdkconfig.defaults", "CONFIG_X=n\n")
+        self.assertIn("starting it again", self.fresh())
+        self.assertFalse(os.path.exists(self.sdkconfig))
+
+    def test_folder_from_before_the_stamp_starts_again(self):
+        os.makedirs(os.path.dirname(self.sdkconfig))
+        self.made()
+        self.write("build-b1/CMakeCache.txt", "")
+        self.assertIn("starting it again", self.fresh())
+        self.assertFalse(os.path.exists(self.sdkconfig))
+        self.assertFalse(os.path.exists(os.path.join(self.proj, "build-b1", "CMakeCache.txt")))
+
+    def test_sniffer_folder_has_its_own_stamp(self):
+        self.fresh()
+        self.made()
+        self.assertIn("starting it again", self.fresh("sniffer"))
+
+
 class PagesOnly(unittest.TestCase):
     def test_every_module_packs_without_pages_only_files(self):
         files = webui.page_files(os.path.join(ROOT, "web"), list(webui.MODULES), renderer=False)
