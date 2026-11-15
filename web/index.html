@@ -418,6 +418,8 @@
           <a href="#dashboard/settings" data-part="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span class="t"><span class="long">Settings</span><small></small></span><b class="badge" hidden></b></a>
         </nav>
         <div class="dash-main">
+      <!-- js/dashboard.js renderStatus(): the AP's state in one line over every part (#417) -->
+      <div id="dash-status" class="dash-status" role="group" aria-label="AP status"></div>
       <p id="dash-radio" class="dash-alert" role="alert" hidden></p>
       <div class="dash-part" data-part="tags">
       <div id="dash-tiles" class="tiles"></div>
