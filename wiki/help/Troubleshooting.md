@@ -7,6 +7,8 @@ See also the [FAQ](FAQ).
 
 **The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome, Edge or Firefox 151+ on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
 
+**Flash tag times out on Windows in Firefox.** Firefox on Windows opens a D1 mini with a CH340 chip but gets no answer from it. Use Chrome or Edge there; Firefox on Linux works.
+
 **I lost the API token.** Set a new one over USB, which needs no old token: the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, or `esl_client.py --serial /dev/ttyACM0 wifi --new-token NEWTOKEN`.
 
 **All my requests get 429.** Five wrong tokens in a row lock the API for 60 seconds. Wait and use the right token.
