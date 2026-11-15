@@ -294,7 +294,8 @@ In short:
 | Request | What it does |
 |---|---|
 | `PUT /api/tags/{mac}` | Set the content of one tag: `{"layout":"price","fields":["Milk 1 L","24.90","NOK 24.90/L"],"price_highlight":true}`, or with the fields by name, `"fields":{"name":"Milk 1 L","price":"24.90"}`. Up to 16 fields sharing 256 bytes (text in UTF-8, drawn in the fonts' Latin-1, other characters as `?`). The AP calculates `content_id` (CRC-32); the same content again is `changed:false` and the tag does not draw again |
-| `PUT /api/tags` | The same for up to 50 tags, all or nothing; the body has at most 1,024 JSON tokens, so tags with 14 or more fields go fewer per call |
+| `PUT /api/tags` | The same for up to 50 tags, all or nothing; the body has at most 1,024 JSON tokens, so tags with 14 or more fields go fewer per call. The reply has a job number, `"job"` (0.11.0 and later, see "Jobs" below) |
+| `GET /api/jobs/{n}`, `GET /api/jobs` | What became of each tag of a batch: accepted, delivered, failed, timed out, replaced or scheduled (below); the list without the tags. 0.11.0 and later |
 | `"at"` in either | Scheduled content: `"at":1792069200` (Unix seconds, UTC) sets the content at that time instead of now, also after an AP restart |
 | `GET`/`DELETE /api/schedule`, `DELETE /api/schedule/{mac}` | What is scheduled, with its content; remove it |
 | `GET`/`PUT /api/time` | The AP's clock (NTP over WiFi, or set by the client), which only scheduled content uses |
@@ -311,6 +312,27 @@ In short:
 | `GET`/`PUT /api/tag-firmware`, `GET`/`DELETE /api/tag-firmware/{model}` | New firmware for the tags of a model, in parts; the AP sends it to them over the radio (part 1, "Firmware transfer"), and shows how far they are (`esl-client tag-ota`) |
 | `GET`/`PUT /api/wifi` | The WiFi network the AP joins (`{"ssid":"…","password":"…"}`, never shown back), its state and the last scan |
 | `GET`/`PUT /api/sources`, `POST /api/sources/refresh` | Data sources (ESP32-S3 APs): content the AP fetches for itself, such as the weather from MET Norway, and gives to its tags ([data-sources.md](data-sources.md)) |
+
+### Jobs
+
+`PUT /api/tags` answers which content each tag got, but not whether the tag shows it yet: a tag only fetches it at its next poll, and may be asleep, out of reach or unable to draw it. From 0.11.0 each batch is a **job** (#421) the client can follow:
+
+- The reply starts with `"job":<n>`, a number; `"job":null` when the AP had no memory for one (the batch is stored all the same). The rest of the reply is as before.
+- `GET /api/jobs/{n}` gives the job's `state` (`pending` while any tag is `accepted`, then `done`), its age and how long it took (`age_s`, `took_s`), the `counts` per state, and each tag in the order of the batch with its `state` and `content_id`:
+
+| Tag state | Meaning |
+|---|---|
+| `accepted` | Stored; the tag does not show it yet. The only state that changes |
+| `delivered` | The tag reported the image of this content as shown (`shown_content_id` in `GET /api/tags`) |
+| `failed` | Not stored (`"error"`: tag table full, NVS full, schedule full), or the tag cannot show it (`"error"`: drawing failed and the AP gave up, or the content error of `GET /api/tags`) |
+| `timed_out` | Still not shown when the job's timeout ran out |
+| `replaced` | The tag got other content (a later PUT, also a later tag of the same batch) or was deleted before it showed this |
+| `scheduled` | It had `"at"`: it went to the schedule and is not followed |
+
+- **Timeout:** `"timeout_s"` in the batch body, 10 to 604800 (a week); 3600 when left out. Counted from the batch, so a tag that sleeps through the night, or an update window that is closed (night mode, #415), needs a longer one.
+- **Webhook:** `"notify":true` in the batch body posts the job to the AP's webhook (`PUT /api/config`, the one the health report goes to) once it is `done`, as `{"event":"job", ...}` followed by the same fields as `GET /api/jobs/{n}`. A health report has no `"event"`, so a receiver tells them apart by it, and one that only knows the health report never gets a job it did not ask for. A post that fails is tried again on the next round (`ESL_HEALTH_PERIOD_S`, 30 s), five times in all. An AP built without the webhook, and the Linux AP, answer `422` to `"notify":true`.
+- **Memory:** the AP keeps the last 16 jobs in RAM, and on a board without PSRAM (the C6) at most 200 tags between them (16 bytes a tag): a new job pushes out the oldest, done or not, and its number then answers `404`. A restart forgets them all, and the numbers start somewhere new (a random number), so an old number is not taken for a new job. A client that sends more than that at once (the C6: four full batches) reads each job before it is pushed out, or sends fewer at a time.
+- Nothing else changes: the tags, their radio protocol and the other endpoints are as before, and a client that ignores `"job"` works as it did. Content set any other way (`PUT /api/tags/{mac}`, the image and draw endpoints, data sources, the schedule) is not a job; `GET /api/tags` shows it as before (`pending`, `shown_content_id`).
 
 **WiFi setup:** with no network saved, the AP opens its own network `openesl-XXXX` with a form at `http://192.168.4.1/setup` (`/` redirects there, and a phone that joins is sent to the form by the captive portal) to pick the network and set the token. If the saved network gives no IP for 180 s (`ESL_WIFI_SETUP_AFTER_S`), the setup network opens again next to it, and it closes a minute after the AP has joined. Once a token is set, the form asks for it, with the same lockout as the API after five wrong ones. Details: `ap/README.md`, "WiFi setup".
 

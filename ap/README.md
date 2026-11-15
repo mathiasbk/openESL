@@ -215,6 +215,7 @@ With `PUT /api/config {"webhook":"http://host:port/path"}` (`esl-client config -
 - `health.c` checks every `ESL_HEALTH_PERIOD_S` (30 s).
 - Plain HTTP, no retries: a failed POST is logged and the change goes out with the next one.
 - The logic is in `esl_health.c` and `esl_api_health()` (host-tested); the task and `esp_http_client` are the ESP-IDF side (`ESL_WEBHOOK`, on by default).
+- Jobs (#421, docs/protocol.md "Jobs"): a `PUT /api/tags` batch with `"notify":true` is posted to the same URL once every tag in it is delivered, failed, replaced or timed out, as `{"event":"job", ...}` (a health report has no `event`). One job per round, five tries. The jobs are in `esl_jobs.c` (RAM only: the last 16, and on a board without PSRAM at most 200 tags between them) behind their own mutex, as both the API and this task read them.
 
 ## Data sources
 

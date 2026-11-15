@@ -23,7 +23,7 @@ const char *esl_api_status_line(int status)
 }
 
 /* What a route needs the AP to have; a route whose part is missing answers 404 */
-enum { NEEDS_NONE, NEEDS_LAYOUTS, NEEDS_TAGFW, NEEDS_WIFI, NEEDS_SOURCES, NEEDS_RADIOS, NEEDS_SCHED, NEEDS_REMOTE };
+enum { NEEDS_NONE, NEEDS_LAYOUTS, NEEDS_TAGFW, NEEDS_WIFI, NEEDS_SOURCES, NEEDS_RADIOS, NEEDS_SCHED, NEEDS_REMOTE, NEEDS_JOBS };
 
 static bool has(const esl_api_t *api, int needs)
 {
@@ -35,6 +35,7 @@ static bool has(const esl_api_t *api, int needs)
     case NEEDS_RADIOS:  return api->links && api->n_links;
     case NEEDS_SCHED:   return api->sched != NULL;
     case NEEDS_REMOTE:  return api->remote != NULL;
+    case NEEDS_JOBS:    return api->jobs != NULL;
     default:            return true;
     }
 }
@@ -88,6 +89,7 @@ static const struct {
     ROUTE(PATH_TIME, false, NEEDS_SCHED, api_route_time),
     ROUTE(PATH_SCHEDULE, true, NEEDS_SCHED, api_route_schedule),
     ROUTE(PATH_REMOTE, false, NEEDS_REMOTE, api_route_remote),
+    ROUTE(PATH_JOBS, true, NEEDS_JOBS, api_route_jobs),
     ROUTE(PATH_TAGS, true, NEEDS_NONE, api_route_tags),
 };
 

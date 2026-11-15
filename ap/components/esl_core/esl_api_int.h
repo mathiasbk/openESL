@@ -33,6 +33,7 @@
 #define PATH_SOURCES "/api/sources"
 #define PATH_RADIOS "/api/radios"
 #define PATH_REMOTE "/api/remote"
+#define PATH_JOBS "/api/jobs"
 
 typedef struct {
     const char *js;
@@ -68,6 +69,7 @@ esl_api_route_fn api_route_radios;    /* esl_api_radios.c */
 esl_api_route_fn api_route_time;      /* esl_api_time.c */
 esl_api_route_fn api_route_schedule;  /* esl_api_time.c */
 esl_api_route_fn api_route_remote;    /* esl_api_remote.c */
+esl_api_route_fn api_route_jobs;      /* esl_api_jobs.c */
 
 /* esl_api_util.c */
 void api_sb_reset(esl_sb_t *sb);

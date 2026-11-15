@@ -8,6 +8,8 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -15,6 +17,29 @@ static const char *TAG = "app";
 
 static esl_store_t store;
 static esl_api_t api;
+
+/* Jobs (#421): a job per PUT /api/tags batch, in RAM. The API and the webhook's task
+   (health.c) both read them, so they have their own lock. Tags in all kept jobs: 16
+   bytes each, so a board without PSRAM keeps fewer (3.2 KB at most). */
+#if CONFIG_SPIRAM
+#define JOBS_TAGS (ESL_JOBS_MAX * ESL_JOB_TAGS_MAX)
+#else
+#define JOBS_TAGS 200
+#endif
+static esl_jobs_t jobs;
+static SemaphoreHandle_t jobs_mutex;
+
+static void jobs_lock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreTake(jobs_mutex, portMAX_DELAY);
+}
+
+static void jobs_unlock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreGive(jobs_mutex);
+}
 static char ssid[33], password[65], token[129], hostname[33];
 
 static const char *reset_reason_name(esp_reset_reason_t r)
@@ -94,6 +119,12 @@ void app_main(void)
     static esl_api_changes_t changes;
     changes.boot = esp_random();
     api.changes = &changes;
+    static StaticSemaphore_t jobs_mutex_buf;
+    jobs_mutex = xSemaphoreCreateMutexStatic(&jobs_mutex_buf);
+    esl_jobs_init(&jobs, esp_random(), JOBS_TAGS); /* a job number from before a restart is not a new one's */
+    jobs.lock = jobs_lock;
+    jobs.unlock = jobs_unlock;
+    api.jobs = &jobs;
     api.token = token;
     static esl_api_lock_t lock;
     api.lock = &lock;

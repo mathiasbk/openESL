@@ -116,7 +116,7 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -2413,6 +2413,188 @@ static void test_draw(void)
     st.ops = ops;
 }
 
+/* ---- jobs (#421): what became of each tag of a batch ---- */
+
+static int jobs_get(uint32_t id, uint64_t now_ms)
+{
+    char uri[48];
+    snprintf(uri, sizeof(uri), "/api/jobs/%lu", (unsigned long)id);
+    return esl_api_handle(&api, "GET", uri, AUTH, NULL, 0, now_ms, &out);
+}
+
+static const char *job_tag(const char *mac)
+{
+    const char *p = strstr(resp, mac);
+    return p ? p : "";
+}
+
+static void test_jobs(void)
+{
+    static esl_jobs_t jobs;
+    esl_faketag_t a, b, c, d;
+    char ma[17], mb[17], mc[17], md[17], body[1024];
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_jobs_init(&jobs, 7, 60);
+    api.jobs = &jobs;
+    esl_faketag_init(&a, 0x10B0000A, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0x10B0000B, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&d, 0x10B0000D, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&c, 0x10B0000C, 1, 3000, ESL_MODEL_29); /* never heard */
+    b.img_bad = true;
+    CHECK_INT(air(&a, 0, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 0, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&d, 0, false), ESL_MSG_IDLE);
+    esl_mac_format(a.mac, ma);
+    esl_mac_format(b.mac, mb);
+    esl_mac_format(c.mac, mc);
+    esl_mac_format(d.mac, md);
+
+    /* the batch gets a number; a bad timeout or a webhook the AP lacks changes nothing */
+    snprintf(body, sizeof(body),
+             "{\"timeout_s\":120,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]},"
+             "{\"mac\":\"%s\",\"layout\":\"price\",\"fields\":[\"Smør\",\"49,90\"]},{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"C\"]},"
+             "{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"D\"]}]}",
+             ma, mb, mc, md);
+    static const char *const bad[] = {"{\"timeout_s\":9,\"tags\":[]}", "{\"timeout_s\":604801,\"tags\":[]}",
+                                      "{\"timeout_s\":\"60\",\"tags\":[]}", "{\"timeout_s\":1.5,\"tags\":[]}",
+                                      "{\"notify\":1,\"tags\":[]}", "{\"notify\":true,\"tags\":[]}"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, bad[i], strlen(bad[i]), 1000, &out), 422);
+    CHECK_INT(esl_jobs_list(&jobs, (uint32_t[ESL_JOBS_MAX]){0}), 0);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 1000, &out), 200);
+    CHECK(HAS(resp, "{\"job\":7,\"tags\":[{\"mac\":"));
+    CHECK_INT(jobs_get(7, 2000), 200);
+    CHECK(HAS(resp, "\"job\":7,\"state\":\"pending\",\"age_s\":1,\"took_s\":null,\"timeout_s\":120,\"notify\":false"));
+    CHECK(HAS(resp, "\"counts\":{\"accepted\":4,\"delivered\":0,\"failed\":0,\"timed_out\":0,\"replaced\":0,\"scheduled\":0}"));
+
+    /* a shows it, b cannot draw it, d gets other content first, c is never heard */
+    CHECK_INT(air(&a, 60000, false), ESL_MSG_IMG);
+    CHECK_INT(air(&a, 61000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 60000, false), ESL_MSG_IMG);
+    CHECK(b.img_failed != 0);
+    air(&b, 65000, false); /* says so, and is not offered it again */
+    CHECK_INT(put(md, "{\"layout\":\"text\",\"fields\":[\"D2\"]}"), 200);
+    CHECK_INT(jobs_get(7, 70000), 200);
+    CHECK(HAS(job_tag(ma), "\"state\":\"delivered\",\"content_id\":"));
+    CHECK(HAS(job_tag(mb), "\"state\":\"failed\",\"content_id\":"));
+    CHECK(HAS(job_tag(mb), "\"error\":\"the tag could not show it (drawing failed)\""));
+    CHECK(HAS(job_tag(md), "\"state\":\"replaced\""));
+    CHECK(HAS(job_tag(mc), "\"state\":\"accepted\""));
+    CHECK(HAS(resp, "\"state\":\"pending\""));
+    /* the timeout counts from the batch: c is given up at 121 s */
+    CHECK_INT(jobs_get(7, 120999), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"accepted\""));
+    CHECK_INT(jobs_get(7, 121000), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"timed_out\""));
+    CHECK(HAS(resp, "\"state\":\"done\",\"age_s\":120,\"took_s\":120"));
+    CHECK(HAS(resp, "\"counts\":{\"accepted\":0,\"delivered\":1,\"failed\":1,\"timed_out\":1,\"replaced\":1,\"scheduled\":0}"));
+    /* final: c showing it now does not change the job */
+    air(&c, 130000, false);
+    air(&c, 131000, false);
+    CHECK_INT(jobs_get(7, 200000), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"timed_out\""));
+
+    /* content the tag already shows is delivered at once */
+    snprintf(body, sizeof(body), "{\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 300000, &out), 200);
+    CHECK(HAS(resp, "\"job\":8,") && HAS(resp, "\"changed\":false"));
+    CHECK_INT(jobs_get(8, 300000), 200);
+    CHECK(HAS(resp, "\"state\":\"done\"") && HAS(resp, "\"timeout_s\":3600") && HAS(job_tag(ma), "\"delivered\""));
+
+    /* the list, oldest first, without the tags */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK(HAS(resp, "{\"jobs\":[{\"job\":7,") && HAS(resp, "},{\"job\":8,") && !HAS(resp, "\"tags\""));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK_INT(jobs_get(9, 300000), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/7/", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/x7", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/0", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/99999999999", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/jobs/7", AUTH, NULL, 0, 300000, &out), 405);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/7", NULL, NULL, 0, 300000, &out), 401);
+
+    /* RAM stays bounded: 60 tags in all here, so a big batch pushes out the oldest jobs */
+    esl_sb_t sb;
+    static char big[4096];
+    esl_sb_init(&sb, big, sizeof(big));
+    esl_sb_puts(&sb, "{\"tags\":[");
+    for (unsigned i = 0; i < ESL_API_MAX_BATCH; i++)
+        esl_sb_printf(&sb, "%s{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]}", i ? "," : "", ma);
+    esl_sb_puts(&sb, "]}");
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, big, sb.len, 310000, &out), 200);
+    CHECK(HAS(resp, "\"job\":9,"));
+    CHECK_INT(jobs.tags, 55);
+    CHECK_INT(jobs_get(7, 310000), 200);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, big, sb.len, 310000, &out), 200);
+    CHECK(HAS(resp, "\"job\":10,"));
+    CHECK_INT(jobs.tags, 50);
+    CHECK_INT(jobs_get(7, 310000), 404);
+    CHECK_INT(jobs_get(9, 310000), 404);
+    CHECK_INT(jobs_get(10, 310000), 200);
+    /* the same tag 50 times with what it shows: all delivered */
+    CHECK(HAS(resp, "\"delivered\":50,"));
+
+    /* the webhook: a job that asked for it, once it ends */
+    static esl_notify_t notify;
+    api.notify = &notify;
+    snprintf(body, sizeof(body), "{\"notify\":true,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"N\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 400000, &out), 200);
+    CHECK(HAS(resp, "\"job\":11,"));
+    static esl_job_tag_t tags[ESL_JOB_TAGS_MAX];
+    esl_job_t j;
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 400000, &j, tags)); /* not shown yet */
+    CHECK_INT(air(&a, 460000, false), ESL_MSG_IMG);
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 460500, &j, tags)); /* sent, not confirmed */
+    CHECK_INT(air(&a, 461000, false), ESL_MSG_IDLE);
+    CHECK(esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    CHECK_INT(j.id, 11);
+    char rep[ESL_API_JOB_REPORT_MAX];
+    esl_sb_t rs;
+    esl_sb_init(&rs, rep, sizeof(rep));
+    esl_api_job_report(&j, 461000, true, &rs);
+    CHECK(!rs.overflow && HAS(rep, "{\"event\":\"job\",\"job\":11,\"state\":\"done\",") && HAS(rep, "\"notify\":true"));
+    for (unsigned i = 0; i < ESL_JOB_NOTIFY_TRIES - 1; i++) {
+        esl_jobs_notified(&jobs, 11, false); /* tried again next round */
+        CHECK(esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    }
+    esl_jobs_notified(&jobs, 11, false); /* given up */
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    api.notify = NULL;
+
+    /* a report of 50 tags that all failed, with the longest text, fits */
+    esl_job_t w = {.id = UINT32_MAX, .timeout_s = ESL_JOB_TIMEOUT_MAX_S, .n = ESL_JOB_TAGS_MAX, .tags = tags};
+    for (unsigned i = 0; i < ESL_JOB_TAGS_MAX; i++)
+        tags[i] = (esl_job_tag_t){UINT64_MAX, UINT32_MAX, ESL_JOB_FAILED, ESL_JOB_WHY_CONTENT + ESL_CERR_UNFIT};
+    esl_sb_init(&rs, rep, sizeof(rep));
+    esl_api_job_report(&w, UINT64_MAX / 2, true, &rs);
+    CHECK(!rs.overflow);
+
+    /* numbers wrap past 0, and the oldest is still the one furthest back */
+    esl_jobs_free(&jobs);
+    esl_jobs_init(&jobs, UINT32_MAX, 0);
+    CHECK_INT(jobs.max_tags, ESL_JOB_TAGS_MAX);
+    CHECK_INT(esl_jobs_add(&jobs, 0, 60, false, 1), UINT32_MAX);
+    CHECK_INT(esl_jobs_add(&jobs, 0, 60, false, 1), 1);
+    uint32_t ids[ESL_JOBS_MAX];
+    CHECK_INT(esl_jobs_list(&jobs, ids), 2);
+    CHECK_INT(ids[0], UINT32_MAX);
+    CHECK_INT(ids[1], 1);
+    for (unsigned i = 0; i < ESL_JOBS_MAX - 1; i++)
+        esl_jobs_add(&jobs, 0, 60, false, 1);
+    CHECK_INT(esl_jobs_list(&jobs, ids), ESL_JOBS_MAX);
+    CHECK_INT(ids[0], 1); /* UINT32_MAX went */
+    esl_jobs_free(&jobs);
+    api.jobs = NULL;
+
+    /* without jobs the reply is as before */
+    snprintf(body, sizeof(body), "{\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"O\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 0, &out), 200);
+    CHECK(!HAS(resp, "\"job\""));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs", AUTH, NULL, 0, 0, &out), 404);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -2433,4 +2615,5 @@ void test_radio(void)
     test_draw_later();
     test_link();
     test_ap_id();
+    test_jobs();
 }
