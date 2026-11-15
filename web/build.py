@@ -277,6 +277,49 @@ def image_version(path):
     return None
 
 
+# esp_app_desc_t sits right after the image header and the first segment's header (24 + 8 bytes):
+# magic at 32, version at 48 and project_name at 80, 32 bytes each
+APP_DESC_MAGIC = 0xABCD5432
+
+
+def app_project(data):
+    """The project name in esp_app_desc_t of the ESP32 app image that data starts with, or None
+    when data does not start with one"""
+    if len(data) >= 112 and data[0] == 0xE9 and struct.unpack_from("<I", data, 32)[0] == APP_DESC_MAGIC:
+        return data[80:112].split(b"\0", 1)[0].decode(errors="replace")
+    return None
+
+
+def radio_app(r):
+    """The project name a radio's image must have, which says the link it is for (#451, #454):
+    "app" in its radio.json (esl_radio_usb for the Linux AP's C6 on USB), else esl_netradio for a
+    radio on the network (ap/netradio/) and esl_radio for one on UART pins (ap/radio/)"""
+    return r.get("app") or ("esl_netradio" if r["kind"] == "net" else "esl_radio")
+
+
+def check_radio_image(path, r):
+    """Stops the build when the radio image at path (the flasher's merged image, and the -ota.bin
+    next to it) was built for another link than radio r: the file name alone picked r, and a mixup
+    like #449 would otherwise reach the page and be caught only when an AP refuses the image"""
+    want = radio_app(r)
+    found = []
+    ota = path[:-4] + "-ota.bin"
+    if os.path.exists(ota):
+        with open(ota, "rb") as f:
+            found.append((ota, app_project(f.read(112))))
+    with open(path, "rb") as f:
+        img = f.read()
+    for label, ptype, sub, off, size in partitions(img):
+        if ptype == 0 and sub in (0x00, 0x10):      # the app the flasher writes
+            found.append((path, app_project(img[off:off + 112])))
+            break
+    for p, got in found:
+        if got != want:
+            sys.exit("%s: taken for radio %s by its name, but its image is project %s, not %s: it is built "
+                     "for another link (radio.json \"app\", ap/radio/CMakeLists.txt)"
+                     % (p, r["key"], got or "(no app description)", want))
+
+
 def tag_image_model(path):
     """The model (from shared/models.json) a tag firmware image is for, read from the model code in
     the OTA header of the file or of the <file>-ota.bin next to it (the flasher's image has the
@@ -427,9 +470,11 @@ def add_firmware(*files):
             # the radio of the AP as a Linux program: listed apart (linux_radios), as no board on
             # the page takes it and its image must never be offered to an S3's C6 (it talks on
             # USB, not on the UART pins)
+            check_radio_image(f, r)
             linux[r["id"]] = (r, f)
             continue
         if r:
+            check_radio_image(f, r)
             radios[r["key"]] = f
             continue
         m = tag_image_model(f)
