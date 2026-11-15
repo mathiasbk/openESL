@@ -6,7 +6,7 @@
 import { ApClient, apBase } from "./apclient.js";
 import { describeWifi } from "./apserial.js";
 import { hasSerial, serialAp, connectSerial, disconnectSerial, onSerialChange } from "./apport.js";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, otherApsLine, otherApsLost, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, lastCheckin, tagRows, rowCounts, filterRows, healthLine, statusItems, otherApsLine, otherApsLost, apFacts, apIdentity, tagRadio, radioForgettable, radioWarnings, decodeTagImage, screenKey, screenErrorFinal, mergeTagList } from "./dashdata.js";
 import { infoRows, sendRows, textBytes, textLimit, usesDate, maxDays, dateLang, PLACEHOLDERS, PRESETS } from "./sendtext.js";
 import { FITS, turnedSize, placement, dragTo, tone, quantize, packRaw, picturePlan, sendPictures } from "./sendpic.js";
 import { initSources } from "./apsources.js";
@@ -73,6 +73,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   // when each tag last polled, for the tags a reply leaves out (mergeTagList)
   let since = "0";
   const seenAt = new Map();
+  let done = null;           // { mac, at }: the last tag seen to fetch its new content (status bar)
   const screens = new Map(); // what the AP draws for each tag (screenCell)
   const screenQueue = [];
   let screenBusy = false;
@@ -127,6 +128,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     screenQueue.length = 0;
     since = "0";
     seenAt.clear();
+    done = null;
     $("dash-connect").textContent = c ? "Disconnect" : "Connect";
     $("dash-src").disabled = !!c || !!demoAp;
     $("dash-conn").classList.toggle("connected", !!c);
@@ -155,7 +157,29 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       : failed ? "no answer" : lastAt ? `updated ${fmtAgo(Math.max(0, Math.round((Date.now() - lastAt) / 1000)))} ago` : "connecting …";
     u.title = lastAt ? new Date(lastAt).toLocaleString() : "";
   }
-  setInterval(() => client && visible() && showLive(), 1000);
+  setInterval(() => {
+    if (!client || !visible()) return;
+    showLive();
+    renderStatus();
+  }, 1000);
+
+  // The status bar over every part (#417): from what refresh() read, uptime and the AP's clock
+  // moved on by the time since (not while the AP does not answer: then they stay as they were). Its links stay in place, so one in focus keeps it.
+  function renderStatus() {
+    const bar = $("dash-status");
+    const items = last ? statusItems(last, stale ? 0 : Math.round((Date.now() - lastAt) / 1000), done) : [];
+    bar.hidden = !items.length;
+    bar.classList.toggle("stale", stale);
+    items.forEach((it, i) => {
+      let a = bar.children[i];
+      if (!a) bar.append(a = document.createElement("a"));
+      if (a.textContent !== it.text) a.textContent = it.text;
+      a.href = it.part === "tags" ? "#dashboard" : "#dashboard/" + it.part;
+      a.className = "sb-" + it.k + (it.cls ? " " + it.cls : "");
+      a.title = it.title;
+    });
+    while (bar.children.length > items.length) bar.lastChild.remove();
+  }
 
   // The AP stopped answering: the figures stay, greyed, with when they are from, so an
   // "All tags are fine" from before does not look current
@@ -190,6 +214,10 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const config = await optional("/api/config");
       if (c !== client) return;
       const list = mergeTagList(last?.list, reply, seenAt, replyAt);
+      // a tag that was waiting for its content and has it now: the status bar's "last" (#417)
+      const waited = new Set((last?.list?.tags || []).filter((t) => t.pending && t.content_id).map((t) => t.mac));
+      const got = list.tags.find((t) => waited.has(t.mac) && !t.pending);
+      if (got) done = { mac: got.mac, at: replyAt };
       since = reply.since || "0";
       last = { list, health, wifi, ota, tagfw, layouts, config };
       lastAt = Date.now();
@@ -385,6 +413,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       return d;
     }));
     $("dash-wifi").textContent = wifi ? "WiFi: " + describeWifi(wifi) : "";
+    renderStatus();
     // the S3 has lost its C6: nothing reaches the tags, so it goes above everything else; an old C6
     // over WiFi (#390) goes there too
     const lostText = radioWarnings(ap, health).join(" ");

@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings, mergeTagList } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings, mergeTagList, statusItems } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -326,4 +326,50 @@ test("labels of other APs (#390): the health line, the list and what adopt does"
   assert.equal(adoptText({ adopt: null }), "");
   assert.match(adoptText({ adopt: "all", adopt_until: null }), /any other AP .* for 14 days from when the AP knows the time\.$/);
   assert.match(adoptText({ adopt: "1A2B3C4D", adopt_until: 1800000000 }), /labels of AP 1A2B3C4D .*, until /);
+});
+
+test("status bar (#417)", () => {
+  const ap = { fw: "0.11.0", uptime_s: 3600, channel: 25, max_tags: 1000, table_full: false, poll_s: 0, reset: "poweron" };
+  const by = (items) => Object.fromEntries(items.map((i) => [i.k, i]));
+  assert.deepEqual(statusItems(null), []);
+  // a C6 AP: its own radio, no config or health read
+  let s = by(statusItems({ list: { ap, tags: [tag("A"), tag("B", { content_id: 0, pending: true })] } }));
+  assert.equal(s.radio.text, "Radio ready");
+  assert.equal(s.radio.cls, "ok");
+  assert.equal(s.channel.text, "Ch 25");
+  assert.equal(s.tags.text, "2 tags · 1 new");
+  assert.equal(s.queue.text, "Queue empty"); // a new tag without content waits for nothing
+  assert.equal(s.fw.text, "AP 0.11.0");
+  assert.equal(s.time.text, "Up 1 h 0 min");
+  assert.equal(s.tags.part, "tags");
+  assert.equal(s.fw.part, "firmware");
+  // an S3 with its C6 on the cable, a move waiting, tags of another AP, a clock, a tag done
+  const now = Date.now();
+  s = by(statusItems({
+    list: { ap: { ...ap, radio: { connected: true, via: "uart", fw: 1000 }, time: 1763236800, scheduled: 2, max_scheduled: 64 },
+            tags: [tag("A", { pending: true }), tag("B", { fw_update: { version: "0.3.0" } }), tag("C", { config_pending: true })] },
+    config: { channel: 25, channel_next: 15, tx_power: 8 },
+    health: { radio_problems: [], other_aps: [{ ap_id: "1A2B3C4D", tags: 3 }] },
+  }, 60, { mac: "A", at: now - 120000 }, now));
+  assert.equal(s.radio.text, "Radio ready");
+  assert.equal(s.channel.text, "Ch 25 → 15 · 8 dBm");
+  assert.equal(s.channel.cls, "warn");
+  assert.equal(s.tags.text, "3 tags · 3 of other APs");
+  assert.equal(s.queue.text, "Queue 3 · 2 scheduled · last 2 min ago");
+  assert.equal(s.fw.text, "AP 0.11.0 · radio 0.10.0");
+  assert.equal(s.fw.cls, "warn");
+  assert.match(s.time.text, /^Up 1 h 1 min · \d/);
+  // the C6 lost, the table full
+  s = by(statusItems({ list: { ap: { ...ap, table_full: true, radio: { connected: false, lost: true, lost_s: 40 } }, tags: [] },
+                       health: { radio_problems: [{ radio: 0, id: null, via: "uart", problems: ["radio_lost"], lost_s: 40 }] } }));
+  assert.equal(s.radio.text, "Radio lost");
+  assert.equal(s.radio.cls, "bad");
+  assert.equal(s.tags.text, "0 tags · full");
+  assert.equal(s.tags.cls, "bad");
+  // two radios over WiFi, one lost (older firmware: no health radio_problems)
+  s = by(statusItems({ list: { ap: { ...ap, radios: [{ radio: 0, connected: true, fw: 1100, channel: 25 }, { radio: 1, connected: false, lost: true, channel: 15 }] }, tags: [] } }));
+  assert.equal(s.radio.text, "1 of 2 radios lost");
+  assert.equal(s.channel.text, "Ch 25, 15");
+  assert.equal(s.fw.text, "AP 0.11.0 · radio 0.11.0");
+  assert.equal(s.fw.cls, "");
 });
