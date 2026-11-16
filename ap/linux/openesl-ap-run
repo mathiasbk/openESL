@@ -15,6 +15,9 @@
 bin=$1
 [ -n "$bin" ] && [ -x "$bin" ] || { echo "usage: openesl-ap-run /path/to/openesl-ap [options]" >&2; exit 2; }
 shift
+# the program finds itself through /proc/self/exe, which has symlinks resolved: use the same path,
+# or a symlinked <bin> would not see the program's <bin>.trial and there would be no way back
+real=$(readlink -f "$bin" 2>/dev/null) && [ -n "$real" ] && bin=$real
 trial=$bin.trial
 prev=$bin.prev
 limit=${OPENESL_TRIAL_S:-60}
@@ -53,6 +56,12 @@ while :; do
         done
         if [ -f "$trial" ] && kill -0 "$pid" 2>/dev/null && [ -z "$term" ]; then
             echo "openesl-ap-run: the new version did not confirm in $limit s" >&2
+            kill -TERM "$pid" 2>/dev/null # let it close its files, then make sure
+            i=0
+            while [ "$i" -lt 10 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 1
+                i=$((i + 1))
+            done
             kill -KILL "$pid" 2>/dev/null
         fi
     fi
@@ -70,4 +79,5 @@ while :; do
     fi
     [ "$rc" -eq 75 ] || exit "$rc"
     sleep 1
+    [ -n "$term" ] && exit 0 # stopped between two runs: do not start it again
 done

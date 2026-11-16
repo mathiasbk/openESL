@@ -284,6 +284,8 @@ test("the page's AP image that fits the AP", () => {
   assert.equal(apImageFor({ version: "0.4.3" }, { ...info, version: "0.4.4-dev", release: false }).newer, false); // not a release
   assert.equal(apImageFor({ version: "0.4.3" }, { ...info, ota: {} }), null);
   assert.equal(apImageFor({ version: "0.4.3" }, null), null);
+  // the Linux AP after a self-update ("binary" / "prev"): no ESP32 image is offered to it
+  assert.equal(apImageFor({ slot: "binary", version: "0.4.3", other_slot: "prev", confirmed: true }, info), null);
   // a release that changed only the tags: the AP image is still 0.4.3, so nothing new for the AP
   const parts = { ...info, version: "v0.4.4", ap_version: "0.4.3", tag_version: "0.4.4" };
   assert.deepEqual(apImageFor({ version: "0.4.3", display: false }, parts), { file: "ap-openesl-ota", version: "0.4.3", newer: false, display: false });

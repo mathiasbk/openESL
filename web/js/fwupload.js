@@ -93,6 +93,8 @@ export function cmpVersion(a, b) {
 // changed only the tags is not newer for the AP; an info.json from before it has only the
 // release's version.
 export function apImageFor(ota, info) {
+  // the Linux AP (slot "binary") takes its own program, never an ESP32 image
+  if (ota?.slot === "binary") return null;
   const boards = (info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },

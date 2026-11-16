@@ -530,14 +530,18 @@ def patched(binary, out, version=None, broken=False):
 class Guarded:
     """openesl-ap started by openesl-ap-run, as the service does, from its own folder"""
 
-    def __init__(self, binary, folder, env):
+    def __init__(self, binary, folder, env, symlink=False):
         os.makedirs(folder, exist_ok=True)
         self.bin = os.path.join(folder, "openesl-ap")
         shutil.copy(binary, self.bin)
+        start = self.bin
+        if symlink:  # started through a link to the program, as /usr/local/bin/openesl-ap -> /opt/...
+            start = os.path.join(folder, "link-to-openesl-ap")
+            os.symlink(self.bin, start)
         self.port = free_port()
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openesl-ap-run")
         self.log = open(os.path.join(folder, "run.log"), "ab")
-        self.p = subprocess.Popen([script, self.bin, "--data", os.path.join(folder, "data"), "--listen",
+        self.p = subprocess.Popen([script, start, "--data", os.path.join(folder, "data"), "--listen",
                                    f"127.0.0.1:{self.port}", "--radio", SIM, "--token", "tok"],
                                   stdout=self.log, stderr=self.log, env={**os.environ, **env})
         self.wait_up()
@@ -635,6 +639,20 @@ def test_update(binary, tmp):
     st, o = g.ota(open(new_bin, "rb").read())
     check(st == 200, "a good update goes through afterwards")
     g.wait_up(new)
+    check(g.stop() == 0, "stops cleanly")
+
+    # the same through a symlink to the program: the script must look for the markers where the program puts them
+    f = os.path.join(tmp, "upd-crash-link")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"}, symlink=True)
+    g.wait_up(old)
+    st, o = g.ota(open(bad, "rb").read())
+    check(st == 200, f"started through a symlink: update accepted ({st})")
+    o = g.wait_up(old, timeout=30)
+    end = time.time() + 10
+    while time.time() < end and os.path.exists(g.bin + ".trial"):
+        time.sleep(0.2)
+    check(version_of(g.bin) == old and not os.path.exists(g.bin + ".trial") and g.p.poll() is None,
+          "started through a symlink: it died on start, and the old version is back")
     check(g.stop() == 0, "stops cleanly")
 
     # a new version that runs but does not confirm in time is replaced as well
