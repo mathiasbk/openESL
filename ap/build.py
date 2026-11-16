@@ -31,8 +31,9 @@ Linux program (docs/linux-ap.md), which no board here names: it is built and rel
 own, like the radios the boards name.
 
 For each board: build-<board>/ with its own sdkconfig, made again from sdkconfig.defaults
-whenever one of those files changed (fresh_sdkconfig: idf.py on its own keeps an old
-sdkconfig and would build without the change), then in out/
+whenever one the board reads changed (fresh_sdkconfig: idf.py on its own keeps an old
+sdkconfig and would build without the change; the old one stays as sdkconfig.before-reset),
+then in out/
   <artifact>.bin       bootloader, partition table and app in one image, written at 0
                        (the web flasher and esptool)
   <artifact>-ota.bin   the app alone, for POST /api/ota (esl-client ota, the dashboard)
@@ -202,20 +203,34 @@ def check_budget(info):
     return state != "over"
 
 
-def fresh_sdkconfig(cwd, bdir, extra=""):
-    """Starts bdir's sdkconfig again from sdkconfig.defaults when a defaults file changed.
-    idf.py keeps a sdkconfig it finds and reads the defaults only for options it lacks, so a
-    build folder from before a change in sdkconfig.defaults (such as -Os, which takes about
-    130 KB off the C6 image) would go on building the old way without a word. A stamp in
-    the folder records the defaults its sdkconfig was made from; a folder without one is
-    started again too. Changes made with menuconfig in that folder are lost then."""
-    files = sorted(glob.glob(os.path.join(cwd, "*sdkconfig.defaults")) +
-                   glob.glob(os.path.join(cwd, "boards", "*", "sdkconfig.defaults")))
-    h = hashlib.sha256(extra.encode())
-    for path in files:
-        h.update(os.path.relpath(path, cwd).encode() + b"\0")
-        with open(path, "rb") as f:
-            h.update(f.read() + b"\0")
+def defaults_files(b, sniffer=False):
+    """The sdkconfig.defaults an AP board's build reads, in CMakeLists.txt's order: the common
+    one, the "base" board's, the board's own, and the sniffer's"""
+    files = ["sdkconfig.defaults"]
+    if b.get("base"):
+        files.append("boards/%s/sdkconfig.defaults" % b["base"])
+    files.append("boards/%s/sdkconfig.defaults" % b["id"])
+    if sniffer:
+        files.append("sniffer.sdkconfig.defaults")
+    return files
+
+
+def fresh_sdkconfig(cwd, bdir, files):
+    """Starts bdir's sdkconfig again from sdkconfig.defaults when one of files (the defaults
+    that build reads, relative to cwd) changed. idf.py keeps a sdkconfig it finds and reads
+    the defaults only for options it lacks, so a build folder from before a change in
+    sdkconfig.defaults (such as -Os, which takes about 130 KB off the C6 image) would go on
+    building the old way without a word. A stamp in the folder records the defaults its
+    sdkconfig was made from; a folder without one is started again too. The old sdkconfig is
+    kept as sdkconfig.before-reset, so changes made with menuconfig there can be copied back."""
+    h = hashlib.sha256()
+    for rel in files:
+        h.update(rel.encode() + b"\0")
+        try:
+            with open(os.path.join(cwd, rel), "rb") as f:
+                h.update(b"1" + f.read() + b"\0")
+        except FileNotFoundError:
+            h.update(b"0")
     digest = h.hexdigest()
     folder = os.path.join(cwd, bdir)
     stamp = os.path.join(folder, "sdkconfig.defaults.sha256")
@@ -226,12 +241,15 @@ def fresh_sdkconfig(cwd, bdir, extra=""):
     except OSError:
         old = None
     if old != digest and os.path.exists(sdkconfig):
-        print("%s: its sdkconfig was made from other sdkconfig.defaults (or by an older build.py): "
-              "starting it again from the defaults" % os.path.relpath(folder, HERE), flush=True)
-        for name in ("sdkconfig", "sdkconfig.old", "CMakeCache.txt"):
+        backup = os.path.join(folder, "sdkconfig.before-reset")
+        os.replace(sdkconfig, backup)
+        for name in ("sdkconfig.old", "CMakeCache.txt"):
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
+        print("%s: its sdkconfig was made from other sdkconfig.defaults (or by an older build.py): "
+              "starting it again from the defaults; the old one is %s"
+              % (os.path.relpath(folder, HERE), os.path.relpath(backup, HERE)), flush=True)
     os.makedirs(folder, exist_ok=True)
     with open(stamp, "w", encoding="utf-8") as f:
         f.write(digest + "\n")
@@ -241,7 +259,7 @@ def build(b, sniffer=False):
     name = b["id"] + ("-sniffer" if sniffer else "")
     artifact = b["artifact"] + ("-sniffer" if sniffer else "")
     bdir = "build-" + name
-    fresh_sdkconfig(HERE, bdir, "sniffer" if sniffer else "")
+    fresh_sdkconfig(HERE, bdir, defaults_files(b, sniffer))
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"],
          "-D", "SNIFFER=%d" % sniffer, "build"])
     merge(b["target"], bdir, "esl_ap.bin", artifact)
@@ -255,7 +273,7 @@ def build(b, sniffer=False):
 def build_radio(r):
     cwd = os.path.join(HERE, r["project"])
     bdir = "build-" + r["id"]
-    fresh_sdkconfig(cwd, bdir)
+    fresh_sdkconfig(cwd, bdir, ["sdkconfig.defaults", "boards/%s/sdkconfig.defaults" % r["id"]])
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "RADIO_BOARD=" + r["id"], "build"], cwd=cwd)
     # The radio on UART takes its -ota.bin through the AP (main/ota.c passes an esl_radio image
     # on); the one on the network has no way to take it yet. The app's name is "app" in
