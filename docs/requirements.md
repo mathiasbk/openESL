@@ -53,7 +53,7 @@ The requirements the project started from, each with an ID (G = overall, A = acc
 | A7 | Fixed channel and PAN ID, configurable. | MUST |
 | A8 | Logging over USB serial. | MUST |
 | A9 | Several APs in the same location. | LATER |
-| A10 | OTA for the AP itself. | SHOULD (done: `POST /api/ota`, tried on the C6 Super Mini; rollback not tried) |
+| A10 | OTA for the AP itself. | SHOULD (done: `POST /api/ota`, tried on the C6 Super Mini; rollback not tried; the Linux AP does the same with `POST /api/ota` and `openesl-ap-run`, [linux-ap.md](linux-ap.md) "Updating") |
 | A11 | The same content sent again gives no new drawing (the AP compares `content_id`). | MUST |
 | A12 | Stores layout files per tag model, accepts new ones via the API and sends them to the tags over radio when the layout is new for the tag (G7). | MUST (since the AP draws the screens it draws from the file instead; the file no longer goes to the tags) |
 | A13 | Knows the model of each tag and validates text length and layout against it (G6). | MUST |

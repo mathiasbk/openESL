@@ -985,6 +985,15 @@ paths:
         `esl_radio_usb`, the C6 on a Linux AP's USB port) is refused with 422 before anything
         is sent: it would leave the C6 without its link to the AP.
         Content-Type is not checked.
+
+        The Linux AP (`openesl-ap`) takes its own binary the same way, whole in one request
+        (no `offset`/`total`; up to 32 MB, streamed to disk): the body is an
+        `openesl-ap-linux-<arch>` file of a release. It is refused with `422` unless it is an
+        ELF for the machine it runs on that answers `--version`, and with `409` unless its version
+        is newer than the running one (`force=1` takes any). The old program is kept as
+        `<binary>.prev`, and the new one runs as a trial under `openesl-ap-run`: it is replaced by
+        the old one if it exits or does not confirm within a minute. Started any other way, or in a
+        container, it answers `501`. See docs/linux-ap.md, "Updating".
       x-host-status: 501
       parameters:
         - name: offset
@@ -997,6 +1006,11 @@ paths:
           required: false
           schema: { type: integer, minimum: 1 }
           description: The size of the whole image (with `offset`)
+        - name: force
+          in: query
+          required: false
+          schema: { type: integer, enum: [1] }
+          description: Linux AP only. Install a version that is not newer than the running one
       requestBody:
         required: true
         content:
@@ -1011,7 +1025,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
         "409":
-          description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0
+          description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0. On the Linux AP, a version that is not newer than the running one (without `force=1`), an update already on its way, or a running version that is not confirmed yet
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2825,6 +2839,8 @@ components:
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
+        self_update: { type: boolean, description: "Linux AP only: this AP can update itself (`POST /api/ota`); `slot` is `binary` and `other_slot` is `prev` while the old program is kept" }
+        self_update_blocked: { type: [string, "null"], description: "Linux AP only: why not: `unguarded` (not started by openesl-ap-run), `container`, or `unknown`" }
         radio: { $ref: "#/components/schemas/RadioInfo" }
       example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
 

@@ -488,6 +488,170 @@ def wait_for(ap, what, cond, timeout=10):
     check(False, what)
 
 
+def api_call(port, method, path, body=None, token="tok", timeout=15):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method=method)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    if body is not None:
+        req.add_header("Content-Type", "application/octet-stream")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return e.code, json.loads(raw)
+        except ValueError:
+            return e.code, raw
+    except (urllib.error.URLError, ConnectionError, socket.timeout):
+        return None, None
+
+
+def version_of(binary):
+    return subprocess.run([binary, "--version"], capture_output=True, text=True).stdout.split()[1]
+
+
+def patched(binary, out, version=None, broken=False):
+    """A copy of binary that says it is another version (same length, so every copy of the string is
+    replaced), and with broken=True answers --version but cannot start (its radio "sim" is gone)"""
+    data = open(binary, "rb").read()
+    if version:
+        old = version_of(binary).encode()
+        new = (b"9" if old[:1] != b"9" else b"8") + old[1:]
+        data = data.replace(old, new)
+    if broken:
+        data = data.replace(b"sim\0", b"zzz\0")
+    with open(out, "wb") as f:
+        f.write(data)
+    os.chmod(out, 0o755)
+    return out
+
+
+class Guarded:
+    """openesl-ap started by openesl-ap-run, as the service does, from its own folder"""
+
+    def __init__(self, binary, folder, env):
+        os.makedirs(folder, exist_ok=True)
+        self.bin = os.path.join(folder, "openesl-ap")
+        shutil.copy(binary, self.bin)
+        self.port = free_port()
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openesl-ap-run")
+        self.log = open(os.path.join(folder, "run.log"), "ab")
+        self.p = subprocess.Popen([script, self.bin, "--data", os.path.join(folder, "data"), "--listen",
+                                   f"127.0.0.1:{self.port}", "--radio", SIM, "--token", "tok"],
+                                  stdout=self.log, stderr=self.log, env={**os.environ, **env})
+        self.wait_up()
+
+    def wait_up(self, version=None, timeout=20):
+        end = time.time() + timeout
+        while time.time() < end:
+            st, o = api_call(self.port, "GET", "/api/ota")
+            if st == 200 and (version is None or o["version"] == version):
+                return o
+            time.sleep(0.2)
+        check(False, f"openesl-ap is up (version {version})")
+
+    def ota(self, body, query=""):
+        return api_call(self.port, "POST", "/api/ota" + query, body)
+
+    def stop(self):
+        self.p.send_signal(signal.SIGTERM)
+        try:
+            return self.p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.p.kill()
+            return None
+
+
+def test_update(binary, tmp):
+    """POST /api/ota with openesl-ap-run: the swap, the refusals and both ways back (#467)"""
+    old = version_of(binary)
+    new_bin = patched(binary, os.path.join(tmp, "new"), version=True)
+    new = version_of(new_bin)
+    check(new != old, f"a test binary with another version ({old} -> {new})")
+    with open(binary, "rb") as f:
+        same = f.read()
+
+    # without openesl-ap-run nothing could bring the old one back: refused
+    d = os.path.join(tmp, "upd-unguarded")
+    os.makedirs(d)
+    ap = Ap(binary, os.path.join(d, "data"), token="tok")
+    st, o = api_call(ap.port, "GET", "/api/ota")
+    check(st == 200 and o["self_update"] is False and o["self_update_blocked"] == "unguarded" and o["version"] == old,
+          "GET /api/ota says it cannot update itself without openesl-ap-run")
+    st, o = api_call(ap.port, "POST", "/api/ota", open(new_bin, "rb").read())
+    check(st == 501, f"POST /api/ota without openesl-ap-run is 501 ({st})")
+    check(ap.stop() == 0, "and it keeps running and stops cleanly")
+
+    # the way forward
+    f = os.path.join(tmp, "upd-ok")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"})
+    o = g.wait_up(old)
+    check(o["self_update"] is True and o["confirmed"] is True and o["other_slot"] is None, f"running {old}, confirmed")
+    check(api_call(g.port, "POST", "/api/ota", b"x", token="wrong")[0] == 401, "a wrong token is 401")
+    check(g.ota(b"")[0] == 422, "an empty body is refused")
+    st, o = g.ota(b"#!/bin/sh\necho hi\n" + b"x" * 100)
+    check(st == 422, f"a script is refused ({st})")
+    flipped = bytearray(open(new_bin, "rb").read())
+    flipped[18] ^= 0xFF  # e_machine of another architecture
+    st, o = g.ota(bytes(flipped))
+    check(st == 422 and "machine" in o["error"], f"an ELF for another architecture is refused ({st} {o})")
+    st, o = g.ota(same)
+    check(st == 409 and "not newer" in o["error"], f"the running version again is refused ({st} {o})")
+    check(not os.path.exists(g.bin + ".new") and not os.path.exists(g.bin + ".prev"),
+          "refused files leave nothing behind")
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200 and o["version"] == new and o["previous"] == old and o["restarting"], f"update accepted ({st} {o})")
+    o = g.wait_up(new)
+    check(o["other_slot"] == "prev" and o["other_version"] == old, f"the old one is kept as .prev ({o})")
+    end = time.time() + 15
+    while time.time() < end and not api_call(g.port, "GET", "/api/ota")[1]["confirmed"]:
+        time.sleep(0.3)
+    check(api_call(g.port, "GET", "/api/ota")[1]["confirmed"] and not os.path.exists(g.bin + ".trial"),
+          "the new version confirms itself and the trial marker is gone")
+    check(version_of(g.bin) == new and version_of(g.bin + ".prev") == old, "the files on disk are the two versions")
+    st, o = g.ota(same)
+    check(st == 409, "a downgrade is refused")
+    st, o = g.ota(same, "?force=1")
+    check(st == 200 and o["version"] == old, f"?force=1 installs an older one ({st} {o})")
+    g.wait_up(old)
+    check(g.stop() == 0, "openesl-ap-run stops with the program")
+
+    # a new version that cannot start is replaced by the old one
+    f = os.path.join(tmp, "upd-crash")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"})
+    g.wait_up(old)
+    bad = patched(binary, os.path.join(tmp, "bad"), version=True, broken=True)
+    st, o = g.ota(open(bad, "rb").read())
+    check(st == 200, f"a program that runs --version is accepted ({st} {o})")
+    end = time.time() + 30  # the markers go once the old version is back; before that GET still answers as it
+    while time.time() < end and os.path.exists(g.bin + ".trial"):
+        time.sleep(0.2)
+    o = g.wait_up(old, timeout=30)
+    check(version_of(g.bin) == old and not os.path.exists(g.bin + ".prev") and not os.path.exists(g.bin + ".trial"),
+          "it died on start, so the old version is back and the markers are gone")
+    check(o["confirmed"] is True, "and the old one runs as confirmed")
+    check(b"did not start" in open(os.path.join(f, "run.log"), "rb").read(), "the script says why")
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200, "a good update goes through afterwards")
+    g.wait_up(new)
+    check(g.stop() == 0, "stops cleanly")
+
+    # a new version that runs but does not confirm in time is replaced as well
+    f = os.path.join(tmp, "upd-hang")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "1000", "OPENESL_TRIAL_S": "4"})
+    g.wait_up(old)
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200, "update accepted")
+    o = g.wait_up(new, timeout=10)
+    check(o["confirmed"] is False, "the new version waits to be confirmed")
+    st, o2 = g.ota(same, "?force=1")
+    check(st == 409, f"no second update while one is on trial ({st})")
+    g.wait_up(old, timeout=30)
+    check(version_of(g.bin) == old and not os.path.exists(g.bin + ".trial"), "it did not confirm in time: the old one is back")
+    check(g.stop() == 0, "stops cleanly")
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
@@ -598,6 +762,7 @@ def main():
         test_uart(binary, tmp)
         test_netradio(binary, tmp)
         test_netradio_only(binary, tmp)
+        test_update(binary, tmp)
     finally:
         log = os.path.join(tmp, "ap.log")
         if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):

@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include "esl_api.h"
 #include "esl_layout.h"
 #include "esl_link.h"
@@ -79,6 +80,23 @@ void http_api_lock(void);
 void http_api_unlock(void);
 /* A listening TCP socket on addr ("[host]:port"), or -1 with a message naming --opt */
 int ap_listen(const char *opt, const char *addr);
+
+/* ---- ota.c: the AP updating itself (docs/linux-ap.md, "Updating") ---- */
+
+typedef ssize_t (*ota_read_fn)(void *ctx, void *buf, size_t n); /* the next bytes of the body; <= 0: it stopped */
+/* Finds the program's own path and whether a new version is on trial (<bin>.trial) */
+void ota_init(void);
+/* POST /api/ota: the body (len bytes, read with rd) is a new program. The status, with the JSON
+ * reply in msg; 0 when the body stopped arriving (nothing to answer). On 200 ota_restart_pending(). */
+int ota_update(const char *query, long len, ota_read_fn rd, void *ctx, char *msg, size_t cap);
+/* GET /api/ota */
+void ota_info(char *out, size_t cap);
+/* The version that is on trial keeps itself once it has run this many seconds (ota_confirm_delay_s) */
+void ota_confirm(void);
+unsigned ota_confirm_delay_s(void);
+bool ota_restart_pending(void);
+/* Stops the program with exit code 75, which openesl-ap-run and the service start again */
+void ap_request_restart(void);
 
 /* ---- netradio.c ---- */
 

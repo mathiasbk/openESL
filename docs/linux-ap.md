@@ -135,9 +135,29 @@ The first start makes an API token and keeps it in `<data>/token`; give your own
 
 ### As a service
 
-`ap/linux/openesl-ap.service` runs it with systemd as its own unprivileged user (`DynamicUser`), with `/var/lib/openesl` as its state directory and `CAP_NET_BIND_SERVICE` for port 80; the comment at its top has the install commands. The log goes to the journal (`journalctl -u openesl-ap`). The service user must be able to read the config file, so keep the token out of it (the default, `<data>/token`) unless the file is readable by root and that user only.
+`ap/linux/openesl-ap.service` runs it with systemd as its own unprivileged user (`DynamicUser`), with `/var/lib/openesl` as its state directory (the data), `/var/lib/openesl-ap` for the program itself (so an update can replace it, below) and `CAP_NET_BIND_SERVICE` for port 80; the comment at its top has the install commands. It starts the program through `openesl-ap-run`, which a release carries beside the binaries. The log goes to the journal (`journalctl -u openesl-ap`). The service user must be able to read the config file, so keep the token out of it (the default, `<data>/token`) unless the file is readable by root and that user only.
 
 The HTTP server takes 32 connections at a time (more get 503), one request each; a request's head must arrive within 10 s and its body at 16 KB/s or faster. An API reply is made in memory and sent after the API's lock is let go, so a slow client holds up nobody else.
+
+### Updating
+
+`POST /api/ota` with the `openesl-ap-linux-<arch>-<version>` file of a release as the body updates the program itself (the body is the file as it is, no `offset`/`total`; it goes to disk as it arrives, up to 32 MB):
+
+```
+curl -H "Authorization: Bearer $(cat ~/openesl/token)" --data-binary @openesl-ap-linux-armv7-0.12.0 \
+    "http://<host>/api/ota"
+```
+
+1. The AP checks that the file is an ELF for its own machine (class, byte order and `e_machine`), writes it next to the running program as `<binary>.new`, syncs it and runs `<binary>.new --version` (5 s) to see that it starts here and which version it is. A version that is not newer than the running one is refused with 409; `?force=1` installs it anyway (an older one, or the same).
+2. It keeps the running program as `<binary>.prev` (a hard link, so the program never goes missing), renames the new file over `<binary>`, puts `new` in `<binary>.trial` and exits with code 75.
+3. `openesl-ap-run` starts the new program as a trial. The program removes `<binary>.trial` once it has run for 10 s with its HTTP server and radio up, which is what `confirmed` in `GET /api/ota` means. If it exits first, or `<binary>.trial` is still there after 60 s, `openesl-ap-run` moves `<binary>.prev` back and starts that one again, and says so on stderr (the journal). A second update is refused with 409 while the first is on trial.
+4. `GET /api/ota` answers in the shape the ESP32 boards use: `slot` is `binary`, `version` the running version, `other_slot` is `prev` while an older program is kept and `other_version` its version, `confirmed`, and `uploading`; `self_update` says whether this AP can update itself and `self_update_blocked` why not.
+
+The update is refused with 501, and the AP keeps running as it was, when it was not started by `openesl-ap-run` (nothing would bring the old version back; `GET /api/ota` says `unguarded`) and when it runs in a container (`container`: pull a new image, below). With 500 when the folder of the program is not writable by the user that runs it, or the disk is full. The data directory is never touched; a version that changes the stored formats has to read the old ones, as the ESP32 builds do.
+
+Replacing the program by hand keeps working: stop the service, put the new file in place, start it. Without a service manager, start it as `openesl-ap-run /path/to/openesl-ap --data ...`; the script restarts the program itself after an update and ends with the program's exit code, so the service manager restarts it only if it died for another reason (`Restart=on-failure`). `OPENESL_TRIAL_S` (60) sets how long a new version has to confirm itself, and `OPENESL_CONFIRM_S` (10) how long the program runs before it does.
+
+Upgrading an install from before this: move the binary to `/var/lib/openesl-ap/openesl-ap`, install `openesl-ap-run` in `/usr/local/bin` and the new unit file, and `systemctl daemon-reload`. A binary somewhere else works too, as long as its folder is writable by the service's user and `openesl-ap-run` starts it.
 
 ## In Docker
 
@@ -160,7 +180,7 @@ The arguments after the image are `openesl-ap`'s options; without any it runs `-
 - **The C6 on USB:** `--device` with its `/dev/serial/by-id/` name, so it is the same C6 after a reboot. A C6 that is unplugged and plugged in again comes back with a new device node, which a running container does not see: restart the container, or use `--device-cgroup-rule` with a bind mount of `/dev/serial` if it must survive that.
 - **Ports:** 80 for the API and the dashboard, 4553 when network radios connect (`-p 4553:4553` and `--netradio 4553`). The radios need the host's address, not the container's.
 - **The Design tab** is in the published image. One built from source has it only when `web/dist/wasm/` was built before `docker build` (`python3 web/build.py --wasm`, Emscripten); otherwise the Dashboard tab alone.
-- **Updating:** `docker pull` the new version and start a new container with the same data folder.
+- **Updating:** `docker pull` the new version and start a new container with the same data folder. `/api/ota` answers 501 in a container (the program is in the image).
 
 ## Data directory
 
@@ -183,8 +203,8 @@ Scheduled content needs the time. Once the system clock is past 2024 (NTP on the
 
 ## What it does not do (yet)
 
-WiFi setup, OTA updates of the AP itself (update the binary instead), the data sources of the S3 boards and the webhook: `/api/wifi` and `/api/sources` answer 404 (`/api/radios` too without `--netradio`), `/api/ota` 501, and `PUT /api/config` with a `"webhook"` 422. The transmit power of network radios is their own (`ESL_TX_POWER_DBM`).
+WiFi setup, the data sources of the S3 boards and the webhook: `/api/wifi` and `/api/sources` answer 404 (`/api/radios` too without `--netradio`), and `PUT /api/config` with a `"webhook"` 422. The transmit power of network radios is their own (`ESL_TX_POWER_DBM`).
 
 ## Tests
 
-`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. Then `--netradio` beside the simulated radio, with network radios it plays over TCP: their places and channels, a tag one of them heard served by it with its channel and image, a tag the AP's own radio hears again going back to it, a fifth radio turned away, forgetting one, and the places kept across a restart. Then `--netradio` with no radio of its own: `--radio none` refused without `--netradio`, no simulated tags by default, no `"local"` radio, the first network radio on the AP's channel and following a move, four places, the only radio left moving to place 0 after a restart, and `sim` still the default without `--netradio`. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.
+`ap/linux/test.py` starts the binary with simulated tags on a free local port and a fresh data directory, and checks the token, both tag models getting content drawn, sent and reported, a restart keeping the content, the AP id and the token, the dashboard and the HTTP server's limits. It then runs `--radio uart` against a radio it plays itself on a pseudo-terminal: CONFIG with the right channel and PAN, HELLO, a POLL as RX answered with a TX to the tag, a frame in two reads, noise, a HELLO with other settings, the port going away. Then `--netradio` beside the simulated radio, with network radios it plays over TCP: their places and channels, a tag one of them heard served by it with its channel and image, a tag the AP's own radio hears again going back to it, a fifth radio turned away, forgetting one, and the places kept across a restart. Then `--netradio` with no radio of its own: `--radio none` refused without `--netradio`, no simulated tags by default, no `"local"` radio, the first network radio on the AP's channel and following a move, four places, the only radio left moving to place 0 after a restart, and `sim` still the default without `--netradio`. Then the AP updating itself through `openesl-ap-run` with test copies that report another version: a wrong token, an empty body, a script, another architecture and the same version refused, an update kept (`.prev`, `confirmed`, the trial marker gone), a downgrade refused and forced, a new version that dies on start and one that does not confirm in time both replaced by the old one, and the refusal (501) without `openesl-ap-run`. `ap/linux/test_spimodem.c` checks the SPI modem's framing without a device: the transmit command with its check byte, and the records a `read()` returns. `python tools/check.py linux-ap` and CI run it with AddressSanitizer and UndefinedBehaviorSanitizer.

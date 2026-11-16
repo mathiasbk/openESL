@@ -1,0 +1,73 @@
+#!/bin/sh
+# openesl-ap-run - starts openesl-ap and brings the old version back if an update does not work
+# (docs/linux-ap.md, "Updating"):
+#
+#   openesl-ap-run /path/to/openesl-ap [options of openesl-ap...]
+#
+# POST /api/ota writes the new program next to the running one, keeps the old as <bin>.prev,
+# puts "new" in <bin>.trial and exits with code 75. This script then starts the new program as a
+# trial. The program removes <bin>.trial once it is up (10 s after it started); if it exits
+# first, or <bin>.trial is still there after OPENESL_TRIAL_S seconds (60), <bin>.prev goes back
+# in its place and that runs again. Anything else the program exits with ends this script with
+# the same code, so a service manager sees it (systemd: Restart=on-failure).
+#
+# POSIX sh only, so it runs on busybox too.
+bin=$1
+[ -n "$bin" ] && [ -x "$bin" ] || { echo "usage: openesl-ap-run /path/to/openesl-ap [options]" >&2; exit 2; }
+shift
+trial=$bin.trial
+prev=$bin.prev
+limit=${OPENESL_TRIAL_S:-60}
+OPENESL_GUARD=1
+export OPENESL_GUARD
+
+pid=
+term=
+trap 'term=1; [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null' TERM INT
+
+rollback() {
+    if [ -f "$prev" ]; then
+        echo "openesl-ap-run: the new version did not start; back to $(cat "$prev.version" 2>/dev/null || echo the old one)" >&2
+        mv -f "$prev" "$bin"
+        rm -f "$prev.version"
+    fi
+    rm -f "$trial"
+}
+
+while :; do
+    # a trial that was started before and is still not confirmed has failed
+    if [ "$(cat "$trial" 2>/dev/null)" = started ]; then
+        rollback
+    elif [ -f "$trial" ]; then
+        echo started > "$trial"
+    fi
+    "$bin" "$@" &
+    pid=$!
+    on_trial=
+    [ -f "$trial" ] && on_trial=1
+    if [ -n "$on_trial" ]; then
+        i=0
+        while [ "$i" -lt "$limit" ] && [ -f "$trial" ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if [ -f "$trial" ] && kill -0 "$pid" 2>/dev/null && [ -z "$term" ]; then
+            echo "openesl-ap-run: the new version did not confirm in $limit s" >&2
+            kill -KILL "$pid" 2>/dev/null
+        fi
+    fi
+    wait "$pid"
+    rc=$?
+    while kill -0 "$pid" 2>/dev/null; do # a signal for this script ended the first wait
+        wait "$pid"
+        rc=$?
+    done
+    pid=
+    [ -n "$term" ] && exit "$rc"
+    if [ -f "$trial" ]; then
+        # it ended before it confirmed: the next round puts the old one back
+        [ "$(cat "$trial" 2>/dev/null)" = started ] && { rollback; rc=75; }
+    fi
+    [ "$rc" -eq 75 ] || exit "$rc"
+    sleep 1
+done
